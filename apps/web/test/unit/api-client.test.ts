@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, apiClient, apiFetch } from '@/api/client';
+
+const addHyperdxAction = vi.fn();
+const captureHyperdxException = vi.fn();
+
+vi.mock('@/lib/hyperdx', () => ({
+  addHyperdxAction,
+  captureHyperdxException,
+}));
+
+import { ApiError, apiClient, apiFetch, parseServerTimingHeader } from '@/api/client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -7,6 +16,8 @@ vi.stubGlobal('fetch', mockFetch);
 
 beforeEach(() => {
   mockFetch.mockReset();
+  addHyperdxAction.mockReset();
+  captureHyperdxException.mockReset();
 });
 
 function jsonResponse(data: unknown, status = 200) {
@@ -56,6 +67,61 @@ describe('apiFetch', () => {
 
     const result = await apiFetch('/api/delete-thing');
     expect(result).toBeUndefined();
+  });
+
+  it('emits request stage actions from Server-Timing', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Request-Id': 'req_123',
+          'Server-Timing': 'session;dur=12.5,convex;dur=48.75,total;dur=80.1',
+        },
+      })
+    );
+
+    await apiFetch('/api/connect/accounts');
+
+    expect(addHyperdxAction).toHaveBeenCalledWith(
+      'api.request.completed',
+      expect.objectContaining({
+        path: '/api/connect/accounts',
+        requestId: 'req_123',
+        routeCategory: 'connect',
+        serverTimingStageCount: '3',
+        serverTimingTotalMs: '80.1',
+      })
+    );
+    expect(addHyperdxAction).toHaveBeenCalledWith(
+      'api.request.stage',
+      expect.objectContaining({
+        path: '/api/connect/accounts',
+        stage: 'session',
+        durationMs: '12.5',
+      })
+    );
+    expect(addHyperdxAction).toHaveBeenCalledWith(
+      'api.request.stage',
+      expect.objectContaining({
+        path: '/api/connect/accounts',
+        stage: 'convex',
+        durationMs: '48.75',
+      })
+    );
+  });
+});
+
+describe('parseServerTimingHeader', () => {
+  it('parses metric names and durations', () => {
+    expect(parseServerTimingHeader('session;dur=12.5, total;dur=48')).toEqual([
+      { name: 'session', durationMs: 12.5 },
+      { name: 'total', durationMs: 48 },
+    ]);
+  });
+
+  it('returns an empty array when the header is missing', () => {
+    expect(parseServerTimingHeader(null)).toEqual([]);
   });
 });
 

@@ -50,11 +50,13 @@ export function YucpButton({
     children
   );
 
+  const loadingClass = isLoading ? 'btn-loading' : '';
+
   return (
     <Button
       variant={variant}
       isDisabled={isDisabled || isLoading}
-      className={[legacyClass, radiusClass, className].filter(Boolean).join(' ')}
+      className={[legacyClass, radiusClass, loadingClass, className].filter(Boolean).join(' ')}
       {...props}
     >
       {content}

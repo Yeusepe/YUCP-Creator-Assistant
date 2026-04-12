@@ -1,4 +1,4 @@
-import { type Attributes, SpanKind, SpanStatusCode, trace, type Tracer } from '@opentelemetry/api';
+import { type Attributes, SpanKind, SpanStatusCode, type Tracer, trace } from '@opentelemetry/api';
 
 export type ObservableValue = string | number | boolean | undefined | null;
 export type ObservableAttributes = Record<string, ObservableValue>;

@@ -14,6 +14,7 @@
  * ```
  */
 
+import { withProviderRequestSpan } from '../core/observability';
 import type { PayhipLicenseVerifyData, PayhipLicenseVerifyResponse } from './types';
 import { PayhipApiError, PayhipRateLimitError } from './types';
 
@@ -52,9 +53,6 @@ export class PayhipApiClient {
       }
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
     const headers: Record<string, string> = {
       'product-secret-key': productSecretKey,
       Accept: 'application/json',
@@ -66,54 +64,71 @@ export class PayhipApiClient {
       headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
 
-    try {
-      const response = await fetch(url.toString(), {
-        method,
-        headers,
-        body: bodyStr,
-        signal: controller.signal,
-      });
+    return withProviderRequestSpan(
+      'payhip',
+      method,
+      path,
+      {
+        'server.address': url.host,
+        retryCount,
+        hasBody: body !== undefined,
+      },
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      clearTimeout(timeoutId);
+        try {
+          const response = await fetch(url.toString(), {
+            method,
+            headers,
+            body: bodyStr,
+            signal: controller.signal,
+          });
 
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after');
-        const retryAfterMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 1000;
+          clearTimeout(timeoutId);
 
-        if (retryCount < this.maxRetries) {
-          await this.sleep(retryAfterMs * (retryCount + 1));
-          return this.request<T>(method, path, productSecretKey, params, body, retryCount + 1);
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('retry-after');
+            const retryAfterMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 1000;
+
+            if (retryCount < this.maxRetries) {
+              await this.sleep(retryAfterMs * (retryCount + 1));
+              return this.request<T>(method, path, productSecretKey, params, body, retryCount + 1);
+            }
+
+            throw new PayhipRateLimitError(
+              'Rate limit exceeded after maximum retries',
+              retryAfterMs
+            );
+          }
+
+          if (!response.ok) {
+            throw new PayhipApiError(`HTTP ${response.status}`, response.status);
+          }
+
+          const text = await response.text();
+          if (!text || text.trim() === '') {
+            return null;
+          }
+
+          const data = JSON.parse(text);
+          return data as T;
+        } catch (error) {
+          clearTimeout(timeoutId);
+
+          if (error instanceof PayhipApiError || error instanceof PayhipRateLimitError) {
+            throw error;
+          }
+          if (error instanceof Error) {
+            if (error.name === 'AbortError') {
+              throw new PayhipApiError('Request timeout', 408, 'timeout');
+            }
+            throw new PayhipApiError(error.message, 0, 'network_error');
+          }
+          throw new PayhipApiError('Unknown error', 0, 'unknown');
         }
-
-        throw new PayhipRateLimitError('Rate limit exceeded after maximum retries', retryAfterMs);
       }
-
-      if (!response.ok) {
-        throw new PayhipApiError(`HTTP ${response.status}`, response.status);
-      }
-
-      const text = await response.text();
-      // Payhip returns empty body for invalid license keys — treat as null
-      if (!text || text.trim() === '') {
-        return null;
-      }
-
-      const data = JSON.parse(text);
-      return data as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error instanceof PayhipApiError || error instanceof PayhipRateLimitError) {
-        throw error;
-      }
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw new PayhipApiError('Request timeout', 408, 'timeout');
-        }
-        throw new PayhipApiError(error.message, 0, 'network_error');
-      }
-      throw new PayhipApiError('Unknown error', 0, 'unknown');
-    }
+    );
   }
 
   private sleep(ms: number): Promise<void> {

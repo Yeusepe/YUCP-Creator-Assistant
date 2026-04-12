@@ -1,0 +1,1466 @@
+.dashboard-page {
+  background: #afcde5;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
+  color: var(--text-primary);
+  font-family: "AirbnbCereal", sans-serif;
+}
+
+.dark .dashboard-page {
+  background: #24405c;
+}
+
+/*  Clouds (same as docs) full viewport, scales with window */
+
+#bg-canvas-root,
+#fg-canvas-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#fg-canvas-root {
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+.display-text {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+/*  Section Cards (Magic UI: gradient border + Bento depth) */
+
+.section-card,
+.intg-card {
+  padding: 16px;
+}
+
+@media (min-width: 640px) {
+  .section-card,
+  .intg-card {
+    padding: 20px;
+  }
+}
+
+@media (min-width: 768px) {
+  .section-card,
+  .intg-card {
+    padding: 28px;
+  }
+}
+
+/* Gradient border (Magic Card style) via pseudo-element */
+
+/*  State Visibility Toggles */
+
+body.state-server-selected .personal-only {
+  display: none;
+}
+
+body:not(.state-server-selected) .server-only {
+  display: none;
+}
+
+.bento-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding-bottom: 64px;
+}
+
+.bento-grid > * {
+  min-width: 0;
+}
+
+@media (min-width: 640px) {
+  .bento-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .bento-col-12,
+  .bento-col-8,
+  .bento-col-7,
+  .bento-col-5,
+  .bento-col-4 {
+    grid-column: span 2;
+  }
+
+  .bento-col-6 {
+    grid-column: span 1;
+  }
+}
+
+/* 3-col grid at 768px: col-8 + col-4 and col-7 + col-5 each fill a row (2+1=3) */
+@media (min-width: 768px) {
+  .bento-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .bento-col-12 {
+    grid-column: span 3;
+  }
+
+  .bento-col-8,
+  .bento-col-7,
+  .bento-col-6 {
+    grid-column: span 2;
+  }
+
+  .bento-col-5,
+  .bento-col-4 {
+    grid-column: span 1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bento-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+
+  .bento-col-12 {
+    grid-column: span 12;
+  }
+
+  .bento-col-8 {
+    grid-column: span 8;
+  }
+
+  .bento-col-7 {
+    grid-column: span 7;
+  }
+
+  .bento-col-6 {
+    grid-column: span 6;
+  }
+
+  .bento-col-5 {
+    grid-column: span 5;
+  }
+
+  .bento-col-4 {
+    grid-column: span 4;
+  }
+}
+
+/* Certificates: avoid squeezed 8+4 columns between tablet and desktop */
+@media (max-width: 1023px) {
+  #tab-panel-certificates .bento-grid .bento-col-8,
+  #tab-panel-certificates .bento-grid .bento-col-4 {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Shine animation (Magic UI Shine Border style) */
+
+/*  Platform Cards (Light Grid + gradient border on hover) */
+
+/*  Status Pills  */
+
+/*  Action Buttons on Cards (Ghost Pill)  */
+
+/*  Toggle Switch */
+
+/*  Setting Rows (Brand-aligned) */
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  margin-bottom: 8px;
+  transition: all 0.25s ease;
+}
+
+.setting-row:last-child {
+  margin-bottom: 0;
+}
+
+.server-settings-single-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.settings-subsection {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.settings-subsection:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-subsection + .settings-subsection {
+  padding-top: 24px;
+}
+
+.settings-subsection.danger-zone {
+  padding-top: 40px;
+}
+
+.dark .settings-subsection {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.settings-subsection-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 16px;
+}
+
+.settings-subsection-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Store Integrations provider card grid ───────────────────────────────── */
+
+.intg-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+/* Light-mode overrides: intg cards are always in content-area which is light */
+/* Dark mode adjustments for intg provider grid */
+/* Skeleton-content wrapper inside settings rows must flex so gap applies */
+.skeleton-content {
+  animation: skeleton-fade-in 250ms ease forwards;
+}
+
+.settings-subsection-body .skeleton-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#dynamic-server-provider-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-subsection-body .setting-row {
+  padding: 24px 20px;
+  margin-bottom: 0;
+}
+
+.setting-row:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  transform: translateY(-3px);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 8px 16px rgba(0, 0, 0, 0.06);
+}
+
+.dark .setting-row {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.dark .setting-row:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 8px 16px rgba(0, 0, 0, 0.2);
+}
+
+.setting-row-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-icon {
+  width: 32px;
+  height: 32px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.setting-icon img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+/*  Custom Select (Replaces setting-select) */
+
+.custom-select-trigger:hover,
+/*  Server Selector Dropdown  */
+
+  .sidebar-server-selector {
+  position: relative;
+  width: 100%;
+  z-index: var(--z-portal);
+}
+
+.sidebar-server-pill {
+  cursor: pointer;
+}
+
+.sidebar-server-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Custom Scrollbar for List */
+
+.dark .custom-select-trigger:hover,
+.setting-select {
+  display: none;
+}
+
+/*  Save Indicator  */
+
+.save-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  min-width: 56px;
+  opacity: 0;
+  transform: scale(0.92);
+  transition:
+    opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.save-indicator.visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.save-indicator-icon {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.save-indicator.visible .save-indicator-icon {
+  animation: save-icon-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes save-icon-pop {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.save-indicator:not(.save-indicator-error) {
+  color: #16a34a;
+}
+
+.save-indicator-error {
+  color: #dc2626;
+}
+
+.dark .save-indicator {
+  color: #4ade80;
+}
+
+.dark .save-indicator-error {
+  color: #f87171;
+}
+
+.save-indicator-error[hidden] {
+  display: none;
+}
+
+/*  Server Config (built from scratch) ”€
+           Paradigm: tile grid. Each setting = standalone tile. No rows, no sections. */
+
+.tile-save-indicator {
+  min-width: 20px;
+  justify-content: center;
+}
+
+.tile-save-indicator .save-indicator-text {
+  display: none;
+}
+
+.tile-save-error[hidden] {
+  display: none;
+}
+
+@keyframes switch-saving-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ─── Button loading spinner ─── */
+
+.btn-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.65s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dark-themed select for panels with dark backgrounds (e.g. invite panel) */
+.invite-provider-pick {
+  font-family: var(--font-display), sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 10px 32px 10px 12px;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23a0aec0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+.invite-provider-pick option {
+  background: #1e293b;
+  color: #fff;
+}
+
+.invite-provider-pick:focus {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/*  Integrations Cards (OAuth, API Keys) */
+
+/* Integrations inline panel (light, matches card) */
+
+/*  Section Label */
+
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  background: linear-gradient(135deg, #6d28d9, #be185d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+  display: block;
+}
+
+/*  Collab Rows (Brand-aligned) */
+
+.collab-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.badge-account {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+}
+
+.badge-api {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: rgba(167, 139, 250, 0.18);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.webhook-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.webhook-dot.ok {
+  background: #4ade80;
+  box-shadow: 0 0 4px rgba(74, 222, 128, 0.6);
+}
+
+.webhook-dot.warn {
+  background: #facc15;
+}
+
+.collab-remove-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 6px 14px;
+  min-height: 32px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font-display), sans-serif;
+  flex-shrink: 0;
+}
+
+.collab-remove-btn:hover:not(:disabled) {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+.collab-remove-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dark .collab-remove-btn {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dark .collab-remove-btn:hover:not(:disabled) {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* ── Collab Section Headers (theme-aware dividers) ─────────────────── */
+
+.collab-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+  margin: 24px 0 14px;
+  white-space: nowrap;
+}
+
+.collab-section-header::before,
+.collab-section-header::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.collab-section-header:first-child {
+  margin-top: 0;
+}
+
+/* ── Collab Connection Rows ─────────────────────────────────────────── */
+
+.collab-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+
+.collab-row:last-child {
+  margin-bottom: 0;
+}
+
+.dark .collab-row {
+  background: rgba(30, 41, 59, 0.45);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .collab-row:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.collab-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6d28d9, #be185d);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+}
+
+.collab-avatar.collab-avatar-img {
+  background: none;
+  padding: 0;
+}
+
+.collab-avatar.collab-avatar-img img,
+img.collab-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  flex-shrink: 0;
+}
+
+.collab-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-display), sans-serif;
+}
+
+/* ── Pending Invite Rows ────────────────────────────────────────────── */
+
+.collab-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 8px;
+}
+
+.collab-invite-row:last-child {
+  margin-bottom: 0;
+}
+
+.dark .collab-invite-row {
+  background: rgba(30, 41, 59, 0.25);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.collab-invite-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.collab-invite-expiry {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Unify Copy link + Revoke button sizes inside pending invite rows */
+.collab-invite-row .btn-ghost {
+  padding: 6px 14px;
+  min-height: 32px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+/*  OAuth Apps (Glass Grid Style)  */
+
+.oauth-scope-pill {
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Intg card: dropdown inside light cards */
+
+.oauth-edit-body {
+  padding: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.oauth-regen-body,
+.oauth-delete-body {
+  padding: 13px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.oauth-regen-body {
+  border-top: 1px solid rgba(14, 165, 233, 0.3);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.oauth-delete-body {
+  border-top: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/*  API Keys (Glass Grid Style) */
+
+.api-key-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.api-key-scope-badge {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: rgba(14, 165, 233, 0.13);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  font-family: var(--font-display), sans-serif;
+}
+
+.api-key-date {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: "AirbnbCereal", sans-serif;
+}
+
+.api-key-status-revoked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.api-key-status-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #16a34a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.api-key-status-active .status-dot {
+  box-shadow: 0 0 5px rgba(22, 163, 74, 0.4);
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/*  Primary Button (Brand Glass + Aurora) */
+
+/* Done Setup: aurora gradient on hover (same as docs hero) */
+
+/* Done Setup button: full width on mobile, fit-content on desktop */
+
+/* Done Setup: loading & success states */
+
+#done-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#done-btn .done-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: done-spin 0.6s linear infinite;
+}
+
+#done-btn.is-loading .done-spinner {
+  display: inline-block;
+}
+
+#done-btn.is-loading .done-text {
+  margin-left: 8px;
+}
+
+#done-btn.is-success {
+  background: #22c55e;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
+  pointer-events: none;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+#done-btn .done-check {
+  display: none;
+  width: 18px;
+  height: 18px;
+  stroke: white;
+  stroke-width: 2.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#done-btn.is-success .done-check {
+  display: inline-block;
+}
+
+#done-btn.is-success .done-text {
+  margin-left: 6px;
+}
+
+/* Done Setup: success pill (replaces button for a clean completion state) */
+
+.done-success-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  border-radius: 9999px;
+  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.35);
+  color: white;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  letter-spacing: 0.02em;
+  animation: done-success-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.done-success-pill[hidden] {
+  display: none;
+}
+
+.done-success-check {
+  width: 20px;
+  height: 20px;
+  stroke: white;
+  stroke-width: 2.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.done-success-check path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: done-check-draw 0.5s 0.15s ease-out forwards;
+}
+
+/*  Empty State (Glass Style) */
+
+/*  Inline Panels (replaces modals) */
+
+/* Transform inline panels to true Glassmorphism Modals */
+
+/* Inline confirm row for destructive actions (disconnect, revoke, remove) -> Modal */
+
+.inline-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.25s,
+    visibility 0.25s;
+}
+
+.inline-confirm.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.inline-confirm > div {
+  width: 100%;
+  max-width: 420px;
+  margin: 0 20px;
+  transform: translateY(10px);
+  transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.inline-confirm.open > div {
+  transform: translateY(0);
+}
+
+.inline-confirm-body,
+.oauth-regen-body,
+.oauth-delete-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 24px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  backdrop-filter: blur(24px);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+  text-align: center;
+}
+
+.inline-confirm-label {
+  font-size: 14px;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.inline-confirm-label strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.inline-confirm-btns {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.inline-cancel-btn {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-display), sans-serif;
+  flex: 1;
+}
+
+.inline-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.inline-danger-btn {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-display), sans-serif;
+  flex: 1;
+}
+
+.inline-danger-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
+
+.inline-danger-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.inline-confirm-btn {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: #e0f2fe;
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-display), sans-serif;
+}
+
+.inline-confirm-btn:hover {
+  background: #bae6fd;
+  border-color: #7dd3fc;
+  color: #0369a1;
+}
+
+.inline-confirm-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Reveal card €” shown inline after creating a key/app */
+
+.reveal-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+
+.reveal-warn svg {
+  width: 13px;
+  height: 13px;
+  stroke: #eab308;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.reveal-warn p {
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 11px;
+  color: #713f12;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.reveal-warn p strong {
+  color: #854d0e;
+}
+
+.reveal-done-btn {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-green-dark);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.reveal-done-btn:hover {
+  background: rgba(34, 197, 94, 0.25);
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+/*  Form fields (shared across inline panels)  */
+
+/*  Scope toggle cards  */
+
+.scope-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*  Inline action buttons row */
+
+/*  Credential display boxes */
+
+/*  Invite URL box  */
+
+.invite-url-box {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.5;
+  margin-bottom: 0;
+  max-height: 80px;
+  overflow-y: auto;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  flex: 1;
+  min-width: 0;
+}
+
+/* Light-mode override: use solid background inside intg-card */
+.intg-card .invite-url-box {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.dark .intg-card .invite-url-box {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+/* Expiry pill shown below the URL box */
+.invite-expiry-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-display), sans-serif;
+  letter-spacing: 0.03em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.25);
+  color: #0284c7;
+  margin-top: 10px;
+  margin-bottom: 16px;
+}
+
+.dark .invite-expiry-pill {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+/* Collab row metadata text (replaces inline fontSize/color styles) */
+.collab-row-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: "AirbnbCereal", sans-serif;
+  margin-top: 2px;
+}
+
+/* Copy button in invite rows — same shape as collab-remove-btn but neutral hover */
+.collab-copy-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 6px 14px;
+  min-height: 32px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font-display), sans-serif;
+  flex-shrink: 0;
+}
+
+.collab-copy-btn:hover {
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #ffffff;
+}
+
+.collab-copy-btn.copied {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
+}
+
+.dark .collab-copy-btn {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dark .collab-copy-btn:hover {
+  background: #0ea5e9;
+  border-color: #0ea5e9;
+  color: #ffffff;
+}
+
+.dark .collab-copy-btn.copied {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: #ffffff;
+}
+
+/*  Animations */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-in {
+  animation: fadeInUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in-delay-1 {
+  animation-delay: 0.08s;
+}
+
+.animate-in-delay-2 {
+  animation-delay: 0.16s;
+}
+
+.animate-in-delay-3 {
+  animation-delay: 0.24s;
+}
+
+.animate-in-delay-4 {
+  animation-delay: 0.32s;
+}
+
+.animate-in-delay-5 {
+  animation-delay: 0.4s;
+}
+
+/* Ensure content is visible when animation doesn't run (reduced motion, etc.) */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-in-delay-1,
+  .animate-in-delay-2,
+  .animate-in-delay-3,
+  .animate-in-delay-4,
+  .animate-in-delay-5 {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* loading.css handles #page-loading-overlay – see ./loading.css */
+
+#page-content {
+  opacity: 0;
+  display: flex;
+  transition: opacity 0.3s ease 0.05s;
+}
+
+#page-content.is-visible {
+  opacity: 1;
+}
+
+/* ── Skeleton loading placeholders ──────────────────────────────── */
+
+@keyframes skeleton-pulse {
+  0% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.72;
+  }
+}
+
+.skeleton-block {
+  background: rgba(226, 232, 240, 0.92);
+  border-radius: 12px;
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+}
+
+.skeleton-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.skeleton-grid,
+.skeleton-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.skeleton-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.skeleton-row-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 84px;
+  padding: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.skeleton-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 999px;
+}
+
+.skeleton-line-muted {
+  opacity: 0.74;
+}
+
+.skeleton-circle {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.skeleton-pill {
+  width: 92px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.skeleton-switch {
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+@media (max-width: 768px) {
+  .skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Skeleton elements: set up for smooth transition */
+.skeleton-action-row,
+.skeleton-grid,
+.skeleton-stack {
+  overflow: hidden;
+  max-height: 600px;
+  transition:
+    opacity 0.2s ease,
+    max-height 0.35s ease-in-out,
+    margin 0.3s ease;
+}
+
+/* When data is loaded: fade out and smoothly collapse */
+.skeleton-loaded .skeleton-action-row,
+.skeleton-loaded .skeleton-grid,
+.skeleton-loaded .skeleton-stack {
+  opacity: 0;
+  pointer-events: none;
+  max-height: 0;
+  margin: 0;
+  transition:
+    opacity 0.2s ease,
+    max-height 0.35s ease-in-out,
+    margin 0.3s ease;
+}
+
+.dark .skeleton-block {
+  background: rgba(71, 85, 105, 0.92);
+}
+
+.dark .skeleton-row-card {
+  background: rgba(15, 23, 42, 0.42);
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* When hidden during load, override to none so layout doesn't flash */
+
+#page-content[style*="display: none"] {
+  display: none;
+}

@@ -1,11 +1,6 @@
 import { initSDK, setTraceAttributes } from '@hyperdx/node-opentelemetry';
-import { type Attributes, SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
-import {
-  applyNodeHyperdxDefaults,
-  setActiveSpanAttributes,
-  toSpanAttributes,
-  withObservedSpan,
-} from '@yucp/shared';
+import { SpanKind, trace } from '@opentelemetry/api';
+import { applyNodeHyperdxDefaults, setActiveSpanAttributes, withObservedSpan } from '@yucp/shared';
 
 const tracer = trace.getTracer('yucp-bot');
 let initialized = false;

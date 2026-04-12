@@ -21,6 +21,52 @@ class ApiError extends Error {
   }
 }
 
+interface ServerTimingMetric {
+  name: string;
+  durationMs?: number;
+}
+
+function inferApiRouteCategory(path: string): string {
+  const normalized = path.replace(/^\/+/, '').replace(/^api\/?/, '');
+  const [firstSegment = 'root', secondSegment] = normalized.split('/');
+
+  if (firstSegment === 'internal' && secondSegment) {
+    return `internal.${secondSegment}`;
+  }
+
+  return firstSegment || 'root';
+}
+
+function toActionAttributes(
+  attributes: Record<string, string | number | boolean | undefined>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(attributes)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)])
+  );
+}
+
+export function parseServerTimingHeader(headerValue: string | null): ServerTimingMetric[] {
+  if (!headerValue) {
+    return [];
+  }
+
+  return headerValue
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [rawName, ...parts] = entry.split(';').map((part) => part.trim());
+      const durationPart = parts.find((part) => part.startsWith('dur='));
+      const rawDuration = durationPart ? Number.parseFloat(durationPart.slice(4)) : undefined;
+      return {
+        name: rawName,
+        durationMs: Number.isFinite(rawDuration) ? rawDuration : undefined,
+      };
+    });
+}
+
 async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): Promise<T> {
   const { params, ...init } = options;
 
@@ -35,29 +81,74 @@ async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): 
     headers.set('Content-Type', 'application/json');
   }
   headers.set('Accept', 'application/json');
+  const method = init.method ?? 'GET';
+  const routeCategory = inferApiRouteCategory(path);
+  const startedAt = performance.now();
 
   const response = await fetch(url, {
     ...init,
     headers,
     credentials: 'include',
   });
+  const durationMs = Number((performance.now() - startedAt).toFixed(2));
+  const requestId = response.headers.get('X-Request-Id') ?? undefined;
+  const serverTimingMetrics = parseServerTimingHeader(response.headers.get('Server-Timing'));
+  const serverTimingTotalMs = serverTimingMetrics.find(
+    (metric) => metric.name === 'total'
+  )?.durationMs;
+
+  addHyperdxAction(
+    'api.request.completed',
+    toActionAttributes({
+      path,
+      method,
+      routeCategory,
+      requestId: requestId ?? 'unknown',
+      status: response.status,
+      durationMs,
+      serverTimingStageCount: serverTimingMetrics.length,
+      serverTimingTotalMs,
+    })
+  );
+
+  for (const metric of serverTimingMetrics) {
+    addHyperdxAction(
+      'api.request.stage',
+      toActionAttributes({
+        path,
+        method,
+        routeCategory,
+        requestId: requestId ?? 'unknown',
+        stage: metric.name,
+        durationMs: metric.durationMs,
+      })
+    );
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    const requestId = response.headers.get('X-Request-Id') ?? undefined;
     const error = new ApiError(response.status, body, requestId);
     captureHyperdxException(error, {
       path,
-      method: init.method ?? 'GET',
+      method,
+      routeCategory,
       requestId: requestId ?? 'unknown',
       status: String(response.status),
+      durationMs,
+      serverTimingTotalMs,
     });
-    addHyperdxAction('api.request.failed', {
-      path,
-      method: init.method ?? 'GET',
-      requestId: requestId ?? 'unknown',
-      status: String(response.status),
-    });
+    addHyperdxAction(
+      'api.request.failed',
+      toActionAttributes({
+        path,
+        method,
+        routeCategory,
+        requestId: requestId ?? 'unknown',
+        status: response.status,
+        durationMs,
+        serverTimingTotalMs,
+      })
+    );
     throw error;
   }
 

@@ -1,0 +1,408 @@
+/*  Content Area (fills right of sidebar; scrolls internally) */
+
+.content-area {
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --border-color: #e2e8f0;
+  flex: 1 1 0%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 24px 20px 48px;
+
+  /* Liquid Glass background */
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(var(--dashboard-glass-blur)) saturate(var(--dashboard-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--dashboard-glass-blur))
+    saturate(var(--dashboard-glass-saturate));
+  border-left: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 0 60px rgba(255, 255, 255, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 1px 0 0 rgba(255, 255, 255, 0.4);
+
+  color: #0f172a;
+  margin-left: 0;
+  position: relative;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  transition:
+    background 0.3s ease,
+    color 0.3s ease;
+}
+
+.content-area-inner {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+/* Interactive dot-matrix background overlay — mode-agnostic additive grey */
+.dot-matrix-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* Base layer: almost invisible white dots, always present */
+.dot-matrix-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.12) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Spotlight layer: same white dots, higher opacity, revealed only near cursor */
+.dot-matrix-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.55) 1px, transparent 1px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 380px 320px at var(--dot-x, -9999px) var(--dot-y, -9999px),
+    black 0%,
+    transparent 70%
+  );
+  mask-image: radial-gradient(
+    ellipse 380px 320px at var(--dot-x, -9999px) var(--dot-y, -9999px),
+    black 0%,
+    transparent 70%
+  );
+}
+
+/* Dark mode: white dots read too strong on glass; keep matrix near-imperceptible */
+.dark .content-area .dot-matrix-bg::before {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+}
+
+.dark .content-area .dot-matrix-bg::after {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+}
+
+@media (min-width: 768px) {
+  .content-area {
+    /* Overlap the seam so the glass panel covers the TL curve gap (body showing through).
+       Same rule for creator dashboard and account — required for compositing with border-radius. */
+    margin-left: var(--dashboard-content-seam-overlap);
+    padding: 32px 40px 64px 56px;
+    border-top-left-radius: var(--dashboard-content-inner-radius);
+    border-bottom-left-radius: var(--dashboard-content-inner-radius);
+    box-shadow:
+      inset 0 0 60px rgba(255, 255, 255, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      inset 1px 0 0 rgba(255, 255, 255, 0.4);
+  }
+
+  .app-shell {
+    background: transparent;
+  }
+}
+
+/* Content area: override white text for light background contrast (light mode only) */
+
+:not(.dark) .content-area .text-white {
+  color: #0f172a;
+}
+
+:not(.dark) .content-area .text-white\/60,
+:not(.dark) .content-area [class*="text-white/60"] {
+  color: #64748b;
+}
+
+:not(.dark) .content-area .text-white\/50,
+:not(.dark) .content-area [class*="text-white/50"] {
+  color: #94a3b8;
+}
+
+/* Content area header (gradient pill Magic UI style) */
+
+/* Matches docs: accent-sky (#0ea5e9) and accent-mustard (#ffeb3b) from tokens.css */
+
+.content-header-eyebrow {
+  display: inline-block;
+  padding: 6px 16px;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #0369a1;
+  margin-bottom: 16px;
+}
+
+.dark .content-header-eyebrow {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: rgba(14, 165, 233, 0.4);
+  color: #7dd3fc;
+}
+
+.content-header-title {
+  font-size: clamp(1.875rem, 4vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.content-header-desc {
+  font-family: "AirbnbCereal", sans-serif;
+  font-weight: 500;
+  font-size: 1rem;
+  max-width: 28rem;
+  color: #64748b;
+}
+
+.content-hdr {
+  margin-bottom: 32px;
+}
+
+.content-hdr-eyebrow {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+  margin-bottom: 8px;
+}
+
+.content-hdr-title {
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.04em;
+  margin: 0 0 6px;
+  line-height: 1.15;
+}
+
+.content-header-title {
+  color: #0f172a;
+}
+
+.content-hdr-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.48);
+  font-family: "AirbnbCereal", sans-serif;
+  margin: 0;
+  max-width: 520px;
+}
+
+/* Header + tabs grouped (stratified layout) */
+
+.content-area-header {
+  flex-shrink: 0;
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 0;
+}
+
+.content-area-header .content-header-eyebrow {
+  margin-bottom: 10px;
+}
+
+.content-area-header .content-header-title {
+  margin-bottom: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.dark .content-header-title {
+  color: #ffffff;
+}
+
+.content-header-actions {
+  margin-left: auto;
+}
+
+.dashboard-header-shell {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-header-leading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.dashboard-header-title-block {
+  min-width: 0;
+}
+
+.dashboard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dashboard-header-icon-btn {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  background: rgba(255, 255, 255, 0.88);
+  color: #475569;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.dashboard-header-icon-btn:hover {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.dashboard-header-icon-btn img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.dark .dashboard-header-icon-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.dark .dashboard-header-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+/* Sidebar toggle is mobile-only — hide at sidebar-visible breakpoint.
+   Must appear AFTER .dashboard-header-icon-btn to win the cascade. */
+@media (min-width: 768px) {
+  .sidebar-toggle-btn.dashboard-header-icon-btn {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .dashboard-header-shell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashboard-header-actions {
+    justify-content: flex-start;
+  }
+}
+
+/*  Tab Navigation (segmented control) */
+
+.dashboard-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 12px;
+  margin-bottom: 24px;
+  width: fit-content;
+}
+
+.dashboard-tab-btn {
+  padding: 10px 20px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dashboard-tab-btn:hover {
+  color: #475569;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.dashboard-tab-btn.is-active {
+  color: #0f172a;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.dashboard-tab-panel {
+  display: none;
+  overflow: visible;
+}
+
+.dashboard-tab-panel.is-active {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.integrations-grid > * {
+  grid-column: unset;
+}
+
+@media (min-width: 768px) {
+  .integrations-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+  }
+}
+
+@media (max-width: 639px) {
+  .dashboard-tabs {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .dashboard-tab-btn {
+    flex: 1;
+    min-width: 0;
+    padding: 12px 14px;
+    font-size: 12px;
+    min-height: 44px;
+  }
+
+  .dashboard-tab-panel {
+    padding-top: 0;
+  }
+}
+
+.content-area-header + .dashboard-tabs {
+  margin-top: -8px;
+  margin-bottom: 28px;
+}

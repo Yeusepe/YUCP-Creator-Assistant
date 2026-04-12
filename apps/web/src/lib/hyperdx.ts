@@ -38,6 +38,16 @@ function serializeContextValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function serializeActionAttributes(
+  attributes: Record<string, string | number | boolean | undefined>
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(attributes)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => [key, String(value)])
+  );
+}
+
 function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
   diagnosticsEnabled = Boolean(preferences?.diagnosticsEnabled);
 
@@ -143,4 +153,21 @@ export function addHyperdxAction(name: string, attributes: Record<string, string
   }
 
   HyperDX.addAction(name, attributes);
+}
+
+export function addHyperdxActionWithNumbers(
+  name: string,
+  attributes: Record<string, string | number | boolean | undefined> = {}
+) {
+  addHyperdxAction(name, serializeActionAttributes(attributes));
+}
+
+export function setHyperdxGlobalAttributes(
+  attributes: Record<string, string | number | boolean | undefined>
+) {
+  if (!initialized || !diagnosticsEnabled) {
+    return;
+  }
+
+  HyperDX.setGlobalAttributes(serializeActionAttributes(attributes));
 }

@@ -1,0 +1,819 @@
+/* Dashboard Component Library - shared UI components */
+/* Cards, dropdowns, buttons, status pills, panels, inputs, toggles, empty state */
+
+.section-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 12px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  position: relative;
+  overflow: hidden;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.section-card:hover {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.dark .section-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
+.dark .section-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+@keyframes card-shine {
+  0% {
+    background-position: 0% 0%;
+  }
+
+  50% {
+    background-position: 100% 100%;
+  }
+
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
+.quick-start-step-header,
+.platform-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  transition:
+    transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease,
+    background 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.platform-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #9e7aff, #fe8bbb);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  display: none;
+}
+
+.platform-card:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.8);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.platform-card:hover::before {
+  opacity: 0;
+}
+
+.platform-card.connected {
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.platform-card.connected::before {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  opacity: 0;
+}
+
+.platform-card.connected:hover::before {
+  opacity: 0;
+}
+
+.platform-card.connected::after {
+  display: none;
+}
+
+.platform-card.disconnected {
+  opacity: 0.9;
+}
+
+.dark .platform-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(150%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.dark .platform-card:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.dark .platform-card.connected {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .quick-start-step-header {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.status-pill {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+
+.status-pill.connected {
+  background: rgba(74, 222, 128, 0.2);
+  color: #16a34a;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+
+.status-pill.disconnected {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .status-pill.connected {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.card-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(8px);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-family: var(--font-display), sans-serif;
+  margin-top: auto;
+  align-self: flex-start;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+}
+
+.card-action-btn.link {
+  color: var(--text-primary);
+}
+
+.card-action-btn.disconnect {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-secondary);
+}
+
+.card-action-btn.disconnect:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--accent-red);
+}
+
+.card-action-btn:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.dark .card-action-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dark .card-action-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .card-action-btn.disconnect:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #f87171;
+}
+
+.toggle-switch {
+  width: 44px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.25s;
+  flex-shrink: 0;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.toggle-switch.active {
+  background: var(--accent-sky);
+}
+
+.toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 50%;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-switch.active::after {
+  transform: translateX(20px);
+}
+
+/* Server dropdown backdrop: full-page blur when dropdown open (like inline-panel) */
+.server-dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.25s ease,
+    visibility 0.25s;
+}
+
+.server-dropdown-backdrop.is-visible,
+.server-dropdown-backdrop.open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.server-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 260px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  border: 1.5px solid rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.16),
+    0 2px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.97);
+  transform-origin: top left;
+  transition:
+    opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0.2s;
+  z-index: 100002;
+  overflow: hidden;
+}
+
+.server-selector-portal {
+  position: fixed;
+  top: var(--selector-top, 0);
+  left: var(--selector-left, 0);
+  width: var(--selector-width, 260px);
+  z-index: 100001;
+}
+
+.server-dropdown-menu-portal {
+  position: fixed;
+  top: var(--dropdown-top, 0);
+  left: var(--dropdown-left, 0);
+  width: var(--dropdown-width, 260px);
+}
+
+.server-dropdown-menu.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.server-dropdown-search {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-dropdown-search svg {
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.server-dropdown-search input {
+  background: transparent;
+  border: none;
+  color: #0f172a;
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 13px;
+  width: 100%;
+  outline: none;
+}
+
+.server-dropdown-search input::placeholder {
+  color: #94a3b8;
+}
+
+.server-dropdown-list {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+}
+
+.server-dropdown-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.server-dropdown-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.server-dropdown-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+}
+
+.server-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+  font-family: var(--font-display), sans-serif;
+}
+
+.server-dropdown-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+  transform: translateX(1px);
+}
+
+.server-dropdown-item.is-selected,
+.server-dropdown-item.active {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0284c7;
+}
+
+.server-dropdown-item img {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.server-dropdown-item .fallback-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.5), rgba(139, 92, 246, 0.5));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.server-dropdown-loading,
+.server-dropdown-empty {
+  padding: 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.server-dropdown-footer {
+  padding: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+
+.server-dropdown-divider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 2px 4px;
+}
+
+.server-dropdown-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: #475569;
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.server-dropdown-action-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+}
+
+.intg-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 16px;
+  padding: 22px 24px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 12px rgba(0, 0, 0, 0.04);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s,
+    background 0.2s;
+}
+
+.intg-card:hover {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+/* Flush variant: no padding, grid/list bleeds to card edges */
+.intg-card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.intg-card--flush .stat-grid {
+  border-radius: 0;
+  border: none;
+}
+
+.stats-overview-panel {
+  position: relative;
+}
+
+.intg-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.intg-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.intg-title-row .intg-copy {
+  gap: 6px;
+}
+
+.intg-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.intg-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.intg-icon img,
+.intg-icon svg {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.intg-icon svg {
+  stroke: #64748b;
+}
+
+.intg-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.intg-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0ea5e9;
+  background: transparent;
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.intg-add-btn:hover {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: #0ea5e9;
+}
+
+.intg-add-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.intg-desc {
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 36rem;
+}
+
+.intg-title-row .intg-desc {
+  max-width: 32rem;
+}
+
+.intg-desc a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.intg-desc code {
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 5px;
+  color: #475569;
+}
+
+.intg-card .inline-panel-body {
+  background: rgba(248, 250, 252, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: 14px;
+  padding: 18px;
+  margin: 12px 0 16px;
+}
+
+.intg-card .inline-panel-title {
+  color: #0f172a;
+}
+
+.intg-card .panel-close-btn {
+  border-color: #e2e8f0;
+  background: #fff;
+  color: #64748b;
+}
+
+.intg-card .panel-close-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.intg-card .modal-field {
+  margin-bottom: 14px;
+}
+
+.intg-card .modal-label {
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.intg-card .modal-helper {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.intg-card .modal-input,
+.intg-card .modal-textarea {
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 13px;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.intg-card .modal-input:focus,
+.intg-card .modal-textarea:focus {
+  outline: none;
+  border-color: #0ea5e9;
+}
+
+.intg-card .modal-textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+/* ── Invite Modal Layout ────────────────────────────────────────────── */
+
+/* Centered icon + title + description block at top of invite modal */
+.invite-modal-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.invite-modal-header .intg-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 14px;
+  background: rgba(14, 165, 233, 0.15);
+  color: #0ea5e9;
+  border: 1px solid rgba(14, 165, 233, 0.3);
+  border-radius: 14px;
+}
+
+/* Title inherits .inline-panel-title theming; this just adds spacing */
+.invite-modal-header .inline-panel-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+}
+
+/* Desc inherits .inline-panel-desc theming */
+.invite-modal-header .inline-panel-desc {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 340px;
+}
+
+/* Close button row — right-aligned above the header */
+.invite-modal-close-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -20px;
+}
+
+/* URL section: box + copy icon side by side */
+.invite-url-section {
+  margin-top: 16px;
+}
+
+.invite-url-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+/* Bottom actions row in the modal */
+.invite-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.invite-modal-actions .btn-primary {
+  width: 100%;
+}
+
+/* Light-mode overrides for invite modal inside intg-card */
+.intg-card .invite-modal-header .intg-icon {
+  background: rgba(14, 165, 233, 0.1);
+  border-color: rgba(14, 165, 233, 0.25);
+}
+
+/* Generate button full-width variant */
+.invite-generate-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.intg-card .scope-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.intg-card .scope-toggle {
+  margin: 0;
+}
+
+.intg-card .scope-toggle-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  transition: all var(--transition-base);
+}

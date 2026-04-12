@@ -11,6 +11,7 @@
  * ```
  */
 
+import { withProviderRequestSpan } from '../core/observability';
 import type {
   JinxxyActivationsResponse,
   JinxxyAdapterConfig,
@@ -85,7 +86,6 @@ export class JinxxyApiClient {
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
 
-    // Add query parameters
     if (params) {
       for (const [key, value] of Object.entries(params)) {
         if (value !== undefined) {
@@ -94,64 +94,77 @@ export class JinxxyApiClient {
       }
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    return withProviderRequestSpan(
+      'jinxxy',
+      method,
+      path,
+      {
+        'server.address': url.host,
+        retryCount,
+        hasBody: body !== undefined,
+      },
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    try {
-      const response = await fetch(url.toString(), {
-        method,
-        headers: {
-          'x-api-key': this.apiKey,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+        try {
+          const response = await fetch(url.toString(), {
+            method,
+            headers: {
+              'x-api-key': this.apiKey,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
 
-      clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-      // Handle rate limiting
-      if (response.status === 429) {
-        const retryAfter = response.headers.get('retry-after');
-        const retryAfterMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 1000;
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('retry-after');
+            const retryAfterMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 1000;
 
-        if (retryCount < this.maxRetries) {
-          await this.sleep(retryAfterMs * (retryCount + 1));
-          return this.request<T>(method, path, params, body, retryCount + 1);
+            if (retryCount < this.maxRetries) {
+              await this.sleep(retryAfterMs * (retryCount + 1));
+              return this.request<T>(method, path, params, body, retryCount + 1);
+            }
+
+            throw new JinxxyRateLimitError(
+              'Rate limit exceeded after maximum retries',
+              retryAfterMs
+            );
+          }
+
+          if (!response.ok) {
+            const errorBody = (await this.safeParseJson(response)) as JinxxyApiErrorResponse | null;
+            const errorMessage =
+              errorBody?.error ?? errorBody?.message ?? `HTTP ${response.status}`;
+            const errorCode = errorBody?.error;
+
+            throw new JinxxyApiError(errorMessage, response.status, errorCode, errorBody?.details);
+          }
+
+          const data = await response.json();
+          return data as T;
+        } catch (error) {
+          clearTimeout(timeoutId);
+
+          if (error instanceof JinxxyApiError || error instanceof JinxxyRateLimitError) {
+            throw error;
+          }
+
+          if (error instanceof Error) {
+            if (error.name === 'AbortError') {
+              throw new JinxxyApiError('Request timeout', 408, 'timeout');
+            }
+            throw new JinxxyApiError(error.message, 0, 'network_error');
+          }
+
+          throw new JinxxyApiError('Unknown error', 0, 'unknown');
         }
-
-        throw new JinxxyRateLimitError('Rate limit exceeded after maximum retries', retryAfterMs);
       }
-
-      // Handle other errors
-      if (!response.ok) {
-        const errorBody = (await this.safeParseJson(response)) as JinxxyApiErrorResponse | null;
-        const errorMessage = errorBody?.error ?? errorBody?.message ?? `HTTP ${response.status}`;
-        const errorCode = errorBody?.error;
-
-        throw new JinxxyApiError(errorMessage, response.status, errorCode, errorBody?.details);
-      }
-
-      // Parse successful response
-      const data = await response.json();
-      return data as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-
-      if (error instanceof JinxxyApiError || error instanceof JinxxyRateLimitError) {
-        throw error;
-      }
-
-      if (error instanceof Error) {
-        if (error.name === 'AbortError') {
-          throw new JinxxyApiError('Request timeout', 408, 'timeout');
-        }
-        throw new JinxxyApiError(error.message, 0, 'network_error');
-      }
-
-      throw new JinxxyApiError('Unknown error', 0, 'unknown');
-    }
+    );
   }
 
   /**

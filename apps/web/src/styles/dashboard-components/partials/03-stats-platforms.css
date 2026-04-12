@@ -1,0 +1,831 @@
+.btn-primary {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #0ea5e9;
+  color: #ffffff;
+  border: none;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.btn-primary:hover {
+  background: #0284c7;
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-primary.btn-primary--diagnostics {
+  background: #0369a1;
+  color: #ffffff;
+}
+
+.dark .btn-primary.btn-primary--diagnostics {
+  background: #075985;
+  color: #ffffff;
+}
+
+.btn-primary.btn-primary--diagnostics:hover {
+  background: #075985;
+  box-shadow: 0 4px 16px rgba(3, 105, 161, 0.35);
+}
+
+.dark .btn-primary.btn-primary--diagnostics:hover {
+  background: #0c4a6e;
+  box-shadow: 0 4px 16px rgba(12, 74, 110, 0.4);
+}
+
+.btn-ghost.btn-ghost--diagnostics,
+.btn-ghost--diagnostics {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+}
+
+.dark .btn-ghost.btn-ghost--diagnostics,
+.dark .btn-ghost--diagnostics {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.4);
+  color: #e2e8f0;
+}
+
+.btn-ghost.btn-ghost--diagnostics:hover,
+.btn-ghost--diagnostics:hover {
+  background: rgba(226, 232, 240, 0.92);
+  border-color: rgba(15, 23, 42, 0.3);
+  color: #020617;
+}
+
+.dark .btn-ghost.btn-ghost--diagnostics:hover,
+.dark .btn-ghost--diagnostics:hover {
+  background: rgba(30, 41, 59, 0.9);
+  border-color: rgba(148, 163, 184, 0.45);
+  color: #f8fafc;
+}
+
+.btn-ghost.btn-ghost--diagnostics:disabled,
+.btn-ghost--diagnostics:disabled {
+  opacity: 0.72;
+  color: #0f172a;
+}
+
+.dark .btn-ghost.btn-ghost--diagnostics:disabled,
+.dark .btn-ghost--diagnostics:disabled {
+  color: #e2e8f0;
+}
+
+.cookie-preferences-summary-title,
+.privacy-preference-summary-title {
+  color: #0f172a;
+}
+
+.dark .cookie-preferences-summary-title,
+.dark .privacy-preference-summary-title {
+  color: #f8fafc;
+}
+
+/* Done button gets the special aurora treatment */
+#done-btn.btn-primary {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+  backdrop-filter: blur(8px);
+}
+
+#done-btn.btn-primary::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #ff75c3, #ffa647, #ffe83f, #9fff5b, #70e2ff, #ff75c3);
+  background-size: 200% auto;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#done-btn.btn-primary:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: transparent;
+  box-shadow: 0 8px 30px rgba(14, 165, 233, 0.4);
+  transform: translateY(-2px);
+}
+
+#done-btn.btn-primary:hover::before {
+  opacity: 1;
+  animation: aurora 8s ease-in-out infinite alternate;
+}
+
+@keyframes aurora {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  25% {
+    background-position: 50% 100%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  75% {
+    background-position: 50% 0%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.96);
+  transition-duration: 0.1s;
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@media (min-width: 768px) {
+  #onboarding-done {
+    width: fit-content;
+    flex-shrink: 0;
+  }
+
+  #done-btn {
+    width: fit-content;
+  }
+}
+
+@keyframes done-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes done-success-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes done-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  margin-top: 12px;
+  transition: all var(--transition-base);
+}
+
+.empty-state:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.empty-state img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  margin: 0 auto 16px;
+  opacity: 0.8;
+  filter: drop-shadow(0 4px 12px rgba(255, 255, 255, 0.1));
+}
+
+.empty-state-title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.empty-state-copy {
+  max-width: 280px;
+  margin: 8px auto 0;
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.panel-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  flex-shrink: 0;
+}
+
+.panel-close-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.inline-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.3s ease,
+    visibility 0.3s;
+}
+
+.inline-panel.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.inline-panel > .inline-panel-inner {
+  width: 100%;
+  max-width: 480px;
+  transform: scale(0.95);
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  margin: 0 20px;
+}
+
+.inline-panel.open > .inline-panel-inner {
+  transform: scale(1);
+}
+
+.inline-panel-body,
+.oauth-edit-body {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.06) 100%);
+  backdrop-filter: blur(48px) saturate(200%) brightness(1.02);
+  -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(1.02);
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  padding: 24px;
+}
+
+.inline-panel-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+}
+
+.reveal-card {
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  border-radius: 16px;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 16px;
+  margin-bottom: 8px;
+  animation: reveal-in 0.4s cubic-bezier(0.34, 1.2, 0.64, 1) forwards;
+}
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.reveal-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.reveal-card-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.reveal-card-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke: #16a34a;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.reveal-card-title {
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: #16a34a;
+  flex: 1;
+}
+
+.reveal-card-subtitle {
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.modal-field {
+  margin-bottom: 16px;
+}
+
+.modal-field:last-child {
+  margin-bottom: 0;
+}
+
+.modal-label {
+  display: block;
+  font-family: var(--font-display), sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: 7px;
+}
+
+.modal-label span {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.modal-input,
+.modal-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 11px 13px;
+  color: var(--text-primary);
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+
+.modal-textarea {
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+.modal-input::placeholder,
+.modal-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.modal-input:focus,
+.modal-textarea:focus {
+  border-color: var(--accent-sky);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.2);
+}
+
+.scope-toggle {
+  display: block;
+  cursor: pointer;
+}
+
+.scope-toggle input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.scope-toggle-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  transition:
+    border-color 0.18s,
+    background 0.18s;
+}
+
+.scope-toggle:hover .scope-toggle-card {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scope-toggle input:checked + .scope-toggle-card {
+  border-color: var(--accent-sky);
+  background: rgba(14, 165, 233, 0.12);
+}
+
+.scope-toggle-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.07);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.18s;
+}
+
+.scope-toggle-check svg {
+  width: 11px;
+  height: 11px;
+  stroke: transparent;
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.15s;
+}
+
+.scope-toggle input:checked + .scope-toggle-card .scope-toggle-check {
+  background: var(--accent-sky);
+  border-color: var(--accent-sky);
+}
+
+.scope-toggle input:checked + .scope-toggle-card .scope-toggle-check svg {
+  stroke: var(--text-primary);
+}
+
+.scope-toggle-text {
+  flex: 1;
+}
+
+.scope-toggle-name {
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.scope-toggle-desc {
+  font-family: "AirbnbCereal", sans-serif;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  margin-top: 2px;
+}
+
+.inline-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-color);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.18s,
+    color 0.18s,
+    border-color 0.18s;
+}
+
+.btn-ghost:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.dark .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--text-primary);
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: none;
+  background: #ef4444;
+  color: #ffffff;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background 0.18s,
+    transform 0.18s,
+    box-shadow 0.18s;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ─── Loading state modifier — applies to any button ─── */
+
+.btn-loading {
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.btn-loading .btn-label {
+  opacity: 0.7;
+}
+
+.btn-loading-spinner {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-loading-spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes btn-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Light mode: spinner on light-bg buttons */
+.intg-card .btn-loading-spinner,
+.section-card .btn-loading-spinner {
+  border-color: rgba(15, 23, 42, 0.2);
+  border-top-color: #0f172a;
+}
+
+.cred-block {
+  margin-bottom: 12px;
+}
+
+.cred-block:last-child {
+  margin-bottom: 0;
+}
+
+.cred-block-label {
+  font-family: var(--font-display), sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.cred-box {
+  display: flex;
+  align-items: stretch;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cred-box--secret {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.cred-value {
+  flex: 1;
+  padding: 10px 13px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 11px;
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.cred-box--secret .cred-value {
+  color: #c4b5fd;
+}
+
+.cred-copy {
+  flex-shrink: 0;
+  width: 42px;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.cred-box--secret .cred-copy {
+  border-left-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.08);
+  color: #c4b5fd;
+}
+
+.cred-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.cred-box--secret .cred-copy:hover {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+.cred-copy svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+@keyframes progress-sheen {
+  0%,
+  100% {
+    transform: translateX(-100%);
+  }
+
+  50% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes connected-glow {
+  0%,
+  100% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+
+  50% {
+    transform: scale(1.08);
+    opacity: 0.95;
+  }
+}
+
+@media (max-width: 639px) {
+  .section-card {
+    border-radius: 20px;
+  }
+
+  .modal-box {
+    padding: 24px;
+    border-radius: 20px;
+  }
+
+  .collab-row {
+    flex-wrap: wrap;
+  }
+
+  .setting-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .setting-select {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+.dashboard-tab-panel .section-card::before {
+  display: none;
+}
+
+.dashboard-tab-panel .section-card:hover::before {
+  display: none;
+}
+
+#participating-servers-list .platform-card .font-bold {
+  color: #0f172a;
+}
+
+#participating-servers-list .platform-card > div > div:not(.font-bold) {
+  color: #64748b;
+}
+
+/* ══════════════════════════════════════════════
+   Unified Select Component  (.ui-select-*)
+   Used across Server Config and settings pages.
+   ══════════════════════════════════════════════ */
+
+.ui-select-wrapper {
+  position: relative;
+  user-select: none;
+  min-width: 140px;
+  font-family: var(--font-display), sans-serif;
+}
+
+.ui-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 8px 7px 12px;
+  background: #ffffff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+}

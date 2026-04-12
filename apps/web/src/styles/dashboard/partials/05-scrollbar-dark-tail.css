@@ -1,0 +1,603 @@
+/* 
+           CUSTOM SCROLLBAR
+         */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 
+           BACKGROUND CANVAS STYLING
+         */
+
+#bg-canvas-root,
+#fg-canvas-root {
+  transition: filter 0.5s ease;
+}
+
+/* Dark mode conversion for light sky canvas */
+
+.dark #bg-canvas-root,
+.dark #fg-canvas-root {
+  filter: invert(0.9) hue-rotate(180deg) brightness(1.2) contrast(1.1);
+}
+
+/* 
+           DARK MODE STYLES
+         */
+
+.dark .sidebar {
+  background: linear-gradient(170deg, rgba(8, 16, 38, 0.55) 0%, rgba(8, 16, 38, 0.42) 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dark .sidebar-logo-area {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dark .sidebar-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Dark mode: no filter overrides needed since we removed them from light mode too */
+.dark .sidebar-brand img,
+.dark .sidebar-logo-img,
+.dark .sidebar-logo-img-light {
+  filter: none;
+}
+
+.dark .sidebar-brand-name {
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-label {
+  color: rgba(255, 255, 255, 0.45);
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-btn {
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: none;
+}
+
+.dark .sidebar-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.dark .sidebar-nav-btn.is-active {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.dark .sidebar-server-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.dark .sidebar-server-name {
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: none;
+}
+
+.dark .sidebar-server-chevron {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.dark .sidebar-account-btn {
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: none;
+}
+
+.dark .sidebar-account-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.dark .sidebar-account-btn svg {
+  filter: none;
+  opacity: 0.7;
+}
+
+.dark .content-area {
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --border-color: rgba(255, 255, 255, 0.15);
+
+  background: rgba(10, 16, 34, 0.3);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 0 60px rgba(255, 255, 255, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+@media (min-width: 768px) {
+  .dark .content-area {
+    box-shadow:
+      inset 0 0 60px rgba(255, 255, 255, 0.04),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* Inner components dark mode adjustments */
+
+.dark .section-card {
+  background: rgba(30, 41, 59, 0.45);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.dark .section-card:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(30, 41, 59, 0.55);
+}
+
+.dark .svr-cfg-tile,
+.dark .intg-card,
+.dark .quick-start-card,
+.dark .api-key-row,
+.dark .oauth-app-card {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.dark .svr-cfg-tile:hover,
+.dark .intg-card:hover,
+.dark .api-key-row:hover,
+.dark .oauth-app-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(30, 41, 59, 0.85);
+}
+
+/* Headings/Titles */
+
+.dark .content-header-title,
+.dark .content-hdr-title,
+.dark .svr-cfg-title,
+.dark .intg-title,
+.dark .section-title,
+.dark .quick-start-card-title,
+.dark .api-key-name,
+.dark .oauth-app-name {
+  color: #ffffff;
+}
+
+.dark .content-header-desc,
+.dark .svr-cfg-tile-hint,
+.dark .intg-desc,
+.dark .quick-start-card-desc,
+.dark .api-key-meta,
+.dark .oauth-app-meta {
+  color: #94a3b8;
+}
+
+.dark .dashboard-tab-btn {
+  color: #cbd5e1;
+  background: transparent;
+}
+
+.dark .dashboard-tab-btn.is-active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dark .dashboard-tabs {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.dark .svr-cfg-tile-icon,
+.dark .intg-icon,
+.dark .api-key-icon,
+.dark .oauth-app-icon {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .empty-state {
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .empty-state p {
+  color: #94a3b8;
+}
+
+.dark .inline-panel-body,
+.dark .oauth-edit-body {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(48px) saturate(200%);
+  -webkit-backdrop-filter: blur(48px) saturate(200%);
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.dark .intg-card .inline-panel-body {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.dark .platform-card {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.dark .platform-card:hover {
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(0, 0, 0, 0.3);
+}
+
+.dark .platform-card.connected {
+  border-color: rgba(134, 239, 172, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(134, 239, 172, 0.25),
+    0 4px 14px rgba(74, 222, 128, 0.15);
+}
+
+.dark .platform-card.disconnected {
+  opacity: 0.95;
+}
+
+/* Connected Platforms (cp-*) dark mode */
+
+.dark .cp-header-subtitle,
+.dark .cp-tile-account {
+  color: #94a3b8;
+}
+
+.dark .cp-count-badge {
+  background: rgba(74, 222, 128, 0.1);
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.2);
+}
+
+.dark .cp-tile {
+  background: rgba(30, 41, 59, 0.5);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark .cp-tile:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 41, 59, 0.75);
+}
+
+.dark .cp-tile--connected {
+  background: rgba(30, 41, 59, 0.65);
+  border-color: rgba(34, 197, 94, 0.28);
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.2),
+    inset 0 0 0 1px rgba(34, 197, 94, 0.12);
+}
+
+.dark .cp-tile--connected:hover {
+  border-color: rgba(34, 197, 94, 0.4);
+}
+
+.dark .cp-tile--discord {
+  background: rgba(88, 101, 242, 0.08);
+  border-color: rgba(88, 101, 242, 0.25);
+}
+
+.dark .cp-tile-badge--connected {
+  background: rgba(34, 197, 94, 0.14);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.dark .cp-tile-badge--idle {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.dark .cp-tile-connect-btn {
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.dark .cp-tile-connect-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dark .cp-tile-disconnect-btn {
+  color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.dark .cp-tile-disconnect-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.dark .cp-tile-locked {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* Participating Servers: light mode (dark text on light card) */
+#participating-servers-list .platform-card .participating-server-name {
+  color: #1e293b;
+}
+
+#participating-servers-list .platform-card .participating-server-hint {
+  color: #64748b;
+}
+
+/* Participating Servers: dark mode (light text on dark card) */
+.dark #participating-servers-list .platform-card .participating-server-name {
+  color: #fff;
+}
+
+.dark #participating-servers-list .platform-card .participating-server-hint {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dark .modal-input,
+.dark .modal-textarea {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+
+.dark .modal-input::placeholder,
+.dark .modal-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.dark .scope-toggle-card {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .scope-toggle:hover .scope-toggle-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark .scope-toggle input:checked + .scope-toggle-card {
+  border-color: var(--accent-sky);
+  background: rgba(14, 165, 233, 0.12);
+}
+
+/* Dark mode fixes (plan: dark-mode-fixes) */
+
+/* Server dropdown: light mode text — base styles already use light colors */
+/* These ensure correct colors when sidebar context provides dark CSS vars */
+#server-dropdown-menu .server-dropdown-item,
+#server-dropdown-menu .server-dropdown-search input,
+#server-dropdown-menu .server-dropdown-action-btn {
+  color: #0f172a;
+}
+
+#server-dropdown-menu .server-dropdown-search svg {
+  color: #94a3b8;
+}
+
+#server-dropdown-menu .server-dropdown-search input::placeholder {
+  color: #94a3b8;
+}
+
+#server-dropdown-menu .server-dropdown-loading,
+#server-dropdown-menu .server-dropdown-empty {
+  color: #64748b;
+}
+
+#server-dropdown-menu .server-dropdown-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+#server-dropdown-menu .server-dropdown-footer {
+  border-top-color: rgba(0, 0, 0, 0.07);
+}
+
+/* Server dropdown: dark mode */
+.dark .server-dropdown-menu {
+  background: rgba(15, 23, 42, 0.97);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+}
+
+.dark #server-dropdown-menu .server-dropdown-item,
+.dark #server-dropdown-menu .server-dropdown-search input,
+.dark #server-dropdown-menu .server-dropdown-action-btn {
+  color: #f1f5f9;
+}
+
+.dark #server-dropdown-menu .server-dropdown-search svg {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dark #server-dropdown-menu .server-dropdown-search input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.dark #server-dropdown-menu .server-dropdown-loading,
+.dark #server-dropdown-menu .server-dropdown-empty {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.dark #server-dropdown-menu .server-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dark #server-dropdown-menu .server-dropdown-footer {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark #server-dropdown-menu .server-dropdown-divider {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Sidebar is always dark regardless of light/dark mode ── */
+/* Single PNG logo used in both modes */
+.sidebar-logo-img-light {
+  display: none;
+}
+
+.dark #server-dropdown-menu .server-dropdown-action-btn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #f1f5f9;
+}
+
+.dark #server-dropdown-menu .server-dropdown-search {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark #server-dropdown-menu .server-dropdown-item.is-selected,
+.dark #server-dropdown-menu .server-dropdown-item.active {
+  background: rgba(14, 165, 233, 0.18);
+  color: #38bdf8;
+}
+
+.dark .dropdown-menu,
+.dark .intg-card .dropdown-menu {
+  background: rgba(15, 23, 42, 0.97);
+  border-color: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.3),
+    0 12px 36px -6px rgba(0, 0, 0, 0.5);
+}
+
+.dark .dropdown-menu button {
+  color: #94a3b8;
+}
+
+.dark .dropdown-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1f5f9;
+}
+
+.dark .api-key-prefix {
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.dark .intg-desc code {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}
+
+.dark .status-pill.disconnected {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.dark .panel-close-btn {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.dark .panel-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #f8fafc;
+}
+
+.dark .section-placeholder__title,
+.dark .section-placeholder-title {
+  color: #94a3b8;
+}
+
+/* Dropdown visibility (plan: dropdown-visibility) */
+
+#oauth-apps-list,
+#api-keys-list {
+  overflow: visible;
+}
+
+/* ─── Global in-flight sync indicator (Linear-style) ─── */
+
+.dashboard-sync-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(14, 165, 233, 0.9) 50%, transparent 100%);
+  animation: sync-slide 1.5s ease-in-out infinite;
+  z-index: 10;
+  overflow: hidden;
+}
+
+@keyframes sync-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Disabled state for select controls during mutation */
+
+/* Skeleton cross-fade transition */
+
+@keyframes skeleton-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ─── Integration card skeleton grid ─── */
+
+.skeleton-intg-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.skeleton-intg-card {
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px;
+  min-height: 100px;
+  border-radius: 16px;
+}

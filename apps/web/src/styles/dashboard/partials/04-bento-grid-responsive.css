@@ -1,0 +1,222 @@
+/* 
+           BENTO GRID (do not override responsive grid from earlier block)
+         */
+
+.bento-grid > * {
+  margin-bottom: 0;
+}
+
+/* b-* classes for elements that use them (bento-col-* handled above) */
+
+.b-12 {
+  grid-column: span 12;
+}
+
+.b-8 {
+  grid-column: span 8;
+}
+
+.b-7 {
+  grid-column: span 7;
+}
+
+.b-6 {
+  grid-column: span 6;
+}
+
+.b-5 {
+  grid-column: span 5;
+}
+
+.b-4 {
+  grid-column: span 4;
+}
+
+.b-3 {
+  grid-column: span 3;
+}
+
+/*  Bento Section Divider  */
+
+.bento-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 4px;
+  margin-top: 10px;
+}
+
+.bento-divider-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bento-divider-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.bento-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/*  Settings Tile  */
+
+.settings-tile {
+  padding: 24px;
+}
+
+.settings-tile-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.settings-tile-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.settings-tile-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+/*  Entrance animation */
+
+@keyframes bentoIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bento-grid > * {
+  animation: bentoIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.bento-grid > *:nth-child(1) {
+  animation-delay: 0.04s;
+}
+
+.bento-grid > *:nth-child(2) {
+  animation-delay: 0.08s;
+}
+
+.bento-grid > *:nth-child(3) {
+  animation-delay: 0.11s;
+}
+
+.bento-grid > *:nth-child(4) {
+  animation-delay: 0.14s;
+}
+
+.bento-grid > *:nth-child(5) {
+  animation-delay: 0.17s;
+}
+
+.bento-grid > *:nth-child(6) {
+  animation-delay: 0.2s;
+}
+
+.bento-grid > *:nth-child(7) {
+  animation-delay: 0.22s;
+}
+
+.bento-grid > *:nth-child(8) {
+  animation-delay: 0.25s;
+}
+
+.bento-grid > *:nth-child(9) {
+  animation-delay: 0.27s;
+}
+
+.bento-grid > *:nth-child(10) {
+  animation-delay: 0.3s;
+}
+
+.bento-grid > *:nth-child(11) {
+  animation-delay: 0.32s;
+}
+
+.bento-grid > *:nth-child(12) {
+  animation-delay: 0.34s;
+}
+
+.bento-grid > *:nth-child(13) {
+  animation-delay: 0.36s;
+}
+
+.bento-grid > *:nth-child(14) {
+  animation-delay: 0.38s;
+}
+
+.bento-grid > *:nth-child(15) {
+  animation-delay: 0.4s;
+}
+
+/*  Responsive */
+
+@media (max-width: 1100px) {
+  .content-area {
+    padding: 24px 24px 64px;
+  }
+
+  .b-4 {
+    grid-column: span 6;
+  }
+
+  .b-5 {
+    grid-column: span 12;
+  }
+
+  .b-7 {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 768px) {
+  .content-area {
+    padding: 20px 16px 64px;
+  }
+
+  .content-area-header + .dashboard-tabs {
+    margin-top: -4px;
+    margin-bottom: 24px;
+  }
+
+  .b-4,
+  .b-5,
+  .b-6,
+  .b-7 {
+    grid-column: span 12;
+  }
+
+  .bento-grid {
+    gap: 12px;
+  }
+}

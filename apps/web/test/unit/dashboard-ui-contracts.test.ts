@@ -1,6 +1,24 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+
+const stylesDir = resolve(__dirname, '../../src/styles');
+
+function readSortedPartials(partialsDir: string): string {
+  return readdirSync(partialsDir)
+    .filter((f) => f.endsWith('.css'))
+    .sort()
+    .map((f) => readFileSync(join(partialsDir, f), 'utf8'))
+    .join('\n');
+}
+
+/** Concatenates dashboard token + partials (matches @import resolution in dashboard.css). */
+const dashboardCss = [
+  readFileSync(join(stylesDir, 'dashboard-tokens.css'), 'utf8'),
+  readSortedPartials(join(stylesDir, 'dashboard/partials')),
+].join('\n');
+
+const dashboardComponentsCss = readSortedPartials(join(stylesDir, 'dashboard-components/partials'));
 
 const dashboardRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
@@ -15,16 +33,11 @@ const dashboardIndexRouteSource = readFileSync(
   'utf8'
 );
 
-const dashboardComponentsCss = readFileSync(
-  resolve(__dirname, '../../src/styles/dashboard-components.css'),
-  'utf8'
-);
 const onboardingProgressPanelSource = readFileSync(
   resolve(__dirname, '../../src/components/dashboard/panels/OnboardingProgressPanel.tsx'),
   'utf8'
 );
 
-const dashboardCss = readFileSync(resolve(__dirname, '../../src/styles/dashboard.css'), 'utf8');
 const cloudBackgroundSource = readFileSync(
   resolve(__dirname, '../../src/components/three/CloudBackground.tsx'),
   'utf8'

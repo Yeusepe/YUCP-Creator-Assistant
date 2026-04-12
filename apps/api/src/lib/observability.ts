@@ -1,6 +1,5 @@
 import { initSDK, setTraceAttributes } from '@hyperdx/node-opentelemetry';
 import {
-  type Attributes,
   context,
   propagation,
   ROOT_CONTEXT,

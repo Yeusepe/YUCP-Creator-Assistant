@@ -1,3 +1,4 @@
+import { withProviderRequestSpan } from '../core/observability';
 import type {
   LemonSqueezyAdapterConfig,
   LemonSqueezyApiErrorResponse,
@@ -65,90 +66,124 @@ export class LemonSqueezyApiClient {
       }
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    return withProviderRequestSpan(
+      'lemonsqueezy',
+      method,
+      path,
+      {
+        'server.address': url.host,
+        retryCount,
+        hasBody: body !== undefined,
+      },
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    try {
-      const response = await fetch(url.toString(), {
-        method,
-        headers: {
-          Authorization: `Bearer ${this.apiToken}`,
-          Accept: 'application/vnd.api+json',
-          'Content-Type': 'application/vnd.api+json',
-        },
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+        try {
+          const response = await fetch(url.toString(), {
+            method,
+            headers: {
+              Authorization: `Bearer ${this.apiToken}`,
+              Accept: 'application/vnd.api+json',
+              'Content-Type': 'application/vnd.api+json',
+            },
+            body: body ? JSON.stringify(body) : undefined,
+            signal: controller.signal,
+          });
 
-      clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-      if (response.status === 429) {
-        const rawRetryAfter = Number.parseInt(response.headers.get('retry-after') ?? '1', 10);
-        const retryAfter = Number.isNaN(rawRetryAfter) ? 1 : rawRetryAfter;
-        if (retryCount < this.maxRetries) {
-          await this.sleep(retryAfter * 1000 * (retryCount + 1));
-          return this.request<T>(method, path, query, body, retryCount + 1);
+          if (response.status === 429) {
+            const rawRetryAfter = Number.parseInt(response.headers.get('retry-after') ?? '1', 10);
+            const retryAfter = Number.isNaN(rawRetryAfter) ? 1 : rawRetryAfter;
+            if (retryCount < this.maxRetries) {
+              await this.sleep(retryAfter * 1000 * (retryCount + 1));
+              return this.request<T>(method, path, query, body, retryCount + 1);
+            }
+            throw new LemonSqueezyRateLimitError(
+              'Rate limit exceeded after maximum retries',
+              retryAfter
+            );
+          }
+
+          if (!response.ok) {
+            const error = (await this.safeParseJson(
+              response
+            )) as LemonSqueezyApiErrorResponse | null;
+            const message =
+              error?.errors?.[0]?.detail ?? error?.errors?.[0]?.title ?? `HTTP ${response.status}`;
+            throw new LemonSqueezyApiError(message, response.status, error);
+          }
+
+          if (response.status === 204) return undefined as unknown as T;
+          return (await response.json()) as T;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (
+            error instanceof LemonSqueezyApiError ||
+            error instanceof LemonSqueezyRateLimitError
+          ) {
+            throw error;
+          }
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new LemonSqueezyApiError('Request timeout', 408);
+          }
+          throw new LemonSqueezyApiError(
+            error instanceof Error ? error.message : 'Unknown error',
+            0
+          );
         }
-        throw new LemonSqueezyRateLimitError(
-          'Rate limit exceeded after maximum retries',
-          retryAfter
-        );
       }
-
-      if (!response.ok) {
-        const error = (await this.safeParseJson(response)) as LemonSqueezyApiErrorResponse | null;
-        const message =
-          error?.errors?.[0]?.detail ?? error?.errors?.[0]?.title ?? `HTTP ${response.status}`;
-        throw new LemonSqueezyApiError(message, response.status, error);
-      }
-
-      if (response.status === 204) return undefined as unknown as T;
-      return (await response.json()) as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof LemonSqueezyApiError || error instanceof LemonSqueezyRateLimitError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new LemonSqueezyApiError('Request timeout', 408);
-      }
-      throw new LemonSqueezyApiError(error instanceof Error ? error.message : 'Unknown error', 0);
-    }
+    );
   }
 
   private async licenseRequest<T>(body: Record<string, unknown>): Promise<T> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    return withProviderRequestSpan(
+      'lemonsqueezy',
+      'POST',
+      '/licenses/validate',
+      {
+        'server.address': new URL(this.licenseApiBaseUrl).host,
+        hasBody: true,
+      },
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    try {
-      const response = await fetch(`${this.licenseApiBaseUrl}/validate`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
+        try {
+          const response = await fetch(`${this.licenseApiBaseUrl}/validate`, {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
 
-      clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const error = await this.safeParseJson(response);
-        throw new LemonSqueezyApiError(`HTTP ${response.status}`, response.status, error);
+          if (!response.ok) {
+            const error = await this.safeParseJson(response);
+            throw new LemonSqueezyApiError(`HTTP ${response.status}`, response.status, error);
+          }
+
+          return (await response.json()) as T;
+        } catch (error) {
+          clearTimeout(timeoutId);
+          if (error instanceof LemonSqueezyApiError) {
+            throw error;
+          }
+          if (error instanceof Error && error.name === 'AbortError') {
+            throw new LemonSqueezyApiError('Request timeout', 408);
+          }
+          throw new LemonSqueezyApiError(
+            error instanceof Error ? error.message : 'Unknown error',
+            0
+          );
+        }
       }
-
-      return (await response.json()) as T;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof LemonSqueezyApiError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new LemonSqueezyApiError('Request timeout', 408);
-      }
-      throw new LemonSqueezyApiError(error instanceof Error ? error.message : 'Unknown error', 0);
-    }
+    );
   }
 
   private async safeParseJson(response: Response): Promise<unknown> {

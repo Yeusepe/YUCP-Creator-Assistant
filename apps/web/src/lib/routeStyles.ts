@@ -1,3 +1,6 @@
+/* Route stylesheets are linked from route `head` (no side-effect CSS imports in lazy routes).
+ * HeroUI v3 does not expose a root Provider in the public API; components use react-aria primitives. */
+
 import notFoundHref from '@/styles/404.css?url';
 import accountHref from '@/styles/account.css?url';
 import collabInviteHref from '@/styles/collab-invite.css?url';

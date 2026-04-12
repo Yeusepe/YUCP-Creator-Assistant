@@ -9,6 +9,7 @@
 
 import type { StructuredLogger } from '@yucp/shared';
 import { createLogger } from '@yucp/shared';
+import { withProviderRequestSpan } from '../core/observability';
 import type {
   RequiresTwoFactorAuth,
   TwoFactorAuthType,
@@ -153,14 +154,25 @@ async function request(
   path: string,
   init: RequestInit = {}
 ): Promise<{ response: Response; data: unknown }> {
-  const headers = new Headers(init.headers);
-  headers.set('user-agent', VRCHAT_USER_AGENT);
-  const response = await fetch(`${VRCHAT_API_BASE}${path}`, {
-    ...init,
-    headers,
-  });
-  const data = await parseResponseJson(response);
-  return { response, data };
+  return withProviderRequestSpan(
+    'vrchat',
+    init.method ?? 'GET',
+    path,
+    {
+      'server.address': new URL(VRCHAT_API_BASE).host,
+      hasBody: init.body !== undefined,
+    },
+    async () => {
+      const headers = new Headers(init.headers);
+      headers.set('user-agent', VRCHAT_USER_AGENT);
+      const response = await fetch(`${VRCHAT_API_BASE}${path}`, {
+        ...init,
+        headers,
+      });
+      const data = await parseResponseJson(response);
+      return { response, data };
+    }
+  );
 }
 
 function verificationPathForType(type: TwoFactorAuthType): string {

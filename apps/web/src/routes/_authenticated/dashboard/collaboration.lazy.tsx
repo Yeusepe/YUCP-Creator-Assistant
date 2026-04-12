@@ -8,6 +8,7 @@ import {
   DashboardListSkeleton,
 } from '@/components/dashboard/DashboardSkeletons';
 import { Select } from '@/components/ui/Select';
+import { YucpButton } from '@/components/ui/YucpButton';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import type {
@@ -422,22 +423,17 @@ function MyCollaboratorsSection({
                   </div>
                 </div>
               ) : (
-                <button
+                <YucpButton
                   id="btn-generate-invite"
                   type="button"
-                  className="btn-primary invite-generate-btn"
-                  disabled={!selectedProvider || generateInviteMutation.isPending}
-                  onClick={() => generateInviteMutation.mutate()}
+                  yucp="primary"
+                  className="invite-generate-btn"
+                  isDisabled={!selectedProvider}
+                  isLoading={generateInviteMutation.isPending}
+                  onPress={() => generateInviteMutation.mutate()}
                 >
-                  {generateInviteMutation.isPending ? (
-                    <>
-                      <span className="btn-loading-spinner" aria-hidden="true" />
-                      Generating...
-                    </>
-                  ) : (
-                    'Generate Invite Link'
-                  )}
-                </button>
+                  Generate Invite Link
+                </YucpButton>
               )}
             </div>
           </div>

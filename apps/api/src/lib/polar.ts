@@ -166,7 +166,7 @@ export async function createCertificateBillingPortalSession(input: {
             provider: 'polar',
             hasCustomerEmail: true,
           },
-          () =>
+          async () =>
             collectPageItems(
               await polar.customers.list({
                 email: input.customerEmail,
@@ -181,6 +181,7 @@ export async function createCertificateBillingPortalSession(input: {
         if (!input.customerEmail) {
           throw new Error('Polar customer portal requires a customer email');
         }
+        const customerEmail = input.customerEmail;
 
         // Polar create-customer reference:
         // https://docs.polar.sh/api-reference/customers/create
@@ -193,7 +194,7 @@ export async function createCertificateBillingPortalSession(input: {
           },
           () =>
             polar.customers.create({
-              email: input.customerEmail,
+              email: customerEmail,
               externalId: input.externalCustomerId,
               ...(input.customerName ? { name: input.customerName } : {}),
               metadata: {

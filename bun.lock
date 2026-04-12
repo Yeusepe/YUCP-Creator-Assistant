@@ -202,6 +202,7 @@
       "name": "@yucp/providers",
       "version": "0.1.0",
       "dependencies": {
+        "@opentelemetry/api": "^1.9.0",
         "@yucp/shared": "workspace:*",
         "vrchat": "^2.21.7",
       },
