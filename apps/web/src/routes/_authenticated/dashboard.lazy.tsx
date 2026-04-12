@@ -491,39 +491,41 @@ function Sidebar({
                 </svg>
                 Certificates
               </Link>
-              {hasForensicsCapability && (
-                <Link
-                  id="tab-btn-forensics"
-                  to="/dashboard/forensics"
-                  search={(prev) => ({
-                    ...prev,
-                    guild_id: undefined,
-                    tenant_id: undefined,
-                  })}
-                  className="sidebar-nav-btn"
-                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
-                  role="tab"
-                  aria-selected={false}
-                  aria-controls="tab-panel-forensics"
-                >
-                  <svg
-                    className="sidebar-nav-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
+              {hasForensicsCapability ? (
+                <div className="sidebar-nav-reveal" key="sidebar-nav-forensics">
+                  <Link
+                    id="tab-btn-forensics"
+                    to="/dashboard/forensics"
+                    search={(prev) => ({
+                      ...prev,
+                      guild_id: undefined,
+                      tenant_id: undefined,
+                    })}
+                    className="sidebar-nav-btn"
+                    activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                    role="tab"
+                    aria-selected={false}
+                    aria-controls="tab-panel-forensics"
                   >
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="M21 21l-4.35-4.35" />
-                    <path d="M11 8v6" />
-                    <path d="M8 11h6" />
-                  </svg>
-                  Coupling Forensics
-                </Link>
-              )}
+                    <svg
+                      className="sidebar-nav-icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="M21 21l-4.35-4.35" />
+                      <path d="M11 8v6" />
+                      <path d="M8 11h6" />
+                    </svg>
+                    Coupling Forensics
+                  </Link>
+                </div>
+              ) : null}
               <Link
                 to="/dashboard/integrations"
                 search={(prev) => prev}

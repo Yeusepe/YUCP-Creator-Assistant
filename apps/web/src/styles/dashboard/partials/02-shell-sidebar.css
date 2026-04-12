@@ -167,11 +167,12 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
   margin-bottom: 24px;
   flex-shrink: 0;
   padding: 0;
+  width: 100%;
 }
 
 .sidebar-brand img,
@@ -273,6 +274,30 @@
 
 .sidebar-nav-group {
   margin-bottom: 22px;
+}
+
+/* Capability-gated nav items (e.g. forensics): enter when mounted */
+@keyframes sidebar-nav-reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sidebar-nav-reveal {
+  width: 100%;
+  animation: sidebar-nav-reveal-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav-reveal {
+    animation: none;
+  }
 }
 
 .sidebar-nav-label {

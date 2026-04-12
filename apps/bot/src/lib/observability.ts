@@ -1,6 +1,12 @@
 import { initSDK, setTraceAttributes } from '@hyperdx/node-opentelemetry';
 import { SpanKind, trace } from '@opentelemetry/api';
-import { applyNodeHyperdxDefaults, setActiveSpanAttributes, withObservedSpan } from '@yucp/shared';
+import {
+  applyNodeHyperdxDefaults,
+  detectServerObservabilityRuntime,
+  initBunServerObservability,
+  setActiveSpanAttributes,
+  withObservedSpan,
+} from '@yucp/shared';
 
 const tracer = trace.getTracer('yucp-bot');
 let initialized = false;
@@ -18,6 +24,20 @@ function annotateBotSpan(attributes: Record<string, string | number | boolean | 
 }
 
 export function initBotObservability(env: NodeJS.ProcessEnv = process.env) {
+  if (detectServerObservabilityRuntime() === 'bun-manual') {
+    const resolved = initBunServerObservability({
+      env,
+      serviceName: 'yucp-bot',
+      resourceAttributes: {
+        'deployment.environment': env.NODE_ENV ?? 'development',
+        'service.namespace': 'yucp',
+        'service.version': env.BUILD_ID ?? 'dev',
+      },
+    });
+    initialized ||= resolved.hasOtelAuth;
+    return resolved;
+  }
+
   const resolved = applyNodeHyperdxDefaults(env, 'yucp-bot');
   if (initialized || !resolved.hasOtelAuth) {
     return resolved;

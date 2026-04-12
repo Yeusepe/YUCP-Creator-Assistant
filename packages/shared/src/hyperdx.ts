@@ -2,6 +2,15 @@ const LOCAL_HYPERDX_APP_URL = 'http://localhost:8080';
 const LOCAL_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const LOCAL_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
 
+export type ServerObservabilityRuntime = 'node-hyperdx' | 'bun-manual';
+export type OtlpSignal = 'traces' | 'logs' | 'metrics';
+
+export interface RuntimeEnvironmentLike {
+  Bun?: {
+    version?: string;
+  };
+}
+
 export interface HyperdxEnvLike {
   NODE_ENV?: string;
   FRONTEND_URL?: string;
@@ -31,6 +40,44 @@ export interface ResolvedHyperdxConfig {
 function normalizeOptional(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
+}
+
+export function detectServerObservabilityRuntime(
+  runtimeEnvironment: RuntimeEnvironmentLike = globalThis as RuntimeEnvironmentLike
+): ServerObservabilityRuntime {
+  return runtimeEnvironment.Bun ? 'bun-manual' : 'node-hyperdx';
+}
+
+export function buildOtlpSignalUrl(endpoint: string, signal: OtlpSignal): string {
+  const normalizedEndpoint = endpoint.trim().replace(/\/+$/, '');
+  const signalPath = `/v1/${signal}`;
+  return normalizedEndpoint.endsWith(signalPath)
+    ? normalizedEndpoint
+    : `${normalizedEndpoint}${signalPath}`;
+}
+
+export function parseOtelExporterHeaders(
+  headers: string | undefined
+): Record<string, string> | undefined {
+  const normalizedHeaders = normalizeOptional(headers);
+  if (!normalizedHeaders) {
+    return undefined;
+  }
+
+  const entries = normalizedHeaders
+    .split(',')
+    .map((part) => {
+      const [key, ...valueParts] = part.split('=');
+      const normalizedKey = key?.trim();
+      const normalizedValue = valueParts.join('=').trim();
+      if (!normalizedKey || !normalizedValue) {
+        return null;
+      }
+      return [normalizedKey, normalizedValue] as const;
+    })
+    .filter((entry): entry is readonly [string, string] => entry !== null);
+
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 export function resolveHyperdxApiKey(env: HyperdxEnvLike): string | undefined {

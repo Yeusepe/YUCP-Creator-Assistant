@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const addHyperdxAction = vi.fn();
-const captureHyperdxException = vi.fn();
+const { addHyperdxAction, captureHyperdxException } = vi.hoisted(() => ({
+  addHyperdxAction: vi.fn(),
+  captureHyperdxException: vi.fn(),
+}));
 
 vi.mock('@/lib/hyperdx', () => ({
   addHyperdxAction,

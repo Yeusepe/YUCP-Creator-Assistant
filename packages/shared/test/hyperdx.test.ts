@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { applyNodeHyperdxDefaults, resolveHyperdxConfig } from '../src/hyperdx';
+import {
+  applyNodeHyperdxDefaults,
+  buildOtlpSignalUrl,
+  detectServerObservabilityRuntime,
+  parseOtelExporterHeaders,
+  resolveHyperdxConfig,
+} from '../src/hyperdx';
 
 describe('hyperdx config helpers', () => {
   test('resolveHyperdxConfig uses local ClickStack endpoints but no fake API key', () => {
@@ -51,6 +57,27 @@ describe('hyperdx config helpers', () => {
       otelExporterEndpoint: 'https://collector.example.com',
       otelExporterHeaders: 'Authorization=ingest-token',
       otelExporterProtocol: 'http/protobuf',
+    });
+  });
+
+  test('detectServerObservabilityRuntime selects the Bun-safe backend bootstrap', () => {
+    expect(detectServerObservabilityRuntime({ Bun: { version: '1.2.0' } })).toBe('bun-manual');
+    expect(detectServerObservabilityRuntime({})).toBe('node-hyperdx');
+  });
+
+  test('buildOtlpSignalUrl appends the signal path once', () => {
+    expect(buildOtlpSignalUrl('http://localhost:4318', 'traces')).toBe(
+      'http://localhost:4318/v1/traces'
+    );
+    expect(buildOtlpSignalUrl('http://localhost:4318/v1/traces', 'traces')).toBe(
+      'http://localhost:4318/v1/traces'
+    );
+  });
+
+  test('parseOtelExporterHeaders converts OTLP headers to an object', () => {
+    expect(parseOtelExporterHeaders('Authorization=abc123, x-tenant = yucp')).toEqual({
+      Authorization: 'abc123',
+      'x-tenant': 'yucp',
     });
   });
 });

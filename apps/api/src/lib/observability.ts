@@ -9,6 +9,8 @@ import {
 } from '@opentelemetry/api';
 import {
   applyNodeHyperdxDefaults,
+  detectServerObservabilityRuntime,
+  initBunServerObservability,
   setActiveSpanAttributes,
   toSpanAttributes,
   withObservedSpan,
@@ -18,6 +20,20 @@ const tracer = trace.getTracer('yucp-api');
 let initialized = false;
 
 export function initApiObservability(env: NodeJS.ProcessEnv = process.env) {
+  if (detectServerObservabilityRuntime() === 'bun-manual') {
+    const resolved = initBunServerObservability({
+      env,
+      serviceName: 'yucp-api',
+      resourceAttributes: {
+        'deployment.environment': env.NODE_ENV ?? 'development',
+        'service.namespace': 'yucp',
+        'service.version': env.BUILD_ID ?? 'dev',
+      },
+    });
+    initialized ||= resolved.hasOtelAuth;
+    return resolved;
+  }
+
   const resolved = applyNodeHyperdxDefaults(env, 'yucp-api');
   if (initialized || !resolved.hasOtelAuth) {
     return resolved;

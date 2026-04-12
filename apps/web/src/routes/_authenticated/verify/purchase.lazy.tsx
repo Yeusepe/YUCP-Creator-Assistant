@@ -154,7 +154,9 @@ function OAuthMethodButton({
   const providerVisual = getProviderVisual(provider, linkedAccounts);
   const iconSrc = providerVisual ? getProviderIconPath(providerVisual) : null;
   const brandColor = providerVisual?.color ?? null;
-  const isLinkStateLoading = accountsLoading || (providersLoading && !provider);
+  /* Avoid swapping to the skeleton row during refetch when we already know link state */
+  const isLinkStateLoading =
+    !isConnected && !isVerified && (accountsLoading || (providersLoading && !provider));
 
   const rowPhase = isVerified
     ? 'verified'
@@ -674,6 +676,7 @@ function VerifyPurchasePage() {
     queryFn: listUserProviders,
     enabled: intent != null,
     staleTime: 60_000,
+    placeholderData: (previousData) => previousData,
   });
 
   const accountsQuery = useQuery({
@@ -681,6 +684,7 @@ function VerifyPurchasePage() {
     queryFn: listUserAccounts,
     enabled: intent != null,
     staleTime: 30_000,
+    placeholderData: (previousData) => previousData,
   });
 
   // Auto-check existing_entitlement on first load
@@ -984,8 +988,8 @@ function VerifyPurchasePage() {
                     requirement={req}
                     linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
                     provider={providersByKey.get(req.providerKey) ?? null}
-                    accountsLoading={accountsQuery.isPending}
-                    providersLoading={providersQuery.isPending}
+                    accountsLoading={accountsQuery.isPending && accountsQuery.data === undefined}
+                    providersLoading={providersQuery.isPending && providersQuery.data === undefined}
                     verifiedMethodKey={verifiedMethodKey}
                     onSuccess={invalidateIntent}
                   />
