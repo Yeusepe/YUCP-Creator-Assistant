@@ -62,5 +62,4 @@ export * from './observability';
 export * from './product';
 export * from './productParsers';
 export * from './publicAuthority';
-export * from './serverObservability';
 export * from './verificationSupport';

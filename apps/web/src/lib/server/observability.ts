@@ -1,9 +1,9 @@
 import { context, propagation, ROOT_CONTEXT, SpanKind, trace } from '@opentelemetry/api';
 import { getRequest, getRequestHeaders } from '@tanstack/react-start/server';
-import { initBunServerObservability, withObservedSpan } from '@yucp/shared';
+import { withObservedSpan } from '@yucp/shared';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 
 const tracer = trace.getTracer('yucp-web-server');
-let initialized = false;
 
 type ObservableValue = string | number | boolean | undefined;
 
@@ -31,8 +31,6 @@ function initWebServerObservability(env: NodeJS.ProcessEnv = process.env) {
       'service.version': env.BUILD_ID ?? 'dev',
     },
   });
-
-  initialized ||= resolved.hasOtelAuth;
   return resolved;
 }
 

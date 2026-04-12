@@ -10,11 +10,11 @@ import {
 import {
   applyNodeHyperdxDefaults,
   detectServerObservabilityRuntime,
-  initBunServerObservability,
   setActiveSpanAttributes,
   toSpanAttributes,
   withObservedSpan,
 } from '@yucp/shared';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 
 const tracer = trace.getTracer('yucp-api');
 let initialized = false;

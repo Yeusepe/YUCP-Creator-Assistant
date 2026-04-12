@@ -3,10 +3,10 @@ import { SpanKind, trace } from '@opentelemetry/api';
 import {
   applyNodeHyperdxDefaults,
   detectServerObservabilityRuntime,
-  initBunServerObservability,
   setActiveSpanAttributes,
   withObservedSpan,
 } from '@yucp/shared';
+import { initBunServerObservability } from '@yucp/shared/serverObservability';
 
 const tracer = trace.getTracer('yucp-bot');
 let initialized = false;
