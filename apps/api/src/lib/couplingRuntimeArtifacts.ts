@@ -98,8 +98,7 @@ export async function fetchRuntimeArtifactManifest(
         if (errorMessage === 'No route matches GET /v1/runtime-artifacts/manifest') {
           return {
             success: false,
-            error:
-              'YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ' + errorMessage,
+            error: `YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ${errorMessage}`,
           };
         }
         return { success: false, error: errorMessage };

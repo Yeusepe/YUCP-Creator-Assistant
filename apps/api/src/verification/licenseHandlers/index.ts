@@ -16,6 +16,7 @@ import { logger } from '../../lib/logger';
 import { sanitizePublicErrorMessage } from '../../lib/userFacingErrors';
 import { getProviderRuntime } from '../../providers/index';
 import type { CompleteLicenseInput, CompleteLicenseResult } from '../completeLicense';
+import { encryptForensicsLicenseKey } from '../forensicsLicenseKey';
 import type { VerificationConfig } from '../verificationConfig';
 
 export interface LicenseVerificationHandler {
@@ -66,6 +67,10 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
         `${provider}:${productId ?? 'noproduct'}:${licenseKeyDigest.slice(0, 16)}`;
       const sourceReference =
         result.externalOrderId ?? `${provider}:${licenseKeyDigest.slice(0, 16)}`;
+      const encryptedLicenseKey = await encryptForensicsLicenseKey(
+        licenseKey,
+        config.encryptionSecret ?? ''
+      );
 
       logger.info('[licenseHandlers] Granting entitlement', {
         provider,
@@ -86,6 +91,11 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
             productsToGrant: [
               { productId: result.providerProductId ?? productId ?? '', sourceReference },
             ],
+            licenseSubjectLink: {
+              licenseSubject: licenseKeyDigest,
+              licenseKeyEncrypted: encryptedLicenseKey,
+              providerProductId: result.providerProductId ?? productId ?? undefined,
+            },
           }
         );
       } catch (err) {

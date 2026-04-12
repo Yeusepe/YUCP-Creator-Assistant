@@ -29,6 +29,7 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
+import { JinxxyApiClient } from '@yucp/providers';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
@@ -42,10 +43,13 @@ import {
 } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import {
   decryptProtectedBlobContentKey,
   encryptProtectedBlobContentKey,
 } from './lib/protectedAssetKeyCrypto';
+import { encryptPii } from './lib/piiCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
 import {
   sealProtectedMaterializationGrant,
@@ -623,6 +627,7 @@ interface GumroadVerifyResult {
   purchase?: {
     product_permalink: string;
     email: string;
+    sale_id?: string;
     refunded: boolean;
     chargebacked: boolean;
   };
@@ -633,7 +638,13 @@ async function verifyGumroadLicense(
   licenseKey: string,
   productPermalink: string,
   accessToken: string
-): Promise<{ valid: boolean; purchaserEmail?: string; reason?: string }> {
+): Promise<{
+  valid: boolean;
+  purchaserEmail?: string;
+  providerUserId?: string;
+  externalOrderId?: string;
+  reason?: string;
+}> {
   const params = new URLSearchParams({
     access_token: accessToken,
     product_permalink: productPermalink,
@@ -653,28 +664,44 @@ async function verifyGumroadLicense(
   if (json.purchase?.refunded) return { valid: false, reason: 'License has been refunded' };
   if (json.purchase?.chargebacked) return { valid: false, reason: 'License has a chargeback' };
 
-  return { valid: true, purchaserEmail: json.purchase?.email };
+  const purchaserEmail = json.purchase?.email?.trim().toLowerCase();
+  return {
+    valid: true,
+    purchaserEmail,
+    providerUserId: purchaserEmail ? await sha256Hex(purchaserEmail) : undefined,
+    externalOrderId: json.purchase?.sale_id,
+  };
 }
 
 async function verifyJinxxyLicense(
   licenseKey: string,
   productId: string,
   apiKey: string
-): Promise<{ valid: boolean; reason?: string }> {
-  const resp = await fetch(`https://jinxxy.com/api/v1/licenses/${encodeURIComponent(licenseKey)}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
+): Promise<{
+  valid: boolean;
+  purchaserEmail?: string;
+  providerUserId?: string;
+  externalOrderId?: string;
+  providerProductId?: string;
+  reason?: string;
+}> {
+  const client = new JinxxyApiClient({ apiKey });
+  const result = await client.verifyLicenseWithBuyerByKey(licenseKey);
 
-  if (resp.status === 404) return { valid: false, reason: 'License not found' };
-  if (!resp.ok) return { valid: false, reason: `Jinxxy API error: ${resp.status}` };
-
-  const json = (await resp.json()) as { active: boolean; product_id?: string };
-  if (!json.active) return { valid: false, reason: 'License is not active' };
-  if (productId && json.product_id && json.product_id !== productId) {
+  if (!result.valid) {
+    return { valid: false, reason: result.error ?? 'License verification failed' };
+  }
+  if (productId && result.license?.product_id && result.license.product_id !== productId) {
     return { valid: false, reason: 'License does not match the expected product' };
   }
 
-  return { valid: true };
+  return {
+    valid: true,
+    purchaserEmail: result.purchaserEmail,
+    providerUserId: result.providerUserId,
+    externalOrderId: result.externalOrderId,
+    providerProductId: result.providerProductId,
+  };
 }
 
 // =============================================================================
@@ -967,37 +994,21 @@ export const recordCouplingTraceIssuance = internalMutation({
   },
 });
 
-export const recordLicenseBuyerIdentity = internalMutation({
+export const recordLicenseSubjectLink = internalMutation({
   args: {
     licenseSubject: v.string(),
     authUserId: v.string(),
-    packageId: v.string(),
+    packageId: v.optional(v.string()),
     provider: v.string(),
-    licenseKey: v.string(),
-    purchaserEmail: v.string(),
+    licenseKey: v.optional(v.string()),
+    licenseKeyEncrypted: v.optional(v.string()),
+    purchaserEmail: v.optional(v.string()),
+    providerUserId: v.optional(v.string()),
+    externalOrderId: v.optional(v.string()),
+    providerProductId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query('license_buyer_identity')
-      .withIndex('by_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
-      .first();
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        purchaserEmail: args.purchaserEmail,
-        licenseKey: args.licenseKey,
-        provider: args.provider,
-      });
-    } else {
-      await ctx.db.insert('license_buyer_identity', {
-        licenseSubject: args.licenseSubject,
-        authUserId: args.authUserId,
-        packageId: args.packageId,
-        provider: args.provider,
-        licenseKey: args.licenseKey,
-        purchaserEmail: args.purchaserEmail,
-        createdAt: Date.now(),
-      });
-    }
+    await upsertLicenseSubjectLink(ctx, args);
   },
 });
 
@@ -1105,7 +1116,14 @@ export const verifyLicense = internalAction({
     }
 
     // 3. Resolve credentials from product_catalog + provider_connections
-    let verifyResult: { valid: boolean; purchaserEmail?: string; reason?: string } | null = null;
+    let verifyResult: {
+      valid: boolean;
+      purchaserEmail?: string;
+      providerUserId?: string;
+      externalOrderId?: string;
+      providerProductId?: string;
+      reason?: string;
+    } | null = null;
     let productAuthUserId: string | null = null;
 
     const product = await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
@@ -1201,16 +1219,22 @@ export const verifyLicense = internalAction({
     const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
     const token = await signLicenseJwt(claims, rootPrivateKey, keyId);
 
-    // 5b. Store buyer identity for forensics lookups (best-effort, does not fail the request).
-    if (productAuthUserId && verifyResult.purchaserEmail) {
+    // 5b. Store the license subject link for forensics lookups (best-effort, does not fail the request).
+    if (
+      productAuthUserId &&
+      (verifyResult.purchaserEmail ||
+        verifyResult.providerProductId ||
+        args.licenseKey ||
+        verifyResult.providerUserId ||
+        verifyResult.externalOrderId)
+    ) {
       try {
-        await ctx.runMutation(internal.yucpLicenses.recordLicenseBuyerIdentity, {
+        await ctx.runMutation(internal.yucpLicenses.recordLicenseSubjectLink, {
           licenseSubject: licenseKeyHash,
           authUserId: productAuthUserId,
-          packageId: args.packageId,
           provider: args.provider,
-          licenseKey: args.licenseKey,
-          purchaserEmail: verifyResult.purchaserEmail,
+          licenseKeyEncrypted: await encryptPii(args.licenseKey, PII_PURPOSES.forensicsLicenseKey),
+          providerProductId: verifyResult.providerProductId,
         });
       } catch {
         // Non-fatal: forensics data is best-effort

@@ -1,15 +1,13 @@
 // Correlation ID generation and propagation
 // Supports both explicit passing and async context propagation
 
-import { randomUUID } from 'node:crypto';
-
 export type CorrelationId = string;
 
 /**
  * Generate a new correlation ID
  */
 export function generateCorrelationId(): CorrelationId {
-  return randomUUID();
+  return crypto.randomUUID();
 }
 
 /**

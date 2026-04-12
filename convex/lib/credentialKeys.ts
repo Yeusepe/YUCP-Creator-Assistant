@@ -22,4 +22,5 @@ export const PII_PURPOSES = {
   externalAccountMetadataEmail: 'external-account-metadata-email',
   externalAccountRawData: 'external-account-raw-data',
   purchaseBuyerEmail: 'purchase-buyer-email',
+  forensicsLicenseKey: 'forensics-license-key',
 } as const;

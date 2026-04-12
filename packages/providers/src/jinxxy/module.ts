@@ -50,8 +50,25 @@ interface JinxxyClientLike {
   verifyLicenseByKey(licenseKey: string): Promise<{
     valid: boolean;
     error?: string;
+    providerUserId?: string;
+    externalOrderId?: string;
+    providerProductId?: string;
     license?: {
       id?: string;
+      customer_id?: string;
+      order_id?: string;
+      product_id?: string;
+    } | null;
+  }>;
+  verifyLicenseWithBuyerByKey?(licenseKey: string): Promise<{
+    valid: boolean;
+    error?: string;
+    providerUserId?: string;
+    externalOrderId?: string;
+    providerProductId?: string;
+    license?: {
+      id?: string;
+      customer_id?: string;
       order_id?: string;
       product_id?: string;
     } | null;
@@ -116,12 +133,17 @@ export function createJinxxyLicenseVerification<
       }
 
       const apiKey = await ports.decryptCredential(encryptedApiKey, ctx);
-      const result = await getClient(ports, apiKey).verifyLicenseByKey(licenseKey);
+      const client = getClient(ports, apiKey);
+      const result = client.verifyLicenseWithBuyerByKey
+        ? await client.verifyLicenseWithBuyerByKey(licenseKey)
+        : await client.verifyLicenseByKey(licenseKey);
 
       return {
         valid: result.valid,
-        externalOrderId: result.license?.order_id ?? result.license?.id ?? undefined,
-        providerProductId: result.license?.product_id ?? undefined,
+        externalOrderId:
+          result.externalOrderId ?? result.license?.order_id ?? result.license?.id ?? undefined,
+        providerUserId: result.providerUserId ?? result.license?.customer_id ?? undefined,
+        providerProductId: result.providerProductId ?? result.license?.product_id ?? undefined,
         error: result.error ?? undefined,
       };
     },

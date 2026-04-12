@@ -4,7 +4,7 @@ import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
 
-describe('license verification buyer account linking', () => {
+describe('license verification account linking', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
   });
@@ -50,6 +50,63 @@ describe('license verification buyer account linking', () => {
       providerUserId: 'jinxxy-user-123',
       providerUsername: 'LinkedBuyer',
       status: 'active',
+    });
+  });
+
+  it('records a license subject link for verified licenses so leak tracing can resolve the buyer later', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-license-verification-forensics';
+    const subjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-license-verification-forensics',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId,
+      ownerDiscordUserId: 'discord-license-verification-forensics',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      authUserId,
+      subjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-forensics',
+      providerUsername: 'ForensicsBuyer',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-forensics',
+          sourceReference: 'order-license-verification-forensics',
+        },
+      ],
+      licenseSubjectLink: {
+        licenseSubject: '3dea218ee2aca2785da88513407c1a78cecc034f6cd2c25d98251a2fbb5717df',
+        licenseKeyEncrypted: 'encrypted-license-key',
+        providerProductId: 'product-license-verification-forensics',
+      },
+    });
+
+    expect(result.success).toBe(true);
+
+    const identity = await t.run((ctx) =>
+      ctx.db
+        .query('license_subject_links')
+        .withIndex('by_auth_user_subject', (q) =>
+          q
+            .eq('authUserId', authUserId)
+            .eq(
+              'licenseSubject',
+              '3dea218ee2aca2785da88513407c1a78cecc034f6cd2c25d98251a2fbb5717df'
+            )
+        )
+        .first()
+    );
+
+    expect(identity).toMatchObject({
+      authUserId,
+      provider: 'jinxxy',
+      licenseKeyEncrypted: 'encrypted-license-key',
+      providerProductId: 'product-license-verification-forensics',
     });
   });
 

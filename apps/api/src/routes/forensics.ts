@@ -15,6 +15,8 @@ import {
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { getProviderRuntime } from '../providers/index';
+import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
@@ -26,6 +28,7 @@ export type ForensicsConfig = {
   frontendBaseUrl: string;
   convexApiSecret: string;
   convexUrl: string;
+  encryptionSecret: string;
 };
 
 type ForensicsViewer = {
@@ -255,6 +258,113 @@ function buildInvestigationReport(
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
 
+  async function enrichTraceMatches(
+    viewer: ForensicsViewer,
+    matches: Array<{
+      tokenHash: string;
+      licenseSubject: string;
+      assetPath: string;
+      correlationId: string;
+      createdAt: number;
+      runtimeArtifactVersion: string;
+      runtimePlaintextSha256: string;
+      machineFingerprintHash: string;
+      projectIdHash: string;
+      grantId?: string;
+      packFamily?: string;
+      packVersion?: string;
+      provider?: string;
+      purchaserEmail?: string;
+      licenseKey?: string;
+      licenseKeyEncrypted?: string;
+      providerProductId?: string;
+      buyerProviderUserId?: string;
+      buyerProviderUsername?: string;
+      buyerSubjectDisplayName?: string;
+      buyerSubjectDiscordUserId?: string;
+    }>
+  ) {
+    const identityCache = new Map<
+      string,
+      Promise<{
+        licenseKey?: string;
+        buyerProviderUserId?: string;
+        buyerProviderUsername?: string;
+        buyerSubjectDisplayName?: string;
+        buyerSubjectDiscordUserId?: string;
+      } | null>
+    >();
+
+    return await Promise.all(
+      matches.map(async (match) => {
+        if (
+          match.buyerProviderUsername ||
+          match.buyerSubjectDisplayName ||
+          match.buyerSubjectDiscordUserId ||
+          match.purchaserEmail ||
+          !match.provider ||
+          !match.licenseKeyEncrypted
+        ) {
+          return match;
+        }
+
+        const cacheKey = `${match.provider}:${match.licenseSubject}`;
+        let pending = identityCache.get(cacheKey);
+        if (!pending) {
+          pending = (async () => {
+            const verification = getProviderRuntime(match.provider ?? '')?.verification;
+            if (!verification) {
+              return null;
+            }
+
+            const licenseKey = await decryptForensicsLicenseKey(
+              match.licenseKeyEncrypted as string,
+              config.encryptionSecret
+            );
+            const verified = await verification.verifyLicense(
+              licenseKey,
+              match.providerProductId,
+              viewer.authUserId,
+              {
+                convex,
+                apiSecret: config.convexApiSecret,
+                authUserId: viewer.authUserId,
+                encryptionSecret: config.encryptionSecret,
+              }
+            );
+
+            if (!verified?.valid) {
+              return { licenseKey };
+            }
+
+            const resolved = await convex.query(
+              api.couplingForensics.resolveBuyerIdentityForAuthUser,
+              {
+                apiSecret: config.convexApiSecret,
+                authUserId: viewer.authUserId,
+                provider: match.provider as string,
+                providerUserId: verified.providerUserId,
+                externalOrderId: verified.externalOrderId,
+              }
+            );
+
+            return {
+              licenseKey,
+              buyerProviderUserId: resolved?.buyerProviderUserId ?? verified.providerUserId,
+              buyerProviderUsername: resolved?.buyerProviderUsername,
+              buyerSubjectDisplayName: resolved?.buyerSubjectDisplayName,
+              buyerSubjectDiscordUserId: resolved?.buyerSubjectDiscordUserId,
+            };
+          })();
+          identityCache.set(cacheKey, pending);
+        }
+
+        const resolved = await pending;
+        return resolved ? { ...match, ...resolved } : match;
+      })
+    );
+  }
+
   async function listPackages(request: Request): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
     if (viewer instanceof Response) {
@@ -476,12 +586,19 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       const matchedTokenHashSet = new Set<string>(
         lookupResult.matches.map((m: { tokenHash: string }) => m.tokenHash)
       );
+      const enrichedMatches = await enrichTraceMatches(viewer, lookupResult.matches);
+      const enrichedMatchesByTokenHash = new Map<string, typeof enrichedMatches>();
+      for (const match of enrichedMatches) {
+        const bucket = enrichedMatchesByTokenHash.get(match.tokenHash) ?? [];
+        bucket.push(match);
+        enrichedMatchesByTokenHash.set(match.tokenHash, bucket);
+      }
 
       const results = scoreResults.map((scoreResult) => {
         const tokenHash = scoreResult.tokenHex
           ? sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex))
           : null;
-        const matches = tokenHash ? (matchesByTokenHash.get(tokenHash) ?? []) : [];
+        const matches = tokenHash ? (enrichedMatchesByTokenHash.get(tokenHash) ?? []) : [];
         const layerBClassification = classifyLayerB(scoreResult, matchedTokenHashSet);
         return {
           assetPath: scoreResult.assetPath,
@@ -505,6 +622,18 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
             ...(match.purchaserEmail !== undefined ? { purchaserEmail: match.purchaserEmail } : {}),
             ...(match.licenseKey !== undefined ? { licenseKey: match.licenseKey } : {}),
+            ...(match.buyerProviderUserId !== undefined
+              ? { buyerProviderUserId: match.buyerProviderUserId }
+              : {}),
+            ...(match.buyerProviderUsername !== undefined
+              ? { buyerProviderUsername: match.buyerProviderUsername }
+              : {}),
+            ...(match.buyerSubjectDisplayName !== undefined
+              ? { buyerSubjectDisplayName: match.buyerSubjectDisplayName }
+              : {}),
+            ...(match.buyerSubjectDiscordUserId !== undefined
+              ? { buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId }
+              : {}),
           })),
         };
       });

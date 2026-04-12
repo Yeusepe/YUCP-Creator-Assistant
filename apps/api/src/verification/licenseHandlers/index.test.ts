@@ -57,7 +57,7 @@ describe('license verification handler registry', () => {
         success: true,
         entitlementIds: ['ent_123'],
       })),
-    } as never;
+    };
 
     const handler = getHandler('with-verification');
     expect(handler).not.toBeNull();
@@ -74,7 +74,7 @@ describe('license verification handler registry', () => {
         convexUrl: 'https://convex.example',
         encryptionSecret: 'encryption-secret',
       } as never,
-      convex
+      convex as never
     );
 
     expect(verificationPlugin.verifyLicense).toHaveBeenCalled();
@@ -85,6 +85,17 @@ describe('license verification handler registry', () => {
       entitlementIds: ['ent_123'],
       error: 'License verification failed',
     });
+
+    expect(convex.mutation).toHaveBeenCalledWith(
+      'licenseVerification.completeLicenseVerification',
+      expect.objectContaining({
+        licenseSubjectLink: {
+          licenseSubject: expect.stringMatching(/^[0-9a-f]{64}$/),
+          licenseKeyEncrypted: expect.any(String),
+          providerProductId: 'provider_product_123',
+        },
+      })
+    );
   });
 
   it('returns null when a provider does not expose a verification plugin', () => {

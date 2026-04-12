@@ -1,5 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { base64UrlDecodeToBytes, base64UrlEncode } from './crypto';
+import { base64UrlDecodeToBytes, base64UrlEncode, sha256Bytes } from './crypto';
+import { toBufferSource } from './crypto/toBufferSource';
 import { generateCorrelationId, redactForLogging } from './logging';
 
 const ENCODED_PREFIX = 'VFY1';
@@ -67,8 +67,11 @@ export interface VerificationSupportContextResult extends EncodedVerificationSup
 }
 
 async function deriveKey(secret: string): Promise<CryptoKey> {
-  const digest = createHash('sha256').update(secret).digest();
-  return crypto.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  const digest = await sha256Bytes(secret);
+  return crypto.subtle.importKey('raw', toBufferSource(digest), { name: 'AES-GCM' }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
 }
 
 function normalizeField(value: string | null | undefined): string | undefined {
@@ -289,5 +292,5 @@ export function formatVerificationSupportMessage(prefix: string, supportCode: st
 }
 
 export function createPlainVerificationSupportCode(): string {
-  return `${PLAIN_PREFIX}-${randomUUID()}`;
+  return `${PLAIN_PREFIX}-${crypto.randomUUID()}`;
 }

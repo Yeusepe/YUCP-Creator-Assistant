@@ -25,6 +25,14 @@ export interface CouplingForensicsMatchSummary {
   purchaserEmail?: string | null;
   /** Raw license key used to verify the purchase */
   licenseKey?: string | null;
+  /** Provider-native buyer account identifier */
+  buyerProviderUserId?: string | null;
+  /** Provider-native buyer account username, if known */
+  buyerProviderUsername?: string | null;
+  /** Linked Discord subject display name, if the buyer verified through the bot */
+  buyerSubjectDisplayName?: string | null;
+  /** Linked Discord subject id, if the buyer verified through the bot */
+  buyerSubjectDiscordUserId?: string | null;
 }
 
 export interface CouplingForensicsAssetResult {

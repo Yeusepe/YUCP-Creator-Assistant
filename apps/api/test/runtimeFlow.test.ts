@@ -29,7 +29,7 @@ mock.module('../src/lib/couplingRuntimeArtifacts', () => ({
       if (errorMessage === 'No route matches GET /v1/runtime-artifacts/manifest') {
         return {
           success: false as const,
-          error: 'YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ' + errorMessage,
+          error: `YUCP_COUPLING_SERVICE_BASE_URL points at a non-coupling service: ${errorMessage}`,
         };
       }
       return {

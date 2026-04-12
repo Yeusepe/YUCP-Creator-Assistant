@@ -55,11 +55,29 @@ function noRetryOn4xx(failureCount: number, error: unknown): boolean {
 function getVerdictKind(
   status: CouplingForensicsLookupResponse['lookupStatus'],
   buyerCount: number
-): 'match' | 'tampered' | 'no_match' | 'no_assets' {
+): 'match' | 'trace_unresolved' | 'tampered' | 'no_match' | 'no_assets' {
   if (status === 'attributed' && buyerCount > 0) return 'match';
+  if (status === 'attributed') return 'trace_unresolved';
   if (status === 'tampered_suspected') return 'tampered';
   if (status === 'no_candidate_assets') return 'no_assets';
   return 'no_match';
+}
+
+function getBuyerDisplayLabel(match: {
+  buyerSubjectDisplayName?: string | null;
+  purchaserEmail?: string | null;
+  buyerProviderUsername?: string | null;
+  buyerProviderUserId?: string | null;
+  buyerSubjectDiscordUserId?: string | null;
+}) {
+  return (
+    match.buyerSubjectDisplayName?.trim() ||
+    match.purchaserEmail?.trim() ||
+    match.buyerProviderUsername?.trim() ||
+    match.buyerProviderUserId?.trim() ||
+    match.buyerSubjectDiscordUserId?.trim() ||
+    null
+  );
 }
 
 export default function DashboardForensics() {
@@ -168,10 +186,17 @@ export default function DashboardForensics() {
       provider?: string | null;
       purchaserEmail?: string | null;
       licenseKey?: string | null;
+      buyerProviderUserId?: string | null;
+      buyerProviderUsername?: string | null;
+      buyerSubjectDisplayName?: string | null;
+      buyerSubjectDiscordUserId?: string | null;
+      buyerDisplayLabel: string;
     }> = [];
     for (const entry of lookupResult.results) {
       if (!entry.matched) continue;
       for (const match of entry.matches) {
+        const buyerDisplayLabel = getBuyerDisplayLabel(match);
+        if (!buyerDisplayLabel) continue;
         if (!seen.has(match.licenseSubject)) {
           seen.add(match.licenseSubject);
           buyers.push({
@@ -186,8 +211,13 @@ export default function DashboardForensics() {
             packFamily: match.packFamily,
             packVersion: match.packVersion,
             provider: match.provider,
-            purchaserEmail: match.purchaserEmail,
+            purchaserEmail: match.purchaserEmail?.trim() || null,
             licenseKey: match.licenseKey,
+            buyerProviderUserId: match.buyerProviderUserId,
+            buyerProviderUsername: match.buyerProviderUsername,
+            buyerSubjectDisplayName: match.buyerSubjectDisplayName,
+            buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId,
+            buyerDisplayLabel,
           });
         }
       }
@@ -571,13 +601,31 @@ export default function DashboardForensics() {
                   {matchedBuyers.map((buyer) => (
                     <div key={buyer.licenseSubject} className="forensics-buyer-row">
                       <dl className="forensics-buyer-meta">
-                        {/* ── Primary: WHO, WHERE, LICENSE ── */}
-                        {buyer.purchaserEmail && (
-                          <div className="forensics-buyer-meta-row">
-                            <dt className="forensics-buyer-meta-key">Buyer</dt>
-                            <dd className="forensics-buyer-meta-val">{buyer.purchaserEmail}</dd>
-                          </div>
-                        )}
+                        <div className="forensics-buyer-meta-row">
+                          <dt className="forensics-buyer-meta-key">Buyer</dt>
+                          <dd className="forensics-buyer-meta-val">{buyer.buyerDisplayLabel}</dd>
+                        </div>
+
+                        {buyer.buyerSubjectDiscordUserId &&
+                          buyer.buyerSubjectDiscordUserId !== buyer.buyerDisplayLabel && (
+                            <div className="forensics-buyer-meta-row">
+                              <dt className="forensics-buyer-meta-key">Discord</dt>
+                              <dd className="forensics-buyer-meta-val">
+                                {buyer.buyerSubjectDiscordUserId}
+                              </dd>
+                            </div>
+                          )}
+
+                        {(buyer.buyerProviderUsername || buyer.buyerProviderUserId) &&
+                          (buyer.buyerProviderUsername ?? buyer.buyerProviderUserId) !==
+                            buyer.buyerDisplayLabel && (
+                            <div className="forensics-buyer-meta-row">
+                              <dt className="forensics-buyer-meta-key">Store account</dt>
+                              <dd className="forensics-buyer-meta-val">
+                                {buyer.buyerProviderUsername ?? buyer.buyerProviderUserId}
+                              </dd>
+                            </div>
+                          )}
 
                         {buyer.provider && (
                           <div className="forensics-buyer-meta-row">
@@ -603,16 +651,6 @@ export default function DashboardForensics() {
                             <dt className="forensics-buyer-meta-key">License key</dt>
                             <dd className="forensics-buyer-meta-val forensics-buyer-meta-val--mono">
                               {buyer.licenseKey}
-                            </dd>
-                          </div>
-                        )}
-
-                        {/* ── Secondary: technical identifiers ── */}
-                        {!buyer.purchaserEmail && (
-                          <div className="forensics-buyer-meta-row forensics-buyer-meta-row--full">
-                            <dt className="forensics-buyer-meta-key">License key hash (SHA-256)</dt>
-                            <dd className="forensics-buyer-meta-val forensics-buyer-meta-val--mono">
-                              {buyer.licenseSubject}
                             </dd>
                           </div>
                         )}
@@ -659,6 +697,33 @@ export default function DashboardForensics() {
                   ))}
                 </div>
               </>
+            ) : verdictKind === 'trace_unresolved' ? (
+              <div className="forensics-verdict forensics-verdict--neutral">
+                <div className="forensics-verdict-icon">
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                </div>
+                <div className="forensics-verdict-copy">
+                  <p className="forensics-verdict-title">Trace found</p>
+                  <p className="forensics-verdict-desc">
+                    This file matches a traced license in your store, but we don't have the original
+                    buyer linked to that license yet.
+                  </p>
+                </div>
+              </div>
             ) : verdictKind === 'tampered' ? (
               <div className="forensics-verdict forensics-verdict--warn">
                 <div className="forensics-verdict-icon">

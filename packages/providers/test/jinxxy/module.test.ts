@@ -103,6 +103,18 @@ describe('createJinxxyLicenseVerification', () => {
               valid: true,
               license: {
                 id: 'license-1',
+                customer_id: 'customer-1',
+                order_id: 'order-1',
+                product_id: 'product-1',
+              },
+            };
+          },
+          async verifyLicenseWithBuyerByKey() {
+            return {
+              valid: true,
+              license: {
+                id: 'license-1',
+                customer_id: 'customer-1',
                 order_id: 'order-1',
                 product_id: 'product-1',
               },
@@ -115,6 +127,7 @@ describe('createJinxxyLicenseVerification', () => {
     expect(await verification.verifyLicense('KEY', undefined, 'user-1', makeCtx())).toEqual({
       valid: true,
       externalOrderId: 'order-1',
+      providerUserId: 'customer-1',
       providerProductId: 'product-1',
       error: undefined,
     });

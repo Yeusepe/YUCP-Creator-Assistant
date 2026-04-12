@@ -7,6 +7,7 @@ const apiMock = {
   couplingForensics: {
     listOwnedPackageSummariesForAuthUser: 'couplingForensics.listOwnedPackageSummariesForAuthUser',
     lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
+    resolveBuyerIdentityForAuthUser: 'couplingForensics.resolveBuyerIdentityForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
   },
 } as const;
@@ -31,6 +32,23 @@ mock.module('../lib/csrf', () => ({
   rejectCrossSiteRequest: () => null,
 }));
 
+const verificationMock = mock<
+  () => Promise<{
+    valid: boolean;
+    providerUserId?: string;
+    externalOrderId?: string;
+    providerProductId?: string;
+  }>
+>(async () => ({ valid: false }));
+
+mock.module('../providers/index', () => ({
+  getProviderRuntime: () => ({
+    verification: {
+      verifyLicense: verificationMock,
+    },
+  }),
+}));
+
 const assetFixturePath = fileURLToPath(new URL(import.meta.url));
 
 mock.module('../lib/couplingForensicsArchives', () => ({
@@ -47,6 +65,7 @@ mock.module('../lib/couplingForensicsArchives', () => ({
 }));
 
 const { createForensicsRoutes } = await import('./forensics');
+const { encryptForensicsLicenseKey } = await import('../verification/forensicsLicenseKey');
 
 function sha256Hex(text: string): string {
   return createHash('sha256').update(text).digest('hex');
@@ -65,11 +84,14 @@ describe('forensics routes', () => {
     frontendBaseUrl: 'http://localhost:3000',
     convexApiSecret: 'convex-secret',
     convexUrl: 'http://convex.invalid',
+    encryptionSecret: 'encryption-secret',
   });
 
   beforeEach(() => {
     queryMock.mockReset();
     mutationMock.mockReset();
+    verificationMock.mockReset();
+    verificationMock.mockResolvedValue({ valid: false });
   });
 
   afterEach(() => {
@@ -501,6 +523,110 @@ describe('forensics routes', () => {
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       packageId: 'creator.package',
       status: 'hostile_unknown',
+    });
+  });
+
+  it('rehydrates buyer identity from the encrypted stored license instead of redundant stored buyer columns', async () => {
+    const encryptedLicenseKey = await encryptForensicsLicenseKey(
+      '11111111-2222-3333-4444-555555555555',
+      'encryption-secret'
+    );
+    const expectedTokenHash = sha256Hex('deadbeef');
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          matches: [
+            {
+              tokenHash: expectedTokenHash,
+              licenseSubject: 'license-subject-1',
+              assetPath: 'Assets/Character/body.png',
+              correlationId: 'corr_1',
+              createdAt: 1_739_999_999_000,
+              runtimeArtifactVersion: '2026.03.25.153000',
+              runtimePlaintextSha256: 'runtime-sha',
+              provider: 'jinxxy',
+              licenseKeyEncrypted: encryptedLicenseKey,
+              providerProductId: 'product-123',
+            },
+          ],
+          unmatchedTokenHashes: [],
+        };
+      }
+      if (ref === apiMock.couplingForensics.resolveBuyerIdentityForAuthUser) {
+        return {
+          buyerProviderUserId: 'customer-123',
+          buyerProviderUsername: 'BuyerAccount',
+          buyerSubjectDisplayName: 'Buyer One',
+          buyerSubjectDiscordUserId: 'discord-buyer-1',
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+
+    mutationMock.mockResolvedValue(undefined);
+    verificationMock.mockResolvedValue({
+      valid: true,
+      providerUserId: 'customer-123',
+      externalOrderId: 'order-123',
+      providerProductId: 'product-123',
+    });
+
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          requestId: 'req-4',
+          results: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              decoderKind: 'png',
+              preclassification: 'decoded',
+              tokenHex: 'deadbeef',
+              tokenLength: 8,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([16, 17, 18])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      lookupStatus: 'attributed',
+      results: [
+        {
+          matches: [
+            {
+              buyerProviderUserId: 'customer-123',
+              buyerProviderUsername: 'BuyerAccount',
+              buyerSubjectDisplayName: 'Buyer One',
+              buyerSubjectDiscordUserId: 'discord-buyer-1',
+              licenseKey: '11111111-2222-3333-4444-555555555555',
+            },
+          ],
+        },
+      ],
     });
   });
 });

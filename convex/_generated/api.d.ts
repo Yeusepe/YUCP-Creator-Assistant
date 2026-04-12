@@ -48,6 +48,7 @@ import type * as lib_couplingServiceRuntimeArtifacts from "../lib/couplingServic
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
+import type * as lib_licenseSubjectLink from "../lib/licenseSubjectLink.js";
 import type * as lib_logger from "../lib/logger.js";
 import type * as lib_piiCrypto from "../lib/piiCrypto.js";
 import type * as lib_protectedAssetKeyCrypto from "../lib/protectedAssetKeyCrypto.js";
@@ -157,6 +158,7 @@ declare const fullApi: ApiFromModules<{
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
+  "lib/licenseSubjectLink": typeof lib_licenseSubjectLink;
   "lib/logger": typeof lib_logger;
   "lib/piiCrypto": typeof lib_piiCrypto;
   "lib/protectedAssetKeyCrypto": typeof lib_protectedAssetKeyCrypto;

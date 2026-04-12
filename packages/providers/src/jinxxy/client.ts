@@ -473,6 +473,84 @@ export class JinxxyApiClient {
   }
 
   /**
+   * Verify a license and recover the purchaser email from the linked order or customer.
+   *
+   * Jinxxy Creator API references:
+   * - https://api.creators.jinxxy.com/v1/docs
+   * - https://api.creators.jinxxy.com/v1/openapi.json
+   */
+  async verifyLicenseWithBuyerByKey(licenseKey: string): Promise<{
+    valid: boolean;
+    license: JinxxyLicense | null;
+    purchaserEmail?: string;
+    providerUserId?: string;
+    externalOrderId?: string;
+    providerProductId?: string;
+    error?: string;
+  }> {
+    const result = await this.verifyLicenseByKey(licenseKey);
+    if (!result.valid || !result.license) {
+      return result;
+    }
+
+    const resolvedIdentity = await this.resolveBuyerIdentity(result.license);
+    return {
+      ...result,
+      purchaserEmail: resolvedIdentity.purchaserEmail,
+      providerUserId: resolvedIdentity.providerUserId,
+      externalOrderId: result.license.order_id ?? result.license.id ?? undefined,
+      providerProductId: result.license.product_id ?? undefined,
+    };
+  }
+
+  private normalizeEmail(email?: string | null): string | undefined {
+    const normalized = email?.trim().toLowerCase();
+    return normalized ? normalized : undefined;
+  }
+
+  private async resolveBuyerIdentity(license: JinxxyLicense): Promise<{
+    purchaserEmail?: string;
+    providerUserId?: string;
+  }> {
+    const customerIds = new Set<string>();
+    let providerUserId = license.customer_id;
+
+    if (license.order_id) {
+      const order = await this.getOrder(license.order_id);
+      const orderEmail = this.normalizeEmail(order?.email);
+      providerUserId ??= order?.customer_id;
+      if (orderEmail) {
+        return {
+          purchaserEmail: orderEmail,
+          providerUserId,
+        };
+      }
+      if (order?.customer_id) {
+        customerIds.add(order.customer_id);
+      }
+    }
+
+    if (license.customer_id) {
+      customerIds.add(license.customer_id);
+    }
+
+    for (const customerId of customerIds) {
+      const customer = await this.getCustomer(customerId);
+      const customerEmail = this.normalizeEmail(customer?.email);
+      if (customerEmail) {
+        return {
+          purchaserEmail: customerEmail,
+          providerUserId: customer?.id ?? providerUserId ?? customerId,
+        };
+      }
+    }
+
+    return {
+      providerUserId,
+    };
+  }
+
+  /**
    * Get activations for a license
    */
   async getLicenseActivations(

@@ -1881,25 +1881,35 @@ const coupling_trace_records = defineTable({
   .index('by_grant_id', ['grantId']);
 
 /**
- * Maps a license subject (SHA-256 of the raw license key) to buyer identity.
- * Written at license verification time so forensics lookups can resolve
- * WHO bought it, WHERE (provider), and the raw LICENSE key.
+ * License subject links for forensics rehydration.
+ * Written at license verification time so coupling lookups can resolve
+ * the buyer account, order, and raw license key without requiring email.
  */
-const license_buyer_identity = defineTable({
+const license_subject_links = defineTable({
   /** SHA-256 of the raw license key — join key shared with coupling_trace_records.licenseSubject */
   licenseSubject: v.string(),
   /** Creator who owns this package */
   authUserId: v.string(),
-  packageId: v.string(),
+  /** Optional package scope when the verification flow knows the exact package. */
+  packageId: v.optional(v.string()),
   /** Store the license was purchased from ('gumroad', 'jinxxy', etc.) */
   provider: v.string(),
-  /** The raw license key — needed to cross-reference in the provider's dashboard */
-  licenseKey: v.string(),
-  /** Buyer email returned by the provider API at verification time */
-  purchaserEmail: v.string(),
+  /** Legacy plaintext license storage. New writes use licenseKeyEncrypted instead. */
+  licenseKey: v.optional(v.string()),
+  /** AES-256-GCM encrypted raw license key (HKDF purpose: 'forensics-license-key'). */
+  licenseKeyEncrypted: v.optional(v.string()),
+  /** Buyer email returned by the provider API at verification time, when available */
+  purchaserEmail: v.optional(v.string()),
+  /** Provider-native buyer account identifier used by the bot verification flow */
+  providerUserId: v.optional(v.string()),
+  /** Provider-native order reference for purchase_facts joins */
+  externalOrderId: v.optional(v.string()),
+  /** Provider-native product reference returned at verification time */
+  providerProductId: v.optional(v.string()),
   createdAt: v.number(),
 })
   .index('by_subject', ['licenseSubject'])
+  .index('by_auth_user_subject', ['authUserId', 'licenseSubject'])
   .index('by_auth_user', ['authUserId', 'createdAt']);
 
 /**
@@ -2241,7 +2251,7 @@ export default defineSchema({
   creator_billing_reconciliation_targets,
   signed_release_artifacts,
   coupling_trace_records,
-  license_buyer_identity,
+  license_subject_links,
   revoked_grants,
   yucp_manifests,
   yucp_certificates,

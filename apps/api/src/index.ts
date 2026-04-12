@@ -269,6 +269,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
+    encryptionSecret,
   });
 
   packageRoutes = createPackageRoutes(auth, {

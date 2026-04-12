@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
+import { mutation, query, type QueryCtx } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
 
@@ -36,6 +36,104 @@ function isArchivedPackage(
   registration: Pick<Doc<'package_registry'>, 'status'> | null | undefined
 ): boolean {
   return registration?.status === 'archived';
+}
+
+type ResolvedBuyerIdentity = {
+  buyerProviderUserId?: string;
+  buyerProviderUsername?: string;
+  buyerSubjectDisplayName?: string;
+  buyerSubjectDiscordUserId?: string;
+};
+
+async function resolveBuyerIdentityFromProviderRefs(
+  ctx: Pick<QueryCtx, 'db'>,
+  args: {
+    authUserId: string;
+    provider: string;
+    providerUserId?: string;
+    externalOrderId?: string;
+  }
+): Promise<ResolvedBuyerIdentity | null> {
+  let buyerProviderUserId = args.providerUserId;
+  let buyerProviderUsername: string | undefined;
+  let buyerSubjectDisplayName: string | undefined;
+  let buyerSubjectDiscordUserId: string | undefined;
+
+  const hydrateFromProviderAccount = async (providerUserId: string) => {
+    const externalAccount = await ctx.db
+      .query('external_accounts')
+      .withIndex('by_provider_user', (q) =>
+        q
+          .eq('provider', args.provider as Doc<'external_accounts'>['provider'])
+          .eq('providerUserId', providerUserId)
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!externalAccount) {
+      return;
+    }
+
+    buyerProviderUsername = externalAccount.providerUsername;
+    const binding = await ctx.db
+      .query('bindings')
+      .withIndex('by_auth_user_external', (q) =>
+        q.eq('authUserId', args.authUserId).eq('externalAccountId', externalAccount._id)
+      )
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!binding) {
+      return;
+    }
+
+    const subject = await ctx.db.get(binding.subjectId);
+    buyerSubjectDisplayName = subject?.displayName;
+    buyerSubjectDiscordUserId = subject?.primaryDiscordUserId;
+  };
+
+  if (buyerProviderUserId) {
+    await hydrateFromProviderAccount(buyerProviderUserId);
+  }
+
+  if (!buyerSubjectDisplayName && !buyerSubjectDiscordUserId && args.externalOrderId) {
+    const purchaseFact = await ctx.db
+      .query('purchase_facts')
+      .withIndex('by_auth_user_provider_order', (q) =>
+        q
+          .eq('authUserId', args.authUserId)
+          .eq('provider', args.provider as Doc<'purchase_facts'>['provider'])
+          .eq('externalOrderId', args.externalOrderId as string)
+      )
+      .first();
+
+    buyerProviderUserId ??= purchaseFact?.providerUserId;
+    if (purchaseFact?.subjectId) {
+      const subject = await ctx.db.get(purchaseFact.subjectId);
+      buyerSubjectDisplayName = subject?.displayName;
+      buyerSubjectDiscordUserId = subject?.primaryDiscordUserId;
+    }
+
+    if (buyerProviderUserId && !buyerProviderUsername) {
+      await hydrateFromProviderAccount(buyerProviderUserId);
+    }
+  }
+
+  if (
+    !buyerProviderUserId &&
+    !buyerProviderUsername &&
+    !buyerSubjectDisplayName &&
+    !buyerSubjectDiscordUserId
+  ) {
+    return null;
+  }
+
+  return {
+    buyerProviderUserId,
+    buyerProviderUsername,
+    buyerSubjectDisplayName,
+    buyerSubjectDiscordUserId,
+  };
 }
 
 export const listOwnedPackagesForAuthUser = query({
@@ -144,6 +242,12 @@ export const lookupTraceMatchesForAuthUser = query({
         provider: v.optional(v.string()),
         purchaserEmail: v.optional(v.string()),
         licenseKey: v.optional(v.string()),
+        licenseKeyEncrypted: v.optional(v.string()),
+        providerProductId: v.optional(v.string()),
+        buyerProviderUserId: v.optional(v.string()),
+        buyerProviderUsername: v.optional(v.string()),
+        buyerSubjectDisplayName: v.optional(v.string()),
+        buyerSubjectDiscordUserId: v.optional(v.string()),
       })
     ),
     unmatchedTokenHashes: v.array(v.string()),
@@ -172,7 +276,11 @@ export const lookupTraceMatchesForAuthUser = query({
     const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
       packageId: args.packageId,
     });
-    if (!registration || registration.yucpUserId !== args.authUserId || isArchivedPackage(registration)) {
+    if (
+      !registration ||
+      registration.yucpUserId !== args.authUserId ||
+      isArchivedPackage(registration)
+    ) {
       return {
         capabilityEnabled: true,
         packageOwned: false,
@@ -197,8 +305,80 @@ export const lookupTraceMatchesForAuthUser = query({
       provider?: string;
       purchaserEmail?: string;
       licenseKey?: string;
+      licenseKeyEncrypted?: string;
+      providerProductId?: string;
+      buyerProviderUserId?: string;
+      buyerProviderUsername?: string;
+      buyerSubjectDisplayName?: string;
+      buyerSubjectDiscordUserId?: string;
     }> = [];
     const matchedTokenHashes = new Set<string>();
+    const resolvedIdentityBySubject = new Map<
+      string,
+      Promise<{
+        provider?: string;
+        purchaserEmail?: string;
+        licenseKey?: string;
+        licenseKeyEncrypted?: string;
+        providerProductId?: string;
+        buyerProviderUserId?: string;
+        buyerProviderUsername?: string;
+        buyerSubjectDisplayName?: string;
+        buyerSubjectDiscordUserId?: string;
+      } | null>
+    >();
+
+    const resolveIdentityForSubject = (
+      licenseSubject: string
+    ): Promise<{
+      provider?: string;
+      purchaserEmail?: string;
+      licenseKey?: string;
+      licenseKeyEncrypted?: string;
+      providerProductId?: string;
+      buyerProviderUserId?: string;
+      buyerProviderUsername?: string;
+      buyerSubjectDisplayName?: string;
+      buyerSubjectDiscordUserId?: string;
+    } | null> => {
+      const existing = resolvedIdentityBySubject.get(licenseSubject);
+      if (existing) {
+        return existing;
+      }
+
+      const pending = (async () => {
+        const identity = await ctx.db
+          .query('license_subject_links')
+          .withIndex('by_auth_user_subject', (q) =>
+            q.eq('authUserId', args.authUserId).eq('licenseSubject', licenseSubject)
+          )
+          .first();
+        if (!identity) {
+          return null;
+        }
+        const resolved = await resolveBuyerIdentityFromProviderRefs(ctx, {
+          authUserId: args.authUserId,
+          provider: identity.provider,
+          providerUserId: identity.providerUserId,
+          externalOrderId: identity.externalOrderId,
+        });
+
+        return {
+          provider: identity.provider,
+          purchaserEmail: identity.purchaserEmail,
+          licenseKey: identity.licenseKey,
+          licenseKeyEncrypted: identity.licenseKeyEncrypted,
+          providerProductId: identity.providerProductId,
+          buyerProviderUserId: resolved?.buyerProviderUserId ?? identity.providerUserId,
+          buyerProviderUsername: resolved?.buyerProviderUsername,
+          buyerSubjectDisplayName: resolved?.buyerSubjectDisplayName,
+          buyerSubjectDiscordUserId: resolved?.buyerSubjectDiscordUserId,
+        };
+      })();
+
+      resolvedIdentityBySubject.set(licenseSubject, pending);
+      return pending;
+    };
 
     for (const tokenHash of tokenHashes) {
       const rows = await ctx.db
@@ -215,11 +395,7 @@ export const lookupTraceMatchesForAuthUser = query({
       for (const row of scopedRows) {
         matchedTokenHashes.add(tokenHash);
 
-        // Join with license_buyer_identity to get WHO, WHERE, and the LICENSE key
-        const identity = await ctx.db
-          .query('license_buyer_identity')
-          .withIndex('by_subject', (q) => q.eq('licenseSubject', row.licenseSubject))
-          .first();
+        const identity = await resolveIdentityForSubject(row.licenseSubject);
 
         matches.push({
           tokenHash,
@@ -237,6 +413,12 @@ export const lookupTraceMatchesForAuthUser = query({
           provider: identity?.provider ?? row.provider,
           purchaserEmail: identity?.purchaserEmail,
           licenseKey: identity?.licenseKey,
+          licenseKeyEncrypted: identity?.licenseKeyEncrypted,
+          providerProductId: identity?.providerProductId,
+          buyerProviderUserId: identity?.buyerProviderUserId,
+          buyerProviderUsername: identity?.buyerProviderUsername,
+          buyerSubjectDisplayName: identity?.buyerSubjectDisplayName,
+          buyerSubjectDiscordUserId: identity?.buyerSubjectDiscordUserId,
         });
       }
     }
@@ -247,6 +429,29 @@ export const lookupTraceMatchesForAuthUser = query({
       matches,
       unmatchedTokenHashes: tokenHashes.filter((tokenHash) => !matchedTokenHashes.has(tokenHash)),
     };
+  },
+});
+
+export const resolveBuyerIdentityForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.string(),
+    providerUserId: v.optional(v.string()),
+    externalOrderId: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      buyerProviderUserId: v.optional(v.string()),
+      buyerProviderUsername: v.optional(v.string()),
+      buyerSubjectDisplayName: v.optional(v.string()),
+      buyerSubjectDiscordUserId: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return await resolveBuyerIdentityFromProviderRefs(ctx, args);
   },
 });
 

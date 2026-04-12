@@ -18,6 +18,7 @@ import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { LicenseProviderV } from './lib/providers';
 import { upsertBuyerProviderLinkRecord } from './subjects';
 
@@ -31,6 +32,12 @@ const ProductToGrant = v.object({
   productId: v.string(),
   sourceReference: v.string(),
   catalogProductId: v.optional(v.id('product_catalog')),
+});
+
+const LicenseSubjectLink = v.object({
+  licenseSubject: v.string(),
+  licenseKeyEncrypted: v.string(),
+  providerProductId: v.optional(v.string()),
 });
 
 /**
@@ -66,6 +73,7 @@ export const completeLicenseVerification = mutation({
       })
     ),
     productsToGrant: v.array(ProductToGrant),
+    licenseSubjectLink: v.optional(LicenseSubjectLink),
     correlationId: v.optional(v.string()),
   },
   returns: v.object({
@@ -205,6 +213,16 @@ export const completeLicenseVerification = mutation({
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
       throw new Error(`Subject not found: ${args.subjectId}`);
+    }
+
+    if (args.licenseSubjectLink) {
+      await upsertLicenseSubjectLink(ctx, {
+        authUserId: args.authUserId,
+        licenseSubject: args.licenseSubjectLink.licenseSubject,
+        provider: args.provider,
+        licenseKeyEncrypted: args.licenseSubjectLink.licenseKeyEncrypted,
+        providerProductId: args.licenseSubjectLink.providerProductId,
+      });
     }
 
     const duplicateBehavior = profile.policy?.duplicateVerificationBehavior ?? 'allow';
