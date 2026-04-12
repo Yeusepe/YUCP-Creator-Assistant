@@ -3,8 +3,8 @@
 
 .section-card {
   background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 16px;
   box-shadow:
@@ -62,8 +62,8 @@
 .quick-start-step-header,
 .platform-card {
   background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 20px;
   padding: 24px;
@@ -138,8 +138,8 @@
 
 .dark .platform-card {
   background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px) saturate(150%);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
@@ -293,8 +293,8 @@
   inset: 0;
   z-index: 100000;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -316,8 +316,8 @@
   left: 0;
   width: 260px;
   background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
   border: 1.5px solid rgba(255, 255, 255, 0.6);
   border-radius: 18px;
   box-shadow:
@@ -502,8 +502,8 @@
 
 .intg-card {
   background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
   border: 1px solid rgba(255, 255, 255, 0.75);
   border-radius: 16px;
   padding: 22px 24px;

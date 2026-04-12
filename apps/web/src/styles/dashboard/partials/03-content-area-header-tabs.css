@@ -14,9 +14,9 @@
 
   /* Liquid Glass background */
   background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(var(--dashboard-glass-blur)) saturate(var(--dashboard-glass-saturate));
   -webkit-backdrop-filter: blur(var(--dashboard-glass-blur))
     saturate(var(--dashboard-glass-saturate));
+  backdrop-filter: blur(var(--dashboard-glass-blur)) saturate(var(--dashboard-glass-saturate));
   border-left: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow:
     inset 0 0 60px rgba(255, 255, 255, 0.3),

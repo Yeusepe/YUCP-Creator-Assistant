@@ -150,8 +150,8 @@
 
 .dark .section-card {
   background: rgba(30, 41, 59, 0.45);
-  backdrop-filter: blur(12px) saturate(140%);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
+  backdrop-filter: blur(12px) saturate(140%);
   border-color: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
@@ -236,8 +236,8 @@
 .dark .oauth-edit-body {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
   border-color: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(48px) saturate(200%);
   -webkit-backdrop-filter: blur(48px) saturate(200%);
+  backdrop-filter: blur(48px) saturate(200%);
   box-shadow:
     0 24px 48px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.06) inset;
@@ -436,8 +436,8 @@
     0 8px 32px rgba(0, 0, 0, 0.5),
     0 2px 8px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(40px) saturate(180%);
   -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
 }
 
 .dark #server-dropdown-menu .server-dropdown-item,
@@ -496,8 +496,8 @@
 .dark .intg-card .dropdown-menu {
   background: rgba(15, 23, 42, 0.97);
   border-color: rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
   box-shadow:
     0 4px 6px -1px rgba(0, 0, 0, 0.3),
     0 12px 36px -6px rgba(0, 0, 0, 0.5);

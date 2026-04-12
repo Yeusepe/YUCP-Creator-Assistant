@@ -1144,26 +1144,33 @@ function SidebarLogoArea({
 function DashboardRouteErrorComponent({ error }: { error: Error }) {
   return (
     <div className="dashboard-page">
+      <CloudBackground variant="default" />
       <div className="app-shell">
         <main className="content-area">
-          <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
-            <div className="content-header-eyebrow">Dashboard Error</div>
-            <h1 className="content-header-title">Dashboard unavailable</h1>
-            <p className="content-header-desc" style={{ fontFamily: "'AirbnbCereal', sans-serif" }}>
-              The dashboard shell could not be loaded. Refresh the page or sign in again if the
-              problem persists.
-            </p>
-            <pre
-              style={{
-                marginTop: '20px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                color: 'rgba(255,255,255,0.72)',
-              }}
-            >
-              {error.message}
-            </pre>
-          </section>
+          <DotMatrixBackground />
+          <div className="content-area-inner">
+            <section className="section-card bento-col-12 p-6 sm:p-7 md:p-8">
+              <div className="content-header-eyebrow">Dashboard Error</div>
+              <h1 className="content-header-title">Dashboard unavailable</h1>
+              <p
+                className="content-header-desc"
+                style={{ fontFamily: "'AirbnbCereal', sans-serif" }}
+              >
+                The dashboard shell could not be loaded. Refresh the page or sign in again if the
+                problem persists.
+              </p>
+              <pre
+                style={{
+                  marginTop: '20px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  color: 'rgba(255,255,255,0.72)',
+                }}
+              >
+                {error.message}
+              </pre>
+            </section>
+          </div>
         </main>
       </div>
     </div>
