@@ -35,7 +35,6 @@ export interface HyperdxDevConfig {
   appPort: string;
   otlpGrpcPort: string;
   otlpHttpPort: string;
-  apiKey: string;
   usageStatsEnabled: string;
 }
 
@@ -46,7 +45,6 @@ function readConfig(env: NodeJS.ProcessEnv = process.env): HyperdxDevConfig {
     appPort: env.HYPERDX_APP_PORT ?? DEFAULT_APP_PORT,
     otlpGrpcPort: env.HYPERDX_OTLP_GRPC_PORT ?? DEFAULT_OTLP_GRPC_PORT,
     otlpHttpPort: env.HYPERDX_OTLP_HTTP_PORT ?? DEFAULT_OTLP_HTTP_PORT,
-    apiKey: env.HYPERDX_API_KEY ?? 'local',
     usageStatsEnabled: env.HYPERDX_USAGE_STATS_ENABLED ?? DEFAULT_USAGE_STATS_ENABLED,
   };
 }
@@ -71,8 +69,6 @@ export function buildHyperdxDockerArgs(env: NodeJS.ProcessEnv = process.env): st
     `${path.join(volumesDir, 'ch_data')}:/var/lib/clickhouse`,
     '-v',
     `${path.join(volumesDir, 'ch_logs')}:/var/log/clickhouse-server`,
-    '-e',
-    `HYPERDX_API_KEY=${config.apiKey}`,
     '-e',
     `USAGE_STATS_ENABLED=${config.usageStatsEnabled}`,
     config.image,
@@ -136,7 +132,9 @@ async function removeExistingContainer(containerName: string) {
     return;
   }
 
-  throw new Error(stderrText.trim() || `docker rm -f ${containerName} failed with exit code ${exitCode}`);
+  throw new Error(
+    stderrText.trim() || `docker rm -f ${containerName} failed with exit code ${exitCode}`
+  );
 }
 
 async function main() {

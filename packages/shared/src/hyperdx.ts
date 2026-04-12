@@ -1,4 +1,3 @@
-const LOCAL_HYPERDX_API_KEY = 'local';
 const LOCAL_HYPERDX_APP_URL = 'http://localhost:8080';
 const LOCAL_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const LOCAL_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
@@ -12,6 +11,7 @@ export interface HyperdxEnvLike {
   HYPERDX_OTLP_HTTP_URL?: string;
   HYPERDX_OTLP_GRPC_URL?: string;
   OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  OTEL_EXPORTER_OTLP_HEADERS?: string;
   OTEL_EXPORTER_OTLP_PROTOCOL?: string;
   OTEL_SERVICE_NAME?: string;
   HDX_NODE_BETA_MODE?: string;
@@ -19,6 +19,8 @@ export interface HyperdxEnvLike {
 
 export interface ResolvedHyperdxConfig {
   apiKey?: string;
+  otelExporterHeaders?: string;
+  hasOtelAuth: boolean;
   appUrl: string;
   otlpHttpUrl: string;
   otlpGrpcUrl: string;
@@ -31,50 +33,30 @@ function normalizeOptional(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-function isLocalOrigin(value: string | undefined): boolean {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const host = new URL(value).hostname;
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  } catch {
-    return false;
-  }
+export function resolveHyperdxApiKey(env: HyperdxEnvLike): string | undefined {
+  return normalizeOptional(env.HYPERDX_API_KEY);
 }
 
-export function resolveHyperdxApiKey(
-  env: HyperdxEnvLike,
-  { allowLocalFallback = false }: { allowLocalFallback?: boolean } = {}
-): string | undefined {
-  const explicit = normalizeOptional(env.HYPERDX_API_KEY);
-  if (explicit) {
-    return explicit;
+function resolveOtelExporterHeaders(env: HyperdxEnvLike, apiKey: string | undefined): string | undefined {
+  const explicitHeaders = normalizeOptional(env.OTEL_EXPORTER_OTLP_HEADERS);
+  if (!apiKey) {
+    return explicitHeaders;
   }
 
-  if (!allowLocalFallback) {
-    return undefined;
+  if (!explicitHeaders) {
+    return `Authorization=${apiKey}`;
   }
 
-  if ((env.NODE_ENV ?? 'development') === 'production') {
-    return undefined;
+  if (/(^|,)\s*Authorization\s*=/.test(explicitHeaders)) {
+    return explicitHeaders;
   }
 
-  const localEndpoint =
-    isLocalOrigin(normalizeOptional(env.HYPERDX_APP_URL)) ||
-    isLocalOrigin(normalizeOptional(env.HYPERDX_OTLP_HTTP_URL)) ||
-    isLocalOrigin(normalizeOptional(env.OTEL_EXPORTER_OTLP_ENDPOINT)) ||
-    isLocalOrigin(normalizeOptional(env.FRONTEND_URL)) ||
-    isLocalOrigin(normalizeOptional(env.SITE_URL));
-
-  return localEndpoint ? LOCAL_HYPERDX_API_KEY : undefined;
+  return `${explicitHeaders},Authorization=${apiKey}`;
 }
 
-export function resolveHyperdxConfig(
-  env: HyperdxEnvLike,
-  { allowLocalFallbackApiKey = false }: { allowLocalFallbackApiKey?: boolean } = {}
-): ResolvedHyperdxConfig {
+export function resolveHyperdxConfig(env: HyperdxEnvLike): ResolvedHyperdxConfig {
+  const apiKey = resolveHyperdxApiKey(env);
+  const otelExporterHeaders = resolveOtelExporterHeaders(env, apiKey);
   const appUrl = normalizeOptional(env.HYPERDX_APP_URL) ?? LOCAL_HYPERDX_APP_URL;
   const otlpHttpUrl =
     normalizeOptional(env.HYPERDX_OTLP_HTTP_URL) ??
@@ -83,7 +65,9 @@ export function resolveHyperdxConfig(
   const otlpGrpcUrl = normalizeOptional(env.HYPERDX_OTLP_GRPC_URL) ?? LOCAL_HYPERDX_OTLP_GRPC_URL;
 
   return {
-    apiKey: resolveHyperdxApiKey(env, { allowLocalFallback: allowLocalFallbackApiKey }),
+    apiKey,
+    otelExporterHeaders,
+    hasOtelAuth: Boolean(otelExporterHeaders),
     appUrl,
     otlpHttpUrl,
     otlpGrpcUrl,
@@ -94,14 +78,9 @@ export function resolveHyperdxConfig(
 
 export function applyNodeHyperdxDefaults(
   env: NodeJS.ProcessEnv,
-  serviceName: string,
-  options: {
-    allowLocalFallbackApiKey?: boolean;
-  } = {}
+  serviceName: string
 ): ResolvedHyperdxConfig {
-  const resolved = resolveHyperdxConfig(env, {
-    allowLocalFallbackApiKey: options.allowLocalFallbackApiKey ?? true,
-  });
+  const resolved = resolveHyperdxConfig(env);
 
   if (resolved.apiKey && !normalizeOptional(env.HYPERDX_API_KEY)) {
     env.HYPERDX_API_KEY = resolved.apiKey;
@@ -111,6 +90,9 @@ export function applyNodeHyperdxDefaults(
   env.HYPERDX_OTLP_HTTP_URL ??= resolved.otlpHttpUrl;
   env.HYPERDX_OTLP_GRPC_URL ??= resolved.otlpGrpcUrl;
   env.OTEL_EXPORTER_OTLP_ENDPOINT ??= resolved.otelExporterEndpoint;
+  if (resolved.otelExporterHeaders && !normalizeOptional(env.OTEL_EXPORTER_OTLP_HEADERS)) {
+    env.OTEL_EXPORTER_OTLP_HEADERS = resolved.otelExporterHeaders;
+  }
   env.OTEL_EXPORTER_OTLP_PROTOCOL ??= resolved.otelExporterProtocol;
   env.OTEL_SERVICE_NAME ??= serviceName;
   env.HDX_NODE_BETA_MODE ??= '1';

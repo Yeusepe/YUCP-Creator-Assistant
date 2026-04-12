@@ -52,6 +52,25 @@ async function fetchWithTimeout(
   }
 }
 
+function getInteractionSpanName(interaction: Parameters<typeof handleInteraction>[0]) {
+  if (interaction.isChatInputCommand() || interaction.isAutocomplete()) {
+    return interaction.commandName;
+  }
+
+  if (
+    interaction.isButton() ||
+    interaction.isModalSubmit() ||
+    interaction.isStringSelectMenu() ||
+    interaction.isRoleSelectMenu() ||
+    interaction.isChannelSelectMenu() ||
+    interaction.isUserSelectMenu()
+  ) {
+    return interaction.customId;
+  }
+
+  return 'unknown';
+}
+
 async function discordPreflight(token: string): Promise<void> {
   const headers = {
     Authorization: `Bot ${token}`,
@@ -227,10 +246,7 @@ async function main() {
           'discord.interaction',
           {
             interactionType: interaction.type,
-            commandName:
-              'commandName' in interaction && typeof interaction.commandName === 'string'
-                ? interaction.commandName
-                : interaction.customId ?? String(interaction.type),
+            commandName: getInteractionSpanName(interaction),
             guildId: interaction.guildId ?? 'dm',
             userId: interaction.user.id,
           },

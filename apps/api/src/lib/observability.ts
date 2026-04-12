@@ -1,12 +1,12 @@
 import { initSDK, setTraceAttributes } from '@hyperdx/node-opentelemetry';
 import {
+  type Attributes,
   context,
   propagation,
   ROOT_CONTEXT,
   SpanKind,
   SpanStatusCode,
   trace,
-  type Attributes,
 } from '@opentelemetry/api';
 import { applyNodeHyperdxDefaults } from '@yucp/shared';
 
@@ -34,7 +34,7 @@ function addSpanAttributes(attributes: Record<string, string | number | boolean 
 
 export function initApiObservability(env: NodeJS.ProcessEnv = process.env) {
   const resolved = applyNodeHyperdxDefaults(env, 'yucp-api');
-  if (initialized || !resolved.apiKey) {
+  if (initialized || !resolved.hasOtelAuth) {
     return resolved;
   }
 

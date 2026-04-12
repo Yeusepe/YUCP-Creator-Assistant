@@ -150,7 +150,7 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 - Lint: `bun run lint`. Typecheck: `bun run typecheck`. Tests: `bun run test` (or `bun run test:ci`).
 - Full dev stack (Convex + API + bot + HyperDX + optional tunnel): `bun run dev` or `bun run dev:infisical`.
 - Local HyperDX UI: `http://localhost:8080`. OTLP endpoints: `http://localhost:4318` (HTTP) and `localhost:4317` (gRPC).
-- `bun run dev:infisical` reads `.env.infisical` and now seeds HyperDX/OTEL env defaults too, so browser/node instrumentation can target the local collector without extra shell setup.
+- `bun run dev:infisical` reads `.env.infisical` and seeds the local ClickStack endpoints automatically. To actually ingest browser/API/bot telemetry, create a HyperDX ingest key in `http://localhost:8080` under Team Settings -> API Keys and store it as `HYPERDX_API_KEY` in Infisical.
 - If Docker Desktop is not running, the dev stack stays up and logs that HyperDX was skipped.
 - Convex: `npx convex dev` / `npx convex deploy`. Unit tests live alongside implementations.
 

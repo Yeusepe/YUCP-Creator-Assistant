@@ -4,9 +4,8 @@ import { once } from 'node:events';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-
-import { buildHyperdxDockerArgs, isDockerUnavailable } from './hyperdx-dev';
 import { applyLocalDevDefaults, isProcessAlive, killProcessTree } from './dev-supervisor';
+import { buildHyperdxDockerArgs, isDockerUnavailable } from './hyperdx-dev';
 
 async function waitFor<T>(
   load: () => Promise<T>,
@@ -55,7 +54,6 @@ describe('DevSupervisor', () => {
     expect(exitCode).toBe(0);
     expect(JSON.parse(outputText)).toEqual({
       FRONTEND_URL: 'http://localhost:9999',
-      HYPERDX_API_KEY: 'local',
       HYPERDX_APP_URL: 'http://localhost:8080',
       HYPERDX_OTLP_HTTP_URL: 'http://localhost:54321',
       HYPERDX_OTLP_GRPC_URL: 'http://localhost:4317',
@@ -76,9 +74,15 @@ describe('DevSupervisor', () => {
       '4317:4317',
       '-p',
       '4318:4318',
+      '-v',
+      `${path.join(process.cwd(), '.volumes', 'hyperdx', 'db')}:/data/db`,
+      '-v',
+      `${path.join(process.cwd(), '.volumes', 'hyperdx', 'ch_data')}:/var/lib/clickhouse`,
+      '-v',
+      `${path.join(process.cwd(), '.volumes', 'hyperdx', 'ch_logs')}:/var/log/clickhouse-server`,
       '-e',
       'USAGE_STATS_ENABLED=false',
-      'docker.hyperdx.io/hyperdx/hyperdx-all-in-one',
+      'clickhouse/clickstack-all-in-one:latest',
     ]);
   });
 

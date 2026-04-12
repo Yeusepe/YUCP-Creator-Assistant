@@ -3,8 +3,8 @@ import { resolveHyperdxConfig } from '@yucp/shared';
 import { authClient } from '@/lib/auth-client';
 import {
   PRIVACY_PREFERENCES_EVENT,
-  readStoredPrivacyPreferences,
   type PrivacyPreferences,
+  readStoredPrivacyPreferences,
 } from '@/lib/privacyPreferences';
 
 let initialized = false;
@@ -12,16 +12,13 @@ let diagnosticsEnabled = false;
 let listenerInstalled = false;
 
 function getWebHyperdxConfig() {
-  return resolveHyperdxConfig(
-    {
-      NODE_ENV: import.meta.env.MODE,
-      FRONTEND_URL: typeof window !== 'undefined' ? window.location.origin : undefined,
-      HYPERDX_API_KEY: import.meta.env.HYPERDX_API_KEY as string | undefined,
-      HYPERDX_APP_URL: import.meta.env.HYPERDX_APP_URL as string | undefined,
-      HYPERDX_OTLP_HTTP_URL: import.meta.env.HYPERDX_OTLP_HTTP_URL as string | undefined,
-    },
-    { allowLocalFallbackApiKey: true }
-  );
+  return resolveHyperdxConfig({
+    NODE_ENV: import.meta.env.MODE,
+    FRONTEND_URL: typeof window !== 'undefined' ? window.location.origin : undefined,
+    HYPERDX_API_KEY: import.meta.env.HYPERDX_API_KEY as string | undefined,
+    HYPERDX_APP_URL: import.meta.env.HYPERDX_APP_URL as string | undefined,
+    HYPERDX_OTLP_HTTP_URL: import.meta.env.HYPERDX_OTLP_HTTP_URL as string | undefined,
+  });
 }
 
 function buildTraceTargets(): RegExp[] {
@@ -46,9 +43,15 @@ function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
 
   if (!initialized && diagnosticsEnabled) {
     const config = getWebHyperdxConfig();
+    if (!config.apiKey) {
+      console.warn(
+        '[hyperdx] Helpful diagnostics are enabled, but HYPERDX_API_KEY is missing. Create an ingest key in HyperDX and add it to Infisical before expecting telemetry ingestion.'
+      );
+      return;
+    }
 
     HyperDX.init({
-      apiKey: config.apiKey ?? '',
+      apiKey: config.apiKey,
       service: 'yucp-web',
       url: config.otlpHttpUrl,
       tracePropagationTargets: buildTraceTargets(),
@@ -113,7 +116,8 @@ export function initializeHyperdxBrowser() {
 
   listenerInstalled = true;
   window.addEventListener(PRIVACY_PREFERENCES_EVENT, (event) => {
-    const detail = event instanceof CustomEvent ? (event.detail as PrivacyPreferences | null) : null;
+    const detail =
+      event instanceof CustomEvent ? (event.detail as PrivacyPreferences | null) : null;
     applyDiagnosticsPreference(detail ?? readStoredPrivacyPreferences());
     void syncAuthenticatedUser();
   });
@@ -127,7 +131,9 @@ export function captureHyperdxException(error: unknown, context: Record<string, 
   const exception = error instanceof Error ? error : new Error(String(error));
   HyperDX.recordException(
     exception,
-    Object.fromEntries(Object.entries(context).map(([key, value]) => [key, serializeContextValue(value)]))
+    Object.fromEntries(
+      Object.entries(context).map(([key, value]) => [key, serializeContextValue(value)])
+    )
   );
 }
 

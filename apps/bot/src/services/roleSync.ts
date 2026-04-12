@@ -15,8 +15,8 @@ import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
-import { withBotSpan } from '../lib/observability';
 import { sendDashboardNotification } from '../lib/notifications';
+import { withBotSpan } from '../lib/observability';
 import { buildVerifyPromptMessage, getEnabledProviders } from '../lib/verifyPrompt';
 import { buildVerifyPromptAccessPreview } from '../lib/verifyPromptAccess';
 
