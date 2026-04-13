@@ -193,13 +193,19 @@ describe('setup jobs orchestration', () => {
       sourceBotKey: 'legacy-bot',
     });
 
-    const { migrationJob, sources } = await t.run(async (ctx) => {
+    const { migrationJob, sources, outboxJob } = await t.run(async (ctx) => {
       const migrationJob = await ctx.db.get(result.migrationJobId);
       const sources = await ctx.db
         .query('migration_sources')
         .withIndex('by_migration_job', (q) => q.eq('migrationJobId', result.migrationJobId))
         .collect();
-      return { migrationJob, sources };
+      const outboxJob = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_idempotency', (q) =>
+          q.eq('idempotencyKey', `migration_analyze:${result.migrationJobId}`)
+        )
+        .first();
+      return { migrationJob, sources, outboxJob };
     });
     expect(migrationJob).toMatchObject({
       authUserId,
@@ -214,6 +220,8 @@ describe('setup jobs orchestration', () => {
     expect(sources.map((source) => source.sourceKey)).toEqual(
       expect.arrayContaining(['existing-discord-state', 'manual-review-fallback', 'legacy-bot'])
     );
+    expect(outboxJob?.jobType).toBe('migration_analyze');
+    expect(outboxJob?.status).toBe('pending');
   });
 
   it('loads and resumes a setup job through the guild-scoped entrypoints', async () => {

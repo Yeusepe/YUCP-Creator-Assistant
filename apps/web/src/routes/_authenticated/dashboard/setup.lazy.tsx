@@ -82,8 +82,18 @@ const MIGRATION_MODE_LABEL: Record<string, string> = {
 
 const MIGRATION_PHASE_LABEL: Record<string, string> = {
   analyze: 'Analyzing your server',
-  shadow_migration: 'Running alongside your current bot',
-  confirm_cutover: 'Ready to switch over',
+  shadow: 'Running alongside your current bot',
+  bridged: 'Review your migration plan',
+  enforced: 'Ready to switch over',
+  rollback: 'Rolling back migration',
+};
+
+const MIGRATION_MAPPING_STATUS_LABEL: Record<string, string> = {
+  auto_matched: 'Ready',
+  suggested: 'Review',
+  unresolved: 'Needs review',
+  adopted: 'Already connected',
+  ignored: 'Ignored',
 };
 
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
@@ -98,7 +108,7 @@ function getWizardStep(phase: string): { current: number; total: number } {
   return { current: 3, total: 3 };
 }
 
-function deriveSetupLandingState({
+export function deriveSetupLandingState({
   setupJob,
   setupSummary,
   migrationJob,
@@ -1116,9 +1126,17 @@ function MigrationActiveView({
   const phaseLabel = MIGRATION_PHASE_LABEL[job.currentPhase] ?? job.currentPhase;
   const modeLabel = MIGRATION_MODE_LABEL[job.mode] ?? job.mode;
   const isWaiting = job.status === 'waiting_for_user';
+  const isRunning = job.status === 'running';
   const isBlocked = job.status === 'blocked' || job.status === 'failed';
-  const pendingMappings = roleMappings.filter((m) => m.status === 'pending_review');
-  const confirmedMappings = roleMappings.filter((m) => m.status !== 'pending_review');
+  const pendingMappings = roleMappings.filter(
+    (mapping) => mapping.status === 'suggested' || mapping.status === 'unresolved'
+  );
+  const confirmedMappings = roleMappings.filter(
+    (mapping) =>
+      mapping.status === 'auto_matched' ||
+      mapping.status === 'adopted' ||
+      mapping.status === 'ignored'
+  );
 
   return (
     <section className="intg-card animate-in animate-in-delay-1" aria-label="Migration in progress">
@@ -1138,13 +1156,17 @@ function MigrationActiveView({
           <p className="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
             {job.currentPhase === 'analyze'
               ? 'YUCP is scanning your server roles and matching them to your store products. This happens automatically.'
-              : job.currentPhase === 'shadow_migration'
-                ? 'YUCP is running alongside your current bot. Your members keep their access while YUCP verifies everything looks right.'
-                : 'YUCP has finished analyzing. Review the plan below, then confirm to complete the switch.'}
+              : job.currentPhase === 'shadow'
+                ? 'YUCP has finished the first pass. Keep your current bot in place while you review the detected matches below.'
+                : job.currentPhase === 'bridged'
+                  ? 'YUCP found enough information to build a migration plan. Review the detected sources and role matches below before you switch.'
+                  : job.currentPhase === 'rollback'
+                    ? 'YUCP is undoing migration work and restoring the previous state for this server.'
+                    : 'YUCP has finished analyzing your server. Review the results below, then switch over when you are ready.'}
           </p>
         </div>
 
-        {!isBlocked && job.currentPhase !== 'confirm_cutover' ? (
+        {isRunning ? (
           <div className="flex items-center gap-3 rounded-[14px] border border-zinc-200 bg-zinc-50/90 px-4 py-3 dark:border-white/10 dark:bg-white/5">
             <div className="h-2 w-2 animate-pulse rounded-full bg-sky-500" />
             <p className="text-sm text-zinc-600 dark:text-zinc-300">Running automatically</p>
@@ -1163,7 +1185,19 @@ function MigrationActiveView({
         </div>
       ) : null}
 
-      {job.currentPhase === 'confirm_cutover' && isWaiting ? (
+      {(job.currentPhase === 'bridged' || job.currentPhase === 'shadow') && isWaiting ? (
+        <div className="mt-5 rounded-[14px] border border-amber-200 bg-amber-50/90 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+            Review these matches before you switch
+          </p>
+          <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+            {job.blockingReason ??
+              'YUCP has finished analyzing this server. Review the role matches below before you continue with migration.'}
+          </p>
+        </div>
+      ) : null}
+
+      {job.currentPhase === 'enforced' && isWaiting ? (
         <div className="mt-5 rounded-[14px] border border-emerald-200 bg-emerald-50/90 p-4 dark:border-emerald-500/30 dark:bg-emerald-500/10">
           <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
             Everything looks good
@@ -1220,12 +1254,14 @@ function MigrationActiveView({
                 <span
                   className={[
                     'text-xs font-medium',
-                    mapping.status === 'pending_review'
+                    mapping.status === 'suggested' || mapping.status === 'unresolved'
                       ? 'text-amber-600 dark:text-amber-400'
-                      : 'text-emerald-600 dark:text-emerald-400',
+                      : mapping.status === 'ignored'
+                        ? 'text-zinc-500 dark:text-zinc-400'
+                        : 'text-emerald-600 dark:text-emerald-400',
                   ].join(' ')}
                 >
-                  {mapping.status === 'pending_review' ? 'Needs review' : 'Matched'}
+                  {MIGRATION_MAPPING_STATUS_LABEL[mapping.status] ?? mapping.status}
                 </span>
               </li>
             ))}

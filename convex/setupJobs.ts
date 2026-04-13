@@ -847,6 +847,61 @@ async function enqueueSetupGeneratePlanOutboxJob(
   });
 }
 
+async function enqueueMigrationAnalyzeOutboxJob(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    migrationJobId: Id<'migration_jobs'>;
+    authUserId: string;
+    guildLinkId: Id<'guild_links'>;
+    guildId: string;
+    mode: 'adopt_existing_roles' | 'import_verified_users' | 'bridge_from_current_roles';
+    sourceBotKey?: string;
+    sourceGuildId?: string;
+  }
+) {
+  const idempotencyKey = `migration_analyze:${args.migrationJobId}`;
+  const existing = await ctx.db
+    .query('outbox_jobs')
+    .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+    .first();
+
+  const now = Date.now();
+  const payload = {
+    migrationJobId: args.migrationJobId,
+    guildLinkId: args.guildLinkId,
+    guildId: args.guildId,
+    mode: args.mode,
+    sourceBotKey: args.sourceBotKey,
+    sourceGuildId: args.sourceGuildId,
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      status: 'pending',
+      payload,
+      targetGuildId: args.guildId,
+      retryCount: 0,
+      lastError: undefined,
+      nextRetryAt: undefined,
+      updatedAt: now,
+    });
+    return existing._id;
+  }
+
+  return ctx.db.insert('outbox_jobs', {
+    authUserId: args.authUserId,
+    jobType: 'migration_analyze',
+    payload,
+    status: 'pending',
+    idempotencyKey,
+    targetGuildId: args.guildId,
+    retryCount: 0,
+    maxRetries: 5,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 async function appendAuditEvent(
   ctx: Pick<MutationCtx, 'db'>,
   args: {
@@ -1073,6 +1128,18 @@ async function createMigrationJobImpl(
       mode: args.mode,
     },
   });
+
+  if (args.mode !== 'cross_server_bridge') {
+    await enqueueMigrationAnalyzeOutboxJob(ctx, {
+      migrationJobId,
+      authUserId: args.authUserId,
+      guildLinkId: args.guildLinkId,
+      guildId: guildLink.discordGuildId,
+      mode: args.mode,
+      sourceBotKey: args.sourceBotKey,
+      sourceGuildId: args.sourceGuildId,
+    });
+  }
 
   return { migrationJobId };
 }

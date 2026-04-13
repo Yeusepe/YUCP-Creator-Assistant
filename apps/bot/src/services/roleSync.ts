@@ -16,6 +16,7 @@ import {
   CATALOG_SYNC_PROVIDER_KEYS,
   getProviderDescriptor,
 } from '@yucp/providers/providerMetadata';
+import type { ProviderKey } from '@yucp/providers/types';
 import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
 import { ConvexHttpClient } from 'convex/browser';
 import {
@@ -100,6 +101,15 @@ export interface SetupGeneratePlanPayload {
   guildId: string;
 }
 
+export interface MigrationAnalyzePayload {
+  migrationJobId: Id<'migration_jobs'>;
+  guildLinkId: Id<'guild_links'>;
+  guildId: string;
+  mode: 'adopt_existing_roles' | 'import_verified_users' | 'bridge_from_current_roles';
+  sourceBotKey?: string;
+  sourceGuildId?: string;
+}
+
 /** Outbox job document type */
 export interface OutboxJob {
   _id: Id<'outbox_jobs'>;
@@ -109,6 +119,7 @@ export interface OutboxJob {
     | 'role_removal'
     | 'creator_alert'
     | 'retroactive_rule_sync'
+    | 'migration_analyze'
     | 'setup_apply'
     | 'setup_generate_plan'
     | 'verify_prompt_refresh';
@@ -117,6 +128,7 @@ export interface OutboxJob {
     | RoleRemovalPayload
     | CreatorAlertPayload
     | RetroactiveRuleSyncPayload
+    | MigrationAnalyzePayload
     | SetupApplyPayload
     | SetupGeneratePlanPayload
     | VerifyPromptRefreshPayload;
@@ -161,7 +173,7 @@ export interface Entitlement {
 interface SetupProduct {
   id: string;
   name: string;
-  provider: string;
+  provider: ProviderKey;
   productUrl?: string;
 }
 
@@ -445,6 +457,13 @@ export class RoleSyncService {
             await this.processSetupGeneratePlanJob(job);
             await this.updateJobStatus(job._id, 'completed');
             this.logger.info('Setup generate plan job completed', { jobId: job._id });
+            return;
+          }
+
+          if (job.jobType === 'migration_analyze') {
+            await this.processMigrationAnalyzeJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Migration analyze job completed', { jobId: job._id });
             return;
           }
 
@@ -837,6 +856,155 @@ export class RoleSyncService {
       setupJobId: payload.setupJobId,
       planEntryCount,
     });
+  }
+
+  private async processMigrationAnalyzeJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as MigrationAnalyzePayload;
+    if (!payload.migrationJobId || !payload.guildLinkId || !payload.guildId) {
+      throw new Error('Migration analyze payload missing migrationJobId, guildLinkId, or guildId');
+    }
+
+    try {
+      const guild = await this.discordClient.guilds.fetch(payload.guildId);
+      await guild.roles.fetch();
+
+      const products = await this.fetchSetupProducts(job.authUserId);
+      const guildRolesSummary = guild.roles.cache
+        .filter((role) => !role.managed && role.id !== guild.id && role.name !== '@everyone')
+        .map((role) => ({ id: role.id, name: role.name, position: role.position }))
+        .sort((a, b) => b.position - a.position);
+
+      const matchedRoleIds = new Set<string>();
+      let autoMatchedCount = 0;
+      let unresolvedCount = 0;
+
+      for (const product of products) {
+        const matchingRole = guildRolesSummary.find(
+          (role) =>
+            !matchedRoleIds.has(role.id) &&
+            normalizeSetupName(role.name) === normalizeSetupName(product.name)
+        );
+
+        if (matchingRole) {
+          matchedRoleIds.add(matchingRole.id);
+          autoMatchedCount++;
+          await this.convexClient.mutation(api.setupJobs.upsertMigrationRoleMapping, {
+            apiSecret: this.apiSecret,
+            migrationJobId: payload.migrationJobId,
+            provider: product.provider,
+            sourceRoleId: matchingRole.id,
+            sourceRoleName: matchingRole.name,
+            targetProductId: product.id,
+            targetProductName: product.name,
+            targetRoleId: matchingRole.id,
+            targetRoleName: matchingRole.name,
+            matchStrategy: 'exact_name',
+            confidence: 1,
+            status: 'auto_matched',
+            payload: {
+              productUrl: product.productUrl,
+            },
+          });
+          continue;
+        }
+
+        unresolvedCount++;
+        await this.convexClient.mutation(api.setupJobs.upsertMigrationRoleMapping, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          provider: product.provider,
+          sourceRoleName: `Missing role for ${product.name} (${product.provider})`,
+          targetProductId: product.id,
+          targetProductName: product.name,
+          matchStrategy: 'manual',
+          status: 'unresolved',
+          reviewNote: `No existing Discord role matched "${product.name}" automatically.`,
+          payload: {
+            availableGuildRoles: guildRolesSummary,
+            proposedRoleName: sanitizeSetupRoleName(product.name),
+            productUrl: product.productUrl,
+          },
+        });
+      }
+
+      const summary = {
+        productCount: products.length,
+        guildRoleCount: guildRolesSummary.length,
+        autoMatchedCount,
+        unresolvedCount,
+        unmatchedGuildRoleCount: Math.max(guildRolesSummary.length - matchedRoleIds.size, 0),
+      };
+      const nextPhase =
+        products.length === 0
+          ? 'bridged'
+          : unresolvedCount > 0
+            ? 'bridged'
+            : payload.mode === 'bridge_from_current_roles'
+              ? 'shadow'
+              : 'enforced';
+      const blockingReason =
+        products.length === 0
+          ? 'No active store products were available to analyze. Reconnect a store, then run migration again.'
+          : unresolvedCount > 0
+            ? 'Review the unresolved role matches below before switching from your current bot.'
+            : payload.mode === 'bridge_from_current_roles'
+              ? 'YUCP has matched your existing roles. Keep your current bot installed while you review the results below.'
+              : null;
+
+      await Promise.all([
+        this.convexClient.mutation(api.setupJobs.upsertMigrationSource, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          sourceKey: 'existing-discord-state',
+          sourceType: 'server_export',
+          capabilityMode: 'analysis_only',
+          status: 'connected',
+          displayName: 'Existing Discord state snapshot',
+          payload: summary,
+        }),
+        this.convexClient.mutation(api.setupJobs.appendMigrationEvent, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          phase: 'analyze',
+          level: 'info',
+          eventType: 'migration.analysis.completed',
+          message:
+            products.length === 0
+              ? 'Migration analysis completed, but no active store products were available to map.'
+              : `Migration analysis found ${autoMatchedCount} automatic role match${autoMatchedCount === 1 ? '' : 'es'} and ${unresolvedCount} product${unresolvedCount === 1 ? '' : 's'} that still need review.`,
+          payload: summary,
+        }),
+        this.convexClient.mutation(api.setupJobs.updateMigrationJobState, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          status: 'waiting_for_user',
+          currentPhase: nextPhase,
+          blockingReason,
+          summary,
+        }),
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await Promise.all([
+        this.convexClient.mutation(api.setupJobs.appendMigrationEvent, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          phase: 'analyze',
+          level: 'error',
+          eventType: 'migration.analysis.failed',
+          message: `Migration analysis failed: ${message}`,
+          payload: { error: message },
+        }),
+        this.convexClient.mutation(api.setupJobs.updateMigrationJobState, {
+          apiSecret: this.apiSecret,
+          migrationJobId: payload.migrationJobId,
+          status: 'failed',
+          currentPhase: 'analyze',
+          blockingReason: message,
+        }),
+      ]);
+      throw error;
+    }
   }
 
   private async processSetupApplyJob(job: OutboxJob): Promise<void> {
@@ -1710,6 +1878,7 @@ export class RoleSyncService {
               'role_removal',
               'creator_alert',
               'retroactive_rule_sync',
+              'migration_analyze',
               'setup_apply',
               'setup_generate_plan',
               'verify_prompt_refresh',
@@ -1851,7 +2020,7 @@ export class RoleSyncService {
       CATALOG_SYNC_PROVIDER_KEYS.map(async (providerKey) => {
         const result = await listProviderProducts(providerKey, authUserId);
         if (result.error) {
-          this.logger.warn('Provider product listing returned an error during setup apply', {
+          this.logger.warn('Provider product listing returned an error during setup catalog sync', {
             authUserId,
             provider: providerKey,
             error: result.error,

@@ -33,8 +33,10 @@ vi.mock('../../../../../../convex/_generated/api', () => ({
     setupJobs: {
       getMySetupJobForGuild: 'getMySetupJobForGuild',
       getMySetupSummaryByGuild: 'getMySetupSummaryByGuild',
+      getMyLatestMigrationJobForGuild: 'getMyLatestMigrationJobForGuild',
       createOrResumeSetupJobByGuild: 'createOrResumeSetupJobByGuild',
       applyRecommendedSetupByGuild: 'applyRecommendedSetupByGuild',
+      createMigrationJobByGuild: 'createMigrationJobByGuild',
     },
   },
 }));
@@ -93,7 +95,24 @@ vi.mock('@/hooks/useDashboardSession', () => ({
   })),
 }));
 
-import { Route as DashboardSetupRoute } from '@/routes/_authenticated/dashboard/setup.lazy';
+import {
+  Route as DashboardSetupRoute,
+  deriveSetupLandingState,
+} from '@/routes/_authenticated/dashboard/setup.lazy';
+
+function mockSetupRouteQueries(args: {
+  setupJob?: unknown;
+  setupSummary?: unknown;
+  migrationJob?: unknown;
+}) {
+  const values = [args.setupJob, args.setupSummary, args.migrationJob];
+  let callIndex = 0;
+  useQueryMock.mockImplementation(() => {
+    const value = values[callIndex % values.length];
+    callIndex += 1;
+    return value;
+  });
+}
 
 describe('dashboard setup route', () => {
   beforeEach(() => {
@@ -103,10 +122,14 @@ describe('dashboard setup route', () => {
   });
 
   it('shows a beginner-friendly start page for a new server', () => {
-    useQueryMock.mockReturnValueOnce(null).mockReturnValueOnce({
-      enabledRoleRuleCount: 0,
-      verificationPromptLive: false,
-      lastCompletedSetupAt: null,
+    mockSetupRouteQueries({
+      setupJob: null,
+      setupSummary: {
+        enabledRoleRuleCount: 0,
+        verificationPromptLive: false,
+        lastCompletedSetupAt: null,
+      },
+      migrationJob: null,
     });
 
     const Component = DashboardSetupRoute.options.component;
@@ -123,8 +146,8 @@ describe('dashboard setup route', () => {
   });
 
   it('shows a focused wizard step for setup in progress', () => {
-    useQueryMock
-      .mockReturnValueOnce({
+    mockSetupRouteQueries({
+      setupJob: {
         job: {
           status: 'waiting_for_user',
           currentPhase: 'review_exceptions',
@@ -150,12 +173,14 @@ describe('dashboard setup route', () => {
           },
         ],
         activeMigrationJobId: null,
-      })
-      .mockReturnValueOnce({
+      },
+      setupSummary: {
         enabledRoleRuleCount: 0,
         verificationPromptLive: false,
         lastCompletedSetupAt: null,
-      });
+      },
+      migrationJob: null,
+    });
 
     const Component = DashboardSetupRoute.options.component;
     if (!Component) {
@@ -171,10 +196,14 @@ describe('dashboard setup route', () => {
   });
 
   it('shows a maintenance view when the server is already configured', () => {
-    useQueryMock.mockReturnValueOnce(null).mockReturnValueOnce({
-      enabledRoleRuleCount: 4,
-      verificationPromptLive: true,
-      lastCompletedSetupAt: Date.UTC(2026, 3, 12),
+    mockSetupRouteQueries({
+      setupJob: null,
+      setupSummary: {
+        enabledRoleRuleCount: 4,
+        verificationPromptLive: true,
+        lastCompletedSetupAt: Date.UTC(2026, 3, 12),
+      },
+      migrationJob: null,
     });
 
     const Component = DashboardSetupRoute.options.component;
@@ -194,8 +223,8 @@ describe('dashboard setup route', () => {
   });
 
   it('shows a needs-attention view with fix guidance when setup is blocked', () => {
-    useQueryMock
-      .mockReturnValueOnce({
+    const landingState = deriveSetupLandingState({
+      setupJob: {
         job: {
           status: 'blocked',
           currentPhase: 'scan_server',
@@ -204,12 +233,47 @@ describe('dashboard setup route', () => {
         steps: [],
         recommendations: [],
         activeMigrationJobId: null,
-      })
-      .mockReturnValueOnce({
+      },
+      setupSummary: {
         enabledRoleRuleCount: 0,
         verificationPromptLive: false,
         lastCompletedSetupAt: null,
-      });
+      },
+      migrationJob: null,
+    });
+    expect(landingState).toBe('needs_attention');
+  });
+
+  it('shows the migration review state after analysis finishes', () => {
+    mockSetupRouteQueries({
+      setupJob: null,
+      setupSummary: null,
+      migrationJob: {
+        job: {
+          mode: 'adopt_existing_roles',
+          status: 'waiting_for_user',
+          currentPhase: 'enforced',
+          blockingReason: null,
+          sourceBotKey: 'legacy-bot',
+        },
+        sources: [
+          {
+            id: 'source-1',
+            sourceKey: 'existing-discord-state',
+            displayName: 'Existing Discord state snapshot',
+            status: 'connected',
+          },
+        ],
+        roleMappings: [
+          {
+            id: 'mapping-1',
+            sourceRoleName: 'Supporter',
+            status: 'auto_matched',
+            confidence: 1,
+          },
+        ],
+      },
+    });
 
     const Component = DashboardSetupRoute.options.component;
     if (!Component) {
@@ -218,11 +282,10 @@ describe('dashboard setup route', () => {
 
     render(<Component />);
 
-    expect(screen.getByText('One thing needs your attention')).toBeInTheDocument();
-    expect(
-      screen.getByText('The bot does not have permission to manage roles.')
-    ).toBeInTheDocument();
-    expect(screen.getByText('How to fix it')).toBeInTheDocument();
-    expect(screen.getByText('Try again')).toBeInTheDocument();
+    expect(screen.getByText('Ready to switch over')).toBeInTheDocument();
+    expect(screen.getByText('Everything looks good')).toBeInTheDocument();
+    expect(screen.queryByText('Running automatically')).not.toBeInTheDocument();
+    expect(screen.getByText('Existing Discord state snapshot')).toBeInTheDocument();
+    expect(screen.getByText('Supporter')).toBeInTheDocument();
   });
 });
