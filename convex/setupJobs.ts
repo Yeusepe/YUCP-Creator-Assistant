@@ -538,20 +538,220 @@ async function seedInitialSetupRecommendations(
     createdAt: args.now,
   });
 
+  const summary = {
+    providerConnectionCount: activeSetupConnections.length,
+    roleRuleCount: enabledRoleRules.length,
+    verifyPromptPresent: Boolean(args.guildLink.verifyPromptMessage),
+    proposedRecommendationCount: recommendations.filter(
+      (recommendation) => recommendation.status === 'proposed'
+    ).length,
+    appliedRecommendationCount: recommendations.filter(
+      (recommendation) => recommendation.status === 'applied'
+    ).length,
+  };
+
   await ctx.db.patch(args.setupJobId, {
     latestEventAt: args.now,
-    summary: {
-      providerConnectionCount: activeSetupConnections.length,
-      roleRuleCount: enabledRoleRules.length,
-      verifyPromptPresent: Boolean(args.guildLink.verifyPromptMessage),
-      proposedRecommendationCount: recommendations.filter(
-        (recommendation) => recommendation.status === 'proposed'
-      ).length,
-      appliedRecommendationCount: recommendations.filter(
-        (recommendation) => recommendation.status === 'applied'
-      ).length,
-    },
+    summary,
     updatedAt: args.now,
+  });
+
+  return summary;
+}
+
+async function upsertSetupStepRecord(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    setupJobId: Id<'setup_jobs'>;
+    stepKey: string;
+    status:
+      | 'pending'
+      | 'in_progress'
+      | 'waiting_for_user'
+      | 'completed'
+      | 'failed'
+      | 'skipped'
+      | 'cancelled';
+    payload?: Record<string, unknown>;
+    result?: Record<string, unknown>;
+    errorSummary?: string;
+  }
+) {
+  const existing = await ctx.db
+    .query('setup_job_steps')
+    .withIndex('by_setup_job_step', (q) =>
+      q.eq('setupJobId', args.setupJobId).eq('stepKey', args.stepKey)
+    )
+    .first();
+  if (!existing) {
+    throw new ConvexError(`Setup step not found: ${args.stepKey}`);
+  }
+
+  const now = Date.now();
+  await ctx.db.patch(existing._id, {
+    status: args.status,
+    payload: args.payload,
+    result: args.result,
+    errorSummary: args.errorSummary,
+    updatedAt: now,
+    startedAt:
+      args.status === 'in_progress' && existing.startedAt === undefined ? now : existing.startedAt,
+    completedAt:
+      args.status === 'completed' || args.status === 'failed' || args.status === 'skipped'
+        ? now
+        : existing.completedAt,
+  });
+}
+
+async function synchronizeSetupJobLifecycle(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    setupJobId: Id<'setup_jobs'>;
+    recommendationSummary: {
+      providerConnectionCount: number;
+      roleRuleCount: number;
+      verifyPromptPresent: boolean;
+      proposedRecommendationCount: number;
+      appliedRecommendationCount: number;
+    };
+  }
+) {
+  const now = Date.now();
+  const hasConnectedStorefront = args.recommendationSummary.providerConnectionCount > 0;
+
+  if (!hasConnectedStorefront) {
+    await Promise.all([
+      upsertSetupStepRecord(ctx, {
+        setupJobId: args.setupJobId,
+        stepKey: 'connect-store',
+        status: 'waiting_for_user',
+        result: { providerConnectionCount: 0 },
+      }),
+      upsertSetupStepRecord(ctx, {
+        setupJobId: args.setupJobId,
+        stepKey: 'scan-server',
+        status: 'pending',
+      }),
+      upsertSetupStepRecord(ctx, {
+        setupJobId: args.setupJobId,
+        stepKey: 'generate-plan',
+        status: 'pending',
+      }),
+      upsertSetupStepRecord(ctx, {
+        setupJobId: args.setupJobId,
+        stepKey: 'review-exceptions',
+        status: 'pending',
+      }),
+    ]);
+
+    await ctx.db.patch(args.setupJobId, {
+      status: 'waiting_for_user',
+      currentPhase: 'connect_store',
+      activeStepKey: 'connect-store',
+      blockingReason: 'Connect at least one storefront before the setup job can generate a plan.',
+      updatedAt: now,
+    });
+    return;
+  }
+
+  await Promise.all([
+    upsertSetupStepRecord(ctx, {
+      setupJobId: args.setupJobId,
+      stepKey: 'connect-store',
+      status: 'completed',
+      result: { providerConnectionCount: args.recommendationSummary.providerConnectionCount },
+    }),
+    upsertSetupStepRecord(ctx, {
+      setupJobId: args.setupJobId,
+      stepKey: 'scan-server',
+      status: 'completed',
+      result: {
+        roleRuleCount: args.recommendationSummary.roleRuleCount,
+        verifyPromptPresent: args.recommendationSummary.verifyPromptPresent,
+      },
+    }),
+    upsertSetupStepRecord(ctx, {
+      setupJobId: args.setupJobId,
+      stepKey: 'generate-plan',
+      status: 'completed',
+      result: {
+        proposedRecommendationCount: args.recommendationSummary.proposedRecommendationCount,
+        appliedRecommendationCount: args.recommendationSummary.appliedRecommendationCount,
+      },
+    }),
+    upsertSetupStepRecord(ctx, {
+      setupJobId: args.setupJobId,
+      stepKey: 'review-exceptions',
+      status: 'waiting_for_user',
+      payload: {
+        proposedRecommendationCount: args.recommendationSummary.proposedRecommendationCount,
+      },
+    }),
+  ]);
+
+  await ctx.db.patch(args.setupJobId, {
+    status: 'waiting_for_user',
+    currentPhase: 'review_exceptions',
+    activeStepKey: 'review-exceptions',
+    blockingReason:
+      args.recommendationSummary.proposedRecommendationCount > 0
+        ? 'Review the recommended changes, then apply setup when you are ready.'
+        : undefined,
+    updatedAt: now,
+  });
+}
+
+async function enqueueSetupApplyOutboxJob(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    setupJobId: Id<'setup_jobs'>;
+    authUserId: string;
+    guildLinkId: Id<'guild_links'>;
+    guildId: string;
+  }
+) {
+  const existing = await ctx.db
+    .query('outbox_jobs')
+    .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', `setup_apply:${args.setupJobId}`))
+    .first();
+
+  if (existing && existing.status !== 'failed' && existing.status !== 'dead_letter') {
+    return existing._id;
+  }
+
+  const now = Date.now();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      status: 'pending',
+      payload: {
+        setupJobId: args.setupJobId,
+        guildLinkId: args.guildLinkId,
+        guildId: args.guildId,
+      },
+      targetGuildId: args.guildId,
+      retryCount: 0,
+      lastError: undefined,
+      nextRetryAt: undefined,
+      updatedAt: now,
+    });
+    return existing._id;
+  }
+
+  return ctx.db.insert('outbox_jobs', {
+    authUserId: args.authUserId,
+    jobType: 'setup_apply',
+    payload: {
+      setupJobId: args.setupJobId,
+      guildLinkId: args.guildLinkId,
+      guildId: args.guildId,
+    },
+    status: 'pending',
+    idempotencyKey: `setup_apply:${args.setupJobId}`,
+    targetGuildId: args.guildId,
+    retryCount: 0,
+    maxRetries: 5,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 
@@ -619,7 +819,7 @@ async function createOrResumeSetupJobImpl(
     discordGuildId: guildLink.discordGuildId,
     mode: args.mode,
     triggerSource: args.triggerSource,
-    status: 'running',
+    status: 'pending',
     currentPhase: 'connect_store',
     activeStepKey: 'connect-store',
     createdAt: now,
@@ -634,11 +834,15 @@ async function createOrResumeSetupJobImpl(
     discordGuildId: guildLink.discordGuildId,
     now,
   });
-  await seedInitialSetupRecommendations(ctx, {
+  const recommendationSummary = await seedInitialSetupRecommendations(ctx, {
     setupJobId,
     authUserId: args.authUserId,
     guildLink,
     now,
+  });
+  await synchronizeSetupJobLifecycle(ctx, {
+    setupJobId,
+    recommendationSummary,
   });
 
   await appendAuditEvent(ctx, {
@@ -1169,6 +1373,183 @@ export const createOrResumeSetupJobByGuild = mutation({
       mode: args.mode,
       triggerSource: args.triggerSource,
     });
+  },
+});
+
+export const applyRecommendedSetupByGuild = mutation({
+  args: {
+    guildId: v.string(),
+  },
+  returns: v.object({
+    setupJobId: v.id('setup_jobs'),
+    queued: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
+      throw new ConvexError('Unauthenticated');
+    }
+
+    const guildLink = await getOwnedGuildLinkByDiscordGuildId(ctx, {
+      authUserId: authUser.authUserId,
+      guildId: args.guildId,
+    });
+    const job = await ctx.db
+      .query('setup_jobs')
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', authUser.authUserId).eq('discordGuildId', args.guildId)
+      )
+      .order('desc')
+      .first();
+
+    if (!job) {
+      throw new ConvexError('Start the setup job before applying the recommended changes.');
+    }
+    if (job.status === 'completed') {
+      return { setupJobId: job._id, queued: false };
+    }
+    if (job.status === 'running' && job.currentPhase === 'apply_setup') {
+      return { setupJobId: job._id, queued: false };
+    }
+
+    const summary = (job.summary ?? {}) as {
+      providerConnectionCount?: number;
+    };
+    if ((summary.providerConnectionCount ?? 0) === 0) {
+      throw new ConvexError('Connect at least one storefront before applying setup.');
+    }
+
+    const now = Date.now();
+    await Promise.all([
+      upsertSetupStepRecord(ctx, {
+        setupJobId: job._id,
+        stepKey: 'review-exceptions',
+        status: 'completed',
+      }),
+      upsertSetupStepRecord(ctx, {
+        setupJobId: job._id,
+        stepKey: 'apply-setup',
+        status: 'in_progress',
+      }),
+      ctx.db.patch(job._id, {
+        status: 'running',
+        currentPhase: 'apply_setup',
+        activeStepKey: 'apply-setup',
+        blockingReason: undefined,
+        updatedAt: now,
+      }),
+      ctx.db.insert('setup_events', {
+        setupJobId: job._id,
+        authUserId: job.authUserId,
+        guildLinkId: job.guildLinkId,
+        discordGuildId: job.discordGuildId,
+        level: 'info',
+        eventType: 'setup.apply.queued',
+        message: 'Queued the automatic setup apply step for Discord provisioning.',
+        createdAt: now,
+      }),
+    ]);
+    await ctx.db.patch(job._id, {
+      latestEventAt: now,
+      updatedAt: now,
+    });
+
+    await enqueueSetupApplyOutboxJob(ctx, {
+      setupJobId: job._id,
+      authUserId: job.authUserId,
+      guildLinkId: guildLink._id,
+      guildId: guildLink.discordGuildId,
+    });
+
+    return { setupJobId: job._id, queued: true };
+  },
+});
+
+export const applyRecommendedSetupForOwnerByGuild = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildId: v.string(),
+  },
+  returns: v.object({
+    setupJobId: v.id('setup_jobs'),
+    queued: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const guildLink = await getOwnedGuildLinkByDiscordGuildId(ctx, {
+      authUserId: args.authUserId,
+      guildId: args.guildId,
+    });
+    const job = await ctx.db
+      .query('setup_jobs')
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', args.authUserId).eq('discordGuildId', args.guildId)
+      )
+      .order('desc')
+      .first();
+
+    if (!job) {
+      throw new ConvexError('Start the setup job before applying the recommended changes.');
+    }
+    if (job.status === 'completed') {
+      return { setupJobId: job._id, queued: false };
+    }
+    if (job.status === 'running' && job.currentPhase === 'apply_setup') {
+      return { setupJobId: job._id, queued: false };
+    }
+
+    const summary = (job.summary ?? {}) as {
+      providerConnectionCount?: number;
+    };
+    if ((summary.providerConnectionCount ?? 0) === 0) {
+      throw new ConvexError('Connect at least one storefront before applying setup.');
+    }
+
+    const now = Date.now();
+    await Promise.all([
+      upsertSetupStepRecord(ctx, {
+        setupJobId: job._id,
+        stepKey: 'review-exceptions',
+        status: 'completed',
+      }),
+      upsertSetupStepRecord(ctx, {
+        setupJobId: job._id,
+        stepKey: 'apply-setup',
+        status: 'in_progress',
+      }),
+      ctx.db.patch(job._id, {
+        status: 'running',
+        currentPhase: 'apply_setup',
+        activeStepKey: 'apply-setup',
+        blockingReason: undefined,
+        updatedAt: now,
+      }),
+      ctx.db.insert('setup_events', {
+        setupJobId: job._id,
+        authUserId: job.authUserId,
+        guildLinkId: job.guildLinkId,
+        discordGuildId: job.discordGuildId,
+        level: 'info',
+        eventType: 'setup.apply.queued',
+        message: 'Queued the automatic setup apply step for Discord provisioning.',
+        createdAt: now,
+      }),
+    ]);
+    await ctx.db.patch(job._id, {
+      latestEventAt: now,
+      updatedAt: now,
+    });
+
+    await enqueueSetupApplyOutboxJob(ctx, {
+      setupJobId: job._id,
+      authUserId: job.authUserId,
+      guildLinkId: guildLink._id,
+      guildId: guildLink.discordGuildId,
+    });
+
+    return { setupJobId: job._id, queued: true };
   },
 });
 

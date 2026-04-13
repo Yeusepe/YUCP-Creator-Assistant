@@ -26,6 +26,28 @@ async function seedGuildLink(
   });
 }
 
+async function seedProviderConnection(
+  t: ReturnType<typeof makeTestConvex>,
+  args: {
+    authUserId: string;
+    provider?: 'gumroad' | 'itchio' | 'jinxxy' | 'lemonsqueezy' | 'payhip' | 'vrchat';
+  }
+): Promise<void> {
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert('provider_connections', {
+      authUserId: args.authUserId,
+      provider: args.provider ?? 'gumroad',
+      providerKey: args.provider ?? 'gumroad',
+      connectionType: 'setup',
+      status: 'active',
+      webhookConfigured: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
 describe('setup jobs orchestration', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
@@ -75,7 +97,7 @@ describe('setup jobs orchestration', () => {
       discordGuildId: 'guild-setup-create',
       mode: 'automatic_setup',
       triggerSource: 'discord_autosetup',
-      status: 'running',
+      status: 'waiting_for_user',
       currentPhase: 'connect_store',
       activeStepKey: 'connect-store',
     });
@@ -88,7 +110,7 @@ describe('setup jobs orchestration', () => {
       'shadow-migration',
       'confirm-cutover',
     ]);
-    expect(steps[0]?.status).toBe('in_progress');
+    expect(steps[0]?.status).toBe('waiting_for_user');
     expect(steps.slice(1).every((step) => step.status === 'pending')).toBe(true);
     expect(recommendations).toHaveLength(3);
     expect(recommendations.map((recommendation) => recommendation.recommendationType)).toEqual([
@@ -209,5 +231,55 @@ describe('setup jobs orchestration', () => {
     expect(detail?.job.id).toBe(created.setupJobId);
     expect(detail?.job.discordGuildId).toBe('guild-setup-guild-scope');
     expect(detail?.steps).toHaveLength(7);
+  });
+
+  it('queues setup apply work after recommendations are ready', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-setup-apply';
+    await seedProviderConnection(t, { authUserId, provider: 'gumroad' });
+    await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-setup-apply',
+    });
+
+    const { setupJobId } = await t.mutation(api.setupJobs.createOrResumeSetupJobForOwnerByGuild, {
+      apiSecret: API_SECRET,
+      authUserId,
+      guildId: 'guild-setup-apply',
+      mode: 'automatic_setup',
+      triggerSource: 'dashboard',
+    });
+
+    const result = await t.mutation(api.setupJobs.applyRecommendedSetupForOwnerByGuild, {
+      apiSecret: API_SECRET,
+      authUserId,
+      guildId: 'guild-setup-apply',
+    });
+
+    expect(result).toEqual({ setupJobId, queued: true });
+
+    const { job, applyStep, outboxJob } = await t.run(async (ctx) => {
+      const job = await ctx.db.get(setupJobId);
+      const applyStep = await ctx.db
+        .query('setup_job_steps')
+        .withIndex('by_setup_job_step', (q) =>
+          q.eq('setupJobId', setupJobId).eq('stepKey', 'apply-setup')
+        )
+        .first();
+      const outboxJob = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', `setup_apply:${setupJobId}`))
+        .first();
+      return { job, applyStep, outboxJob };
+    });
+
+    expect(job).toMatchObject({
+      status: 'running',
+      currentPhase: 'apply_setup',
+      activeStepKey: 'apply-setup',
+    });
+    expect(applyStep?.status).toBe('in_progress');
+    expect(outboxJob?.jobType).toBe('setup_apply');
+    expect(outboxJob?.status).toBe('pending');
   });
 });

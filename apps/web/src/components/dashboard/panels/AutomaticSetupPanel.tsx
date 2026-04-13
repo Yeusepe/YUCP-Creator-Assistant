@@ -56,7 +56,9 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
   const { home } = useDashboardShell();
   const setupJob = useConvexQuery(api.setupJobs.getMySetupJobForGuild, { guildId });
   const createOrResumeSetupJob = useConvexMutation(api.setupJobs.createOrResumeSetupJobByGuild);
+  const applyRecommendedSetup = useConvexMutation(api.setupJobs.applyRecommendedSetupByGuild);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
 
   const isLoading = setupJob === undefined;
   const recommendationSummary = useMemo(() => {
@@ -92,6 +94,9 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
 
   const buttonLabel = hasActiveJob ? 'Resume Automatic Setup' : 'Start Automatic Setup';
   const pendingLabel = hasActiveJob ? 'Resuming...' : 'Starting...';
+  const canApplyRecommendedSetup =
+    setupJob?.job.status === 'waiting_for_user' &&
+    setupJob.job.currentPhase === 'review_exceptions';
 
   return (
     <section
@@ -147,40 +152,70 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                   </p>
                 ) : null}
               </div>
-              <YucpButton
-                yucp="primary"
-                pill
-                isLoading={isSubmitting}
-                onPress={async () => {
-                  setIsSubmitting(true);
-                  try {
-                    const result = await createOrResumeSetupJob({
-                      guildId,
-                      mode: 'automatic_setup',
-                      triggerSource: 'dashboard',
-                    });
-                    toast.success(
-                      result.created ? 'Automatic setup started' : 'Automatic setup resumed',
-                      {
-                        description: result.created
-                          ? 'The setup job is now tracking store connection, server scan, and migration progress.'
-                          : 'The existing setup job is active again in this dashboard.',
+              <div className="flex flex-wrap gap-2">
+                {canApplyRecommendedSetup ? (
+                  <YucpButton
+                    yucp="primary"
+                    pill
+                    isLoading={isApplying}
+                    onPress={async () => {
+                      setIsApplying(true);
+                      try {
+                        await applyRecommendedSetup({ guildId });
+                        toast.success('Automatic setup apply queued', {
+                          description:
+                            'The bot is now provisioning roles, role rules, and the verify surface for this server.',
+                        });
+                      } catch (error) {
+                        toast.error('Could not apply automatic setup', {
+                          description:
+                            error instanceof Error
+                              ? error.message
+                              : 'The setup job could not queue the apply step for this server.',
+                        });
+                      } finally {
+                        setIsApplying(false);
                       }
-                    );
-                  } catch (error) {
-                    toast.error('Could not launch automatic setup', {
-                      description:
-                        error instanceof Error
-                          ? error.message
-                          : 'The setup job could not be started for this server.',
-                    });
-                  } finally {
-                    setIsSubmitting(false);
-                  }
-                }}
-              >
-                {isSubmitting ? pendingLabel : buttonLabel}
-              </YucpButton>
+                    }}
+                  >
+                    {isApplying ? 'Applying...' : 'Apply Recommended Setup'}
+                  </YucpButton>
+                ) : null}
+                <YucpButton
+                  yucp={canApplyRecommendedSetup ? 'secondary' : 'primary'}
+                  pill
+                  isLoading={isSubmitting}
+                  onPress={async () => {
+                    setIsSubmitting(true);
+                    try {
+                      const result = await createOrResumeSetupJob({
+                        guildId,
+                        mode: 'automatic_setup',
+                        triggerSource: 'dashboard',
+                      });
+                      toast.success(
+                        result.created ? 'Automatic setup started' : 'Automatic setup resumed',
+                        {
+                          description: result.created
+                            ? 'The setup job is now tracking store connection, server scan, and migration progress.'
+                            : 'The existing setup job is active again in this dashboard.',
+                        }
+                      );
+                    } catch (error) {
+                      toast.error('Could not launch automatic setup', {
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : 'The setup job could not be started for this server.',
+                      });
+                    } finally {
+                      setIsSubmitting(false);
+                    }
+                  }}
+                >
+                  {isSubmitting ? pendingLabel : buttonLabel}
+                </YucpButton>
+              </div>
             </div>
 
             <div className="mt-4">
