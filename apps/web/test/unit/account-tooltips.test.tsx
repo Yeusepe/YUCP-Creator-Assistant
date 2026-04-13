@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { PropsWithChildren } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
@@ -45,8 +45,15 @@ function createWrapper() {
 }
 
 describe('account tooltip routes', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   it('renders the licenses route with provider reference tooltips', async () => {
@@ -78,7 +85,8 @@ describe('account tooltip routes', () => {
 
     await waitFor(() => expect(accountApi.listUserLicenses).toHaveBeenCalled());
     expect(await screen.findByText('prod_123')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'reference_1234567890abcdef' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'reference_1234567890abcdef' })).toHaveLength(1);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
   it('renders the authorized apps route with client id tooltips', async () => {
@@ -102,6 +110,7 @@ describe('account tooltip routes', () => {
 
     await waitFor(() => expect(accountApi.listUserOAuthGrants).toHaveBeenCalled());
     expect(await screen.findByText('Builder App')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'client_1234567890abcdef' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'client_1234567890abcdef' })).toHaveLength(1);
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

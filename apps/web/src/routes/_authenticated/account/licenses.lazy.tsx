@@ -95,21 +95,19 @@ function EntitlementRow({
 
       <div className="account-list-row-info">
         <p className="account-list-row-name">{entitlement.productId}</p>
-        <p className="account-list-row-meta">
+        <div className="account-list-row-meta">
           <ProviderChip name={entitlement.sourceProvider} />
           {entitlement.sourceReference ? (
             <Tooltip>
-              <Tooltip.Trigger>
-                <button
-                  type="button"
-                  className="account-reference-chip"
-                  style={{ cursor: 'help' }}
-                  aria-label={entitlement.sourceReference}
-                >
-                  {entitlement.sourceReference.slice(0, 12)}
-                  &hellip;
-                </button>
-              </Tooltip.Trigger>
+              <button
+                type="button"
+                className="account-reference-chip"
+                style={{ cursor: 'help' }}
+                aria-label={entitlement.sourceReference}
+              >
+                {entitlement.sourceReference.slice(0, 12)}
+                &hellip;
+              </button>
               <Tooltip.Content>
                 <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: '11px' }}>
                   {entitlement.sourceReference}
@@ -118,7 +116,7 @@ function EntitlementRow({
             </Tooltip>
           ) : null}
           <span>{formatAccountDate(entitlement.grantedAt)}</span>
-        </p>
+        </div>
       </div>
 
       <div className="account-list-row-actions">

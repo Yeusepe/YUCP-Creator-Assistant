@@ -72,20 +72,16 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
 
       <div className="account-list-row-info">
         <p className="account-list-row-name">{grant.appName}</p>
-        <p className="account-list-row-meta">
+        <div className="account-list-row-meta">
           <Tooltip>
-            <Tooltip.Trigger>
-              <button
-                type="button"
-                className="account-reference-chip"
-                style={{ cursor: 'help' }}
-                aria-label={grant.clientId}
-              >
-                {grant.clientId.length > 16
-                  ? `${grant.clientId.slice(0, 16)}\u2026`
-                  : grant.clientId}
-              </button>
-            </Tooltip.Trigger>
+            <button
+              type="button"
+              className="account-reference-chip"
+              style={{ cursor: 'help' }}
+              aria-label={grant.clientId}
+            >
+              {grant.clientId.length > 16 ? `${grant.clientId.slice(0, 16)}\u2026` : grant.clientId}
+            </button>
             <Tooltip.Content>
               <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: '11px' }}>
                 {grant.clientId}
@@ -93,7 +89,7 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
             </Tooltip.Content>
           </Tooltip>
           {grant.grantedAt ? <span>Authorized {formatAccountDate(grant.grantedAt)}</span> : null}
-        </p>
+        </div>
         {grant.scopes.length > 0 ? (
           <div className="account-pill-row account-pill-row--compact">
             {grant.scopes.map((scope) => (
