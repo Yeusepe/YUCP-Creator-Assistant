@@ -34,6 +34,21 @@ const EXPERIENCE_LABELS: Record<string, string> = {
   manual: 'Manual',
 };
 
+const MIGRATION_MODE_LABELS: Record<string, string> = {
+  adopt_existing_roles: 'Adopt Existing Roles',
+  import_verified_users: 'Import Verified Users',
+  bridge_from_current_roles: 'Bridge From Current Roles',
+  cross_server_bridge: 'Cross-Server Bridge',
+};
+
+const MIGRATION_PHASE_LABELS: Record<string, string> = {
+  analyze: 'Analyze',
+  shadow: 'Shadow',
+  bridged: 'Bridged',
+  enforced: 'Enforced',
+  rollback: 'Rollback',
+};
+
 function getStepStatusClasses(status: string) {
   switch (status) {
     case 'completed':
@@ -55,10 +70,13 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
   const toast = useToast();
   const { home } = useDashboardShell();
   const setupJob = useConvexQuery(api.setupJobs.getMySetupJobForGuild, { guildId });
+  const migrationJob = useConvexQuery(api.setupJobs.getMyLatestMigrationJobForGuild, { guildId });
   const createOrResumeSetupJob = useConvexMutation(api.setupJobs.createOrResumeSetupJobByGuild);
   const applyRecommendedSetup = useConvexMutation(api.setupJobs.applyRecommendedSetupByGuild);
+  const createMigrationJob = useConvexMutation(api.setupJobs.createMigrationJobByGuild);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
+  const [startingMigrationMode, setStartingMigrationMode] = useState<string | null>(null);
 
   const isLoading = setupJob === undefined;
   const recommendationSummary = useMemo(() => {
@@ -308,6 +326,101 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
               </div>
             </div>
           ) : null}
+
+          <div className="rounded-[14px] border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
+                Migration Center
+              </h3>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                Migration uses the same durable orchestration model as automatic setup. Start in
+                analysis mode, adopt existing roles where confidence is high, and keep manual review
+                available when a legacy source cannot export state cleanly.
+              </p>
+            </div>
+
+            {migrationJob ? (
+              <div className="mb-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white">
+                    {MIGRATION_MODE_LABELS[migrationJob.job.mode] ?? migrationJob.job.mode}
+                  </span>
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getStepStatusClasses(migrationJob.job.status)}`}
+                  >
+                    {STATUS_LABELS[migrationJob.job.status] ?? migrationJob.job.status}
+                  </span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {MIGRATION_PHASE_LABELS[migrationJob.job.currentPhase] ??
+                      migrationJob.job.currentPhase}
+                  </span>
+                </div>
+                {migrationJob.sources.length ? (
+                  <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                    {migrationJob.sources.map((source) => (
+                      <div
+                        key={source.id}
+                        className="rounded-[10px] border border-zinc-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-white/5"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                            {source.displayName ?? source.sourceKey}
+                          </p>
+                          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/10 dark:text-zinc-200">
+                            {source.capabilityMode.replaceAll('_', ' ')}
+                          </span>
+                        </div>
+                        {typeof source.payload?.note === 'string' ? (
+                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {source.payload.note}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 lg:grid-cols-2">
+              {Object.entries(MIGRATION_MODE_LABELS).map(([mode, label]) => (
+                <YucpButton
+                  key={mode}
+                  yucp="secondary"
+                  isLoading={startingMigrationMode === mode}
+                  onPress={async () => {
+                    setStartingMigrationMode(mode);
+                    try {
+                      await createMigrationJob({
+                        guildId,
+                        setupJobId: setupJob?.job.id,
+                        mode: mode as
+                          | 'adopt_existing_roles'
+                          | 'import_verified_users'
+                          | 'bridge_from_current_roles'
+                          | 'cross_server_bridge',
+                      });
+                      toast.success(`${label} started`, {
+                        description:
+                          'The migration job is now tracking compatibility sources, role mapping, and cutover phases.',
+                      });
+                    } catch (error) {
+                      toast.error('Could not start migration job', {
+                        description:
+                          error instanceof Error
+                            ? error.message
+                            : 'The migration job could not be started for this server.',
+                      });
+                    } finally {
+                      setStartingMigrationMode(null);
+                    }
+                  }}
+                >
+                  {startingMigrationMode === mode ? 'Starting...' : label}
+                </YucpButton>
+              ))}
+            </div>
+          </div>
 
           {setupJob?.events.length ? (
             <div className="rounded-[14px] border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">

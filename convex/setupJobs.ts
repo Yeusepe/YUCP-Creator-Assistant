@@ -204,6 +204,33 @@ const DEFAULT_SETUP_FLOW: ReadonlyArray<{
   },
 ];
 
+const MIGRATION_SOURCE_CAPABILITY_DEFAULTS: ReadonlyArray<{
+  sourceKey: string;
+  sourceType: 'server_export' | 'manual_snapshot';
+  capabilityMode: 'analysis_only' | 'manual_review';
+  displayName: string;
+  payload?: Record<string, unknown>;
+}> = [
+  {
+    sourceKey: 'existing-discord-state',
+    sourceType: 'server_export',
+    capabilityMode: 'analysis_only',
+    displayName: 'Existing Discord state snapshot',
+    payload: {
+      note: 'Adopt existing roles, channels, and member-role state without assuming they are canonical entitlements.',
+    },
+  },
+  {
+    sourceKey: 'manual-review-fallback',
+    sourceType: 'manual_snapshot',
+    capabilityMode: 'manual_review',
+    displayName: 'Manual review fallback',
+    payload: {
+      note: 'Use manual review when a legacy verification bot cannot export enough state for direct import.',
+    },
+  },
+];
+
 const SetupStepSummaryV = v.object({
   id: v.id('setup_job_steps'),
   phase: SetupJobPhase,
@@ -897,6 +924,39 @@ async function createMigrationJobImpl(
     updatedAt: now,
     startedAt: now,
   });
+
+  for (const source of MIGRATION_SOURCE_CAPABILITY_DEFAULTS) {
+    await ctx.db.insert('migration_sources', {
+      migrationJobId,
+      authUserId: args.authUserId,
+      guildLinkId: args.guildLinkId,
+      sourceKey: source.sourceKey,
+      sourceType: source.sourceType,
+      capabilityMode: source.capabilityMode,
+      status: 'detected',
+      displayName: source.displayName,
+      payload: source.payload,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+  if (args.sourceBotKey) {
+    await ctx.db.insert('migration_sources', {
+      migrationJobId,
+      authUserId: args.authUserId,
+      guildLinkId: args.guildLinkId,
+      sourceKey: args.sourceBotKey,
+      sourceType: 'verification_bot',
+      capabilityMode: 'analysis_only',
+      status: 'detected',
+      displayName: args.sourceBotKey,
+      payload: {
+        note: 'Legacy verification bots default to analysis-only until an adapter proves export support.',
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
 
   await appendAuditEvent(ctx, {
     authUserId: args.authUserId,
@@ -1858,6 +1918,39 @@ export const createMigrationJobForOwner = mutation({
   },
 });
 
+export const createMigrationJobByGuild = mutation({
+  args: {
+    guildId: v.string(),
+    setupJobId: v.optional(v.id('setup_jobs')),
+    mode: MigrationMode,
+    sourceBotKey: v.optional(v.string()),
+    sourceGuildId: v.optional(v.string()),
+  },
+  returns: v.object({
+    migrationJobId: v.id('migration_jobs'),
+  }),
+  handler: async (ctx, args) => {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
+      throw new ConvexError('Unauthenticated');
+    }
+
+    const guildLink = await getOwnedGuildLinkByDiscordGuildId(ctx, {
+      authUserId: authUser.authUserId,
+      guildId: args.guildId,
+    });
+
+    return createMigrationJobImpl(ctx, {
+      authUserId: authUser.authUserId,
+      guildLinkId: guildLink._id,
+      setupJobId: args.setupJobId,
+      mode: args.mode,
+      sourceBotKey: args.sourceBotKey,
+      sourceGuildId: args.sourceGuildId,
+    });
+  },
+});
+
 export const getMigrationJob = query({
   args: {
     migrationJobId: v.id('migration_jobs'),
@@ -1893,6 +1986,132 @@ export const getMigrationJob = query({
       ctx.db
         .query('migration_events')
         .withIndex('by_migration_job', (q) => q.eq('migrationJobId', args.migrationJobId))
+        .order('desc')
+        .take(50),
+    ]);
+
+    return {
+      job: {
+        id: job._id,
+        setupJobId: job.setupJobId,
+        guildLinkId: job.guildLinkId,
+        discordGuildId: job.discordGuildId,
+        mode: job.mode,
+        status: job.status,
+        currentPhase: job.currentPhase,
+        sourceBotKey: job.sourceBotKey,
+        sourceGuildId: job.sourceGuildId,
+        blockingReason: job.blockingReason,
+        summary: job.summary,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt,
+        cancelledAt: job.cancelledAt,
+        failedAt: job.failedAt,
+      },
+      sources: sources.map((source) => ({
+        id: source._id,
+        sourceKey: source.sourceKey,
+        sourceType: source.sourceType,
+        capabilityMode: source.capabilityMode,
+        status: source.status,
+        displayName: source.displayName,
+        payload: source.payload,
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt,
+      })),
+      roleMappings: roleMappings.map((mapping) => ({
+        id: mapping._id,
+        provider: mapping.provider,
+        sourceRoleId: mapping.sourceRoleId,
+        sourceRoleName: mapping.sourceRoleName,
+        targetProductId: mapping.targetProductId,
+        targetProductName: mapping.targetProductName,
+        targetRoleId: mapping.targetRoleId,
+        targetRoleName: mapping.targetRoleName,
+        matchStrategy: mapping.matchStrategy,
+        confidence: mapping.confidence,
+        status: mapping.status,
+        reviewNote: mapping.reviewNote,
+        payload: mapping.payload,
+        createdAt: mapping.createdAt,
+        updatedAt: mapping.updatedAt,
+      })),
+      grants: grants.map((grant) => ({
+        id: grant._id,
+        discordUserId: grant.discordUserId,
+        roleId: grant.roleId,
+        roleName: grant.roleName,
+        productId: grant.productId,
+        status: grant.status,
+        provenance: grant.provenance,
+        expiresAt: grant.expiresAt,
+        createdAt: grant.createdAt,
+        updatedAt: grant.updatedAt,
+        promotedAt: grant.promotedAt,
+        revokedAt: grant.revokedAt,
+      })),
+      events: events.map((event) => ({
+        id: event._id,
+        phase: event.phase,
+        level: event.level,
+        eventType: event.eventType,
+        message: event.message,
+        payload: event.payload,
+        createdAt: event.createdAt,
+      })),
+    };
+  },
+});
+
+export const getMyLatestMigrationJobForGuild = query({
+  args: {
+    guildId: v.string(),
+  },
+  returns: v.union(v.null(), MigrationJobDetailV),
+  handler: async (ctx, args) => {
+    const authUser = await getAuthenticatedAuthUser(ctx);
+    if (!authUser) {
+      return null;
+    }
+
+    const guildLink = await ctx.db
+      .query('guild_links')
+      .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.guildId))
+      .first();
+    if (!guildLink || guildLink.authUserId !== authUser.authUserId) {
+      return null;
+    }
+
+    const job = await ctx.db
+      .query('migration_jobs')
+      .withIndex('by_guild_link', (q) => q.eq('guildLinkId', guildLink._id))
+      .order('desc')
+      .first();
+    if (!job || job.authUserId !== authUser.authUserId) {
+      return null;
+    }
+
+    const [sources, roleMappings, grants, events] = await Promise.all([
+      ctx.db
+        .query('migration_sources')
+        .withIndex('by_migration_job', (q) => q.eq('migrationJobId', job._id))
+        .order('asc')
+        .collect(),
+      ctx.db
+        .query('migration_role_mappings')
+        .withIndex('by_migration_job', (q) => q.eq('migrationJobId', job._id))
+        .order('asc')
+        .collect(),
+      ctx.db
+        .query('migration_grants')
+        .withIndex('by_migration_job', (q) => q.eq('migrationJobId', job._id))
+        .order('asc')
+        .take(500),
+      ctx.db
+        .query('migration_events')
+        .withIndex('by_migration_job', (q) => q.eq('migrationJobId', job._id))
         .order('desc')
         .take(50),
     ]);

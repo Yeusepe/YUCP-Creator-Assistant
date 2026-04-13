@@ -113,6 +113,8 @@ describe('AutomaticSetupPanel', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('Automatic')).toBeInTheDocument();
     expect(screen.getByText('Guided')).toBeInTheDocument();
+    expect(screen.getByText('Migration Center')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Adopt Existing Roles' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Automatic Setup' })).toBeInTheDocument();
   });
 });
