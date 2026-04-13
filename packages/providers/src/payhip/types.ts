@@ -62,7 +62,7 @@ export interface PayhipAdapterConfig {
 export interface PayhipLicenseVerifyData {
   /** Whether the license key is enabled */
   enabled: boolean;
-  /** Product permalink (e.g., "RGsF") — same as items[].product_key in webhooks */
+  /** Product permalink (e.g., "RGsF"), same as items[].product_key in webhooks */
   product_link: string;
   /** The license key itself */
   license_key: string;
@@ -107,7 +107,7 @@ export interface PayhipWebhookItem {
   product_id: string;
   /** Human-readable product name */
   product_name: string;
-  /** Product permalink (e.g., "RGsF") — used as product identifier for license API */
+  /** Product permalink (e.g., "RGsF"), used as product identifier for license API */
   product_key: string;
   /** Payhip product URL */
   product_permalink: string;
@@ -145,7 +145,7 @@ export interface PayhipPaidPayload {
   is_gift: boolean;
   /** Unix timestamp of the transaction */
   date: number;
-  /** SHA-256 of the creator's API key — used for webhook signature verification */
+  /** SHA-256 of the creator's API key, used for webhook signature verification */
   signature: string;
 }
 

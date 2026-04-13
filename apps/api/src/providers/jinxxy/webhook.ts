@@ -20,7 +20,7 @@ type ConvexClient = ReturnType<typeof getConvexClientFromUrl>;
 
 import { logger } from '../../lib/logger';
 
-// HKDF purpose strings — inlined to avoid circular imports with index.ts
+// HKDF purpose strings, inlined to avoid circular imports with index.ts
 const WEBHOOK_SECRET_PURPOSE = 'jinxxy-webhook-signing-secret' as const;
 const COLLAB_WEBHOOK_SECRET_PURPOSE = 'collab-webhook-signing-secret' as const;
 
@@ -62,7 +62,7 @@ async function getPendingJinxxyWebhookSecret(
   routeId: string
 ): Promise<string | null> {
   const store = getStateStore();
-  // During test delivery, routeId is the opaque route token — look up under the token prefix.
+  // During test delivery, routeId is the opaque route token, look up under the token prefix.
   const raw = await store.get(getPendingJinxxyWebhookTokenStoreKey(routeId));
   if (!raw) return null;
   try {
@@ -71,7 +71,7 @@ async function getPendingJinxxyWebhookSecret(
     return await decrypt(parsed.signingSecretEncrypted, encryptionSecret, WEBHOOK_SECRET_PURPOSE);
   } catch (err) {
     if (err instanceof SyntaxError) {
-      // Corrupted state-store entry — treat as no pending secret.
+      // Corrupted state-store entry, treat as no pending secret.
       logger.warn('Jinxxy pending webhook: failed to parse stored secret', { routeId });
       return null;
     }
@@ -363,7 +363,7 @@ export const webhook: WebhookPlugin = {
           return new Response('Internal Server Error', { status: 500 });
         }
       } else {
-        // User-scoped: no Discord servers yet — store under authUserId
+        // User-scoped: no Discord servers yet, store under authUserId
         try {
           const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
             apiSecret,

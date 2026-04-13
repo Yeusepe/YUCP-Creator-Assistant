@@ -88,7 +88,7 @@ export interface VrchatVerifyOwnershipResult {
 }
 
 /**
- * Thrown by VrchatApiClient when the VRChat API returns 401 — the stored
+ * Thrown by VrchatApiClient when the VRChat API returns 401, the stored
  * session has expired or been invalidated. The provider plugin layer
  * (apps/api/src/providers/vrchat/index.ts) catches this and rethrows as
  * the framework-level CredentialExpiredError.

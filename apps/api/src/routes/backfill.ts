@@ -129,7 +129,7 @@ export function createBackfillProductHandler(
       }
       if (!timingSafeStringEqual(apiSecret, expectedSecret)) {
         logger.warn(
-          'Backfill: apiSecret mismatch — check CONVEX_API_SECRET matches between Convex and API'
+          'Backfill: apiSecret mismatch, check CONVEX_API_SECRET matches between Convex and API'
         );
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,

@@ -38,7 +38,7 @@ export type PlatformTable =
 // AUTH USER ID TYPE
 // ============================================================================
 
-/** Better Auth user ID — primary creator identity */
+/** Better Auth user ID, primary creator identity */
 export type AuthUserId = string;
 
 // ============================================================================

@@ -43,7 +43,7 @@ import { createConnectDiscordRoleRoutes } from './connectDiscordRoleRoutes';
 import { createConnectUserAccountRoutes } from './connectUserAccountRoutes';
 import { createConnectUserVerificationRoutes } from './connectUserVerification';
 
-// Re-exported for backwards compatibility — ConnectConfig is defined in providers/types.ts
+// Re-exported for backwards compatibility, ConnectConfig is defined in providers/types.ts
 export type { ConnectConfig } from '../providers/types';
 
 import { logger } from '../lib/logger';
@@ -214,7 +214,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   /**
    * Fetches guild name/icon from Discord's API using the bot token.
    * Returns an object suitable for spreading into the upsertGuildLink call.
-   * Never throws — returns empty object on failure so the flow is unaffected.
+   * Never throws, returns empty object on failure so the flow is unaffected.
    */
   async function fetchGuildMeta(
     guildId: string
@@ -360,7 +360,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     | { ok: true; session: NonNullable<Awaited<ReturnType<Auth['getSession']>>> }
     | { ok: false; response: Response }
   > {
-    // Check authentication first — unauthenticated requests always get 401,
+    // Check authentication first, unauthenticated requests always get 401,
     // regardless of whether authUserId was supplied.
     let session: Awaited<ReturnType<Auth['getSession']>>;
     try {
@@ -413,7 +413,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   }
 
   /**
-   * ConnectContext — injected into every provider connect plugin route handler.
+   * ConnectContext, injected into every provider connect plugin route handler.
    * Built from the auth instance and config that were passed to createConnectRoutes.
    */
   function createConnectContext(request: Request): ConnectContext {
@@ -1653,7 +1653,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Body: { authUserId?, permalink, productSecretKey }
    *
    * @deprecated Use POST /api/connect/payhip/product-credential instead.
-   * Kept for backwards compatibility — delegates to genericProductCredential.
+   * Kept for backwards compatibility, delegates to genericProductCredential.
    */
   async function payhipProductKey(request: Request): Promise<Response> {
     // Translate legacy `permalink` field to `productId` and delegate to the generic handler.
@@ -1745,7 +1745,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
 
   /**
    * Server-to-server variant of genericProductCredential.
-   * No session required — called by internal RPC with trusted authUserId.
+   * No session required, called by internal RPC with trusted authUserId.
    * Encrypts the plaintext secret key and stores it via the generic Convex mutation.
    */
   async function serverUpsertProductCredential(params: {

@@ -14,8 +14,8 @@ let cachedProviders = null;
 /**
  * Generates a deterministic gradient avatar element from a seed string.
  * Uses the same djb2 hash as facehash's stringHash utility.
- * No external requests — purely local SVG/CSS.
- * @param {string} seed — Discord user ID or display name
+ * No external requests, purely local SVG/CSS.
+ * @param {string} seed, Discord user ID or display name
  * @returns {HTMLElement}
  */
 function generateFallbackAvatarEl(seed) {

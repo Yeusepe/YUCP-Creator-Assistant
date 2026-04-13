@@ -2,8 +2,8 @@
  * Gumroad Connect Plugin
  *
  * Handles the OAuth 2.0 authorisation code flow:
- *   GET  /api/connect/gumroad/begin     — builds the Gumroad authorisation URL
- *   GET  /api/connect/gumroad/callback  — exchanges the code, stores tokens + registers webhooks
+ *   GET  /api/connect/gumroad/begin    , builds the Gumroad authorisation URL
+ *   GET  /api/connect/gumroad/callback , exchanges the code, stores tokens + registers webhooks
  */
 
 import { GUMROAD_PURPOSES } from '@yucp/providers/gumroad/module';

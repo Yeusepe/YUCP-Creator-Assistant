@@ -2,7 +2,7 @@
  * Lemon Squeezy provider plugin
  *
  * Products: fetches via LemonSqueezyApiClient.getProducts (page-based)
- * Backfill: two-phase — subscriptions first, then order-items
+ * Backfill: two-phase, subscriptions first, then order-items
  *   Phase cursor: JSON-encoded { phase: 'subscriptions' | 'orders'; page: number }
  */
 

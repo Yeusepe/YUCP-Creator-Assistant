@@ -1,5 +1,5 @@
 /**
- * Webhook Deliveries — per-event delivery attempt tracking with retry state.
+ * Webhook Deliveries, per-event delivery attempt tracking with retry state.
  *
  * Delivery lifecycle: pending → in_progress → delivered | failed → dead_letter
  * Exponential backoff schedule: 30s, 5min, 30min, 2h, 8h.

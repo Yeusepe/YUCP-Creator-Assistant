@@ -43,7 +43,7 @@ const LEMON_WEBHOOK_EVENTS = [
 
 interface ProviderPlatformConfig {
   apiBaseUrl: string;
-  /** Frontend base URL — used to validate redirect URIs against allowed origins. */
+  /** Frontend base URL, used to validate redirect URIs against allowed origins. */
   frontendBaseUrl: string;
   convexUrl: string;
   convexApiSecret: string;

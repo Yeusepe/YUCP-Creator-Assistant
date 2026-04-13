@@ -65,7 +65,7 @@ export const writeEntry = internalMutation({
     packageVersion: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<WriteEntryResult> => {
-    // c74/75: Validate input formats — packageId safe grammar, contentHash is SHA-256 hex.
+    // c74/75: Validate input formats, packageId safe grammar, contentHash is SHA-256 hex.
     if (!PACKAGE_ID_RE.test(args.packageId)) {
       throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
     }

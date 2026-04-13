@@ -176,7 +176,7 @@ describe('handleWebhooksRoutes', () => {
     });
   });
 
-  describe('POST /webhooks — valid request', () => {
+  describe('POST /webhooks, valid request', () => {
     it('returns 201', async () => {
       const res = await routes(
         makeRequest('POST', '/webhooks', {
@@ -214,7 +214,7 @@ describe('handleWebhooksRoutes', () => {
     });
   });
 
-  describe('POST /webhooks — validation errors', () => {
+  describe('POST /webhooks, validation errors', () => {
     it('returns 400 when url field is missing', async () => {
       const res = await routes(makeRequest('POST', '/webhooks', { events: [] }), '/webhooks');
       expect(res.status).toBe(400);

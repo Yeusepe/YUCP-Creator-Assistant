@@ -1,5 +1,5 @@
 /**
- * Webhook delivery cron — triggers processWebhookDeliveries every minute.
+ * Webhook delivery cron, triggers processWebhookDeliveries every minute.
  * Isolated to avoid circular dependency with crons.ts.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Internal Notify Route — POST /api/internal/notify
+ * Internal Notify Route, POST /api/internal/notify
  *
  * Called by the Discord bot to push a real-time notification to the creator dashboard.
  * Authenticated via X-Internal-Service-Secret header (constant-time comparison).

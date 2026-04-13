@@ -795,7 +795,7 @@ export const addProductFromLemonSqueezy = mutation({
 /**
  * Generic: get or create a product catalog entry for any catalog-sync provider.
  * Prefer this over provider-specific mutations when the provider key is dynamic.
- * @deprecated Use `addCatalogProduct` instead — it accepts a pre-computed canonicalUrl
+ * @deprecated Use `addCatalogProduct` instead, it accepts a pre-computed canonicalUrl
  * from the caller (derived from PROVIDER_REGISTRY.catalogProductUrlTemplate).
  */
 export const addProductForProvider = mutation({
@@ -1010,7 +1010,7 @@ export const addProductFromVrchat = mutation({
  *
  * Buyer verification works because `getOwnershipFromSession` collects both `avatar.id`
  * (avtr_xxx) and `avatar.productId` (prod_xxx) from `getLicensedAvatars`.
- * Source: packages/providers/src/vrchat/client.ts — getOwnershipFromSession
+ * Source: packages/providers/src/vrchat/client.ts, getOwnershipFromSession
  */
 export const addProductFromVrchatCatalog = mutation({
   args: {
@@ -1085,7 +1085,7 @@ export const addProductFromVrchatCatalog = mutation({
 /**
  * Get or create a product catalog entry for a Payhip product.
  * The permalink (e.g., "RGsF") is the canonical Payhip product identifier.
- * Does not trigger backfill — Payhip has no purchases API; events arrive via webhooks.
+ * Does not trigger backfill, Payhip has no purchases API; events arrive via webhooks.
  */
 export const addProductFromPayhip = mutation({
   args: {
@@ -1185,7 +1185,7 @@ export const addProductFromDiscordRole = mutation({
     guildLinkId: v.id('guild_links'),
     verifiedRoleId: v.optional(v.string()),
     verifiedRoleIds: v.optional(v.array(v.string())),
-    /** Human-readable name (e.g. "Member (My Server)") — resolved by bot at add time */
+    /** Human-readable name (e.g. "Member (My Server)"), resolved by bot at add time */
     displayName: v.optional(v.string()),
   },
   returns: v.object({
@@ -1197,7 +1197,7 @@ export const addProductFromDiscordRole = mutation({
 
 /**
  * Resolve catalog product by URL (for cross-server verification).
- * Internal only — exposes authUserId to unauthenticated callers if public.
+ * Internal only, exposes authUserId to unauthenticated callers if public.
  */
 export const resolveProductByUrl = internalQuery({
   args: { url: v.string() },

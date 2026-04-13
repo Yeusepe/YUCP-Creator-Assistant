@@ -10,7 +10,7 @@
  *   POST /v1/verification-sessions/:id/complete
  *
  * LemonSqueezy webhook tests (/v1/webhooks/lemonsqueezy/:id) already live in
- * webhooks.test.ts — this file focuses on the management REST API.
+ * webhooks.test.ts, this file focuses on the management REST API.
  *
  * The test server uses stub auth (always returns null session) so every
  * auth-guarded route returns 401 without needing real Discord credentials.
@@ -31,13 +31,13 @@ afterAll(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Auth-guarded routes — 401 before any Convex call
+// Auth-guarded routes, 401 before any Convex call
 //
 // requireTenantAccess() calls auth.getSession() → null (stub) → 401.
 // No Convex query is made before this guard for these routes.
 // ---------------------------------------------------------------------------
 
-describe('Provider connections — auth guards', () => {
+describe('Provider connections, auth guards', () => {
   it('POST /v1/tenants/:userId/provider-connections without auth → 401', async () => {
     // requireTenantAccess runs before body parsing for this route.
     const res = await server.fetch('/v1/tenants/test-user-id/provider-connections', {
@@ -72,13 +72,13 @@ describe('Provider connections — auth guards', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Verification session routes — 401 before Convex call
+// Verification session routes, 401 before Convex call
 //
 // Both handlers parse the JSON body first, then call requireTenantAccess().
 // A valid JSON body with authUserId reaches the auth guard → 401 (stub).
 // ---------------------------------------------------------------------------
 
-describe('Verification sessions — auth guards', () => {
+describe('Verification sessions, auth guards', () => {
   it('POST /v1/verification-sessions with valid JSON but no auth → 401', async () => {
     const res = await server.fetch('/v1/verification-sessions', {
       method: 'POST',
@@ -110,13 +110,13 @@ describe('Verification sessions — auth guards', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Routes that query Convex before auth — return error without backend
+// Routes that query Convex before auth, return error without backend
 //
 // requireConnectionAccess() fetches the connection from Convex first.
 // Without a real Convex backend the network call throws → outer catch → 500.
 // ---------------------------------------------------------------------------
 
-describe('Connection management — Convex-dependent (no backend in tests)', () => {
+describe('Connection management, Convex-dependent (no backend in tests)', () => {
   it('POST /v1/provider-connections/:id/credentials → not 200 (Convex lookup precedes auth)', async () => {
     const res = await server.fetch('/v1/provider-connections/conn-abc/credentials', {
       method: 'POST',
@@ -148,10 +148,10 @@ describe('Connection management — Convex-dependent (no backend in tests)', () 
 });
 
 // ---------------------------------------------------------------------------
-// Route matching — unrecognised paths fall through to 404
+// Route matching, unrecognised paths fall through to 404
 // ---------------------------------------------------------------------------
 
-describe('Provider platform — route matching', () => {
+describe('Provider platform, route matching', () => {
   it('GET /v1/tenants/:userId/provider-connections → 404 (only POST is handled)', async () => {
     // providerPlatform only registers POST for this path; GET falls through to
     // the global 404 handler in createServer.
@@ -186,10 +186,10 @@ describe('Provider platform — route matching', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Idempotency key header — replayed responses
+// Idempotency key header, replayed responses
 // ---------------------------------------------------------------------------
 
-describe('Provider platform — idempotency', () => {
+describe('Provider platform, idempotency', () => {
   it('two requests with same Idempotency-Key return same status', async () => {
     const idempotencyKey = `test-idem-${Date.now()}`;
     const init: RequestInit = {
@@ -234,10 +234,10 @@ describe('Provider platform — idempotency', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Webhook route — covered in detail in webhooks.test.ts; minimal smoke here
+// Webhook route, covered in detail in webhooks.test.ts; minimal smoke here
 // ---------------------------------------------------------------------------
 
-describe('LemonSqueezy webhook route (smoke only — full coverage in webhooks.test.ts)', () => {
+describe('LemonSqueezy webhook route (smoke only, full coverage in webhooks.test.ts)', () => {
   it('POST /v1/webhooks/lemonsqueezy/:id → not 200 (no Convex backend)', async () => {
     const res = await server.fetch('/v1/webhooks/lemonsqueezy/test-conn-id', {
       method: 'POST',

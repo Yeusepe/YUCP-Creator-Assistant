@@ -1,5 +1,5 @@
 /**
- * Connect routes integration tests — Phase 6.2
+ * Connect routes integration tests, Phase 6.2
  *
  * Tests HTTP-level auth guards and input validation for all /api/connect/*
  * and related routes. The test server uses stub auth that always returns null,
@@ -39,10 +39,10 @@ function createConnectSecurityRoutes() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth guard tests — stub auth always returns null → 401
+// Auth guard tests, stub auth always returns null → 401
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Connect routes — auth guards', () => {
+describe('Connect routes, auth guards', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -115,7 +115,7 @@ describe('Connect routes — auth guards', () => {
 // Token / input validation tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Connect routes — token validation', () => {
+describe('Connect routes, token validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -158,7 +158,7 @@ describe('Connect routes — token validation', () => {
   });
 });
 
-describe('Connect routes — setup session security', () => {
+describe('Connect routes, setup session security', () => {
   it('rejects tampered setup-session tokens without mutating the original session', async () => {
     const routes = createConnectSecurityRoutes();
     const setupToken = await createSetupSession(
@@ -228,7 +228,7 @@ describe('Connect routes — setup session security', () => {
   });
 });
 
-describe('Connect routes — OAuth state boundaries', () => {
+describe('Connect routes, OAuth state boundaries', () => {
   it('replays discord-role OAuth state only once and keeps redirects pinned to the configured frontend', async () => {
     const routes = createConnectSecurityRoutes();
     const store = getStateStore();

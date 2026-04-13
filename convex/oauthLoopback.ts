@@ -21,7 +21,7 @@ export const storeSession = internalMutation({
     originalRedirectUri: v.string(),
   },
   handler: async (ctx, args) => {
-    // c69: Insert-only — reject duplicate state values. A state is a one-time PKCE
+    // c69: Insert-only, reject duplicate state values. A state is a one-time PKCE
     // nonce; allowing an overwrite would let an attacker swap the originalRedirectUri
     // for an existing in-flight state (open-redirect in the OAuth callback).
     const existing = await ctx.db

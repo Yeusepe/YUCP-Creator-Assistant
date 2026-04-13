@@ -72,7 +72,7 @@ export function DashboardListSkeleton({ rows = 2, showAction = true }: Dashboard
   );
 }
 
-/** Settings tile skeleton — matches the actual svr-cfg-tile layout (56px rows). */
+/** Settings tile skeleton, matches the actual svr-cfg-tile layout (56px rows). */
 export function DashboardSettingsSkeleton({ rows = 5 }: { rows?: number }) {
   return (
     <div className="skeleton-stack" aria-hidden="true">
@@ -91,7 +91,7 @@ export function DashboardSettingsSkeleton({ rows = 5 }: { rows?: number }) {
   );
 }
 
-/** Billing tab skeleton — matches `billing-layout` (hero + metrics + caps). */
+/** Billing tab skeleton, matches `billing-layout` (hero + metrics + caps). */
 export function DashboardBillingSkeleton() {
   return (
     <div className="bento-col-12 billing-layout-skeleton" aria-hidden="true">
@@ -134,11 +134,11 @@ export function DashboardBillingSkeleton() {
   );
 }
 
-/** Certificates page skeleton — matches the 8/4 bento-grid split. */
+/** Certificates page skeleton, matches the 8/4 bento-grid split. */
 export function DashboardCertificatesSkeleton() {
   return (
     <>
-      {/* Left — 8-col card: header + device rows */}
+      {/* Left, 8-col card: header + device rows */}
       <div className="intg-card bento-col-8" aria-hidden="true">
         <div className="intg-header">
           <SkeletonCircle size="36px" />
@@ -155,7 +155,7 @@ export function DashboardCertificatesSkeleton() {
         </div>
       </div>
 
-      {/* Right — 4-col card: header + kv rows + button */}
+      {/* Right, 4-col card: header + kv rows + button */}
       <div className="intg-card bento-col-4" aria-hidden="true">
         <div className="intg-header">
           <SkeletonCircle size="36px" />
@@ -181,7 +181,7 @@ export function DashboardCertificatesSkeleton() {
   );
 }
 
-/** Package registry row skeleton — icon + name/id pair + status pill + icon actions. */
+/** Package registry row skeleton, icon + name/id pair + status pill + icon actions. */
 function DashboardPackageRowSkeleton() {
   return (
     <div className="pkg-row pkg-row--skeleton" aria-hidden="true">
@@ -211,7 +211,7 @@ export function DashboardPackageRegistrySkeleton({ rows = 3 }: { rows?: number }
 }
 
 /**
- * Provider card skeleton — matches the intg-provider-grid card layout.
+ * Provider card skeleton, matches the intg-provider-grid card layout.
  * Used for the Store Integrations section while providers are loading.
  */
 export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number }) {
@@ -234,7 +234,7 @@ export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number })
   );
 }
 
-/** Forensics tab — mirrors `section.intg-card.bento-col-12` (Leak Tracer form). */
+/** Forensics tab, mirrors `section.intg-card.bento-col-12` (Leak Tracer form). */
 export function DashboardForensicsSkeleton() {
   return (
     <section className="intg-card animate-in bento-col-12" aria-hidden="true">

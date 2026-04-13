@@ -13,7 +13,7 @@ export async function handleVerificationRoutes(
   const reqId = generateRequestId();
   const convex = getConvexClientFromUrl(config.convexUrl);
 
-  // GET /verification/status — returns the caller's own entitlements
+  // GET /verification/status, returns the caller's own entitlements
   if (subPath === '/verification/status') {
     if (request.method !== 'GET') {
       return errorResponse('method_not_allowed', 'Method not allowed', 405, reqId);
@@ -65,7 +65,7 @@ export async function handleVerificationRoutes(
     }
   }
 
-  // POST /verification/check — multi-product check by subject selector
+  // POST /verification/check, multi-product check by subject selector
   if (subPath === '/verification/check') {
     if (request.method !== 'POST') {
       return errorResponse('method_not_allowed', 'Method not allowed', 405, reqId);

@@ -246,7 +246,7 @@ function buildDashboardSetupUrl(params: {
     return null;
   }
 
-  return `${baseUrl}/dashboard?tenant_id=${params.authUserId}&guild_id=${params.guildId}#s=${encodeURIComponent(params.setupToken)}`;
+  return `${baseUrl}/dashboard/setup?tenant_id=${params.authUserId}&guild_id=${params.guildId}#s=${encodeURIComponent(params.setupToken)}`;
 }
 
 /** Entry: /creator-admin autosetup */

@@ -1,5 +1,5 @@
 /**
- * Jinxxy connect flow — webhook token consistency tests
+ * Jinxxy connect flow, webhook token consistency tests
  *
  * Covers the bug where GET /webhook-config and POST /webhook-config
  * each generate independent random tokens, causing the webhook handler
@@ -20,7 +20,7 @@ const refs = {
   upsertProviderConnection: 'providerConnections:upsertProviderConnection',
 } as const;
 
-describe('Jinxxy connect — webhook token consistency', () => {
+describe('Jinxxy connect, webhook token consistency', () => {
   it('GET and POST /webhook-config use the same callback route token', async () => {
     const convex = startFakeConvexServer({
       query: {
@@ -45,7 +45,7 @@ describe('Jinxxy connect — webhook token consistency', () => {
       );
       const authHeader = { Authorization: `Bearer ${setupToken}` };
 
-      // Step 1: GET /webhook-config — returns callbackUrl with token A
+      // Step 1: GET /webhook-config, returns callbackUrl with token A
       const getRes = await server.fetch('/api/connect/jinxxy/webhook-config', {
         headers: authHeader,
       });
@@ -55,7 +55,7 @@ describe('Jinxxy connect — webhook token consistency', () => {
       expect(tokenA).toBeTruthy();
       expect(tokenA.length).toBe(64);
 
-      // Step 2: POST /webhook-config — stores pending secret (and may generate token B)
+      // Step 2: POST /webhook-config, stores pending secret (and may generate token B)
       const postRes = await server.fetch('/api/connect/jinxxy/webhook-config', {
         method: 'POST',
         headers: { ...authHeader, 'Content-Type': 'application/json' },

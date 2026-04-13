@@ -8,7 +8,7 @@
 @source "../../node_modules/@heroui/react/dist";
 @source "../../node_modules/@heroui/styles/dist";
 
-/* ── Airbnb Cereal — self-hosted, all weights ── */
+/* ── Airbnb Cereal, self-hosted, all weights ── */
 @font-face {
   font-family: "AirbnbCereal";
   src: url("/fonts/airbnb-cereal/AirbnbCereal-Light.ttf") format("truetype");

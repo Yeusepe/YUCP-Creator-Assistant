@@ -147,7 +147,7 @@ async function enrichDiscordRoleNames<
         }
         guildRoles.set(guildId, roleMap);
       } catch {
-        // Bot not in source guild — skip silently, raw productId will show instead
+        // Bot not in source guild, skip silently, raw productId will show instead
       }
     })
   );
@@ -252,7 +252,7 @@ export async function handleProductAddInteractive(
           const hasProductInput = d.productInput != null;
           if (!hasCatalog && !hasPerProduct && !hasProductInput) return false;
           // productInput entries that don't require a connection are always shown
-          // (e.g. VRChat — avatars can be added by ID before the creator connects).
+          // (e.g. VRChat, avatars can be added by ID before the creator connects).
           if (hasProductInput && d.productInput?.requiresConnection === false) return true;
           // All other providers require an active dashboard connection.
           return !!connectionStatus[d.providerKey];
@@ -688,7 +688,7 @@ export async function handleProductCatalogSelect(
     flags: MessageFlags.Ephemeral,
   });
 }
-/** Step 2b (Jinxxy): backward-compatible wrapper — delegates to handleProductCatalogSelect */
+/** Step 2b (Jinxxy): backward-compatible wrapper, delegates to handleProductCatalogSelect */
 export async function handleProductJinxxySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
@@ -697,7 +697,7 @@ export async function handleProductJinxxySelect(
   return handleProductCatalogSelect(interaction, 'jinxxy', userId, authUserId);
 }
 
-/** Step 2b (Lemon Squeezy): backward-compatible wrapper — delegates to handleProductCatalogSelect */
+/** Step 2b (Lemon Squeezy): backward-compatible wrapper, delegates to handleProductCatalogSelect */
 export async function handleProductLemonSqueezySelect(
   interaction: StringSelectMenuInteraction,
   userId: string,
@@ -779,7 +779,7 @@ export async function handleProductPayhipModal(
   const parsed = parseProductId('payhip', rawPermalink);
   if (!parsed.ok) {
     await interaction.reply({
-      content: `${E.X_} ${parsed.error} — enter either the permalink (e.g. \`RGsF\`) or the full product URL (e.g. \`https://payhip.com/b/RGsF\`).`,
+      content: `${E.X_} ${parsed.error}, enter either the permalink (e.g. \`RGsF\`) or the full product URL (e.g. \`https://payhip.com/b/RGsF\`).`,
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -1223,7 +1223,7 @@ export async function handleProductConfirmAdd(
 
     const descriptor = getProviderDescriptor(type);
     if (descriptor?.capabilities.includes('catalog_sync')) {
-      // Generic catalog_sync branch — handles gumroad, jinxxy, lemonsqueezy, vrchat, and any future catalog provider.
+      // Generic catalog_sync branch, handles gumroad, jinxxy, lemonsqueezy, vrchat, and any future catalog provider.
       const productIdFromApi = urlOrId?.trim();
       if (!productIdFromApi) throw new Error(`No ${descriptor.label} product selected`);
       const productName = session.productNames?.[type]?.[productIdFromApi];
@@ -1248,7 +1248,7 @@ export async function handleProductConfirmAdd(
       productId = result.productId;
       catalogProductId = result.catalogProductId;
     } else if (type === 'gumroad_url') {
-      // Manual entry: user typed a URL or product ID — parse then resolve via Gumroad public API.
+      // Manual entry: user typed a URL or product ID, parse then resolve via Gumroad public API.
       const parsed = parseProductId('gumroad', urlOrId ?? '');
       if (!parsed.ok) throw new Error(parsed.error);
       const slug = parsed.productId;
@@ -1326,7 +1326,7 @@ export async function handleProductConfirmAdd(
         ) {
           throw err;
         }
-        logger.warn('VRChat avatar name lookup threw — continuing without display name', {
+        logger.warn('VRChat avatar name lookup threw, continuing without display name', {
           authUserId,
           avatarId,
           error: err instanceof Error ? err.message : String(err),
@@ -1361,14 +1361,14 @@ export async function handleProductConfirmAdd(
         throw new Error(credResult.error ?? 'Failed to save Payhip product secret key');
       }
 
-      // Resolve display name via iframely metadata (non-fatal — continues without name on failure).
+      // Resolve display name via iframely metadata (non-fatal, continues without name on failure).
       const { resolvePayhipProduct } = await import('@yucp/providers');
       let payhipDisplayName: string | undefined;
       try {
         const resolved = await resolvePayhipProduct(permalink);
         payhipDisplayName = resolved.name;
       } catch (err) {
-        logger.warn('Payhip product name lookup failed — continuing without display name', {
+        logger.warn('Payhip product name lookup failed, continuing without display name', {
           authUserId,
           permalink,
           error: err instanceof Error ? err.message : String(err),

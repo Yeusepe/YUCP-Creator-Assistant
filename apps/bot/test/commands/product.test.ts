@@ -207,7 +207,7 @@ describe('product command', () => {
     // Hardcoded special types
     expect(optionValues).toContain('license');
     expect(optionValues).toContain('discord_role');
-    // discord provider itself is handled only as discord_role — not as a raw entry
+    // discord provider itself is handled only as discord_role, not as a raw entry
     expect(optionValues).not.toContain('discord');
     // Planned/manual providers must not appear
     expect(optionValues).not.toContain('manual');
@@ -280,7 +280,7 @@ describe('product command', () => {
       TEST_API_SECRET
     );
 
-    // Now select 'gumroad' — triggers listProducts
+    // Now select 'gumroad', triggers listProducts
     const selectInteraction = mockStringSelect({
       userId: 'user_prod_2',
       guildId: 'guild_product_test',
@@ -378,7 +378,7 @@ describe('product command', () => {
       TEST_API_SECRET
     );
 
-    // No deferUpdate — session check happens first; update() is called with expired message
+    // No deferUpdate, session check happens first; update() is called with expired message
     const updatePayload = selectInteraction.update.mock.calls[0]?.[0];
     expect(updatePayload?.content).toContain('Session expired');
     expect(updatePayload?.components).toEqual([]);
@@ -521,7 +521,7 @@ describe('product command', () => {
     expect(replayInteraction.showModal.mock.calls).toHaveLength(0);
   });
 
-  it('only shows connected providers — unconnected catalog/credential providers are hidden', async () => {
+  it('only shows connected providers, unconnected catalog/credential providers are hidden', async () => {
     // Only gumroad is connected; jinxxy, lemonsqueezy, payhip are not.
     const partialConvex = makeMockConvex({ gumroad: true });
     const interaction = mockSlashCommand({
@@ -802,7 +802,7 @@ describe('product command', () => {
   });
 });
 
-describe('handleProductPayhipModal — permalink normalization', () => {
+describe('handleProductPayhipModal, permalink normalization', () => {
   /** Seed a product session so modal handlers can find it. */
   async function seedPayhipSession(userId: string, authUserId: string, guildId: string) {
     const slashInteraction = mockSlashCommand({
@@ -872,7 +872,7 @@ describe('handleProductPayhipModal — permalink normalization', () => {
       authUserId
     );
 
-    // Should advance to step 3 (role select) — URL was valid
+    // Should advance to step 3 (role select), URL was valid
     expect(modal.reply.mock.calls).toHaveLength(1);
     const replyPayload = modal.reply.mock.calls[0]?.[0];
     expect(replyPayload?.content).toContain('Step 3 of 3');
@@ -932,7 +932,7 @@ describe('handleProductPayhipModal — permalink normalization', () => {
   });
 });
 
-describe('handleProductConfirmAdd — Payhip displayName', () => {
+describe('handleProductConfirmAdd, Payhip displayName', () => {
   /** Seed a full Payhip product session up to the role-select step. */
   async function seedPayhipConfirmSession(
     userId: string,
@@ -1037,7 +1037,7 @@ describe('handleProductConfirmAdd — Payhip displayName', () => {
   });
 });
 
-describe('handleProductConfirmAdd — catalog product URLs', () => {
+describe('handleProductConfirmAdd, catalog product URLs', () => {
   it('uses the provider-supplied product URL when the descriptor has no URL template', async () => {
     const userId = 'user_itch_catalog';
     const authUserId = 'auth_itch_catalog';

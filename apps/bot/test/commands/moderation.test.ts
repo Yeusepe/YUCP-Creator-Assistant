@@ -1,7 +1,7 @@
 /**
  * Tests for /creator-admin moderation sub-commands.
  *
- * Moderation commands use ConvexHttpClient directly — no internalRpc.
+ * Moderation commands use ConvexHttpClient directly, no internalRpc.
  * posthog is mocked via mock.module so track() is a no-op in tests.
  */
 
@@ -130,7 +130,7 @@ describe('moderation commands', () => {
   it('given non-moderator user, moderation mark action returns permission error', async () => {
     // ⚠️ BUG: handleModerationMark has no internal permission check.
     // Any user who bypasses the interactions handler can mark others as suspicious.
-    // This test expects a permission error — it will FAIL, revealing the missing guard.
+    // This test expects a permission error, it will FAIL, revealing the missing guard.
     const interaction = mockSlashCommand({
       userId: 'unprivileged_mod_3',
       guildId: 'guild_mod_3',
@@ -168,7 +168,7 @@ describe('moderation commands', () => {
       'api-secret',
       'actor_mod_4', // actorId
       'auth_mod_4', // authUserId
-      'unknown_mod_4' // targetUserId — not in DB
+      'unknown_mod_4' // targetUserId, not in DB
     );
 
     expect(interaction.deferUpdate.mock.calls).toHaveLength(1);
@@ -204,7 +204,7 @@ describe('moderation commands', () => {
   it('given DM context (null guildId), moderation mark returns guild-required error', async () => {
     // ⚠️ BUG: handleModerationMark has no guild guard. In a DM, ctx.guildId is null
     // but the command proceeds and shows the flag select menu instead of a guild-required error.
-    // The assertion below expects a guild-required message — it will FAIL, revealing the bug.
+    // The assertion below expects a guild-required message, it will FAIL, revealing the bug.
     const interaction = mockSlashCommand({
       userId: 'actor_mod_6',
       guildId: null, // DM context

@@ -1,5 +1,5 @@
 /**
- * VrchatApiClient unit tests — TDD
+ * VrchatApiClient unit tests, TDD
  *
  * Tests for new methods added as part of the VRChat provider plugin migration:
  * - getProductListings: fetches creator store listings (GET /user/{userId}/listings)
@@ -21,9 +21,9 @@ afterEach(() => {
 });
 
 describe('VrchatApiClient.beginLogin', () => {
-  it('calls GET /auth/user with Basic auth only — no ?apiKey= and no /config bootstrap', async () => {
+  it('calls GET /auth/user with Basic auth only, no ?apiKey= and no /config bootstrap', async () => {
     // VRChat spec: /auth/user has parameters: [] and security: [{authHeader: []}].
-    // The ?apiKey= query parameter must NOT be sent to /auth/user — VRChat returns 401 when it is.
+    // The ?apiKey= query parameter must NOT be sent to /auth/user, VRChat returns 401 when it is.
     const calls: Array<{ url: string; headers: Headers }> = [];
     const fetchMock = mock(async (url: string, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
@@ -46,7 +46,7 @@ describe('VrchatApiClient.beginLogin', () => {
     const client = new VrchatApiClient();
     const result = await client.beginLogin('user@example.com', 'p@ss word');
 
-    // Must be exactly 1 fetch call — no /config bootstrap for the login endpoint
+    // Must be exactly 1 fetch call, no /config bootstrap for the login endpoint
     expect(calls).toHaveLength(1);
 
     // /auth/user: NO ?apiKey= (would cause 401), NO cookie, correct Basic auth
@@ -367,10 +367,10 @@ describe('VrchatApiClient.getProductListings', () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
-// getOwnershipFromSession — productId collection
+// getOwnershipFromSession, productId collection
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('VrchatApiClient.getOwnershipFromSession — productId in ownedAvatarIds', () => {
+describe('VrchatApiClient.getOwnershipFromSession, productId in ownedAvatarIds', () => {
   it('includes avatar.productId in ownedAvatarIds when the licensed avatar has one', async () => {
     const fetchMock = mock(async (url: string) => {
       if (url.includes('/config')) {

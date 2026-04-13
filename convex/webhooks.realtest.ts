@@ -253,7 +253,7 @@ describe('processWebhookEvent pipeline', () => {
 
     const event = (await t.run(async (ctx) => ctx.db.get(eventId))) as Doc<'webhook_events'> | null;
     expect(event?.status).toBe('processed');
-    // No subject linked — purchase_fact exists but no entitlement
+    // No subject linked, purchase_fact exists but no entitlement
     const facts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
     expect(facts).toHaveLength(1);
     expect(facts[0].subjectId).toBeUndefined();

@@ -2,7 +2,7 @@
  * Tests for the verify command panel builder.
  *
  * buildVerifyStatusReply constructs a Discord ComponentsV2 container from Convex data.
- * We mock the ConvexHttpClient directly — no internalRpc calls happen during panel builds.
+ * We mock the ConvexHttpClient directly, no internalRpc calls happen during panel builds.
  *
  * Call-order note for the two "guild-only" convex queries:
  *   buildVerifyStatusReply runs Promise.all([fetchVerifyData(), convex.query(getEnabledProviders)])
@@ -65,28 +65,28 @@ function makeConvex(opts: ConvexMockOpts = {}): ConvexHttpClient {
 
   return {
     query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
-      // getSubjectByDiscordId — has discordUserId but not guildId
+      // getSubjectByDiscordId, has discordUserId but not guildId
       if ('discordUserId' in args && !('guildId' in args)) {
         if (!subjectFound) return { found: false };
         return { found: true, subject: { _id: 'subject_test_abc' } };
       }
 
-      // getVerifyPromptMessageForOwner — has guildLinkId and authUserId, but no guildId
+      // getVerifyPromptMessageForOwner, has guildLinkId and authUserId, but no guildId
       if ('guildLinkId' in args && !('guildId' in args)) {
         return null;
       }
 
-      // getFailedRoleSyncForUser — has both discordUserId AND guildId
+      // getFailedRoleSyncForUser, has both discordUserId AND guildId
       if ('discordUserId' in args && 'guildId' in args) {
         return failedRoleSyncJobs;
       }
 
-      // getEntitlementsBySubject — has subjectId and includeInactive
+      // getEntitlementsBySubject, has subjectId and includeInactive
       if ('subjectId' in args && 'includeInactive' in args) {
         return entitlements;
       }
 
-      // getSubjectWithAccounts — has subjectId only
+      // getSubjectWithAccounts, has subjectId only
       if ('subjectId' in args) {
         return { found: true, externalAccounts: linkedAccounts };
       }

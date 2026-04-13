@@ -104,7 +104,7 @@ describe('AccountModal focus trap', () => {
     const middleBtn = screen.getByTestId('btn-middle');
     middleBtn.focus();
 
-    // Tab on middle element — should NOT prevent default (no wrapping)
+    // Tab on middle element, should NOT prevent default (no wrapping)
     const _event = fireEvent.keyDown(middleBtn, { key: 'Tab', shiftKey: false });
     // activeElement stays at middle since we don't intervene on non-boundary
     expect(document.activeElement).toBe(middleBtn);

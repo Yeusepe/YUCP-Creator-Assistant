@@ -38,6 +38,7 @@ import { Route as AuthenticatedAccountIndexRouteImport } from './routes/_authent
 import { Route as OauthCallbackItchioRouteImport } from './routes/oauth/callback/itchio'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthenticatedVerifyPurchaseRouteImport } from './routes/_authenticated/verify/purchase'
+import { Route as AuthenticatedDashboardSetupRouteImport } from './routes/_authenticated/dashboard/setup'
 import { Route as AuthenticatedDashboardServerRulesRouteImport } from './routes/_authenticated/dashboard/server-rules'
 import { Route as AuthenticatedDashboardPackagesRouteImport } from './routes/_authenticated/dashboard/packages'
 import { Route as AuthenticatedDashboardIntegrationsRouteImport } from './routes/_authenticated/dashboard/integrations'
@@ -216,6 +217,14 @@ const AuthenticatedVerifyPurchaseRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated/verify/purchase.lazy').then((d) => d.Route),
   )
+const AuthenticatedDashboardSetupRoute =
+  AuthenticatedDashboardSetupRouteImport.update({
+    id: '/setup',
+    path: '/setup',
+    getParentRoute: () => AuthenticatedDashboardRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/dashboard/setup.lazy').then((d) => d.Route),
+  )
 const AuthenticatedDashboardServerRulesRoute =
   AuthenticatedDashboardServerRulesRouteImport.update({
     id: '/server-rules',
@@ -391,6 +400,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
   '/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
@@ -433,6 +443,7 @@ export interface FileRoutesByTo {
   '/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
   '/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
@@ -479,6 +490,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/integrations': typeof AuthenticatedDashboardIntegrationsRoute
   '/_authenticated/dashboard/packages': typeof AuthenticatedDashboardPackagesRoute
   '/_authenticated/dashboard/server-rules': typeof AuthenticatedDashboardServerRulesRoute
+  '/_authenticated/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/_authenticated/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
@@ -525,6 +537,7 @@ export interface FileRouteTypes {
     | '/dashboard/integrations'
     | '/dashboard/packages'
     | '/dashboard/server-rules'
+    | '/dashboard/setup'
     | '/verify/purchase'
     | '/api/auth/$'
     | '/oauth/callback/itchio'
@@ -567,6 +580,7 @@ export interface FileRouteTypes {
     | '/dashboard/integrations'
     | '/dashboard/packages'
     | '/dashboard/server-rules'
+    | '/dashboard/setup'
     | '/verify/purchase'
     | '/api/auth/$'
     | '/oauth/callback/itchio'
@@ -612,6 +626,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/integrations'
     | '/_authenticated/dashboard/packages'
     | '/_authenticated/dashboard/server-rules'
+    | '/_authenticated/dashboard/setup'
     | '/_authenticated/verify/purchase'
     | '/api/auth/$'
     | '/oauth/callback/itchio'
@@ -851,6 +866,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedVerifyPurchaseRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/dashboard/setup': {
+      id: '/_authenticated/dashboard/setup'
+      path: '/setup'
+      fullPath: '/dashboard/setup'
+      preLoaderRoute: typeof AuthenticatedDashboardSetupRouteImport
+      parentRoute: typeof AuthenticatedDashboardRoute
+    }
     '/_authenticated/dashboard/server-rules': {
       id: '/_authenticated/dashboard/server-rules'
       path: '/server-rules'
@@ -985,6 +1007,7 @@ interface AuthenticatedDashboardRouteChildren {
   AuthenticatedDashboardIntegrationsRoute: typeof AuthenticatedDashboardIntegrationsRoute
   AuthenticatedDashboardPackagesRoute: typeof AuthenticatedDashboardPackagesRoute
   AuthenticatedDashboardServerRulesRoute: typeof AuthenticatedDashboardServerRulesRoute
+  AuthenticatedDashboardSetupRoute: typeof AuthenticatedDashboardSetupRoute
   AuthenticatedDashboardIndexRoute: typeof AuthenticatedDashboardIndexRoute
 }
 
@@ -1002,6 +1025,7 @@ const AuthenticatedDashboardRouteChildren: AuthenticatedDashboardRouteChildren =
     AuthenticatedDashboardPackagesRoute: AuthenticatedDashboardPackagesRoute,
     AuthenticatedDashboardServerRulesRoute:
       AuthenticatedDashboardServerRulesRoute,
+    AuthenticatedDashboardSetupRoute: AuthenticatedDashboardSetupRoute,
     AuthenticatedDashboardIndexRoute: AuthenticatedDashboardIndexRoute,
   }
 

@@ -45,7 +45,7 @@
   z-index: 1;
 }
 
-/* Interactive dot-matrix background overlay — mode-agnostic additive grey */
+/* Interactive dot-matrix background overlay, mode-agnostic additive grey */
 .dot-matrix-bg {
   position: absolute;
   inset: 0;
@@ -95,7 +95,7 @@
 @media (min-width: 768px) {
   .content-area {
     /* Overlap the seam so the glass panel covers the TL curve gap (body showing through).
-       Same rule for creator dashboard and account — required for compositing with border-radius. */
+       Same rule for creator dashboard and account, required for compositing with border-radius. */
     margin-left: var(--dashboard-content-seam-overlap);
     padding: 32px 40px 64px 56px;
     border-top-left-radius: var(--dashboard-content-inner-radius);
@@ -299,7 +299,7 @@
   box-shadow: none;
 }
 
-/* Sidebar toggle is mobile-only — hide at sidebar-visible breakpoint.
+/* Sidebar toggle is mobile-only, hide at sidebar-visible breakpoint.
    Must appear AFTER .dashboard-header-icon-btn to win the cascade. */
 @media (min-width: 768px) {
   .sidebar-toggle-btn.dashboard-header-icon-btn {

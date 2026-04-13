@@ -1,7 +1,7 @@
 /**
  * Payhip provider adapter tests
  *
- * 1. Pure function tests — SHA256(apiKey) signature algorithm
+ * 1. Pure function tests, SHA256(apiKey) signature algorithm
  *    Tests the hashPayhip() helper from webhookSignatures.ts, which mirrors the
  *    exact algorithm used in production (providers/payhip/webhook.ts).
  *
@@ -10,9 +10,9 @@
  *    `signature` field. The production handler recomputes SHA256(apiKey) on each
  *    request and compares it with timingSafeStringEqual().
  *
- * 2. Payload builder tests — payhipPaidPayload()
+ * 2. Payload builder tests, payhipPaidPayload()
  *
- * 3. HTTP integration tests — via startTestServer() (no real Convex backend).
+ * 3. HTTP integration tests, via startTestServer() (no real Convex backend).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -32,7 +32,7 @@ async function sha256Reference(input: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Pure function tests — SHA256(apiKey) algorithm
+// Pure function tests, SHA256(apiKey) algorithm
 // ---------------------------------------------------------------------------
 
 describe('Payhip SHA256(apiKey) signature algorithm', () => {
@@ -72,7 +72,7 @@ describe('Payhip SHA256(apiKey) signature algorithm', () => {
 
   it('given payload with no signature field, signature check fails (undefined ≠ hash)', async () => {
     // Simulates a payload missing the `signature` field. The production handler
-    // guards: `if (apiKey && payload.signature)` — without the field,
+    // guards: `if (apiKey && payload.signature)`, without the field,
     // signatureValid stays false.
     const apiKey = 'creator-key';
     const hash = await hashPayhip(apiKey);
@@ -80,7 +80,7 @@ describe('Payhip SHA256(apiKey) signature algorithm', () => {
     expect(payloadSig).not.toBe(hash);
   });
 
-  it('is not HMAC — hash does not depend on body content', async () => {
+  it('is not HMAC, hash does not depend on body content', async () => {
     // Payhip uses SHA256(apiKey), never SHA256(apiKey || body).
     // The same API key always produces the same signature regardless of payload.
     const apiKey = 'static-payhip-key';
@@ -150,7 +150,7 @@ describe('Payhip webhook payload builder', () => {
 });
 
 // ---------------------------------------------------------------------------
-// HTTP integration tests — via test server (no real Convex backend)
+// HTTP integration tests, via test server (no real Convex backend)
 //
 // The full Payhip webhook routing suite lives in webhooks.test.ts. These tests
 // verify provider-specific routing from the Payhip perspective.
@@ -219,7 +219,7 @@ describe('Payhip HTTP webhook route (/webhooks/payhip/:routeId)', () => {
     expect(res.status).not.toBe(200);
   });
 
-  it.todo('POST with valid JSON + correct SHA256(apiKey) + known routeId → 200 — requires real Convex', () => {});
+  it.todo('POST with valid JSON + correct SHA256(apiKey) + known routeId → 200, requires real Convex', () => {});
 
-  it.todo('POST with valid JSON + correct signature but old date → 403 (replay protection) — requires real Convex', () => {});
+  it.todo('POST with valid JSON + correct signature but old date → 403 (replay protection), requires real Convex', () => {});
 });

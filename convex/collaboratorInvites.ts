@@ -172,7 +172,7 @@ export const acceptCollaboratorInvite = mutation({
   args: {
     apiSecret: v.string(),
     inviteId: v.id('collaborator_invites'),
-    /** Generic encrypted credential — replaces jinxxyApiKeyEncrypted for new records */
+    /** Generic encrypted credential, replaces jinxxyApiKeyEncrypted for new records */
     credentialEncrypted: v.string(),
     webhookSecretRef: v.optional(v.string()),
     webhookEndpoint: v.optional(v.string()),
@@ -183,7 +183,7 @@ export const acceptCollaboratorInvite = mutation({
     collaboratorDiscordUserId: v.string(),
     /** Discord username from server-side OAuth */
     collaboratorDisplayName: v.string(),
-    /** Discord avatar hash — validated server-side during OAuth (/^(a_)?[0-9a-f]{32}$/) */
+    /** Discord avatar hash, validated server-side during OAuth (/^(a_)?[0-9a-f]{32}$/) */
     collaboratorAvatarHash: v.optional(v.string()),
   },
   returns: v.id('collaborator_connections'),

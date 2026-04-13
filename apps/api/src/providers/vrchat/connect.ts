@@ -2,9 +2,9 @@
  * VRChat Connect Plugin
  *
  * Handles the creator VRChat login flow (session-based, not OAuth):
- *   GET  /api/connect/vrchat/begin   — validates setup session, creates state token,
+ *   GET  /api/connect/vrchat/begin  , validates setup session, creates state token,
  *                                      redirects to /setup/vrchat?token=TOKEN&mode=connect
- *   POST /api/connect/vrchat/session — validates token, calls VrchatApiClient.beginLogin(),
+ *   POST /api/connect/vrchat/session, validates token, calls VrchatApiClient.beginLogin(),
  *                                      handles 2FA, encrypts session, stores in Convex
  *
  * Reuses the TanStack `/setup/vrchat` flow with `mode=connect`.

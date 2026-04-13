@@ -48,7 +48,7 @@ mock.module('../src/lib/couplingRuntimeArtifacts', () => ({
   },
 }));
 
-describe('API server — coupling runtime surface', () => {
+describe('API server, coupling runtime surface', () => {
   let healthyApiServer: TestServerHandle;
   let brokenApiServer: TestServerHandle;
   let healthyCouplingServer: StubServer;

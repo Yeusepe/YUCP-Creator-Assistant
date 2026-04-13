@@ -1,4 +1,4 @@
-/* heroui-theme.css — Maps YUCP brand tokens to HeroUI semantic variables */
+/* heroui-theme.css, Maps YUCP brand tokens to HeroUI semantic variables */
 /* Reference: https://heroui.com/docs/handbook/theming */
 
 :root,
@@ -11,23 +11,23 @@
   --surface: oklch(0.98 0.005 220);
   --surface-foreground: oklch(0.18 0.03 240);
 
-  /* Primary — mapped from --bg-color #0a3d9e */
+  /* Primary, mapped from --bg-color #0a3d9e */
   --primary: oklch(0.38 0.18 262);
   --primary-foreground: oklch(0.98 0 0);
 
-  /* Accent — mapped from --accent-sky #0ea5e9 */
+  /* Accent, mapped from --accent-sky #0ea5e9 */
   --accent: oklch(0.62 0.17 225);
   --accent-foreground: oklch(0.98 0 0);
 
-  /* Success — mapped from --accent-green-dark #00e676 */
+  /* Success, mapped from --accent-green-dark #00e676 */
   --success: oklch(0.75 0.2 155);
   --success-foreground: oklch(0.15 0.05 155);
 
-  /* Warning — mapped from --accent-mustard #ffeb3b */
+  /* Warning, mapped from --accent-mustard #ffeb3b */
   --warning: oklch(0.9 0.18 100);
   --warning-foreground: oklch(0.2 0.05 100);
 
-  /* Danger — mapped from --accent-red #c53030 */
+  /* Danger, mapped from --accent-red #c53030 */
   --danger: oklch(0.52 0.2 25);
   --danger-foreground: oklch(0.98 0 0);
 
@@ -50,7 +50,7 @@
   /* Overlay */
   --overlay: oklch(0.18 0.03 240);
 
-  /* Border radius tokens — must match agents.md rules:
+  /* Border radius tokens, must match agents.md rules:
      Pill: 999px for standalone CTAs
      Rounded-rect: 10px for inline actions
      Icon: 8px for icon-only buttons */
@@ -130,7 +130,7 @@
   --color-focus: var(--focus);
 }
 
-/* HeroUI chip overrides — default chip--sm is too compact (0px vertical padding,
+/* HeroUI chip overrides, default chip--sm is too compact (0px vertical padding,
    20px total height). Give it proper breathing room. */
 .chip--sm {
   height: auto;

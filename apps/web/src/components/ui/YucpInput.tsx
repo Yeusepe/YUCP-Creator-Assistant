@@ -8,12 +8,12 @@ export interface YucpInputProps extends Omit<InputRootProps, 'ref' | 'onChange'>
   mono?: boolean;
   /** HeroUI-style value change handler (receives string value directly). */
   onValueChange?: (value: string) => void;
-  /** Mirror of HTML disabled — preferred alias for consistency with HeroUI Button. */
+  /** Mirror of HTML disabled, preferred alias for consistency with HeroUI Button. */
   isDisabled?: boolean;
 }
 
 /**
- * YucpInput — HeroUI Input wrapper that applies our glass-morphism design tokens.
+ * YucpInput, HeroUI Input wrapper that applies our glass-morphism design tokens.
  *
  * API note: HeroUI v3 Input extends react-aria-components Input, which uses
  * standard HTML attributes (onChange, disabled). This wrapper adds:

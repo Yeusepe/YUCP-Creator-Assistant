@@ -78,7 +78,7 @@ describe('proxyApiRequest', () => {
     const headers = new Headers(init.headers);
 
     const cookieHeader = headers.get('Cookie');
-    // The 2FA pending cookie must reach the API server — without it, readConnectPendingState
+    // The 2FA pending cookie must reach the API server, without it, readConnectPendingState
     // returns null and the handler returns "Two-factor session expired"
     expect(cookieHeader, 'yucp_vrchat_connect_pending must be forwarded to the API').not.toBeNull();
     expect(cookieHeader).toContain('yucp_vrchat_connect_pending=some-pending-uuid');

@@ -15,7 +15,7 @@ import type { PublicV2Config } from './types';
 /**
  * Hash a license key with HMAC-SHA256 keyed by the server encryption secret.
  * Using a server-side key prevents offline dictionary attacks if the database
- * is ever leaked — an attacker would also need the secret to brute-force keys.
+ * is ever leaked, an attacker would also need the secret to brute-force keys.
  *
  * NOTE: Changing this function invalidates all previously stored hashes.
  * Existing license keys must be re-imported after deploying this change.
@@ -44,7 +44,7 @@ export async function handleManualLicensesRoutes(
   const url = new URL(request.url);
   const convex = getConvexClientFromUrl(config.convexUrl);
 
-  // POST /manual-licenses/bulk — must check before /:id
+  // POST /manual-licenses/bulk, must check before /:id
   if (subPath === '/manual-licenses/bulk') {
     if (request.method !== 'POST') {
       return errorResponse('method_not_allowed', 'Method not allowed', 405, reqId);
@@ -90,7 +90,7 @@ export async function handleManualLicensesRoutes(
     }
   }
 
-  // POST /manual-licenses/validate — must check before /:id
+  // POST /manual-licenses/validate, must check before /:id
   if (subPath === '/manual-licenses/validate') {
     if (request.method !== 'POST') {
       return errorResponse('method_not_allowed', 'Method not allowed', 405, reqId);
@@ -124,7 +124,7 @@ export async function handleManualLicensesRoutes(
     }
   }
 
-  // GET /manual-licenses/stats — must check before /:id
+  // GET /manual-licenses/stats, must check before /:id
   if (subPath === '/manual-licenses/stats' && request.method === 'GET') {
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;

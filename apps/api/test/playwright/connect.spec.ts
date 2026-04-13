@@ -39,7 +39,7 @@ test.describe('Connect page', () => {
     expect(text?.trim().length).toBeGreaterThan(0);
   });
 
-  test('connect page requires auth — prompts sign-in when unauthenticated', async ({ page }) => {
+  test('connect page requires auth, prompts sign-in when unauthenticated', async ({ page }) => {
     // Track whether the page tried to navigate to the Discord sign-in endpoint.
     // In production the connect page serves sign-in-redirect.html for unauthenticated
     // users; that page immediately does window.location.href = signInUrl which hits

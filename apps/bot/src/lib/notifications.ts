@@ -23,7 +23,7 @@ interface NotificationPayload {
 
 /**
  * Send a real-time notification to the creator's dashboard.
- * This is fire-and-forget — never awaited in bot command paths.
+ * This is fire-and-forget, never awaited in bot command paths.
  */
 export function sendDashboardNotification(payload: NotificationPayload): void {
   const { apiInternal, apiPublic } = getApiUrls();

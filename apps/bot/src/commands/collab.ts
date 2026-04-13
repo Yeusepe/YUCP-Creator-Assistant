@@ -67,14 +67,14 @@ export async function handleCollabInvite(
     );
 
   await interaction.reply({
-    content: `${E.Link} **Create Collaborator Invite** — Select the provider for the collaborator's credential:`,
+    content: `${E.Link} **Create Collaborator Invite**, Select the provider for the collaborator's credential:`,
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
     flags: MessageFlags.Ephemeral,
   });
 }
 
 /**
- * Handle provider selection for collab invite — generates and shows the invite link.
+ * Handle provider selection for collab invite, generates and shows the invite link.
  */
 export async function handleCollabInviteProviderSelect(
   interaction: StringSelectMenuInteraction,
@@ -140,14 +140,14 @@ export async function handleCollabAdd(
     );
 
   await interaction.reply({
-    content: `${E.Key} **Add Collaborator** — Select the provider for the credential:`,
+    content: `${E.Key} **Add Collaborator**, Select the provider for the credential:`,
     components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
     flags: MessageFlags.Ephemeral,
   });
 }
 
 /**
- * Handle provider selection for collab add — shows the credential modal.
+ * Handle provider selection for collab add, shows the credential modal.
  */
 export async function handleCollabAddProviderSelect(
   interaction: StringSelectMenuInteraction,

@@ -204,7 +204,7 @@ describe('addProductFromPayhip - schedules projection of existing purchase facts
       return catalogId;
     });
 
-    // Re-add the same product — should still schedule projection
+    // Re-add the same product, should still schedule projection
     await t.mutation(api.role_rules.addProductFromPayhip, {
       apiSecret: 'test-secret',
       authUserId: 'auth-payhip-creator-2',

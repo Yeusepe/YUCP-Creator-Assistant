@@ -41,7 +41,7 @@ export function createPublicV2Routes(config: PublicV2Config): PublicV2Routes {
       const subPath = pathname.slice(V2_PREFIX.length) || '/';
 
       try {
-        // OpenAPI spec — no auth required
+        // OpenAPI spec, no auth required
         if (subPath === '/openapi.json') {
           return handleOpenApiRoutes(request, subPath, config);
         }

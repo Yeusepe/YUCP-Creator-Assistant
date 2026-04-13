@@ -407,7 +407,7 @@ export class GumroadAdapter implements ProviderAdapter {
 
   /**
    * Get a single sale by ID.
-   * Uses GET /v2/sales/:id — returns the sale if it exists in the creator's account.
+   * Uses GET /v2/sales/:id, returns the sale if it exists in the creator's account.
    *
    * @param accessToken - The OAuth access token
    * @param saleId - The Gumroad sale ID (from webhook sale_id)

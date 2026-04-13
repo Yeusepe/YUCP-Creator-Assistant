@@ -634,8 +634,8 @@
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Open the secure setup dashboard</h4>
-                            <p>Run <code>/creator-admin setup start</code>. The bot replies privately with a secure, time-limited <strong>Open Setup Dashboard</strong> button. That link carries your server setup context and takes you straight into the web dashboard.</p>
+                            <h4>Open the secure setup flow</h4>
+                            <p>Run <code>/creator-admin setup start</code>. The bot replies privately with a secure, time-limited <strong>Open Setup Flow</strong> button. That link carries your server setup context and takes you straight into the dedicated setup page for your server.</p>
                             <div class="cmd-wrap" style="margin-top:8px;">
                                 <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></div>
                                 <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy command">
@@ -647,42 +647,30 @@
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Follow the dashboard Quick Start</h4>
-                            <p>The dashboard now drives setup end-to-end. Its Quick Start panel updates based on what you have already completed, shows the next recommended action, and can be dismissed until your progress changes.</p>
-                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, or <span class="badge badge-jinxxy">Jinxxy™</span> from the dashboard, save your server settings, then click <strong>Done Setup</strong>. The setup UI includes progress states, animations, and celebration effects as you complete milestones.</p>
+                            <h4>Connect your storefronts</h4>
+                            <p>The setup flow starts by connecting the platforms you sell through. YUCP uses those connections to sync products, inspect your Discord® server, and prepare a recommended plan.</p>
+                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, or <span class="badge badge-jinxxy">Jinxxy™</span> from the same page. Guided providers are called out when they need a one-time credential handoff before the job can continue.</p>
                         </div>
                     </div>
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">4</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Run autosetup <span class="badge badge-new" style="font-size:9px;vertical-align:middle;">Recommended</span></h4>
-                            <p>Use <code>/creator-admin autosetup</code> for a guided wizard that creates roles, sets up a verification channel, posts the verify button, and can migrate from another bot, all in one flow.</p>
-                            <div class="cmd-wrap" style="margin-top:8px;">
-                                <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">autosetup</span></div>
-                                <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin autosetup')" aria-label="Copy command">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                                </button>
-                            </div>
+                            <h4>Let the setup page orient you</h4>
+                            <p>The first setup screen tells you whether this server is brand new, already in progress, already set up, or needs one fix. New servers get a simple start page. Existing servers land on a maintenance view instead of a restart-looking wizard.</p>
                         </div>
                     </div>
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">5</div><div class="step-connector"></div></div>
                         <div class="step-content">
-                            <h4>Add products and map roles</h4>
-                            <p>Add products via the wizard or <code>/creator-admin product add</code>. For each product, select the Discord® role to grant upon verification.</p>
+                            <h4>Apply the recommended setup</h4>
+                            <p>Click <strong>Apply Recommended Setup</strong> to queue the durable setup job. YUCP creates missing roles, writes role rules, and reuses or creates the verification surface for you.</p>
                         </div>
                     </div>
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">6</div></div>
                         <div class="step-content">
-                            <h4>Spawn the verify button</h4>
-                            <p>In your verification channel, run <code>/creator-admin spawn-verify</code>. The bot posts a persistent embed with a Verify button. Customize the title, description, color, and image.</p>
-                            <div class="cmd-wrap" style="margin-top:8px;">
-                                <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">spawn-verify</span> <span class="cmd-opt">[title] [description] [button_text] [color] [image_url]</span></div>
-                                <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin spawn-verify')" aria-label="Copy command">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                                </button>
-                            </div>
+                            <h4>Open migration tools only when you are switching bots</h4>
+                            <p>Migration is hidden by default. Only open the migration tools if you are replacing another verification bot and need help adopting existing roles or bridging the change carefully.</p>
                         </div>
                     </div>
                 </div>

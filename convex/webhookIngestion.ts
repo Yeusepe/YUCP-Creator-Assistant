@@ -18,7 +18,7 @@ import { ProviderV, WebhookProviderV } from './lib/providers';
  *   - 'hmac': the event carries a body-bound HMAC that was verified (Jinxxy, LemonSqueezy).
  *             signatureValid must also be true.
  *   - 'static-key': authenticated by comparing a static key-derived value (Payhip). The
- *             "signature" is SHA256(apiKey) — constant per connection, not body-bound.
+ *             "signature" is SHA256(apiKey), constant per connection, not body-bound.
  *             signatureValid must also be true.
  *   - 'route-token': the event was authenticated by a private random URL token (Gumroad Ping).
  *             No body signature exists by design; the token IS the authenticator.
@@ -32,7 +32,7 @@ export function isAuthenticatedEvent(event: {
   if (event.verificationMethod === 'route-token') return true;
   if (event.verificationMethod === 'hmac') return event.signatureValid === true;
   if (event.verificationMethod === 'static-key') return event.signatureValid === true;
-  // Legacy path: no verificationMethod stored — trust signatureValid directly.
+  // Legacy path: no verificationMethod stored, trust signatureValid directly.
   return event.signatureValid === true;
 }
 

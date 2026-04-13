@@ -1,5 +1,5 @@
 /**
- * Test server helper — wraps createServer() for bun:test.
+ * Test server helper, wraps createServer() for bun:test.
  *
  * Usage:
  *   import { startTestServer } from './helpers/testServer';
@@ -16,7 +16,7 @@
 
 import { createServer, type TestServer, type TestServerConfig } from '../../src/createServer';
 
-// Shared defaults — all values are safe for tests (no real external services needed)
+// Shared defaults, all values are safe for tests (no real external services needed)
 const DEFAULTS: TestServerConfig = {
   port: 0, // OS assigns a free port
   convexUrl: 'http://localhost:3210', // unused for HTTP-level tests; real URL needed for Convex state tests

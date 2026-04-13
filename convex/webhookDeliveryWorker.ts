@@ -1,5 +1,5 @@
 /**
- * Webhook Delivery Worker — processes pending webhook deliveries.
+ * Webhook Delivery Worker, processes pending webhook deliveries.
  *
  * For each pending delivery the worker:
  *   1. Marks the delivery in_progress
@@ -110,7 +110,7 @@ export const processWebhookDeliveries = internalAction({
         }
 
         if (!subscription.enabled) {
-          // Subscription was disabled after this delivery was queued — drop it so the
+          // Subscription was disabled after this delivery was queued, drop it so the
           // creator's disable action takes effect even for already-queued jobs.
           await ctx.runMutation(internal.webhookDeliveries.markFailed, {
             deliveryId: delivery._id as any,
@@ -218,7 +218,7 @@ export const processWebhookDeliveries = internalAction({
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         failed++;
-        errors.push(`Delivery ${delivery._id}: unexpected error — ${errMsg}`);
+        errors.push(`Delivery ${delivery._id}: unexpected error, ${errMsg}`);
       }
     }
 

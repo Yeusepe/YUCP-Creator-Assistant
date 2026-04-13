@@ -14,7 +14,7 @@ const baseProps = {
   onDisconnect: vi.fn(),
 };
 
-describe('PlatformCard — YucpButton migration', () => {
+describe('PlatformCard, YucpButton migration', () => {
   it('renders the Connect button with btn-primary class', () => {
     render(<PlatformCard {...baseProps} isConnected={false} />);
     const btn = screen.getByRole('button', { name: 'Connect' });

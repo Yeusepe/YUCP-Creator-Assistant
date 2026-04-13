@@ -1,5 +1,5 @@
 /**
- * Collab routes integration tests — Phase 6.2
+ * Collab routes integration tests, Phase 6.2
  *
  * Tests HTTP-level auth guards and input validation for /api/collab/* routes.
  *
@@ -14,16 +14,16 @@ import { createSetupSession } from '../src/lib/setupSession';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab invite page — static HTML completeness
+// Collab invite page, static HTML completeness
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab invite page — inline script completeness', () => {
+describe('Collab invite page, inline script completeness', () => {
   it('collab-invite.html declares async function submitAccountLinking', async () => {
     // Regression guard: the Connect button uses onclick="submitAccountLinking()".
     // When the function declaration is accidentally omitted, the function body
     // floats at the top level of a non-module <script>, turning every `return`
     // inside it into "Uncaught SyntaxError: Illegal return statement" in
-    // the browser — crashing the page for every collaborator who opens the link.
+    // the browser, crashing the page for every collaborator who opens the link.
     const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
     expect(html).toContain('async function submitAccountLinking()');
   });
@@ -31,14 +31,14 @@ describe('Collab invite page — inline script completeness', () => {
   it('collab-invite.html submit functions use generic apiKey field, not jinxxyApiKey', async () => {
     // Both submit functions must send `apiKey` (the canonical field the server
     // accepts). The deprecated `jinxxyApiKey` alias must not appear in the
-    // request body — it breaks non-Jinxxy providers since the field name leaks
+    // request body, it breaks non-Jinxxy providers since the field name leaks
     // provider identity to the client and confuses users.
     const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
     expect(html).not.toContain('jinxxyApiKey');
   });
 
   it('collab-invite.html consent title uses dynamic provider label, not hardcoded Jinxxy', async () => {
-    // The consent stage title must not hardcode "Jinxxy™ store" — it must use
+    // The consent stage title must not hardcode "Jinxxy™ store", it must use
     // getProviderUI(inviteData.providerKey).label so Lemon Squeezy and future
     // providers display the correct store name.
     const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
@@ -65,10 +65,10 @@ describe('Collab invite page — inline script completeness', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard collab.js — static code completeness
+// Dashboard collab.js, static code completeness
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Dashboard collab.js — providerKey completeness', () => {
+describe('Dashboard collab.js, providerKey completeness', () => {
   it('collab.js submitGenerateInvite sends providerKey in request body', async () => {
     // The API now requires providerKey. Without it, createInvite returns 400.
     // This guard ensures the dashboard always sends providerKey, and that the
@@ -91,7 +91,7 @@ describe('Dashboard collab.js — providerKey completeness', () => {
     expect(html).toContain('submitGenerateInvite()');
   });
 
-  it('collab.js submitGenerateInvite does not send server name — lets server use creator Discord name', async () => {
+  it('collab.js submitGenerateInvite does not send server name, lets server use creator Discord name', async () => {
     // The dashboard invite must show the creator's Discord display name, not the
     // Discord server name. The server already resolves ownerDisplayName from
     // webSession.user.name when no guildName is sent. The client must NOT read
@@ -117,14 +117,14 @@ describe('Dashboard collab.js — providerKey completeness', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard invite display name — server uses session name as fallback
+// Dashboard invite display name, server uses session name as fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Dashboard invite — ownerDisplayName fallback', () => {
+describe('Dashboard invite, ownerDisplayName fallback', () => {
   it('collab.ts uses session display name when guildName is absent (no "Unknown Server" fallback)', async () => {
     // When the dashboard does not send a guildName (e.g. no guild is selected),
     // the server must fall back to the authenticated user's display name from the
-    // Better Auth session — NOT the literal "Unknown Server". Showing "Unknown Server"
+    // Better Auth session, NOT the literal "Unknown Server". Showing "Unknown Server"
     // on the consent page is confusing and makes collaborators hesitant to connect.
     const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
     expect(src).not.toContain("'Unknown Server'");
@@ -147,10 +147,10 @@ function makeWebSessionAuth(userId: string): Auth {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth guard tests — no setup session token present → 401
+// Auth guard tests, no setup session token present → 401
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — auth guards', () => {
+describe('Collab routes, auth guards', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -191,10 +191,10 @@ describe('Collab routes — auth guards', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Validation tests — auth-independent input checks
+// Validation tests, auth-independent input checks
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — validation', () => {
+describe('Collab routes, validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -223,7 +223,7 @@ describe('Collab routes — validation', () => {
 // A setup token belonging to user-A must NOT be usable by user-B's web session.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — security: setup session user isolation', () => {
+describe('Collab routes, security: setup session user isolation', () => {
   it('Setup session (user-A) + web session (user-B) → 403 (prevents session confusion)', async () => {
     const token = await createSetupSession(
       'user-A',
@@ -288,7 +288,7 @@ describe('Collab routes — security: setup session user isolation', () => {
           providerKey: 'jinxxy',
         }),
       });
-      // Auth passes; Convex is unavailable in tests so we may get 500 — that's fine.
+      // Auth passes; Convex is unavailable in tests so we may get 500, that's fine.
       expect(res.status).not.toBe(401);
       expect(res.status).not.toBe(403);
     } finally {
@@ -298,10 +298,10 @@ describe('Collab routes — security: setup session user isolation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Security: IDOR guards — a user cannot access another user's resources
+// Security: IDOR guards, a user cannot access another user's resources
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — security: IDOR guards', () => {
+describe('Collab routes, security: IDOR guards', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -316,7 +316,7 @@ describe('Collab routes — security: IDOR guards', () => {
       const res = await server.fetch('/api/collab/connections?authUserId=user-target');
       status = res.status;
     } catch {
-      return; // network error is also acceptable — auth was checked
+      return; // network error is also acceptable, auth was checked
     }
     expect(status).not.toBe(200);
   });
@@ -353,14 +353,14 @@ describe('Collab routes — security: IDOR guards', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Security: session / token validation — unauthenticated collab-session endpoints
+// Security: session / token validation, unauthenticated collab-session endpoints
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — security: session and token validation', () => {
+describe('Collab routes, security: session and token validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
-    server = await startTestServer(); // no auth — stub always returns null
+    server = await startTestServer(); // no auth, stub always returns null
   });
 
   afterAll(() => server.stop());
@@ -419,10 +419,10 @@ describe('Collab routes — security: session and token validation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Provider-agnostic collab — providerKey validation in addConnectionManual
+// Provider-agnostic collab, providerKey validation in addConnectionManual
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — provider-agnostic: addConnectionManual input validation', () => {
+describe('Collab routes, provider-agnostic: addConnectionManual input validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -494,10 +494,10 @@ describe('Collab routes — provider-agnostic: addConnectionManual input validat
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Provider-agnostic collab — createInvite providerKey validation
+// Provider-agnostic collab, createInvite providerKey validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — provider-agnostic: createInvite providerKey validation', () => {
+describe('Collab routes, provider-agnostic: createInvite providerKey validation', () => {
   it('POST /api/collab/invite with unsupported providerKey returns 400', async () => {
     const userId = 'user-invite-pk';
     const token = await createSetupSession(
@@ -546,13 +546,13 @@ describe('Collab routes — provider-agnostic: createInvite providerKey validati
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Provider product listing — collab connections must be provider-filtered
+// Provider product listing, collab connections must be provider-filtered
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Provider fetchProducts — collab connection filtering', () => {
+describe('Provider fetchProducts, collab connection filtering', () => {
   it('jinxxy provider filters collab connections to provider === jinxxy', async () => {
     // Without this filter, Lemon Squeezy credentials get passed to the Jinxxy
-    // API client, which silently fails — those collaborator products are never
+    // API client, which silently fails, those collaborator products are never
     // returned. The filter must be present so only jinxxy-typed connections are
     // used by the Jinxxy product fetch loop.
     const src = await Bun.file(`${import.meta.dir}/../src/providers/jinxxy/index.ts`).text();
@@ -582,7 +582,7 @@ describe('Provider fetchProducts — collab connection filtering', () => {
   it('getCollabConnectionsForVerification returns collaboratorDisplayName', async () => {
     // Without collaboratorDisplayName in the Convex return type, every collab
     // product shows "Collaborator" instead of the real name. The field is present
-    // on the collaborator_connections table — it just needs to be included in the
+    // on the collaborator_connections table, it just needs to be included in the
     // query return so providers can label products with the collaborator's name.
     const src = await Bun.file(`${import.meta.dir}/../../../convex/collaboratorInvites.ts`).text();
     // The returns validator for getCollabConnectionsForVerification must include it
@@ -595,10 +595,10 @@ describe('Provider fetchProducts — collab connection filtering', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard collab polling — list must refresh after invite is accepted
+// Dashboard collab polling, list must refresh after invite is accepted
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Dashboard collab.js — live-update polling', () => {
+describe('Dashboard collab.js, live-update polling', () => {
   it('collab.js starts polling fetchCollabConnections when invite URL is shown', async () => {
     // Without polling the owner must manually reload the page to see a newly
     // accepted invite. showInviteResult must start a periodic fetch so the
@@ -621,23 +621,23 @@ describe('Dashboard collab.js — live-update polling', () => {
 
   it('collab.js calls fetchPendingInvites immediately after a successful invite is generated', async () => {
     // Regression guard: after submitGenerateInvite succeeds, the pending invites
-    // list must update immediately — without requiring a page reload.
+    // list must update immediately, without requiring a page reload.
     // The generated invite token must appear in the "Pending Invites" section
     // the moment the URL is shown, not only after the next full page load.
     const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
     // submitGenerateInvite must call fetchPendingInvites (directly or via a
     // wrapper) before or immediately after showing the invite URL.
-    // The call must appear within the success branch — after the fetch resolves
-    // OK and before/after showInviteResult — not only at page initialisation.
+    // The call must appear within the success branch, after the fetch resolves
+    // OK and before/after showInviteResult, not only at page initialisation.
     expect(js).toMatch(/submitGenerateInvite[\s\S]{0,2000}fetchPendingInvites\s*\(/);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Web-session auth path — authenticated user, no setup session token
+// Web-session auth path, authenticated user, no setup session token
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab routes — web session auth', () => {
+describe('Collab routes, web session auth', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -665,7 +665,7 @@ describe('Collab routes — web session auth', () => {
     // Passing an authUserId that doesn't match the session user → 403 Forbidden.
     // With a fake Convex URL the ownership check throws a network error; the server
     // may crash the connection entirely. Either 403, 500, or a fetch error are all
-    // acceptable — the key invariant is it does NOT return 200/201.
+    // acceptable, the key invariant is it does NOT return 200/201.
     let status: number | null = null;
     try {
       const res = await server.fetch('/api/collab/invite', {
@@ -679,7 +679,7 @@ describe('Collab routes — web session auth', () => {
       });
       status = res.status;
     } catch {
-      // Network error means the server threw before responding — acceptable
+      // Network error means the server threw before responding, acceptable
       return;
     }
     expect(status).not.toBe(200);
@@ -688,10 +688,10 @@ describe('Collab routes — web session auth', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI — invites list, dynamic providers, badge color, revoke
+// Collab UI, invites list, dynamic providers, badge color, revoke
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI — invites and dynamic providers', () => {
+describe('Collab UI, invites and dynamic providers', () => {
   it('badge-api CSS class is not yellow (#fde047)', async () => {
     // Yellow on dark backgrounds has very poor contrast, especially at small sizes.
     // The badge must use a different hue (e.g., violet/purple) that reads clearly.
@@ -702,7 +702,7 @@ describe('Collab UI — invites and dynamic providers', () => {
   });
 
   it('collab.js fetches provider list from server instead of hardcoding COLLAB_PROVIDERS', async () => {
-    // The provider dropdown was hardcoded — new providers added to PROVIDER_REGISTRY
+    // The provider dropdown was hardcoded, new providers added to PROVIDER_REGISTRY
     // would not appear without also editing collab.js. The list must be fetched
     // from GET /api/collab/providers so it stays in sync with the registry.
     const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
@@ -712,7 +712,7 @@ describe('Collab UI — invites and dynamic providers', () => {
   });
 
   it('GET /api/collab/providers returns provider list without auth', async () => {
-    // The providers list is public metadata — no auth required. It returns the
+    // The providers list is public metadata, no auth required. It returns the
     // set of providers that support collab invites so the dropdown is always
     // in sync with the server registry.
     const server = await startTestServer();
@@ -733,7 +733,7 @@ describe('Collab UI — invites and dynamic providers', () => {
   });
 
   it('GET /api/collab/invites without auth returns 401', async () => {
-    // The invites list is owner-only — must require auth.
+    // The invites list is owner-only, must require auth.
     const server = await startTestServer();
     try {
       const res = await server.fetch('/api/collab/invites');
@@ -744,7 +744,7 @@ describe('Collab UI — invites and dynamic providers', () => {
   });
 
   it('DELETE /api/collab/invites/:id without auth returns 401', async () => {
-    // Revoking an invite is an owner action — must require auth.
+    // Revoking an invite is an owner action, must require auth.
     const server = await startTestServer();
     try {
       const res = await server.fetch('/api/collab/invites/some-invite-id', {
@@ -789,12 +789,12 @@ describe('Collab UI — invites and dynamic providers', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI — "connections I have approved" (as-collaborator view)
+// Collab UI, "connections I have approved" (as-collaborator view)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI — as-collaborator connections', () => {
+describe('Collab UI, as-collaborator connections', () => {
   it('GET /api/collab/connections/as-collaborator without auth returns 401', async () => {
-    // Viewing which stores you collaborate with is a private operation —
+    // Viewing which stores you collaborate with is a private operation,
     // must require authentication.
     const server = await startTestServer();
     try {
@@ -835,13 +835,13 @@ describe('Collab UI — as-collaborator connections', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI — Discord avatar pictures and deterministic fallback
+// Collab UI, Discord avatar pictures and deterministic fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI — Discord avatars and facehash fallback', () => {
+describe('Collab UI, Discord avatars and facehash fallback', () => {
   it('authCallback stores avatarHash in Discord state store', async () => {
     // Without capturing avatar during OAuth the dashboard can never show real
-    // profile pictures. The Discord user JSON includes an `avatar` hash — it
+    // profile pictures. The Discord user JSON includes an `avatar` hash, it
     // must be extracted and saved alongside discordUserId/discordUsername so it
     // is available when the invite is submitted.
     const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
@@ -854,7 +854,7 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
   it('authCallback validates avatar hash before storing (rejects arbitrary strings)', async () => {
     // An attacker could craft a Discord token that returns a malicious `avatar`
     // value. The server must validate the hash matches the expected hex pattern
-    // before storing it — never trust user-controlled strings.
+    // before storing it, never trust user-controlled strings.
     const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
     // Must have a regex or explicit validation for the avatar hash
     expect(src).toMatch(/[0-9]a-f.*32|a_.*[0-9a-f]/);
@@ -906,7 +906,7 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
   });
 
   it('listConnections in collab.ts constructs Discord CDN avatar URL server-side', async () => {
-    // The Discord CDN URL must be assembled on the server using validated data —
+    // The Discord CDN URL must be assembled on the server using validated data,
     // never sent raw from the client. The API response must include `avatarUrl`
     // (the pre-built URL), not `avatarHash` (the raw hash).
     const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
@@ -953,15 +953,15 @@ describe('Collab UI — Discord avatars and facehash fallback', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI — layout: full-width bento-grid, two-card split
+// Collab UI, layout: full-width bento-grid, two-card split
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI — layout and width', () => {
+describe('Collab UI, layout and width', () => {
   it('dashboard.html collab tab uses bento-grid for two-column layout', async () => {
     // The collaboration tab had a single max-w-2xl card that wasted horizontal
     // space. It must use a bento-grid with two cards:
-    //   left  — "My Collaborators" (invites + active connections)
-    //   right — "Stores I Collaborate With" (as-collaborator view)
+    //   left , "My Collaborators" (invites + active connections)
+    //   right, "Stores I Collaborate With" (as-collaborator view)
     const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
     // Search in the actual tab panel element (id=), not a reference to it
     const panelStart = html.indexOf('id="tab-panel-collaboration"');

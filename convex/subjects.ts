@@ -478,7 +478,7 @@ export const getSubjectWithAccounts = query({
             providerUsername: account.providerUsername,
             providerMetadata: account.providerMetadata
               ? {
-                  // c87: Strip email and rawData — they are not needed by callers
+                  // c87: Strip email and rawData, they are not needed by callers
                   // and increase breach surface. Use avatarUrl/profileUrl only.
                   avatarUrl: account.providerMetadata.avatarUrl,
                   profileUrl: account.providerMetadata.profileUrl,
@@ -508,7 +508,7 @@ export const getSubjectWithAccounts = query({
 /**
  * Check if a subject exists with the given Discord ID.
  * Lightweight check for validation purposes.
- * Internal only — exposes a global enumeration oracle if public.
+ * Internal only, exposes a global enumeration oracle if public.
  */
 export const subjectExistsByDiscordId = internalQuery({
   args: {
@@ -615,7 +615,7 @@ export const listByAuthUser = query({
 /**
  * Get subject ID by Discord user ID.
  * Returns just the ID for efficient lookups.
- * Internal only — exposes a global enumeration oracle if public.
+ * Internal only, exposes a global enumeration oracle if public.
  */
 export const getSubjectIdByDiscordId = internalQuery({
   args: {

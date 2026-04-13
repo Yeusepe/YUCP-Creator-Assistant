@@ -1,13 +1,13 @@
 /**
  * Credential encryption for storing tokens at rest.
  *
- * Algorithm:  AES-256-GCM  (authenticated encryption — no separate MAC needed)
+ * Algorithm:  AES-256-GCM  (authenticated encryption, no separate MAC needed)
  * KDF:        HKDF-SHA256  (proper extract-and-expand; domain-separated by `purpose`)
- * Nonce:      96-bit random per encryption — never reused
+ * Nonce:      96-bit random per encryption, never reused
  *
  * `purpose` is a caller-defined domain-separation label (e.g. 'gumroad-oauth-access-token').
  * It MUST be the same at encrypt and decrypt time for a given ciphertext.
- * Define purpose constants in the module that owns the credential type — not here.
+ * Define purpose constants in the module that owns the credential type, not here.
  */
 
 async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {

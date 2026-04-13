@@ -14,7 +14,7 @@ function makeSteps(total: number, completedCount: number) {
   }));
 }
 
-describe('OnboardingProgressPanel — HeroUI ProgressBar', () => {
+describe('OnboardingProgressPanel, HeroUI ProgressBar', () => {
   it('renders a progressbar role element', () => {
     render(<OnboardingProgressPanel steps={makeSteps(4, 2)} />);
     expect(screen.getByRole('progressbar')).toBeInTheDocument();

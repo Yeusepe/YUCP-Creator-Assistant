@@ -26,10 +26,10 @@ const TEST_VERIFICATION_CONFIG: VerificationConfig = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API-secret authentication — missing / wrong secret → 401
+// API-secret authentication, missing / wrong secret → 401
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Verification routes — authentication', () => {
+describe('Verification routes, authentication', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -66,10 +66,10 @@ describe('Verification routes — authentication', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Origin validation — foreign / missing Origin header → 403
+// Origin validation, foreign / missing Origin header → 403
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Verification routes — origin validation', () => {
+describe('Verification routes, origin validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -97,10 +97,10 @@ describe('Verification routes — origin validation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Input validation — missing / invalid fields → 400
+// Input validation, missing / invalid fields → 400
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Verification routes — validation', () => {
+describe('Verification routes, validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -154,10 +154,10 @@ describe('Verification routes — validation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Response shape — all error responses share { success: false, error: string }
+// Response shape, all error responses share { success: false, error: string }
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Verification routes — response shape', () => {
+describe('Verification routes, response shape', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -184,7 +184,7 @@ describe('Verification routes — response shape', () => {
   });
 });
 
-describe('Verification routes — security boundaries', () => {
+describe('Verification routes, security boundaries', () => {
   it('rejects wrong apiSecret for panel binding without storing the panel token', async () => {
     const routes = createVerificationRoutes(TEST_VERIFICATION_CONFIG);
     const originalFetch = globalThis.fetch;

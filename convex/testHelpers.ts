@@ -12,7 +12,7 @@ export function makeTestConvex() {
 }
 
 // ---------------------------------------------------------------------------
-// Seed helpers — insert minimal valid records and return their IDs.
+// Seed helpers, insert minimal valid records and return their IDs.
 // All required (non-optional) fields are included; optional fields may be
 // passed via the `overrides` parameter.
 // ---------------------------------------------------------------------------

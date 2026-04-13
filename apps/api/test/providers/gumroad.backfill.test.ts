@@ -1,5 +1,5 @@
 /**
- * Gumroad backfill plugin — unit tests
+ * Gumroad backfill plugin, unit tests
  *
  * Verifies that the fetchPage function correctly maps Gumroad sale records to
  * BackfillRecord objects, specifically that historical created_at timestamps
@@ -16,7 +16,7 @@ import { backfill } from '../../src/providers/gumroad/backfill';
 const FAKE_TOKEN = 'test-access-token';
 const FAKE_PRODUCT_REF = 'product-ref-001';
 
-// 90 days ago — guaranteed to exceed the former 30-day Convex validator limit
+// 90 days ago, guaranteed to exceed the former 30-day Convex validator limit
 const NINETY_DAYS_AGO_MS = Date.now() - 90 * 24 * 60 * 60 * 1000;
 const NINETY_DAYS_AGO_ISO = new Date(NINETY_DAYS_AGO_MS).toISOString();
 

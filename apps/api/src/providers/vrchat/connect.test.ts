@@ -1,5 +1,5 @@
 /**
- * VRChat Connect Plugin unit tests — TDD
+ * VRChat Connect Plugin unit tests, TDD
  *
  * Tests the connect plugin routes:
  * - GET /api/connect/vrchat/begin → creates state token, redirects to /setup/vrchat?mode=connect
@@ -120,7 +120,7 @@ function makeContext(
 // GET /api/connect/vrchat/begin
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('VRChat connect — GET /begin', () => {
+describe('VRChat connect, GET /begin', () => {
   it('redirects to /setup/vrchat with token and mode=connect when setup session is valid', async () => {
     const ctx = makeContext();
     const beginRoute = vrchatConnect.routes.find(
@@ -227,7 +227,7 @@ describe('VRChat connect — GET /begin', () => {
 // POST /api/connect/vrchat/session
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('VRChat connect — POST /session', () => {
+describe('VRChat connect, POST /session', () => {
   let sessionRoute: (typeof vrchatConnect.routes)[number];
 
   beforeEach(() => {
@@ -316,7 +316,7 @@ describe('VRChat connect — POST /session', () => {
       10 * 60 * 1000
     );
 
-    // Mock VRChat API: login attempt returns 401 — no auth cookie
+    // Mock VRChat API: login attempt returns 401, no auth cookie
     const fetchMock = mock(async (url: string) => {
       if (url.endsWith('/config')) {
         const responseHeaders = new Headers();

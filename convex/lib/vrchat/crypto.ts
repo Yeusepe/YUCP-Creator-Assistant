@@ -35,7 +35,7 @@ async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
   const salt = new Uint8Array(32);
   const prk = await hmacSha256(salt.buffer as ArrayBuffer, secretBytes.buffer as ArrayBuffer);
 
-  // HKDF-Expand T(1) = HMAC-SHA256(PRK, info || 0x01) — 32 bytes = AES-256 key
+  // HKDF-Expand T(1) = HMAC-SHA256(PRK, info || 0x01), 32 bytes = AES-256 key
   const expandInput = new Uint8Array(purposeBytes.byteLength + 1);
   expandInput.set(purposeBytes);
   expandInput[purposeBytes.byteLength] = 0x01;

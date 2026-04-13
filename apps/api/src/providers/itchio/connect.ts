@@ -2,8 +2,8 @@
  * itch.io Connect Plugin
  *
  * Handles the itch.io OAuth implicit flow:
- *   GET  /api/connect/itchio/begin   — builds the authorisation URL
- *   POST /api/connect/itchio/finish  — validates the fragment token, stores credentials
+ *   GET  /api/connect/itchio/begin  , builds the authorisation URL
+ *   POST /api/connect/itchio/finish , validates the fragment token, stores credentials
  *
  * Sources:
  * - https://itch.io/docs/api/oauth

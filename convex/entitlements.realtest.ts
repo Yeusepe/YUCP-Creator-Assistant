@@ -82,7 +82,7 @@ describe('grantEntitlement lifecycle', () => {
     const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-2' });
     await seedCreatorProfile(t, { authUserId });
 
-    // Identical evidence for both calls — same sourceReference = idempotent
+    // Identical evidence for both calls, same sourceReference = idempotent
     const args = {
       apiSecret: 'test-secret',
       authUserId,
@@ -121,7 +121,7 @@ describe('grantEntitlement lifecycle', () => {
     const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-3' });
     const before = await getSecurityCounts(t);
 
-    // No creator profile seeded — the auth check should fail before that lookup
+    // No creator profile seeded, the auth check should fail before that lookup
     await expect(
       t.mutation(api.entitlements.grantEntitlement, {
         apiSecret: 'wrong-secret',
@@ -236,7 +236,7 @@ describe('revokeEntitlement lifecycle', () => {
       },
     });
 
-    // Query for subjectB — should not find anything
+    // Query for subjectB, should not find anything
     const resultForB = await t.query(api.entitlements.getActiveEntitlement, {
       apiSecret: 'test-secret',
       authUserId,
@@ -290,7 +290,7 @@ describe('statistics and pagination', () => {
     const t = makeTestConvex();
     const authUserId = 'auth-stats-empty-6';
 
-    // getStatsOverview doesn't require a creator_profile — just queries entitlements
+    // getStatsOverview doesn't require a creator_profile, just queries entitlements
     const stats = await t.query(api.entitlements.getStatsOverview, {
       apiSecret: 'test-secret',
       authUserId,

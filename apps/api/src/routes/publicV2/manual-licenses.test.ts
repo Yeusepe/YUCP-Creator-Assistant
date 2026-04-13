@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-// hashLicenseKey is private to manual-licenses.ts — replicate the identical algorithm here
+// hashLicenseKey is private to manual-licenses.ts, replicate the identical algorithm here
 // so we can test its properties independently without importing the production module.
 async function hashKey(key: string): Promise<string> {
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
@@ -21,7 +21,7 @@ describe('hashKey (SHA-256 hex)', () => {
     expect(result).toBe('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824');
   });
 
-  it('is deterministic — same input always produces same hash', async () => {
+  it('is deterministic, same input always produces same hash', async () => {
     const a = await hashKey('consistent-input');
     const b = await hashKey('consistent-input');
     expect(a).toBe(b);

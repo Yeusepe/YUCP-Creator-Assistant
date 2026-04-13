@@ -104,7 +104,7 @@ export async function handleProviderProducts(
     });
   } catch (err) {
     if (err instanceof CredentialExpiredError) {
-      logger.warn('Provider credential expired — marking connection degraded', {
+      logger.warn('Provider credential expired, marking connection degraded', {
         provider,
         authUserId,
       });

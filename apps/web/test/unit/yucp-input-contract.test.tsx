@@ -49,7 +49,7 @@ describe('YucpInput component', () => {
   });
 });
 
-describe('Phase 2I — privacy page input migration', () => {
+describe('Phase 2I, privacy page input migration', () => {
   it('does not use a raw <input> element (migrated to YucpInput)', () => {
     // The delete confirmation input should be migrated to YucpInput
     expect(privacySource).not.toContain('<input\n');
@@ -61,7 +61,7 @@ describe('Phase 2I — privacy page input migration', () => {
   });
 });
 
-describe('Phase 2I — verify page input migration', () => {
+describe('Phase 2I, verify page input migration', () => {
   it('does not use a raw <input> element (migrated to YucpInput)', () => {
     expect(verifySource).not.toContain('<input\n');
     expect(verifySource).not.toContain('<input ');

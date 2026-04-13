@@ -6,7 +6,7 @@
  * request payloads without duplicating crypto logic across test files.
  *
  * Algorithms (confirmed from source):
- *  - Gumroad:       form-encoded body, NO signature — security via routeId
+ *  - Gumroad:       form-encoded body, NO signature, security via routeId
  *  - Jinxxy:        HMAC-SHA256(secret, rawBody) → lowercase hex in `x-signature` header
  *  - LemonSqueezy:  HMAC-SHA256(secret, rawBody) → lowercase hex in `x-signature` header
  *  - Payhip:        SHA256(apiKey) → lowercase hex as `signature` field in JSON body
@@ -33,7 +33,7 @@ async function hmacSha256Hex(secret: string, body: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Gumroad — form-encoded body, no signature
+// Gumroad, form-encoded body, no signature
 // ---------------------------------------------------------------------------
 
 export interface GumroadSaleOptions {
@@ -47,7 +47,7 @@ export interface GumroadSaleOptions {
 
 /**
  * Returns a URLSearchParams representing a Gumroad Ping webhook body.
- * Gumroad has no HMAC — the routeId is the only security mechanism.
+ * Gumroad has no HMAC, the routeId is the only security mechanism.
  */
 export function gumroadSalePayload(opts: GumroadSaleOptions): URLSearchParams {
   const params = new URLSearchParams();
@@ -60,7 +60,7 @@ export function gumroadSalePayload(opts: GumroadSaleOptions): URLSearchParams {
 }
 
 // ---------------------------------------------------------------------------
-// Jinxxy — HMAC-SHA256 in `x-signature` header
+// Jinxxy, HMAC-SHA256 in `x-signature` header
 // ---------------------------------------------------------------------------
 
 /**
@@ -98,7 +98,7 @@ export function jinxxyOrderPayload(opts: JinxxyOrderOptions): string {
 }
 
 // ---------------------------------------------------------------------------
-// LemonSqueezy — HMAC-SHA256 in `x-signature` header
+// LemonSqueezy, HMAC-SHA256 in `x-signature` header
 // ---------------------------------------------------------------------------
 
 /**
@@ -140,7 +140,7 @@ export function lemonSqueezyOrderPayload(opts: LemonSqueezyOrderOptions): string
 }
 
 // ---------------------------------------------------------------------------
-// Payhip — SHA256(apiKey) as `signature` field in JSON body
+// Payhip, SHA256(apiKey) as `signature` field in JSON body
 // ---------------------------------------------------------------------------
 
 /**

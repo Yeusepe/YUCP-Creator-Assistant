@@ -67,7 +67,7 @@ export function createGumroadApiProvider(deps: GumroadApiProviderDeps = {}) {
         const webhookBase = `${ctx.apiBaseUrl.replace(/\/$/, '')}/webhooks/gumroad/`;
 
         // List all resource subscriptions and delete ones pointing at our webhook base URL.
-        // See https://gumroad.com/api — GET/DELETE /v2/resource_subscriptions
+        // See https://gumroad.com/api, GET/DELETE /v2/resource_subscriptions
         const listRes = await fetch('https://api.gumroad.com/v2/resource_subscriptions', {
           headers: { Authorization: `Bearer ${accessToken}` },
           signal: AbortSignal.timeout(timeoutMs),

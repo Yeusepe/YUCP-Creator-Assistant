@@ -31,7 +31,7 @@ export { PayhipApiClient };
 export * from './types';
 
 export interface PayhipProductKey {
-  /** Product permalink (e.g., "RGsF") — matches `items[].product_key` in webhooks */
+  /** Product permalink (e.g., "RGsF"), matches `items[].product_key` in webhooks */
   permalink: string;
   /** Per-product secret key from Payhip product edit page */
   secretKey: string;
@@ -61,7 +61,7 @@ export class PayhipAdapter implements ProviderAdapter {
    * Verify a purchase by email.
    * Payhip doesn't expose a direct email-to-purchase lookup via public API,
    * so this is only usable if we have purchase_facts stored from webhooks.
-   * Returns null — callers should query purchase_facts directly.
+   * Returns null, callers should query purchase_facts directly.
    */
   async verifyPurchase(_emailOrId: string): Promise<Verification | null> {
     return null;
@@ -69,7 +69,7 @@ export class PayhipAdapter implements ProviderAdapter {
 
   /**
    * Get recent purchases.
-   * Payhip doesn't expose a general orders API — purchases come via webhooks.
+   * Payhip doesn't expose a general orders API, purchases come via webhooks.
    */
   async getRecentPurchases(_limit?: number): Promise<PurchaseRecord[]> {
     return [];

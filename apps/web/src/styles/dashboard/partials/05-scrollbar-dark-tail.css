@@ -399,7 +399,7 @@
 
 /* Dark mode fixes (plan: dark-mode-fixes) */
 
-/* Server dropdown: light mode text — base styles already use light colors */
+/* Server dropdown: light mode text, base styles already use light colors */
 /* These ensure correct colors when sidebar context provides dark CSS vars */
 #server-dropdown-menu .server-dropdown-item,
 #server-dropdown-menu .server-dropdown-search input,

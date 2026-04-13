@@ -295,7 +295,7 @@ describe('provider connection credential storage', () => {
   });
 });
 
-describe('upsertPayhipProductName — updates product_catalog displayName', () => {
+describe('upsertPayhipProductName, updates product_catalog displayName', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
   });
@@ -305,7 +305,7 @@ describe('upsertPayhipProductName — updates product_catalog displayName', () =
     const authUserId = 'payhip-name-test-user';
     const permalink = 'KZFw0';
 
-    // Insert a product_catalog record with no displayName — mirrors the state
+    // Insert a product_catalog record with no displayName, mirrors the state
     // after addProductFromPayhip is called without a displayName (bot add flow)
     await t.run(async (ctx) => {
       const now = Date.now();
@@ -340,7 +340,7 @@ describe('upsertPayhipProductName — updates product_catalog displayName', () =
       displayName: 'This is a test',
     });
 
-    // product_catalog must carry the name — getByGuildWithProductNames reads
+    // product_catalog must carry the name, getByGuildWithProductNames reads
     // from product_catalog.displayName, not provider_catalog_mappings.displayName
     const after = await t.run(async (ctx) =>
       ctx.db
@@ -382,7 +382,7 @@ describe('upsertPayhipProductName — updates product_catalog displayName', () =
       displayName: 'New Scraped Name',
     });
 
-    // Existing name must be preserved — webhook sources are authoritative
+    // Existing name must be preserved, webhook sources are authoritative
     const after = await t.run(async (ctx) =>
       ctx.db
         .query('product_catalog')

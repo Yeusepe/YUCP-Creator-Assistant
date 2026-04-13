@@ -491,8 +491,7 @@ async function handleSlashCommand(
         guildId,
       });
     } else if (subcommand === 'autosetup') {
-      const { handleAutosetupStart } = await import('../commands/autosetup');
-      await handleAutosetupStart(interaction, ctx.convex, ctx.apiSecret, {
+      await runSetupStart(interaction, ctx.convex, ctx.apiSecret, {
         authUserId,
         guildLinkId,
         guildId,

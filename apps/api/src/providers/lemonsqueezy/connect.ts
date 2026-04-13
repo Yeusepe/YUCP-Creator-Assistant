@@ -2,7 +2,7 @@
  * LemonSqueezy Connect Plugin
  *
  * Handles the LemonSqueezy API-key setup flow:
- *   POST /api/connect/lemonsqueezy-finish  — validate key, auto-create webhook, store credentials
+ *   POST /api/connect/lemonsqueezy-finish , validate key, auto-create webhook, store credentials
  */
 
 import { LemonSqueezyApiClient } from '@yucp/providers';

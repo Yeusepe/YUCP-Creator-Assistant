@@ -22,6 +22,7 @@ import {
   ChannelType,
   Client,
   GuildMember,
+  OverwriteType,
   PermissionFlagsBits,
   RESTJSONErrorCodes,
 } from 'discord.js';
@@ -89,6 +90,14 @@ export interface SetupApplyPayload {
   setupJobId: Id<'setup_jobs'>;
   guildLinkId: Id<'guild_links'>;
   guildId: string;
+  /** When true, skip the verify prompt creation or reuse step. */
+  skipVerifyPrompt?: boolean;
+}
+
+export interface SetupGeneratePlanPayload {
+  setupJobId: Id<'setup_jobs'>;
+  guildLinkId: Id<'guild_links'>;
+  guildId: string;
 }
 
 /** Outbox job document type */
@@ -101,6 +110,7 @@ export interface OutboxJob {
     | 'creator_alert'
     | 'retroactive_rule_sync'
     | 'setup_apply'
+    | 'setup_generate_plan'
     | 'verify_prompt_refresh';
   payload:
     | RoleSyncPayload
@@ -108,6 +118,7 @@ export interface OutboxJob {
     | CreatorAlertPayload
     | RetroactiveRuleSyncPayload
     | SetupApplyPayload
+    | SetupGeneratePlanPayload
     | VerifyPromptRefreshPayload;
   status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'dead_letter';
   retryCount: number;
@@ -430,6 +441,13 @@ export class RoleSyncService {
             return;
           }
 
+          if (job.jobType === 'setup_generate_plan') {
+            await this.processSetupGeneratePlanJob(job);
+            await this.updateJobStatus(job._id, 'completed');
+            this.logger.info('Setup generate plan job completed', { jobId: job._id });
+            return;
+          }
+
           if (job.jobType === 'setup_apply') {
             await this.processSetupApplyJob(job);
             await this.updateJobStatus(job._id, 'completed');
@@ -479,7 +497,17 @@ export class RoleSyncService {
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          await this.handleJobFailure(job, errorMessage);
+          // Non-retriable errors (e.g., Missing Permissions) will not resolve by retrying.
+          // Skip the retry queue and move directly to the dead letter state.
+          if (this.isNonRetriableDiscordError(error)) {
+            this.logger.warn('Job failed with non-retriable error, skipping retries', {
+              jobId: job._id,
+              error: errorMessage,
+            });
+            await this.updateJobStatus(job._id, 'dead_letter', errorMessage);
+          } else {
+            await this.handleJobFailure(job, errorMessage);
+          }
         }
       }
     );
@@ -738,6 +766,79 @@ export class RoleSyncService {
     }
   }
 
+  private async processSetupGeneratePlanJob(job: OutboxJob): Promise<void> {
+    const payload = job.payload as SetupGeneratePlanPayload;
+    if (!payload.setupJobId || !payload.guildLinkId || !payload.guildId) {
+      throw new Error('Setup generate plan payload missing setupJobId, guildLinkId, or guildId');
+    }
+
+    const guild = await this.discordClient.guilds.fetch(payload.guildId);
+    await guild.roles.fetch();
+
+    const existingRules = (await this.convexClient.query(
+      api.role_rules.getByGuildWithProductNames,
+      {
+        apiSecret: this.apiSecret,
+        authUserId: job.authUserId,
+        guildId: payload.guildId,
+      }
+    )) as ExistingGuildProductRule[];
+
+    const products = await this.fetchSetupProducts(job.authUserId);
+
+    const guildRolesSummary = guild.roles.cache
+      .filter((r) => !r.managed && r.id !== guild.id && r.name !== '@everyone')
+      .map((r) => ({ id: r.id, name: r.name, position: r.position }))
+      .sort((a, b) => b.position - a.position);
+
+    let planEntryCount = 0;
+    for (const product of products) {
+      if (this.matchesExistingGuildRule(existingRules, product)) {
+        continue;
+      }
+
+      const matchingRole = guild.roles.cache.find((role) => {
+        if (role.managed || role.id === guild.id || role.name === '@everyone') return false;
+        return normalizeSetupName(role.name) === normalizeSetupName(product.name);
+      });
+
+      const action = matchingRole ? ('adopt_role' as const) : ('create_role' as const);
+      const title = `${product.name} (${product.provider})`;
+
+      await this.convexClient.mutation(api.setupJobs.upsertSetupRecommendation, {
+        apiSecret: this.apiSecret,
+        setupJobId: payload.setupJobId,
+        recommendationType: 'role_plan_entry',
+        title,
+        status: 'proposed',
+        detail: matchingRole
+          ? `Adopt the existing "${matchingRole.name}" role.`
+          : `Create a new role named "${sanitizeSetupRoleName(product.name)}".`,
+        payload: {
+          productId: product.id,
+          productName: product.name,
+          provider: product.provider,
+          action,
+          proposedRoleName: sanitizeSetupRoleName(product.name),
+          ...(matchingRole ? { proposedRoleId: matchingRole.id } : {}),
+          availableGuildRoles: guildRolesSummary,
+        },
+      });
+      planEntryCount++;
+    }
+
+    await this.convexClient.mutation(api.setupJobs.advanceSetupToReviewExceptions, {
+      apiSecret: this.apiSecret,
+      setupJobId: payload.setupJobId,
+      planEntryCount,
+    });
+
+    this.logger.info('Setup generate plan: plan written', {
+      setupJobId: payload.setupJobId,
+      planEntryCount,
+    });
+  }
+
   private async processSetupApplyJob(job: OutboxJob): Promise<void> {
     const payload = job.payload as SetupApplyPayload;
     if (!payload.setupJobId || !payload.guildLinkId || !payload.guildId) {
@@ -746,7 +847,15 @@ export class RoleSyncService {
 
     try {
       const guild = await this.discordClient.guilds.fetch(payload.guildId);
-      await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
+      await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.members.fetchMe()]);
+      this.logger.info('Setup apply: guild fetched', {
+        guildId: guild.id,
+        botHighestRole: guild.members.me?.roles.highest
+          ? `${guild.members.me.roles.highest.name} (pos ${guild.members.me.roles.highest.position})`
+          : 'none',
+        mfaLevel: guild.mfaLevel,
+        features: [...guild.features],
+      });
 
       const existingRules = (await this.convexClient.query(
         api.role_rules.getByGuildWithProductNames,
@@ -756,7 +865,6 @@ export class RoleSyncService {
           guildId: payload.guildId,
         }
       )) as ExistingGuildProductRule[];
-      const products = await this.fetchSetupProducts(job.authUserId);
 
       let createdRoleCount = 0;
       let adoptedRoleCount = 0;
@@ -764,88 +872,238 @@ export class RoleSyncService {
       let reusedVerifyPrompt = false;
       let createdVerifyPrompt = false;
 
-      for (const product of products) {
-        if (this.matchesExistingGuildRule(existingRules, product)) {
-          continue;
-        }
+      // Fetch the plan entries written by setup_generate_plan. Fall back to legacy
+      // name-matching when no entries exist (e.g., old in-progress jobs).
+      const planEntries = (await this.convexClient.query(api.setupJobs.getSetupRolePlanEntries, {
+        apiSecret: this.apiSecret,
+        setupJobId: payload.setupJobId,
+      })) as Array<{
+        _id: string;
+        payload?: {
+          productId: string;
+          productName: string;
+          provider: string;
+          action: 'create_role' | 'adopt_role' | 'skip';
+          proposedRoleName: string;
+          proposedRoleId?: string;
+          userOverride?: {
+            action: 'create_role' | 'adopt_role' | 'skip';
+            targetRoleId?: string;
+            targetRoleName?: string;
+          };
+        };
+      }>;
 
-        const matchingRole = guild.roles.cache.find((role) => {
-          if (role.managed || role.id === guild.id || role.name === '@everyone') {
-            return false;
-          }
-          return normalizeSetupName(role.name) === normalizeSetupName(product.name);
-        });
+      if (planEntries.length > 0) {
+        for (const entry of planEntries) {
+          const ep = entry.payload;
+          if (!ep) continue;
+          const effectiveAction = ep.userOverride?.action ?? ep.action;
+          if (effectiveAction === 'skip') continue;
 
-        let targetRoleId: string;
-        if (matchingRole) {
-          const hierarchyCheck = canBotManageRole(guild, matchingRole.id);
-          if (!hierarchyCheck.canManage) {
-            throw new Error(
-              `Cannot adopt the existing "${matchingRole.name}" role for ${product.name}: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
-            );
+          let targetRoleId: string;
+          if (effectiveAction === 'adopt_role') {
+            const roleId = ep.userOverride?.targetRoleId ?? ep.proposedRoleId;
+            if (!roleId) continue;
+            const hierarchyCheck = canBotManageRole(guild, roleId);
+            if (!hierarchyCheck.canManage) {
+              throw new Error(
+                `Cannot adopt role for ${ep.productName}: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
+              );
+            }
+            targetRoleId = roleId;
+            adoptedRoleCount++;
+          } else {
+            const roleName = ep.userOverride?.targetRoleName ?? ep.proposedRoleName;
+            const role = await guild.roles.create({
+              name: roleName,
+              reason: 'Automatic setup apply',
+            });
+            const hierarchyCheck = canBotManageRole(guild, role.id);
+            if (!hierarchyCheck.canManage) {
+              await role.delete('Created during setup apply but bot cannot manage it');
+              throw new Error(
+                `Created a role for ${ep.productName} but the bot cannot manage it: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
+              );
+            }
+            targetRoleId = role.id;
+            createdRoleCount++;
           }
-          targetRoleId = matchingRole.id;
-          adoptedRoleCount++;
-        } else {
-          const role = await guild.roles.create({
-            name: sanitizeSetupRoleName(product.name),
-            reason: 'Automatic setup apply',
-          });
-          const hierarchyCheck = canBotManageRole(guild, role.id);
-          if (!hierarchyCheck.canManage) {
-            await role.delete('Created during setup apply but bot cannot manage it');
-            throw new Error(
-              `Created a role for ${product.name} but the bot cannot manage it: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
-            );
-          }
-          targetRoleId = role.id;
-          createdRoleCount++;
-        }
 
-        const descriptor = getProviderDescriptor(product.provider);
-        const catalogProduct = await this.convexClient.mutation(
-          api.role_rules.addProductForProvider,
-          {
+          const descriptor = getProviderDescriptor(ep.provider);
+          const product = { id: ep.productId, name: ep.productName, provider: ep.provider };
+          const catalogProduct = await this.convexClient.mutation(
+            api.role_rules.addProductForProvider,
+            {
+              apiSecret: this.apiSecret,
+              authUserId: job.authUserId,
+              productId: product.id,
+              providerProductRef: product.id,
+              provider: product.provider,
+              displayName: product.name,
+              productUrl: buildCatalogProductUrl(product.provider, product.id) ?? undefined,
+              supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
+            }
+          );
+
+          await this.convexClient.mutation(api.role_rules.createRoleRule, {
             apiSecret: this.apiSecret,
             authUserId: job.authUserId,
-            productId: product.id,
-            providerProductRef: product.id,
-            provider: product.provider,
+            guildId: payload.guildId,
+            guildLinkId: payload.guildLinkId,
+            productId: catalogProduct.productId,
+            catalogProductId: catalogProduct.catalogProductId,
+            verifiedRoleId: targetRoleId,
+          });
+          existingRules.push({
+            productId: catalogProduct.productId,
             displayName: product.name,
-            productUrl:
-              product.productUrl ??
-              buildCatalogProductUrl(product.provider, product.id) ??
-              undefined,
-            supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
-          }
-        );
+            provider: product.provider,
+            verifiedRoleId: targetRoleId,
+            enabled: true,
+          });
+          createdRuleCount++;
+        }
+      } else {
+        // Legacy fallback: name-match against live product list.
+        const products = await this.fetchSetupProducts(job.authUserId);
+        for (const product of products) {
+          if (this.matchesExistingGuildRule(existingRules, product)) continue;
 
-        await this.convexClient.mutation(api.role_rules.createRoleRule, {
-          apiSecret: this.apiSecret,
-          authUserId: job.authUserId,
-          guildId: payload.guildId,
-          guildLinkId: payload.guildLinkId,
-          productId: catalogProduct.productId,
-          catalogProductId: catalogProduct.catalogProductId,
-          verifiedRoleId: targetRoleId,
-        });
-        existingRules.push({
-          productId: catalogProduct.productId,
-          displayName: product.name,
-          provider: product.provider,
-          verifiedRoleId: targetRoleId,
-          enabled: true,
-        });
-        createdRuleCount++;
+          const matchingRole = guild.roles.cache.find((role) => {
+            if (role.managed || role.id === guild.id || role.name === '@everyone') return false;
+            return normalizeSetupName(role.name) === normalizeSetupName(product.name);
+          });
+
+          let targetRoleId: string;
+          if (matchingRole) {
+            const hierarchyCheck = canBotManageRole(guild, matchingRole.id);
+            if (!hierarchyCheck.canManage) {
+              throw new Error(
+                `Cannot adopt the existing "${matchingRole.name}" role for ${product.name}: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
+              );
+            }
+            targetRoleId = matchingRole.id;
+            adoptedRoleCount++;
+          } else {
+            const role = await guild.roles.create({
+              name: sanitizeSetupRoleName(product.name),
+              reason: 'Automatic setup apply',
+            });
+            const hierarchyCheck = canBotManageRole(guild, role.id);
+            if (!hierarchyCheck.canManage) {
+              await role.delete('Created during setup apply but bot cannot manage it');
+              throw new Error(
+                `Created a role for ${product.name} but the bot cannot manage it: ${hierarchyCheck.reason ?? 'role hierarchy blocks automation.'}`
+              );
+            }
+            targetRoleId = role.id;
+            createdRoleCount++;
+          }
+
+          const descriptor = getProviderDescriptor(product.provider);
+          const catalogProduct = await this.convexClient.mutation(
+            api.role_rules.addProductForProvider,
+            {
+              apiSecret: this.apiSecret,
+              authUserId: job.authUserId,
+              productId: product.id,
+              providerProductRef: product.id,
+              provider: product.provider,
+              displayName: product.name,
+              productUrl:
+                product.productUrl ??
+                buildCatalogProductUrl(product.provider, product.id) ??
+                undefined,
+              supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
+            }
+          );
+
+          await this.convexClient.mutation(api.role_rules.createRoleRule, {
+            apiSecret: this.apiSecret,
+            authUserId: job.authUserId,
+            guildId: payload.guildId,
+            guildLinkId: payload.guildLinkId,
+            productId: catalogProduct.productId,
+            catalogProductId: catalogProduct.catalogProductId,
+            verifiedRoleId: targetRoleId,
+          });
+          existingRules.push({
+            productId: catalogProduct.productId,
+            displayName: product.name,
+            provider: product.provider,
+            verifiedRoleId: targetRoleId,
+            enabled: true,
+          });
+          createdRuleCount++;
+        }
       }
 
-      const verifyResult = await this.ensureSetupVerifyPrompt({
-        authUserId: job.authUserId,
-        guildLinkId: payload.guildLinkId,
-        guildId: payload.guildId,
-      });
-      reusedVerifyPrompt = verifyResult.reused;
-      createdVerifyPrompt = verifyResult.created;
+      if (!payload.skipVerifyPrompt) {
+        this.logger.info('Setup apply: starting verify prompt step', {
+          guildId: payload.guildId,
+          authUserId: job.authUserId,
+        });
+        let verifyResult: {
+          reused: boolean;
+          created: boolean;
+          channelId?: string;
+          messageId?: string;
+        } | null = null;
+        let verifyError: string | null = null;
+        try {
+          verifyResult = await this.ensureSetupVerifyPrompt({
+            authUserId: job.authUserId,
+            guildLinkId: payload.guildLinkId,
+            guildId: payload.guildId,
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.warn('Setup apply: verify prompt step failed (non-fatal)', {
+            guildId: payload.guildId,
+            authUserId: job.authUserId,
+            error: msg,
+          });
+          verifyError = msg;
+        }
+
+        if (verifyResult) {
+          reusedVerifyPrompt = verifyResult.reused;
+          createdVerifyPrompt = verifyResult.created;
+          await this.convexClient.mutation(api.setupJobs.upsertSetupRecommendation, {
+            apiSecret: this.apiSecret,
+            setupJobId: payload.setupJobId,
+            recommendationType: reusedVerifyPrompt
+              ? 'verify_surface_reuse'
+              : 'verify_surface_creation',
+            title: reusedVerifyPrompt
+              ? 'Reuse the current verify prompt'
+              : 'Create a dedicated verify surface',
+            status: 'applied',
+            detail: reusedVerifyPrompt
+              ? 'The saved verify prompt was still valid and has been kept in place.'
+              : 'Created a verify channel and posted the current verification prompt.',
+            payload: verifyResult,
+          });
+        } else {
+          await this.convexClient.mutation(api.setupJobs.upsertSetupRecommendation, {
+            apiSecret: this.apiSecret,
+            setupJobId: payload.setupJobId,
+            recommendationType: 'verify_surface_creation',
+            title: 'Create a verify channel manually',
+            status: 'requires_attention',
+            detail:
+              `The bot could not create the verify channel automatically (${verifyError ?? 'unknown error'}). ` +
+              'Create a channel named "verify" in your server, then go to Server Setup and click "Retry verify channel setup" to post the verification prompt.',
+            payload: { error: verifyError },
+          });
+        }
+      } else {
+        this.logger.info('Setup apply: skipping verify prompt step (user dismissed)', {
+          guildId: payload.guildId,
+          authUserId: job.authUserId,
+        });
+      }
 
       const now = Date.now();
       await Promise.all([
@@ -863,21 +1121,6 @@ export class RoleSyncService {
               ? `Adopted ${adoptedRoleCount} existing Discord role${adoptedRoleCount === 1 ? '' : 's'} and created ${createdRuleCount} product rule${createdRuleCount === 1 ? '' : 's'}.`
               : `Created ${createdRoleCount} Discord role${createdRoleCount === 1 ? '' : 's'} and ${createdRuleCount} product rule${createdRuleCount === 1 ? '' : 's'}.`,
           payload: { adoptedRoleCount, createdRoleCount, createdRuleCount },
-        }),
-        this.convexClient.mutation(api.setupJobs.upsertSetupRecommendation, {
-          apiSecret: this.apiSecret,
-          setupJobId: payload.setupJobId,
-          recommendationType: reusedVerifyPrompt
-            ? 'verify_surface_reuse'
-            : 'verify_surface_creation',
-          title: reusedVerifyPrompt
-            ? 'Reuse the current verify prompt'
-            : 'Create a dedicated verify surface',
-          status: 'applied',
-          detail: reusedVerifyPrompt
-            ? 'The saved verify prompt was still valid and has been kept in place.'
-            : 'Created a verify channel and posted the current verification prompt.',
-          payload: verifyResult,
         }),
         this.convexClient.mutation(api.setupJobs.upsertSetupStep, {
           apiSecret: this.apiSecret,
@@ -957,7 +1200,7 @@ export class RoleSyncService {
         }),
       ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = this.translateSetupApplyError(error);
       await Promise.all([
         this.convexClient.mutation(api.setupJobs.upsertSetupStep, {
           apiSecret: this.apiSecret,
@@ -1468,6 +1711,7 @@ export class RoleSyncService {
               'creator_alert',
               'retroactive_rule_sync',
               'setup_apply',
+              'setup_generate_plan',
               'verify_prompt_refresh',
             ],
             limit: 10,
@@ -1704,6 +1948,31 @@ export class RoleSyncService {
       await this.clearVerifyPromptMessage(args.guildLinkId);
     }
 
+    this.logger.info('Setup apply: creating verify channel', {
+      guildId: args.guildId,
+      botHighestRole: guild.members.me?.roles.highest
+        ? `${guild.members.me.roles.highest.name} (pos ${guild.members.me.roles.highest.position})`
+        : 'none',
+      mfaLevel: guild.mfaLevel,
+    });
+
+    // Pre-flight permission check: channel creation + overwrite require MANAGE_CHANNELS and MANAGE_ROLES.
+    const botMember = guild.members.me;
+    if (botMember) {
+      const perms = botMember.permissions;
+      if (!perms.has(PermissionFlagsBits.Administrator)) {
+        const missing: string[] = [];
+        if (!perms.has(PermissionFlagsBits.ManageChannels)) missing.push('Manage Channels');
+        if (!perms.has(PermissionFlagsBits.ManageRoles)) missing.push('Manage Roles');
+        if (missing.length > 0) {
+          throw new Error(
+            `The bot is missing required permissions to create the verify channel: ${missing.join(', ')}. ` +
+              'Go to Server Settings, open the Roles tab, select the YUCP role, and enable these permissions.'
+          );
+        }
+      }
+    }
+
     const verifyChannel = await guild.channels.create({
       name: 'verify',
       type: ChannelType.GuildText,
@@ -1711,6 +1980,7 @@ export class RoleSyncService {
       permissionOverwrites: [
         {
           id: guild.id,
+          type: OverwriteType.Role,
           deny: [PermissionFlagsBits.SendMessages],
         },
       ],
@@ -1767,6 +2037,41 @@ export class RoleSyncService {
       discordError.code === RESTJSONErrorCodes.UnknownChannel ||
       discordError.code === RESTJSONErrorCodes.UnknownMessage
     );
+  }
+
+  /**
+   * Returns true for Discord errors that will never succeed on retry regardless of timing
+   * (e.g., the bot lacks a required permission in the guild configuration).
+   */
+  private isNonRetriableDiscordError(error: unknown): boolean {
+    if (!this.isDiscordError(error)) {
+      return false;
+    }
+    const discordError = error as { code: number };
+    return discordError.code === RESTJSONErrorCodes.MissingPermissions;
+  }
+
+  /**
+   * Translate raw Discord API errors (and other known errors) into actionable sentences
+   * that are safe to show directly to the creator in the dashboard.
+   */
+  private translateSetupApplyError(error: unknown): string {
+    if (this.isDiscordError(error)) {
+      const discordError = error as { code: number };
+      if (discordError.code === RESTJSONErrorCodes.MissingPermissions) {
+        return (
+          'Discord permissions missing: The YUCP bot role needs "Manage Roles" and "Manage Channels". ' +
+          'In your Discord server, go to Server Settings > Roles, find the YUCP role, and turn on those two permissions. Then try setup again.'
+        );
+      }
+      if (discordError.code === RESTJSONErrorCodes.UnknownGuild) {
+        return 'The bot is no longer in your Discord server. Re-invite YUCP using the invite link in your dashboard, then try setup again.';
+      }
+      if (discordError.code === RESTJSONErrorCodes.MissingAccess) {
+        return 'The bot cannot access one of your channels. Make sure the YUCP role has permission to view and send messages in the channels you want YUCP to use, then try setup again.';
+      }
+    }
+    return error instanceof Error ? error.message : String(error);
   }
 
   private async clearVerifyPromptMessage(guildLinkId: Id<'guild_links'>): Promise<void> {

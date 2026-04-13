@@ -2,8 +2,8 @@
  * Payhip Connect Plugin
  *
  * Handles the Payhip API-key setup flow:
- *   POST /api/connect/payhip-finish        — store API key, return webhook URL
- *   GET  /api/connect/payhip/test-webhook  — poll for test-delivery confirmation
+ *   POST /api/connect/payhip-finish       , store API key, return webhook URL
+ *   GET  /api/connect/payhip/test-webhook , poll for test-delivery confirmation
  *
  * Note: The legacy POST /api/connect/payhip/product-key and the generic
  * POST /api/connect/:provider/product-credential routes remain in connect.ts
@@ -30,7 +30,7 @@ const PAYHIP_TEST_PREFIX = 'payhip_test:';
  *
  * Stores the Payhip API key and returns the webhook URL the creator should
  * paste into Payhip's Settings → Developer page.
- * Payhip webhook signature = SHA256(apiKey) — static per creator.
+ * Payhip webhook signature = SHA256(apiKey), static per creator.
  */
 async function payhipFinish(request: Request, ctx: ConnectContext): Promise<Response> {
   const { config } = ctx;
@@ -130,7 +130,7 @@ async function payhipTestWebhook(request: Request, ctx: ConnectContext): Promise
     return Response.json({ error: 'authUserId or setup token is required' }, { status: 400 });
   }
 
-  // Resolve the opaque webhook route token for this authUserId — the webhook
+  // Resolve the opaque webhook route token for this authUserId, the webhook
   // handler sets the test flag using the token, not the authUserId.
   const { config } = ctx;
   const convex = getConvexClientFromUrl(config.convexUrl);

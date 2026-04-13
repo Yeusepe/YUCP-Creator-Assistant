@@ -3,7 +3,7 @@
  *
  * This schema defines all tables for the creator verification platform.
  *
- * Creator-scoped tables (require authUserId — Better Auth user ID):
+ * Creator-scoped tables (require authUserId, Better Auth user ID):
  * - creator_profiles, bindings, verification_sessions, entitlements, guild_links,
  *   role_rules, unity_installations, runtime_assertions, outbox_jobs, audit_events,
  *   setup_jobs, setup_job_steps, setup_recommendations, setup_events, migration_jobs,
@@ -193,6 +193,7 @@ const OutboxJobType = v.union(
   v.literal('creator_alert'),
   v.literal('retroactive_rule_sync'),
   v.literal('setup_apply'),
+  v.literal('setup_generate_plan'),
   // Temporary compatibility until migrations:purgeLegacyOutboxVerifyPromptRefreshJobs reaches 0.
   v.literal('verify_prompt_refresh')
 );
@@ -259,7 +260,8 @@ const SetupRecommendationType = v.union(
   v.literal('role_creation'),
   v.literal('verify_surface_reuse'),
   v.literal('verify_surface_creation'),
-  v.literal('migration_action')
+  v.literal('migration_action'),
+  v.literal('role_plan_entry')
 );
 
 /** Automatic setup recommendation lifecycle */
@@ -267,7 +269,8 @@ const SetupRecommendationStatus = v.union(
   v.literal('proposed'),
   v.literal('applied'),
   v.literal('dismissed'),
-  v.literal('superseded')
+  v.literal('superseded'),
+  v.literal('requires_attention')
 );
 
 /** Automatic setup / migration event severity */
@@ -503,7 +506,7 @@ const ProtectedMaterializationGrantTraceStatus = v.union(
  * Root owner of all creator-scoped data. Keyed by Better Auth user ID.
  */
 const creator_profiles = defineTable({
-  // Better Auth user ID — primary identity (unique per creator)
+  // Better Auth user ID, primary identity (unique per creator)
   authUserId: v.string(),
   // Human-readable name for the creator
   name: v.string(),
@@ -822,7 +825,7 @@ const role_rules = defineTable({
   requiredRoleIds: v.optional(v.array(v.string())),
   // Match mode for requiredRoleIds: 'any' = at least one, 'all' = every role
   requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
-  // Human-readable name for discord_role products — set at add time, avoids repeated Discord API calls
+  // Human-readable name for discord_role products, set at add time, avoids repeated Discord API calls
   displayName: v.optional(v.string()),
   // Timestamps
   createdAt: v.number(),
@@ -1025,7 +1028,7 @@ const outbox_jobs = defineTable({
  * Records all security-sensitive operations.
  */
 const audit_events = defineTable({
-  // Creator scope — null for platform-level events
+  // Creator scope, null for platform-level events
   authUserId: v.optional(v.string()),
   // @deprecated Legacy field from tenant-first architecture
   tenantId: v.optional(v.any()),
@@ -1349,7 +1352,7 @@ const purchase_facts = defineTable({
  * All credentials are stored in the generic provider_credentials table.
  */
 const provider_connections = defineTable({
-  // Owner identity — Better Auth user ID of the creator.
+  // Owner identity, Better Auth user ID of the creator.
   authUserId: v.string(),
   // @deprecated Legacy field from tenant-first architecture
   tenantId: v.optional(v.any()),
@@ -1634,7 +1637,7 @@ const external_accounts = defineTable({
   emailHash: v.optional(v.string()),
   // AES-256-GCM encrypted normalized email (HKDF purpose: 'external-account-email')
   normalizedEmailEncrypted: v.optional(v.string()),
-  // Provider-specific metadata — PII fields are encrypted at rest
+  // Provider-specific metadata, PII fields are encrypted at rest
   providerMetadata: v.optional(
     v.object({
       // AES-256-GCM encrypted email (HKDF purpose: 'external-account-metadata-email')
@@ -1940,7 +1943,7 @@ const admin_notifications = defineTable({
   authUserId: v.string(),
   /** Discord guild where the event happened */
   guildId: v.string(),
-  /** Toast type — maps directly to useToast() variants */
+  /** Toast type, maps directly to useToast() variants */
   type: v.union(v.literal('success'), v.literal('error'), v.literal('warning'), v.literal('info')),
   /** Short headline */
   title: v.string(),
@@ -2271,7 +2274,7 @@ const coupling_trace_records = defineTable({
  * the buyer account, order, and raw license key without requiring email.
  */
 const license_subject_links = defineTable({
-  /** SHA-256 of the raw license key — join key shared with coupling_trace_records.licenseSubject */
+  /** SHA-256 of the raw license key, join key shared with coupling_trace_records.licenseSubject */
   licenseSubject: v.string(),
   /** Creator who owns this package */
   authUserId: v.string(),
@@ -2299,7 +2302,7 @@ const license_subject_links = defineTable({
 
 /**
  * Revoked protected materialization grants.
- * Revocation is forward-looking only — it blocks future redeem calls but
+ * Revocation is forward-looking only, it blocks future redeem calls but
  * cannot claw back plaintext that was already materialized.
  */
 const revoked_grants = defineTable({
@@ -2452,7 +2455,7 @@ const oauth_loopback_sessions = defineTable({
   .index('by_created_at', ['createdAt']);
 
 /**
- * Used YUCP JWT nonces — tracks consumed nonces for replay prevention.
+ * Used YUCP JWT nonces, tracks consumed nonces for replay prevention.
  */
 const used_nonces = defineTable({
   /** The JWT nonce (jti claim) that was consumed */
@@ -2520,7 +2523,7 @@ const WebhookDeliveryStatus = v.union(
 );
 
 /**
- * Creator Events — platform-emitted events for outbound webhook delivery
+ * Creator Events, platform-emitted events for outbound webhook delivery
  * and the GET /events API endpoint.
  */
 const creator_events = defineTable({
@@ -2537,7 +2540,7 @@ const creator_events = defineTable({
   .index('by_created', ['createdAt']);
 
 /**
- * Webhook Subscriptions — outbound delivery endpoint registrations.
+ * Webhook Subscriptions, outbound delivery endpoint registrations.
  * Signing secrets are encrypted at rest with HKDF-AES-256-GCM.
  */
 const webhook_subscriptions = defineTable({
@@ -2557,7 +2560,7 @@ const webhook_subscriptions = defineTable({
   .index('by_auth_user_enabled', ['authUserId', 'enabled']);
 
 /**
- * Webhook Deliveries — per-event delivery attempt tracking with retry state.
+ * Webhook Deliveries, per-event delivery attempt tracking with retry state.
  */
 const webhook_deliveries = defineTable({
   authUserId: v.string(),
@@ -2660,7 +2663,7 @@ export default defineSchema({
   // HTTP rate limiting for unauthenticated public endpoints
   http_rate_limits,
 
-  // Admin notifications — short-lived bot-to-dashboard events
+  // Admin notifications, short-lived bot-to-dashboard events
   admin_notifications,
 
   // GDPR account deletion requests (30-day processing window per Article 17)

@@ -57,7 +57,7 @@ export const webhook: WebhookPlugin = {
 
       // Resolve authUserId via the random webhookRouteToken stored at connection time.
       // Legacy connections that embedded authUserId directly in the URL are no longer
-      // supported — requiring a registered token prevents unknown callers from injecting
+      // supported, requiring a registered token prevents unknown callers from injecting
       // events under an arbitrary user ID.
       const tokenResult = await convex.query(
         api.providerConnections.getConnectionByWebhookRouteToken,
@@ -75,7 +75,7 @@ export const webhook: WebhookPlugin = {
 
       const resolvedUserId = tokenResult.authUserId;
 
-      // Gumroad Ping has no signature — security relies on the routeId being private.
+      // Gumroad Ping has no signature, security relies on the routeId being private.
       const conn = await convex.query(api.providerConnections.getConnectionForBackfill, {
         apiSecret,
         authUserId: resolvedUserId,
@@ -110,7 +110,7 @@ export const webhook: WebhookPlugin = {
               providerEventId,
               eventType,
               rawPayload: payload,
-              // Gumroad Ping has no cryptographic signature — security relies on the
+              // Gumroad Ping has no cryptographic signature, security relies on the
               // private random routeId / webhookRouteToken. Mark accordingly so
               // downstream processing does not treat this as a verified event.
               signatureValid: false,
@@ -132,7 +132,7 @@ export const webhook: WebhookPlugin = {
           return new Response('Internal Server Error', { status: 500 });
         }
       } else {
-        // No Discord server connected yet — store event under authUserId directly
+        // No Discord server connected yet, store event under authUserId directly
         try {
           const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
             apiSecret,

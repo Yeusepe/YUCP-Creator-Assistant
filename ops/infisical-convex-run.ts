@@ -3,7 +3,7 @@
  *
  * Works in two modes:
  *
- * 1. Sync mode (default — no extra args):
+ * 1. Sync mode (default, no extra args):
  *    Fetches all secrets from Infisical and sets them in the Convex deployment.
  *    Equivalent to `bun run sync:convex:env`.
  *

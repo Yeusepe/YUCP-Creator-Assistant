@@ -152,7 +152,7 @@
 }
 
 /* ── Color blobs masked to the bag shape ─────────────────────────── */
-/* No overflow:hidden — the CSS mask handles clipping so that
+/* No overflow:hidden, the CSS mask handles clipping so that
    overflow:hidden cannot create hard rectangular edges inside the bag. */
 .plo-bag-color {
   position: absolute;
@@ -169,7 +169,7 @@
 /* ── Individual blobs ────────────────────────────────────────────── */
 /* Mirror the dashboard pattern exactly: one shared animation, five
    varied starting positions, staggered delays so blobs are always
-   distributed unevenly — no symmetric convergence at the centre. */
+   distributed unevenly, no symmetric convergence at the centre. */
 .plo-blob {
   position: absolute;
   width: 100px;
@@ -222,7 +222,7 @@
 }
 
 /* ── Bag outline SVG (behind the color fill in DOM order) ─────────── */
-/* Glow lives here — on the SVG that has the bag's alpha shape —
+/* Glow lives here, on the SVG that has the bag's alpha shape,
    NOT on .plo-bag-scene, because filter on a parent breaks
    mask-image on children in Chrome (compositing group bug). */
 .plo-bag-outline {

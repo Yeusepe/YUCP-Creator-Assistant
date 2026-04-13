@@ -1,13 +1,13 @@
 /**
- * Tests for the autosetup command — specifically the migrate and roles flows.
+ * Tests for the autosetup command, specifically the migrate and roles flows.
  *
  * Bug: fetchAllProducts dropped the `error` field from listProviderProducts responses.
  * When a connected provider's credential expired, the API returned
- * { products: [], error: 'session_expired' } — silently ignored — and the user saw
+ * { products: [], error: 'session_expired' }, silently ignored, and the user saw
  * "No products found / Connect Gumroad or Jinxxy first" even when connected.
  *
  * Note: providers that are simply not connected return
- * { products: [], error: "<provider> is not connected..." } — these are expected and
+ * { products: [], error: "<provider> is not connected..." }, these are expected and
  * must NOT trigger the session-expired message.
  */
 
@@ -147,11 +147,11 @@ describe('autosetup launcher', () => {
     });
     expect(createSetupSessionTokenMock).toHaveBeenCalled();
 
-    const [payload] = (interaction.editReply as ReturnType<typeof mock>).mock.calls[0] as [any];
+    const [payload] = (interaction.editReply as ReturnType<typeof mock>).mock.calls[0] as [unknown];
     const serializedPayload = JSON.stringify(payload);
     expect(serializedPayload).toContain('Automatic setup started');
     expect(serializedPayload).toContain(
-      'https://app.example.com/dashboard?tenant_id=auth_autosetup_test&guild_id=guild_autosetup_test#s=setup-token-123'
+      'https://app.example.com/dashboard/setup?tenant_id=auth_autosetup_test&guild_id=guild_autosetup_test#s=setup-token-123'
     );
   });
 });
@@ -160,7 +160,7 @@ describe('autosetup launcher', () => {
 
 describe('autosetup migrate flow', () => {
   it('shows "connect a provider" when no products and no session_expired errors', async () => {
-    // All providers simply not connected — expected state for a new user
+    // All providers simply not connected, expected state for a new user
     mockProductsResult = {
       products: [],
       error: 'gumroad is not connected. Connect it in your creator setup.',
@@ -182,7 +182,7 @@ describe('autosetup migrate flow', () => {
     expect(content).not.toContain('reconnect');
   });
 
-  // FAILING TEST — reproduces the bug.
+  // FAILING TEST, reproduces the bug.
   // Current code shows "Connect Gumroad or Jinxxy first" instead of an expiry hint.
   it('shows session-expired hint when connected provider returns session_expired', async () => {
     mockProductsResult = { products: [], error: 'session_expired' };
@@ -244,7 +244,7 @@ describe('autosetup roles flow', () => {
     expect(content).not.toContain('reconnect');
   });
 
-  // FAILING TEST — reproduces the bug.
+  // FAILING TEST, reproduces the bug.
   it('shows session-expired hint when connected provider returns session_expired', async () => {
     mockProductsResult = { products: [], error: 'session_expired' };
 

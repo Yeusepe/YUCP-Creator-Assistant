@@ -22,7 +22,7 @@ function expectHtmlSecurityHeaders(response: Response) {
   expect(response.headers.get('x-frame-options')).toBe('DENY');
 }
 
-describe('API server — route mounting', () => {
+describe('API server, route mounting', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {

@@ -55,7 +55,7 @@ function createWrapper() {
   };
 }
 
-describe('ServerSettingsPanel — HeroUI Switch', () => {
+describe('ServerSettingsPanel, HeroUI Switch', () => {
   afterEach(() => {
     cleanup();
     document.body.innerHTML = '';

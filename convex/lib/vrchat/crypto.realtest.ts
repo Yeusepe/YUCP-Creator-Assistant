@@ -1,7 +1,7 @@
 /**
  * Tests for VRChat crypto utilities.
  *
- * NOTE: These run in vitest's edge-runtime, which supports HKDF — unlike
+ * NOTE: These run in vitest's edge-runtime, which supports HKDF, unlike
  * Convex's actual V8 runtime (which throws "Not implemented: importKey for
  * HKDF"). The implementation therefore uses a manual HMAC-based HKDF so it
  * works in both environments. These roundtrip tests confirm correct behavior

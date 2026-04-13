@@ -116,7 +116,7 @@ export const getById = query({
 
 /**
  * Find a manual license by key hash.
- * Requires apiSecret. Scoped by the hash itself — no cross-tenant enumeration possible
+ * Requires apiSecret. Scoped by the hash itself, no cross-tenant enumeration possible
  * since only the holder of the raw key can compute the correct hash.
  */
 export const findByKeyHash = query({
@@ -409,7 +409,7 @@ export const hardDelete = mutation({
 /**
  * Validate a license by hash.
  * Requires apiSecret. The licenseKeyHash field was previously named `hashedKey`
- * in the API server call — both names are accepted for backward compatibility,
+ * in the API server call, both names are accepted for backward compatibility,
  * but the canonical field name in Convex is `licenseKeyHash`.
  */
 export const validateByHash = query({

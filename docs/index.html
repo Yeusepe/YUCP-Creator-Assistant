@@ -37,13 +37,13 @@
             <feGaussianBlur in="noise" stdDeviation="2" result="blurred" />
             <feDisplacementMap in="SourceGraphic" in2="blurred" scale="45" xChannelSelector="R" yChannelSelector="G" />
         </filter>
-        <!-- Liquid glass — gentle, for sections-glass panel & pill-nav -->
+        <!-- Liquid glass, gentle, for sections-glass panel & pill-nav -->
         <filter id="liq-sm" x="-8%" y="-8%" width="116%" height="116%" color-interpolation-filters="sRGB">
             <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="3" seed="7" result="noise"/>
             <feGaussianBlur in="noise" stdDeviation="2.5" result="smooth"/>
             <feDisplacementMap in="SourceGraphic" in2="smooth" scale="6" xChannelSelector="R" yChannelSelector="G"/>
         </filter>
-        <!-- Liquid glass — medium, for discord mockup cards -->
+        <!-- Liquid glass, medium, for discord mockup cards -->
         <filter id="liq-md" x="-12%" y="-12%" width="124%" height="124%" color-interpolation-filters="sRGB">
             <feTurbulence type="fractalNoise" baseFrequency="0.022 0.030" numOctaves="3" seed="3" result="noise"/>
             <feGaussianBlur in="noise" stdDeviation="1.8" result="smooth"/>
@@ -558,7 +558,7 @@
             transform: scale(0.96);
         }
 
-        /* Hero: soft radial scrim — gentle readability over cloud background */
+        /* Hero: soft radial scrim, gentle readability over cloud background */
         #hero::before {
             content: '';
             position: absolute;
@@ -603,7 +603,7 @@
             will-change: transform;
         }
 
-        /* ── Discord® Mockup — light frosted glass ─────────────────────────── */
+        /* ── Discord® Mockup, light frosted glass ─────────────────────────── */
         .discord-mockup {
             background: rgba(255, 255, 255, 0.65);
             backdrop-filter: blur(48px) saturate(180%);
@@ -632,7 +632,7 @@
             z-index: 2;
         }
 
-        /* Feature section mockup inner cards — light glass */
+        /* Feature section mockup inner cards, light glass */
         .discord-mockup .bg-\[\#1e1f22\] {
             background: rgba(255, 255, 255, 0.5) !important;
             border-color: rgba(0, 0, 0, 0.06) !important;
@@ -848,7 +848,7 @@
             50% { box-shadow: 0 0 20px rgba(14, 165, 233, 0.2); }
         }
 
-        /* ── Integration Diagram — light frosted glass ───────────────────── */
+        /* ── Integration Diagram, light frosted glass ───────────────────── */
         .int-diagram {
             background: rgba(255, 255, 255, 0.65);
             backdrop-filter: blur(48px) saturate(180%);
@@ -1258,7 +1258,7 @@
             will-change: opacity;
         }
 
-        /* ── Feature sections glass panel — light frosted (dashboard-aligned) ──── */
+        /* ── Feature sections glass panel, light frosted (dashboard-aligned) ──── */
         #sections-glass {
             background: rgba(255, 255, 255, 0.55);
             backdrop-filter: blur(40px) saturate(160%);
@@ -1457,7 +1457,7 @@
         }
 
 
-/* ── Section beam dividers — light subtle ───────────────────────────── */
+/* ── Section beam dividers, light subtle ───────────────────────────── */
         #sections-glass section[data-blob-index] + section[data-blob-index]::before {
             height: 1px;
         }
@@ -1736,7 +1736,7 @@
             transform: scale(1);
         }
 
-        /* ── Creator Suite+ Section — Ground-up redesign ───────────────── */
+        /* ── Creator Suite+ Section, Ground-up redesign ───────────────── */
         .suite-ambient-glow {
             position: absolute;
             top: 50%; left: 50%;
@@ -2179,7 +2179,7 @@
 
     <div id="page-content" style="display:none;" class="overflow-x-hidden w-full m-0 p-0 relative">
 
-        <!-- Background layer — cloud canvas only -->
+        <!-- Background layer, cloud canvas only -->
         <div id="scroll-blur-bg" style="position:fixed;inset:0;z-index:0;pointer-events:none;">
         <!-- Canvas layers (both fixed to span whole page) -->
         <div id="bg-canvas-root" class="w-full"></div>

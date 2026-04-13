@@ -2,9 +2,9 @@
  * Jinxxy Connect Plugin
  *
  * Handles the Jinxxy API-key + webhook setup flow:
- *   GET/POST /api/connect/jinxxy/webhook-config  — get callback URL / save pending webhook secret
- *   GET      /api/connect/jinxxy/test-webhook    — poll for test-delivery confirmation
- *   POST     /api/connect/jinxxy-store           — store API key + pending webhook secret
+ *   GET/POST /api/connect/jinxxy/webhook-config , get callback URL / save pending webhook secret
+ *   GET      /api/connect/jinxxy/test-webhook   , poll for test-delivery confirmation
+ *   POST     /api/connect/jinxxy-store          , store API key + pending webhook secret
  */
 
 import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
@@ -161,7 +161,7 @@ async function jinxxyWebhookConfig(request: Request, ctx: ConnectContext): Promi
 
 /**
  * GET /api/connect/jinxxy/test-webhook?authUserId=XXX
- * Returns { received: boolean } — the webhook handler sets a short-lived flag
+ * Returns { received: boolean }, the webhook handler sets a short-lived flag
  * when it receives a valid test delivery so this endpoint can confirm it.
  */
 async function jinxxyTestWebhook(request: Request, ctx: ConnectContext): Promise<Response> {
@@ -190,7 +190,7 @@ async function jinxxyTestWebhook(request: Request, ctx: ConnectContext): Promise
     return Response.json({ error: 'authUserId or setup token is required' }, { status: 400 });
   }
 
-  // Resolve the opaque route token — the webhook handler sets the test flag
+  // Resolve the opaque route token, the webhook handler sets the test flag
   // using the token, not the authUserId. Fall back to any pending token in Redis.
   const { config } = ctx;
   const convex = getConvexClientFromUrl(config.convexUrl);

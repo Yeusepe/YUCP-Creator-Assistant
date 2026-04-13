@@ -3,7 +3,7 @@
  *
  * The ARIA spec requires:
  *  - An element with role="listbox" containing the options
- *  - Each option must have role="option" — NOT on a <button> element
+ *  - Each option must have role="option", NOT on a <button> element
  *  - Selected option must have aria-selected="true"
  *
  * References:
@@ -20,7 +20,7 @@ const OPTS = [
   { value: 'c', label: 'Gamma' },
 ];
 
-describe('Select — ARIA / a11y', () => {
+describe('Select, ARIA / a11y', () => {
   it('renders the trigger as a button with aria-haspopup="listbox"', () => {
     render(<Select value="a" options={OPTS} onChange={() => {}} />);
     const trigger = screen.getByRole('button');

@@ -127,7 +127,7 @@ export async function resolveSetupSession(
     return null;
   }
 
-  // Session is valid — do NOT renew the TTL. Setup sessions have a fixed expiry so
+  // Session is valid, do NOT renew the TTL. Setup sessions have a fixed expiry so
   // an attacker who captures a token cannot keep it alive indefinitely by replaying it.
   return data;
 }

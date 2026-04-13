@@ -65,7 +65,7 @@ export interface TestServerConfig {
   encryptionSecret: string;
   couplingServiceBaseUrl?: string;
   couplingServiceSharedSecret?: string;
-  /** Optional — connect/collab Discord OAuth flows are skipped in tests */
+  /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
@@ -88,7 +88,7 @@ export interface TestServer {
 
 /**
  * Stub auth that always returns null session.
- * Routes guarded by auth will return 401/302 — exactly the behaviour
+ * Routes guarded by auth will return 401/302, exactly the behaviour
  * auth-guard integration tests need to assert.
  */
 function createStubAuth(): Auth {

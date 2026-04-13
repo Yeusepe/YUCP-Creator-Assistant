@@ -262,7 +262,7 @@ export class PayhipApiClient {
    * including the product title.
    *
    * Endpoint: https://iframely.com/iframely?uri={encodedUrl}&meta=true
-   * Origin: https://debug.iframely.com (required — iframely allows this origin)
+   * Origin: https://debug.iframely.com (required, iframely allows this origin)
    *
    * @param permalink - The product permalink (e.g., "KZFw0")
    * @returns The product name from meta.title, or null if it could not be determined

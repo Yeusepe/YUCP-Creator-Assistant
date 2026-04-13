@@ -4,7 +4,6 @@ import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonS
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
-import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { api } from '../../../../../../convex/_generated/api';
 
 const PHASE_LABELS: Record<string, string> = {
@@ -26,12 +25,6 @@ const STATUS_LABELS: Record<string, string> = {
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
-};
-
-const EXPERIENCE_LABELS: Record<string, string> = {
-  automatic: 'Automatic',
-  guided: 'Guided',
-  manual: 'Manual',
 };
 
 const MIGRATION_MODE_LABELS: Record<string, string> = {
@@ -66,9 +59,14 @@ function getStepStatusClasses(status: string) {
   }
 }
 
-export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
+export function AutomaticSetupPanel({
+  guildId,
+  showMigrationCenter = false,
+}: {
+  guildId: string;
+  showMigrationCenter?: boolean;
+}) {
   const toast = useToast();
-  const { home } = useDashboardShell();
   const setupJob = useConvexQuery(api.setupJobs.getMySetupJobForGuild, { guildId });
   const migrationJob = useConvexQuery(api.setupJobs.getMyLatestMigrationJobForGuild, { guildId });
   const createOrResumeSetupJob = useConvexMutation(api.setupJobs.createOrResumeSetupJobByGuild);
@@ -102,15 +100,8 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
     setupJob.job.status !== 'completed' &&
     setupJob.job.status !== 'failed' &&
     setupJob.job.status !== 'cancelled';
-  const providerSetupModes = useMemo(
-    () =>
-      (home?.providers ?? []).filter(
-        (provider) => provider.key !== 'discord' && provider.connectPath && provider.setupExperience
-      ),
-    [home?.providers]
-  );
 
-  const buttonLabel = hasActiveJob ? 'Resume Automatic Setup' : 'Start Automatic Setup';
+  const buttonLabel = hasActiveJob ? 'Resume setup' : 'Start setup';
   const pendingLabel = hasActiveJob ? 'Resuming...' : 'Starting...';
   const canApplyRecommendedSetup =
     setupJob?.job.status === 'waiting_for_user' &&
@@ -120,7 +111,7 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
     <section
       id="automatic-setup-panel"
       className="intg-card animate-in animate-in-delay-1"
-      aria-label="Automatic setup"
+      aria-label="Setup details"
     >
       <div className="intg-header">
         <div className="intg-title-row">
@@ -128,10 +119,10 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
             <img src="/Icons/Point.png" alt="" />
           </div>
           <div className="intg-copy">
-            <h2 className="intg-title">Automatic Setup</h2>
+            <h2 className="intg-title">Setup details</h2>
             <p className="intg-desc">
-              Launch or resume the durable setup job for this server. YUCP keeps the plan, progress,
-              and migration state in sync from the dashboard.
+              Use the next step below to start, resume, or update setup for this server. YUCP keeps
+              your progress here so you can come back at any time.
             </p>
           </div>
         </div>
@@ -161,8 +152,8 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                 </div>
                 <p className="text-sm text-zinc-600 dark:text-zinc-300">
                   {setupJob
-                    ? `Step ${String(Math.max(completedSteps + (hasActiveJob ? 1 : 0), 1))} of ${String(totalSteps)}. ${recommendationSummary.proposed} recommendations waiting for review.`
-                    : 'Start from the dashboard to connect a store, scan the server, generate a recommended plan, and track migration cutover in one place.'}
+                    ? `Step ${String(Math.max(completedSteps + (hasActiveJob ? 1 : 0), 1))} of ${String(totalSteps)}. ${recommendationSummary.proposed} recommendations are waiting for review.`
+                    : 'Start from here to connect a store, check your current Discord roles, and build a recommended setup plan.'}
                 </p>
                 {setupJob?.job.blockingReason ? (
                   <p className="mt-2 text-sm font-medium text-amber-700 dark:text-amber-300">
@@ -180,23 +171,23 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                       setIsApplying(true);
                       try {
                         await applyRecommendedSetup({ guildId });
-                        toast.success('Automatic setup apply queued', {
+                        toast.success('Setup changes are on the way', {
                           description:
-                            'The bot is now provisioning roles, role rules, and the verify surface for this server.',
+                            'YUCP is now creating any missing roles, saving product mappings, and updating the verification message for this server.',
                         });
                       } catch (error) {
-                        toast.error('Could not apply automatic setup', {
+                        toast.error('Could not apply setup changes', {
                           description:
                             error instanceof Error
                               ? error.message
-                              : 'The setup job could not queue the apply step for this server.',
+                              : 'YUCP could not queue the setup changes for this server.',
                         });
                       } finally {
                         setIsApplying(false);
                       }
                     }}
                   >
-                    {isApplying ? 'Applying...' : 'Apply Recommended Setup'}
+                    {isApplying ? 'Applying...' : 'Apply recommended setup'}
                   </YucpButton>
                 ) : null}
                 <YucpButton
@@ -211,20 +202,17 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                         mode: 'automatic_setup',
                         triggerSource: 'dashboard',
                       });
-                      toast.success(
-                        result.created ? 'Automatic setup started' : 'Automatic setup resumed',
-                        {
-                          description: result.created
-                            ? 'The setup job is now tracking store connection, server scan, and migration progress.'
-                            : 'The existing setup job is active again in this dashboard.',
-                        }
-                      );
+                      toast.success(result.created ? 'Setup started' : 'Setup resumed', {
+                        description: result.created
+                          ? 'YUCP is now keeping track of your store connection, server scan, and setup progress.'
+                          : 'Your existing setup progress is active again in this dashboard.',
+                      });
                     } catch (error) {
-                      toast.error('Could not launch automatic setup', {
+                      toast.error('Could not start setup', {
                         description:
                           error instanceof Error
                             ? error.message
-                            : 'The setup job could not be started for this server.',
+                            : 'YUCP could not start setup for this server.',
                       });
                     } finally {
                       setIsSubmitting(false);
@@ -260,7 +248,7 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                 stepKey: phase,
                 label,
                 stepKind: 'review',
-                status: phase === 'connect_store' ? 'pending' : 'pending',
+                status: 'pending',
                 sortOrder: index,
                 blocking: false,
                 requiresUserAction: false,
@@ -277,8 +265,8 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
                     </p>
                     <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                       {step.requiresUserAction
-                        ? 'Requires operator review before the job continues.'
-                        : 'Handled automatically by the setup orchestration layer.'}
+                        ? 'You have one decision to make here before setup can continue.'
+                        : 'YUCP handles this step for you.'}
                     </p>
                   </div>
                   <span
@@ -291,136 +279,101 @@ export function AutomaticSetupPanel({ guildId }: { guildId: string }) {
             ))}
           </div>
 
-          {providerSetupModes.length ? (
+          {showMigrationCenter ? (
             <div className="rounded-[14px] border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
               <div className="mb-3">
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
-                  Provider connection modes
+                  Migration tools
                 </h3>
                 <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Automatic setup uses provider plugin metadata so the job knows which connections
-                  can proceed automatically and which need a one-time handoff.
+                  Use this only if you are replacing another verification bot and want YUCP to help
+                  you adopt existing roles carefully.
                 </p>
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                {providerSetupModes.map((provider) => (
-                  <div
-                    key={provider.key}
-                    className="rounded-[10px] border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-white/10 dark:bg-white/5"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-                          {provider.label ?? provider.key}
-                        </p>
-                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          {provider.setupHint}
-                        </p>
-                      </div>
-                      <span className="inline-flex shrink-0 items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/10 dark:text-zinc-200">
-                        {EXPERIENCE_LABELS[provider.setupExperience ?? 'guided'] ?? 'Guided'}
-                      </span>
-                    </div>
+
+              {migrationJob ? (
+                <div className="mb-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-zinc-900 dark:text-white">
+                      {MIGRATION_MODE_LABELS[migrationJob.job.mode] ?? migrationJob.job.mode}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getStepStatusClasses(migrationJob.job.status)}`}
+                    >
+                      {STATUS_LABELS[migrationJob.job.status] ?? migrationJob.job.status}
+                    </span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {MIGRATION_PHASE_LABELS[migrationJob.job.currentPhase] ??
+                        migrationJob.job.currentPhase}
+                    </span>
                   </div>
+                  {migrationJob.sources.length ? (
+                    <div className="mt-3 grid gap-2 lg:grid-cols-2">
+                      {migrationJob.sources.map((source) => (
+                        <div
+                          key={source.id}
+                          className="rounded-[10px] border border-zinc-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-white/5"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                              {source.displayName ?? source.sourceKey}
+                            </p>
+                            <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/10 dark:text-zinc-200">
+                              {source.capabilityMode.replaceAll('_', ' ')}
+                            </span>
+                          </div>
+                          {typeof source.payload?.note === 'string' ? (
+                            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              {source.payload.note}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="grid gap-2 lg:grid-cols-2">
+                {Object.entries(MIGRATION_MODE_LABELS).map(([mode, label]) => (
+                  <YucpButton
+                    key={mode}
+                    yucp="secondary"
+                    isLoading={startingMigrationMode === mode}
+                    onPress={async () => {
+                      setStartingMigrationMode(mode);
+                      try {
+                        await createMigrationJob({
+                          guildId,
+                          setupJobId: setupJob?.job.id,
+                          mode: mode as
+                            | 'adopt_existing_roles'
+                            | 'import_verified_users'
+                            | 'bridge_from_current_roles'
+                            | 'cross_server_bridge',
+                        });
+                        toast.success(`${label} started`, {
+                          description:
+                            'YUCP is now analyzing your current setup so you can switch over carefully.',
+                        });
+                      } catch (error) {
+                        toast.error('Could not start migration', {
+                          description:
+                            error instanceof Error
+                              ? error.message
+                              : 'YUCP could not start migration for this server.',
+                        });
+                      } finally {
+                        setStartingMigrationMode(null);
+                      }
+                    }}
+                  >
+                    {startingMigrationMode === mode ? 'Starting...' : label}
+                  </YucpButton>
                 ))}
               </div>
             </div>
           ) : null}
-
-          <div className="rounded-[14px] border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">
-            <div className="mb-3">
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">
-                Migration Center
-              </h3>
-              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                Migration uses the same durable orchestration model as automatic setup. Start in
-                analysis mode, adopt existing roles where confidence is high, and keep manual review
-                available when a legacy source cannot export state cleanly.
-              </p>
-            </div>
-
-            {migrationJob ? (
-              <div className="mb-4 rounded-[10px] border border-zinc-200 bg-zinc-50 px-3 py-3 dark:border-white/10 dark:bg-white/5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                    {MIGRATION_MODE_LABELS[migrationJob.job.mode] ?? migrationJob.job.mode}
-                  </span>
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getStepStatusClasses(migrationJob.job.status)}`}
-                  >
-                    {STATUS_LABELS[migrationJob.job.status] ?? migrationJob.job.status}
-                  </span>
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {MIGRATION_PHASE_LABELS[migrationJob.job.currentPhase] ??
-                      migrationJob.job.currentPhase}
-                  </span>
-                </div>
-                {migrationJob.sources.length ? (
-                  <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                    {migrationJob.sources.map((source) => (
-                      <div
-                        key={source.id}
-                        className="rounded-[10px] border border-zinc-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-white/5"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm font-medium text-zinc-900 dark:text-white">
-                            {source.displayName ?? source.sourceKey}
-                          </p>
-                          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[11px] font-semibold text-zinc-700 dark:border-white/10 dark:bg-white/10 dark:text-zinc-200">
-                            {source.capabilityMode.replaceAll('_', ' ')}
-                          </span>
-                        </div>
-                        {typeof source.payload?.note === 'string' ? (
-                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                            {source.payload.note}
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            <div className="grid gap-2 lg:grid-cols-2">
-              {Object.entries(MIGRATION_MODE_LABELS).map(([mode, label]) => (
-                <YucpButton
-                  key={mode}
-                  yucp="secondary"
-                  isLoading={startingMigrationMode === mode}
-                  onPress={async () => {
-                    setStartingMigrationMode(mode);
-                    try {
-                      await createMigrationJob({
-                        guildId,
-                        setupJobId: setupJob?.job.id,
-                        mode: mode as
-                          | 'adopt_existing_roles'
-                          | 'import_verified_users'
-                          | 'bridge_from_current_roles'
-                          | 'cross_server_bridge',
-                      });
-                      toast.success(`${label} started`, {
-                        description:
-                          'The migration job is now tracking compatibility sources, role mapping, and cutover phases.',
-                      });
-                    } catch (error) {
-                      toast.error('Could not start migration job', {
-                        description:
-                          error instanceof Error
-                            ? error.message
-                            : 'The migration job could not be started for this server.',
-                      });
-                    } finally {
-                      setStartingMigrationMode(null);
-                    }
-                  }}
-                >
-                  {startingMigrationMode === mode ? 'Starting...' : label}
-                </YucpButton>
-              ))}
-            </div>
-          </div>
 
           {setupJob?.events.length ? (
             <div className="rounded-[14px] border border-zinc-200 bg-white p-4 dark:border-white/10 dark:bg-white/5">

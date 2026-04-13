@@ -5,7 +5,7 @@
  * When the server's buildId differs from the value baked in at build time,
  * fires a persistent toast notification prompting the user to reload.
  *
- * Pattern: Linear-style "Update available" banner, non-blocking — user stays
+ * Pattern: Linear-style "Update available" banner, non-blocking, user stays
  * in control and can reload when convenient.
  */
 
@@ -44,7 +44,7 @@ export function useVersionPoller(): void {
   const notifiedRef = useRef(false);
 
   useEffect(() => {
-    // Skip in dev mode — build IDs would always be 'dev'
+    // Skip in dev mode, build IDs would always be 'dev'
     if (CURRENT_BUILD_ID === 'dev') return;
 
     async function check() {
@@ -58,7 +58,7 @@ export function useVersionPoller(): void {
       notifiedRef.current = true;
 
       toast.info('A new version is available', {
-        duration: 0, // persistent — user must act
+        duration: 0, // persistent, user must act
         description: 'Reload to get the latest version.',
         action: {
           label: 'Reload',

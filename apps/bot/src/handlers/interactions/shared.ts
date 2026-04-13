@@ -19,13 +19,13 @@ export async function getNotConfiguredMessage(
         if (apiInternal ?? apiPublic) {
           const token = await createConnectToken({ discordUserId, guildId });
           if (token) {
-            return `This server is not configured. [Sign in to configure](${linkBase}/dashboard?guild_id=${guildId}#token=${token})`;
+            return `This server is not configured. [Sign in to configure](${linkBase}/dashboard/setup?guild_id=${guildId}#token=${token})`;
           }
         }
       } catch (e) {
         logger.error('Failed to generate secure connect token', { error: e });
       }
-      return `This server is not configured. [Sign in to configure](${linkBase}/dashboard?guild_id=${guildId})`;
+      return `This server is not configured. [Sign in to configure](${linkBase}/dashboard/setup?guild_id=${guildId})`;
     }
     return 'This server is not configured. Please sign in to configure (API_BASE_URL not set).';
   }

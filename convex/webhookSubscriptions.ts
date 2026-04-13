@@ -1,9 +1,9 @@
 /**
- * Webhook Subscriptions — outbound delivery endpoint registrations.
+ * Webhook Subscriptions, outbound delivery endpoint registrations.
  *
  * Signing secrets are stored encrypted (AES-256-GCM + HKDF). The API server
  * encrypts before writing and decrypts after reading. This layer never
- * handles plaintext signing secrets — signingSecretEnc is never returned
+ * handles plaintext signing secrets, signingSecretEnc is never returned
  * by public queries.
  */
 
@@ -28,7 +28,7 @@ export function sanitizeWebhookSubscriptionForPublicRead(
 // ---------------------------------------------------------------------------
 
 /**
- * Get a subscription by ID including signingSecretEnc — for the delivery
+ * Get a subscription by ID including signingSecretEnc, for the delivery
  * worker only. Never expose this to public API callers.
  */
 export const getByIdInternal = internalQuery({

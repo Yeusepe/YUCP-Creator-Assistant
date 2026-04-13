@@ -38,7 +38,7 @@ test.describe('Sign-in page', () => {
     // and a reachable auth backend. Skip in environments where those are unavailable.
     test.skip(
       !process.env.DISCORD_CLIENT_ID,
-      'Requires DISCORD_CLIENT_ID env var — Discord OAuth flow needs real credentials'
+      'Requires DISCORD_CLIENT_ID env var, Discord OAuth flow needs real credentials'
     );
 
     // Intercept any navigation toward discord.com so we verify the redirect

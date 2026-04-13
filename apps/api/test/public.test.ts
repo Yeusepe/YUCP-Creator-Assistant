@@ -1,5 +1,5 @@
 /**
- * Public API integration tests — /api/public/* endpoints
+ * Public API integration tests, /api/public/* endpoints
  *
  * These routes authenticate via API key (x-api-key header or
  * Authorization: Bearer ypsk_...) rather than session cookies.
@@ -47,7 +47,7 @@ function post(
 // ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
-describe('Public API — authentication', () => {
+describe('Public API, authentication', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -77,7 +77,7 @@ describe('Public API — authentication', () => {
 
   it('returns 401 when Bearer token lacks the ypsk_ API-key prefix', async () => {
     // A Bearer token that does not start with ypsk_ is not treated as an API
-    // key by extractApiKey — it returns null immediately with no Convex call.
+    // key by extractApiKey, it returns null immediately with no Convex call.
     const res = await post(server, VALID_BODY, {
       authorization: 'Bearer not_a_valid_api_key',
     });
@@ -101,9 +101,9 @@ describe('Public API — authentication', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Request body validation (runs before auth — no key required for 400s)
+// Request body validation (runs before auth, no key required for 400s)
 // ---------------------------------------------------------------------------
-describe('Public API — request body validation', () => {
+describe('Public API, request body validation', () => {
   let server: TestServerHandle;
 
   beforeAll(async () => {
@@ -164,7 +164,7 @@ describe('Public API — request body validation', () => {
 // Expected shape for 200 OK:
 //   { results: [{ productId: string, verified: boolean }] }
 // ---------------------------------------------------------------------------
-describe('Public API — response shape', () => {
+describe('Public API, response shape', () => {
   it.todo(
     '200 with verified:true for a subject that has an active entitlement ' +
       '— needs real Convex + seeded ypsk_ key and entitlement record',
@@ -179,12 +179,12 @@ describe('Public API — response shape', () => {
 
   it.todo(
     '403 when API key belongs to creator A but authUserId targets creator B ' +
-      '(data isolation) — needs real Convex + two seeded creators with separate ypsk_ keys',
+      '(data isolation), needs real Convex + two seeded creators with separate ypsk_ keys',
     () => {}
   );
 });
 
-describe('Public API — security boundaries', () => {
+describe('Public API, security boundaries', () => {
   function createSecurityHarness(verifiedKey: Record<string, unknown> | null) {
     let verifyApiKeyCalls = 0;
     let convexQueryCalls = 0;

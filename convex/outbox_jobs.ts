@@ -31,6 +31,7 @@ export const OutboxJobType = v.union(
   v.literal('creator_alert'),
   v.literal('retroactive_rule_sync'),
   v.literal('setup_apply'),
+  v.literal('setup_generate_plan'),
   // Temporary compatibility until migrations:purgeLegacyOutboxVerifyPromptRefreshJobs reaches 0.
   v.literal('verify_prompt_refresh')
 );

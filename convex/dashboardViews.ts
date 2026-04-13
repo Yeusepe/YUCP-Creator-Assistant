@@ -1,5 +1,5 @@
 /**
- * Dashboard Views — Session-authenticated Convex queries for the web dashboard.
+ * Dashboard Views, Session-authenticated Convex queries for the web dashboard.
  *
  * These queries use Better Auth session authentication via a shared resolver,
  * making them safe to call directly from the browser via useConvexQuery. Unlike the
@@ -32,7 +32,7 @@ const ConnectionSummaryV = v.object({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// listMyConnections — replaces GET /api/connect/user/accounts
+// listMyConnections, replaces GET /api/connect/user/accounts
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -74,7 +74,7 @@ export const listMyConnections = query({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getMyConnectionStatus — replaces GET /api/connect/status
+// getMyConnectionStatus, replaces GET /api/connect/status
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -108,7 +108,7 @@ export const getMyConnectionStatus = query({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// getMyDashboardStats — replaces getStatsOverviewExtended for browser auth
+// getMyDashboardStats, replaces getStatsOverviewExtended for browser auth
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DashboardStatsV = v.object({
@@ -208,7 +208,7 @@ export const getMyDashboardStats = query({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// listMyRecentActivity — browser-auth audit event feed
+// listMyRecentActivity, browser-auth audit event feed
 // ─────────────────────────────────────────────────────────────────────────────
 
 const AuditEventSummaryV = v.object({

@@ -1,5 +1,5 @@
 /**
- * VRChat Connect — 2FA pending state for the creator connect flow.
+ * VRChat Connect, 2FA pending state for the creator connect flow.
  *
  * Identical pattern to apps/api/src/verification/vrchatPending.ts but with
  * separate cookie name and path so it never interferes with the buyer flow.

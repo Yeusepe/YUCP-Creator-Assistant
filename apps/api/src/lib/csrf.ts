@@ -28,7 +28,7 @@ export function rejectCrossSiteRequest(
   request: Request,
   allowedOrigins: Set<string>
 ): Response | null {
-  // Sec-Fetch-Site is the most reliable signal — injected by the browser, not the page.
+  // Sec-Fetch-Site is the most reliable signal, injected by the browser, not the page.
   const secFetchSite = request.headers.get('sec-fetch-site');
   if (secFetchSite === 'cross-site') {
     return new Response(JSON.stringify({ error: 'Cross-site requests are not allowed' }), {

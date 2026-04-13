@@ -1208,7 +1208,7 @@ img.collab-avatar {
   margin-top: 2px;
 }
 
-/* Copy button in invite rows — same shape as collab-remove-btn but neutral hover */
+/* Copy button in invite rows, same shape as collab-remove-btn but neutral hover */
 .collab-copy-btn {
   margin-left: auto;
   display: inline-flex;

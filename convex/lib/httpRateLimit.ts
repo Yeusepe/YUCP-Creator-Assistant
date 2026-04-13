@@ -56,7 +56,7 @@ export const checkAndIncrement = internalMutation({
     }
 
     if (existing.count >= args.limit) {
-      return true; // exceeded — do NOT increment further
+      return true; // exceeded, do NOT increment further
     }
 
     await ctx.db.patch(existing._id, { count: existing.count + 1 });

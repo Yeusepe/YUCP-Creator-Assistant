@@ -57,7 +57,7 @@ describe('setup command', () => {
     };
 
     expect(payload.components?.[0]?.components?.[0]?.data?.url).toBe(
-      'https://app.example.com/dashboard?guild_id=1458860898234929315#token=connect-token-123'
+      'https://app.example.com/dashboard/setup?guild_id=1458860898234929315#token=connect-token-123'
     );
   });
 });

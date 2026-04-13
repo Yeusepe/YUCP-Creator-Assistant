@@ -30,7 +30,7 @@ function normalizeProductUrl(url: string): string {
 /**
  * Resolve a catalog product by URL.
  * Returns the catalog product and link if found; null otherwise.
- * Internal only — exposes authUserId to unauthenticated callers if public.
+ * Internal only, exposes authUserId to unauthenticated callers if public.
  */
 export const resolveProductByUrl = internalQuery({
   args: {

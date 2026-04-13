@@ -3,7 +3,6 @@ import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'co
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
-import { AutomaticSetupPanel } from '@/components/dashboard/panels/AutomaticSetupPanel';
 import { ConnectedPlatformsPanel } from '@/components/dashboard/panels/ConnectedPlatformsPanel';
 import { DangerZonePanel } from '@/components/dashboard/panels/DangerZonePanel';
 import {
@@ -12,6 +11,7 @@ import {
 } from '@/components/dashboard/panels/OnboardingProgressPanel';
 import { RecentActivityPanel } from '@/components/dashboard/panels/RecentActivityPanel';
 import { ServerSettingsPanel } from '@/components/dashboard/panels/ServerSettingsPanel';
+import { SetupJourneyCard } from '@/components/dashboard/panels/SetupJourneyCard';
 import { StatsOverviewPanel } from '@/components/dashboard/panels/StatsOverviewPanel';
 import { StoreIntegrationsPanel } from '@/components/dashboard/panels/StoreIntegrationsPanel';
 import { useToast } from '@/components/ui/Toast';
@@ -178,7 +178,7 @@ function DashboardIndex() {
     setTotalPlatforms(total);
   }, []);
 
-  // Onboarding dismiss — always start as false to match SSR, then read localStorage after mount
+  // Onboarding dismiss, always start as false to match SSR, then read localStorage after mount
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const [onboardingPreferencesReady, setOnboardingPreferencesReady] = useState(false);
   // Always start with default state (SSR-safe), then sync from localStorage after mount
@@ -308,7 +308,7 @@ function DashboardIndex() {
 
         {guildId ? (
           <div className="col-span-12">
-            <AutomaticSetupPanel guildId={guildId} />
+            <SetupJourneyCard />
           </div>
         ) : null}
 

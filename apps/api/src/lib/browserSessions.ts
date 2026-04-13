@@ -32,7 +32,7 @@ export function getCookieValue(request: Request, name: string): string | null {
 }
 
 function isSecureRequest(request: Request): boolean {
-  // In production, always set Secure regardless of headers — the proxy is trusted to
+  // In production, always set Secure regardless of headers, the proxy is trusted to
   // handle TLS termination. Relying on x-forwarded-proto lets any client that reaches
   // the service directly set the attribute arbitrarily.
   if (process.env.NODE_ENV === 'production') return true;

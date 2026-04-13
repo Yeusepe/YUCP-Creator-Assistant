@@ -597,7 +597,7 @@ http.route({
     const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
-    // /v1/me is an identity endpoint — any valid token (any scope) should
+    // /v1/me is an identity endpoint, any valid token (any scope) should
     // identify the caller. Use the minimum scope so narrowly-scoped tokens
     // (e.g. verification:read only) can still introspect their own identity.
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
@@ -1500,7 +1500,7 @@ http.route({
       return errorResponse('Missing required fields', 400);
     }
 
-    // c74: Validate packageId format — only safe characters, bounded length.
+    // c74: Validate packageId format, only safe characters, bounded length.
     if (!/^[a-z0-9\-_./:]{1,128}$/.test(packageId)) {
       return errorResponse('Invalid packageId format', 400);
     }
@@ -1559,7 +1559,7 @@ http.route({
       return errorResponse('Package not found or not owned by the specified creator', 403);
     }
 
-    // c64: Consume nonce before issuing JWT — prevents replay of identical requests.
+    // c64: Consume nonce before issuing JWT, prevents replay of identical requests.
     await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce });
 
     // Issue machine-fingerprint-bound license JWT
@@ -1734,7 +1734,7 @@ http.route({
   }),
 });
 
-// POST /v1/licenses/revoke-grant — revoke a protected materialization grant (admin/CONVEX_API_SECRET)
+// POST /v1/licenses/revoke-grant, revoke a protected materialization grant (admin/CONVEX_API_SECRET)
 // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
 http.route({
   method: 'POST',

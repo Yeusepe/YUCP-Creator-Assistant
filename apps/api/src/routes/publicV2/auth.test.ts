@@ -78,7 +78,7 @@ describe('resolveAuth', () => {
     });
   });
 
-  describe('x-api-key header — format validation', () => {
+  describe('x-api-key header, format validation', () => {
     it('returns 401 for a key with wrong prefix', async () => {
       const result = await resolveAuth(
         makeRequest({ 'x-api-key': `sk_${'a'.repeat(48)}` }),
@@ -107,7 +107,7 @@ describe('resolveAuth', () => {
     });
   });
 
-  describe('x-api-key header — Convex verification', () => {
+  describe('x-api-key header, Convex verification', () => {
     it('returns 401 when Convex returns null (key not found or expired)', async () => {
       mutationImpl = async () => null;
       const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, []);

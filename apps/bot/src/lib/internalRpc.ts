@@ -138,7 +138,7 @@ function normalizeProducts(
   }));
 }
 
-/** Generic product listing — calls the provider-specific RPC via the catalog service. */
+/** Generic product listing, calls the provider-specific RPC via the catalog service. */
 export async function listProviderProducts(
   provider: string,
   authUserId: string

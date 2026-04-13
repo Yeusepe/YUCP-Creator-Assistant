@@ -70,13 +70,6 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
   }
 
   cmd
-    .addSubcommand((s) =>
-      s
-        .setName('autosetup')
-        .setDescription(
-          'Guided setup in Discord: create roles, channels, verify button, or migrate from another bot'
-        )
-    )
     .addSubcommandGroup((product) =>
       product
         .setName('product')

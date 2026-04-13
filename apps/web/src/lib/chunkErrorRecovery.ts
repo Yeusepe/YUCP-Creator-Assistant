@@ -4,7 +4,7 @@
  * Vite code-splits every route into hashed JS bundles. After a new deployment,
  * the old chunk filenames no longer exist, so lazy route imports 404 and throw
  * an unhandled rejection. This handler detects that error pattern and performs
- * a full page reload — automatically picking up the fresh bundles.
+ * a full page reload, automatically picking up the fresh bundles.
  *
  * A cooldown prevents infinite reload loops: if the page was reloaded less than
  * 30 seconds ago due to this handler, it does NOT reload again.

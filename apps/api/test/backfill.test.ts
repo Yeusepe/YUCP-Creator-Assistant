@@ -1,5 +1,5 @@
 /**
- * Backfill route integration tests — Phase 6.2
+ * Backfill route integration tests, Phase 6.2
  *
  * POST /api/internal/backfill-product
  *
@@ -25,7 +25,7 @@ const VALID_BODY = {
   providerProductRef: 'test-ref-001',
 };
 
-describe('Backfill route — auth and validation', () => {
+describe('Backfill route, auth and validation', () => {
   let server: TestServerHandle;
   let originalSecret: string | undefined;
 

@@ -351,7 +351,7 @@ export function createCollabRoutes(config: CollabConfig) {
       /* use defaults */
     }
 
-    // Auth first — never expose body validation details to unauthenticated callers
+    // Auth first, never expose body validation details to unauthenticated callers
     const ownerAuth = await requireOwnerAuth(request, body.authUserId, timing);
     if (!ownerAuth.ok) return ownerAuth.response;
 
@@ -996,7 +996,7 @@ export function createCollabRoutes(config: CollabConfig) {
     );
 
     // Construct Discord CDN avatar URLs server-side from the validated hash.
-    // The client receives only the pre-built URL — never the raw hash.
+    // The client receives only the pre-built URL, never the raw hash.
     const AVATAR_HASH_RE = /^(a_)?[0-9a-f]{32}$/;
     const withAvatars = connections.map(
       (c: {
@@ -1150,8 +1150,8 @@ export function createCollabRoutes(config: CollabConfig) {
   // ── Dispatcher ─────────────────────────────────────────────────────────────
 
   /**
-   * GET /api/collab/providers — public list of providers that support collab invites.
-   * No auth required — this is metadata only.
+   * GET /api/collab/providers, public list of providers that support collab invites.
+   * No auth required, this is metadata only.
    */
   function listCollabProviders(): Response {
     const providers = (PROVIDER_REGISTRY as ReadonlyArray<(typeof PROVIDER_REGISTRY)[number]>)
@@ -1167,7 +1167,7 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * GET /api/collab/invites — list pending invites created by this owner.
+   * GET /api/collab/invites, list pending invites created by this owner.
    */
   async function listInvites(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -1185,7 +1185,7 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * GET /api/collab/connections/as-collaborator — list stores this user is a collaborator for.
+   * GET /api/collab/connections/as-collaborator, list stores this user is a collaborator for.
    */
   async function listConnectionsAsCollaborator(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -1203,7 +1203,7 @@ export function createCollabRoutes(config: CollabConfig) {
   }
 
   /**
-   * DELETE /api/collab/invites/:id — revoke a pending invite.
+   * DELETE /api/collab/invites/:id, revoke a pending invite.
    */
   async function revokeInvite(request: Request, inviteId: string): Promise<Response> {
     if (request.method !== 'DELETE')

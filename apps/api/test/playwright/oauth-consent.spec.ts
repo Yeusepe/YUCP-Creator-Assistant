@@ -30,7 +30,7 @@ test.describe('OAuth consent page', () => {
     // Without a client_id the server substitutes 'unknown client' as the display name.
     await page.goto('/oauth/consent');
     const bodyHtml = await page.evaluate(() => document.body.innerHTML);
-    // The template __CLIENT_ID__ must have been replaced — either with the real
+    // The template __CLIENT_ID__ must have been replaced, either with the real
     // client id or with the 'unknown client' fallback.
     expect(bodyHtml).not.toContain('__CLIENT_ID__');
     // The rendered HTML should surface some application name
@@ -41,7 +41,7 @@ test.describe('OAuth consent page', () => {
     page,
   }) => {
     await page.goto('/oauth/consent');
-    // The page must deliver usable HTML — not a raw stack trace or blank body
+    // The page must deliver usable HTML, not a raw stack trace or blank body
     const bodyText = await page.evaluate(() => document.body.innerText.trim());
     expect(bodyText.length).toBeGreaterThan(0);
     // Must not expose Node/Bun stack traces to the browser

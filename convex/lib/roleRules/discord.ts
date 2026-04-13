@@ -40,7 +40,7 @@ export interface AddProductFromDiscordRoleArgs {
   guildLinkId: Id<'guild_links'>;
   verifiedRoleId?: string;
   verifiedRoleIds?: string[];
-  /** Human-readable name (e.g. "Member (My Server)") — resolved by bot at add time */
+  /** Human-readable name (e.g. "Member (My Server)"), resolved by bot at add time */
   displayName?: string;
 }
 

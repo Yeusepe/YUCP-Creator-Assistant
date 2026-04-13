@@ -1,5 +1,5 @@
 /**
- * YUCP Certificate Authority — Convex functions for certificate lifecycle.
+ * YUCP Certificate Authority, Convex functions for certificate lifecycle.
  *
  * Certificate issuance flow:
  *   1. Creator completes YUCP OAuth (PKCE flow in Unity Editor)
@@ -10,7 +10,7 @@
  * Short-lived certificates: 90-day TTL (Layer 5 defense).
  * Rate limit: 1 cert per YUCP account per 30 days.
  *
- * Identity anchor: Better Auth user ID (yucpUserId) — stable across provider
+ * Identity anchor: Better Auth user ID (yucpUserId), stable across provider
  * reconnects, not tied to any single storefront (Gumroad, Jinxxy, etc.).
  *
  * References:
@@ -196,7 +196,7 @@ export const checkRateLimit = internalQuery({
   args: { yucpUserId: v.string(), devPublicKey: v.string() },
   handler: async (ctx, args) => {
     // Same-key re-request (same machine, new project or cert refresh): always allowed.
-    // The key is already registered — this is not a new key registration.
+    // The key is already registered, this is not a new key registration.
     const existingForKey = await ctx.db
       .query('yucp_certificates')
       .withIndex('by_dev_public_key', (q) => q.eq('devPublicKey', args.devPublicKey))
@@ -304,11 +304,11 @@ export const listActiveCertsForUser = internalQuery({
  * Issue a signed YUCP publisher certificate.
  *
  * Identity is anchored to `yucpUserId` (Better Auth user ID) + `discordUserId`
- * from the subject record — not to any specific storefront account.
+ * from the subject record, not to any specific storefront account.
  *
  * Environment variables required:
- *   YUCP_ROOT_PRIVATE_KEY  — 32-byte Ed25519 private key (base64)
- *   YUCP_KEY_ID            — key identifier string (default "yucp-root-2025")
+ *   YUCP_ROOT_PRIVATE_KEY , 32-byte Ed25519 private key (base64)
+ *   YUCP_KEY_ID           , key identifier string (default "yucp-root-2025")
  */
 export const issueCertificate = internalAction({
   args: {

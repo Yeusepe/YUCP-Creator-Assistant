@@ -58,7 +58,7 @@ export type {
 };
 export { CredentialExpiredError };
 
-/** Optional backfill capability — providers that don't support backfill omit this. */
+/** Optional backfill capability, providers that don't support backfill omit this. */
 export type BackfillPlugin = ProviderBackfillPlugin<BackfillRecord>;
 
 interface BaseApiProviderHooks {

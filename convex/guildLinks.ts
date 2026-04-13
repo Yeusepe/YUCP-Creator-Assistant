@@ -385,6 +385,24 @@ export const hardDisconnectGuild = mutation({
       await ctx.db.delete(artifact._id);
     }
 
+    // Cancel any non-terminal setup_jobs for this guild so the setup page
+    // shows a fresh 'new' state after the creator reconnects the server.
+    const setupJobs = await ctx.db
+      .query('setup_jobs')
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', link.authUserId).eq('discordGuildId', guildId)
+      )
+      .collect();
+    for (const setupJob of setupJobs) {
+      if (setupJob.status !== 'completed' && setupJob.status !== 'cancelled') {
+        await ctx.db.patch(setupJob._id, {
+          status: 'cancelled',
+          cancelledAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
     // Delete the guild_link itself
     await ctx.db.delete(link._id);
 

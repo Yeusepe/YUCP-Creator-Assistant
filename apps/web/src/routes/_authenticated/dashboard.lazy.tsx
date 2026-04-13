@@ -53,10 +53,16 @@ function buildDashboardLocation(args: {
   tenantId?: string;
   setupToken?: string;
   connectToken?: string;
+  path?: string;
 }) {
   if (typeof window === 'undefined') return '/dashboard';
 
-  const dashboardUrl = new URL('/dashboard', window.location.origin);
+  const currentPath =
+    args.path ??
+    (window.location.pathname === '/dashboard' || window.location.pathname.startsWith('/dashboard/')
+      ? window.location.pathname
+      : '/dashboard');
+  const dashboardUrl = new URL(currentPath, window.location.origin);
   if (args.guildId) {
     dashboardUrl.searchParams.set('guild_id', args.guildId);
   }
@@ -88,6 +94,7 @@ function redirectToDashboardSignIn(args: {
   tenantId?: string;
   setupToken?: string;
   connectToken?: string;
+  path?: string;
 }) {
   if (typeof window === 'undefined') return;
 
@@ -305,6 +312,11 @@ function DashboardLayout() {
                 tenantId: tenant_id,
                 setupToken,
                 connectToken,
+                path:
+                  typeof window !== 'undefined' &&
+                  window.location.pathname.startsWith('/dashboard/')
+                    ? window.location.pathname
+                    : undefined,
               });
               return;
             }
@@ -317,8 +329,12 @@ function DashboardLayout() {
         }
 
         queryClient.removeQueries({ queryKey: ['dashboard-shell'] });
+        const nextDashboardPath =
+          typeof window !== 'undefined' && window.location.pathname === '/dashboard/setup'
+            ? '/dashboard/setup'
+            : '/dashboard';
         await navigate({
-          to: '/dashboard',
+          to: nextDashboardPath,
           search: {
             guild_id,
             tenant_id: nextTenantId,
@@ -658,6 +674,30 @@ function Sidebar({
           <div className="server-only">
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Configuration</span>
+              <Link
+                to="/dashboard/setup"
+                search={(prev) => prev}
+                activeOptions={{ exact: true }}
+                className="sidebar-nav-btn"
+                activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                role="tab"
+                aria-selected={false}
+                aria-controls="tab-panel-setup-flow"
+              >
+                <svg
+                  className="sidebar-nav-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z" />
+                </svg>
+                Server setup
+              </Link>
               <Link
                 to="/dashboard"
                 search={(prev) => prev}

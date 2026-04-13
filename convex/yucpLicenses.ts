@@ -1,5 +1,5 @@
 /**
- * YUCP License Gate — Unity editor license verification endpoint.
+ * YUCP License Gate, Unity editor license verification endpoint.
  *
  * Verifies a purchase license (Gumroad or Jinxxy) for a specific YUCP package,
  * then returns a short-lived signed JWT that the Unity client caches locally.
@@ -344,7 +344,7 @@ export const getProductsForTenant = internalQuery({
       if (!grouped.has(rule.productId)) {
         grouped.set(rule.productId, {
           productId: rule.productId,
-          displayName: `Discord role — ${guildLink.discordGuildName ?? rule.guildId}`,
+          displayName: `Discord role, ${guildLink.discordGuildName ?? rule.guildId}`,
           providers: [{ provider: 'discord', providerProductRef: rule.guildId }],
         });
       }
@@ -433,7 +433,7 @@ export const getCachedProviderProductsForTenant = internalQuery({
 /**
  * Get Discord user ID for a YUCP auth user by looking up their linked Better Auth Discord account.
  * Returns null if user has no Discord linked.
- * NOTE: Must be called from an httpAction since it uses components.betterAuth — see http.ts.
+ * NOTE: Must be called from an httpAction since it uses components.betterAuth, see http.ts.
  */
 
 /** Find a subject by their Discord user ID. */
@@ -468,7 +468,7 @@ export const getSubjectByAuthUser = internalQuery({
 
 /**
  * Check if a subject has an active entitlement for a specific product within a tenant.
- * Used for Discord role-based license verification — the entitlement was granted by the bot.
+ * Used for Discord role-based license verification, the entitlement was granted by the bot.
  */
 export const checkSubjectEntitlement = internalQuery({
   args: {
@@ -1184,7 +1184,7 @@ export const verifyLicense = internalAction({
       }
     }
 
-    // c63: No global credential fallback — only the product owner's credentials are accepted.
+    // c63: No global credential fallback, only the product owner's credentials are accepted.
     // Removed: GUMROAD_ACCESS_TOKEN / JINXXY_API_KEY env-var fallback that bypassed product ownership.
     if (!verifyResult?.valid) {
       return { success: false, error: verifyResult?.reason ?? 'License verification failed' };
@@ -2013,7 +2013,7 @@ export const issueCouplingJob = internalAction({
         .join('');
 
       // Derive HMAC-SHA256 coupling token bound to grant, recipient, asset, and materialization nonce.
-      // Input binds all uniqueness dimensions — same inputs never produce same token across re-issuance.
+      // Input binds all uniqueness dimensions, same inputs never produce same token across re-issuance.
       const tokenInput = [
         args.grantId ?? '',
         args.packageId,
@@ -2104,7 +2104,7 @@ export const issueCouplingJobForApi = action({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 9 — Grant revocation (forward-looking only)
+// Phase 9, Grant revocation (forward-looking only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**

@@ -3,7 +3,7 @@ let loadPromise = null;
 
 /**
  * Fetch the provider list from the API and cache it.
- * Safe to call multiple times — returns the same in-flight Promise on concurrent calls.
+ * Safe to call multiple times, returns the same in-flight Promise on concurrent calls.
  */
 export async function loadProviders(apiBase) {
   if (cachedProviders.length > 0) return cachedProviders;

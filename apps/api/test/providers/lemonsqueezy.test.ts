@@ -1,16 +1,16 @@
 /**
  * LemonSqueezy provider adapter tests
  *
- * 1. Pure function tests — HMAC-SHA256 signature algorithm
+ * 1. Pure function tests, HMAC-SHA256 signature algorithm
  *    Tests the signLemonSqueezy() helper from webhookSignatures.ts, which mirrors
  *    the exact algorithm used in the production handleProviderWebhook() handler
  *    (routes/providerPlatform.ts). The production hmacSha256() is a private
  *    function so we test the algorithm via the helper, cross-checking against an
  *    independent Web Crypto implementation to catch any divergence.
  *
- * 2. Payload builder tests — lemonSqueezyOrderPayload()
+ * 2. Payload builder tests, lemonSqueezyOrderPayload()
  *
- * 3. HTTP integration tests — via startTestServer() (no real Convex backend).
+ * 3. HTTP integration tests, via startTestServer() (no real Convex backend).
  *    Basic routing covered; detailed cases live in webhooks.test.ts.
  */
 
@@ -39,7 +39,7 @@ async function hmacSha256Reference(secret: string, body: string): Promise<string
 }
 
 // ---------------------------------------------------------------------------
-// Pure function tests — HMAC-SHA256 algorithm
+// Pure function tests, HMAC-SHA256 algorithm
 // ---------------------------------------------------------------------------
 
 describe('LemonSqueezy HMAC-SHA256 signature algorithm', () => {
@@ -171,7 +171,7 @@ describe('LemonSqueezy order payload builder', () => {
 });
 
 // ---------------------------------------------------------------------------
-// HTTP integration tests — via test server (no real Convex backend)
+// HTTP integration tests, via test server (no real Convex backend)
 //
 // The full webhook routing suite lives in webhooks.test.ts. These tests
 // verify provider-specific routing from the lemonsqueezy perspective.
@@ -224,7 +224,7 @@ describe('LemonSqueezy HTTP webhook route (/v1/webhooks/lemonsqueezy/:id)', () =
 
   it('POST with correctly computed HMAC but unknown connectionId → not 200', async () => {
     // Even a correctly signed request fails because Convex has no record for
-    // an unknown connectionId — without a real backend, always throws → 500.
+    // an unknown connectionId, without a real backend, always throws → 500.
     const secret = 'correct-test-secret';
     const body = lemonSqueezyOrderPayload({ orderId: 'ord-http-004' });
     const sig = await signLemonSqueezy(secret, body);
@@ -236,7 +236,7 @@ describe('LemonSqueezy HTTP webhook route (/v1/webhooks/lemonsqueezy/:id)', () =
     expect(res.status).not.toBe(200);
   });
 
-  it.todo('POST with valid body + correct HMAC + known connectionId → 202 — requires real Convex', () => {});
+  it.todo('POST with valid body + correct HMAC + known connectionId → 202, requires real Convex', () => {});
 
-  it.todo('POST with valid body + wrong HMAC + known connectionId → 403 Forbidden — requires real Convex', () => {});
+  it.todo('POST with valid body + wrong HMAC + known connectionId → 403 Forbidden, requires real Convex', () => {});
 });

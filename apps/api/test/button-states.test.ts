@@ -12,7 +12,7 @@ import { describe, expect, it } from 'bun:test';
 // Shared loading-state utility
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('utils.js — button loading helpers', () => {
+describe('utils.js, button loading helpers', () => {
   it('exports setButtonLoading', async () => {
     // A shared helper keeps every button state change consistent: disabled +
     // inline spinner + label. Centralising this prevents each module from
@@ -54,7 +54,7 @@ describe('utils.js — button loading helpers', () => {
 // CSS spinner
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('dashboard.css — inline button spinner', () => {
+describe('dashboard.css, inline button spinner', () => {
   it('has .btn-spinner class', async () => {
     // The spinner element used inside loading buttons must be styled. Without
     // the CSS rule the spinner element is invisible and the loading state shows
@@ -84,10 +84,10 @@ describe('dashboard.css — inline button spinner', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// platform.js — provider connect button
+// platform.js, provider connect button
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('platform.js — navigateProvider button state', () => {
+describe('platform.js, navigateProvider button state', () => {
   it('navigateProvider uses setButtonLoading before the async session step', async () => {
     // The "Connect" button for each platform must show a loading state while
     // ensureSetupSessionCookie() runs. Without this, the button appears frozen
@@ -109,10 +109,10 @@ describe('platform.js — navigateProvider button state', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// platform.js — settings toggle
+// platform.js, settings toggle
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('platform.js — toggleSetting busy state', () => {
+describe('platform.js, toggleSetting busy state', () => {
   it('toggleSetting adds .saving class to the toggle while the request is in flight', async () => {
     // Without a busy guard the user can click the toggle again before the first
     // request resolves, sending conflicting state updates and leaving the UI in
@@ -140,10 +140,10 @@ describe('platform.js — toggleSetting busy state', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// platform.js — user account disconnect button
+// platform.js, user account disconnect button
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('platform.js — confirmDisconnectUserAccount button state', () => {
+describe('platform.js, confirmDisconnectUserAccount button state', () => {
   it('confirmDisconnectUserAccount sets loading state on the clicked button', async () => {
     // The disconnect button must be disabled while the DELETE request is in
     // flight so the user cannot click it twice and send two concurrent deletes.
@@ -168,10 +168,10 @@ describe('platform.js — confirmDisconnectUserAccount button state', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// collab.js — revoke invite button
+// collab.js, revoke invite button
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('collab.js — revokeInvite button state', () => {
+describe('collab.js, revokeInvite button state', () => {
   it('revokeInvite sets loading state on the revoke button', async () => {
     // The "Revoke" button must be disabled while the DELETE request runs.
     // Without this, two rapid clicks can send two revoke requests, the second
@@ -205,10 +205,10 @@ describe('collab.js — revokeInvite button state', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// api.js — API key revoke / rotate menu actions
+// api.js, API key revoke / rotate menu actions
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('api.js — revokePublicApiKey / rotatePublicApiKey button states', () => {
+describe('api.js, revokePublicApiKey / rotatePublicApiKey button states', () => {
   it('revokePublicApiKey sets loading state on its button arg', async () => {
     // When the user confirms revocation, the three-dot menu button (or the menu
     // item itself) must show a spinner so there is visual feedback during the

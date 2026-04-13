@@ -1,7 +1,7 @@
 /**
  * Tests for the /creator-admin stats command.
  *
- * handleStats uses convex directly — no internalRpc calls.
+ * handleStats uses convex directly, no internalRpc calls.
  * Embed data is accessed via embed.data.fields (EmbedBuilder internal).
  */
 
@@ -28,11 +28,11 @@ function makeConvex(opts: StatsMockOpts = {}): ConvexHttpClient {
 
   return {
     query: mock(async (_ref: unknown, args: Record<string, unknown>) => {
-      // getByGuild — has guildId in args
+      // getByGuild, has guildId in args
       if ('guildId' in args) {
         return rules;
       }
-      // getStatsOverviewExtended — has only apiSecret + authUserId (no guildId)
+      // getStatsOverviewExtended, has only apiSecret + authUserId (no guildId)
       return { totalVerified, recent24h, recent7d, recent30d };
     }),
     mutation: mock(async () => ({})),
@@ -79,7 +79,7 @@ const BASE_CTX: Parameters<typeof handleStats>[3] = {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('handleStats', () => {
-  it('given zero stats, embed shows "0" for all counts — not "undefined"', async () => {
+  it('given zero stats, embed shows "0" for all counts, not "undefined"', async () => {
     const interaction = mockSlashCommand({
       userId: 'user_stats_1',
       guildId: 'guild_stats_1',
@@ -138,7 +138,7 @@ describe('handleStats', () => {
   });
 
   it('given non-admin user, handleStats executes without internal permission check', async () => {
-    // handleStats itself has no admin check — the permission gate lives in the interactions
+    // handleStats itself has no admin check, the permission gate lives in the interactions
     // handler (which checks member.permissions.has(MANAGE_GUILD_BIT) before dispatching).
     // This test documents that design: calling handleStats directly works for any user.
     const interaction = mockSlashCommand({
@@ -211,7 +211,7 @@ describe('handleStats', () => {
   it('stats command in DM context returns appropriate error', async () => {
     // ⚠️ BUG: handleStats has no guild guard. When called with null guildId it queries
     // convex with guildId=null and returns a stats embed instead of a "use in a server" error.
-    // The assertion below expects a guild-required message — it will FAIL, revealing the bug.
+    // The assertion below expects a guild-required message, it will FAIL, revealing the bug.
     const interaction = mockSlashCommand({ userId: 'user_stats_5', guildId: null });
     const convex = makeConvex({ totalVerified: 0, recent24h: 0, recent7d: 0, recent30d: 0 });
 

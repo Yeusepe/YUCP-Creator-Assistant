@@ -485,7 +485,7 @@
                 '<strong>Sign-in connects your VRChat® store to Creator Assistant.</strong> We never save your password or 2FA code.';
         }
 
-        /** API endpoint to POST to — differs between verify and connect modes */
+        /** API endpoint to POST to, differs between verify and connect modes */
         function getSessionEndpoint() {
             return isConnectMode
                 ? `${apiBase}/api/connect/vrchat/session`

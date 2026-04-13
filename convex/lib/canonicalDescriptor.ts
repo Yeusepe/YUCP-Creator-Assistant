@@ -1,5 +1,5 @@
 /**
- * Layer A — C2PA-inspired canonical manifest for protected assets.
+ * Layer A, C2PA-inspired canonical manifest for protected assets.
  *
  * A manifest is signed over the pre-trace canonical form of the asset
  * (before any recipient-specific tracing mutations are applied).
@@ -66,7 +66,7 @@ export type ManifestValidationState =
   | 'well-formed' // manifest parses and is structurally valid
   | 'valid' // canonical_sha256 matches the asset's canonical form
   | 'trusted' // signer identity is on the YUCP trust list
-  | 'modified' // canonical hash mismatch — asset was changed after signing
+  | 'modified' // canonical hash mismatch, asset was changed after signing
   | 'descriptor-missing' // no .yucp.sig present (never collapsed into 'modified')
   | 'unsupported-transform'; // format re-encoded in a way that destroys the canonical form
 
@@ -128,7 +128,7 @@ export async function computePreTraceCanonicalHash(
       }
       for (let i = 0; i < 8; i++) {
         if (fileBytes[i] !== PNG_SIG[i]) {
-          // Not a valid PNG — fall back to full file bytes
+          // Not a valid PNG, fall back to full file bytes
           return sha256Hex(fileBytes);
         }
       }

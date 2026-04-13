@@ -1,5 +1,5 @@
 /**
- * Version endpoint — returns the build ID injected at deploy time.
+ * Version endpoint, returns the build ID injected at deploy time.
  *
  * Used by the web dashboard to detect when a new version has been deployed
  * so it can prompt the user to reload (version skew protection).

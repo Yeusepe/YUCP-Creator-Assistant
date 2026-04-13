@@ -455,7 +455,7 @@ async function routeRequest(request: Request): Promise<Response> {
     });
   }
 
-  // Version endpoint — used by the web dashboard for version skew detection
+  // Version endpoint, used by the web dashboard for version skew detection
   const versionResponse = createVersionRouteHandler()(request);
   if (versionResponse) return versionResponse;
 
@@ -634,7 +634,7 @@ async function routeRequest(request: Request): Promise<Response> {
         body: proxyBody,
         redirect: 'manual',
       });
-      // For redirect responses pass them through — but differently per method:
+      // For redirect responses pass them through, but differently per method:
       // - GET 3xx: pass Location header as-is so the browser navigates natively
       // - POST 3xx: browsers can't read Location from a cross-origin opaque redirect,
       //   so return JSON { redirectTo } instead; the client JS reads it and navigates.
@@ -705,7 +705,7 @@ async function routeRequest(request: Request): Promise<Response> {
     return handleInternalNotify(request);
   }
 
-  // Provider products route — generic handler for all providers (/api/:provider/products)
+  // Provider products route, generic handler for all providers (/api/:provider/products)
   const productsMatch = pathname.match(/^\/api\/([^/]+)\/products$/);
   if (productsMatch && request.method === 'POST') {
     const providerSlug = productsMatch[1];
@@ -998,7 +998,7 @@ async function routeRequest(request: Request): Promise<Response> {
     return collabRoutes.handleCollabRequest(request);
   }
 
-  // Public API v2 — must be checked before v1 since both share /api/public/ prefix
+  // Public API v2, must be checked before v1 since both share /api/public/ prefix
   if (pathname.startsWith('/api/public/v2/') && publicV2Routes) {
     const response = await publicV2Routes.handleRequest(request, pathname);
     if (response) return response;

@@ -1,5 +1,5 @@
 /**
- * Admin Notifications — Bot-to-dashboard real-time event channel.
+ * Admin Notifications, Bot-to-dashboard real-time event channel.
  *
  * Lifecycle:
  *  1. Discord bot fires POST /api/internal/notify → API validates secret →
@@ -23,7 +23,7 @@ import { getAuthenticatedAuthUser } from './lib/authUser';
 const NOTIFICATION_TTL_MS = 60_000; // 60 seconds
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal Mutation — create (called by API route)
+// Internal Mutation, create (called by API route)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const create = internalMutation({
@@ -56,7 +56,7 @@ export const create = internalMutation({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Query — listUnseen (dashboard live subscription)
+// Query, listUnseen (dashboard live subscription)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const listUnseen = query({
@@ -80,7 +80,7 @@ export const listUnseen = query({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mutation — markSeen (dashboard marks notifications as shown)
+// Mutation, markSeen (dashboard marks notifications as shown)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const markSeen = mutation({
@@ -107,7 +107,7 @@ export const markSeen = mutation({
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Internal Mutation — cleanupExpired (called by cron)
+// Internal Mutation, cleanupExpired (called by cron)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const cleanupExpired = internalMutation({

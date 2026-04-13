@@ -235,7 +235,7 @@ function OAuthMethodButton({
     );
   }
 
-  // Not connected — show row layout matching the connected/verify state
+  // Not connected, show row layout matching the connected/verify state
   const isPending = connectMut.isPending;
   const ctaLabel = expiredLinks.length > 0 ? 'Reconnect' : 'Sign in';
 
@@ -282,7 +282,7 @@ function OAuthMethodButton({
         </div>
         {connectMut.isError ? (
           <p className="vp-method-error vp-method-error--full">
-            Could not connect — please try again
+            Could not connect, please try again
           </p>
         ) : null}
       </div>

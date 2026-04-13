@@ -13,7 +13,7 @@ test.describe('Collab invite page', () => {
 
   test('#page-content becomes visible after load (is-visible class added)', async ({ page }) => {
     await page.goto('/collab-invite', { waitUntil: 'load' });
-    // The module script adds is-visible via requestAnimationFrame — wait for it.
+    // The module script adds is-visible via requestAnimationFrame, wait for it.
     await expect(page.locator('#page-content')).toHaveClass(/is-visible/, { timeout: 3000 });
   });
 

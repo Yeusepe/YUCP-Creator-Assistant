@@ -607,7 +607,7 @@
   transform: none;
 }
 
-/* ─── Loading state modifier — applies to any button ─── */
+/* ─── Loading state modifier, applies to any button ─── */
 
 .btn-loading {
   pointer-events: none;

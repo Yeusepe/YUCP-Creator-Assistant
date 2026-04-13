@@ -310,7 +310,7 @@ export default function DashboardBilling() {
         <p className="billing-section-sub">
           {hasPolarAccess
             ? 'Upgrade, downgrade, or compare plans at any time.'
-            : 'Live pricing from Polar — subscribe once, benefit everywhere.'}
+            : 'Live pricing from Polar, subscribe once, benefit everywhere.'}
         </p>
       </div>
 

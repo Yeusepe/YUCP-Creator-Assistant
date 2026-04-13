@@ -41,80 +41,34 @@ vi.mock('@/components/ui/YucpButton', () => ({
   ),
 }));
 
-vi.mock('@/hooks/useDashboardShell', () => ({
-  useDashboardShell: vi.fn(),
-}));
-
 import { useQuery } from 'convex/react';
 import { AutomaticSetupPanel } from '@/components/dashboard/panels/AutomaticSetupPanel';
-import { useDashboardShell } from '@/hooks/useDashboardShell';
 
 describe('AutomaticSetupPanel', () => {
   beforeEach(() => {
     toastSuccessSpy.mockReset();
     toastErrorSpy.mockReset();
-
-    vi.mocked(useDashboardShell).mockReturnValue({
-      guilds: [],
-      home: {
-        connectionStatusAuthUserId: 'tenant-123',
-        connectionStatusByProvider: {},
-        providers: [
-          {
-            connectParamStyle: 'camelCase',
-            connectPath: '/api/connect/gumroad/begin',
-            icon: 'Gumorad.png',
-            iconBg: '#0f0f12',
-            key: 'gumroad',
-            label: 'Gumroad',
-            quickStartBg: 'rgba(255,255,255,0.05)',
-            quickStartBorder: 'rgba(255,255,255,0.1)',
-            serverTileHint: 'Allow users to verify Gumroad purchases in this Discord server.',
-            setupExperience: 'automatic',
-            setupHint: 'OAuth redirect plus managed webhook setup can continue automatically.',
-          },
-          {
-            connectParamStyle: 'snakeCase',
-            connectPath: '/setup/vrchat?mode=connect',
-            icon: 'VRC.png',
-            iconBg: '#00b48c',
-            key: 'vrchat',
-            label: 'VRChat',
-            quickStartBg: 'rgba(0,180,140,0.1)',
-            quickStartBorder: 'rgba(0,180,140,0.3)',
-            serverTileHint: 'Allow users to verify VRChat avatar access in this Discord server.',
-            setupExperience: 'guided',
-            setupHint:
-              'VRChat needs a credential handoff before the setup job can scan listings and resume.',
-          },
-        ],
-        userAccounts: [],
-      },
-      selectedGuild: undefined,
-      viewer: {
-        authUserId: 'tenant-123',
-      },
-    });
   });
 
-  it('renders provider connection modes from dashboard provider metadata', () => {
-    vi.mocked(useQuery).mockReturnValue(null);
+  it('defaults to plain-language setup details without migration tools', () => {
+    const mockedUseQuery = useQuery as unknown as ReturnType<typeof vi.fn>;
+    mockedUseQuery.mockReturnValue(null);
 
     render(<AutomaticSetupPanel guildId="guild-123" />);
 
-    expect(screen.getByText('Provider connection modes')).toBeInTheDocument();
-    expect(
-      screen.getByText('OAuth redirect plus managed webhook setup can continue automatically.')
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        'VRChat needs a credential handoff before the setup job can scan listings and resume.'
-      )
-    ).toBeInTheDocument();
-    expect(screen.getByText('Automatic')).toBeInTheDocument();
-    expect(screen.getByText('Guided')).toBeInTheDocument();
-    expect(screen.getByText('Migration Center')).toBeInTheDocument();
+    expect(screen.getByText('Setup details')).toBeInTheDocument();
+    expect(screen.getByText('Start setup')).toBeInTheDocument();
+    expect(screen.queryByText('Provider connection modes')).toBeNull();
+    expect(screen.queryByText('Migration tools')).toBeNull();
+  });
+
+  it('reveals migration tools only when explicitly requested', () => {
+    const mockedUseQuery = useQuery as unknown as ReturnType<typeof vi.fn>;
+    mockedUseQuery.mockReturnValue(null);
+
+    render(<AutomaticSetupPanel guildId="guild-123" showMigrationCenter />);
+
+    expect(screen.getByText('Migration tools')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Adopt Existing Roles' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Start Automatic Setup' })).toBeInTheDocument();
   });
 });

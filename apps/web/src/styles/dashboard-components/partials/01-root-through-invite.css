@@ -755,7 +755,7 @@
   max-width: 340px;
 }
 
-/* Close button row — right-aligned above the header */
+/* Close button row, right-aligned above the header */
 .invite-modal-close-row {
   display: flex;
   justify-content: flex-end;

@@ -56,7 +56,7 @@ export const webhook: WebhookPlugin = {
         return new Response('Bad Request', { status: 400 });
       }
 
-      // Payhip signature = SHA256(apiKey) — static, not HMAC of the body.
+      // Payhip signature = SHA256(apiKey), static, not HMAC of the body.
       const encryptedKey = await convex.query(
         api.providerConnections.getWebhookCredentialByRouteId,
         {
@@ -141,7 +141,7 @@ export const webhook: WebhookPlugin = {
               eventType,
               rawPayload: payload,
               signatureValid,
-              // Payhip's "signature" is SHA256(apiKey) — a static value per connection,
+              // Payhip's "signature" is SHA256(apiKey), a static value per connection,
               // not a body-bound HMAC. Use 'static-key' to correctly model this trust level.
               verificationMethod: 'static-key',
             });
@@ -161,7 +161,7 @@ export const webhook: WebhookPlugin = {
           return new Response('Internal Server Error', { status: 500 });
         }
       } else {
-        // User-scoped: no Discord servers yet — store under authUserId
+        // User-scoped: no Discord servers yet, store under authUserId
         try {
           const result = await convex.mutation(api.webhookIngestion.insertWebhookEvent, {
             apiSecret,
@@ -171,7 +171,7 @@ export const webhook: WebhookPlugin = {
             eventType,
             rawPayload: payload,
             signatureValid,
-            // Payhip's "signature" is SHA256(apiKey) — a static value per connection,
+            // Payhip's "signature" is SHA256(apiKey), a static value per connection,
             // not a body-bound HMAC. Use 'static-key' to correctly model this trust level.
             verificationMethod: 'static-key',
           });

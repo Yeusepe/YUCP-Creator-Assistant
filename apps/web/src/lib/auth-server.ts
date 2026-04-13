@@ -81,7 +81,7 @@ export interface AuthSessionState {
  * never sees the redirect target and falls back to window.location.reload().
  *
  * By converting POST redirects to JSON here, the JS client reads the URL
- * from data.redirectTo and navigates programmatically — the same pattern
+ * from data.redirectTo and navigates programmatically, the same pattern
  * used by the Bun API proxy (apps/api/src/index.ts).
  *
  * GET redirects pass through unchanged so the browser navigates natively

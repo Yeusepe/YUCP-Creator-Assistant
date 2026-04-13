@@ -16,6 +16,6 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // No webServer block — tests consume TEST_BASE_URL env var.
+  // No webServer block, tests consume TEST_BASE_URL env var.
   // To run locally: start the API server first (bun run start), then set TEST_BASE_URL.
 });

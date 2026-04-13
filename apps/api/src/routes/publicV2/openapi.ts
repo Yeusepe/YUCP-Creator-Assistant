@@ -491,7 +491,7 @@ const OPENAPI_SPEC = {
           signingSecret: {
             type: 'string',
             description:
-              'Returned ONLY on create and rotate-secret. Store this value securely — it will not be shown again.',
+              'Returned ONLY on create and rotate-secret. Store this value securely, it will not be shown again.',
           },
           createdAt: { type: 'integer' },
         },
@@ -2075,7 +2075,7 @@ const OPENAPI_SPEC = {
         operationId: 'createWebhook',
         summary: 'Create a webhook subscription',
         description:
-          'Creates a webhook endpoint. The `signingSecret` is returned in this response only — store it securely.',
+          'Creates a webhook endpoint. The `signingSecret` is returned in this response only, store it securely.',
         tags: ['Webhooks'],
         requestBody: {
           required: true,

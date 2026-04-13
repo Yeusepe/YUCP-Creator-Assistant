@@ -69,7 +69,7 @@ function showSelectServerNotice() {
 
 export function loadProgressFlags() {
   try {
-    // UI state only — never store auth tokens or sensitive data in localStorage
+    // UI state only, never store auth tokens or sensitive data in localStorage
     setSettingsTouched(localStorage.getItem(getTenantStorageKey(SETTINGS_TOUCHED_PREFIX)) === '1');
     setSetupCompleted(localStorage.getItem(getTenantStorageKey(SETUP_COMPLETE_PREFIX)) === '1');
   } catch {
@@ -726,13 +726,13 @@ function refreshChannelSelect(selectId, channels, savedValue) {
   if (!select) return;
 
   // initCustomSelects inserts the wrapper as a SIBLING after the select (not a parent),
-  // so use nextElementSibling — not closest() — to find and remove it.
+  // so use nextElementSibling, not closest(), to find and remove it.
   const sibling = select.nextElementSibling;
   if (sibling?.classList.contains('custom-select-wrapper')) sibling.remove();
   delete select.dataset.customized;
 
   // Repopulate options
-  select.innerHTML = '<option value="">— None —</option>';
+  select.innerHTML = '<option value="">— None,</option>';
   channels.forEach((ch) => {
     const opt = document.createElement('option');
     opt.value = ch.id;

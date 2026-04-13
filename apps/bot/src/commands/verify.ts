@@ -736,7 +736,7 @@ export async function buildVerifyStatusReply(
 ): Promise<VerifyStatusReply> {
   if (!guildId) {
     const errorText = new TextDisplayBuilder().setContent(
-      'Use this command in a server — it cannot be used in direct messages.'
+      'Use this command in a server, it cannot be used in direct messages.'
     );
     const errorContainer = new ContainerBuilder().addTextDisplayComponents(errorText);
     return { flags: MessageFlags.IsComponentsV2, components: [errorContainer] };

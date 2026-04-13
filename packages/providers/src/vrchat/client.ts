@@ -237,7 +237,7 @@ export class VrchatApiClient {
    *
    * Per VRChat spec (APIConfig.yaml): clientApiKey is "apiKey to be used for all other requests".
    * Community SDK implementations (vrchatapi-python, vrchatapi-js) all send it as ?apiKey=<value>.
-   * Sending it as a header does not work — VRChat returns 401.
+   * Sending it as a header does not work, VRChat returns 401.
    *
    * Source: https://github.com/vrchatapi/specification/blob/main/openapi/components/schemas/APIConfig.yaml
    */
@@ -259,7 +259,7 @@ export class VrchatApiClient {
 
   async beginLogin(username: string, password: string): Promise<VrchatBeginLoginResult> {
     // Per VRChat OpenAPI spec, /auth/user has parameters: [] and security: [{authHeader: []}]
-    // meaning it uses HTTP Basic auth only — no ?apiKey= query parameter.
+    // meaning it uses HTTP Basic auth only, no ?apiKey= query parameter.
     // Adding ?apiKey= to this endpoint causes VRChat to return 401 (Missing Credentials).
     // Use request() directly to match the same contract as the working VrchatWebClient.
     const { response, data } = await request('/auth/user', {

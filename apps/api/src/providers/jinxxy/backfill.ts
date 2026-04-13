@@ -19,7 +19,7 @@ export const backfill: BackfillPlugin = {
       providerName: 'Jinxxy',
       maxRetries: MAX_RATE_LIMIT_RETRIES,
       operation: async () => {
-        // Jinxxy /licenses does not support product_id filtering — filter client-side
+        // Jinxxy /licenses does not support product_id filtering, filter client-side
         const { licenses, pagination } = await client.getLicenses({ page, per_page: pageSize });
 
         const filtered = licenses.filter((l) => l.product_id === productRef);

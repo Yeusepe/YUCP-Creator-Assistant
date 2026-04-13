@@ -1,5 +1,5 @@
 /**
- * Creator Events — internal event stream for the Public API v2 webhook system.
+ * Creator Events, internal event stream for the Public API v2 webhook system.
  *
  * Stores platform-emitted events (purchases, entitlement grants, etc.) and
  * fans them out to matching webhook subscriptions.
@@ -14,7 +14,7 @@ import { requireApiSecret } from './lib/apiAuth';
 // Internal mutations & queries
 // ---------------------------------------------------------------------------
 
-/** Insert a creator_events record. No fan-out — call fanOutToSubscriptions separately. */
+/** Insert a creator_events record. No fan-out, call fanOutToSubscriptions separately. */
 export const emitEvent = internalMutation({
   args: {
     apiSecret: v.string(),
@@ -83,7 +83,7 @@ export const fanOutToSubscriptions = internalMutation({
   },
 });
 
-/** Get event by ID without authUserId check — for the delivery worker only. */
+/** Get event by ID without authUserId check, for the delivery worker only. */
 export const getByIdInternal = internalQuery({
   args: {
     eventId: v.id('creator_events'),
