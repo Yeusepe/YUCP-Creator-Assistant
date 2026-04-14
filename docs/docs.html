@@ -546,7 +546,7 @@
                 <h1 style="font-size:clamp(2.2rem,5vw,3.25rem);color:#fff;margin:0 0 0.5rem;line-height:1.05;">
                     <span class="grad-text grad-sky">Documentation</span>
                 </h1>
-                <p style="font-size:15.5px;color:rgba(255,255,255,0.45);max-width:520px;margin:0 0 2rem;line-height:1.7;">Everything you need to install, configure, and operate Creator Assistant, from first setup to advanced moderation.</p>
+                <p style="font-size:15.5px;color:rgba(255,255,255,0.45);max-width:620px;margin:0 0 2rem;line-height:1.7;">Everything you need to install, configure, and operate Creator Assistant, from dashboard-first setup and migration review to product mapping, verification, and moderation.</p>
                 <div style="display:flex;flex-wrap:wrap;gap:10px;">
                     <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#38bdf8;display:inline-block;"></span>14 Sections</span>
                     <span class="tag-pill"><span style="width:7px;height:7px;border-radius:50%;background:#a78bfa;display:inline-block;"></span>25+ Commands</span>
@@ -568,12 +568,12 @@
                 <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.2;"></div>
                 <p class="section-label">Section 1</p>
                 <h2 class="section-title">Introduction</h2>
-                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat® marketplace</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. No DMs, no spreadsheets, no manual grants.</p>
+                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat® catalog</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. Setup is dashboard-first, reviewable, and built to handle both brand-new servers and migrations from older bots.</p>
 
                 <div class="bento-card" style="margin-bottom:1.25rem;">
                     <div class="overview-steps">
                         <div class="overview-step"><div class="overview-num">1</div><h4>Install</h4><p>Add the bot to your server</p></div>
-                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat®</p></div>
+                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat®</p></div>
                         <div class="overview-step"><div class="overview-num">3</div><h4>Verify</h4><p>Buyers get roles instantly</p></div>
                     </div>
                 </div>
@@ -583,8 +583,9 @@
                         <h4 style="color:#38bdf8;">For Creators</h4>
                         <ul>
                             <li>Automatic role assignment on purchase</li>
-                            <li>Connect Gumroad®, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat® marketplaces</li>
+                            <li>Connect Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat®</li>
                             <li>Map any product to any Discord® role</li>
+                            <li>Review setup and migration plans before applying changes</li>
                             <li>Invite collaborating creators</li>
                             <li>Gate download channels to buyers</li>
                             <li>Monitor analytics and fraud</li>
@@ -608,7 +609,7 @@
             <section class="doc-section" id="getting-started">
                 <p class="section-label">Section 2</p>
                 <h2 class="section-title">Getting <span class="grad-text grad-sky">Started</span></h2>
-                <p class="section-lead">Install the bot, connect your store, and post a verification panel; usually takes under five minutes.</p>
+                <p class="section-lead">Install the bot, connect your store, review the recommended setup plan, and decide how verification should work in your server; usually takes under five minutes.</p>
 
                 <div class="callout callout-warn">
                     <span class="callout-icon"><img src="Icons/Wrench.png" alt="Warning"></span>
@@ -618,8 +619,8 @@
                 <h3 class="sub-heading"><span class="sub-dot"></span>Prerequisites</h3>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Administrator permissions in your Discord® server</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad®, Lemon Squeezy®, or Payhip® account with products, a Jinxxy™ creator account, or VRChat® avatars to verify</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> At least one Discord® role to assign to verified buyers</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad®, itch.io, Lemon Squeezy®, Payhip®, or Jinxxy™ catalog with products, or VRChat® avatars to verify</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Existing Discord® roles to adopt, or permission to let setup create missing ones</div>
                 </div>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Setup Steps</h3>
@@ -649,7 +650,7 @@
                         <div class="step-content">
                             <h4>Connect your storefronts</h4>
                             <p>The setup flow starts by connecting the platforms you sell through. YUCP uses those connections to sync products, inspect your Discord® server, and prepare a recommended plan.</p>
-                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, or <span class="badge badge-jinxxy">Jinxxy™</span> from the same page. Guided providers are called out when they need a one-time credential handoff before the job can continue.</p>
+                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-jinxxy">Jinxxy™</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, <span class="badge badge-gumroad">itch.io (OAuth)</span>, or <span class="badge badge-vrchat">VRChat®</span> from the same page. Guided providers are called out when they need a one-time credential handoff before the job can continue.</p>
                         </div>
                     </div>
                     <div class="step-item">
@@ -663,14 +664,14 @@
                         <div class="step-left"><div class="step-badge">5</div><div class="step-connector"></div></div>
                         <div class="step-content">
                             <h4>Apply the recommended setup</h4>
-                            <p>Click <strong>Apply Recommended Setup</strong> to queue the durable setup job. YUCP creates missing roles, writes role rules, and reuses or creates the verification surface for you.</p>
+                            <p>Click <strong>Apply Recommended Setup</strong> to queue the durable setup job. YUCP creates missing roles, writes role rules, and can reuse your existing verification message if you choose that. It does not create a verification channel automatically.</p>
                         </div>
                     </div>
                     <div class="step-item">
                         <div class="step-left"><div class="step-badge">6</div></div>
                         <div class="step-content">
                             <h4>Open migration tools only when you are switching bots</h4>
-                            <p>Migration is hidden by default. Only open the migration tools if you are replacing another verification bot and need help adopting existing roles or bridging the change carefully.</p>
+                            <p>Migration is hidden by default. Only open the migration tools if you are replacing another verification bot and need help adopting existing roles or bridging the change carefully. Migration analyzes live products it can read from connected catalog providers. Manual URL or ID mappings can still be added separately in the bot.</p>
                         </div>
                     </div>
                 </div>
@@ -680,7 +681,7 @@
             <section class="doc-section" id="buyer-verification">
                 <p class="section-label">Section 3</p>
                 <h2 class="section-title">Buyer <span class="grad-text grad-purple">Verification</span></h2>
-                <p class="section-lead">Buyers verify their purchase directly in Discord®. Five methods are supported; the bot never asks for payment details.</p>
+                <p class="section-lead">Buyers verify their purchase directly in Discord® using the method that matches the product you mapped. The bot never asks for payment details.</p>
 
                 <div style="display:flex;flex-direction:column;gap:0.85rem;margin-bottom:1.75rem;">
                     <div class="bento-card" style="padding:1.25rem;">
@@ -775,16 +776,12 @@
                     <span>All <code>/creator-admin</code> commands require <strong>Administrator</strong> permission. Discord® hides them from non-admins automatically.</span>
                 </div>
 
-                <p class="cmd-group-label">Setup &amp; Autosetup</p>
+                <p class="cmd-group-label">Setup &amp; Dashboard</p>
                 <div class="cmd-table" style="margin-bottom:1.5rem;">
-                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg> setup / autosetup</div>
-                    <div class="cmd-row">
-                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin autosetup')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">autosetup</span></span></div>
-                        <span class="cmd-row-desc">Guided wizard: create roles, set up channels, post verify button, or migrate from another bot. Best for new setups.</span>
-                    </div>
+                    <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg> setup / dashboard</div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin setup start')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">setup start</span></span></div>
-                        <span class="cmd-row-desc">Send a private secure dashboard link for store connections, onboarding progress, and server setup. Once your server is fully configured this becomes <code>/creator-admin dashboard</code>.</span>
+                        <span class="cmd-row-desc">Send a private secure dashboard link for store connections, setup choices, migration review, and server setup. Once your server is fully configured this becomes <code>/creator-admin dashboard</code>.</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin dashboard')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">dashboard</span></span></div>
@@ -797,7 +794,7 @@
                     <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8l-1 4h10l-1-4z"/></svg> product</div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin product add')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">product add</span></span></div>
-                        <span class="cmd-row-desc">Guided flow: choose type → enter URL or ID → map to a Discord® role.</span>
+                        <span class="cmd-row-desc">Guided flow: choose a product from a connected store or use a provider-specific URL or ID path, then map it to a Discord® role.</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin product list')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">product list</span></span></div>
@@ -913,7 +910,7 @@
             <section class="doc-section" id="product-types">
                 <p class="section-label">Section 5</p>
                 <h2 class="section-title">Product <span class="grad-text grad-green">Types</span></h2>
-                <p class="section-lead">Five product types with different verification mechanisms. Mix and match within the same server, each mapped to whichever Discord® role you choose.</p>
+                <p class="section-lead">Five verification types with different buyer flows. Mix and match within the same server, each mapped to whichever Discord® role you choose.</p>
 
                 <div class="product-grid">
                     <div class="product-card" style="border-color:rgba(54,169,174,0.2);">
@@ -928,8 +925,8 @@
                             <div class="product-icon" style="background:rgba(255,211,110,0.12);margin-right:6px;"><img src="Icons/LemonSqueezy.png" alt="Lemon Squeezy®"></div>
                             <div class="product-icon" style="background:rgba(0,209,178,0.12);"><img src="Icons/PayHip.png" alt="Payhip®"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>License Key</h4><span class="badge badge-jinxxy">Jinxxy™</span> <span class="badge badge-lemons">Lemon Squeezy®</span> <span class="badge badge-payhip">Payhip®</span></div>
-                        <p>Buyers validate license keys or the Assistant performs account/receipt lookup. Supported by Jinxxy™, Lemon Squeezy®, and Payhip®; validated in real time via provider APIs.</p>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>License Key</h4><span class="badge badge-jinxxy">Jinxxy™</span> <span class="badge badge-lemons">Lemon Squeezy®</span> <span class="badge badge-payhip">Payhip®</span> <span class="badge badge-gumroad">itch.io</span></div>
+                        <p>Buyers validate license keys or the Assistant performs account or receipt lookup. Supported by Jinxxy™, Lemon Squeezy®, Payhip®, and itch.io, with provider-side checks performed in real time.</p>
                     </div>
 
                     <div class="product-card" style="border-color:rgba(0,230,118,0.2);">
@@ -953,7 +950,7 @@
 
                 <div class="callout callout-info">
                     <span class="callout-icon"><img src="Icons/Assistant.png" alt="Info"></span>
-                    <span>When adding a product via <code>/creator-admin product add</code>, you select the type first. The bot then guides you through type-specific fields.</span>
+                    <span>When adding a product via <code>/creator-admin product add</code>, you select the type first. Catalog-connected providers can show products from your store, and some providers also support direct URL or ID entry. Migration only analyzes products it can read live from connected catalog providers.</span>
                 </div>
             </section>
 
@@ -1153,7 +1150,7 @@
 
                 <div class="callout callout-info" style="margin-top:1rem;">
                     <span class="callout-icon"><img src="Icons/Key.png" alt="Key"></span>
-                    <span>Manual license keys appear as <span class="badge badge-manual">Manual License</span> in the product type selector when adding a product via <code>/creator-admin product add</code>.</span>
+                    <span>Manual license keys appear as <span class="badge badge-manual">License Key Only</span> in the product type selector when adding a product via <code>/creator-admin product add</code>.</span>
                 </div>
             </section>
 
