@@ -316,5 +316,6 @@ export function createServiceApiActor(input: {
 }
 
 export function isApiActorProtectedFunction(functionName: string): boolean {
-  return API_ACTOR_PROTECTED_MODULE_PREFIXES.some((prefix) => functionName.startsWith(prefix));
+  const normalized = functionName.replace(/:/g, '.');
+  return API_ACTOR_PROTECTED_MODULE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }

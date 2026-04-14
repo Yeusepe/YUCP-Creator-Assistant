@@ -1,4 +1,6 @@
 import { api } from '../../../../../convex/_generated/api';
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import { createAuthUserActorBinding } from '../../lib/apiActor';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { logger } from '../../lib/logger';
 import { verifyBetterAuthAccessToken } from '../../lib/oauthAccessToken';
@@ -12,6 +14,7 @@ const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 
 export interface AuthResult {
   authUserId: string;
+  actorBinding: ApiActorBinding;
   scopes: string[];
   keyId?: string;
   expiresAt?: number;
@@ -119,6 +122,12 @@ export async function resolveAuth(
 
       return {
         authUserId,
+        actorBinding: await createAuthUserActorBinding({
+          authUserId,
+          source: 'api_key',
+          scopes,
+          keyId: typeof keyData.id === 'string' ? keyData.id : undefined,
+        }),
         scopes,
         keyId: typeof keyData.id === 'string' ? keyData.id : undefined,
         expiresAt: typeof keyData.expiresAt === 'number' ? keyData.expiresAt : undefined,
@@ -167,6 +176,11 @@ export async function resolveAuth(
 
     return {
       authUserId: oauthResult.token.sub,
+      actorBinding: await createAuthUserActorBinding({
+        authUserId: oauthResult.token.sub,
+        source: 'oauth',
+        scopes: oauthResult.token.grantedScopes,
+      }),
       scopes: oauthResult.token.grantedScopes,
     };
   } catch (err) {

@@ -86,6 +86,16 @@ function mergeActorArg(args: unknown, actor: ApiActorBinding): unknown {
   };
 }
 
+function shouldAttachActor(functionReference: unknown, args: unknown): boolean {
+  return (
+    isApiActorProtectedFunction(describeFunctionReference(functionReference)) &&
+    !!args &&
+    typeof args === 'object' &&
+    !Array.isArray(args) &&
+    'apiSecret' in (args as Record<string, unknown>)
+  );
+}
+
 export function createBotConvexClient(convexUrl: string): ConvexHttpClient {
   const client = new ConvexHttpClient(convexUrl);
 
@@ -94,14 +104,14 @@ export function createBotConvexClient(convexUrl: string): ConvexHttpClient {
   const rawAction = client.action.bind(client);
 
   client.query = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
+    const actor = shouldAttachActor(functionReference, args)
       ? await getDefaultBotActorBinding()
       : undefined;
     return await rawQuery(functionReference as never, actor ? (mergeActorArg(args, actor) as never) : (args as never));
   }) as typeof client.query;
 
   client.mutation = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
+    const actor = shouldAttachActor(functionReference, args)
       ? await getDefaultBotActorBinding()
       : undefined;
     return await rawMutation(
@@ -111,7 +121,7 @@ export function createBotConvexClient(convexUrl: string): ConvexHttpClient {
   }) as typeof client.mutation;
 
   client.action = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
+    const actor = shouldAttachActor(functionReference, args)
       ? await getDefaultBotActorBinding()
       : undefined;
     return await rawAction(functionReference as never, actor ? (mergeActorArg(args, actor) as never) : (args as never));

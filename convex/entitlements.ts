@@ -290,7 +290,7 @@ export const getActiveEntitlement = query({
  * Stats overview for bot /yucp stats.
  */
 export const getStatsOverview = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -320,7 +320,7 @@ export const getStatsOverview = query({
  * Extended stats overview with 24h, 7d, 30d verification counts.
  */
 export const getStatsOverviewExtended = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -432,7 +432,7 @@ export const getVerifiedUsersPaginated = query({
  * Product verification counts for /yucp stats products.
  */
 export const getProductStats = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),

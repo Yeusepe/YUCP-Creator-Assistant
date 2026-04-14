@@ -84,6 +84,16 @@ function mergeActorArg(args: unknown, actor: ApiActorBinding): unknown {
   };
 }
 
+function shouldAttachActor(functionReference: unknown, args: unknown): boolean {
+  return (
+    isApiActorProtectedFunction(describeFunctionReference(functionReference)) &&
+    !!args &&
+    typeof args === 'object' &&
+    !Array.isArray(args) &&
+    'apiSecret' in (args as Record<string, unknown>)
+  );
+}
+
 export function makeTestConvex(options: { injectActor?: boolean } = {}) {
   // import.meta.glob is a Vite-specific API required by convex-test.
   // The `any` cast avoids needing vite/client types in this package.
@@ -98,16 +108,12 @@ export function makeTestConvex(options: { injectActor?: boolean } = {}) {
   const rawAction = testInstance.action.bind(testInstance);
 
   testInstance.query = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
-      ? await getTestActorBinding()
-      : undefined;
+    const actor = shouldAttachActor(functionReference, args) ? await getTestActorBinding() : undefined;
     return await rawQuery(functionReference as never, actor ? (mergeActorArg(args, actor) as never) : (args as never));
   }) as typeof testInstance.query;
 
   testInstance.mutation = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
-      ? await getTestActorBinding()
-      : undefined;
+    const actor = shouldAttachActor(functionReference, args) ? await getTestActorBinding() : undefined;
     return await rawMutation(
       functionReference as never,
       actor ? (mergeActorArg(args, actor) as never) : (args as never)
@@ -115,9 +121,7 @@ export function makeTestConvex(options: { injectActor?: boolean } = {}) {
   }) as typeof testInstance.mutation;
 
   testInstance.action = (async (functionReference: unknown, args?: unknown) => {
-    const actor = isApiActorProtectedFunction(describeFunctionReference(functionReference))
-      ? await getTestActorBinding()
-      : undefined;
+    const actor = shouldAttachActor(functionReference, args) ? await getTestActorBinding() : undefined;
     return await rawAction(functionReference as never, actor ? (mergeActorArg(args, actor) as never) : (args as never));
   }) as typeof testInstance.action;
 

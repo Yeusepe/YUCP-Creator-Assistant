@@ -117,10 +117,17 @@ async function getDefaultServiceActorBinding(): Promise<ApiActorBinding | null> 
 
 async function resolveActorBinding(
   functionReference: unknown,
+  args: unknown,
   explicitActor?: ApiActorBinding
 ): Promise<ApiActorBinding | undefined> {
   const functionName = describeFunctionReference(functionReference);
-  if (!isApiActorProtectedFunction(functionName)) {
+  if (
+    !isApiActorProtectedFunction(functionName) ||
+    !args ||
+    typeof args !== 'object' ||
+    Array.isArray(args) ||
+    !('apiSecret' in (args as Record<string, unknown>))
+  ) {
     return undefined;
   }
 
@@ -159,7 +166,7 @@ function createObservedConvexClient(
         ...describeArgs(args),
       },
       async () => {
-        const resolvedActor = await resolveActorBinding(functionReference, actor);
+        const resolvedActor = await resolveActorBinding(functionReference, args, actor);
         const requestArgs = resolvedActor ? mergeActorArg(args, resolvedActor) : args;
         return await rawClient[operation](functionReference, requestArgs);
       },
