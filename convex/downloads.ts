@@ -151,9 +151,8 @@ export const createRoute = mutation({
     if (messageBody.length > 4000)
       throw new ConvexError('messageBody must be 4000 characters or fewer');
 
-    const guildLink = await ctx.db.get(args.guildLinkId);
-    requireOwnedDocument(
-      guildLink,
+    const guildLink = requireOwnedDocument(
+      await ctx.db.get(args.guildLinkId),
       args.authUserId,
       'Unauthorized: caller does not own this guild link'
     );
@@ -163,7 +162,7 @@ export const createRoute = mutation({
 
     const routeId = await ctx.db.insert('download_routes', {
       authUserId: args.authUserId,
-      guildId: args.guildId,
+      guildId: guildLink.discordGuildId,
       guildLinkId: args.guildLinkId,
       sourceChannelId: args.sourceChannelId,
       archiveChannelId: args.archiveChannelId,
@@ -311,8 +310,7 @@ export const createArtifact = mutation({
       }
     }
 
-    const route = await ctx.db.get(args.routeId);
-    requireOwnedDocument(route, args.authUserId);
+    const route = requireOwnedDocument(await ctx.db.get(args.routeId), args.authUserId);
     const now = Date.now();
     const artifactId = await ctx.db.insert('download_artifacts', {
       authUserId: args.authUserId,

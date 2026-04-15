@@ -18,7 +18,9 @@ describe('apiActor', () => {
 
     const binding = await createApiActorBinding(actor, 'test-secret');
 
-    await expect(verifyApiActorBinding(binding, 'test-secret', now + 1_000)).resolves.toEqual(actor);
+    await expect(verifyApiActorBinding(binding, 'test-secret', now + 1_000)).resolves.toEqual(
+      actor
+    );
   });
 
   it('rejects malformed signatures before verification', async () => {
