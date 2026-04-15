@@ -18,10 +18,12 @@ import {
   bytesToBase64,
 } from '@yucp/shared/crypto';
 import {
-  getPinnedYucpRootByKeyId,
-  getPinnedYucpRoots,
-  getPrimaryPinnedYucpRoot,
+  getYucpJwkSetFromRoots,
+  getYucpRootByKeyId,
+  resolveConfiguredYucpTrustBundle,
   type YucpPinnedRoot,
+  type YucpTrustBundleConfig,
+  type YucpTrustJwk,
 } from '@yucp/shared/yucpTrust';
 export { base64ToBytes, bytesToBase64 };
 
@@ -37,6 +39,24 @@ ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const hash = await crypto.subtle.digest('SHA-512', buffer);
   return new Uint8Array(hash);
 };
+
+const TRUST_BUNDLE_AUDIENCE = 'yucp-trust-bundle';
+
+function getConfiguredYucpTrustBundle(): YucpTrustBundleConfig {
+  return resolveConfiguredYucpTrustBundle(process.env.YUCP_TRUST_BUNDLE_JSON);
+}
+
+function getConfiguredYucpRoots(): readonly YucpPinnedRoot[] {
+  return getConfiguredYucpTrustBundle().roots;
+}
+
+function getConfiguredYucpRootByKeyId(keyId: string | null | undefined): YucpPinnedRoot | null {
+  return getYucpRootByKeyId(getConfiguredYucpRoots(), keyId);
+}
+
+export function getConfiguredYucpJwkSet(): YucpTrustJwk[] {
+  return getYucpJwkSetFromRoots(getConfiguredYucpRoots());
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Certificate types
@@ -258,6 +278,15 @@ export interface ProtectedInstallIntentClaims {
   exp: number;
 }
 
+export interface YucpTrustBundleClaims {
+  iss: string;
+  aud: typeof TRUST_BUNDLE_AUDIENCE;
+  iat: number;
+  exp: number;
+  version: number;
+  keys: YucpTrustJwk[];
+}
+
 export async function signProtectedUnlockJwt(
   claims: ProtectedUnlockClaims,
   privateKeyBase64: string,
@@ -344,13 +373,41 @@ export async function signCouplingRuntimePackageJwt(
   return signJwt(claims, privateKeyBase64, keyId);
 }
 
+export async function signYucpTrustBundleJwt(
+  args: {
+    issuer: string;
+    version: number;
+    keys: YucpTrustJwk[];
+    issuedAt?: number;
+    expiresAt?: number;
+  },
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  const issuedAt = args.issuedAt ?? Math.floor(Date.now() / 1000);
+  const expiresAt = args.expiresAt ?? issuedAt + 300;
+  return signJwt(
+    {
+      iss: args.issuer,
+      aud: TRUST_BUNDLE_AUDIENCE,
+      iat: issuedAt,
+      exp: expiresAt,
+      version: args.version,
+      keys: args.keys,
+    },
+    privateKeyBase64,
+    keyId
+  );
+}
+
 async function signJwt(
   claims:
     | LicenseClaims
     | ProtectedUnlockClaims
     | ProtectedInstallIntentClaims
     | CouplingRuntimeClaims
-    | CouplingRuntimePackageClaims,
+    | CouplingRuntimePackageClaims
+    | YucpTrustBundleClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -432,7 +489,7 @@ export async function verifyLicenseJwtAgainstPinnedRoots(
 ): Promise<LicenseClaims | null> {
   return await verifyJwtWithPublicKeyResolver<LicenseClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-license-gate'
   );
@@ -457,7 +514,7 @@ export async function verifyProtectedUnlockJwtAgainstPinnedRoots(
 ): Promise<ProtectedUnlockClaims | null> {
   return await verifyJwtWithPublicKeyResolver<ProtectedUnlockClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-protected-unlock'
   );
@@ -482,7 +539,7 @@ export async function verifyProtectedInstallIntentJwtAgainstPinnedRoots(
 ): Promise<ProtectedInstallIntentClaims | null> {
   return await verifyJwtWithPublicKeyResolver<ProtectedInstallIntentClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-protected-install-intent'
   );
@@ -507,7 +564,7 @@ export async function verifyCouplingRuntimeJwtAgainstPinnedRoots(
 ): Promise<CouplingRuntimeClaims | null> {
   return await verifyJwtWithPublicKeyResolver<CouplingRuntimeClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-coupling-runtime'
   );
@@ -532,9 +589,22 @@ export async function verifyCouplingRuntimePackageJwtAgainstPinnedRoots(
 ): Promise<CouplingRuntimePackageClaims | null> {
   return await verifyJwtWithPublicKeyResolver<CouplingRuntimePackageClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-runtime-package'
+  );
+}
+
+export async function verifyYucpTrustBundleJwt(
+  jwt: string,
+  trustedRoots: readonly YucpPinnedRoot[],
+  expectedIssuer: string
+): Promise<YucpTrustBundleClaims | null> {
+  return await verifyJwtWithPublicKeyResolver<YucpTrustBundleClaims>(
+    jwt,
+    (keyId) => getYucpRootByKeyId(trustedRoots, keyId)?.publicKeyBase64,
+    expectedIssuer,
+    TRUST_BUNDLE_AUDIENCE
   );
 }
 
@@ -543,18 +613,19 @@ export async function resolvePinnedYucpSigningRoot(
   configuredKeyId?: string | null
 ): Promise<YucpPinnedRoot> {
   const derivedPublicKey = await getPublicKeyFromPrivate(privateKeyBase64);
-  const matchingRoots = getPinnedYucpRoots().filter(
+  const configuredRoots = getConfiguredYucpRoots();
+  const matchingRoots = configuredRoots.filter(
     (root) => root.publicKeyBase64 === derivedPublicKey && root.algorithm === 'Ed25519'
   );
 
   if (matchingRoots.length === 0) {
-    throw new Error('YUCP_ROOT_PRIVATE_KEY does not match any pinned YUCP trust root');
+    throw new Error('YUCP_ROOT_PRIVATE_KEY does not match any configured YUCP trust root');
   }
 
   const normalizedConfiguredKeyId = configuredKeyId?.trim();
   if (!normalizedConfiguredKeyId) {
     return (
-      matchingRoots.find((root) => root.keyId === getPrimaryPinnedYucpRoot().keyId) ?? matchingRoots[0]
+      matchingRoots.find((root) => root.keyId === configuredRoots[0]?.keyId) ?? matchingRoots[0]
     );
   }
 
@@ -563,7 +634,7 @@ export async function resolvePinnedYucpSigningRoot(
   );
   if (!matchingConfiguredRoot) {
     throw new Error(
-      `Configured YUCP root key ID '${normalizedConfiguredKeyId}' is not pinned for the active trust root`
+      `Configured YUCP root key ID '${normalizedConfiguredKeyId}' is not present in the active trust bundle`
     );
   }
 

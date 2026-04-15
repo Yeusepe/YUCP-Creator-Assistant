@@ -162,39 +162,6 @@ describe('protected blob package-first architecture', () => {
     });
   }
 
-  function mockRuntimeArtifact() {
-    globalThis.fetch = (async (input) => {
-      const url =
-        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (
-        url ===
-        'https://coupling.internal/v1/runtime-artifacts/manifest?artifactKey=coupling-runtime'
-      ) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            artifactKey: 'coupling-runtime',
-            channel: 'stable',
-            platform: 'win-x64',
-            version: couplingRuntimeVersion,
-            metadataVersion: 1,
-            deliveryName: 'yucp-coupling.dll',
-            contentType: 'application/octet-stream',
-            envelopeCipher: 'none',
-            envelopeIvBase64: '',
-            ciphertextSha256: couplingRuntimePlaintextSha256,
-            ciphertextSize: 4,
-            plaintextSha256: couplingRuntimePlaintextSha256,
-            plaintextSize: 4,
-            downloadUrl: 'https://coupling.internal/v1/licenses/coupling-runtime',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    }) as typeof fetch;
-  }
-
   it('requires a matching package registration before issuing protected unlock tickets', async () => {
     const t = makeTestConvex();
     await seedProtectedAsset(t);
@@ -279,7 +246,6 @@ describe('protected blob package-first architecture', () => {
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
     await seedActiveCouplingBilling(t);
-    mockRuntimeArtifact();
     const licenseToken = await mintLicenseToken();
 
     const couplingResult = await t.action(internal.yucpLicenses.issueCouplingJob, {
@@ -289,6 +255,8 @@ describe('protected blob package-first architecture', () => {
       licenseToken,
       assetPaths: ['Assets/Protected/Model.fbx'],
       issuerBaseUrl,
+      runtimeArtifactVersion: couplingRuntimeVersion,
+      runtimePlaintextSha256: couplingRuntimePlaintextSha256,
     });
 
     expect(couplingResult).toMatchObject({

@@ -6,9 +6,8 @@ import {
   bytesToBase64,
 } from '@yucp/shared/crypto';
 import {
-  getPinnedYucpRootByKeyId,
-  getPinnedYucpRoots,
-  getPrimaryPinnedYucpRoot,
+  getYucpRootByKeyId,
+  resolveConfiguredYucpTrustBundle,
   type YucpPinnedRoot,
 } from '@yucp/shared/yucpTrust';
 
@@ -21,6 +20,14 @@ ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const hash = await crypto.subtle.digest('SHA-512', buffer);
   return new Uint8Array(hash);
 };
+
+function getConfiguredYucpRoots(): readonly YucpPinnedRoot[] {
+  return resolveConfiguredYucpTrustBundle(process.env.YUCP_TRUST_BUNDLE_JSON).roots;
+}
+
+function getConfiguredYucpRootByKeyId(keyId: string | null | undefined): YucpPinnedRoot | null {
+  return getYucpRootByKeyId(getConfiguredYucpRoots(), keyId);
+}
 
 export interface LicenseClaims {
   iss: string;
@@ -182,7 +189,7 @@ export async function verifyLicenseJwtAgainstPinnedRoots(
 ): Promise<LicenseClaims | null> {
   return await verifyJwtWithPublicKeyResolver<LicenseClaims>(
     jwt,
-    (keyId) => getPinnedYucpRootByKeyId(keyId)?.publicKeyBase64,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-license-gate'
   );
@@ -193,19 +200,19 @@ export async function resolvePinnedYucpSigningRoot(
   configuredKeyId?: string | null
 ): Promise<YucpPinnedRoot> {
   const derivedPublicKey = await getPublicKeyFromPrivate(privateKeyBase64);
-  const matchingRoots = getPinnedYucpRoots().filter(
+  const configuredRoots = getConfiguredYucpRoots();
+  const matchingRoots = configuredRoots.filter(
     (root) => root.publicKeyBase64 === derivedPublicKey && root.algorithm === 'Ed25519'
   );
 
   if (matchingRoots.length === 0) {
-    throw new Error('YUCP_ROOT_PRIVATE_KEY does not match any pinned YUCP trust root');
+    throw new Error('YUCP_ROOT_PRIVATE_KEY does not match any configured YUCP trust root');
   }
 
   const normalizedConfiguredKeyId = configuredKeyId?.trim();
   if (!normalizedConfiguredKeyId) {
     return (
-      matchingRoots.find((root) => root.keyId === getPrimaryPinnedYucpRoot().keyId) ??
-      matchingRoots[0]
+      matchingRoots.find((root) => root.keyId === configuredRoots[0]?.keyId) ?? matchingRoots[0]
     );
   }
 
@@ -214,7 +221,7 @@ export async function resolvePinnedYucpSigningRoot(
   );
   if (!matchingConfiguredRoot) {
     throw new Error(
-      `Configured YUCP root key ID '${normalizedConfiguredKeyId}' is not pinned for the active trust root`
+      `Configured YUCP root key ID '${normalizedConfiguredKeyId}' is not present in the active trust bundle`
     );
   }
 

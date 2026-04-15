@@ -4,15 +4,45 @@ import {
   createServiceApiActor,
   isApiActorProtectedFunction,
 } from '@yucp/shared/apiActor';
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from 'convex/server';
 import { getFunctionName } from 'convex/server';
-import { convexTest } from 'convex-test';
+import { convexTest, type TestConvex } from 'convex-test';
 import type { Doc, Id } from './_generated/dataModel';
 import schema from './schema';
 
-export type ConvexTestInstance = ReturnType<typeof convexTest>;
+export type ConvexTestInstance = TestConvex<typeof schema>;
 type ConvexTestModuleMap = Record<string, () => Promise<unknown>>;
 type ImportMetaWithGlob = ImportMeta & {
   glob: (pattern: string) => ConvexTestModuleMap;
+};
+type AnyFunctionReference = FunctionReference<
+  'query' | 'mutation' | 'action',
+  'public' | 'internal',
+  Record<string, unknown>,
+  unknown,
+  string | undefined
+>;
+type OptionalActorArgs<Args> = Args extends { actor: ApiActorBinding }
+  ? Omit<Args, 'actor'> & { actor?: ApiActorBinding }
+  : Args;
+type OptionalActorRestArgs<FuncRef extends AnyFunctionReference> =
+  keyof FunctionArgs<FuncRef> extends never
+    ? [args?: OptionalActorArgs<FunctionArgs<FuncRef>>]
+    : [args: OptionalActorArgs<FunctionArgs<FuncRef>>];
+
+export type ActorAwareConvexTestInstance = ConvexTestInstance & {
+  query<FuncRef extends FunctionReference<'query'>>(
+    functionReference: FuncRef,
+    ...args: OptionalActorRestArgs<FuncRef>
+  ): Promise<FunctionReturnType<FuncRef>>;
+  mutation<FuncRef extends FunctionReference<'mutation'>>(
+    functionReference: FuncRef,
+    ...args: OptionalActorRestArgs<FuncRef>
+  ): Promise<FunctionReturnType<FuncRef>>;
+  action<FuncRef extends FunctionReference<'action'>>(
+    functionReference: FuncRef,
+    ...args: OptionalActorRestArgs<FuncRef>
+  ): Promise<FunctionReturnType<FuncRef>>;
 };
 
 let cachedTestActor: {
@@ -96,16 +126,19 @@ function shouldAttachActor(functionReference: unknown, args: unknown): boolean {
   );
 }
 
-export function makeTestConvex(options: { injectActor?: boolean } = {}) {
+export function makeTestConvex(
+  options: { injectActor?: boolean } = {}
+): ActorAwareConvexTestInstance {
   // import.meta.glob is a Vite-specific API required by convex-test.
-  const testInstance = convexTest(schema, (import.meta as ImportMetaWithGlob).glob('./**/*.ts'));
+  const rawTestInstance = convexTest(schema, (import.meta as ImportMetaWithGlob).glob('./**/*.ts'));
+  const testInstance = rawTestInstance as ActorAwareConvexTestInstance;
   if (options.injectActor === false) {
     return testInstance;
   }
 
-  const rawQuery = testInstance.query.bind(testInstance);
-  const rawMutation = testInstance.mutation.bind(testInstance);
-  const rawAction = testInstance.action.bind(testInstance);
+  const rawQuery = rawTestInstance.query.bind(rawTestInstance);
+  const rawMutation = rawTestInstance.mutation.bind(rawTestInstance);
+  const rawAction = rawTestInstance.action.bind(rawTestInstance);
 
   testInstance.query = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
@@ -115,7 +148,7 @@ export function makeTestConvex(options: { injectActor?: boolean } = {}) {
       functionReference as never,
       actor ? (mergeActorArg(args, actor) as never) : (args as never)
     );
-  }) as typeof testInstance.query;
+  }) as ActorAwareConvexTestInstance['query'];
 
   testInstance.mutation = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
@@ -125,7 +158,7 @@ export function makeTestConvex(options: { injectActor?: boolean } = {}) {
       functionReference as never,
       actor ? (mergeActorArg(args, actor) as never) : (args as never)
     );
-  }) as typeof testInstance.mutation;
+  }) as ActorAwareConvexTestInstance['mutation'];
 
   testInstance.action = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
@@ -135,7 +168,7 @@ export function makeTestConvex(options: { injectActor?: boolean } = {}) {
       functionReference as never,
       actor ? (mergeActorArg(args, actor) as never) : (args as never)
     );
-  }) as typeof testInstance.action;
+  }) as ActorAwareConvexTestInstance['action'];
 
   return testInstance;
 }

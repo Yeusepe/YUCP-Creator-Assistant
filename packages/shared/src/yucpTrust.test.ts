@@ -3,6 +3,7 @@ import {
   getPinnedYucpJwkSet,
   getPinnedYucpRootByKeyId,
   getPrimaryPinnedYucpRoot,
+  resolveConfiguredYucpTrustBundle,
   setPinnedYucpRootsForTests,
 } from './yucpTrust';
 
@@ -46,5 +47,32 @@ describe('yucpTrust', () => {
         x: 'fixture-public-key',
       },
     ]);
+  });
+
+  it('parses a configured trust bundle with versioned JWK keys', () => {
+    expect(
+      resolveConfiguredYucpTrustBundle(
+        JSON.stringify({
+          version: 7,
+          keys: [
+            {
+              kty: 'OKP',
+              crv: 'Ed25519',
+              kid: 'yucp-root-2026',
+              x: 'rotated-public-key',
+            },
+          ],
+        })
+      )
+    ).toEqual({
+      version: 7,
+      roots: [
+        {
+          keyId: 'yucp-root-2026',
+          algorithm: 'Ed25519',
+          publicKeyBase64: 'rotated-public-key',
+        },
+      ],
+    });
   });
 });

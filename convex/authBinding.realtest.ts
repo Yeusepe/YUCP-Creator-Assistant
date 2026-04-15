@@ -56,7 +56,15 @@ async function seedManualLicense(
 async function seedExternalAccount(
   t: ReturnType<typeof makeTestConvex>,
   overrides: {
-    provider?: 'discord' | 'gumroad' | 'jinxxy' | 'manual' | 'itchio' | 'payhip' | 'lemonsqueezy' | 'vrchat';
+    provider?:
+      | 'discord'
+      | 'gumroad'
+      | 'jinxxy'
+      | 'manual'
+      | 'itchio'
+      | 'payhip'
+      | 'lemonsqueezy'
+      | 'vrchat';
     providerUserId?: string;
   } = {}
 ): Promise<Id<'external_accounts'>> {
@@ -78,7 +86,7 @@ async function seedBinding(
     authUserId?: string;
     subjectId: Id<'subjects'>;
     externalAccountId: Id<'external_accounts'>;
-    bindingType?: 'ownership' | 'verification' | 'purchase';
+    bindingType?: 'ownership' | 'verification' | 'manual_override';
     status?: 'active' | 'pending' | 'revoked' | 'quarantined' | 'transferred';
   }
 ): Promise<Id<'bindings'>> {

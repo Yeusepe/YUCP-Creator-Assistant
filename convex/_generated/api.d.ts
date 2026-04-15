@@ -31,6 +31,7 @@ import type * as guildLinks from "../guildLinks.js";
 import type * as guildMemberAdd from "../guildMemberAdd.js";
 import type * as http from "../http.js";
 import type * as identitySync from "../identitySync.js";
+import type * as lib_apiActor from "../lib/apiActor.js";
 import type * as lib_apiAuth from "../lib/apiAuth.js";
 import type * as lib_authUser from "../lib/authUser.js";
 import type * as lib_betterAuthAdapter from "../lib/betterAuthAdapter.js";
@@ -50,6 +51,7 @@ import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentit
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
 import type * as lib_licenseSubjectLink from "../lib/licenseSubjectLink.js";
 import type * as lib_logger from "../lib/logger.js";
+import type * as lib_ownership from "../lib/ownership.js";
 import type * as lib_piiCrypto from "../lib/piiCrypto.js";
 import type * as lib_protectedAssetKeyCrypto from "../lib/protectedAssetKeyCrypto.js";
 import type * as lib_protectedAssetUnlockMode from "../lib/protectedAssetUnlockMode.js";
@@ -142,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   guildMemberAdd: typeof guildMemberAdd;
   http: typeof http;
   identitySync: typeof identitySync;
+  "lib/apiActor": typeof lib_apiActor;
   "lib/apiAuth": typeof lib_apiAuth;
   "lib/authUser": typeof lib_authUser;
   "lib/betterAuthAdapter": typeof lib_betterAuthAdapter;
@@ -161,6 +164,7 @@ declare const fullApi: ApiFromModules<{
   "lib/httpRateLimit": typeof lib_httpRateLimit;
   "lib/licenseSubjectLink": typeof lib_licenseSubjectLink;
   "lib/logger": typeof lib_logger;
+  "lib/ownership": typeof lib_ownership;
   "lib/piiCrypto": typeof lib_piiCrypto;
   "lib/protectedAssetKeyCrypto": typeof lib_protectedAssetKeyCrypto;
   "lib/protectedAssetUnlockMode": typeof lib_protectedAssetUnlockMode;

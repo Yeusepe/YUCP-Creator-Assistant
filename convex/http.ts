@@ -60,7 +60,6 @@
  */
 
 import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
-import { getPinnedYucpJwkSet } from '@yucp/shared/yucpTrust';
 import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
 import { httpAction } from './_generated/server';
@@ -79,11 +78,13 @@ import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
   type CertEnvelope,
+  getConfiguredYucpJwkSet,
   type LicenseClaims,
   type PackageCertificateData,
   resolvePinnedYucpSigningRoot,
   signLicenseJwt,
   signPackageCertificateData,
+  signYucpTrustBundleJwt,
   verifyCertEnvelope,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
@@ -927,16 +928,33 @@ http.route({
 http.route({
   method: 'GET',
   path: '/v1/keys',
-  handler: httpAction(async (_ctx, _request) => {
+  handler: httpAction(async (_ctx, request) => {
     try {
-      await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null);
+      const signingRoot = await getPinnedSigningRoot(
+        process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null
+      );
+      const requestUrl = new URL(request.url);
+      const keys = getConfiguredYucpJwkSet();
+      const trustBundle = await signYucpTrustBundleJwt(
+        {
+          issuer: requestUrl.origin,
+          version: Math.max(
+            1,
+            Number.parseInt(process.env.YUCP_TRUST_BUNDLE_VERSION ?? '1', 10) || 1
+          ),
+          keys,
+        },
+        signingRoot.privateKeyBase64,
+        signingRoot.keyId
+      );
+
+      return jsonResponse({
+        keys,
+        trustBundle,
+      });
     } catch {
       return errorResponse('Service not configured', 503);
     }
-
-    return jsonResponse({
-      keys: getPinnedYucpJwkSet(),
-    });
   }),
 });
 

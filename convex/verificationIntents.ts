@@ -6,7 +6,7 @@ import {
   sha256Base64Url,
   sha256Hex,
 } from '@yucp/shared/crypto';
-import { getPinnedYucpRootByKeyId } from '@yucp/shared/yucpTrust';
+import { getYucpRootByKeyId, resolveConfiguredYucpTrustBundle } from '@yucp/shared/yucpTrust';
 import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -235,12 +235,16 @@ async function verifyVerificationGrantJwtAgainstPinnedRoots(
     const parts = token.split('.');
     if (parts.length !== 3) return null;
 
-    const header = JSON.parse(
-      new TextDecoder().decode(base64UrlDecodeToBytes(parts[0]))
-    ) as { alg?: string; kid?: string };
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[0]))) as {
+      alg?: string;
+      kid?: string;
+    };
     if (header.alg !== 'EdDSA' || !header.kid) return null;
 
-    const publicKeyBase64 = getPinnedYucpRootByKeyId(header.kid)?.publicKeyBase64;
+    const publicKeyBase64 = getYucpRootByKeyId(
+      resolveConfiguredYucpTrustBundle(process.env.YUCP_TRUST_BUNDLE_JSON).roots,
+      header.kid
+    )?.publicKeyBase64;
     if (!publicKeyBase64) return null;
 
     const signingInput = `${parts[0]}.${parts[1]}`;

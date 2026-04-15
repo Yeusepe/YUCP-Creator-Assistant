@@ -111,4 +111,5 @@ describe('yucpCrypto package certificate compatibility', () => {
       )
     ).resolves.toBe(true);
   });
+
 });

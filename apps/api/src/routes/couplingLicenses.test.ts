@@ -139,7 +139,7 @@ describe('coupling license routes', () => {
     setPinnedYucpRootsForTests(null);
   });
 
-  it('fails closed when the configured runtime root key does not match a pinned trust anchor', async () => {
+  it('fails closed when the configured runtime root key does not match the active trust bundle', async () => {
     setPinnedYucpRootsForTests(null);
 
     const licenseClaims: LicenseClaims = {
@@ -170,7 +170,7 @@ describe('coupling license routes', () => {
 
     expect(response?.status).toBe(503);
     await expect(response?.json()).resolves.toEqual({
-      error: expect.stringContaining('pinned'),
+      error: expect.stringContaining('configured YUCP trust root'),
     });
   });
 
