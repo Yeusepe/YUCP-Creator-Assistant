@@ -209,7 +209,9 @@ export const migrateLegacyLicenseSubjectLinks = internalMutation({
     for (const doc of docs) {
       const licenseKeyEncrypted =
         doc.licenseKeyEncrypted ??
-        (await encryptPii(doc.licenseKey, PII_PURPOSES.forensicsLicenseKey));
+        (doc.licenseKey
+          ? await encryptPii(doc.licenseKey, PII_PURPOSES.forensicsLicenseKey)
+          : undefined);
       await ctx.db.patch(doc._id, {
         licenseKey: undefined,
         licenseKeyEncrypted,

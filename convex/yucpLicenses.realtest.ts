@@ -12,9 +12,22 @@ describe('coupling job capability gating', () => {
   const machineFingerprint = 'a604eb0948054b9acb9f40da80a6a4c8e711b98c59e54a11089fea3a2b77dc1c';
   const projectId = '0123456789abcdef0123456789abcdef';
   const creatorAuthUserId = 'auth-coupling-capability';
+  const ENV_KEYS = [
+    'YUCP_ROOT_PRIVATE_KEY',
+    'YUCP_ROOT_PUBLIC_KEY',
+    'YUCP_ROOT_KEY_ID',
+    'POLAR_ACCESS_TOKEN',
+    'POLAR_WEBHOOK_SECRET',
+    'YUCP_COUPLING_SERVICE_BASE_URL',
+    'YUCP_COUPLING_SERVICE_SHARED_SECRET',
+  ] as const;
 
   let rootPrivateKey = '';
   const originalFetch = globalThis.fetch;
+  const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]])) as Record<
+    (typeof ENV_KEYS)[number],
+    string | undefined
+  >;
 
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
@@ -37,6 +50,15 @@ describe('coupling job capability gating', () => {
   });
 
   afterEach(() => {
+    globalThis.fetch = originalFetch;
+    for (const key of ENV_KEYS) {
+      const originalValue = originalEnv[key];
+      if (originalValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalValue;
+      }
+    }
     setPinnedYucpRootsForTests(null);
   });
 
@@ -166,6 +188,30 @@ describe('coupling job capability gating', () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+      assetPaths: ['Assets/Novaspil_Kitbash/Novaspil.fbx'],
+      issuerBaseUrl,
+    });
+
+    expect(result).toEqual({
+      success: true,
+      subject: 'license-subject-coupling-capability',
+      jobs: [],
+      skipReason: 'capability_disabled',
+    });
+  });
+
+  it('verifies coupling jobs without requiring the private root key after the token is minted', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    const licenseToken = await mintLicenseToken();
+
+    delete process.env.YUCP_ROOT_PRIVATE_KEY;
 
     const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
       packageId,

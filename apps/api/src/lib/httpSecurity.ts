@@ -13,7 +13,10 @@ export function applyResponseSecurityHeaders(response: Response): Response {
   }
 
   const contentType = headers.get('content-type')?.toLowerCase() ?? '';
-  if (contentType.includes('application/json') && !headers.has('Cache-Control')) {
+  if (
+    (contentType.includes('application/json') || contentType.includes('+json')) &&
+    !headers.has('Cache-Control')
+  ) {
     headers.set('Cache-Control', 'no-store');
   }
 

@@ -246,6 +246,22 @@ describe('auth binding enforcement', () => {
     ).rejects.toThrow(/actor|unauthorized/i);
   });
 
+  it('preserves an explicitly provided invalid actor binding in test helpers', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t, { yucpUserId: 'auth-package-owner' });
+
+    await expect(
+      t.query(api.packageRegistry.listByAuthUser, {
+        apiSecret: API_SECRET,
+        authUserId: 'auth-package-owner',
+        actor: {
+          payload: 'not-a-valid-payload',
+          signature: 'not-a-valid-signature',
+        },
+      })
+    ).rejects.toThrow(/actor|unauthorized/i);
+  });
+
   it('rejects entitlement lookups without an actor binding', async () => {
     const t = makeTestConvex({ injectActor: false });
     const subjectId = await seedSubject(t, { authUserId: 'auth-entitlement-owner' });

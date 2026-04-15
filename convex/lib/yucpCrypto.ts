@@ -206,6 +206,14 @@ export async function verifyCertEnvelope(
   }
 }
 
+export async function verifyCertEnvelopeAgainstPinnedRoots(envelope: CertEnvelope): Promise<boolean> {
+  const rootPublicKeyBase64 = getConfiguredYucpRootByKeyId(envelope.signature.keyId)?.publicKeyBase64;
+  if (!rootPublicKeyBase64) {
+    return false;
+  }
+  return await verifyCertEnvelope(envelope, rootPublicKeyBase64);
+}
+
 /**
  * Derive the Ed25519 public key from a private key (async).
  */

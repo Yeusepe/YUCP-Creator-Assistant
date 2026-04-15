@@ -4,6 +4,10 @@ export const API_ACTOR_TTL_MS = 5 * 60 * 1000;
 const API_ACTOR_PREFIX = 'yucp-api-actor.v1';
 const API_ACTOR_VERSION = 1;
 const API_ACTOR_MAX_CLOCK_SKEW_MS = 30 * 1000;
+const API_ACTOR_MAX_PAYLOAD_LENGTH = 4_096;
+const API_ACTOR_SIGNATURE_HEX_LENGTH = 64;
+const API_ACTOR_SIGNATURE_HEX_RE = /^[0-9a-f]{64}$/i;
+const apiActorSigningKeys = new Map<string, Promise<CryptoKey>>();
 
 export type ApiActorScope =
   | 'creator:delegate'
@@ -224,13 +228,18 @@ export function serializeApiActorPayload(actor: ApiActor): string {
 }
 
 async function signApiActorValue(secret: string, value: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+  let keyPromise = apiActorSigningKeys.get(secret);
+  if (!keyPromise) {
+    keyPromise = crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    apiActorSigningKeys.set(secret, keyPromise);
+  }
+  const key = await keyPromise;
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
   return bytesToHex(new Uint8Array(signature));
 }
@@ -251,7 +260,13 @@ export async function verifyApiActorBinding(
 ): Promise<ApiActor | null> {
   const payload = getNonEmptyString(binding.payload);
   const signature = getNonEmptyString(binding.signature);
-  if (!payload || !signature) {
+  if (
+    !payload ||
+    payload.length > API_ACTOR_MAX_PAYLOAD_LENGTH ||
+    !signature ||
+    !API_ACTOR_SIGNATURE_HEX_RE.test(signature) ||
+    signature.length !== API_ACTOR_SIGNATURE_HEX_LENGTH
+  ) {
     return null;
   }
 

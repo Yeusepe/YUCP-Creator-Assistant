@@ -109,6 +109,9 @@ function mergeActorArg(args: unknown, actor: ApiActorBinding): unknown {
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
     return { actor };
   }
+  if ('actor' in (args as Record<string, unknown>)) {
+    return args;
+  }
 
   return {
     ...(args as Record<string, unknown>),
@@ -122,7 +125,8 @@ function shouldAttachActor(functionReference: unknown, args: unknown): boolean {
     !!args &&
     typeof args === 'object' &&
     !Array.isArray(args) &&
-    'apiSecret' in (args as Record<string, unknown>)
+    'apiSecret' in (args as Record<string, unknown>) &&
+    !('actor' in (args as Record<string, unknown>))
   );
 }
 

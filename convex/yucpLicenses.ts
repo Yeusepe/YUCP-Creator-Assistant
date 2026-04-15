@@ -1738,7 +1738,6 @@ export const redeemProtectedMaterializationGrant = internalAction({
       return { success: false, error: 'grant is required' };
     }
 
-    await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const payload = await unsealProtectedMaterializationGrant(args.grant);
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -1969,8 +1968,6 @@ export const issueCouplingJob = internalAction({
     if (args.assetPaths.length > 512) {
       return { success: false, error: 'Too many coupling asset paths in one request' };
     }
-
-    await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
 
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);

@@ -1233,7 +1233,7 @@ export const grantEntitlementsForPurchaser = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireServiceActor(args.actor, ['entitlements:service']);
     const now = Date.now();
     const entitlementIds: Id<'entitlements'>[] = [];
     let grantedCount = 0;

@@ -26,30 +26,32 @@ describe('yucpTrust', () => {
   });
 
   it('can swap in deterministic fixture roots for tests without mutating production defaults', () => {
+    const fixturePublicKeyBase64 = Buffer.from(Uint8Array.from([255, 254, 253])).toString('base64');
     setPinnedYucpRootsForTests([
       {
         keyId: 'test-root',
         algorithm: 'Ed25519',
-        publicKeyBase64: 'fixture-public-key',
+        publicKeyBase64: fixturePublicKeyBase64,
       },
     ]);
 
     expect(getPrimaryPinnedYucpRoot()).toEqual({
       keyId: 'test-root',
       algorithm: 'Ed25519',
-      publicKeyBase64: 'fixture-public-key',
+      publicKeyBase64: fixturePublicKeyBase64,
     });
     expect(getPinnedYucpJwkSet()).toEqual([
       {
         kty: 'OKP',
         crv: 'Ed25519',
         kid: 'test-root',
-        x: 'fixture-public-key',
+        x: '__79',
       },
     ]);
   });
 
   it('parses a configured trust bundle with versioned JWK keys', () => {
+    const rotatedPublicKeyBase64 = Buffer.from(Uint8Array.from([255, 254, 253])).toString('base64');
     expect(
       resolveConfiguredYucpTrustBundle(
         JSON.stringify({
@@ -59,7 +61,7 @@ describe('yucpTrust', () => {
               kty: 'OKP',
               crv: 'Ed25519',
               kid: 'yucp-root-2026',
-              x: 'rotated-public-key',
+              x: '__79',
             },
           ],
         })
@@ -70,9 +72,15 @@ describe('yucpTrust', () => {
         {
           keyId: 'yucp-root-2026',
           algorithm: 'Ed25519',
-          publicKeyBase64: 'rotated-public-key',
+          publicKeyBase64: rotatedPublicKeyBase64,
         },
       ],
     });
+  });
+
+  it('fails closed when a non-empty configured trust bundle is invalid', () => {
+    expect(() => resolveConfiguredYucpTrustBundle('{"version":0,"keys":[]}')).toThrow(
+      'invalid trust bundle'
+    );
   });
 });

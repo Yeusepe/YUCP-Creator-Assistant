@@ -86,6 +86,7 @@ import {
   signPackageCertificateData,
   signYucpTrustBundleJwt,
   verifyCertEnvelope,
+  verifyCertEnvelopeAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import './polyfills';
@@ -211,16 +212,6 @@ function getClientAddress(request: Request): string {
   const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
   if (cloudflareConnectingIp) {
     return cloudflareConnectingIp;
-  }
-
-  const realIp = request.headers.get('x-real-ip')?.trim();
-  if (realIp) {
-    return realIp;
-  }
-
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0]?.trim() || 'unknown';
   }
   return 'unknown';
 }
@@ -450,8 +441,7 @@ http.route({
 
 /** Parse and verify a cert envelope from "Authorization: Bearer <base64>" */
 async function parseBearerCert(
-  request: Request,
-  rootPublicKey: string
+  request: Request
 ): Promise<{ ok: true; envelope: CertEnvelope } | { ok: false; error: string }> {
   const auth = request.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return { ok: false, error: 'Missing Authorization header' };
@@ -463,7 +453,7 @@ async function parseBearerCert(
     return { ok: false, error: 'Invalid cert envelope encoding' };
   }
 
-  const valid = await verifyCertEnvelope(envelope, rootPublicKey);
+  const valid = await verifyCertEnvelopeAgainstPinnedRoots(envelope);
   if (!valid) return { ok: false, error: 'Cert signature verification failed' };
 
   const now = Date.now();
@@ -475,10 +465,10 @@ async function parseBearerCert(
 
 async function buildManifestCertificateChain(
   envelope: CertEnvelope,
+  rootKeyId: string,
   rootPublicKey: string,
   rootPrivateKey: string
 ): Promise<PackageCertificateData[]> {
-  const rootKeyId = envelope.signature.keyId;
   const publisherCertificateBase: PackageCertificateData = {
     keyId: `yucp-publisher:${envelope.cert.nonce}`,
     publicKey: envelope.cert.devPublicKey,
@@ -1257,13 +1247,13 @@ http.route({
     let signingRoot: Awaited<ReturnType<typeof getPinnedSigningRoot>>;
     try {
       signingRoot = await getPinnedSigningRoot(
-        process.env.YUCP_KEY_ID ?? process.env.YUCP_ROOT_KEY_ID ?? null
+        process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null
       );
     } catch {
       return errorResponse('Service not configured', 503);
     }
 
-    const certResult = await parseBearerCert(request, signingRoot.publicKeyBase64);
+    const certResult = await parseBearerCert(request);
     if (!certResult.ok) return errorResponse(certResult.error, 401);
     const { envelope } = certResult;
     const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'signature-register', {
@@ -1359,6 +1349,38 @@ http.route({
       return errorResponse('Signing proof nonce has already been used', 409);
     }
 
+    if (body.protectedAssets && body.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return errorResponse(
+        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`,
+        400
+      );
+    }
+
+    if (body.protectedAssets && body.protectedAssets.length > 0) {
+      for (const asset of body.protectedAssets) {
+        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
+          return errorResponse('Invalid protectedAssetId format', 400);
+        }
+        if (asset.unlockMode === 'wrapped_content_key') {
+          if (!asset.wrappedContentKey) {
+            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
+          }
+        } else if (asset.unlockMode === 'content_key_b64') {
+          if (!asset.contentKeyBase64) {
+            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
+          }
+        } else {
+          return errorResponse('Invalid protected asset unlockMode', 400);
+        }
+        if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
+          return errorResponse('Invalid protected asset contentHash format', 400);
+        }
+        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
+          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
+        }
+      }
+    }
+
     // Layer 1: enforce package namespace ownership
     const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage, {
       packageId: body.packageId,
@@ -1406,37 +1428,7 @@ http.route({
       );
     }
 
-    if (body.protectedAssets && body.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      return errorResponse(
-        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`,
-        400
-      );
-    }
-
     if (body.protectedAssets && body.protectedAssets.length > 0) {
-      for (const asset of body.protectedAssets) {
-        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
-          return errorResponse('Invalid protectedAssetId format', 400);
-        }
-        if (asset.unlockMode === 'wrapped_content_key') {
-          if (!asset.wrappedContentKey) {
-            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
-          }
-        } else if (asset.unlockMode === 'content_key_b64') {
-          if (!asset.contentKeyBase64) {
-            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
-          }
-        } else {
-          return errorResponse('Invalid protected asset unlockMode', 400);
-        }
-        if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
-          return errorResponse('Invalid protected asset contentHash format', 400);
-        }
-        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
-          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
-        }
-      }
-
       await ctx.runMutation(internal.yucpLicenses.upsertProtectedAssets, {
         packageId: body.packageId,
         contentHash: body.contentHash,
@@ -1458,6 +1450,7 @@ http.route({
 
     const certificateChain = await buildManifestCertificateChain(
       envelope,
+      signingRoot.keyId,
       signingRoot.publicKeyBase64,
       signingRoot.privateKeyBase64
     );

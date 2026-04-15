@@ -157,6 +157,9 @@ export const createRoute = mutation({
       args.authUserId,
       'Unauthorized: caller does not own this guild link'
     );
+    if (guildLink.discordGuildId !== args.guildId) {
+      throw new ConvexError('guildId must match the linked Discord guild');
+    }
 
     const routeId = await ctx.db.insert('download_routes', {
       authUserId: args.authUserId,
@@ -313,19 +316,19 @@ export const createArtifact = mutation({
     const now = Date.now();
     const artifactId = await ctx.db.insert('download_artifacts', {
       authUserId: args.authUserId,
-      guildId: args.guildId,
+      guildId: route.guildId,
       routeId: args.routeId,
-      sourceChannelId: args.sourceChannelId,
+      sourceChannelId: route.sourceChannelId,
       sourceMessageId: args.sourceMessageId,
       sourceMessageUrl: args.sourceMessageUrl,
       sourceAuthorId: args.sourceAuthorId,
-      archiveChannelId: args.archiveChannelId,
+      archiveChannelId: route.archiveChannelId,
       archiveMessageId: args.archiveMessageId,
       archiveThreadId: args.archiveThreadId,
       sourceRelayMessageId: args.sourceRelayMessageId,
       sourceDeliveryMode: args.sourceDeliveryMode,
-      requiredRoleIds: [...new Set(args.requiredRoleIds)],
-      roleLogic: args.roleLogic,
+      requiredRoleIds: [...new Set(route.requiredRoleIds)],
+      roleLogic: route.roleLogic,
       files: args.files,
       status: args.status ?? 'active',
       createdAt: now,

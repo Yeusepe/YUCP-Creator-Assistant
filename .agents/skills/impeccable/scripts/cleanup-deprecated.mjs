@@ -6,7 +6,7 @@
  * Safe to run repeatedly -- it is a no-op when nothing needs cleaning.
  *
  * Usage (from the project root):
- *   node {{scripts_path}}/cleanup-deprecated.mjs
+ *   node .agents/skills/impeccable/scripts/cleanup-deprecated.mjs
  *
  * What it does:
  *   1. Finds every harness-specific skills directory (.claude/skills,
@@ -18,8 +18,9 @@
  *   4. Removes the corresponding entries from skills-lock.json.
  */
 
-import { existsSync, readFileSync, writeFileSync, rmSync, readdirSync, statSync, lstatSync, unlinkSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, rmSync, lstatSync, unlinkSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { join, parse, resolve } from 'node:path';
 
 // Skills that were renamed, merged, or folded in v2.0 and v2.1.
 const DEPRECATED_NAMES = [
@@ -43,7 +44,7 @@ const HARNESS_DIRS = [
  */
 export function findProjectRoot(startDir = process.cwd()) {
   let dir = resolve(startDir);
-  const { root } = { root: '/' };
+  const { root } = parse(dir);
   while (dir !== root) {
     if (
       existsSync(join(dir, 'package.json')) ||
@@ -197,7 +198,7 @@ export function cleanup(projectRoot) {
 }
 
 // CLI entry point
-if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname)) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
   const result = cleanup();
   if (result.deletedPaths.length === 0 && result.removedLockEntries.length === 0) {
     console.log('No deprecated Impeccable skills found. Nothing to clean up.');

@@ -1,3 +1,5 @@
+import { base64ToBytes, bytesToBase64 } from './crypto';
+
 export type YucpPinnedRoot = Readonly<{
   keyId: string;
   algorithm: 'Ed25519';
@@ -43,12 +45,24 @@ function normalizePinnedRoot(root: YucpPinnedRoot): YucpPinnedRoot {
   };
 }
 
+function normalizePublicKeyBase64(value: string): string | null {
+  try {
+    return bytesToBase64(base64ToBytes(value));
+  } catch {
+    return null;
+  }
+}
+
+function toBase64Url(value: string): string {
+  return value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 function normalizeTrustJwk(root: YucpPinnedRoot): YucpTrustJwk {
   return {
     kty: 'OKP',
     crv: 'Ed25519',
     kid: root.keyId,
-    x: root.publicKeyBase64,
+    x: toBase64Url(root.publicKeyBase64),
   };
 }
 
@@ -77,7 +91,11 @@ function parseTrustedRootCandidate(candidate: unknown): YucpTrustedRoot | null {
         ? record.x
         : null;
 
-  if (!keyId?.trim() || !publicKeyBase64?.trim()) {
+  const normalizedPublicKeyBase64 = publicKeyBase64?.trim()
+    ? normalizePublicKeyBase64(publicKeyBase64)
+    : null;
+
+  if (!keyId?.trim() || !normalizedPublicKeyBase64) {
     return null;
   }
   if (algorithm && algorithm.trim() !== 'Ed25519') {
@@ -87,7 +105,7 @@ function parseTrustedRootCandidate(candidate: unknown): YucpTrustedRoot | null {
   return normalizePinnedRoot({
     keyId,
     algorithm: 'Ed25519',
-    publicKeyBase64,
+    publicKeyBase64: normalizedPublicKeyBase64,
   });
 }
 
@@ -136,31 +154,24 @@ export function resolveConfiguredYucpTrustBundle(
     };
   }
 
-  try {
-    const parsed = JSON.parse(json) as Record<string, unknown>;
-    const version = parsed.version;
-    const keys = parsed.keys;
-    if (!Number.isInteger(version) || (version as number) < 1 || !Array.isArray(keys)) {
-      throw new Error('invalid trust bundle');
-    }
-
-    const roots = keys
-      .map((entry) => parseTrustedRootCandidate(entry))
-      .filter((entry): entry is YucpTrustedRoot => entry !== null);
-    if (roots.length === 0) {
-      throw new Error('empty trust bundle');
-    }
-
-    return {
-      version: version as number,
-      roots,
-    };
-  } catch {
-    return {
-      version: 1,
-      roots: getPinnedYucpRoots(),
-    };
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+  const version = parsed.version;
+  const keys = parsed.keys;
+  if (!Number.isInteger(version) || (version as number) < 1 || !Array.isArray(keys)) {
+    throw new Error('invalid trust bundle');
   }
+
+  const roots = keys
+    .map((entry) => parseTrustedRootCandidate(entry))
+    .filter((entry): entry is YucpTrustedRoot => entry !== null);
+  if (roots.length === 0) {
+    throw new Error('invalid trust bundle');
+  }
+
+  return {
+    version: version as number,
+    roots,
+  };
 }
 
 /**
