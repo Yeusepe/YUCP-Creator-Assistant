@@ -54,7 +54,11 @@ function normalizePublicKeyBase64(value: string): string | null {
 }
 
 function toBase64Url(value: string): string {
-  return value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  let withoutPaddingEnd = value.length;
+  while (withoutPaddingEnd > 0 && value.charCodeAt(withoutPaddingEnd - 1) === 61) {
+    withoutPaddingEnd -= 1;
+  }
+  return value.slice(0, withoutPaddingEnd).replaceAll('+', '-').replaceAll('/', '_');
 }
 
 function normalizeTrustJwk(root: YucpPinnedRoot): YucpTrustJwk {
