@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { internal } from './_generated/api';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import {
@@ -23,8 +24,20 @@ describe('protected unlock issuance', () => {
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
     process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
-    process.env.YUCP_ROOT_PUBLIC_KEY = await getPublicKeyFromPrivate(rootPrivateKey);
+    const rootPublicKey = await getPublicKeyFromPrivate(rootPrivateKey);
+    process.env.YUCP_ROOT_PUBLIC_KEY = rootPublicKey;
     process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+    setPinnedYucpRootsForTests([
+      {
+        keyId: 'yucp-root',
+        algorithm: 'Ed25519',
+        publicKeyBase64: rootPublicKey,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    setPinnedYucpRootsForTests(null);
   });
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {

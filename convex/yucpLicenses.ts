@@ -57,26 +57,46 @@ import {
 } from './lib/protectedMaterializationGrant';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import {
-  getPublicKeyFromPrivate,
   type LicenseClaims,
   type ProtectedInstallIntentClaims,
   type ProtectedUnlockClaims,
+  resolvePinnedYucpSigningRoot,
   signLicenseJwt,
   signProtectedInstallIntentJwt,
   signProtectedUnlockJwt,
-  verifyLicenseJwt,
-  verifyProtectedUnlockJwt,
+  verifyLicenseJwtAgainstPinnedRoots,
+  verifyProtectedUnlockJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
 const PROTECTED_INSTALL_INTENT_TTL_SECONDS = 10 * 60;
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
+const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+
+async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
+  keyId: string;
+  publicKeyBase64: string;
+  privateKeyBase64: string;
+}> {
+  const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+  if (!rootPrivateKey) {
+    throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+  }
+
+  const signingRoot = await resolvePinnedYucpSigningRoot(rootPrivateKey, configuredKeyId);
+  return {
+    keyId: signingRoot.keyId,
+    publicKeyBase64: signingRoot.publicKeyBase64,
+    privateKeyBase64: rootPrivateKey,
+  };
+}
+
 type ProductByProviderRefResult = {
   authUserId: string;
   productId: string;
@@ -744,6 +764,11 @@ export const upsertProtectedAssets = internalMutation({
     if (!PACKAGE_ID_RE.test(args.packageId)) {
       throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
     }
+    if (args.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      throw new ConvexError(
+        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`
+      );
+    }
 
     const now = Date.now();
     for (const asset of args.protectedAssets) {
@@ -1008,7 +1033,20 @@ export const recordLicenseSubjectLink = internalMutation({
     providerProductId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await upsertLicenseSubjectLink(ctx, args);
+    const licenseKeyEncrypted =
+      args.licenseKeyEncrypted ??
+      (await encryptPii(args.licenseKey, PII_PURPOSES.forensicsLicenseKey));
+
+    await upsertLicenseSubjectLink(ctx, {
+      authUserId: args.authUserId,
+      licenseSubject: args.licenseSubject,
+      packageId: args.packageId,
+      provider: args.provider,
+      licenseKeyEncrypted,
+      providerUserId: args.providerUserId,
+      externalOrderId: args.externalOrderId,
+      providerProductId: args.providerProductId,
+    });
   },
 });
 
@@ -1191,8 +1229,7 @@ export const verifyLicense = internalAction({
     }
 
     // 5. Issue signed license JWT
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
 
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const iat = nowSeconds;
@@ -1216,8 +1253,11 @@ export const verifyLicense = internalAction({
       exp,
     };
 
-    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
-    const token = await signLicenseJwt(claims, rootPrivateKey, keyId);
+    const token = await signLicenseJwt(
+      claims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
 
     // 5b. Store the license subject link for forensics lookups (best-effort, does not fail the request).
     if (
@@ -1281,13 +1321,10 @@ export const issueProtectedUnlock = internalAction({
       return { success: false, error: 'licenseToken is required' };
     }
 
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
 
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
+    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
 
     if (!licenseClaims) {
       return { success: false, error: 'License token is invalid or expired' };
@@ -1327,7 +1364,6 @@ export const issueProtectedUnlock = internalAction({
 
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + PROTECTED_UNLOCK_TTL_SECONDS;
-    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
     const contentKeyB64 =
       protectedAsset.unlockMode === 'content_key_b64' && protectedAsset.encryptedContentKey
         ? await decryptProtectedBlobContentKey(protectedAsset.encryptedContentKey)
@@ -1352,7 +1388,11 @@ export const issueProtectedUnlock = internalAction({
       exp,
     };
 
-    const unlockToken = await signProtectedUnlockJwt(claims, rootPrivateKey, keyId);
+    const unlockToken = await signProtectedUnlockJwt(
+      claims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
     return { success: true, unlockToken, expiresAt: exp };
   },
 });
@@ -1528,13 +1568,10 @@ export const issueProtectedInstallIntent = internalAction({
       return { success: false, error: 'licenseToken is required' };
     }
 
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
 
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
+    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
 
     if (!licenseClaims) {
       return { success: false, error: 'License token is invalid or expired' };
@@ -1578,7 +1615,6 @@ export const issueProtectedInstallIntent = internalAction({
 
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + PROTECTED_INSTALL_INTENT_TTL_SECONDS;
-    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
     const claims: ProtectedInstallIntentClaims = {
       iss: issuer,
       aud: 'yucp-protected-install-intent',
@@ -1593,7 +1629,11 @@ export const issueProtectedInstallIntent = internalAction({
       exp,
     };
 
-    const installIntentToken = await signProtectedInstallIntentJwt(claims, rootPrivateKey, keyId);
+    const installIntentToken = await signProtectedInstallIntentJwt(
+      claims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
     return { success: true, installIntentToken, expiresAt: exp };
   },
 });
@@ -1698,11 +1738,6 @@ export const redeemProtectedMaterializationGrant = internalAction({
       return { success: false, error: 'grant is required' };
     }
 
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const payload = await unsealProtectedMaterializationGrant(args.grant);
     const nowSeconds = Math.floor(Date.now() / 1000);
@@ -1718,7 +1753,10 @@ export const redeemProtectedMaterializationGrant = internalAction({
       return { success: false, error: 'Protected materialization grant has been revoked' };
     }
 
-    const unlockClaims = await verifyProtectedUnlockJwt(payload.unlockToken, rootPublicKey, issuer);
+    const unlockClaims = await verifyProtectedUnlockJwtAgainstPinnedRoots(
+      payload.unlockToken,
+      issuer
+    );
     if (!unlockClaims) {
       return { success: false, error: 'Protected materialization grant unlock token is invalid' };
     }
@@ -1931,13 +1969,8 @@ export const issueCouplingJob = internalAction({
       return { success: false, error: 'Too many coupling asset paths in one request' };
     }
 
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const rootPublicKey =
-      process.env.YUCP_ROOT_PUBLIC_KEY ?? (await getPublicKeyFromPrivate(rootPrivateKey));
-    const licenseClaims = await verifyLicenseJwt(args.licenseToken, rootPublicKey, issuer);
+    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
 
     if (!licenseClaims) {
       return { success: false, error: 'License token is invalid or expired' };

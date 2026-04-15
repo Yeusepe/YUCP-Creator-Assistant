@@ -18,6 +18,7 @@ import {
   type MutationCtx,
   mutation,
 } from './_generated/server';
+import { createServiceActorBinding } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
 /** Normalized purchase record for batch ingestion */
@@ -442,6 +443,10 @@ export const syncPastPurchasesForSubject = internalAction({
     if (!apiSecret) {
       throw new Error('CONVEX_API_SECRET required for syncPastPurchasesForSubject');
     }
+    const actor = await createServiceActorBinding({
+      service: 'background-sync',
+      scopes: ['creator:delegate'],
+    });
 
     // Fetch purchase facts: by emailHash if available, otherwise by providerUserId
     type PurchaseFact = {
@@ -481,6 +486,7 @@ export const syncPastPurchasesForSubject = internalAction({
 
       await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
+        actor,
         authUserId: p.authUserId,
         subjectId: args.subjectId,
         productId,
@@ -616,6 +622,10 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
     if (!apiSecret) {
       throw new Error('CONVEX_API_SECRET required for projectBackfilledPurchasesForProduct');
     }
+    const actor = await createServiceActorBinding({
+      service: 'background-sync',
+      scopes: ['creator:delegate'],
+    });
 
     const purchaseFacts = await ctx.db
       .query('purchase_facts')
@@ -682,6 +692,7 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
 
       const grantResult = await ctx.runMutation(api.entitlements.grantEntitlement, {
         apiSecret,
+        actor,
         authUserId: args.authUserId,
         subjectId,
         productId,

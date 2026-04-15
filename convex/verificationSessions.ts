@@ -14,6 +14,11 @@
 
 import { v } from 'convex/values';
 import { internalMutation, mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { VerificationModeV } from './lib/providers';
 
@@ -48,6 +53,7 @@ export type VerificationMode = typeof VerificationMode.type;
 export const getVerificationSessionByState = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     state: v.string(),
   },
@@ -90,6 +96,7 @@ export const getVerificationSessionByState = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const session = await ctx.db
       .query('verification_sessions')
       .withIndex('by_auth_user_state', (q) =>
@@ -124,6 +131,7 @@ export const getVerificationSessionByState = query({
 export const getVerificationSessionByNonce = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     nonce: v.string(),
   },
   returns: v.union(
@@ -164,6 +172,7 @@ export const getVerificationSessionByNonce = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-sessions:service']);
     const session = await ctx.db
       .query('verification_sessions')
       .withIndex('by_nonce', (q) => q.eq('nonce', args.nonce))
@@ -194,6 +203,7 @@ export const getVerificationSessionByNonce = query({
 export const getPendingSessionsForTenant = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
   returns: v.array(
@@ -207,6 +217,7 @@ export const getPendingSessionsForTenant = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const sessions = await ctx.db
       .query('verification_sessions')
@@ -237,6 +248,7 @@ export const getPendingSessionsForTenant = query({
 export const createVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
@@ -257,6 +269,7 @@ export const createVerificationSession = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const expiresAt = now + SESSION_EXPIRY_MS;
 
@@ -321,6 +334,7 @@ export const createVerificationSession = mutation({
 export const completeVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     sessionId: v.id('verification_sessions'),
     subjectId: v.id('subjects'),
   },
@@ -331,6 +345,7 @@ export const completeVerificationSession = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-sessions:service']);
     const now = Date.now();
     const session = await ctx.db.get(args.sessionId);
 
@@ -383,6 +398,7 @@ export const completeVerificationSession = mutation({
 export const expireVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     sessionId: v.id('verification_sessions'),
   },
   returns: v.object({
@@ -397,6 +413,7 @@ export const expireVerificationSession = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-sessions:service']);
     const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
@@ -426,6 +443,7 @@ export const expireVerificationSession = mutation({
 export const failVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     sessionId: v.id('verification_sessions'),
     errorMessage: v.string(),
   },
@@ -434,6 +452,7 @@ export const failVerificationSession = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-sessions:service']);
     const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
@@ -461,6 +480,7 @@ export const failVerificationSession = mutation({
 export const cancelVerificationSession = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     sessionId: v.id('verification_sessions'),
   },
   returns: v.object({
@@ -468,6 +488,7 @@ export const cancelVerificationSession = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-sessions:service']);
     const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
@@ -540,6 +561,7 @@ export const cleanupExpiredSessions = internalMutation({
 export const getOrCreateSessionByNonce = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     mode: VerificationMode,
     providerKey: v.optional(v.string()),
@@ -557,6 +579,7 @@ export const getOrCreateSessionByNonce = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
 
     // Check for existing session with this nonce
@@ -627,6 +650,7 @@ export function generateState(): string {
 export const listByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.optional(v.id('subjects')),
     status: v.optional(v.string()),
@@ -636,6 +660,7 @@ export const listByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('verification_sessions')
@@ -674,11 +699,13 @@ export const listByAuthUser = query({
 export const getSessionById = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     sessionId: v.id('verification_sessions'),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.sessionId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
     return doc;

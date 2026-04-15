@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { buildPublicAuthIssuer } from '@yucp/shared/publicAuthority';
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import type { RuntimeArtifactManifestSuccess } from '../lib/couplingRuntimeArtifacts';
 import { getPublicKeyFromPrivate, type LicenseClaims } from '../lib/yucpRuntimeCrypto';
 
@@ -123,6 +124,54 @@ describe('coupling license routes', () => {
     process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
     delete process.env.YUCP_ROOT_PUBLIC_KEY;
     process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+    return getPublicKeyFromPrivate(rootPrivateKey).then((publicKey) => {
+      setPinnedYucpRootsForTests([
+        {
+          keyId: 'yucp-root',
+          algorithm: 'Ed25519',
+          publicKeyBase64: publicKey,
+        },
+      ]);
+    });
+  });
+
+  afterEach(() => {
+    setPinnedYucpRootsForTests(null);
+  });
+
+  it('fails closed when the configured runtime root key does not match the active trust bundle', async () => {
+    setPinnedYucpRootsForTests(null);
+
+    const licenseClaims: LicenseClaims = {
+      iss: buildPublicAuthIssuer(apiBaseUrl),
+      aud: 'yucp-license-gate',
+      sub: 'buyer-subject',
+      jti: 'license-jti',
+      package_id: 'pkg.creator.bundle',
+      machine_fingerprint: 'machine-fingerprint-1234',
+      provider: 'gumroad',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    };
+    const licenseToken = await signJwt(licenseClaims, rootPrivateKey, 'yucp-root');
+
+    const response = await routes.handleRequest(
+      new Request(`${apiBaseUrl}/v1/licenses/runtime-package-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: 'pkg.creator.bundle',
+          projectId: '0123456789abcdef0123456789abcdef',
+          machineFingerprint: 'machine-fingerprint-1234',
+          licenseToken,
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(503);
+    await expect(response?.json()).resolves.toEqual({
+      error: expect.stringContaining('configured YUCP trust root'),
+    });
   });
 
   it('issues runtime package tokens from coupling manifest metadata', async () => {

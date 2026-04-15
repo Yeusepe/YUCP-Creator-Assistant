@@ -20,6 +20,7 @@ import {
   UserSelectMenuBuilder,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E, Emoji, EmojiIds, getEmojiCdnUrl } from '../lib/emojis';
 
 const USERS_PAGE_SIZE = 25;
@@ -83,6 +84,7 @@ export async function handleStats(
     return;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const rules = await convex.query(api.role_rules.getByGuild, {
     apiSecret,
@@ -90,6 +92,7 @@ export async function handleStats(
     guildId: ctx.guildId,
   });
   const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
+    actor,
     apiSecret,
     authUserId: ctx.authUserId,
   });
@@ -124,6 +127,7 @@ export async function handleStatsViewUsersButton(
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   cleanExpiredStatsSessions();
   const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
@@ -137,6 +141,7 @@ export async function handleStatsViewUsersButton(
   const { users, nextCursor, totalCount } = await convex.query(
     api.entitlements.getVerifiedUsersPaginated,
     {
+      actor,
       apiSecret,
       authUserId,
       limit: USERS_PAGE_SIZE,
@@ -197,6 +202,7 @@ export async function handleStatsViewUsersPageButton(
   direction: 'next' | 'prev'
 ): Promise<void> {
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   cleanExpiredStatsSessions();
   const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
@@ -216,6 +222,7 @@ export async function handleStatsViewUsersPageButton(
   const { users, nextCursor, totalCount } = await convex.query(
     api.entitlements.getVerifiedUsersPaginated,
     {
+      actor,
       apiSecret,
       authUserId,
       limit: USERS_PAGE_SIZE,
@@ -309,6 +316,7 @@ export async function handleStatsBackButton(
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   cleanExpiredStatsSessions();
   const sessionKey = getStatsSessionKey(interaction.user.id, authUserId, guildId);
@@ -320,6 +328,7 @@ export async function handleStatsBackButton(
     guildId,
   });
   const stats = await convex.query(api.entitlements.getStatsOverviewExtended, {
+    actor,
     apiSecret,
     authUserId,
   });
@@ -354,9 +363,11 @@ export async function handleStatsViewProductsButton(
   guildId: string
 ): Promise<void> {
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   const [productStats, productNames] = await Promise.all([
     convex.query(api.entitlements.getProductStats, {
+      actor,
       apiSecret,
       authUserId,
     }),
@@ -471,8 +482,10 @@ export async function handleStatsCheckUserSelect(
 
   const discordUserId = selectedUser.id;
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId,
   });
@@ -487,6 +500,7 @@ export async function handleStatsCheckUserSelect(
   }
 
   const entitlements = (await convex.query(api.entitlements.getEntitlementsBySubject, {
+    actor,
     apiSecret,
     authUserId,
     subjectId: subjectResult.subject._id,

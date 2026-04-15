@@ -44,6 +44,7 @@ import {
   TextInputStyle,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E, Emoji } from '../lib/emojis';
 import {
   completeLicenseVerification,
@@ -457,9 +458,11 @@ export async function handleVrchatCredentialsModal(
 
   const discordUserId = interaction.user.id;
   let subjectId: string | null = null;
+  const actor = await getRequiredBotActorBinding();
 
   try {
     const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
+      actor,
       apiSecret,
       discordUserId,
       displayName: interaction.user.displayName,
@@ -571,9 +574,11 @@ export async function handleLicenseKeyModal(
   // Find / create the subject for this Discord user
   const discordUserId = interaction.user.id;
   let subjectId: string | null = null;
+  const actor = await getRequiredBotActorBinding();
 
   try {
     const ensureResult = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
+      actor,
       apiSecret,
       discordUserId,
       displayName: interaction.user.displayName,

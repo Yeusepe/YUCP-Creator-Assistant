@@ -29,6 +29,7 @@ import {
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E, Emoji } from '../lib/emojis';
 import { completeLicenseVerification, disconnectVerification } from '../lib/internalRpc';
 import { sendDashboardNotification } from '../lib/notifications';
@@ -246,7 +247,9 @@ async function fetchVerifyData(
   convex: ConvexHttpClient,
   apiSecret: string
 ): Promise<VerifyData> {
+  const actor = await getRequiredBotActorBinding();
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: userId,
   });
@@ -274,11 +277,13 @@ async function fetchVerifyData(
 
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
       convex.query(api.subjects.getSubjectWithAccounts, {
+        actor,
         apiSecret,
         subjectId: subjectResult.subject._id,
         authUserId,
       }),
       convex.query(api.entitlements.getEntitlementsBySubject, {
+        actor,
         apiSecret,
         authUserId,
         subjectId: subjectResult.subject._id,
@@ -1088,7 +1093,9 @@ export async function handleLicenseModalSubmit(
     return;
   }
 
+  const actor = await getRequiredBotActorBinding();
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: interaction.user.id,
   });
@@ -1098,6 +1105,7 @@ export async function handleLicenseModalSubmit(
     subjectId = subjectResult.subject._id;
   } else {
     const created = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
+      actor,
       apiSecret,
       discordUserId: interaction.user.id,
       displayName: interaction.user.username,
@@ -1223,7 +1231,9 @@ export async function handleVerifyDisconnectButton(
   await interaction.deferUpdate();
 
   try {
+    const actor = await getRequiredBotActorBinding();
     const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+      actor,
       apiSecret,
       discordUserId: interaction.user.id,
     });
@@ -1333,7 +1343,9 @@ export async function handleRefreshCommand(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
+    const actor = await getRequiredBotActorBinding();
     const result = await convex.mutation(api.entitlements.enqueueRoleSyncsForUser, {
+      actor,
       apiSecret,
       authUserId: ctx.authUserId,
       discordUserId: interaction.user.id,

@@ -18,9 +18,9 @@ import {
 } from '@yucp/providers/providerMetadata';
 import type { ProviderKey } from '@yucp/providers/types';
 import { createStructuredLogger, type StructuredLogger } from '@yucp/shared';
-import { ConvexHttpClient } from 'convex/browser';
 import { Client, GuildMember, RESTJSONErrorCodes } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { createBotConvexClient } from '../lib/convexActor';
 import { listProviderProducts } from '../lib/internalRpc';
 import { sendDashboardNotification } from '../lib/notifications';
 import { withBotSpan, withBotStageSpan } from '../lib/observability';
@@ -346,7 +346,7 @@ export class RoleSyncService {
       jsonOutput: true,
     });
 
-    this.convexClient = new ConvexHttpClient(options.convexUrl) as unknown as BotConvexClient;
+    this.convexClient = createBotConvexClient(options.convexUrl) as unknown as BotConvexClient;
     this.discordClient = options.discordClient;
     this.apiSecret = options.apiSecret;
     this.encryptionSecret = options.encryptionSecret;

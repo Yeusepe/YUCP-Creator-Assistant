@@ -3,11 +3,19 @@
  * Extracted from auth.ts so they can be unit-tested in isolation.
  */
 
-const LOCAL_BROWSER_ORIGIN_PATTERNS = [
-  'http://localhost:*',
-  'http://127.0.0.1:*',
-  'https://localhost:*',
-  'https://127.0.0.1:*',
+const LOCAL_TRUSTED_BROWSER_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:5173',
+  'https://localhost:3000',
+  'https://localhost:3001',
+  'https://localhost:5173',
+  'https://127.0.0.1:3000',
+  'https://127.0.0.1:3001',
+  'https://127.0.0.1:5173',
 ];
 
 export function normalizeOrigin(value: string | null | undefined): string | null {
@@ -38,8 +46,6 @@ export function buildTrustedBrowserOrigins({
       return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
     });
 
-  const origins = hasLoopbackOrigin
-    ? [...configured, ...LOCAL_BROWSER_ORIGIN_PATTERNS]
-    : configured;
+  const origins = hasLoopbackOrigin ? [...configured, ...LOCAL_TRUSTED_BROWSER_ORIGINS] : configured;
   return Array.from(new Set(origins));
 }

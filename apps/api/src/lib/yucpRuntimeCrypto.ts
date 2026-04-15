@@ -5,6 +5,11 @@ import {
   base64UrlEncode,
   bytesToBase64,
 } from '@yucp/shared/crypto';
+import {
+  getYucpRootByKeyId,
+  resolveConfiguredYucpTrustBundle,
+  type YucpPinnedRoot,
+} from '@yucp/shared/yucpTrust';
 
 ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const data = ed.etc.concatBytes(...messages);
@@ -15,6 +20,14 @@ ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const hash = await crypto.subtle.digest('SHA-512', buffer);
   return new Uint8Array(hash);
 };
+
+function getConfiguredYucpRoots(): readonly YucpPinnedRoot[] {
+  return resolveConfiguredYucpTrustBundle(process.env.YUCP_TRUST_BUNDLE_JSON).roots;
+}
+
+function getConfiguredYucpRootByKeyId(keyId: string | null | undefined): YucpPinnedRoot | null {
+  return getYucpRootByKeyId(getConfiguredYucpRoots(), keyId);
+}
 
 export interface LicenseClaims {
   iss: string;
@@ -99,9 +112,11 @@ async function signJwt(
   return `${signingInput}.${base64UrlEncode(signatureBytes)}`;
 }
 
-async function verifyJwt<T extends { iss: string; aud: string; iat: number; exp: number }>(
+async function verifyJwtWithPublicKeyResolver<
+  T extends { iss: string; aud: string; iat: number; exp: number },
+>(
   jwt: string,
-  publicKeyBase64: string,
+  resolvePublicKeyBase64: (keyId: string) => string | null | undefined,
   expectedIssuer: string,
   expectedAudience: string
 ): Promise<T | null> {
@@ -115,6 +130,11 @@ async function verifyJwt<T extends { iss: string; aud: string; iat: number; exp:
     const payloadJson = new TextDecoder().decode(base64UrlDecode(parts[1]));
     const header = JSON.parse(headerJson) as { alg?: string; kid?: string };
     if (header.alg !== 'EdDSA' || !header.kid) {
+      return null;
+    }
+
+    const publicKeyBase64 = resolvePublicKeyBase64(header.kid);
+    if (!publicKeyBase64) {
       return null;
     }
 
@@ -141,10 +161,69 @@ async function verifyJwt<T extends { iss: string; aud: string; iat: number; exp:
   }
 }
 
+async function verifyJwt<T extends { iss: string; aud: string; iat: number; exp: number }>(
+  jwt: string,
+  publicKeyBase64: string,
+  expectedIssuer: string,
+  expectedAudience: string
+): Promise<T | null> {
+  return await verifyJwtWithPublicKeyResolver<T>(
+    jwt,
+    () => publicKeyBase64,
+    expectedIssuer,
+    expectedAudience
+  );
+}
+
 export async function verifyLicenseJwt(
   jwt: string,
   publicKeyBase64: string,
   expectedIssuer: string
 ): Promise<LicenseClaims | null> {
   return await verifyJwt<LicenseClaims>(jwt, publicKeyBase64, expectedIssuer, 'yucp-license-gate');
+}
+
+export async function verifyLicenseJwtAgainstPinnedRoots(
+  jwt: string,
+  expectedIssuer: string
+): Promise<LicenseClaims | null> {
+  return await verifyJwtWithPublicKeyResolver<LicenseClaims>(
+    jwt,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
+    expectedIssuer,
+    'yucp-license-gate'
+  );
+}
+
+export async function resolvePinnedYucpSigningRoot(
+  privateKeyBase64: string,
+  configuredKeyId?: string | null
+): Promise<YucpPinnedRoot> {
+  const derivedPublicKey = await getPublicKeyFromPrivate(privateKeyBase64);
+  const configuredRoots = getConfiguredYucpRoots();
+  const matchingRoots = configuredRoots.filter(
+    (root) => root.publicKeyBase64 === derivedPublicKey && root.algorithm === 'Ed25519'
+  );
+
+  if (matchingRoots.length === 0) {
+    throw new Error('YUCP_ROOT_PRIVATE_KEY does not match any configured YUCP trust root');
+  }
+
+  const normalizedConfiguredKeyId = configuredKeyId?.trim();
+  if (!normalizedConfiguredKeyId) {
+    return (
+      matchingRoots.find((root) => root.keyId === configuredRoots[0]?.keyId) ?? matchingRoots[0]
+    );
+  }
+
+  const matchingConfiguredRoot = matchingRoots.find(
+    (root) => root.keyId === normalizedConfiguredKeyId
+  );
+  if (!matchingConfiguredRoot) {
+    throw new Error(
+      `Configured YUCP root key ID '${normalizedConfiguredKeyId}' is not present in the active trust bundle`
+    );
+  }
+
+  return matchingConfiguredRoot;
 }

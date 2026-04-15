@@ -10,6 +10,7 @@ import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
+import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import {
   createLegacyFrontendMovedResponse,
   HTML_RESPONSE_SECURITY_HEADERS,
@@ -1135,7 +1136,7 @@ async function handleRequest(request: Request): Promise<Response> {
     for (const [k, v] of Object.entries(corsHeaders)) {
       next.headers.set(k, v);
     }
-    return next;
+    return applyResponseSecurityHeaders(next);
   });
 }
 

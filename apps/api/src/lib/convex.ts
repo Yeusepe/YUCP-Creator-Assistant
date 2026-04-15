@@ -4,7 +4,14 @@
  */
 
 import { SpanKind } from '@opentelemetry/api';
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import {
+  createApiActorBinding,
+  createServiceApiActor,
+  isApiActorProtectedFunction,
+} from '@yucp/shared/apiActor';
 import { ConvexHttpClient } from 'convex/browser';
+import { getFunctionName } from 'convex/server';
 import { withApiSpan } from './observability';
 
 type ConvexServerClient = {
@@ -19,6 +26,20 @@ type ConvexServerClient = {
 export type { ConvexServerClient };
 
 let client: ConvexServerClient | null = null;
+let cachedDefaultServiceActor: {
+  binding: ApiActorBinding;
+  expiresAt: number;
+} | null = null;
+
+const DEFAULT_API_SERVICE_SCOPES = [
+  'creator:delegate',
+  'downloads:service',
+  'entitlements:service',
+  'manual-licenses:service',
+  'subjects:service',
+  'verification-intents:service',
+  'verification-sessions:service',
+] as const;
 
 function resolveConvexUrl(url: string): string {
   return url.startsWith('http')
@@ -27,6 +48,11 @@ function resolveConvexUrl(url: string): string {
 }
 
 function describeFunctionReference(functionReference: unknown): string {
+  try {
+    return getFunctionName(functionReference as never);
+  } catch {
+    // Fall through to ad hoc inspection for simple string mocks.
+  }
   if (typeof functionReference === 'string') {
     return functionReference;
   }
@@ -53,6 +79,7 @@ function describeArgs(args: unknown) {
     return {
       argCount: 0,
       hasApiSecret: false,
+      hasActor: false,
     };
   }
 
@@ -60,10 +87,68 @@ function describeArgs(args: unknown) {
   return {
     argCount: keys.length,
     hasApiSecret: keys.includes('apiSecret'),
+    hasActor: keys.includes('actor'),
   };
 }
 
-function createObservedConvexClient(convexUrl: string): ConvexServerClient {
+async function getDefaultServiceActorBinding(): Promise<ApiActorBinding | null> {
+  const secret = process.env.INTERNAL_SERVICE_AUTH_SECRET?.trim();
+  if (!secret) {
+    return null;
+  }
+
+  const now = Date.now();
+  if (cachedDefaultServiceActor && cachedDefaultServiceActor.expiresAt > now + 30_000) {
+    return cachedDefaultServiceActor.binding;
+  }
+
+  const actor = createServiceApiActor({
+    service: 'api-server',
+    scopes: DEFAULT_API_SERVICE_SCOPES,
+    now,
+  });
+  const binding = await createApiActorBinding(actor, secret);
+  cachedDefaultServiceActor = {
+    binding,
+    expiresAt: actor.expiresAt,
+  };
+  return binding;
+}
+
+async function resolveActorBinding(
+  functionReference: unknown,
+  args: unknown,
+  explicitActor?: ApiActorBinding
+): Promise<ApiActorBinding | undefined> {
+  const functionName = describeFunctionReference(functionReference);
+  if (
+    !isApiActorProtectedFunction(functionName) ||
+    !args ||
+    typeof args !== 'object' ||
+    Array.isArray(args) ||
+    !('apiSecret' in (args as Record<string, unknown>))
+  ) {
+    return undefined;
+  }
+
+  return explicitActor ?? (await getDefaultServiceActorBinding()) ?? undefined;
+}
+
+function mergeActorArg(args: unknown, actor: ApiActorBinding): unknown {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return { actor };
+  }
+
+  return {
+    ...(args as Record<string, unknown>),
+    actor,
+  };
+}
+
+function createObservedConvexClient(
+  convexUrl: string,
+  actor?: ApiActorBinding
+): ConvexServerClient {
   const rawClient = new ConvexHttpClient(convexUrl) as unknown as ConvexServerClient;
   const endpointHost = new URL(convexUrl).host;
 
@@ -80,7 +165,11 @@ function createObservedConvexClient(convexUrl: string): ConvexServerClient {
         'convex.endpoint_host': endpointHost,
         ...describeArgs(args),
       },
-      () => rawClient[operation](functionReference, args),
+      async () => {
+        const resolvedActor = await resolveActorBinding(functionReference, args, actor);
+        const requestArgs = resolvedActor ? mergeActorArg(args, resolvedActor) : args;
+        return await rawClient[operation](functionReference, requestArgs);
+      },
       SpanKind.CLIENT
     );
 
@@ -95,8 +184,8 @@ function createObservedConvexClient(convexUrl: string): ConvexServerClient {
  * Create a Convex HTTP client from a URL.
  * Use when URL comes from config (e.g. verification routes).
  */
-export function getConvexClientFromUrl(url: string): ConvexServerClient {
-  return createObservedConvexClient(resolveConvexUrl(url));
+export function getConvexClientFromUrl(url: string, actor?: ApiActorBinding): ConvexServerClient {
+  return createObservedConvexClient(resolveConvexUrl(url), actor);
 }
 
 /**

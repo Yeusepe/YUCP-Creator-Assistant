@@ -9,10 +9,10 @@ import {
 import {
   type CouplingRuntimeClaims,
   type CouplingRuntimePackageClaims,
-  getPublicKeyFromPrivate,
+  resolvePinnedYucpSigningRoot,
   signCouplingRuntimeJwt,
   signCouplingRuntimePackageJwt,
-  verifyLicenseJwt,
+  verifyLicenseJwtAgainstPinnedRoots,
 } from '../lib/yucpRuntimeCrypto';
 
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
@@ -51,35 +51,39 @@ function getApiRuntimeDownloadPath(artifactKey: RuntimeArtifactKey): string {
     : '/v1/licenses/runtime-package';
 }
 
-async function getRootPublicKey(): Promise<string> {
+async function getPinnedSigningRoot(): Promise<{
+  keyId: string;
+  privateKeyBase64: string;
+}> {
   const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY?.trim();
   if (!rootPrivateKey) {
     throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
   }
 
-  return (
-    process.env.YUCP_ROOT_PUBLIC_KEY?.trim() || (await getPublicKeyFromPrivate(rootPrivateKey))
+  const signingRoot = await resolvePinnedYucpSigningRoot(
+    rootPrivateKey,
+    process.env.YUCP_ROOT_KEY_ID?.trim() || null
   );
+
+  return {
+    keyId: signingRoot.keyId,
+    privateKeyBase64: rootPrivateKey,
+  };
 }
 
 async function signRuntimeArtifactToken(
   claims: Omit<CouplingRuntimeClaims, 'aud'> | Omit<CouplingRuntimePackageClaims, 'aud'>,
   audience: CouplingRuntimeClaims['aud'] | CouplingRuntimePackageClaims['aud']
 ): Promise<string> {
-  const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY?.trim();
-  if (!rootPrivateKey) {
-    throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-  }
-
-  const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
+  const signingRoot = await getPinnedSigningRoot();
   if (audience === 'yucp-runtime-package') {
     return await signCouplingRuntimePackageJwt(
       {
         ...claims,
         aud: 'yucp-runtime-package',
       } as CouplingRuntimePackageClaims,
-      rootPrivateKey,
-      keyId
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
     );
   }
 
@@ -88,8 +92,8 @@ async function signRuntimeArtifactToken(
       ...claims,
       aud: 'yucp-coupling-runtime',
     } as CouplingRuntimeClaims,
-    rootPrivateKey,
-    keyId
+    signingRoot.privateKeyBase64,
+    signingRoot.keyId
   );
 }
 
@@ -162,9 +166,17 @@ async function issueRuntimePackageToken(
   }
 
   const issuerBaseUrl = getIssuerBaseUrl(config);
-  const licenseClaims = await verifyLicenseJwt(
+  try {
+    await getPinnedSigningRoot();
+  } catch (error) {
+    return errorResponse(
+      error instanceof Error ? error.message : 'Pinned root trust is unavailable',
+      503
+    );
+  }
+
+  const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(
     licenseToken,
-    await getRootPublicKey(),
     buildPublicAuthIssuer(issuerBaseUrl)
   );
   if (!licenseClaims) {
@@ -263,6 +275,15 @@ async function issueCouplingJob(
   const artifact = await resolveRuntimeArtifact(config, 'coupling-runtime');
   if (!artifact.success) {
     return errorResponse(artifact.error ?? 'Coupling runtime is not configured on the server', 503);
+  }
+
+  try {
+    await getPinnedSigningRoot();
+  } catch (error) {
+    return errorResponse(
+      error instanceof Error ? error.message : 'Pinned root trust is unavailable',
+      503
+    );
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);

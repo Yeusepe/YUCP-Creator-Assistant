@@ -20,6 +20,7 @@ import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey'
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_UPLOAD_FILENAME_LENGTH = 128;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -97,6 +98,30 @@ function assertPackageId(packageId: string): string {
     throw new Error('Invalid packageId format');
   }
   return normalized;
+}
+
+function sanitizeUploadFilename(name: string): string {
+  const basename = path.basename(name.replaceAll('\\', '/'));
+  const sanitized = Array.from(basename)
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('')
+    .trim();
+  if (!sanitized) {
+    return 'upload.bin';
+  }
+  return sanitized.slice(-MAX_UPLOAD_FILENAME_LENGTH);
+}
+
+function resolveWorkspaceUploadPath(workspaceDir: string, uploadName: string): string {
+  const workspaceRoot = path.resolve(workspaceDir);
+  const candidate = path.resolve(workspaceRoot, uploadName);
+  if (candidate === workspaceRoot || !candidate.startsWith(`${workspaceRoot}${path.sep}`)) {
+    throw new Error('Invalid upload filename');
+  }
+  return candidate;
 }
 
 function getAllowedInternalSecrets(): string[] {
@@ -274,8 +299,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       packFamily?: string;
       packVersion?: string;
       provider?: string;
-      purchaserEmail?: string;
-      licenseKey?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -287,7 +310,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     const identityCache = new Map<
       string,
       Promise<{
-        licenseKey?: string;
         buyerProviderUserId?: string;
         buyerProviderUsername?: string;
         buyerSubjectDisplayName?: string;
@@ -301,7 +323,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           match.buyerProviderUsername ||
           match.buyerSubjectDisplayName ||
           match.buyerSubjectDiscordUserId ||
-          match.purchaserEmail ||
           !match.provider ||
           !match.licenseKeyEncrypted
         ) {
@@ -334,7 +355,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             );
 
             if (!verified?.valid) {
-              return { licenseKey };
+              return {};
             }
 
             const resolved = await convex.query(
@@ -349,7 +370,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             );
 
             return {
-              licenseKey,
               buyerProviderUserId: resolved?.buyerProviderUserId ?? verified.providerUserId,
               buyerProviderUsername: resolved?.buyerProviderUsername,
               buyerSubjectDisplayName: resolved?.buyerSubjectDisplayName,
@@ -427,12 +447,13 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         source: viewer.source,
         uploadSha256,
       };
-      const uploadPath = path.join(workspaceDir, upload.name || 'upload.bin');
+      const uploadName = sanitizeUploadFilename(upload.name || 'upload.bin');
+      const uploadPath = resolveWorkspaceUploadPath(workspaceDir, uploadName);
       await Bun.write(uploadPath, uploadBytes);
 
       const extraction = await extractCouplingForensicsArchive(
         uploadPath,
-        upload.name || 'upload.bin',
+        uploadName,
         workspaceDir
       );
       const declaredPackageIds = normalizeDeclaredPackageIds(extraction.declaredPackageIds);
@@ -620,8 +641,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
             ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
-            ...(match.purchaserEmail !== undefined ? { purchaserEmail: match.purchaserEmail } : {}),
-            ...(match.licenseKey !== undefined ? { licenseKey: match.licenseKey } : {}),
             ...(match.buyerProviderUserId !== undefined
               ? { buyerProviderUserId: match.buyerProviderUserId }
               : {}),

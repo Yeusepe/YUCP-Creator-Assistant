@@ -35,6 +35,7 @@ export interface Verification {
   createdAt: Date;
 }
 
+export * from './apiActor';
 export * from './authOrigins';
 export * from './authRedirects';
 // Binding module exports
@@ -63,3 +64,4 @@ export * from './product';
 export * from './productParsers';
 export * from './publicAuthority';
 export * from './verificationSupport';
+export * from './yucpTrust';

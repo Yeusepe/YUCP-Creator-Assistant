@@ -3,11 +3,11 @@
 import { setDefaultResultOrder } from 'node:dns';
 import { SpanKind } from '@opentelemetry/api';
 import { createLogger } from '@yucp/shared';
-import { ConvexHttpClient } from 'convex/browser';
 import { startBot } from './client';
 import { registerCommands } from './commands';
 import { handleGuildMemberAdd } from './handlers/guildMemberAdd';
 import { handleInteraction } from './handlers/interactions';
+import { createBotConvexClient } from './lib/convexActor';
 import { loadEnvAsync, validateBotEnv } from './lib/env';
 import { initBotObservability, withBotSpan } from './lib/observability';
 import { startHeartbeat } from './services/heartbeat';
@@ -223,7 +223,7 @@ async function main() {
   const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${invitePermissions.toString()}&scope=bot%20applications.commands`;
   logger.info('Add bot to your server', { inviteUrl });
 
-  const convex = new ConvexHttpClient(convexUrl);
+  const convex = createBotConvexClient(convexUrl);
   const interactionCtx = {
     convex,
     apiSecret: convexApiSecret,

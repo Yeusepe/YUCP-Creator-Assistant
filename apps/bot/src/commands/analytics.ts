@@ -8,6 +8,7 @@ import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E } from '../lib/emojis';
 
 const POSTHOG_DASHBOARD_URL = 'https://us.posthog.com';
@@ -20,8 +21,10 @@ export async function handleAnalytics(
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const stats = await convex.query(api.entitlements.getStatsOverview, {
+    actor,
     apiSecret,
     authUserId: ctx.authUserId,
   });
@@ -63,8 +66,10 @@ export async function handleAnalyticsSummary(
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const stats = await convex.query(api.entitlements.getStatsOverview, {
+    actor,
     apiSecret,
     authUserId: ctx.authUserId,
   });

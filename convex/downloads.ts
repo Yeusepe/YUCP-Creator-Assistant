@@ -1,6 +1,15 @@
 import { ConvexError, v } from 'convex/values';
 import { mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  assertDelegatedAuthUserActor,
+  assertServiceActor,
+  requireApiActor,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { requireOwnedDocument } from './lib/ownership';
 
 const RoleLogic = v.union(v.literal('all'), v.literal('any'));
 const DownloadArtifactStatus = v.union(
@@ -21,12 +30,14 @@ const DownloadFile = v.object({
 export const listRoutesByGuild = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     guildId: v.string(),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     return await ctx.db
       .query('download_routes')
       .withIndex('by_auth_user_guild', (q) =>
@@ -40,12 +51,14 @@ export const listRoutesByGuild = query({
 export const getRouteById = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     routeId: v.id('download_routes'),
   },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.routeId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
     return doc;
@@ -55,12 +68,14 @@ export const getRouteById = query({
 export const getActiveRoutesForChannel = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     guildId: v.string(),
     channelIds: v.array(v.string()),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
     if (args.channelIds.length > 50) {
       throw new ConvexError('channelIds cannot exceed 50 entries');
     }
@@ -90,6 +105,7 @@ export const getActiveRoutesForChannel = query({
 export const createRoute = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     guildId: v.string(),
     guildLinkId: v.id('guild_links'),
@@ -107,6 +123,7 @@ export const createRoute = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const normalizedExtensions = [
       ...new Set(args.allowedExtensions.map((ext) => ext.trim().toLowerCase()).filter(Boolean)),
@@ -134,9 +151,18 @@ export const createRoute = mutation({
     if (messageBody.length > 4000)
       throw new ConvexError('messageBody must be 4000 characters or fewer');
 
+    const guildLink = requireOwnedDocument(
+      await ctx.db.get(args.guildLinkId),
+      args.authUserId,
+      'Unauthorized: caller does not own this guild link'
+    );
+    if (guildLink.discordGuildId !== args.guildId) {
+      throw new ConvexError('guildId must match the linked Discord guild');
+    }
+
     const routeId = await ctx.db.insert('download_routes', {
       authUserId: args.authUserId,
-      guildId: args.guildId,
+      guildId: guildLink.discordGuildId,
       guildLinkId: args.guildLinkId,
       sourceChannelId: args.sourceChannelId,
       archiveChannelId: args.archiveChannelId,
@@ -157,6 +183,7 @@ export const createRoute = mutation({
 export const toggleRoute = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     routeId: v.id('download_routes'),
     enabled: v.boolean(),
@@ -166,9 +193,10 @@ export const toggleRoute = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const route = await ctx.db.get(args.routeId);
     if (!route) throw new Error(`Download route not found: ${args.routeId}`);
-    if (route.authUserId !== args.authUserId) throw new ConvexError('Unauthorized: not the owner');
+    requireOwnedDocument(route, args.authUserId);
     await ctx.db.patch(args.routeId, {
       enabled: args.enabled,
       updatedAt: Date.now(),
@@ -180,6 +208,7 @@ export const toggleRoute = mutation({
 export const updateRouteMessage = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     routeId: v.id('download_routes'),
     messageTitle: v.string(),
@@ -190,9 +219,10 @@ export const updateRouteMessage = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const route = await ctx.db.get(args.routeId);
     if (!route) throw new Error(`Download route not found: ${args.routeId}`);
-    if (route.authUserId !== args.authUserId) throw new ConvexError('Unauthorized: not the owner');
+    requireOwnedDocument(route, args.authUserId);
 
     const messageTitle = args.messageTitle.trim();
     const messageBody = args.messageBody.trim();
@@ -215,6 +245,7 @@ export const updateRouteMessage = mutation({
 export const deleteRoute = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     routeId: v.id('download_routes'),
   },
@@ -223,9 +254,10 @@ export const deleteRoute = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const route = await ctx.db.get(args.routeId);
     if (!route) throw new Error(`Download route not found: ${args.routeId}`);
-    if (route.authUserId !== args.authUserId) throw new ConvexError('Unauthorized: not the owner');
+    requireOwnedDocument(route, args.authUserId);
 
     const artifacts = await ctx.db
       .query('download_artifacts')
@@ -248,6 +280,7 @@ export const deleteRoute = mutation({
 export const createArtifact = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     guildId: v.string(),
     routeId: v.id('download_routes'),
@@ -270,27 +303,30 @@ export const createArtifact = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     for (const file of args.files) {
       if (!file.url.startsWith('https://')) {
         throw new ConvexError('Download URLs must use HTTPS');
       }
     }
+
+    const route = requireOwnedDocument(await ctx.db.get(args.routeId), args.authUserId);
     const now = Date.now();
     const artifactId = await ctx.db.insert('download_artifacts', {
       authUserId: args.authUserId,
-      guildId: args.guildId,
+      guildId: route.guildId,
       routeId: args.routeId,
-      sourceChannelId: args.sourceChannelId,
+      sourceChannelId: route.sourceChannelId,
       sourceMessageId: args.sourceMessageId,
       sourceMessageUrl: args.sourceMessageUrl,
       sourceAuthorId: args.sourceAuthorId,
-      archiveChannelId: args.archiveChannelId,
+      archiveChannelId: route.archiveChannelId,
       archiveMessageId: args.archiveMessageId,
       archiveThreadId: args.archiveThreadId,
       sourceRelayMessageId: args.sourceRelayMessageId,
       sourceDeliveryMode: args.sourceDeliveryMode,
-      requiredRoleIds: [...new Set(args.requiredRoleIds)],
-      roleLogic: args.roleLogic,
+      requiredRoleIds: [...new Set(route.requiredRoleIds)],
+      roleLogic: route.roleLogic,
       files: args.files,
       status: args.status ?? 'active',
       createdAt: now,
@@ -303,7 +339,8 @@ export const createArtifact = mutation({
 export const updateArtifactSourceRelay = mutation({
   args: {
     apiSecret: v.string(),
-    authUserId: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.optional(v.string()),
     artifactId: v.id('download_artifacts'),
     sourceRelayMessageId: v.optional(v.string()),
     sourceDeliveryMode: DownloadArtifactSourceMode,
@@ -313,10 +350,15 @@ export const updateArtifactSourceRelay = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const actor = await requireApiActor(args.actor);
     const artifact = await ctx.db.get(args.artifactId);
     if (!artifact) throw new Error(`Download artifact not found: ${args.artifactId}`);
-    if (artifact.authUserId !== args.authUserId)
-      throw new ConvexError('Unauthorized: not the owner');
+    if (args.authUserId) {
+      assertDelegatedAuthUserActor(actor, args.authUserId);
+      requireOwnedDocument(artifact, args.authUserId);
+    } else {
+      assertServiceActor(actor, ['downloads:service']);
+    }
     await ctx.db.patch(args.artifactId, {
       sourceRelayMessageId: args.sourceRelayMessageId,
       sourceDeliveryMode: args.sourceDeliveryMode,
@@ -329,7 +371,8 @@ export const updateArtifactSourceRelay = mutation({
 export const markArtifactStatus = mutation({
   args: {
     apiSecret: v.string(),
-    authUserId: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.optional(v.string()),
     artifactId: v.id('download_artifacts'),
     status: DownloadArtifactStatus,
   },
@@ -338,10 +381,15 @@ export const markArtifactStatus = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const actor = await requireApiActor(args.actor);
     const artifact = await ctx.db.get(args.artifactId);
     if (!artifact) throw new Error(`Download artifact not found: ${args.artifactId}`);
-    if (artifact.authUserId !== args.authUserId)
-      throw new ConvexError('Unauthorized: not the owner');
+    if (args.authUserId) {
+      assertDelegatedAuthUserActor(actor, args.authUserId);
+      requireOwnedDocument(artifact, args.authUserId);
+    } else {
+      assertServiceActor(actor, ['downloads:service']);
+    }
     await ctx.db.patch(args.artifactId, {
       status: args.status,
       updatedAt: Date.now(),
@@ -353,11 +401,13 @@ export const markArtifactStatus = mutation({
 export const getArtifactForDelivery = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     artifactId: v.id('download_artifacts'),
   },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
     return await ctx.db.get(args.artifactId);
   },
 });
@@ -365,11 +415,13 @@ export const getArtifactForDelivery = query({
 export const listActiveArtifactsByRoute = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     routeId: v.id('download_routes'),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
     const artifacts = await ctx.db
       .query('download_artifacts')
       .withIndex('by_route', (q) => q.eq('routeId', args.routeId))
@@ -381,11 +433,13 @@ export const listActiveArtifactsByRoute = query({
 export const getArtifactBySourceMessage = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     sourceMessageId: v.string(),
   },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
     return await ctx.db
       .query('download_artifacts')
       .withIndex('by_source_message', (q) => q.eq('sourceMessageId', args.sourceMessageId))
@@ -399,6 +453,7 @@ export const getArtifactBySourceMessage = query({
 export const listRoutesByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     guildId: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
@@ -407,6 +462,7 @@ export const listRoutesByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('download_routes')
@@ -442,6 +498,7 @@ export const listRoutesByAuthUser = query({
 export const listArtifactsByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     routeId: v.optional(v.id('download_routes')),
     guildId: v.optional(v.string()),
@@ -451,6 +508,7 @@ export const listArtifactsByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('download_artifacts')
@@ -489,12 +547,14 @@ export const listArtifactsByAuthUser = query({
 export const getArtifactById = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     artifactId: v.id('download_artifacts'),
   },
   returns: v.union(v.any(), v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.artifactId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
     return doc;

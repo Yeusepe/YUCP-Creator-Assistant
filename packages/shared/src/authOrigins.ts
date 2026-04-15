@@ -7,11 +7,14 @@ const LOCAL_BROWSER_ORIGINS = [
   'http://127.0.0.1:5173',
 ] as const;
 
-const LOCAL_BROWSER_ORIGIN_PATTERNS = [
-  'http://localhost:*',
-  'http://127.0.0.1:*',
-  'https://localhost:*',
-  'https://127.0.0.1:*',
+const LOCAL_TRUSTED_BROWSER_ORIGINS = [
+  ...LOCAL_BROWSER_ORIGINS,
+  'https://localhost:3000',
+  'https://localhost:3001',
+  'https://localhost:5173',
+  'https://127.0.0.1:3000',
+  'https://127.0.0.1:3001',
+  'https://127.0.0.1:5173',
 ] as const;
 
 function normalizeOrigin(value: string | null | undefined): string | null {
@@ -82,7 +85,7 @@ export function buildTrustedBrowserOrigins({
     .filter((origin): origin is string => Boolean(origin));
 
   if (shouldTrustLocalBrowserOrigins([siteUrl, frontendUrl, ...additionalOrigins])) {
-    return dedupe([...configuredOrigins, ...LOCAL_BROWSER_ORIGIN_PATTERNS]);
+    return dedupe([...configuredOrigins, ...LOCAL_TRUSTED_BROWSER_ORIGINS]);
   }
 
   return dedupe(configuredOrigins);

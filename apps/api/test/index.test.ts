@@ -37,6 +37,9 @@ describe('API server, route mounting', () => {
     const body = await res.json();
     expect(body).toMatchObject({ status: 'ok' });
     expect(typeof body.timestamp).toBe('string');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('still serves shared static assets that are used outside the migrated creator UI', async () => {

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { internal } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
 import { unsealProtectedMaterializationGrant } from './lib/protectedMaterializationGrant';
@@ -24,17 +25,49 @@ describe('protected materialization grant issuance', () => {
   const couplingRuntimeVersion = '2026.03.26.1';
   const couplingRuntimePlaintextSha256 = 'b'.repeat(64);
   const contentKeyBase64 = Buffer.from('protected-grant-content-key').toString('base64');
+  const ENV_KEYS = [
+    'YUCP_ROOT_PRIVATE_KEY',
+    'YUCP_ROOT_PUBLIC_KEY',
+    'YUCP_ROOT_KEY_ID',
+    'ENCRYPTION_SECRET',
+    'POLAR_ACCESS_TOKEN',
+    'POLAR_WEBHOOK_SECRET',
+  ] as const;
 
   let rootPrivateKey = '';
+  const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]])) as Record<
+    (typeof ENV_KEYS)[number],
+    string | undefined
+  >;
 
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
     process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
-    process.env.YUCP_ROOT_PUBLIC_KEY = await getPublicKeyFromPrivate(rootPrivateKey);
+    const rootPublicKey = await getPublicKeyFromPrivate(rootPrivateKey);
+    process.env.YUCP_ROOT_PUBLIC_KEY = rootPublicKey;
     process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-protected-materialization-grant';
     process.env.POLAR_ACCESS_TOKEN = 'test-polar-access-token';
     process.env.POLAR_WEBHOOK_SECRET = 'test-polar-webhook-secret';
+    setPinnedYucpRootsForTests([
+      {
+        keyId: 'yucp-root',
+        algorithm: 'Ed25519',
+        publicKeyBase64: rootPublicKey,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const originalValue = originalEnv[key];
+      if (originalValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = originalValue;
+      }
+    }
+    setPinnedYucpRootsForTests(null);
   });
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
@@ -356,6 +389,43 @@ describe('protected materialization grant issuance', () => {
     expect(receiptResult).toMatchObject({
       success: true,
       updatedCount: 0,
+    });
+  });
+
+  it('redeems a protected materialization grant without requiring the private root key', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedProtectedAsset(t);
+    await seedActiveCouplingBilling(t);
+    const licenseToken = await mintLicenseToken();
+
+    const issued = await t.action(internal.yucpLicenses.issueProtectedMaterializationGrant, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+      assetPaths: ['Assets/Protected/Model.fbx'],
+      issuerBaseUrl,
+      runtimeArtifactVersion: couplingRuntimeVersion,
+      runtimePlaintextSha256: couplingRuntimePlaintextSha256,
+    });
+
+    delete process.env.YUCP_ROOT_PRIVATE_KEY;
+
+    const redeemed = await t.action(internal.yucpLicenses.redeemProtectedMaterializationGrant, {
+      grant: issued.grant ?? '',
+      issuerBaseUrl,
+    });
+
+    expect(redeemed).toMatchObject({
+      success: true,
+      creatorAuthUserId,
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseSubject: 'license-subject-protected-grant',
     });
   });
 });

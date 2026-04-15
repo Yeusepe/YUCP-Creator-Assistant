@@ -7,8 +7,8 @@
  * Public API (Authorization: Bearer <oauth_access_token>):
  *
  *   GET  /v1/keys
- *        CA trust anchor, returns the root public key as a JWK Set (no auth).
- *        Clients fetch this once and cache it; eliminates hardcoded keys.
+ *        CA trust anchor, returns the pinned root public keys as a JWK Set (no auth).
+ *        Clients validate against these code-pinned roots instead of bootstrapping trust from mutable state.
  *
  *   GET  /v1/me
  *        Returns the authenticated creator's profile (sub, name, email).
@@ -35,7 +35,7 @@
  *
  *   GET  /v1/packages/:hash
  *        Consumer verification: look up a package by its content SHA-256.
- *        Returns { known, status, publisherId, packageId, certData?, ownershipConflict, ... }
+ *        Returns { known, status, revocationReason?, ownershipConflict }.
  *
  *   POST /v1/signatures
  *        Transparency log: register a signed package manifest (Layer 2).
@@ -65,6 +65,7 @@ import { api, components, internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
 import { buildPublicJwks } from './betterAuth/jwks';
+import { createServiceActorBinding } from './lib/apiActor';
 import {
   buildBetterAuthUserLookupWhere,
   buildBetterAuthUserProviderLookupWhere,
@@ -77,12 +78,15 @@ import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
   type CertEnvelope,
-  getPublicKeyFromPrivate,
+  getConfiguredYucpJwkSet,
   type LicenseClaims,
   type PackageCertificateData,
+  resolvePinnedYucpSigningRoot,
   signLicenseJwt,
   signPackageCertificateData,
+  signYucpTrustBundleJwt,
   verifyCertEnvelope,
+  verifyCertEnvelopeAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import './polyfills';
@@ -113,22 +117,136 @@ async function sha256HexHttp(input: string): Promise<string> {
 
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
+const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const JSON_SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer',
+  'X-Content-Type-Options': 'nosniff',
+} as const;
+const PROXY_REQUEST_HEADER_ALLOWLIST = new Set([
+  'accept',
+  'accept-encoding',
+  'authorization',
+  'baggage',
+  'cache-control',
+  'content-length',
+  'content-type',
+  'idempotency-key',
+  'traceparent',
+  'tracestate',
+  'x-request-id',
+]);
+const PROXY_RESPONSE_HEADER_ALLOWLIST = new Set([
+  'cache-control',
+  'content-disposition',
+  'content-length',
+  'content-type',
+  'location',
+  'ratelimit-limit',
+  'ratelimit-remaining',
+  'ratelimit-reset',
+  'referrer-policy',
+  'server-timing',
+  'vary',
+  'x-content-type-options',
+  'x-request-id',
+  'x-trace-id',
+  'yucp-version',
+]);
+type HttpRateLimitMutationRef = typeof internal.lib.httpRateLimit.checkAndIncrement;
 
 const http = httpRouter();
+
+async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
+  keyId: string;
+  publicKeyBase64: string;
+  privateKeyBase64: string;
+}> {
+  const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+  if (!rootPrivateKey) {
+    throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+  }
+
+  const signingRoot = await resolvePinnedYucpSigningRoot(rootPrivateKey, configuredKeyId);
+  return {
+    keyId: signingRoot.keyId,
+    publicKeyBase64: signingRoot.publicKeyBase64,
+    privateKeyBase64: rootPrivateKey,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+function copyAllowedHeaders(source: Headers, allowlist: ReadonlySet<string>): Headers {
+  const headers = new Headers();
+  for (const [key, value] of source.entries()) {
+    if (allowlist.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
+  }
+  return headers;
+}
+
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
+  const responseHeaders = new Headers(JSON_SECURITY_HEADERS);
+  responseHeaders.set('Content-Type', 'application/json');
+  if (headers) {
+    for (const [key, value] of new Headers(headers).entries()) {
+      responseHeaders.set(key, value);
+    }
+  }
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: responseHeaders,
   });
 }
 
-function errorResponse(message: string, status: number): Response {
-  return jsonResponse({ error: message }, status);
+function errorResponse(message: string, status: number, headers?: HeadersInit): Response {
+  return jsonResponse({ error: message }, status, headers);
+}
+
+function getClientAddress(request: Request): string {
+  const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
+  if (cloudflareConnectingIp) {
+    return cloudflareConnectingIp;
+  }
+  return 'unknown';
+}
+
+async function applyHttpRateLimit(
+  ctx: {
+    runMutation: (
+      ref: HttpRateLimitMutationRef,
+      args: { key: string; limit: number; windowMs: number }
+    ) => Promise<boolean>;
+  },
+  request: Request,
+  scope: string,
+  options: {
+    limit: number;
+    message: string;
+    identity?: string;
+    windowMs?: number;
+  }
+): Promise<Response | null> {
+  const windowMs = options.windowMs ?? RATE_LIMIT_WINDOW_MS;
+  const principal = `${getClientAddress(request)}:${options.identity?.trim() ?? 'anonymous'}`;
+  const key = `${scope}:${await sha256HexHttp(principal)}`;
+  const rateLimited = await ctx.runMutation(internal.lib.httpRateLimit.checkAndIncrement, {
+    key,
+    limit: options.limit,
+    windowMs,
+  });
+  if (!rateLimited) {
+    return null;
+  }
+
+  return errorResponse(options.message, 429, {
+    'Retry-After': String(Math.ceil(windowMs / 1000)),
+  });
 }
 
 async function proxyToPublicApi(request: Request, targetPath: string): Promise<Response> {
@@ -141,8 +259,7 @@ async function proxyToPublicApi(request: Request, targetPath: string): Promise<R
   const targetUrl = new URL(targetPath, `${apiBaseUrl.replace(/\/$/, '')}/`);
   targetUrl.search = requestUrl.search;
 
-  const headers = new Headers(request.headers);
-  headers.delete('host');
+  const headers = copyAllowedHeaders(request.headers, PROXY_REQUEST_HEADER_ALLOWLIST);
 
   const body =
     request.method === 'GET' || request.method === 'HEAD'
@@ -155,9 +272,17 @@ async function proxyToPublicApi(request: Request, targetPath: string): Promise<R
     redirect: 'manual',
   });
 
+  const responseHeaders = copyAllowedHeaders(proxied.headers, PROXY_RESPONSE_HEADER_ALLOWLIST);
+  for (const [key, value] of Object.entries(JSON_SECURITY_HEADERS)) {
+    if (!responseHeaders.has(key)) {
+      responseHeaders.set(key, value);
+    }
+  }
+
   return new Response(proxied.body, {
     status: proxied.status,
-    headers: new Headers(proxied.headers),
+    statusText: proxied.statusText,
+    headers: responseHeaders,
   });
 }
 
@@ -316,8 +441,7 @@ http.route({
 
 /** Parse and verify a cert envelope from "Authorization: Bearer <base64>" */
 async function parseBearerCert(
-  request: Request,
-  rootPublicKey: string
+  request: Request
 ): Promise<{ ok: true; envelope: CertEnvelope } | { ok: false; error: string }> {
   const auth = request.headers.get('Authorization');
   if (!auth?.startsWith('Bearer ')) return { ok: false, error: 'Missing Authorization header' };
@@ -329,7 +453,7 @@ async function parseBearerCert(
     return { ok: false, error: 'Invalid cert envelope encoding' };
   }
 
-  const valid = await verifyCertEnvelope(envelope, rootPublicKey);
+  const valid = await verifyCertEnvelopeAgainstPinnedRoots(envelope);
   if (!valid) return { ok: false, error: 'Cert signature verification failed' };
 
   const now = Date.now();
@@ -341,10 +465,10 @@ async function parseBearerCert(
 
 async function buildManifestCertificateChain(
   envelope: CertEnvelope,
+  rootKeyId: string,
   rootPublicKey: string,
   rootPrivateKey: string
 ): Promise<PackageCertificateData[]> {
-  const rootKeyId = envelope.signature.keyId || process.env.YUCP_KEY_ID || 'yucp-root-2025';
   const publisherCertificateBase: PackageCertificateData = {
     keyId: `yucp-publisher:${envelope.cert.nonce}`,
     publicKey: envelope.cert.devPublicKey,
@@ -602,6 +726,12 @@ http.route({
     // (e.g. verification:read only) can still introspect their own identity.
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'me-read', {
+      limit: 120,
+      message: 'Too many profile lookups. Please wait before retrying.',
+      identity: tokenResult.yucpUserId,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     // Look up fresh user data from Better Auth's user table.
     // sub = the user's stable primary key (_id in the betterAuth component).
@@ -645,6 +775,12 @@ http.route({
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     const authDuration = performance.now() - authStart;
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'products-list', {
+      limit: 120,
+      message: 'Too many product lookups. Please wait before retrying.',
+      identity: tokenResult.yucpUserId,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const tenantStart = performance.now();
     const tenant = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
@@ -776,30 +912,39 @@ http.route({
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /v1/keys, YUCP CA root public key (JWK Set format, no auth required)
 //
-// Returns the trust anchor used to verify all YUCP certificates.
-// Clients (Unity) fetch this once and cache it in settings, no hardcoding.
+// Returns the pinned trust anchors used to verify all YUCP certificates.
 // ─────────────────────────────────────────────────────────────────────────────
 
 http.route({
   method: 'GET',
   path: '/v1/keys',
-  handler: httpAction(async (_ctx, _request) => {
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) return errorResponse('Service not configured', 503);
+  handler: httpAction(async (_ctx, request) => {
+    try {
+      const signingRoot = await getPinnedSigningRoot(
+        process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null
+      );
+      const requestUrl = new URL(request.url);
+      const keys = getConfiguredYucpJwkSet();
+      const trustBundle = await signYucpTrustBundleJwt(
+        {
+          issuer: resolveConfiguredPublicApiBaseUrl() || requestUrl.origin,
+          version: Math.max(
+            1,
+            Number.parseInt(process.env.YUCP_TRUST_BUNDLE_VERSION ?? '1', 10) || 1
+          ),
+          keys,
+        },
+        signingRoot.privateKeyBase64,
+        signingRoot.keyId
+      );
 
-    const publicKeyBase64 = await getPublicKeyFromPrivate(rootPrivateKey);
-    const primaryKeyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
-    const legacyKeyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
-    const keyIds = Array.from(new Set([primaryKeyId, legacyKeyId]));
-
-    return jsonResponse({
-      keys: keyIds.map((keyId) => ({
-        kty: 'OKP',
-        crv: 'Ed25519',
-        kid: keyId,
-        x: publicKeyBase64,
-      })),
-    });
+      return jsonResponse({
+        keys,
+        trustBundle,
+      });
+    } catch {
+      return errorResponse('Service not configured', 503);
+    }
   }),
 });
 
@@ -878,6 +1023,12 @@ http.route({
 
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'certificate-devices', {
+      limit: 60,
+      message: 'Too many certificate device lookups. Please wait before retrying.',
+      identity: tokenResult.yucpUserId,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const overview = await ctx.runQuery(internal.certificateBilling.getOverviewForAuthUser, {
       authUserId: tokenResult.yucpUserId,
@@ -906,10 +1057,16 @@ http.route({
     const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const { yucpUserId } = tokenResult;
+    const actor = await createServiceActorBinding({
+      service: 'convex-http',
+      scopes: ['creator:delegate'],
+      authUserId: yucpUserId,
+    });
 
     // Look up the user's subject to get their Discord ID (secondary identity anchor)
     const subjectResult = await ctx.runQuery(api.subjects.getSubjectByAuthId, {
       apiSecret: process.env.CONVEX_API_SECRET ?? '',
+      actor,
       authUserId: yucpUserId,
     });
     const discordUserId = subjectResult?.found
@@ -926,6 +1083,12 @@ http.route({
     if (!body.devPublicKey || !body.publisherName) {
       return errorResponse('devPublicKey and publisherName are required', 400);
     }
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'certificate-issue', {
+      limit: 20,
+      message: 'Too many certificate issuance attempts. Please wait before retrying.',
+      identity: body.devPublicKey,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     // Validate publisherName against allowlist: alphanumeric, spaces, underscore, dash, dot (1-100 chars)
     const PUBLISHER_NAME_RE = /^[a-zA-Z0-9 _\-.]{1,100}$/;
@@ -1018,7 +1181,7 @@ http.route({
         publisherName: body.publisherName,
         error: raw || String(err),
       });
-      return errorResponse(raw || String(err), 500);
+      return errorResponse('Certificate issuance failed', 500);
     }
 
     return jsonResponse({ success: true, certificate: envelope });
@@ -1036,6 +1199,12 @@ http.route({
     const url = new URL(request.url);
     const hash = url.pathname.replace('/v1/packages/', '').split('?')[0];
     if (!hash) return errorResponse('Missing content hash', 400);
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'packages-by-hash', {
+      limit: 60,
+      message: 'Too many package lookups. Please wait before retrying.',
+      identity: hash,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const logEntries = await ctx.runQuery(internal.signingLog.getEntriesByContentHash, {
       contentHash: hash,
@@ -1046,7 +1215,7 @@ http.route({
     }
 
     const entry = logEntries[0];
-    const { publisherId, packageId, yucpUserId: signingYucpUserId } = entry;
+    const { publisherId, packageId, yucpUserId: signingUserId } = entry;
 
     const cert = await ctx.runQuery(internal.yucpCertificates.getCertByPublisherId, {
       publisherId,
@@ -1056,19 +1225,13 @@ http.route({
       packageId,
     });
 
-    const ownershipConflict =
-      registration !== null && registration.yucpUserId !== signingYucpUserId;
+    const ownershipConflict = registration !== null && registration.yucpUserId !== signingUserId;
 
     return jsonResponse({
       known: true,
       status: cert?.status ?? 'unknown',
-      publisherId,
-      packageId,
       revocationReason: cert?.revocationReason,
       ownershipConflict,
-      registeredOwnerYucpUserId: registration?.yucpUserId,
-      signingYucpUserId,
-      certData: cert ? (JSON.parse(cert.certData) as CertEnvelope) : undefined,
     });
   }),
 });
@@ -1081,14 +1244,24 @@ http.route({
   method: 'POST',
   path: '/v1/signatures',
   handler: httpAction(async (ctx, request) => {
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) return errorResponse('Service not configured', 503);
+    let signingRoot: Awaited<ReturnType<typeof getPinnedSigningRoot>>;
+    try {
+      signingRoot = await getPinnedSigningRoot(
+        process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null
+      );
+    } catch {
+      return errorResponse('Service not configured', 503);
+    }
 
-    const rootPublicKey = await getPublicKeyFromPrivate(rootPrivateKey);
-
-    const certResult = await parseBearerCert(request, rootPublicKey);
+    const certResult = await parseBearerCert(request);
     if (!certResult.ok) return errorResponse(certResult.error, 401);
     const { envelope } = certResult;
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'signature-register', {
+      limit: 30,
+      message: 'Too many signature registrations. Please wait before retrying.',
+      identity: envelope.cert.nonce,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     // Reject revoked certificates, revocation via /v1/certificates/revoke must
     // be enforced here; parseBearerCert only checks signature validity and expiry.
@@ -1176,6 +1349,38 @@ http.route({
       return errorResponse('Signing proof nonce has already been used', 409);
     }
 
+    if (body.protectedAssets && body.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return errorResponse(
+        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`,
+        400
+      );
+    }
+
+    if (body.protectedAssets && body.protectedAssets.length > 0) {
+      for (const asset of body.protectedAssets) {
+        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
+          return errorResponse('Invalid protectedAssetId format', 400);
+        }
+        if (asset.unlockMode === 'wrapped_content_key') {
+          if (!asset.wrappedContentKey) {
+            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
+          }
+        } else if (asset.unlockMode === 'content_key_b64') {
+          if (!asset.contentKeyBase64) {
+            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
+          }
+        } else {
+          return errorResponse('Invalid protected asset unlockMode', 400);
+        }
+        if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
+          return errorResponse('Invalid protected asset contentHash format', 400);
+        }
+        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
+          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
+        }
+      }
+    }
+
     // Layer 1: enforce package namespace ownership
     const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage, {
       packageId: body.packageId,
@@ -1188,8 +1393,7 @@ http.route({
       return jsonResponse(
         {
           error: 'PACKAGE_OWNERSHIP_CONFLICT',
-          message: `Package "${body.packageId}" is owned by a different YUCP account`,
-          registeredOwnerYucpUserId: regResult.ownedBy,
+          message: 'Package ownership conflict detected.',
         },
         409
       );
@@ -1218,37 +1422,13 @@ http.route({
       return jsonResponse(
         {
           error: 'IDENTITY_CONFLICT',
-          message: 'This package content was previously signed by a different YUCP identity',
-          existingYucpUserId: logResult.existingYucpUserId,
+          message: 'Package content conflict detected.',
         },
         409
       );
     }
 
     if (body.protectedAssets && body.protectedAssets.length > 0) {
-      for (const asset of body.protectedAssets) {
-        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
-          return errorResponse('Invalid protectedAssetId format', 400);
-        }
-        if (asset.unlockMode === 'wrapped_content_key') {
-          if (!asset.wrappedContentKey) {
-            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
-          }
-        } else if (asset.unlockMode === 'content_key_b64') {
-          if (!asset.contentKeyBase64) {
-            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
-          }
-        } else {
-          return errorResponse('Invalid protected asset unlockMode', 400);
-        }
-        if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
-          return errorResponse('Invalid protected asset contentHash format', 400);
-        }
-        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
-          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
-        }
-      }
-
       await ctx.runMutation(internal.yucpLicenses.upsertProtectedAssets, {
         packageId: body.packageId,
         contentHash: body.contentHash,
@@ -1270,8 +1450,9 @@ http.route({
 
     const certificateChain = await buildManifestCertificateChain(
       envelope,
-      rootPublicKey,
-      rootPrivateKey
+      signingRoot.keyId,
+      signingRoot.publicKeyBase64,
+      signingRoot.privateKeyBase64
     );
 
     return jsonResponse({
@@ -1563,8 +1744,7 @@ http.route({
     await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce });
 
     // Issue machine-fingerprint-bound license JWT
-    const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
 
     const TOKEN_TTL_SECONDS = 3600;
     const iat = nowSeconds;
@@ -1582,8 +1762,11 @@ http.route({
       exp,
     };
 
-    const keyId = process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root';
-    const licenseToken = await signLicenseJwt(claims, rootPrivateKey, keyId);
+    const licenseToken = await signLicenseJwt(
+      claims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
 
     console.log(
       `[license/verify-discord] issued token package_id=${packageId} subject=${String(subject._id).slice(0, 8)}*** exp=${exp}`
@@ -1653,6 +1836,11 @@ http.route({
   method: 'POST',
   path: '/v1/licenses/protected-materialization-grant',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'materialization-grant', {
+      limit: 60,
+      message: 'Too many protected materialization grant requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/licenses/protected-materialization-grant');
   }),
 });
@@ -1671,6 +1859,13 @@ http.route({
     if (!body?.grant) {
       return errorResponse('grant is required', 400);
     }
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'materialization-redeem', {
+      limit: 60,
+      message:
+        'Too many protected materialization redemption requests. Please wait before retrying.',
+      identity: body.grant,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
     if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
@@ -1715,6 +1910,12 @@ http.route({
     if (!body?.grant) {
       return errorResponse('grant is required', 400);
     }
+    const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'materialization-receipt', {
+      limit: 60,
+      message: 'Too many protected materialization receipt requests. Please wait before retrying.',
+      identity: body.grant,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const result = await ctx.runMutation(
       internal.yucpLicenses.receiptProtectedMaterializationGrant,
@@ -1774,6 +1975,11 @@ http.route({
   method: 'GET',
   path: '/v1/runtime-artifacts/manifest',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'runtime-manifest', {
+      limit: 60,
+      message: 'Too many runtime manifest requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/runtime-artifacts/manifest');
   }),
 });
@@ -1782,6 +1988,11 @@ http.route({
   method: 'POST',
   path: '/v1/licenses/runtime-package-token',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'runtime-package-token', {
+      limit: 60,
+      message: 'Too many runtime package token requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/licenses/runtime-package-token');
   }),
 });
@@ -1790,6 +2001,11 @@ http.route({
   method: 'POST',
   path: '/v1/licenses/coupling-job',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'coupling-job', {
+      limit: 60,
+      message: 'Too many coupling job requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/licenses/coupling-job');
   }),
 });
@@ -1798,6 +2014,11 @@ http.route({
   method: 'GET',
   path: '/v1/licenses/runtime-package',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'runtime-package', {
+      limit: 120,
+      message: 'Too many runtime package download requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/licenses/runtime-package');
   }),
 });
@@ -1806,6 +2027,11 @@ http.route({
   method: 'GET',
   path: '/v1/licenses/coupling-runtime',
   handler: httpAction(async (_ctx, request) => {
+    const rateLimitResponse = await applyHttpRateLimit(_ctx, request, 'coupling-runtime', {
+      limit: 120,
+      message: 'Too many coupling runtime download requests. Please wait before retrying.',
+    });
+    if (rateLimitResponse) return rateLimitResponse;
     return await proxyToPublicApi(request, '/v1/licenses/coupling-runtime');
   }),
 });

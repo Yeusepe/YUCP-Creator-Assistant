@@ -240,8 +240,6 @@ export const lookupTraceMatchesForAuthUser = query({
         packFamily: v.optional(v.string()),
         packVersion: v.optional(v.string()),
         provider: v.optional(v.string()),
-        purchaserEmail: v.optional(v.string()),
-        licenseKey: v.optional(v.string()),
         licenseKeyEncrypted: v.optional(v.string()),
         providerProductId: v.optional(v.string()),
         buyerProviderUserId: v.optional(v.string()),
@@ -303,8 +301,6 @@ export const lookupTraceMatchesForAuthUser = query({
       packFamily?: string;
       packVersion?: string;
       provider?: string;
-      purchaserEmail?: string;
-      licenseKey?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -317,8 +313,6 @@ export const lookupTraceMatchesForAuthUser = query({
       string,
       Promise<{
         provider?: string;
-        purchaserEmail?: string;
-        licenseKey?: string;
         licenseKeyEncrypted?: string;
         providerProductId?: string;
         buyerProviderUserId?: string;
@@ -332,8 +326,6 @@ export const lookupTraceMatchesForAuthUser = query({
       licenseSubject: string
     ): Promise<{
       provider?: string;
-      purchaserEmail?: string;
-      licenseKey?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -365,8 +357,6 @@ export const lookupTraceMatchesForAuthUser = query({
 
         return {
           provider: identity.provider,
-          purchaserEmail: identity.purchaserEmail,
-          licenseKey: identity.licenseKey,
           licenseKeyEncrypted: identity.licenseKeyEncrypted,
           providerProductId: identity.providerProductId,
           buyerProviderUserId: resolved?.buyerProviderUserId ?? identity.providerUserId,
@@ -411,8 +401,6 @@ export const lookupTraceMatchesForAuthUser = query({
           packFamily: row.packFamily,
           packVersion: row.packVersion,
           provider: identity?.provider ?? row.provider,
-          purchaserEmail: identity?.purchaserEmail,
-          licenseKey: identity?.licenseKey,
           licenseKeyEncrypted: identity?.licenseKeyEncrypted,
           providerProductId: identity?.providerProductId,
           buyerProviderUserId: identity?.buyerProviderUserId,

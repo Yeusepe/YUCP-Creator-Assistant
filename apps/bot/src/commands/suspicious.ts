@@ -6,6 +6,7 @@ import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { track } from '../lib/posthog';
 
 export async function handleSuspiciousMark(
@@ -17,8 +18,10 @@ export async function handleSuspiciousMark(
   const targetUser = interaction.options.getUser('user', true);
   const reason = interaction.options.getString('reason') ?? 'No reason provided';
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: targetUser.id,
   });
@@ -88,8 +91,10 @@ export async function handleSuspiciousClear(
 ): Promise<void> {
   const targetUser = interaction.options.getUser('user', true);
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: targetUser.id,
   });

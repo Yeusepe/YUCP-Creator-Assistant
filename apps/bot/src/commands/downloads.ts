@@ -13,6 +13,7 @@ import {
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E } from '../lib/emojis';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { LienedDownloadsService } from '../services/lienedDownloads';
@@ -161,7 +162,9 @@ async function fetchRouteList(
   authUserId: string,
   guildId: string
 ): Promise<RouteRecord[]> {
+  const actor = await getRequiredBotActorBinding();
   return await convex.query(api.downloads.listRoutesByGuild, {
+    actor,
     apiSecret,
     authUserId,
     guildId,
@@ -460,7 +463,9 @@ export async function handleDownloadsConfirmAdd(
       return;
     }
 
+    const actor = await getRequiredBotActorBinding();
     const result = await convex.mutation(api.downloads.createRoute, {
+      actor,
       apiSecret,
       authUserId,
       guildId: session.guildId,
@@ -617,7 +622,13 @@ export async function handleDownloadsAutofixPrompt(
     return;
   }
 
-  const route = await convex.query(api.downloads.getRouteById, { apiSecret, authUserId, routeId });
+  const actor = await getRequiredBotActorBinding();
+  const route = await convex.query(api.downloads.getRouteById, {
+    actor,
+    apiSecret,
+    authUserId,
+    routeId,
+  });
   if (!route) {
     await interaction.update({
       content: `${E.X_} This route is no longer available.`,
@@ -654,7 +665,13 @@ export async function handleDownloadsAutofixRun(
 
   await interaction.deferUpdate();
 
-  const route = await convex.query(api.downloads.getRouteById, { apiSecret, authUserId, routeId });
+  const actor = await getRequiredBotActorBinding();
+  const route = await convex.query(api.downloads.getRouteById, {
+    actor,
+    apiSecret,
+    authUserId,
+    routeId,
+  });
   if (!route) {
     await interaction.editReply({
       content: `${E.X_} This route is no longer available.`,
@@ -807,7 +824,9 @@ export async function handleDownloadsManageToggle(
   }
 
   const routeId = panel.selectedRouteId;
+  const actor = await getRequiredBotActorBinding();
   const route = await convex.query(api.downloads.getRouteById, {
+    actor,
     apiSecret,
     routeId,
     authUserId: panel.authUserId,
@@ -823,6 +842,7 @@ export async function handleDownloadsManageToggle(
 
   const nextEnabled = !route.enabled;
   await convex.mutation(api.downloads.toggleRoute, {
+    actor,
     apiSecret,
     authUserId: panel.authUserId,
     routeId,
@@ -888,7 +908,9 @@ export async function handleDownloadsManageRemovePrompt(
   }
 
   const routeId = panel.selectedRouteId;
+  const actor = await getRequiredBotActorBinding();
   const route = await convex.query(api.downloads.getRouteById, {
+    actor,
     apiSecret,
     routeId,
     authUserId: panel.authUserId,
@@ -931,7 +953,9 @@ export async function handleDownloadsManageEditMessage(
     return;
   }
 
+  const actor = await getRequiredBotActorBinding();
   const route = await convex.query(api.downloads.getRouteById, {
+    actor,
     apiSecret,
     routeId: panel.selectedRouteId,
     authUserId: panel.authUserId,
@@ -970,7 +994,9 @@ export async function handleDownloadsManageRemoveConfirm(
   }
 
   const routeId = panel.selectedRouteId;
+  const actor = await getRequiredBotActorBinding();
   const route = await convex.query(api.downloads.getRouteById, {
+    actor,
     apiSecret,
     routeId,
     authUserId: panel.authUserId,
@@ -985,6 +1011,7 @@ export async function handleDownloadsManageRemoveConfirm(
   }
 
   await convex.mutation(api.downloads.deleteRoute, {
+    actor,
     apiSecret,
     routeId,
     authUserId: panel.authUserId,
@@ -1120,7 +1147,9 @@ export async function handleDownloadsManageMessageModal(
     return;
   }
 
+  const actor = await getRequiredBotActorBinding();
   const route = await convex.query(api.downloads.getRouteById, {
+    actor,
     apiSecret,
     routeId: panel.selectedRouteId,
     authUserId: panel.authUserId,
@@ -1145,6 +1174,7 @@ export async function handleDownloadsManageMessageModal(
   }
 
   await convex.mutation(api.downloads.updateRouteMessage, {
+    actor,
     apiSecret,
     authUserId: panel.authUserId,
     routeId: panel.selectedRouteId,

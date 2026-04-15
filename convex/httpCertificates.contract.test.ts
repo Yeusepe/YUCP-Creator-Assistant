@@ -16,8 +16,9 @@ describe('/v1/certificates issuance contract', () => {
     expect(httpSource).toContain('Certificate issuance conflict');
   });
 
-  it('returns the raw issuance error in the 500 response for temporary debugging', () => {
+  it('hides raw issuance errors behind a generic 500 response', () => {
     expect(httpSource).toContain("const raw = err instanceof Error ? err.message : ''");
-    expect(httpSource).toContain('return errorResponse(raw || String(err), 500)');
+    expect(httpSource).toContain("return errorResponse('Certificate issuance failed', 500)");
+    expect(httpSource).not.toContain('return errorResponse(raw || String(err), 500)');
   });
 });

@@ -34,27 +34,29 @@ describe('normalizeOrigin', () => {
 });
 
 describe('buildTrustedBrowserOrigins', () => {
-  it('includes localhost wildcards when no origins configured', () => {
+  it('includes explicit loopback origins when no origins are configured', () => {
     const origins = buildTrustedBrowserOrigins({});
-    expect(origins).toContain('http://localhost:*');
-    expect(origins).toContain('http://127.0.0.1:*');
-    expect(origins).toContain('https://localhost:*');
-    expect(origins).toContain('https://127.0.0.1:*');
+    expect(origins).toContain('http://localhost:3000');
+    expect(origins).toContain('http://localhost:3001');
+    expect(origins).toContain('http://127.0.0.1:3000');
+    expect(origins).not.toContain('http://localhost:*');
+    expect(origins).not.toContain('https://localhost:*');
   });
 
-  it('includes localhost wildcards when siteUrl is localhost', () => {
+  it('includes explicit loopback origins when siteUrl is localhost', () => {
     const origins = buildTrustedBrowserOrigins({ siteUrl: 'http://localhost:3000' });
     expect(origins).toContain('http://localhost:3000');
-    expect(origins).toContain('http://localhost:*');
+    expect(origins).toContain('http://127.0.0.1:3001');
+    expect(origins).not.toContain('http://localhost:*');
   });
 
-  it('does NOT include localhost wildcards for production origins', () => {
+  it('does NOT include local loopback origins for production origins', () => {
     const origins = buildTrustedBrowserOrigins({
       siteUrl: 'https://verify.creators.yucp.club',
       frontendUrl: 'https://verify.creators.yucp.club',
     });
-    expect(origins).not.toContain('http://localhost:*');
-    expect(origins).not.toContain('http://127.0.0.1:*');
+    expect(origins).not.toContain('http://localhost:3000');
+    expect(origins).not.toContain('http://127.0.0.1:3000');
     expect(origins).toContain('https://verify.creators.yucp.club');
   });
 
@@ -74,7 +76,7 @@ describe('buildTrustedBrowserOrigins', () => {
     });
     expect(origins).toContain('https://app.example.com');
     expect(origins).toContain('https://www.example.com');
-    expect(origins).not.toContain('http://localhost:*');
+    expect(origins).not.toContain('http://localhost:3000');
   });
 
   it('filters out null and invalid URLs from additionalOrigins', () => {
@@ -89,17 +91,19 @@ describe('buildTrustedBrowserOrigins', () => {
 
   it('treats 127.0.0.1 as local', () => {
     const origins = buildTrustedBrowserOrigins({ siteUrl: 'http://127.0.0.1:8080' });
-    expect(origins).toContain('http://localhost:*');
+    expect(origins).toContain('http://127.0.0.1:8080');
+    expect(origins).toContain('http://localhost:3000');
+    expect(origins).not.toContain('http://localhost:*');
   });
 
   it('marks mixed local+production as local (security: be explicit)', () => {
-    // If any configured origin is localhost, we include wildcards.
-    // This catches dev environments that accidentally set a prod URL alongside localhost.
     const origins = buildTrustedBrowserOrigins({
       siteUrl: 'http://localhost:3000',
       frontendUrl: 'https://prod.example.com',
     });
-    expect(origins).toContain('http://localhost:*');
+    expect(origins).toContain('http://localhost:3000');
+    expect(origins).toContain('http://127.0.0.1:3001');
+    expect(origins).not.toContain('http://localhost:*');
     expect(origins).toContain('https://prod.example.com');
   });
 });

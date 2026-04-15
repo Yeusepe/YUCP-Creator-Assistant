@@ -25,6 +25,10 @@ mock.module('../../lib/convex', () => ({
 mock.module('./auth', () => ({
   resolveAuth: async () => ({
     authUserId: 'user_abc',
+    actorBinding: {
+      payload: 'test-payload',
+      signature: 'test-signature',
+    },
     scopes: ['verification:read'],
   }),
 }));

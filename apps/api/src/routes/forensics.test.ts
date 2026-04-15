@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Auth } from '../auth';
 
@@ -50,9 +51,8 @@ mock.module('../providers/index', () => ({
 }));
 
 const assetFixturePath = fileURLToPath(new URL(import.meta.url));
-
-mock.module('../lib/couplingForensicsArchives', () => ({
-  extractCouplingForensicsArchive: mock(async () => ({
+const extractCouplingForensicsArchiveMock = mock(
+  async (_uploadPath?: string, _uploadName?: string, _workspaceDir?: string) => ({
     assets: [
       {
         assetPath: 'Assets/Character/body.png',
@@ -61,7 +61,11 @@ mock.module('../lib/couplingForensicsArchives', () => ({
       },
     ],
     declaredPackageIds: ['creator.package'],
-  })),
+  })
+);
+
+mock.module('../lib/couplingForensicsArchives', () => ({
+  extractCouplingForensicsArchive: extractCouplingForensicsArchiveMock,
 }));
 
 const { createForensicsRoutes } = await import('./forensics');
@@ -92,6 +96,17 @@ describe('forensics routes', () => {
     mutationMock.mockReset();
     verificationMock.mockReset();
     verificationMock.mockResolvedValue({ valid: false });
+    extractCouplingForensicsArchiveMock.mockReset();
+    extractCouplingForensicsArchiveMock.mockResolvedValue({
+      assets: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      declaredPackageIds: ['creator.package'],
+    });
   });
 
   afterEach(() => {
@@ -395,6 +410,44 @@ describe('forensics routes', () => {
     });
   });
 
+  it('sanitizes uploaded archive filenames before writing them into the extraction workspace', async () => {
+    mutationMock.mockResolvedValue(undefined);
+    extractCouplingForensicsArchiveMock.mockImplementation(
+      async (uploadPath = '', uploadName = '', workspaceDir = '') => {
+        expect(uploadName).toBe('evil.zip');
+        expect(path.basename(uploadPath)).toBe('evil.zip');
+        expect(uploadPath.startsWith(workspaceDir)).toBe(true);
+        expect(uploadPath).not.toContain('..');
+        return {
+          assets: [],
+          declaredPackageIds: ['creator.package'],
+        };
+      }
+    );
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([20, 21, 22])], '../nested/evil.zip', {
+        type: 'application/zip',
+      })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      packageId: 'creator.package',
+      lookupStatus: 'no_candidate_assets',
+    });
+  });
+
   it('returns a typed lookup failure when forensic-score returns an object error payload', async () => {
     queryMock.mockImplementation(async () => {
       throw new Error('Trace lookup should not run when the coupling service rejects the request');
@@ -548,6 +601,7 @@ describe('forensics routes', () => {
               runtimeArtifactVersion: '2026.03.25.153000',
               runtimePlaintextSha256: 'runtime-sha',
               provider: 'jinxxy',
+              purchaserEmail: 'buyer@example.com',
               licenseKeyEncrypted: encryptedLicenseKey,
               providerProductId: 'product-123',
             },
@@ -612,7 +666,10 @@ describe('forensics routes', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const json = (await response.json()) as {
+      results: Array<{ matches: Array<Record<string, unknown>> }>;
+    };
+    expect(json).toMatchObject({
       lookupStatus: 'attributed',
       results: [
         {
@@ -622,11 +679,13 @@ describe('forensics routes', () => {
               buyerProviderUsername: 'BuyerAccount',
               buyerSubjectDisplayName: 'Buyer One',
               buyerSubjectDiscordUserId: 'discord-buyer-1',
-              licenseKey: '11111111-2222-3333-4444-555555555555',
             },
           ],
         },
       ],
     });
+    const match = json.results[0]?.matches[0];
+    expect(match).not.toHaveProperty('licenseKey');
+    expect(match).not.toHaveProperty('purchaserEmail');
   });
 });

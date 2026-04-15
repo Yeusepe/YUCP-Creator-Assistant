@@ -21,7 +21,12 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction, internalMutation, internalQuery } from './_generated/server';
-import { type CertData, type CertEnvelope, signCertData } from './lib/yucpCrypto';
+import {
+  type CertData,
+  type CertEnvelope,
+  resolvePinnedYucpSigningRoot,
+  signCertData,
+} from './lib/yucpCrypto';
 
 const CERT_TTL_DAYS = 90;
 const RATE_LIMIT_DAYS = 30;
@@ -308,7 +313,7 @@ export const listActiveCertsForUser = internalQuery({
  *
  * Environment variables required:
  *   YUCP_ROOT_PRIVATE_KEY , 32-byte Ed25519 private key (base64)
- *   YUCP_KEY_ID           , key identifier string (default "yucp-root-2025")
+ *   YUCP_KEY_ID / YUCP_ROOT_KEY_ID , optional pinned key identifier string
  */
 export const issueCertificate = internalAction({
   args: {
@@ -321,8 +326,11 @@ export const issueCertificate = internalAction({
   handler: async (ctx, args): Promise<CertEnvelope> => {
     const now = new Date();
     const rootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    const keyId = process.env.YUCP_KEY_ID ?? 'yucp-root-2025';
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+    const signingRoot = await resolvePinnedYucpSigningRoot(
+      rootPrivateKey,
+      process.env.YUCP_KEY_ID ?? process.env.YUCP_ROOT_KEY_ID ?? null
+    );
 
     // Rate limit: same-key renewals (same machine) are always free.
     // New key registrations (new machine) are limited to 5 per 30 days.
@@ -384,7 +392,7 @@ export const issueCertificate = internalAction({
       schemaVersion: 2,
     };
 
-    const envelope = await signCertData(certData, rootPrivateKey, keyId);
+    const envelope = await signCertData(certData, rootPrivateKey, signingRoot.keyId);
 
     await ctx.runMutation(internal.yucpCertificates.storeCertificate, {
       publisherId,

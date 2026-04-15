@@ -8,6 +8,11 @@
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
 // ============================================================================
@@ -84,6 +89,8 @@ export const BulkCreateManualLicensesInput = v.object({
   ),
 });
 
+const MAX_MANUAL_LICENSES_PER_BULK_REQUEST = 100;
+
 // ============================================================================
 // QUERIES
 // ============================================================================
@@ -95,11 +102,13 @@ export const BulkCreateManualLicensesInput = v.object({
 export const getById = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     licenseId: v.id('manual_licenses'),
   },
-  handler: async (ctx, { apiSecret, authUserId, licenseId }) => {
+  handler: async (ctx, { apiSecret, actor, authUserId, licenseId }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const license = await ctx.db.get(licenseId);
     if (!license) {
       return null;
@@ -122,10 +131,12 @@ export const getById = query({
 export const findByKeyHash = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     licenseKeyHash: v.string(),
   },
-  handler: async (ctx, { apiSecret, licenseKeyHash }) => {
+  handler: async (ctx, { apiSecret, actor, licenseKeyHash }) => {
     requireApiSecret(apiSecret);
+    await requireServiceActor(actor, ['manual-licenses:service']);
     const license = await ctx.db
       .query('manual_licenses')
       .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', licenseKeyHash))
@@ -147,14 +158,16 @@ export const findByKeyHash = query({
 export const listByTenant = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     productId: v.optional(v.string()),
     status: v.optional(ManualLicenseStatus),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { apiSecret, authUserId, productId, status }) => {
+  handler: async (ctx, { apiSecret, actor, authUserId, productId, status }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const query = ctx.db
       .query('manual_licenses')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId));
@@ -182,10 +195,12 @@ export const listByTenant = query({
 export const getStats = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
-  handler: async (ctx, { apiSecret, authUserId }) => {
+  handler: async (ctx, { apiSecret, actor, authUserId }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const licenses = await ctx.db
       .query('manual_licenses')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
@@ -212,6 +227,7 @@ export const getStats = query({
 export const create = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     licenseKeyHash: v.string(),
     productId: v.string(),
@@ -223,6 +239,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
 
     const licenseId = await ctx.db.insert('manual_licenses', {
@@ -283,12 +300,14 @@ export const incrementUsage = internalMutation({
 export const revoke = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     licenseId: v.id('manual_licenses'),
     authUserId: v.string(),
     reason: v.optional(v.string()),
   },
-  handler: async (ctx, { apiSecret, licenseId, authUserId, reason }) => {
+  handler: async (ctx, { apiSecret, actor, licenseId, authUserId, reason }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const license = await ctx.db.get(licenseId);
     if (!license) {
       throw new Error('License not found');
@@ -320,12 +339,14 @@ export const revoke = mutation({
 export const updateStatus = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     licenseId: v.id('manual_licenses'),
     status: ManualLicenseStatus,
     reason: v.optional(v.string()),
   },
-  handler: async (ctx, { apiSecret, licenseId, status, reason }) => {
+  handler: async (ctx, { apiSecret, actor, licenseId, status, reason }) => {
     requireApiSecret(apiSecret);
+    await requireServiceActor(actor, ['manual-licenses:service']);
     const license = await ctx.db.get(licenseId);
     if (!license) {
       throw new Error('License not found');
@@ -352,6 +373,7 @@ export const updateStatus = mutation({
 export const bulkCreate = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     licenses: v.array(
       v.object({
@@ -364,8 +386,17 @@ export const bulkCreate = mutation({
       })
     ),
   },
-  handler: async (ctx, { apiSecret, authUserId, licenses }) => {
+  handler: async (ctx, { apiSecret, actor, authUserId, licenses }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
+    if (licenses.length === 0) {
+      throw new ConvexError('At least one manual license is required');
+    }
+    if (licenses.length > MAX_MANUAL_LICENSES_PER_BULK_REQUEST) {
+      throw new ConvexError(
+        `Maximum of ${MAX_MANUAL_LICENSES_PER_BULK_REQUEST} licenses per bulk request`
+      );
+    }
     const now = Date.now();
     const results: Id<'manual_licenses'>[] = [];
 
@@ -395,9 +426,15 @@ export const bulkCreate = mutation({
  * Requires apiSecret - called by API server only.
  */
 export const hardDelete = mutation({
-  args: { apiSecret: v.string(), authUserId: v.string(), licenseId: v.id('manual_licenses') },
-  handler: async (ctx, { apiSecret, authUserId, licenseId }) => {
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    licenseId: v.id('manual_licenses'),
+  },
+  handler: async (ctx, { apiSecret, actor, authUserId, licenseId }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const license = await ctx.db.get(licenseId);
     if (!license) throw new Error(`Manual license not found: ${licenseId}`);
     if (license.authUserId !== authUserId) throw new ConvexError('Unauthorized: not the owner');
@@ -415,14 +452,16 @@ export const hardDelete = mutation({
 export const validateByHash = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     licenseKeyHash: v.optional(v.string()),
     /** @deprecated Use licenseKeyHash. Accepted for backward compat with API server callers. */
     hashedKey: v.optional(v.string()),
     productId: v.optional(v.string()),
     authUserId: v.string(),
   },
-  handler: async (ctx, { apiSecret, licenseKeyHash, hashedKey, productId, authUserId }) => {
+  handler: async (ctx, { apiSecret, actor, licenseKeyHash, hashedKey, productId, authUserId }) => {
     requireApiSecret(apiSecret);
+    await requireDelegatedAuthUserActor(actor, authUserId);
     const resolvedHash = licenseKeyHash ?? hashedKey;
     if (!resolvedHash) {
       return { valid: false as const, reason: 'not_found' };

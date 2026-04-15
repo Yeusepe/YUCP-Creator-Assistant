@@ -6,11 +6,14 @@
  * - npx convex run migrations:purgeLegacyOutboxVerifyPromptRefreshJobs
  * - npx convex run migrations:purgeRoleRuleSourceGuildNames
  * - npx convex run migrations:backfillProtectedAssetUnlockModes
+ * - npx convex run migrations:migrateLegacyLicenseSubjectLinks
  * Re-run until the relevant migration returns 0 remaining records.
  */
 
 import { v } from 'convex/values';
 import { internalMutation } from './_generated/server';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptPii } from './lib/piiCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
 
 type LegacyMigrationDoc = Record<string, unknown>;
@@ -182,6 +185,39 @@ export const backfillProtectedAssetUnlockModes = internalMutation({
         await ctx.db.patch(doc._id, { unlockMode });
         updated++;
       }
+    }
+
+    return { updated };
+  },
+});
+
+/**
+ * Encrypt legacy plaintext license keys and drop redundant purchaser emails.
+ * Re-run until it returns { updated: 0 }.
+ */
+export const migrateLegacyLicenseSubjectLinks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db
+      .query('license_subject_links')
+      .filter((q) =>
+        q.or(q.neq(q.field('licenseKey'), null), q.neq(q.field('purchaserEmail'), null))
+      )
+      .take(200);
+
+    let updated = 0;
+    for (const doc of docs) {
+      const licenseKeyEncrypted =
+        doc.licenseKeyEncrypted ??
+        (doc.licenseKey
+          ? await encryptPii(doc.licenseKey, PII_PURPOSES.forensicsLicenseKey)
+          : undefined);
+      await ctx.db.patch(doc._id, {
+        licenseKey: undefined,
+        licenseKeyEncrypted,
+        purchaserEmail: undefined,
+      });
+      updated++;
     }
 
     return { updated };

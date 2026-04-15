@@ -18,6 +18,7 @@
 import { ConvexError, v } from 'convex/values';
 import type { Doc } from './_generated/dataModel';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -83,7 +84,7 @@ export const getRegistrationsByYucpUser = internalQuery({
 
 export type RegistrationResult =
   | { registered: true; conflict: false; archived: false }
-  | { registered: false; conflict: true; archived: false; ownedBy: string }
+  | { registered: false; conflict: true; archived: false }
   | { registered: false; conflict: false; archived: true; reason: string };
 
 export const registerPackage = internalMutation({
@@ -110,7 +111,7 @@ export const registerPackage = internalMutation({
     if (existing) {
       if (existing.yucpUserId !== args.yucpUserId) {
         // Different creator claims this namespace, ownership conflict
-        return { registered: false, conflict: true, archived: false, ownedBy: existing.yucpUserId };
+        return { registered: false, conflict: true, archived: false };
       }
       if (isArchivedRegistration(existing)) {
         return {
@@ -183,6 +184,7 @@ export const transferPackage = internalMutation({
 export const listByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     provider: v.optional(v.string()),
     status: v.optional(v.string()),
@@ -191,6 +193,7 @@ export const listByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('product_catalog')
@@ -223,6 +226,7 @@ export const listByAuthUser = query({
 export const listForAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     includeArchived: v.optional(v.boolean()),
   },
@@ -244,6 +248,7 @@ export const listForAuthUser = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const rows = (
       await ctx.db
@@ -313,6 +318,7 @@ export const listForAuthUser = query({
 export const renameForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     packageId: v.string(),
     packageName: v.string(),
@@ -330,6 +336,7 @@ export const renameForAuthUser = mutation({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const normalizedPackageName = normalizePackageName(args.packageName);
     if (!normalizedPackageName) {
       return { updated: false as const, reason: 'Package name is required.' };
@@ -365,6 +372,7 @@ export const renameForAuthUser = mutation({
 export const archiveForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     packageId: v.string(),
   },
@@ -380,6 +388,7 @@ export const archiveForAuthUser = mutation({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const existing = await ctx.db
       .query('package_registry')
@@ -404,6 +413,7 @@ export const archiveForAuthUser = mutation({
 export const restoreForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     packageId: v.string(),
   },
@@ -419,6 +429,7 @@ export const restoreForAuthUser = mutation({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const existing = await ctx.db
       .query('package_registry')
@@ -443,6 +454,7 @@ export const restoreForAuthUser = mutation({
 export const deleteForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     packageId: v.string(),
   },
@@ -458,6 +470,7 @@ export const deleteForAuthUser = mutation({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const existing = await ctx.db
       .query('package_registry')
@@ -510,11 +523,13 @@ export const deleteForAuthUser = mutation({
 export const getByIdForAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     catalogProductId: v.id('product_catalog'),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.catalogProductId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
     return doc;

@@ -9,11 +9,19 @@ import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  assertServiceActor,
+  requireApiActor,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import {
   type ExternalAccountIdentityCandidate,
   selectCanonicalExternalAccountCandidates,
 } from './lib/externalAccountIdentity';
+import { hasActiveBindingForSubject } from './lib/ownership';
 import { ProviderV } from './lib/providers';
 
 export const PublicSubjectSelector = v.union(
@@ -142,6 +150,7 @@ export async function upsertBuyerProviderLinkRecord(
 export const getSubjectByAuthId = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
   returns: v.union(
@@ -171,6 +180,7 @@ export const getSubjectByAuthId = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const subject = await ctx.db
       .query('subjects')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
@@ -191,6 +201,8 @@ export const getSubjectByAuthId = query({
 export const getSubjectByDiscordId = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.optional(v.string()),
     discordUserId: v.string(),
   },
   returns: v.union(
@@ -220,12 +232,22 @@ export const getSubjectByDiscordId = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const actor = await requireApiActor(args.actor);
+    if (args.authUserId) {
+      await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    } else {
+      assertServiceActor(actor, ['subjects:service']);
+    }
     const subject = await ctx.db
       .query('subjects')
       .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
       .first();
 
     if (!subject) {
+      return { found: false as const, subject: null };
+    }
+
+    if (args.authUserId && !(await hasActiveBindingForSubject(ctx, args.authUserId, subject._id))) {
       return { found: false as const, subject: null };
     }
 
@@ -240,6 +262,7 @@ export const getSubjectByDiscordId = query({
 export const resolveSubjectForPublicApi = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     selector: PublicSubjectSelector,
   },
@@ -270,6 +293,7 @@ export const resolveSubjectForPublicApi = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const selector = args.selector as
       | { subjectId: Id<'subjects'> }
       | { authUserId: string }
@@ -286,14 +310,7 @@ export const resolveSubjectForPublicApi = query({
      * All public-API selectors must be tenant-scoped to prevent cross-tenant subject enumeration.
      */
     async function hasTenantBinding(subjectId: Id<'subjects'>): Promise<boolean> {
-      const binding = await ctx.db
-        .query('bindings')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', args.authUserId).eq('subjectId', subjectId)
-        )
-        .filter((q) => q.eq(q.field('status'), 'active'))
-        .first();
-      return binding !== null;
+      return await hasActiveBindingForSubject(ctx, args.authUserId, subjectId);
     }
 
     if ('subjectId' in selector) {
@@ -369,6 +386,7 @@ export const resolveSubjectForPublicApi = query({
 export const getSubjectWithAccounts = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     subjectId: v.id('subjects'),
     /** When provided, only return accounts linked via this user (for verify panel). */
     authUserId: v.optional(v.string()),
@@ -420,9 +438,25 @@ export const getSubjectWithAccounts = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    const actor = await requireApiActor(args.actor);
+    const effectiveAuthUserId =
+      args.authUserId ??
+      (actor.kind === 'auth_user' ? actor.authUserId : actor.authUserId ?? undefined);
+    if (effectiveAuthUserId) {
+      await requireDelegatedAuthUserActor(args.actor, effectiveAuthUserId);
+    } else {
+      assertServiceActor(actor, ['subjects:service']);
+    }
     const subject = await ctx.db.get(args.subjectId);
 
     if (!subject) {
+      return { found: false as const, subject: null, externalAccounts: [] };
+    }
+
+    if (
+      effectiveAuthUserId &&
+      !(await hasActiveBindingForSubject(ctx, effectiveAuthUserId, args.subjectId))
+    ) {
       return { found: false as const, subject: null, externalAccounts: [] };
     }
 
@@ -433,8 +467,8 @@ export const getSubjectWithAccounts = query({
       .withIndex('by_subject', (q) => q.eq('subjectId', args.subjectId))
       .filter((q) => q.eq(q.field('status'), 'active'));
 
-    const activeBindings = args.authUserId
-      ? (await bindingsQuery.collect()).filter((b) => b.authUserId === args.authUserId)
+    const activeBindings = effectiveAuthUserId
+      ? (await bindingsQuery.collect()).filter((b) => b.authUserId === effectiveAuthUserId)
       : await bindingsQuery.collect();
 
     const externalAccountCandidates: Array<
@@ -533,6 +567,7 @@ export const subjectExistsByDiscordId = internalQuery({
 export const ensureSubjectForDiscord = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     discordUserId: v.string(),
     displayName: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
@@ -543,6 +578,7 @@ export const ensureSubjectForDiscord = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['subjects:service']);
     const existing = await ctx.db
       .query('subjects')
       .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
@@ -569,6 +605,7 @@ export const ensureSubjectForDiscord = mutation({
 export const listByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     status: v.optional(v.string()),
     q: v.optional(v.string()),
@@ -577,6 +614,7 @@ export const listByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('subjects')
@@ -648,11 +686,13 @@ export const getSubjectIdByDiscordId = internalQuery({
 export const listBuyerProviderLinksForAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
   returns: v.array(BuyerProviderLinkSummaryV),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const subjects = await ctx.db
       .query('subjects')
@@ -733,6 +773,7 @@ export const listBuyerProviderLinksForAuthUser = query({
 export const reconcileBuyerProviderLinksForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
   returns: v.object({
@@ -740,6 +781,7 @@ export const reconcileBuyerProviderLinksForAuthUser = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const subjects = await ctx.db
       .query('subjects')
@@ -859,6 +901,7 @@ export const getBuyerProviderLinkForSubject = internalQuery({
 export const upsertBuyerProviderLink = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     subjectId: v.id('subjects'),
     provider: ProviderV,
     externalAccountId: v.id('external_accounts'),
@@ -869,6 +912,7 @@ export const upsertBuyerProviderLink = mutation({
   returns: v.id('buyer_provider_links'),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['subjects:service']);
     return await upsertBuyerProviderLinkRecord(ctx, args);
   },
 });
@@ -892,12 +936,14 @@ export const getExternalAccountEmailHash = internalQuery({
 export const revokeBuyerProviderLink = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     linkId: v.id('buyer_provider_links'),
   },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const link = await ctx.db.get(args.linkId);
     if (!link) {

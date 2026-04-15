@@ -1,5 +1,7 @@
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -41,7 +43,7 @@ async function resolveViewer(
   request: Request,
   auth: Auth,
   config: PackagesConfig
-): Promise<{ authUserId: string } | Response> {
+): Promise<{ authUserId: string; actorBinding: ApiActorBinding } | Response> {
   const authHeader = request.headers.get('authorization')?.trim() ?? '';
   if (authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice('Bearer '.length).trim();
@@ -56,7 +58,14 @@ async function resolveViewer(
       return jsonResponse({ error: 'Authentication required' }, 401);
     }
 
-    return { authUserId: verified.token.sub };
+    return {
+      authUserId: verified.token.sub,
+      actorBinding: await createAuthUserActorBinding({
+        authUserId: verified.token.sub,
+        source: 'oauth',
+        scopes: ['profile:read'],
+      }),
+    };
   }
 
   const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
@@ -69,17 +78,22 @@ async function resolveViewer(
     return jsonResponse({ error: 'Authentication required' }, 401);
   }
 
-  return { authUserId: session.user.id };
+  return {
+    authUserId: session.user.id,
+    actorBinding: await createAuthUserActorBinding({
+      authUserId: session.user.id,
+      source: 'session',
+    }),
+  };
 }
 
 export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
-  const convex = getConvexClientFromUrl(config.convexUrl);
-
   async function listPackages(request: Request): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     try {
       const includeArchived = new URL(request.url).searchParams.get('includeArchived') === 'true';
@@ -103,6 +117,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (viewer instanceof Response) {
       return viewer;
     }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     let packageId: string;
     try {
@@ -154,6 +169,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (viewer instanceof Response) {
       return viewer;
     }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     let packageId: string;
     try {
@@ -193,6 +209,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (viewer instanceof Response) {
       return viewer;
     }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     let packageId: string;
     try {
@@ -232,6 +249,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (viewer instanceof Response) {
       return viewer;
     }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     let packageId: string;
     try {

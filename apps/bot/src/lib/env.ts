@@ -29,6 +29,7 @@ export interface LocalEnv {
   API_BASE_URL?: string;
   API_INTERNAL_URL?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
+  INTERNAL_SERVICE_AUTH_SECRET?: string;
   BETTER_AUTH_SECRET?: string;
   ERROR_REFERENCE_SECRET?: string;
   HYPERDX_API_KEY?: string;
@@ -60,6 +61,7 @@ function loadFromEnv(): LocalEnv {
     API_BASE_URL: process.env.API_BASE_URL,
     API_INTERNAL_URL: process.env.API_INTERNAL_URL,
     INTERNAL_RPC_SHARED_SECRET: process.env.INTERNAL_RPC_SHARED_SECRET,
+    INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
     HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
@@ -74,7 +76,12 @@ function loadFromEnv(): LocalEnv {
 
 /** Validate required bot env vars. Throws if any are missing. */
 export function validateBotEnv(env: LocalEnv): void {
-  const required = ['DISCORD_BOT_TOKEN', 'CONVEX_URL', 'CONVEX_API_SECRET'] as const;
+  const required = [
+    'DISCORD_BOT_TOKEN',
+    'CONVEX_URL',
+    'CONVEX_API_SECRET',
+    'INTERNAL_SERVICE_AUTH_SECRET',
+  ] as const;
   const missing = required.filter((k) => !env[k]);
   if (missing.length > 0) {
     throw new Error(`Missing required env vars: ${missing.join(', ')}`);

@@ -18,6 +18,7 @@
 import path from 'node:path';
 import type { Auth } from './auth';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
+import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
 import {
   createCouplingLicenseRoutes,
@@ -189,7 +190,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     encryptionSecret: config.encryptionSecret,
   });
 
-  async function handleRequest(request: Request): Promise<Response> {
+  async function handleRequestInner(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
@@ -403,6 +404,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       return Response.json({ error: 'Not found' }, { status: 404 });
     }
     return new Response('Not found', { status: 404 });
+  }
+
+  async function handleRequest(request: Request): Promise<Response> {
+    return applyResponseSecurityHeaders(await handleRequestInner(request));
   }
 
   const server = Bun.serve({

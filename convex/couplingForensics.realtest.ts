@@ -115,6 +115,7 @@ describe('coupling forensics license subject resolution', () => {
         packageId,
         provider: 'jinxxy',
         licenseKey: '11111111-2222-3333-4444-555555555555',
+        purchaserEmail: 'buyer@example.com',
         providerUserId: 'customer-123',
         externalOrderId: 'order-123',
         providerProductId: 'product-123',
@@ -132,10 +133,11 @@ describe('coupling forensics license subject resolution', () => {
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]).toMatchObject({
       provider: 'jinxxy',
-      licenseKey: '11111111-2222-3333-4444-555555555555',
       buyerProviderUserId: 'customer-123',
       buyerSubjectDisplayName: 'Buyer One',
       buyerSubjectDiscordUserId: 'discord-buyer-1',
     });
+    expect(result.matches[0]).not.toHaveProperty('licenseKey');
+    expect(result.matches[0]).not.toHaveProperty('purchaserEmail');
   });
 });

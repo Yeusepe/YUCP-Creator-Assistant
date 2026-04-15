@@ -21,6 +21,11 @@ import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
 
@@ -134,6 +139,7 @@ async function listActiveEntitlementsForActiveSubjects(
 export const getEntitlementsBySubject = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     includeInactive: v.optional(v.boolean()),
@@ -158,6 +164,7 @@ export const getEntitlementsBySubject = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     let query = ctx.db
       .query('entitlements')
       .withIndex('by_auth_user_subject', (q) =>
@@ -180,6 +187,7 @@ export const getEntitlementsBySubject = query({
 export const getEntitlementsByProduct = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     productId: v.string(),
     includeInactive: v.optional(v.boolean()),
@@ -204,6 +212,7 @@ export const getEntitlementsByProduct = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     let query = ctx.db
       .query('entitlements')
       .withIndex('by_auth_user_product', (q) =>
@@ -226,6 +235,7 @@ export const getEntitlementsByProduct = query({
 export const getActiveEntitlement = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
@@ -257,6 +267,7 @@ export const getActiveEntitlement = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const subject = await ctx.db.get(args.subjectId);
     const entitlement = await ctx.db
       .query('entitlements')
@@ -279,7 +290,7 @@ export const getActiveEntitlement = query({
  * Stats overview for bot /yucp stats.
  */
 export const getStatsOverview = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -287,6 +298,7 @@ export const getStatsOverview = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
       ctx,
       args.authUserId,
@@ -308,7 +320,7 @@ export const getStatsOverview = query({
  * Extended stats overview with 24h, 7d, 30d verification counts.
  */
 export const getStatsOverviewExtended = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.object({
     totalVerified: v.number(),
     totalProducts: v.number(),
@@ -318,6 +330,7 @@ export const getStatsOverviewExtended = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
       ctx,
       args.authUserId,
@@ -348,6 +361,7 @@ export const getStatsOverviewExtended = query({
 export const getVerifiedUsersPaginated = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     limit: v.optional(v.number()),
     cursor: v.optional(v.string()),
@@ -366,6 +380,7 @@ export const getVerifiedUsersPaginated = query({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const limit = Math.min(args.limit ?? 25, 50);
     const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
       ctx,
@@ -417,7 +432,7 @@ export const getVerifiedUsersPaginated = query({
  * Product verification counts for /yucp stats products.
  */
 export const getProductStats = query({
-  args: { apiSecret: v.string(), authUserId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, authUserId: v.string() },
   returns: v.array(
     v.object({
       productId: v.string(),
@@ -426,6 +441,7 @@ export const getProductStats = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const activeEntitlements = await listActiveEntitlementsForActiveSubjects(
       ctx,
       args.authUserId,
@@ -449,6 +465,7 @@ export const getProductStats = query({
 export const hasActiveEntitlement = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
@@ -456,6 +473,7 @@ export const hasActiveEntitlement = query({
   returns: v.boolean(),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const subject = await ctx.db.get(args.subjectId);
     if (subject?.status !== 'active') {
       return false;
@@ -479,6 +497,7 @@ export const hasActiveEntitlement = query({
 export const getEntitlement = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     entitlementId: v.id('entitlements'),
   },
   returns: v.union(
@@ -508,6 +527,7 @@ export const getEntitlement = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['entitlements:service']);
     const entitlement = await ctx.db.get(args.entitlementId);
 
     if (!entitlement) {
@@ -525,6 +545,7 @@ export const getEntitlement = query({
 export const getEntitlementsByProviderCustomer = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     providerCustomerId: v.id('provider_customers'),
   },
@@ -548,6 +569,7 @@ export const getEntitlementsByProviderCustomer = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const entitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_provider_customer', (q) => q.eq('providerCustomerId', args.providerCustomerId))
@@ -576,6 +598,7 @@ export const getEntitlementsByProviderCustomer = query({
 export const grantEntitlement = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     productId: v.string(),
@@ -586,6 +609,7 @@ export const grantEntitlement = mutation({
   returns: GrantResult,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     await requireActiveSubject(ctx, args.subjectId);
 
@@ -749,6 +773,7 @@ export const grantEntitlement = mutation({
 export const revokeEntitlement = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     entitlementId: v.id('entitlements'),
     reason: RevocationReason,
@@ -758,6 +783,7 @@ export const revokeEntitlement = mutation({
   returns: RevokeResult,
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
 
     const entitlement = await ctx.db.get(args.entitlementId);
@@ -836,6 +862,7 @@ export const revokeEntitlement = mutation({
 export const revokeEntitlementBySourceRef = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     sourceReference: v.string(),
@@ -845,6 +872,7 @@ export const revokeEntitlementBySourceRef = mutation({
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
 
     const entitlement = await ctx.db
@@ -901,6 +929,7 @@ export const revokeEntitlementBySourceRef = mutation({
 export const revokeAllEntitlementsForSubject = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
   },
@@ -910,6 +939,7 @@ export const revokeAllEntitlementsForSubject = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
@@ -967,6 +997,7 @@ export const revokeAllEntitlementsForSubject = mutation({
 export const revokeEntitlementsForProviderDisconnect = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     provider: v.string(),
@@ -977,6 +1008,7 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
@@ -1034,6 +1066,7 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
 export const revokeEntitlementsByProduct = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     discordUserId: v.string(),
     productId: v.string(),
@@ -1045,6 +1078,7 @@ export const revokeEntitlementsByProduct = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     const subject = await ctx.db
       .query('subjects')
@@ -1115,6 +1149,7 @@ export const revokeEntitlementsByProduct = mutation({
 export const refreshEntitlement = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     entitlementId: v.id('entitlements'),
     evidence: ProviderEvidence,
@@ -1127,6 +1162,7 @@ export const refreshEntitlement = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
 
     const entitlement = await ctx.db.get(args.entitlementId);
@@ -1175,6 +1211,7 @@ export const refreshEntitlement = mutation({
 export const grantEntitlementsForPurchaser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     providerCustomerId: v.id('provider_customers'),
@@ -1196,6 +1233,7 @@ export const grantEntitlementsForPurchaser = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['entitlements:service']);
     const now = Date.now();
     const entitlementIds: Id<'entitlements'>[] = [];
     let grantedCount = 0;
@@ -1291,6 +1329,7 @@ export const grantEntitlementsForPurchaser = mutation({
 export const enqueueRoleSyncsForUser = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     discordUserId: v.string(),
   },
@@ -1300,6 +1339,7 @@ export const enqueueRoleSyncsForUser = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     // Find subject
     const subject = await ctx.db
@@ -1346,6 +1386,7 @@ export const enqueueRoleSyncsForUser = mutation({
 export const expireEntitlements = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     expirationThreshold: v.number(),
   },
@@ -1356,6 +1397,7 @@ export const expireEntitlements = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
     const entitlementIds: Id<'entitlements'>[] = [];
     let expiredCount = 0;
@@ -1574,6 +1616,7 @@ async function createAuditEvent(
 export const listByAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.optional(v.string()),
     productId: v.optional(v.string()),
@@ -1584,6 +1627,7 @@ export const listByAuthUser = query({
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
     let all = await ctx.db
       .query('entitlements')
@@ -1636,11 +1680,13 @@ export const listByAuthUser = query({
 export const getByIdForAuthUser = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     entitlementId: v.id('entitlements'),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const e = await ctx.db.get(args.entitlementId);
     if (!e || e.authUserId !== args.authUserId) return null;
     // Project: strip tenantId (deprecated), providerCustomerId (internal), and policySnapshotVersion (internal)

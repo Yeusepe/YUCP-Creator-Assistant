@@ -44,6 +44,10 @@ const { handleWebhooksRoutes } = await import('./webhooks');
 
 const mockResolveAuth = async (): Promise<AuthResult> => ({
   authUserId: 'user_abc',
+  actorBinding: {
+    payload: 'test-payload',
+    signature: 'test-signature',
+  },
   scopes: ['webhooks:manage'],
 });
 

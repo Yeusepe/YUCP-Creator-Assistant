@@ -24,6 +24,7 @@ import {
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { Emoji } from '../lib/emojis';
 import { track } from '../lib/posthog';
 
@@ -108,8 +109,10 @@ export async function handleModerationReasonSelect(
 ): Promise<void> {
   const reason = interaction.values[0];
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: targetUserId,
   });
@@ -232,8 +235,10 @@ export async function handleModerationConfirmClear(
   actorId: string
 ): Promise<void> {
   await interaction.deferUpdate();
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: targetUserId,
   });
@@ -277,7 +282,9 @@ export async function handleModerationUnverify(
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
+    const actor = await getRequiredBotActorBinding();
     const result = await convex.mutation(api.entitlements.revokeEntitlementsByProduct, {
+      actor,
       apiSecret,
       authUserId: ctx.authUserId,
       discordUserId: targetUser.id,

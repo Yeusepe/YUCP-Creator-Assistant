@@ -8,6 +8,7 @@ import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
+import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E } from '../lib/emojis';
 
 export async function handleStatus(
@@ -17,8 +18,10 @@ export async function handleStatus(
   ctx: { authUserId: string; guildId: string }
 ): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const actor = await getRequiredBotActorBinding();
 
   const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+    actor,
     apiSecret,
     discordUserId: interaction.user.id,
   });
@@ -32,6 +35,7 @@ export async function handleStatus(
   }
 
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
+    actor,
     apiSecret,
     authUserId: ctx.authUserId,
     subjectId: subjectResult.subject._id,

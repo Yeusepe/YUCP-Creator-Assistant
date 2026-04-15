@@ -3,19 +3,24 @@ import {
   base64ToBytes,
   base64UrlDecodeToBytes,
   base64UrlEncode,
-  bytesToBase64,
   sha256Base64Url,
   sha256Hex,
 } from '@yucp/shared/crypto';
+import { getYucpRootByKeyId, resolveConfiguredYucpTrustBundle } from '@yucp/shared/yucpTrust';
 import { v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { ActionCtx } from './_generated/server';
 import { action, internalMutation, mutation, query } from './_generated/server';
+import {
+  ApiActorBindingV,
+  requireDelegatedAuthUserActor,
+  requireServiceActor,
+} from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
-import { signLicenseJwt } from './lib/yucpCrypto';
+import { resolvePinnedYucpSigningRoot, signLicenseJwt } from './lib/yucpCrypto';
 
 ed.etc.sha512Async = async (...messages: Uint8Array[]) => {
   const data = ed.etc.concatBytes(...messages);
@@ -31,6 +36,22 @@ const INTENT_EXPIRY_MS = 15 * 60 * 1000;
 const GRANT_EXPIRY_MS = 5 * 60 * 1000;
 const GRANT_AUDIENCE = 'yucp-verification-intent';
 const LICENSE_AUDIENCE = 'yucp-license-gate';
+
+async function getPinnedSigningKey(configuredKeyId?: string | null): Promise<{
+  keyId: string;
+  privateKeyBase64: string;
+}> {
+  const privateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
+  }
+
+  const signingRoot = await resolvePinnedYucpSigningRoot(privateKey, configuredKeyId);
+  return {
+    keyId: signingRoot.keyId,
+    privateKeyBase64: privateKey,
+  };
+}
 
 type VerificationIntentStatus =
   | 'pending'
@@ -207,13 +228,25 @@ async function signVerificationGrantJwt(
   return `${signingInput}.${base64UrlEncode(signatureBytes)}`;
 }
 
-async function verifyVerificationGrantJwt(
-  token: string,
-  publicKeyBase64: string
+async function verifyVerificationGrantJwtAgainstPinnedRoots(
+  token: string
 ): Promise<VerificationGrantClaims | null> {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
+
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecodeToBytes(parts[0]))) as {
+      alg?: string;
+      kid?: string;
+    };
+    if (header.alg !== 'EdDSA' || !header.kid) return null;
+
+    const publicKeyBase64 = getYucpRootByKeyId(
+      resolveConfiguredYucpTrustBundle(process.env.YUCP_TRUST_BUNDLE_JSON).roots,
+      header.kid
+    )?.publicKeyBase64;
+    if (!publicKeyBase64) return null;
+
     const signingInput = `${parts[0]}.${parts[1]}`;
     const signature = base64UrlDecodeToBytes(parts[2]);
     const verified = await ed.verifyAsync(
@@ -236,11 +269,13 @@ async function verifyVerificationGrantJwt(
 export const getIntentRecord = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.intentId);
     if (!doc || doc.authUserId !== args.authUserId) {
       return null;
@@ -252,6 +287,7 @@ export const getIntentRecord = query({
 export const getIntentAccessDiagnostic = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     intentId: v.id('verification_intents'),
   },
   returns: v.union(
@@ -265,6 +301,7 @@ export const getIntentAccessDiagnostic = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['verification-intents:service']);
     const doc = await ctx.db.get(args.intentId);
     if (!doc) {
       return null;
@@ -281,6 +318,7 @@ export const getIntentAccessDiagnostic = query({
 export const createVerificationIntent = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     packageId: v.string(),
     packageName: v.optional(v.string()),
@@ -304,6 +342,7 @@ export const createVerificationIntent = mutation({
     expiresAt: number;
   }> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     validateReturnUrl(args.returnUrl);
     validateRequirements(args.requirements);
 
@@ -411,12 +450,14 @@ export const markIntentFailed = internalMutation({
 export const cancelVerificationIntent = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
   },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent = await ctx.db.get(args.intentId);
     if (!intent || intent.authUserId !== args.authUserId) {
       return { success: false };
@@ -432,6 +473,7 @@ export const cancelVerificationIntent = mutation({
 export const appendVerificationIntentRequirements = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
     requirements: v.array(VerificationIntentRequirementV),
@@ -439,6 +481,7 @@ export const appendVerificationIntentRequirements = mutation({
   returns: v.object({ appended: v.number() }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     if (args.requirements.length === 0) {
       return { appended: 0 };
     }
@@ -523,15 +566,18 @@ export const cleanupExpiredVerificationIntents = internalMutation({
 export const getVerificationIntent = action({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
   },
   handler: async (ctx, args): Promise<VerificationIntentWithGrant | null> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent: VerificationIntentDoc | null = await ctx.runQuery(
       api.verificationIntents.getIntentRecord,
       {
         apiSecret: args.apiSecret,
+        actor: args.actor,
         authUserId: args.authUserId,
         intentId: args.intentId,
       }
@@ -559,10 +605,7 @@ export const getVerificationIntent = action({
       intent.verificationGrantExpiresAt &&
       !intent.verificationGrantUsedAt
     ) {
-      const privateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-      if (!privateKey) {
-        throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-      }
+      const signingKey = await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
       const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
       const nowSeconds = Math.floor(now / 1000);
       const expSeconds = Math.floor(intent.verificationGrantExpiresAt / 1000);
@@ -578,8 +621,8 @@ export const getVerificationIntent = action({
           iat: nowSeconds,
           exp: expSeconds,
         },
-        privateKey,
-        process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root'
+        signingKey.privateKeyBase64,
+        signingKey.keyId
       );
     }
 
@@ -593,6 +636,7 @@ export const getVerificationIntent = action({
 export const verifyIntentWithExistingEntitlement = action({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
     methodKey: v.string(),
@@ -604,10 +648,12 @@ export const verifyIntentWithExistingEntitlement = action({
   }),
   handler: async (ctx, args): Promise<VerificationIntentCheckResult> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent: VerificationIntentDoc | null = await ctx.runQuery(
       api.verificationIntents.getIntentRecord,
       {
         apiSecret: args.apiSecret,
+        actor: args.actor,
         authUserId: args.authUserId,
         intentId: args.intentId,
       }
@@ -714,6 +760,7 @@ export const verifyIntentWithExistingEntitlement = action({
 export const verifyIntentWithBuyerProviderLink = action({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
     methodKey: v.string(),
@@ -725,10 +772,12 @@ export const verifyIntentWithBuyerProviderLink = action({
   }),
   handler: async (ctx, args): Promise<VerificationIntentCheckResult> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent: VerificationIntentDoc | null = await ctx.runQuery(
       api.verificationIntents.getIntentRecord,
       {
         apiSecret: args.apiSecret,
+        actor: args.actor,
         authUserId: args.authUserId,
         intentId: args.intentId,
       }
@@ -939,6 +988,7 @@ export const verifyIntentWithBuyerProviderLink = action({
 export const verifyIntentWithManualLicense = action({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
     methodKey: v.string(),
@@ -951,10 +1001,12 @@ export const verifyIntentWithManualLicense = action({
   }),
   handler: async (ctx, args): Promise<VerificationIntentCheckResult> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent: VerificationIntentDoc | null = await ctx.runQuery(
       api.verificationIntents.getIntentRecord,
       {
         apiSecret: args.apiSecret,
+        actor: args.actor,
         authUserId: args.authUserId,
         intentId: args.intentId,
       }
@@ -1026,6 +1078,7 @@ export const verifyIntentWithManualLicense = action({
 export const redeemVerificationIntent = action({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     intentId: v.id('verification_intents'),
     codeVerifier: v.string(),
@@ -1041,10 +1094,12 @@ export const redeemVerificationIntent = action({
   }),
   handler: async (ctx, args): Promise<VerificationIntentRedemptionResult> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const intent: VerificationIntentDoc | null = await ctx.runQuery(
       api.verificationIntents.getIntentRecord,
       {
         apiSecret: args.apiSecret,
+        actor: args.actor,
         authUserId: args.authUserId,
         intentId: args.intentId,
       }
@@ -1072,12 +1127,8 @@ export const redeemVerificationIntent = action({
       return { success: false, error: 'Verification code challenge mismatch' };
     }
 
-    const privateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
-    if (!privateKey) {
-      throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
-    }
-    const publicKey = await ed.getPublicKeyAsync(base64ToBytes(privateKey));
-    const grantClaims = await verifyVerificationGrantJwt(args.grantToken, bytesToBase64(publicKey));
+    await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const grantClaims = await verifyVerificationGrantJwtAgainstPinnedRoots(args.grantToken);
     if (!grantClaims) {
       return { success: false, error: 'Verification grant is invalid or expired' };
     }
@@ -1098,6 +1149,7 @@ export const redeemVerificationIntent = action({
       return { success: false, error: 'Verification intent has no resolved verification method' };
     }
 
+    const signingKey = await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
     const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
     const nowSeconds = Math.floor(Date.now() / 1000);
     const exp = nowSeconds + 3600;
@@ -1114,8 +1166,8 @@ export const redeemVerificationIntent = action({
         iat: nowSeconds,
         exp,
       },
-      privateKey,
-      process.env.YUCP_ROOT_KEY_ID ?? 'yucp-root'
+      signingKey.privateKeyBase64,
+      signingKey.keyId
     );
 
     await ctx.runMutation(internal.verificationIntents.consumeVerificationGrant, {

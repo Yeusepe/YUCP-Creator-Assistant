@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
+import { getPublicKeyFromPrivate } from './lib/yucpCrypto';
 import { makeTestConvex, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
@@ -47,14 +49,30 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> {
   return JSON.parse(Buffer.from(padded, 'base64').toString('utf-8')) as Record<string, unknown>;
 }
 
+async function configurePinnedTestRoot(): Promise<void> {
+  const rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
+  const rootPublicKey = await getPublicKeyFromPrivate(rootPrivateKey);
+  process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+  process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
+  process.env.YUCP_ROOT_PUBLIC_KEY = rootPublicKey;
+  setPinnedYucpRootsForTests([
+    {
+      keyId: 'yucp-root',
+      algorithm: 'Ed25519',
+      publicKeyBase64: rootPublicKey,
+    },
+  ]);
+}
+
+afterEach(() => {
+  setPinnedYucpRootsForTests(null);
+});
+
 describe('verification intents buyer provider links', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.CONVEX_API_SECRET = API_SECRET;
     process.env.CONVEX_SITE_URL = 'https://rare-squid-409.convex.site';
-    process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
-    process.env.YUCP_ROOT_PRIVATE_KEY = Buffer.from(
-      crypto.getRandomValues(new Uint8Array(32))
-    ).toString('base64');
+    await configurePinnedTestRoot();
   });
 
   it('verifies a buyer_provider_link requirement when the buyer has an active link', async () => {
@@ -267,13 +285,10 @@ describe('verification intents buyer provider links', () => {
 });
 
 describe('verification intents redemption issuer', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.CONVEX_API_SECRET = API_SECRET;
     process.env.CONVEX_SITE_URL = 'https://rare-squid-409.convex.site';
-    process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
-    process.env.YUCP_ROOT_PRIVATE_KEY = Buffer.from(
-      crypto.getRandomValues(new Uint8Array(32))
-    ).toString('base64');
+    await configurePinnedTestRoot();
   });
 
   it('mints the license token for the caller public origin instead of the convex site origin', async () => {

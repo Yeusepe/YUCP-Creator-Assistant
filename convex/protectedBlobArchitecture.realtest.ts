@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { internal } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
@@ -31,7 +32,8 @@ describe('protected blob package-first architecture', () => {
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
     process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
-    process.env.YUCP_ROOT_PUBLIC_KEY = await yucpCrypto.getPublicKeyFromPrivate(rootPrivateKey);
+    const rootPublicKey = await yucpCrypto.getPublicKeyFromPrivate(rootPrivateKey);
+    process.env.YUCP_ROOT_PUBLIC_KEY = rootPublicKey;
     process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-protected-blob-flow';
     process.env.POLAR_ACCESS_TOKEN = 'test-polar-access-token';
@@ -39,6 +41,17 @@ describe('protected blob package-first architecture', () => {
     process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling.internal';
     process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'coupling-secret';
     globalThis.fetch = originalFetch;
+    setPinnedYucpRootsForTests([
+      {
+        keyId: 'yucp-root',
+        algorithm: 'Ed25519',
+        publicKeyBase64: rootPublicKey,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    setPinnedYucpRootsForTests(null);
   });
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
@@ -149,39 +162,6 @@ describe('protected blob package-first architecture', () => {
     });
   }
 
-  function mockRuntimeArtifact() {
-    globalThis.fetch = (async (input) => {
-      const url =
-        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (
-        url ===
-        'https://coupling.internal/v1/runtime-artifacts/manifest?artifactKey=coupling-runtime'
-      ) {
-        return new Response(
-          JSON.stringify({
-            success: true,
-            artifactKey: 'coupling-runtime',
-            channel: 'stable',
-            platform: 'win-x64',
-            version: couplingRuntimeVersion,
-            metadataVersion: 1,
-            deliveryName: 'yucp-coupling.dll',
-            contentType: 'application/octet-stream',
-            envelopeCipher: 'none',
-            envelopeIvBase64: '',
-            ciphertextSha256: couplingRuntimePlaintextSha256,
-            ciphertextSize: 4,
-            plaintextSha256: couplingRuntimePlaintextSha256,
-            plaintextSize: 4,
-            downloadUrl: 'https://coupling.internal/v1/licenses/coupling-runtime',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    }) as typeof fetch;
-  }
-
   it('requires a matching package registration before issuing protected unlock tickets', async () => {
     const t = makeTestConvex();
     await seedProtectedAsset(t);
@@ -266,7 +246,6 @@ describe('protected blob package-first architecture', () => {
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
     await seedActiveCouplingBilling(t);
-    mockRuntimeArtifact();
     const licenseToken = await mintLicenseToken();
 
     const couplingResult = await t.action(internal.yucpLicenses.issueCouplingJob, {
@@ -276,6 +255,8 @@ describe('protected blob package-first architecture', () => {
       licenseToken,
       assetPaths: ['Assets/Protected/Model.fbx'],
       issuerBaseUrl,
+      runtimeArtifactVersion: couplingRuntimeVersion,
+      runtimePlaintextSha256: couplingRuntimePlaintextSha256,
     });
 
     expect(couplingResult).toMatchObject({
