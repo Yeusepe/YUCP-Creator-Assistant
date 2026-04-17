@@ -52,6 +52,7 @@ describe('production server contract', () => {
     const viteConfigSource = readFileSync(join(APP_DIR, 'vite.config.ts'), 'utf8');
     const wranglerConfigSource = readFileSync(join(APP_DIR, 'wrangler.jsonc'), 'utf8');
     const rootRouteSource = readFileSync(join(APP_DIR, 'src', 'routes', '__root.tsx'), 'utf8');
+    const routerSource = readFileSync(join(APP_DIR, 'src', 'router.tsx'), 'utf8');
     const runtimeConfigSource = readFileSync(
       join(APP_DIR, 'src', 'lib', 'runtimeConfig.tsx'),
       'utf8'
@@ -68,7 +69,9 @@ describe('production server contract', () => {
     expect(viteConfigSource).not.toContain('import.meta.env.HYPERDX_API_KEY');
     expect(viteConfigSource).not.toContain('fetchInfisicalSecrets');
     expect(rootRouteSource).toContain('__YUCP_PUBLIC_RUNTIME_CONFIG__');
+    expect(rootRouteSource).not.toContain('@/lib/server/runtimeEnv');
     expect(rootRouteSource).toContain('RuntimeConfigProvider');
+    expect(routerSource).not.toContain('@/lib/server/runtimeEnv');
     expect(runtimeConfigSource).toContain('convexUrl');
     expect(runtimeConfigSource).toContain('hyperdxApiKey');
     expect(runtimeEnvSource).toContain('Worker runtime started');

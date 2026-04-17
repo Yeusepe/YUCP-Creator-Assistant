@@ -155,6 +155,12 @@ export function buildPublicRuntimeEnvSource(
   );
 }
 
+export function getPublicRuntimeEnvSourceFromProcessEnv(
+  env: Record<string, string | null | undefined> = process.env
+): PublicRuntimeEnvSource {
+  return buildPublicRuntimeEnvSource((key) => normalizeOptionalValue(env[key]));
+}
+
 export function getPublicRuntimeConfig(): PublicRuntimeConfig {
   return (
     window.__YUCP_PUBLIC_RUNTIME_CONFIG__ ??

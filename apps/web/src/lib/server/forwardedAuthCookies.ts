@@ -6,10 +6,12 @@ const FORWARDED_AUTH_COOKIE_NAMES = new Set([
   'yucp_connect_token',
   'yucp_collab_session',
   'yucp_discord_role_setup',
+  'yucp.state',
   'yucp_vrchat_connect_pending',
   '__Secure-yucp.session_token',
   '__Secure-yucp.session_data',
   '__Secure-yucp.convex_jwt',
+  '__Secure-yucp.state',
 ]);
 
 const FORWARDED_SESSION_COOKIE_NAMES = new Set([

@@ -448,6 +448,7 @@ export declare const components: {
                     | "updatedAt"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -482,6 +483,7 @@ export declare const components: {
                     | "userAgent"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -521,6 +523,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -553,6 +556,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -586,6 +590,7 @@ export declare const components: {
                     | "alg"
                     | "crv"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -635,6 +640,7 @@ export declare const components: {
                     | "permissions"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -691,6 +697,7 @@ export declare const components: {
                     | "referenceId"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -728,6 +735,7 @@ export declare const components: {
                     | "authTime"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -764,6 +772,7 @@ export declare const components: {
                     | "createdAt"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -797,6 +806,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -848,6 +858,7 @@ export declare const components: {
                     | "updatedAt"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -882,6 +893,7 @@ export declare const components: {
                     | "userAgent"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -921,6 +933,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -953,6 +966,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -986,6 +1000,7 @@ export declare const components: {
                     | "alg"
                     | "crv"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1035,6 +1050,7 @@ export declare const components: {
                     | "permissions"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1091,6 +1107,7 @@ export declare const components: {
                     | "referenceId"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1128,6 +1145,7 @@ export declare const components: {
                     | "authTime"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1164,6 +1182,7 @@ export declare const components: {
                     | "createdAt"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1197,6 +1216,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1253,6 +1273,7 @@ export declare const components: {
           where?: Array<{
             connector?: "AND" | "OR";
             field: string;
+            mode?: "sensitive" | "insensitive";
             operator?:
               | "lt"
               | "lte"
@@ -1296,6 +1317,7 @@ export declare const components: {
           where?: Array<{
             connector?: "AND" | "OR";
             field: string;
+            mode?: "sensitive" | "insensitive";
             operator?:
               | "lt"
               | "lte"
@@ -1346,6 +1368,7 @@ export declare const components: {
                     | "updatedAt"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1389,6 +1412,7 @@ export declare const components: {
                     | "userAgent"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1442,6 +1466,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1481,6 +1506,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1522,6 +1548,7 @@ export declare const components: {
                     | "alg"
                     | "crv"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1595,6 +1622,7 @@ export declare const components: {
                     | "permissions"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1682,6 +1710,7 @@ export declare const components: {
                     | "referenceId"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1731,6 +1760,7 @@ export declare const components: {
                     | "authTime"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1778,6 +1808,7 @@ export declare const components: {
                     | "createdAt"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1819,6 +1850,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1879,6 +1911,7 @@ export declare const components: {
                     | "updatedAt"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1922,6 +1955,7 @@ export declare const components: {
                     | "userAgent"
                     | "userId"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -1975,6 +2009,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2014,6 +2049,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2055,6 +2091,7 @@ export declare const components: {
                     | "alg"
                     | "crv"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2128,6 +2165,7 @@ export declare const components: {
                     | "permissions"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2215,6 +2253,7 @@ export declare const components: {
                     | "referenceId"
                     | "metadata"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2264,6 +2303,7 @@ export declare const components: {
                     | "authTime"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2311,6 +2351,7 @@ export declare const components: {
                     | "createdAt"
                     | "scopes"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"
@@ -2352,6 +2393,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "_id";
+                  mode?: "sensitive" | "insensitive";
                   operator?:
                     | "lt"
                     | "lte"

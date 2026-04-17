@@ -2,8 +2,10 @@ import { ConvexQueryClient } from '@convex-dev/react-query';
 import { notifyManager, QueryClient } from '@tanstack/react-query';
 import { createRouter } from '@tanstack/react-router';
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query';
-import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
-import { getWebEnv, getWebRuntimeEnv } from '@/lib/server/runtimeEnv';
+import {
+  getPublicRuntimeConfig,
+  getPublicRuntimeEnvSourceFromProcessEnv,
+} from '@/lib/runtimeConfig';
 import { resolveRequiredConvexUrl } from '@/lib/webDiagnostics';
 import { routeTree } from './routeTree.gen';
 
@@ -13,14 +15,16 @@ export function getRouter() {
   }
 
   const publicRuntimeConfig = typeof window !== 'undefined' ? getPublicRuntimeConfig() : undefined;
-  const runtimeEnv = typeof window === 'undefined' ? getWebRuntimeEnv() : undefined;
-  const readServerEnv = (name: 'CONVEX_URL' | 'CONVEX_SITE_URL' | 'NODE_ENV') =>
-    runtimeEnv ? getWebEnv(name, runtimeEnv) : undefined;
+  const publicRuntimeEnv =
+    typeof window === 'undefined' ? getPublicRuntimeEnvSourceFromProcessEnv() : undefined;
+  const readServerEnv = (name: 'CONVEX_URL' | 'CONVEX_SITE_URL') =>
+    publicRuntimeEnv?.[name] ?? undefined;
   const configuredConvexUrl = publicRuntimeConfig?.convexUrl ?? readServerEnv('CONVEX_URL');
 
   const convexUrl = resolveRequiredConvexUrl(configuredConvexUrl, {
     env: {
-      NODE_ENV: import.meta.env.MODE ?? readServerEnv('NODE_ENV'),
+      NODE_ENV:
+        import.meta.env.MODE ?? (typeof window === 'undefined' ? process.env.NODE_ENV : undefined),
       CONVEX_URL: configuredConvexUrl,
       CONVEX_SITE_URL: publicRuntimeConfig?.convexSiteUrl ?? readServerEnv('CONVEX_SITE_URL'),
     },

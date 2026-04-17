@@ -32,7 +32,10 @@ const passthroughArgs = userArgs;
 const isRunMode = passthroughArgs.length > 0;
 
 async function getSecrets(): Promise<Record<string, string>> {
-  const secrets = await fetchInfisicalSecrets();
+  const secrets = await fetchInfisicalSecrets({
+    ...process.env,
+    INFISICAL_ENV: isProd ? 'prod' : process.env.INFISICAL_ENV ?? 'dev',
+  });
   if (Object.keys(secrets).length === 0) {
     if (isProd) {
       console.error(

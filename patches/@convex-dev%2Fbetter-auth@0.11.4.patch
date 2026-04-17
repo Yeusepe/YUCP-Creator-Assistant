@@ -1,0 +1,110 @@
+diff --git a/dist/client/adapter-utils.d.ts b/dist/client/adapter-utils.d.ts
+index 4e263dd..c6277c5 100644
+--- a/dist/client/adapter-utils.d.ts
++++ b/dist/client/adapter-utils.d.ts
+@@ -4,6 +4,7 @@ import type { BetterAuthDBSchema } from "better-auth/db";
+ export declare const adapterWhereValidator: import("convex/values").VObject<{
+     operator?: "lt" | "lte" | "gt" | "gte" | "eq" | "in" | "not_in" | "ne" | "contains" | "starts_with" | "ends_with" | undefined;
+     connector?: "AND" | "OR" | undefined;
++    mode?: "sensitive" | "insensitive" | undefined;
+     value: string | number | boolean | string[] | number[] | null;
+     field: string;
+ }, {
+@@ -11,7 +12,8 @@ export declare const adapterWhereValidator: import("convex/values").VObject<{
+     operator: import("convex/values").VUnion<"lt" | "lte" | "gt" | "gte" | "eq" | "in" | "not_in" | "ne" | "contains" | "starts_with" | "ends_with" | undefined, [import("convex/values").VLiteral<"lt", "required">, import("convex/values").VLiteral<"lte", "required">, import("convex/values").VLiteral<"gt", "required">, import("convex/values").VLiteral<"gte", "required">, import("convex/values").VLiteral<"eq", "required">, import("convex/values").VLiteral<"in", "required">, import("convex/values").VLiteral<"not_in", "required">, import("convex/values").VLiteral<"ne", "required">, import("convex/values").VLiteral<"contains", "required">, import("convex/values").VLiteral<"starts_with", "required">, import("convex/values").VLiteral<"ends_with", "required">], "optional", never>;
+     value: import("convex/values").VUnion<string | number | boolean | string[] | number[] | null, [import("convex/values").VString<string, "required">, import("convex/values").VFloat64<number, "required">, import("convex/values").VBoolean<boolean, "required">, import("convex/values").VArray<string[], import("convex/values").VString<string, "required">, "required">, import("convex/values").VArray<number[], import("convex/values").VFloat64<number, "required">, "required">, import("convex/values").VNull<null, "required">], "required", never>;
+     connector: import("convex/values").VUnion<"AND" | "OR" | undefined, [import("convex/values").VLiteral<"AND", "required">, import("convex/values").VLiteral<"OR", "required">], "optional", never>;
+-}, "required", "value" | "field" | "operator" | "connector">;
++    mode: import("convex/values").VUnion<"sensitive" | "insensitive" | undefined, [import("convex/values").VLiteral<"sensitive", "required">, import("convex/values").VLiteral<"insensitive", "required">], "optional", never>;
++}, "required", "value" | "field" | "operator" | "connector" | "mode">;
+ export declare const adapterArgsValidator: import("convex/values").VObject<{
+     select?: string[] | undefined;
+     limit?: number | undefined;
+@@ -23,6 +25,7 @@ export declare const adapterArgsValidator: import("convex/values").VObject<{
+     where?: {
+         operator?: "lt" | "lte" | "gt" | "gte" | "eq" | "in" | "not_in" | "ne" | "contains" | "starts_with" | "ends_with" | undefined;
+         connector?: "AND" | "OR" | undefined;
++        mode?: "sensitive" | "insensitive" | undefined;
+         value: string | number | boolean | string[] | number[] | null;
+         field: string;
+     }[] | undefined;
+@@ -32,6 +35,7 @@ export declare const adapterArgsValidator: import("convex/values").VObject<{
+     where: import("convex/values").VArray<{
+         operator?: "lt" | "lte" | "gt" | "gte" | "eq" | "in" | "not_in" | "ne" | "contains" | "starts_with" | "ends_with" | undefined;
+         connector?: "AND" | "OR" | undefined;
++        mode?: "sensitive" | "insensitive" | undefined;
+         value: string | number | boolean | string[] | number[] | null;
+         field: string;
+     }[] | undefined, import("convex/values").VObject<{
+@@ -44,7 +48,8 @@ export declare const adapterArgsValidator: import("convex/values").VObject<{
+         operator: import("convex/values").VUnion<"lt" | "lte" | "gt" | "gte" | "eq" | "in" | "not_in" | "ne" | "contains" | "starts_with" | "ends_with" | undefined, [import("convex/values").VLiteral<"lt", "required">, import("convex/values").VLiteral<"lte", "required">, import("convex/values").VLiteral<"gt", "required">, import("convex/values").VLiteral<"gte", "required">, import("convex/values").VLiteral<"eq", "required">, import("convex/values").VLiteral<"in", "required">, import("convex/values").VLiteral<"not_in", "required">, import("convex/values").VLiteral<"ne", "required">, import("convex/values").VLiteral<"contains", "required">, import("convex/values").VLiteral<"starts_with", "required">, import("convex/values").VLiteral<"ends_with", "required">], "optional", never>;
+         value: import("convex/values").VUnion<string | number | boolean | string[] | number[] | null, [import("convex/values").VString<string, "required">, import("convex/values").VFloat64<number, "required">, import("convex/values").VBoolean<boolean, "required">, import("convex/values").VArray<string[], import("convex/values").VString<string, "required">, "required">, import("convex/values").VArray<number[], import("convex/values").VFloat64<number, "required">, "required">, import("convex/values").VNull<null, "required">], "required", never>;
+         connector: import("convex/values").VUnion<"AND" | "OR" | undefined, [import("convex/values").VLiteral<"AND", "required">, import("convex/values").VLiteral<"OR", "required">], "optional", never>;
+-    }, "required", "value" | "field" | "operator" | "connector">, "optional">;
++        mode: import("convex/values").VUnion<"sensitive" | "insensitive" | undefined, [import("convex/values").VLiteral<"sensitive", "required">, import("convex/values").VLiteral<"insensitive", "required">], "optional", never>;
++    }, "required", "value" | "field" | "operator" | "connector" | "mode">, "optional">;
+     sortBy: import("convex/values").VObject<{
+         field: string;
+         direction: "asc" | "desc";
+@@ -63,4 +68,4 @@ export declare const paginate: <Doc extends DocumentByName<GenericDataModel, T>,
+     paginationOpts: PaginationOptions;
+ }) => Promise<PaginationResult<Doc>>;
+ export declare const listOne: <Doc extends DocumentByName<GenericDataModel, T>, T extends TableNamesInDataModel<GenericDataModel>>(ctx: GenericQueryCtx<GenericDataModel>, schema: SchemaDefinition<any, any>, betterAuthSchema: BetterAuthDBSchema, args: Infer<typeof adapterArgsValidator>) => Promise<Doc | null>;
+-//# sourceMappingURL=adapter-utils.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=adapter-utils.d.ts.map
+diff --git a/dist/client/adapter-utils.js b/dist/client/adapter-utils.js
+index 90b3506..3a163a0 100644
+--- a/dist/client/adapter-utils.js
++++ b/dist/client/adapter-utils.js
+@@ -8,6 +8,7 @@ export const adapterWhereValidator = v.object({
+     operator: v.optional(v.union(v.literal("lt"), v.literal("lte"), v.literal("gt"), v.literal("gte"), v.literal("eq"), v.literal("in"), v.literal("not_in"), v.literal("ne"), v.literal("contains"), v.literal("starts_with"), v.literal("ends_with"))),
+     value: v.union(v.string(), v.number(), v.boolean(), v.array(v.string()), v.array(v.number()), v.null()),
+     connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
++    mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
+ });
+ export const adapterArgsValidator = v.object({
+     model: v.string(),
+@@ -443,4 +444,4 @@ export const listOne = async (ctx, schema, betterAuthSchema, args) => {
+         },
+     })).page[0];
+ };
+-//# sourceMappingURL=adapter-utils.js.map
+\ No newline at end of file
++//# sourceMappingURL=adapter-utils.js.map
+diff --git a/src/client/adapter-utils.ts b/src/client/adapter-utils.ts
+index 4618da4..7f23716 100644
+--- a/src/client/adapter-utils.ts
++++ b/src/client/adapter-utils.ts
+@@ -41,6 +41,7 @@ export const adapterWhereValidator = v.object({
+     v.null()
+   ),
+   connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
++  mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
+ });
+ 
+ export const adapterArgsValidator = v.object({
+diff --git a/dist/client/create-api.js b/dist/client/create-api.js
+index 411d7eb..513c39f 100644
+--- a/dist/client/create-api.js
++++ b/dist/client/create-api.js
+@@ -9,6 +9,7 @@ const whereValidator = (schema, tableName) => v.object({
+     operator: v.optional(v.union(v.literal("lt"), v.literal("lte"), v.literal("gt"), v.literal("gte"), v.literal("eq"), v.literal("in"), v.literal("not_in"), v.literal("ne"), v.literal("contains"), v.literal("starts_with"), v.literal("ends_with"))),
+     value: v.union(v.string(), v.number(), v.boolean(), v.array(v.string()), v.array(v.number()), v.null()),
+     connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
++    mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
+ });
+ export const createApi = (schema, createAuthOptions) => {
+     const betterAuthSchema = getAuthTables(createAuthOptions({}));
+diff --git a/src/client/create-api.ts b/src/client/create-api.ts
+index 032f3d2..d72e911 100644
+--- a/src/client/create-api.ts
++++ b/src/client/create-api.ts
+@@ -55,6 +55,7 @@ const whereValidator = (
+       v.null()
+     ),
+     connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
++    mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
+   });
+ 
+ export const createApi = <Schema extends SchemaDefinition<any, any>>(

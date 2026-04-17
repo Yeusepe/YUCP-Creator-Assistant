@@ -6,10 +6,7 @@ import {
 import { resolveConvexSiteUrl } from '@yucp/shared';
 import { ConvexError } from 'convex/values';
 import { logWebError } from '@/lib/webDiagnostics';
-import {
-  filterForwardedAuthCookieHeader,
-  filterForwardedSessionCookieHeader,
-} from './server/forwardedAuthCookies';
+import { filterForwardedSessionCookieHeader } from './server/forwardedAuthCookies';
 import { getWebEnv, getWebRuntimeEnv } from './server/runtimeEnv';
 
 const AUTH_COOKIE_PREFIX = 'yucp';
@@ -126,43 +123,13 @@ export function convertPostRedirectToJson(method: string, response: Response): R
   return response;
 }
 
-function buildProxiedAuthHeaders(request: Request): Headers {
-  const headers = new Headers(request.headers);
-  const filteredCookieHeader = filterForwardedAuthCookieHeader(request.headers.get('cookie'));
-
-  if (filteredCookieHeader) {
-    headers.set('cookie', filteredCookieHeader);
-  } else {
-    headers.delete('cookie');
-  }
-
-  return headers;
-}
-
-function proxyAuthRequest(request: Request, convexSiteUrl: string): Promise<Response> {
-  const requestUrl = new URL(request.url);
-  const targetUrl = `${convexSiteUrl}${requestUrl.pathname}${requestUrl.search}`;
-  const headers = buildProxiedAuthHeaders(request);
-  headers.set('host', new URL(convexSiteUrl).host);
-
-  return fetch(targetUrl, {
-    method: request.method,
-    headers,
-    redirect: 'manual',
-    body: request.body,
-    // @ts-expect-error duplex is required for streamed request bodies in server fetch runtimes.
-    duplex: 'half',
-  });
-}
-
 /**
  * Wraps the Better Auth handler, applying convertPostRedirectToJson so that
  * POST requests that result in redirects (e.g. /api/auth/oauth2/consent)
  * return a JSON body the JS client can act on.
  */
 export async function handleAuthRequest(request: Request): Promise<Response> {
-  const { convexSiteUrl } = resolveAuthRuntimeConfig();
-  const res = await proxyAuthRequest(request, convexSiteUrl);
+  const res = await getAuthRuntime().handler(request);
   return convertPostRedirectToJson(request.method, res);
 }
 

@@ -19,14 +19,13 @@ import {
   setHyperdxGlobalAttributes,
 } from '@/lib/hyperdx';
 import {
-  buildPublicRuntimeEnvSource,
   createPublicRuntimeConfigFromEnv,
   getPublicRuntimeConfig,
+  getPublicRuntimeEnvSourceFromProcessEnv,
   RuntimeConfigProvider,
   serializePublicRuntimeConfig,
 } from '@/lib/runtimeConfig';
 import { getDocumentRequestUrl } from '@/lib/server/runtimeConfig';
-import { getWebEnv, getWebRuntimeEnv } from '@/lib/server/runtimeEnv';
 import { useVersionPoller } from '@/lib/versionPoller';
 import { logRootRenderError } from '@/lib/webDiagnostics';
 
@@ -158,12 +157,7 @@ function resolveDocumentRuntimeConfig(requestUrl?: string) {
 }
 
 function getPublicRuntimeConfigFromServerEnv(requestUrl?: string) {
-  const env = getWebRuntimeEnv();
-
-  return createPublicRuntimeConfigFromEnv(
-    buildPublicRuntimeEnvSource((key) => getWebEnv(key, env)),
-    requestUrl
-  );
+  return createPublicRuntimeConfigFromEnv(getPublicRuntimeEnvSourceFromProcessEnv(), requestUrl);
 }
 
 function RootErrorComponent({ error }: { error: Error }) {

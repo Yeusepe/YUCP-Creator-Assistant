@@ -52,19 +52,16 @@ describe('auth-server environment resolution', () => {
   it('derives CONVEX_SITE_URL from CONVEX_URL when the site URL is unset', async () => {
     vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
     vi.stubEnv('CONVEX_SITE_URL', '');
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-    vi.stubGlobal('fetch', fetchMock);
 
     const authServer = await import('@/lib/auth-server');
     await authServer.handleAuthRequest(
       new Request('https://verify.creators.yucp.club/api/auth/sign-in')
     );
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://rare-squid-409.convex.site/api/auth/sign-in',
+    expect(reactStartSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: 'GET',
-        headers: expect.any(Headers),
+        convexUrl: 'https://rare-squid-409.convex.cloud',
+        convexSiteUrl: 'https://rare-squid-409.convex.site',
       })
     );
   });
@@ -122,38 +119,56 @@ describe('auth-server environment resolution', () => {
     expect(forwardedHeaders.get('connection')).toBeNull();
   });
 
-  it('strips non-auth cookies before proxying auth requests', async () => {
+  it('passes auth requests directly to the official react-start handler', async () => {
     vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
     vi.stubEnv('CONVEX_SITE_URL', 'https://rare-squid-409.convex.site');
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-    vi.stubGlobal('fetch', fetchMock);
 
     const authServer = await import('@/lib/auth-server');
 
-    const requestHeaders = new Headers({
-      'content-type': 'application/json',
-      cookie:
-        '__Secure-yucp.session_token=abc; __Secure-yucp.session_data=def; __Secure-yucp.convex_jwt=jwt; yucp_privacy_preferences=keep-me; __rum_sid=trace',
-    });
-    await authServer.handleAuthRequest({
+    const request = {
       url: 'https://verify.creators.yucp.club/api/auth/sign-in/social',
       method: 'POST',
-      headers: requestHeaders,
+      headers: new Headers({
+        'content-type': 'application/json',
+        cookie:
+          '__Secure-yucp.session_token=abc; __Secure-yucp.session_data=def; __Secure-yucp.convex_jwt=jwt; yucp_privacy_preferences=keep-me; __rum_sid=trace',
+      }),
       body: JSON.stringify({
         provider: 'discord',
         callbackURL: '/dashboard',
       }),
-    } as unknown as Request);
+    } as unknown as Request;
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://rare-squid-409.convex.site/api/auth/sign-in/social'
+    await authServer.handleAuthRequest(request);
+
+    expect(authRuntimeMock.handler).toHaveBeenCalledTimes(1);
+    expect(authRuntimeMock.handler).toHaveBeenCalledWith(request);
+  });
+
+  it('converts handler POST redirects to JSON redirect payloads', async () => {
+    vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
+    vi.stubEnv('CONVEX_SITE_URL', 'https://rare-squid-409.convex.site');
+    authRuntimeMock.handler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          location: 'https://rare-squid-409.convex.site/api/auth/callback/discord?code=test',
+        },
+      })
     );
-    const forwardedHeaders = fetchMock.mock.calls[0][1].headers as Headers;
-    expect(forwardedHeaders.get('cookie')).toBe(
-      '__Secure-yucp.session_token=abc; __Secure-yucp.session_data=def; __Secure-yucp.convex_jwt=jwt'
+
+    const authServer = await import('@/lib/auth-server');
+
+    const response = await authServer.handleAuthRequest(
+      new Request('https://verify.creators.yucp.club/api/auth/oauth2/consent', {
+        method: 'POST',
+      })
     );
-    expect(forwardedHeaders.get('host')).toBe('rare-squid-409.convex.site');
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      redirectTo: 'https://rare-squid-409.convex.site/api/auth/callback/discord?code=test',
+    });
   });
 
   it('logs request metadata and direct Convex probe results when getToken fails', async () => {
