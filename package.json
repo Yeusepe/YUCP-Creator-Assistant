@@ -93,7 +93,7 @@
   "dependencies": {
     "@better-auth/api-key": "1.5.5",
     "@better-auth/core": "1.5.5",
-    "@better-auth/oauth-provider": "1.5.5",
+    "@better-auth/oauth-provider": "1.6.5",
     "@convex-dev/better-auth": "^0.11.0",
     "@noble/ed25519": "^2.2.3",
     "@polar-sh/better-auth": "^1.8.3",
