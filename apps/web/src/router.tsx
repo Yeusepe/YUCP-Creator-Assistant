@@ -14,14 +14,15 @@ export function getRouter() {
 
   const publicRuntimeConfig = typeof window !== 'undefined' ? getPublicRuntimeConfig() : undefined;
   const runtimeEnv = typeof window === 'undefined' ? getWebRuntimeEnv() : undefined;
-  const configuredConvexUrl = publicRuntimeConfig?.convexUrl ?? getWebEnv('CONVEX_URL', runtimeEnv);
+  const readServerEnv = (name: 'CONVEX_URL' | 'CONVEX_SITE_URL' | 'NODE_ENV') =>
+    runtimeEnv ? getWebEnv(name, runtimeEnv) : undefined;
+  const configuredConvexUrl = publicRuntimeConfig?.convexUrl ?? readServerEnv('CONVEX_URL');
 
   const convexUrl = resolveRequiredConvexUrl(configuredConvexUrl, {
     env: {
-      NODE_ENV: import.meta.env.MODE ?? getWebEnv('NODE_ENV', runtimeEnv),
+      NODE_ENV: import.meta.env.MODE ?? readServerEnv('NODE_ENV'),
       CONVEX_URL: configuredConvexUrl,
-      CONVEX_SITE_URL:
-        publicRuntimeConfig?.convexSiteUrl ?? getWebEnv('CONVEX_SITE_URL', runtimeEnv),
+      CONVEX_SITE_URL: publicRuntimeConfig?.convexSiteUrl ?? readServerEnv('CONVEX_SITE_URL'),
     },
   });
 

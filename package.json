@@ -22,7 +22,8 @@
     "follow-redirects": ">=1.15.12",
     "@smithy/config-resolver": ">=4.4.0",
     "srvx": ">=0.11.13",
-    "@babel/runtime": ">=7.26.10"
+    "@babel/runtime": ">=7.26.10",
+    "protobufjs": ">=7.5.5"
   },
   "scripts": {
     "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",
@@ -32,7 +33,7 @@
     "test": "bun run test:fast",
     "test:ops": "bun test ./ops/dev-supervisor.test.ts",
     "test:fast": "bun run test:ops && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
-    "test:convex": "npx vitest run --config convex/vitest.config.ts",
+    "test:convex": "bun x vitest run --config convex/vitest.config.ts",
     "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
@@ -61,8 +62,8 @@
     "dev:bot:infisical": "bun run --env-file=.env.infisical dev:bot",
     "dev:web": "bun run --filter @yucp/web worker:dev",
     "dev:web:infisical": "bun run --env-file=.env.infisical ops/run-web-worker-infisical.ts",
-    "convex:dev": "npx convex dev",
-    "convex:deploy": "npx convex deploy",
+    "convex:dev": "bun x convex dev",
+    "convex:deploy": "bun x convex deploy",
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
     "start:web": "bun run --filter @yucp/web preview",
@@ -91,9 +92,9 @@
     "bun": ">=1.1"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.5.5",
-    "@better-auth/core": "1.5.5",
-    "@better-auth/oauth-provider": "1.5.5",
+    "@better-auth/api-key": "1.6.5",
+    "@better-auth/core": "1.6.5",
+    "@better-auth/oauth-provider": "1.6.5",
     "@convex-dev/better-auth": "^0.11.0",
     "@noble/ed25519": "^2.2.3",
     "@polar-sh/better-auth": "^1.8.3",
@@ -102,7 +103,7 @@
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/server": "^0.0.12",
     "bebop": "3.0.4",
-    "better-auth": "1.5.5",
+    "better-auth": "1.6.5",
     "buffer": "^6.0.3",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1",

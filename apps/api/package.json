@@ -13,8 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test ./src",
     "test:ci": "bun run ./scripts/test-ci.ts",
-    "test:e2e": "cross-env TEST_BASE_URL=http://localhost:3001 npx playwright test --config playwright.config.ts",
-    "test:e2e:list": "npx playwright test --config playwright.config.ts --list"
+    "test:e2e": "cross-env TEST_BASE_URL=http://localhost:3001 bun x playwright test --config playwright.config.ts",
+    "test:e2e:list": "bun x playwright test --config playwright.config.ts --list"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.11.0",
@@ -31,7 +31,7 @@
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",
     "bebop": "3.0.4",
-    "better-auth": "1.5.5",
+    "better-auth": "1.6.5",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "facehash": "^0.1.0",

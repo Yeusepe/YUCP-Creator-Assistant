@@ -2,7 +2,7 @@
  * useVersionPoller
  *
  * Polls GET /api/version every 5 minutes while the browser tab is visible.
- * When the server's buildId differs from the value baked in at build time,
+ * When the server's buildId differs from the request-scoped runtime config,
  * fires a persistent toast notification prompting the user to reload.
  *
  * Pattern: Linear-style "Update available" banner, non-blocking, user stays
@@ -12,10 +12,6 @@
 import { useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/Toast';
 import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
-
-/** Build ID injected into the document by the Worker runtime. Falls back to 'dev'. */
-const CURRENT_BUILD_ID: string =
-  typeof window !== 'undefined' ? getPublicRuntimeConfig().buildId : 'dev';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const VERSION_ENDPOINT = '/api/version';
@@ -43,8 +39,10 @@ export function useVersionPoller(): void {
   const notifiedRef = useRef(false);
 
   useEffect(() => {
+    const currentBuildId = getPublicRuntimeConfig().buildId;
+
     // Skip in dev mode, build IDs would always be 'dev'
-    if (CURRENT_BUILD_ID === 'dev') return;
+    if (currentBuildId === 'dev') return;
 
     async function check() {
       if (notifiedRef.current) return;
@@ -52,7 +50,7 @@ export function useVersionPoller(): void {
 
       const serverBuildId = await fetchBuildId();
       if (!serverBuildId) return;
-      if (serverBuildId === CURRENT_BUILD_ID) return;
+      if (serverBuildId === currentBuildId) return;
 
       notifiedRef.current = true;
 

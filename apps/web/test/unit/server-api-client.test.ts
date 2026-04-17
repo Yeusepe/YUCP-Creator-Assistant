@@ -214,15 +214,18 @@ describe('serverApiFetch', () => {
     vi.stubEnv('NODE_ENV', 'development');
     vi.stubEnv('API_BASE_URL', '');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
-    const { serverApiFetch } = await import('@/lib/server/api-client');
+    try {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
+      const { serverApiFetch } = await import('@/lib/server/api-client');
 
-    await serverApiFetch('/api/health');
+      await serverApiFetch('/api/health');
 
-    const [url] = mockFetch.mock.calls[0];
-    expect(url).toContain('localhost:3001');
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('API_BASE_URL is not set'));
-    warnSpy.mockRestore();
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('localhost:3001');
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('API_BASE_URL is not set'));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('throws in production when API_BASE_URL is not set', async () => {

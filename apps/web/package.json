@@ -20,9 +20,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
     "test:ci": "vitest run --config vitest.config.ts",
-    "test:e2e": "npx playwright test --config playwright.config.ts",
-    "test:e2e:forensics": "npx playwright test --config playwright.forensics.config.ts",
-    "test:perf": "npx playwright test --config playwright.config.ts test/performance/"
+    "test:e2e": "bun x playwright test --config playwright.config.ts",
+    "test:e2e:forensics": "bun x playwright test --config playwright.forensics.config.ts",
+    "test:perf": "bun x playwright test --config playwright.config.ts test/performance/"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.11.0",
@@ -45,7 +45,7 @@
     "@tempojs/common": "^0.0.12",
     "@yucp/private-rpc": "workspace:*",
     "@yucp/shared": "workspace:*",
-    "better-auth": "1.5.5",
+    "better-auth": "1.6.5",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "framer-motion": "^12.38.0",

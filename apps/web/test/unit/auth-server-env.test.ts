@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getRequestHeadersMock = vi.fn(() => new Headers());
 const getConvexAuthTokenMock = vi.fn();
 let authRuntimeMock = {
-  handler: vi.fn(),
+  handler: vi.fn(async () => new Response(null, { status: 204 })),
   getToken: vi.fn(),
   fetchAuthQuery: vi.fn(),
   fetchAuthMutation: vi.fn(),
@@ -32,7 +32,7 @@ describe('auth-server environment resolution', () => {
     vi.unstubAllGlobals();
     getConvexAuthTokenMock.mockReset();
     authRuntimeMock = {
-      handler: vi.fn(),
+      handler: vi.fn(async () => new Response(null, { status: 204 })),
       getToken: vi.fn(),
       fetchAuthQuery: vi.fn(),
       fetchAuthMutation: vi.fn(),
@@ -50,7 +50,10 @@ describe('auth-server environment resolution', () => {
     vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
     vi.stubEnv('CONVEX_SITE_URL', '');
 
-    await import('@/lib/auth-server');
+    const authServer = await import('@/lib/auth-server');
+    await authServer.handleAuthRequest(
+      new Request('https://verify.creators.yucp.club/api/auth/sign-in')
+    );
 
     expect(reactStartSpy).toHaveBeenCalledWith(
       expect.objectContaining({

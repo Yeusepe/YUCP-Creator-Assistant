@@ -1,14 +1,10 @@
+import { readFlag } from './cli-utils';
 import {
   createWebDeployEnvironment,
   resolveWebEnvValues,
-  WEB_WRANGLER_CONFIG_PATH,
   runWranglerDeploy,
+  WEB_WRANGLER_CONFIG_PATH,
 } from './cloudflare-web-config';
-
-function readFlag(name: string): string | undefined {
-  const prefixed = `${name}=`;
-  return process.argv.find((arg) => arg.startsWith(prefixed))?.slice(prefixed.length);
-}
 
 const knownFlags = new Set(['--prod']);
 const passthroughArgs = process.argv.slice(2).filter((arg) => {

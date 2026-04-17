@@ -19,7 +19,8 @@ import {
   setHyperdxGlobalAttributes,
 } from '@/lib/hyperdx';
 import {
-  createPublicRuntimeConfig,
+  buildPublicRuntimeEnvSource,
+  createPublicRuntimeConfigFromEnv,
   getPublicRuntimeConfig,
   RuntimeConfigProvider,
   serializePublicRuntimeConfig,
@@ -55,9 +56,11 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootComponent() {
+  const runtimeConfig = resolveDocumentRuntimeConfig();
+
   return (
-    <RootDocument>
-      <RuntimeConfigProvider value={resolveDocumentRuntimeConfig()}>
+    <RootDocument runtimeConfig={runtimeConfig}>
+      <RuntimeConfigProvider value={runtimeConfig}>
         <ToastProvider>
           <AppEffects />
           <Outlet />
@@ -106,9 +109,13 @@ function AppEffects() {
   return null;
 }
 
-function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  const runtimeConfig = resolveDocumentRuntimeConfig();
-
+function RootDocument({
+  children,
+  runtimeConfig,
+}: Readonly<{
+  children: ReactNode;
+  runtimeConfig: ReturnType<typeof resolveDocumentRuntimeConfig>;
+}>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -142,18 +149,14 @@ function resolveDocumentRuntimeConfig() {
     return getPublicRuntimeConfig();
   }
 
+  return getPublicRuntimeConfigFromServerEnv();
+}
+
+function getPublicRuntimeConfigFromServerEnv() {
   const env = getWebRuntimeEnv();
-  return createPublicRuntimeConfig({
-    buildId: getWebEnv('BUILD_ID', env),
-    convexSiteUrl: getWebEnv('CONVEX_SITE_URL', env),
-    convexUrl: getWebEnv('CONVEX_URL', env),
-    frontendUrl: getWebEnv('FRONTEND_URL', env),
-    hyperdxApiKey: getWebEnv('HYPERDX_API_KEY', env),
-    hyperdxAppUrl: getWebEnv('HYPERDX_APP_URL', env),
-    hyperdxOtlpHttpUrl:
-      getWebEnv('HYPERDX_OTLP_HTTP_URL', env) ?? getWebEnv('OTEL_EXPORTER_OTLP_ENDPOINT', env),
-    siteUrl: getWebEnv('SITE_URL', env),
-  });
+  return createPublicRuntimeConfigFromEnv(
+    buildPublicRuntimeEnvSource((key) => getWebEnv(key, env))
+  );
 }
 
 function RootErrorComponent({ error }: { error: Error }) {
@@ -162,7 +165,7 @@ function RootErrorComponent({ error }: { error: Error }) {
   });
 
   return (
-    <RootDocument>
+    <RootDocument runtimeConfig={resolveDocumentRuntimeConfig()}>
       <div
         style={{
           minHeight: '100vh',

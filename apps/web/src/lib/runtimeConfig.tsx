@@ -12,6 +12,30 @@ export interface PublicRuntimeConfig {
   hyperdxOtlpHttpUrl?: string;
 }
 
+export interface PublicRuntimeEnvSource {
+  BUILD_ID?: string | null;
+  CONVEX_SITE_URL?: string | null;
+  CONVEX_URL?: string | null;
+  FRONTEND_URL?: string | null;
+  HYPERDX_API_KEY?: string | null;
+  HYPERDX_APP_URL?: string | null;
+  HYPERDX_OTLP_HTTP_URL?: string | null;
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string | null;
+  SITE_URL?: string | null;
+}
+
+const PUBLIC_RUNTIME_ENV_KEYS = [
+  'BUILD_ID',
+  'CONVEX_SITE_URL',
+  'CONVEX_URL',
+  'FRONTEND_URL',
+  'HYPERDX_API_KEY',
+  'HYPERDX_APP_URL',
+  'HYPERDX_OTLP_HTTP_URL',
+  'OTEL_EXPORTER_OTLP_ENDPOINT',
+  'SITE_URL',
+] as const;
+
 declare global {
   interface Window {
     __YUCP_PUBLIC_RUNTIME_CONFIG__?: PublicRuntimeConfig;
@@ -92,6 +116,39 @@ export function createPublicRuntimeConfig({
     hyperdxAppUrl: normalizeOptionalValue(hyperdxAppUrl),
     hyperdxOtlpHttpUrl: normalizeOptionalValue(hyperdxOtlpHttpUrl),
   };
+}
+
+export function createPublicRuntimeConfigFromEnv(
+  env: PublicRuntimeEnvSource,
+  requestUrl?: string | URL | null
+): PublicRuntimeConfig {
+  return createPublicRuntimeConfig({
+    buildId: env.BUILD_ID,
+    convexSiteUrl: env.CONVEX_SITE_URL,
+    convexUrl: env.CONVEX_URL,
+    requestUrl,
+    frontendUrl: env.FRONTEND_URL,
+    hyperdxApiKey: env.HYPERDX_API_KEY,
+    hyperdxAppUrl: env.HYPERDX_APP_URL,
+    hyperdxOtlpHttpUrl: env.HYPERDX_OTLP_HTTP_URL ?? env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    siteUrl: env.SITE_URL,
+  });
+}
+
+export function pickPublicRuntimeEnvSource(
+  env: Record<string, string | null | undefined>
+): PublicRuntimeEnvSource {
+  return Object.fromEntries(
+    PUBLIC_RUNTIME_ENV_KEYS.map((key) => [key, env[key]])
+  ) as PublicRuntimeEnvSource;
+}
+
+export function buildPublicRuntimeEnvSource(
+  readEnv: (key: (typeof PUBLIC_RUNTIME_ENV_KEYS)[number]) => string | undefined
+): PublicRuntimeEnvSource {
+  return pickPublicRuntimeEnvSource(
+    Object.fromEntries(PUBLIC_RUNTIME_ENV_KEYS.map((key) => [key, readEnv(key)]))
+  );
 }
 
 export function getPublicRuntimeConfig(): PublicRuntimeConfig {

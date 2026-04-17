@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 import {
   createOrUpdateCloudflareWorkerSync,
   loginWithUniversalAuth,
@@ -9,6 +9,10 @@ describe('setup-infisical-cloudflare-worker-sync', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterAll(() => {
     process.env = { ...originalEnv };
   });
 
@@ -140,6 +144,85 @@ describe('setup-infisical-cloudflare-worker-sync', () => {
     expect(result).toEqual({
       syncId: 'sync-123',
       action: 'updated',
+      syncStatus: 'succeeded',
+    });
+  });
+
+  test('does not match a sync from another Cloudflare connection', async () => {
+    const fetchMock = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof URL ? input.toString() : input.toString();
+
+      if (url.endsWith('/api/v1/auth/universal-auth/login')) {
+        return new Response(JSON.stringify({ accessToken: 'access-token-123' }), { status: 200 });
+      }
+
+      if (url.includes('/api/v1/secret-syncs/cloudflare-workers?projectId=')) {
+        return new Response(
+          JSON.stringify({
+            secretSyncs: [
+              {
+                id: 'sync-wrong-connection',
+                name: 'existing-sync',
+                projectId: 'project-id',
+                connectionId: 'other-connection',
+                environment: { slug: 'prod' },
+                folder: { path: '/' },
+                destinationConfig: { scriptId: 'yucp-creator-assistant-dashboard' },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith('/api/v1/secret-syncs/cloudflare-workers')) {
+        expect(init?.method).toBe('POST');
+        return new Response(
+          JSON.stringify({
+            secretSync: {
+              id: 'sync-created',
+              syncStatus: 'pending',
+            },
+          }),
+          { status: 200 }
+        );
+      }
+
+      if (url.endsWith('/api/v1/secret-syncs/cloudflare-workers/sync-created/sync-secrets')) {
+        return new Response(
+          JSON.stringify({
+            secretSync: {
+              id: 'sync-created',
+              syncStatus: 'succeeded',
+            },
+          }),
+          { status: 200 }
+        );
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    const result = await createOrUpdateCloudflareWorkerSync(
+      {
+        infisicalUrl: 'https://app.infisical.com',
+        clientId: 'client-id',
+        clientSecret: 'client-secret',
+        projectId: 'project-id',
+        connectionId: 'connection-id',
+        environment: 'prod',
+        secretPath: '/',
+        scriptId: 'yucp-creator-assistant-dashboard',
+        syncName: 'dashboard-sync',
+        description: 'sync dashboard secrets',
+        autoSync: true,
+      },
+      fetchMock as unknown as typeof fetch
+    );
+
+    expect(result).toEqual({
+      syncId: 'sync-created',
+      action: 'created',
       syncStatus: 'succeeded',
     });
   });

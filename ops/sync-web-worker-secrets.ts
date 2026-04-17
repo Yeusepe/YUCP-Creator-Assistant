@@ -1,3 +1,4 @@
+import { readFlag } from './cli-utils';
 import {
   createTemporaryWranglerConfig,
   fetchWebEnvFromInfisical,
@@ -6,11 +7,6 @@ import {
   resolveWebEnvValues,
   runWranglerSecretBulk,
 } from './cloudflare-web-config';
-
-function readFlag(name: string): string | undefined {
-  const prefixed = `${name}=`;
-  return process.argv.find((arg) => arg.startsWith(prefixed))?.slice(prefixed.length);
-}
 
 const isProd = process.argv.includes('--prod');
 

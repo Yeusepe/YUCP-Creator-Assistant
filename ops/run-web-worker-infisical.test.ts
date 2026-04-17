@@ -38,8 +38,6 @@ describe('run-web-worker-infisical', () => {
       'infisical',
       'login',
       '--method=universal-auth',
-      '--client-id=client-123',
-      '--client-secret=secret-123',
       '--host=https://app.infisical.com',
       '--plain',
       '--silent',

@@ -94,8 +94,6 @@ export function buildInfisicalLoginArgs(config: InfisicalRunConfig): string[] {
     'infisical',
     'login',
     '--method=universal-auth',
-    `--client-id=${config.clientId}`,
-    `--client-secret=${config.clientSecret}`,
     ...(config.host ? [`--host=${config.host}`] : []),
     '--plain',
     '--silent',
@@ -140,6 +138,8 @@ async function resolveInfisicalToken(
     env: {
       ...env,
       INFISICAL_DISABLE_UPDATE_CHECK: 'true',
+      INFISICAL_CLIENT_ID: config.clientId,
+      INFISICAL_CLIENT_SECRET: config.clientSecret,
     },
     stdout: 'pipe',
     stderr: 'pipe',

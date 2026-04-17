@@ -41,10 +41,8 @@ describe('production server contract', () => {
     expect(prepareScriptSource).toContain('process.env');
     expect(prepareScriptSource).toContain('hasProcessWorkerBindings');
     expect(prepareScriptSource).toContain('PROCESS_ENV_REFRESH_KEYS');
-    expect(prepareScriptSource.indexOf('process.env')).toBeLessThan(
-      prepareScriptSource.indexOf('existsSync(WEB_LOCAL_ENV_PATH)')
-    );
     expect(prepareScriptSource).toContain('REPO_ROOT_ENV_LOCAL_PATH');
+    expect(prepareScriptSource).not.toContain('if (existsSync(WEB_LOCAL_ENV_PATH))');
     expect(infisicalWatchSource).toContain("'infisical'");
     expect(infisicalWatchSource).toContain("'run'");
     expect(infisicalWatchSource).toContain('--watch');

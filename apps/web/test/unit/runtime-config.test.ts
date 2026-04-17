@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createPublicRuntimeConfig, resolveBrowserAuthBaseUrl } from '@/lib/runtimeConfig';
+import {
+  createPublicRuntimeConfig,
+  createPublicRuntimeConfigFromEnv,
+  resolveBrowserAuthBaseUrl,
+} from '@/lib/runtimeConfig';
 
 describe('resolveBrowserAuthBaseUrl', () => {
   it('prefers the current SSR request origin over configured env origins', () => {
@@ -63,5 +67,30 @@ describe('createPublicRuntimeConfig', () => {
         siteUrl: 'https://verify.creators.yucp.club',
       }).buildId
     ).toBe('dev');
+  });
+
+  it('maps env-style keys into the public runtime config once', () => {
+    expect(
+      createPublicRuntimeConfigFromEnv(
+        {
+          BUILD_ID: 'build-234',
+          CONVEX_SITE_URL: 'https://rare-squid-409.convex.site',
+          CONVEX_URL: 'https://rare-squid-409.convex.cloud',
+          FRONTEND_URL: 'https://verify.creators.yucp.club',
+          HYPERDX_API_KEY: 'key-234',
+          HYPERDX_APP_URL: 'https://analytics.admin.yucp.club',
+          OTEL_EXPORTER_OTLP_ENDPOINT: 'https://analytics.admin.yucp.club/ingest',
+        },
+        'https://verify.creators.yucp.club/dashboard'
+      )
+    ).toEqual({
+      browserAuthBaseUrl: 'https://verify.creators.yucp.club',
+      buildId: 'build-234',
+      convexSiteUrl: 'https://rare-squid-409.convex.site',
+      convexUrl: 'https://rare-squid-409.convex.cloud',
+      hyperdxApiKey: 'key-234',
+      hyperdxAppUrl: 'https://analytics.admin.yucp.club',
+      hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/ingest',
+    });
   });
 });

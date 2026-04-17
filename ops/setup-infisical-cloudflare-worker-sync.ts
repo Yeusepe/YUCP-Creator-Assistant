@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { type ParseError, parse as parseJsonc, printParseErrorCode } from 'jsonc-parser';
+import { readFlag } from './cli-utils';
 
 const WEB_WRANGLER_CONFIG_PATH = resolve(import.meta.dir, '..', 'apps', 'web', 'wrangler.jsonc');
 const DEFAULT_INFISICAL_URL = 'https://app.infisical.com';
@@ -53,11 +54,6 @@ interface SetupSyncResult {
 function normalizeOptional(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
-}
-
-function readFlag(name: string): string | undefined {
-  const prefixed = `${name}=`;
-  return process.argv.find((arg) => arg.startsWith(prefixed))?.slice(prefixed.length);
 }
 
 function loadWranglerScriptId(): string {
@@ -228,10 +224,14 @@ function buildSyncPayload(config: SetupSyncConfig): Record<string, unknown> {
 
 function findMatchingSync(
   syncs: CloudflareWorkerSyncSummary[],
-  config: Pick<SetupSyncConfig, 'projectId' | 'scriptId' | 'environment' | 'secretPath'>
+  config: Pick<
+    SetupSyncConfig,
+    'connectionId' | 'projectId' | 'scriptId' | 'environment' | 'secretPath'
+  >
 ): CloudflareWorkerSyncSummary | undefined {
   return syncs.find(
     (sync) =>
+      sync.connectionId === config.connectionId &&
       sync.projectId === config.projectId &&
       sync.destinationConfig?.scriptId === config.scriptId &&
       sync.environment?.slug === config.environment &&

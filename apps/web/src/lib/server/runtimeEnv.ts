@@ -35,7 +35,7 @@ export function getWebEnv(
 }
 
 export function isWebProductionRuntime(env: WebRuntimeEnv = getWebRuntimeEnv()): boolean {
-  return getWebEnv('NODE_ENV', env) === 'production';
+  return env.isProduction === true || getWebEnv('NODE_ENV', env) === 'production';
 }
 
 export function getWebApiBaseUrl(env: WebRuntimeEnv = getWebRuntimeEnv()): string {

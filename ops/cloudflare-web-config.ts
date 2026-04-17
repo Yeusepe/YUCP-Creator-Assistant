@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { type ParseError, parse, printParseErrorCode } from 'jsonc-parser';
+import { buildBunToolCommand } from './cli-utils';
 
 export const WEB_APP_DIR = resolve(import.meta.dir, '..', 'apps', 'web');
 export const REPO_ROOT_DIR = resolve(import.meta.dir, '..');
@@ -141,9 +142,7 @@ export function resolveWebEnvValues(
   }
 
   resolved.BUILD_ID ??= resolveDefaultBuildId();
-  resolved.NODE_ENV ??= options.prod
-    ? 'production'
-    : (normalizeOptional(process.env.NODE_ENV) ?? 'development');
+  resolved.NODE_ENV ??= options.prod ? 'production' : 'development';
 
   return resolved;
 }
@@ -300,7 +299,7 @@ export async function runWranglerSecretBulk(
     }
 
     const proc = Bun.spawn({
-      cmd: ['npx', ...args],
+      cmd: buildBunToolCommand('wrangler', args),
       stdout: 'pipe',
       stderr: 'pipe',
       stdin: 'inherit',
@@ -334,7 +333,7 @@ export async function runWranglerDeploy(
   args.push(...extraArgs);
 
   const proc = Bun.spawn({
-    cmd: ['npx', ...args],
+    cmd: buildBunToolCommand('wrangler', args),
     env: deployEnv,
     stdout: 'inherit',
     stderr: 'inherit',

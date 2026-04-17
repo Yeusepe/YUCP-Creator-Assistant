@@ -42,10 +42,6 @@ function main(): void {
     return;
   }
 
-  if (existsSync(WEB_LOCAL_ENV_PATH)) {
-    return;
-  }
-
   if (!existsSync(REPO_ROOT_ENV_LOCAL_PATH)) {
     return;
   }
@@ -60,7 +56,7 @@ function main(): void {
 
   writeDotenvFile(WEB_LOCAL_ENV_PATH, localValues);
   console.log(
-    `prepare-web-worker-env: wrote ${Object.keys(localValues).length} vars to ${WEB_LOCAL_ENV_PATH} from ${REPO_ROOT_ENV_LOCAL_PATH}`
+    `prepare-web-worker-env: refreshed ${Object.keys(localValues).length} vars in ${WEB_LOCAL_ENV_PATH} from ${REPO_ROOT_ENV_LOCAL_PATH}`
   );
 }
 
