@@ -93,4 +93,18 @@ describe('createPublicRuntimeConfig', () => {
       hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/ingest',
     });
   });
+
+  it('falls back to OTEL_EXPORTER_OTLP_ENDPOINT when HYPERDX_OTLP_HTTP_URL is blank', () => {
+    expect(
+      createPublicRuntimeConfigFromEnv({
+        HYPERDX_OTLP_HTTP_URL: '   ',
+        OTEL_EXPORTER_OTLP_ENDPOINT: 'https://analytics.admin.yucp.club/otlp',
+        SITE_URL: 'https://verify.creators.yucp.club',
+      })
+    ).toEqual({
+      browserAuthBaseUrl: 'https://verify.creators.yucp.club',
+      buildId: 'dev',
+      hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/otlp',
+    });
+  });
 });

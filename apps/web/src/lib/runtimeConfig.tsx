@@ -122,6 +122,10 @@ export function createPublicRuntimeConfigFromEnv(
   env: PublicRuntimeEnvSource,
   requestUrl?: string | URL | null
 ): PublicRuntimeConfig {
+  const hyperdxOtlpHttpUrl =
+    normalizeOptionalValue(env.HYPERDX_OTLP_HTTP_URL) ??
+    normalizeOptionalValue(env.OTEL_EXPORTER_OTLP_ENDPOINT);
+
   return createPublicRuntimeConfig({
     buildId: env.BUILD_ID,
     convexSiteUrl: env.CONVEX_SITE_URL,
@@ -130,7 +134,7 @@ export function createPublicRuntimeConfigFromEnv(
     frontendUrl: env.FRONTEND_URL,
     hyperdxApiKey: env.HYPERDX_API_KEY,
     hyperdxAppUrl: env.HYPERDX_APP_URL,
-    hyperdxOtlpHttpUrl: env.HYPERDX_OTLP_HTTP_URL ?? env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    hyperdxOtlpHttpUrl,
     siteUrl: env.SITE_URL,
   });
 }

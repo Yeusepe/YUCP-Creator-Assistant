@@ -25,6 +25,7 @@ import {
   RuntimeConfigProvider,
   serializePublicRuntimeConfig,
 } from '@/lib/runtimeConfig';
+import { getDocumentRequestUrl } from '@/lib/server/runtimeConfig';
 import { getWebEnv, getWebRuntimeEnv } from '@/lib/server/runtimeEnv';
 import { useVersionPoller } from '@/lib/versionPoller';
 import { logRootRenderError } from '@/lib/webDiagnostics';
@@ -38,6 +39,9 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
   convexQueryClient: ConvexQueryClient;
 }>()({
+  loader: async () => ({
+    requestUrl: await getDocumentRequestUrl(),
+  }),
   head: () => ({
     meta: [
       { charSet: 'utf-8' },
@@ -56,7 +60,8 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootComponent() {
-  const runtimeConfig = resolveDocumentRuntimeConfig();
+  const { requestUrl } = Route.useLoaderData();
+  const runtimeConfig = resolveDocumentRuntimeConfig(requestUrl);
 
   return (
     <RootDocument runtimeConfig={runtimeConfig}>
@@ -144,28 +149,32 @@ function RootDocument({
   );
 }
 
-function resolveDocumentRuntimeConfig() {
+function resolveDocumentRuntimeConfig(requestUrl?: string) {
   if (typeof document !== 'undefined') {
     return getPublicRuntimeConfig();
   }
 
-  return getPublicRuntimeConfigFromServerEnv();
+  return getPublicRuntimeConfigFromServerEnv(requestUrl);
 }
 
-function getPublicRuntimeConfigFromServerEnv() {
+function getPublicRuntimeConfigFromServerEnv(requestUrl?: string) {
   const env = getWebRuntimeEnv();
+
   return createPublicRuntimeConfigFromEnv(
-    buildPublicRuntimeEnvSource((key) => getWebEnv(key, env))
+    buildPublicRuntimeEnvSource((key) => getWebEnv(key, env)),
+    requestUrl
   );
 }
 
 function RootErrorComponent({ error }: { error: Error }) {
+  const requestUrl = Route.useLoaderData({ select: (data) => data.requestUrl });
+
   logRootRenderError(error, {
     route: typeof window !== 'undefined' ? window.location.pathname : undefined,
   });
 
   return (
-    <RootDocument runtimeConfig={resolveDocumentRuntimeConfig()}>
+    <RootDocument runtimeConfig={resolveDocumentRuntimeConfig(requestUrl)}>
       <div
         style={{
           minHeight: '100vh',
