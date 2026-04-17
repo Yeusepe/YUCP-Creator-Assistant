@@ -1,4 +1,5 @@
 import { captureHyperdxException } from '@/lib/hyperdx';
+import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 
 export interface WebDiagnosticsEnv {
   NODE_ENV?: string;
@@ -43,12 +44,12 @@ const loggedRootErrors = new WeakSet<Error>();
 
 function getDefaultEnv(): WebDiagnosticsEnv {
   const processEnv = typeof process !== 'undefined' ? process.env : undefined;
+  const publicRuntimeConfig = typeof window !== 'undefined' ? getPublicRuntimeConfig() : undefined;
 
   return {
     NODE_ENV: import.meta.env.MODE ?? processEnv?.NODE_ENV,
-    CONVEX_URL: (import.meta.env.CONVEX_URL as string | undefined) ?? processEnv?.CONVEX_URL,
-    CONVEX_SITE_URL:
-      (import.meta.env.CONVEX_SITE_URL as string | undefined) ?? processEnv?.CONVEX_SITE_URL,
+    CONVEX_URL: publicRuntimeConfig?.convexUrl ?? processEnv?.CONVEX_URL,
+    CONVEX_SITE_URL: publicRuntimeConfig?.convexSiteUrl ?? processEnv?.CONVEX_SITE_URL,
     HTTP_PROXY: processEnv?.HTTP_PROXY,
     HTTPS_PROXY: processEnv?.HTTPS_PROXY,
     ALL_PROXY: processEnv?.ALL_PROXY,

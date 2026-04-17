@@ -10,8 +10,15 @@ export function getPublicRuntimeConfigForRequest(): PublicRuntimeConfig {
   }).toString();
 
   return createPublicRuntimeConfig({
+    buildId: getWebEnv('BUILD_ID', env),
+    convexSiteUrl: getWebEnv('CONVEX_SITE_URL', env),
+    convexUrl: getWebEnv('CONVEX_URL', env),
     requestUrl,
     frontendUrl: getWebEnv('FRONTEND_URL', env),
+    hyperdxApiKey: getWebEnv('HYPERDX_API_KEY', env),
+    hyperdxAppUrl: getWebEnv('HYPERDX_APP_URL', env),
+    hyperdxOtlpHttpUrl:
+      getWebEnv('HYPERDX_OTLP_HTTP_URL', env) ?? getWebEnv('OTEL_EXPORTER_OTLP_ENDPOINT', env),
     siteUrl: getWebEnv('SITE_URL', env),
   });
 }

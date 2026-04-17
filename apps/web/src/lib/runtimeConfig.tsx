@@ -4,6 +4,12 @@ const LOCAL_FALLBACK_SITE_URL = 'http://localhost:3000';
 
 export interface PublicRuntimeConfig {
   browserAuthBaseUrl: string;
+  buildId: string;
+  convexSiteUrl?: string;
+  convexUrl?: string;
+  hyperdxApiKey?: string;
+  hyperdxAppUrl?: string;
+  hyperdxOtlpHttpUrl?: string;
 }
 
 declare global {
@@ -22,6 +28,11 @@ function normalizeOrigin(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeOptionalValue(value: string | null | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
 export function resolveBrowserAuthBaseUrl({
@@ -48,12 +59,24 @@ export function createPublicRuntimeConfig({
   requestUrl,
   siteUrl,
   frontendUrl,
+  buildId,
+  convexSiteUrl,
+  convexUrl,
   fallback,
+  hyperdxApiKey,
+  hyperdxAppUrl,
+  hyperdxOtlpHttpUrl,
 }: Readonly<{
   requestUrl?: string | URL | null;
   siteUrl?: string | null;
   frontendUrl?: string | null;
+  buildId?: string | null;
+  convexSiteUrl?: string | null;
+  convexUrl?: string | null;
   fallback?: string;
+  hyperdxApiKey?: string | null;
+  hyperdxAppUrl?: string | null;
+  hyperdxOtlpHttpUrl?: string | null;
 }>): PublicRuntimeConfig {
   return {
     browserAuthBaseUrl: resolveBrowserAuthBaseUrl({
@@ -62,6 +85,12 @@ export function createPublicRuntimeConfig({
       frontendUrl,
       fallback,
     }),
+    buildId: normalizeOptionalValue(buildId) ?? 'dev',
+    convexSiteUrl: normalizeOptionalValue(convexSiteUrl),
+    convexUrl: normalizeOptionalValue(convexUrl),
+    hyperdxApiKey: normalizeOptionalValue(hyperdxApiKey),
+    hyperdxAppUrl: normalizeOptionalValue(hyperdxAppUrl),
+    hyperdxOtlpHttpUrl: normalizeOptionalValue(hyperdxOtlpHttpUrl),
   };
 }
 
@@ -69,6 +98,7 @@ export function getPublicRuntimeConfig(): PublicRuntimeConfig {
   return (
     window.__YUCP_PUBLIC_RUNTIME_CONFIG__ ??
     createPublicRuntimeConfig({
+      buildId: 'dev',
       requestUrl: window.location.href,
       fallback: window.location.origin,
     })

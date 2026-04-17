@@ -7,6 +7,7 @@ import {
   type PrivacyPreferences,
   readStoredPrivacyPreferences,
 } from '@/lib/privacyPreferences';
+import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 
 let initialized = false;
 let diagnosticsEnabled = false;
@@ -60,12 +61,14 @@ function toBrowserSpanAttributes(
 }
 
 function getWebHyperdxConfig() {
+  const runtimeConfig = getPublicRuntimeConfig();
+
   return resolveHyperdxConfig({
     NODE_ENV: import.meta.env.MODE,
     FRONTEND_URL: typeof window !== 'undefined' ? window.location.origin : undefined,
-    HYPERDX_API_KEY: import.meta.env.HYPERDX_API_KEY as string | undefined,
-    HYPERDX_APP_URL: import.meta.env.HYPERDX_APP_URL as string | undefined,
-    HYPERDX_OTLP_HTTP_URL: import.meta.env.HYPERDX_OTLP_HTTP_URL as string | undefined,
+    HYPERDX_API_KEY: runtimeConfig.hyperdxApiKey,
+    HYPERDX_APP_URL: runtimeConfig.hyperdxAppUrl,
+    HYPERDX_OTLP_HTTP_URL: runtimeConfig.hyperdxOtlpHttpUrl,
   });
 }
 
@@ -121,8 +124,7 @@ function applyDiagnosticsPreference(preferences: PrivacyPreferences | null) {
       otelResourceAttributes: {
         'deployment.environment': import.meta.env.MODE,
         'service.namespace': 'yucp',
-        'service.version':
-          (import.meta as { env?: { VITE_BUILD_ID?: string } }).env?.VITE_BUILD_ID ?? 'dev',
+        'service.version': getPublicRuntimeConfig().buildId,
       },
     });
     initialized = true;

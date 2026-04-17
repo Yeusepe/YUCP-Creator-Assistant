@@ -61,21 +61,6 @@ export default defineConfig(async () => {
   const allowedHosts = buildViteAllowedHosts();
 
   return {
-    // Expose CONVEX_URL to client code via import.meta.env.CONVEX_URL.
-    // This is a public URL (not a secret) so it's safe to embed in the client bundle.
-    // The value comes from Worker bindings or local Worker env files.
-    define: {
-      'import.meta.env.CONVEX_URL': JSON.stringify(process.env.CONVEX_URL),
-      'import.meta.env.CONVEX_SITE_URL': JSON.stringify(process.env.CONVEX_SITE_URL),
-      'import.meta.env.HYPERDX_API_KEY': JSON.stringify(process.env.HYPERDX_API_KEY),
-      'import.meta.env.HYPERDX_OTLP_HTTP_URL': JSON.stringify(
-        process.env.HYPERDX_OTLP_HTTP_URL ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-      ),
-      'import.meta.env.HYPERDX_APP_URL': JSON.stringify(process.env.HYPERDX_APP_URL),
-      // Injected at build time for version skew detection (see versionPoller.ts).
-      // In CI/CD, set BUILD_ID to the git SHA or pipeline run ID.
-      'import.meta.env.VITE_BUILD_ID': JSON.stringify(process.env.BUILD_ID ?? 'dev'),
-    },
     server: {
       allowedHosts,
       port: 3000,

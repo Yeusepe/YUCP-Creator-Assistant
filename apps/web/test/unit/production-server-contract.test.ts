@@ -14,6 +14,9 @@ describe('production server contract', () => {
     expect(packageJson.scripts?.start).toBe('vite preview');
     expect(packageJson.scripts?.['worker:dev']).toContain('prepare-web-worker-env.ts');
     expect(packageJson.scripts?.['worker:preview']).toContain('wrangler dev');
+    expect(packageJson.scripts?.['worker:sync:setup']).toContain(
+      'setup-infisical-cloudflare-worker-sync.ts'
+    );
     expect(packageJson.scripts?.['worker:deploy']).toContain('deploy-web-worker.ts');
     expect(existsSync(join(APP_DIR, 'serve.ts'))).toBe(false);
   });
@@ -50,6 +53,11 @@ describe('production server contract', () => {
   it('uses wrangler and local worker env files for runtime configuration', () => {
     const viteConfigSource = readFileSync(join(APP_DIR, 'vite.config.ts'), 'utf8');
     const wranglerConfigSource = readFileSync(join(APP_DIR, 'wrangler.jsonc'), 'utf8');
+    const rootRouteSource = readFileSync(join(APP_DIR, 'src', 'routes', '__root.tsx'), 'utf8');
+    const runtimeConfigSource = readFileSync(
+      join(APP_DIR, 'src', 'lib', 'runtimeConfig.tsx'),
+      'utf8'
+    );
     const runtimeEnvSource = readFileSync(
       join(APP_DIR, 'src', 'lib', 'server', 'runtimeEnv.ts'),
       'utf8'
@@ -58,11 +66,17 @@ describe('production server contract', () => {
     expect(viteConfigSource).toContain('@cloudflare/vite-plugin');
     expect(viteConfigSource).toContain('.dev.vars');
     expect(viteConfigSource).toContain('.env.local');
-    expect(viteConfigSource).toContain('import.meta.env.CONVEX_SITE_URL');
+    expect(viteConfigSource).not.toContain('import.meta.env.CONVEX_URL');
+    expect(viteConfigSource).not.toContain('import.meta.env.HYPERDX_API_KEY');
     expect(viteConfigSource).not.toContain('fetchInfisicalSecrets');
+    expect(rootRouteSource).toContain('__YUCP_PUBLIC_RUNTIME_CONFIG__');
+    expect(rootRouteSource).toContain('RuntimeConfigProvider');
+    expect(runtimeConfigSource).toContain('convexUrl');
+    expect(runtimeConfigSource).toContain('hyperdxApiKey');
     expect(runtimeEnvSource).toContain('Worker runtime started');
     expect(runtimeEnvSource).toContain('import.meta.hot.dispose');
     expect(wranglerConfigSource).toContain('@tanstack/react-start/server-entry');
+    expect(wranglerConfigSource).toContain('"name": "yucp-creator-assistant-dashboard"');
     expect(wranglerConfigSource).toContain('nodejs_compat');
     expect(wranglerConfigSource).toContain('nodejs_compat_populate_process_env');
   });

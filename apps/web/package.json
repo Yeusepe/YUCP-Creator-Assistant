@@ -11,6 +11,7 @@
     "worker:env:dev": "bun run ../../ops/export-web-worker-env.ts",
     "worker:dev": "bun run ../../ops/prepare-web-worker-env.ts && vite dev",
     "worker:preview": "bun run ../../ops/prepare-web-worker-env.ts && wrangler dev --config wrangler.jsonc --local",
+    "worker:sync:setup": "bun run ../../ops/setup-infisical-cloudflare-worker-sync.ts",
     "worker:secrets:sync": "bun run ../../ops/sync-web-worker-secrets.ts",
     "worker:deploy": "bun run ../../ops/deploy-web-worker.ts",
     "cf-typegen": "wrangler types",

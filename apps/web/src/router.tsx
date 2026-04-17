@@ -2,6 +2,8 @@ import { ConvexQueryClient } from '@convex-dev/react-query';
 import { notifyManager, QueryClient } from '@tanstack/react-query';
 import { createRouter } from '@tanstack/react-router';
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query';
+import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
+import { getWebEnv, getWebRuntimeEnv } from '@/lib/server/runtimeEnv';
 import { resolveRequiredConvexUrl } from '@/lib/webDiagnostics';
 import { routeTree } from './routeTree.gen';
 
@@ -10,7 +12,18 @@ export function getRouter() {
     notifyManager.setScheduler(window.requestAnimationFrame);
   }
 
-  const convexUrl = resolveRequiredConvexUrl(import.meta.env.CONVEX_URL as string | undefined);
+  const publicRuntimeConfig = typeof window !== 'undefined' ? getPublicRuntimeConfig() : undefined;
+  const runtimeEnv = typeof window === 'undefined' ? getWebRuntimeEnv() : undefined;
+  const configuredConvexUrl = publicRuntimeConfig?.convexUrl ?? getWebEnv('CONVEX_URL', runtimeEnv);
+
+  const convexUrl = resolveRequiredConvexUrl(configuredConvexUrl, {
+    env: {
+      NODE_ENV: import.meta.env.MODE ?? getWebEnv('NODE_ENV', runtimeEnv),
+      CONVEX_URL: configuredConvexUrl,
+      CONVEX_SITE_URL:
+        publicRuntimeConfig?.convexSiteUrl ?? getWebEnv('CONVEX_SITE_URL', runtimeEnv),
+    },
+  });
 
   const convexQueryClient = new ConvexQueryClient(convexUrl, {
     expectAuth: true,

@@ -11,12 +11,11 @@
 
 import { useEffect, useRef } from 'react';
 import { useToast } from '@/components/ui/Toast';
+import { getPublicRuntimeConfig } from '@/lib/runtimeConfig';
 
-/** Build ID injected by Vite at bundle time. Falls back to 'dev'. */
+/** Build ID injected into the document by the Worker runtime. Falls back to 'dev'. */
 const CURRENT_BUILD_ID: string =
-  (typeof import.meta !== 'undefined' &&
-    (import.meta as { env?: { VITE_BUILD_ID?: string } }).env?.VITE_BUILD_ID) ||
-  'dev';
+  typeof window !== 'undefined' ? getPublicRuntimeConfig().buildId : 'dev';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const VERSION_ENDPOINT = '/api/version';

@@ -18,6 +18,13 @@ import {
   initializeHyperdxBrowser,
   setHyperdxGlobalAttributes,
 } from '@/lib/hyperdx';
+import {
+  createPublicRuntimeConfig,
+  getPublicRuntimeConfig,
+  RuntimeConfigProvider,
+  serializePublicRuntimeConfig,
+} from '@/lib/runtimeConfig';
+import { getWebEnv, getWebRuntimeEnv } from '@/lib/server/runtimeEnv';
 import { useVersionPoller } from '@/lib/versionPoller';
 import { logRootRenderError } from '@/lib/webDiagnostics';
 
@@ -50,11 +57,13 @@ export const Route = createRootRouteWithContext<{
 function RootComponent() {
   return (
     <RootDocument>
-      <ToastProvider>
-        <AppEffects />
-        <Outlet />
-        <CookiePreferencesPrompt />
-      </ToastProvider>
+      <RuntimeConfigProvider value={resolveDocumentRuntimeConfig()}>
+        <ToastProvider>
+          <AppEffects />
+          <Outlet />
+          <CookiePreferencesPrompt />
+        </ToastProvider>
+      </RuntimeConfigProvider>
     </RootDocument>
   );
 }
@@ -98,6 +107,8 @@ function AppEffects() {
 }
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
+  const runtimeConfig = resolveDocumentRuntimeConfig();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -109,6 +120,12 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
             __html: `try{var t=localStorage.getItem('yucp_theme');if(t==='dark'||(t===null&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`,
           }}
         />
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: the Worker injects request-scoped public runtime config for the browser bundle
+          dangerouslySetInnerHTML={{
+            __html: `window.__YUCP_PUBLIC_RUNTIME_CONFIG__=${serializePublicRuntimeConfig(runtimeConfig)};`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -118,6 +135,25 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       </body>
     </html>
   );
+}
+
+function resolveDocumentRuntimeConfig() {
+  if (typeof document !== 'undefined') {
+    return getPublicRuntimeConfig();
+  }
+
+  const env = getWebRuntimeEnv();
+  return createPublicRuntimeConfig({
+    buildId: getWebEnv('BUILD_ID', env),
+    convexSiteUrl: getWebEnv('CONVEX_SITE_URL', env),
+    convexUrl: getWebEnv('CONVEX_URL', env),
+    frontendUrl: getWebEnv('FRONTEND_URL', env),
+    hyperdxApiKey: getWebEnv('HYPERDX_API_KEY', env),
+    hyperdxAppUrl: getWebEnv('HYPERDX_APP_URL', env),
+    hyperdxOtlpHttpUrl:
+      getWebEnv('HYPERDX_OTLP_HTTP_URL', env) ?? getWebEnv('OTEL_EXPORTER_OTLP_ENDPOINT', env),
+    siteUrl: getWebEnv('SITE_URL', env),
+  });
 }
 
 function RootErrorComponent({ error }: { error: Error }) {
