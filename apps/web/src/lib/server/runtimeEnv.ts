@@ -5,8 +5,8 @@ export type WebRuntimeEnv = NodeJS.ProcessEnv & {
 
 const isCloudflareWorkerRuntime = 'WebSocketPair' in globalThis && !('Bun' in globalThis);
 const cloudflareWorkerEnv: WebRuntimeEnv | undefined = isCloudflareWorkerRuntime
-  ? await import('cloudflare:workers')
-      .then(({ env }) => env as WebRuntimeEnv)
+  ? await new Function('return import("cloudflare:workers")')()
+      .then(({ env }: { env: WebRuntimeEnv }) => env)
       .catch(() => undefined)
   : undefined;
 const workerRuntimeInstanceId = isCloudflareWorkerRuntime
