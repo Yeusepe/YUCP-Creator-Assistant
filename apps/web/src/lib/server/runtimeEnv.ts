@@ -4,6 +4,11 @@ export type WebRuntimeEnv = NodeJS.ProcessEnv & {
 };
 
 const isCloudflareWorkerRuntime = 'WebSocketPair' in globalThis && !('Bun' in globalThis);
+const cloudflareWorkerEnv: WebRuntimeEnv | undefined = isCloudflareWorkerRuntime
+  ? await import('cloudflare:workers')
+      .then(({ env }) => env as WebRuntimeEnv)
+      .catch(() => undefined)
+  : undefined;
 const workerRuntimeInstanceId = isCloudflareWorkerRuntime
   ? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   : null;
@@ -23,8 +28,24 @@ function normalizeOptional(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-export function getWebRuntimeEnv(env: WebRuntimeEnv = process.env): WebRuntimeEnv {
-  return env;
+export function resolveDefaultWebRuntimeEnv({
+  fallbackEnv = process.env,
+  runtimeCloudflareEnv = cloudflareWorkerEnv,
+  workerRuntime = isCloudflareWorkerRuntime,
+}: Readonly<{
+  fallbackEnv?: WebRuntimeEnv;
+  runtimeCloudflareEnv?: WebRuntimeEnv;
+  workerRuntime?: boolean;
+}> = {}): WebRuntimeEnv {
+  if (workerRuntime && runtimeCloudflareEnv) {
+    return runtimeCloudflareEnv;
+  }
+
+  return fallbackEnv;
+}
+
+export function getWebRuntimeEnv(env?: WebRuntimeEnv): WebRuntimeEnv {
+  return env ?? resolveDefaultWebRuntimeEnv();
 }
 
 export function getWebEnv(
