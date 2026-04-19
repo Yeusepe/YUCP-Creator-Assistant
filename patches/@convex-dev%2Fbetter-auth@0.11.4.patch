@@ -1,9 +1,4 @@
-diff --git a/node_modules/.bun/@convex-dev+better-auth@0.11.4+bd6925e51b3c0466/node_modules/@convex-dev/better-auth/.bun-tag-60933546995d9366 b/.bun-tag-60933546995d9366
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/.bun/@convex-dev+better-auth@0.11.4+bd6925e51b3c0466/node_modules/@convex-dev/better-auth/.bun-tag-936486a36e50413b b/.bun-tag-936486a36e50413b
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+
 diff --git a/dist/auth-options.js b/dist/auth-options.js
 index 3f4f6ff8c0f25210930d7934a8a9f29da8cc3425..1b67f02ecc231be2054d30b5ce6fbf9e9e323724 100644
 --- a/dist/auth-options.js
