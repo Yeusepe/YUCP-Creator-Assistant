@@ -35,6 +35,7 @@ import {
   toCertificateBillingProjectionMeter,
   toCertificateBillingProjectionSubscription,
 } from './lib/certificateBillingProjection';
+import { completeRecoveryPasskeyEnrollmentOrThrow } from './lib/recoveryPasskeyCompletion';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
@@ -403,12 +404,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
               );
             }
 
-            await ctx.runMutation(internal.accountSecurity.completeRecoveryPasskeyEnrollment, {
-              authUserId: user.id,
-              contextNonce: payload.nonce,
-              method: payload.method,
-              completedAt: Date.now(),
-            });
+            await completeRecoveryPasskeyEnrollmentOrThrow(
+              (args) =>
+                ctx.runMutation(internal.accountSecurity.completeRecoveryPasskeyEnrollment, args),
+              {
+                authUserId: user.id,
+                contextNonce: payload.nonce,
+                method: payload.method,
+                completedAt: Date.now(),
+              }
+            );
           },
         },
       }),

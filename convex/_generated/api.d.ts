@@ -62,6 +62,7 @@ import type * as lib_protectedMaterializationGrant from "../lib/protectedMateria
 import type * as lib_providers from "../lib/providers.js";
 import type * as lib_publicAuthIssuer from "../lib/publicAuthIssuer.js";
 import type * as lib_publicProducts from "../lib/publicProducts.js";
+import type * as lib_recoveryPasskeyCompletion from "../lib/recoveryPasskeyCompletion.js";
 import type * as lib_releaseArtifactEnvelope from "../lib/releaseArtifactEnvelope.js";
 import type * as lib_releaseArtifactKeys from "../lib/releaseArtifactKeys.js";
 import type * as lib_roleRules_catalog from "../lib/roleRules/catalog.js";
@@ -178,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   "lib/providers": typeof lib_providers;
   "lib/publicAuthIssuer": typeof lib_publicAuthIssuer;
   "lib/publicProducts": typeof lib_publicProducts;
+  "lib/recoveryPasskeyCompletion": typeof lib_recoveryPasskeyCompletion;
   "lib/releaseArtifactEnvelope": typeof lib_releaseArtifactEnvelope;
   "lib/releaseArtifactKeys": typeof lib_releaseArtifactKeys;
   "lib/roleRules/catalog": typeof lib_roleRules_catalog;

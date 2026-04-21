@@ -7,6 +7,7 @@ import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
+import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
@@ -114,15 +115,6 @@ setInterval(
   },
   5 * 60 * 1000
 ).unref();
-
-function getClientAddress(request: Request): string {
-  const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
-  const cloudflareRay = request.headers.get('cf-ray')?.trim();
-  if (cloudflareConnectingIp && cloudflareRay) {
-    return cloudflareConnectingIp;
-  }
-  return 'unknown';
-}
 
 function isRateLimited(bucketKey: string, maxRequests: number, windowMs: number): boolean {
   const now = Date.now();

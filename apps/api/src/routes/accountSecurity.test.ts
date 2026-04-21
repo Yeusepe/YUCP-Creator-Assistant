@@ -164,6 +164,76 @@ describe('account security routes', () => {
     });
   });
 
+  it('binds email recovery verification to the pending recovery session id', async () => {
+    convexQueryMock.mockImplementation(async (...args: unknown[]) => {
+      const [reference] = args;
+      if (reference === apiMock.accountSecurity.getPendingEmailRecoveryForApi) {
+        return {
+          sessionId: 'session_123',
+          targetEmail: 'owner@example.com',
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (...args: unknown[]) => {
+      const [reference] = args;
+      if (reference === apiMock.accountSecurity.consumeEmailRecoveryForApi) {
+        return {
+          recoveryPasskeyContext: 'recovery-passkey-context',
+          expiresAt: 1_700_000_000_000,
+        };
+      }
+
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const checkEmailOtp = mock(async () => ({ success: true }));
+    const routes = createAccountSecurityRoutes(
+      {
+        sendEmailOtp: mock(async () => ({ success: true })),
+        checkEmailOtp,
+      } as never,
+      {
+        convexApiSecret: 'test-secret',
+        convexUrl: 'https://test.convex.cloud',
+      }
+    );
+
+    const response = await routes.verifyRecoveryEmail(
+      new Request('http://localhost/api/account-recovery/verify-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: 'creator@example.com',
+          otp: '123456',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      recoveryPasskeyContext: 'recovery-passkey-context',
+      expiresAt: 1_700_000_000_000,
+    });
+    expect(checkEmailOtp).toHaveBeenCalledWith({
+      email: 'owner@example.com',
+      type: 'forget-password',
+      otp: '123456',
+    });
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.accountSecurity.consumeEmailRecoveryForApi,
+      {
+        apiSecret: 'test-secret',
+        email: 'creator@example.com',
+        sessionId: 'session_123',
+      }
+    );
+  });
+
   it('logs full email-recovery errors but only returns the fallback message', async () => {
     convexQueryMock.mockResolvedValue({
       targetEmail: 'owner@example.com',

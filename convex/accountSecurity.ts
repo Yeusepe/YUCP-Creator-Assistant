@@ -4,6 +4,7 @@ import { symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
 import type { BackupCodeOptions } from 'better-auth/plugins';
 import { ConvexError, v } from 'convex/values';
 import { components } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
   BETTER_AUTH_BACKUP_CODE_OPTIONS,
@@ -1140,6 +1141,7 @@ export const consumeEmailRecoveryForApi = mutation({
   args: {
     apiSecret: v.string(),
     email: v.string(),
+    sessionId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
@@ -1147,15 +1149,17 @@ export const consumeEmailRecoveryForApi = mutation({
     const lookupEmailHash = await sha256Hex(normalizeInputEmail(args.email));
     const session = await expireRecoverySessionIfNeeded(
       ctx,
-      await getLatestActiveRecoverySessionByLookupEmail(
-        ctx,
-        lookupEmailHash,
-        (candidate) => candidate.challengeType === 'email-otp'
-      ),
+      await ctx.db.get(args.sessionId as Id<'account_recovery_sessions'>),
       now
     );
 
-    if (!session || session.status !== RECOVERY_SESSION_STATUS.pending || !session.contextNonce) {
+    if (
+      !session ||
+      session.lookupEmailHash !== lookupEmailHash ||
+      session.challengeType !== 'email-otp' ||
+      session.status !== RECOVERY_SESSION_STATUS.pending ||
+      !session.contextNonce
+    ) {
       return null;
     }
 
@@ -1356,6 +1360,7 @@ export const completeRecoveryPasskeyEnrollment = internalMutation({
       return { completed: false };
     }
     if (
+      session.deliveryMethod !== args.method ||
       (session.status !== RECOVERY_SESSION_STATUS.pending &&
         session.status !== RECOVERY_SESSION_STATUS.verified) ||
       session.expiresAt <= args.completedAt
@@ -1375,7 +1380,7 @@ export const completeRecoveryPasskeyEnrollment = internalMutation({
       eventType: 'account.security.passkey.added',
       metadata: {
         viaRecovery: true,
-        method: args.method,
+        method: session.deliveryMethod,
       },
       createdAt: args.completedAt,
     });
@@ -1383,7 +1388,7 @@ export const completeRecoveryPasskeyEnrollment = internalMutation({
       authUserId: args.authUserId,
       eventType: 'account.security.recovery.completed',
       metadata: {
-        method: args.method,
+        method: session.deliveryMethod,
       },
       createdAt: args.completedAt,
     });

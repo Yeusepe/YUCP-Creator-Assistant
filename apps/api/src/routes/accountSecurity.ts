@@ -138,6 +138,7 @@ export function createAccountSecurityRoutes(auth: Auth, config: AccountSecurityR
       const completed = await convex.mutation(api.accountSecurity.consumeEmailRecoveryForApi, {
         apiSecret: config.convexApiSecret,
         email,
+        sessionId: pending.sessionId,
       });
 
       if (!completed) {
