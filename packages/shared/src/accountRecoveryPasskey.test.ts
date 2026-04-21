@@ -86,6 +86,8 @@ describe('account recovery passkey context', () => {
     payload.method = 'totally-made-up-method';
     const malformedToken = `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${signature}`;
 
-    await expect(verifyRecoveryPasskeyContext(malformedToken, SECRET, 1_700_000_100_000)).resolves.toBeNull();
+    await expect(
+      verifyRecoveryPasskeyContext(malformedToken, SECRET, 1_700_000_100_000)
+    ).resolves.toBeNull();
   });
 });

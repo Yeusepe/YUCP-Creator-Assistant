@@ -25,7 +25,9 @@ const RECOVERY_CONTEXT_METHODS: readonly RecoveryContextMethod[] = [
 ];
 
 function isRecoveryContextMethod(value: unknown): value is RecoveryContextMethod {
-  return typeof value === 'string' && RECOVERY_CONTEXT_METHODS.includes(value as RecoveryContextMethod);
+  return (
+    typeof value === 'string' && RECOVERY_CONTEXT_METHODS.includes(value as RecoveryContextMethod)
+  );
 }
 
 function toBase64Url(bytes: Uint8Array): string {
