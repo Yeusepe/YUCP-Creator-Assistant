@@ -40,7 +40,7 @@ export const Route = createFileRoute('/sign-in')({
   component: SignInRouteComponent,
 });
 
-type PageState = 'state-signin' | 'state-loading' | 'state-authenticated' | 'state-error';
+type PageState = 'state-signin' | 'state-loading' | 'state-error';
 type RecoveryStep = 'lookup' | 'challenge' | 'enroll';
 
 function SignInRouteComponent() {
@@ -87,17 +87,6 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
     showPage();
   }, [showPage]);
 
-  useEffect(() => {
-    if (currentState !== 'state-authenticated' || typeof window === 'undefined') {
-      return;
-    }
-
-    const timeout = window.setTimeout(() => {
-      window.location.assign(redirectTarget);
-    }, 500);
-    return () => window.clearTimeout(timeout);
-  }, [currentState, redirectTarget]);
-
   const showError = useCallback(
     (msg?: string) => {
       setCurrentState('state-error');
@@ -143,7 +132,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       if (result.error) {
         throw new Error(result.error.message ?? 'Passkey sign-in was cancelled.');
       }
-      setCurrentState('state-authenticated');
+      window.location.assign(redirectTarget);
     } catch (error) {
       logWebError('Passkey sign-in failed', error, {
         phase: 'passkey-sign-in',
@@ -153,7 +142,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
     } finally {
       setAuthAction(null);
     }
-  }, [showError]);
+  }, [redirectTarget, showError]);
 
   const handleCreatorSuiteSignIn = useCallback(
     (id: CreatorSuiteSignInMethodId) => {
@@ -247,14 +236,12 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
       setRecoveryStep('lookup');
       return;
     }
-
     setRecoveryPendingAction('enroll-passkey');
     setRecoveryError(null);
     setCurrentState('state-loading');
     try {
       const addPasskeyResult = await authClient.passkey.addPasskey({
         context: recoveryPasskeyContext,
-        name: 'Recovered account passkey',
       });
       if (addPasskeyResult.error) {
         throw new Error(
@@ -269,16 +256,14 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
             'Passkey was added, but sign-in still needs to be completed.'
         );
       }
-
-      setCurrentState('state-authenticated');
-      setRecoveryMessage('Recovery completed. Redirecting you back into the app.');
+      window.location.assign(redirectTarget);
     } catch (error) {
       setCurrentState('state-signin');
       setRecoveryError(error instanceof Error ? error.message : 'Recovery could not be completed.');
     } finally {
       setRecoveryPendingAction(null);
     }
-  }, [recoveryPasskeyContext]);
+  }, [recoveryPasskeyContext, redirectTarget]);
 
   useEffect(() => {
     setCurrentState('state-signin');
@@ -494,68 +479,6 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                   <span></span>
                 </div>
               </div>
-            </div>
-          )}
-
-          {currentState === 'state-authenticated' && (
-            <div id="state-authenticated" className="state active">
-              <div
-                className="brand-icon"
-                style={{ background: 'rgba(0,230,118,0.1)', borderColor: 'rgba(0,230,118,0.25)' }}
-                aria-hidden="true"
-              >
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#00e676"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M20 6L9 17l-5-5" />
-                </svg>
-              </div>
-              <h1 className="card-title" style={{ marginBottom: '0.4rem' }}>
-                You're signed in
-              </h1>
-              <p className="card-sub" style={{ marginBottom: '1.5rem' }}>
-                Redirecting to your dashboard...
-              </p>
-              <a id="dashboard-link" href={redirectTarget} className="goto-btn">
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                </svg>
-                Open Dashboard
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
-              </a>
             </div>
           )}
 

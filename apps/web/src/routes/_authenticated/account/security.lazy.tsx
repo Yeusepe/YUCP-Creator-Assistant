@@ -105,10 +105,7 @@ function AccountSecurityPage() {
   async function handleAddPasskey() {
     setPendingAction('add-passkey');
     try {
-      const defaultName = `Passkey ${passkeys.length + 1}`;
-      const result = await authClient.passkey.addPasskey({
-        name: defaultName,
-      });
+      const result = await authClient.passkey.addPasskey();
       if (result.error) {
         throw new Error(result.error.message ?? 'Could not add passkey');
       }
