@@ -6,7 +6,10 @@
  * https://resend.com/docs/api-reference/emails
  */
 
+import { sha256Hex } from '@yucp/shared';
+
 const RESEND_BASE_URL = 'https://api.resend.com';
+const RESEND_REQUEST_TIMEOUT_MS = 10_000;
 
 type EmailOtpType = 'sign-in' | 'email-verification' | 'forget-password' | 'change-email';
 
@@ -86,12 +89,16 @@ export async function sendEmailOtpEmail(params: {
   }
 
   const copy = getEmailOtpCopy(params.type);
+  const idempotencyDigest = await sha256Hex(
+    `${params.type}:${params.email.toLowerCase()}:${params.otp}`
+  );
   const response = await fetch(`${RESEND_BASE_URL}/emails`, {
     method: 'POST',
+    signal: AbortSignal.timeout(RESEND_REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
-      'Idempotency-Key': `account-security/${params.type}/${params.email.toLowerCase()}/${params.otp}`,
+      'Idempotency-Key': `account-security/${params.type}/${idempotencyDigest}`,
     },
     body: JSON.stringify({
       from,

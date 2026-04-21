@@ -6,6 +6,7 @@ import { AccountPage, AccountSectionCard } from '@/components/account/AccountPag
 import { AccountSecuritySkeleton } from '@/components/account/AccountSecuritySkeleton';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
+import { verifyRecoveryContactEnrollment as verifyRecoveryContactEnrollmentRequest } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
 import { api } from '../../../../../../convex/_generated/api';
 import type { Id } from '../../../../../../convex/_generated/dataModel';
@@ -51,9 +52,6 @@ function AccountSecurityPage() {
   const prepareRecoveryContactEnrollment = useConvexMutation(
     api.accountSecurity.prepareRecoveryContactEnrollment
   );
-  const verifyRecoveryContactEnrollment = useConvexMutation(
-    api.accountSecurity.verifyRecoveryContactEnrollment
-  );
   const removeRecoveryContact = useConvexMutation(api.accountSecurity.removeRecoveryContact);
   const markAuthenticatorCompromised = useConvexMutation(
     api.accountSecurity.markAuthenticatorCompromised
@@ -66,7 +64,6 @@ function AccountSecurityPage() {
   const [recoveryEmail, setRecoveryEmail] = useState('');
   const [recoveryEmailOtp, setRecoveryEmailOtp] = useState('');
   const [pendingRecoveryEmail, setPendingRecoveryEmail] = useState<string | null>(null);
-  const [pendingRecoveryChallenge, setPendingRecoveryChallenge] = useState<string | null>(null);
   const [freshBackupCodes, setFreshBackupCodes] = useState<string[]>([]);
   const passkeys: PasskeyRecord[] = passkeysQuery.data ?? [];
   const isLoadingPasskeys = passkeysQuery.isPending;
@@ -206,7 +203,6 @@ function AccountSecurityPage() {
         throw new Error(result.error.message ?? 'Could not send verification code');
       }
       setPendingRecoveryEmail(prepared.email);
-      setPendingRecoveryChallenge(prepared.challengeToken);
       toast.success('Verification code sent', {
         description: 'Enter the code from your recovery inbox to finish enrollment.',
       });
@@ -220,27 +216,15 @@ function AccountSecurityPage() {
   }
 
   async function handleVerifyRecoveryEmail() {
-    if (!pendingRecoveryEmail || !pendingRecoveryChallenge || !recoveryEmailOtp.trim()) {
+    if (!pendingRecoveryEmail || !recoveryEmailOtp.trim()) {
       toast.error('Enter the verification code');
       return;
     }
 
     setPendingAction('verify-recovery-email-otp');
     try {
-      const result = await authClient.emailOtp.checkVerificationOtp({
-        email: pendingRecoveryEmail,
-        type: 'email-verification',
-        otp: recoveryEmailOtp.trim(),
-      });
-      if (result.error) {
-        throw new Error(result.error.message ?? 'Invalid verification code');
-      }
-      await verifyRecoveryContactEnrollment({
-        email: pendingRecoveryEmail,
-        challengeToken: pendingRecoveryChallenge,
-      });
+      await verifyRecoveryContactEnrollmentRequest(pendingRecoveryEmail, recoveryEmailOtp.trim());
       setPendingRecoveryEmail(null);
-      setPendingRecoveryChallenge(null);
       setRecoveryEmail('');
       setRecoveryEmailOtp('');
       toast.success('Recovery email verified');

@@ -347,6 +347,9 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     if (pathname === '/api/account-recovery/verify-backup-code') {
       return accountSecurityRoutes.verifyRecoveryBackupCode(request);
     }
+    if (pathname === '/api/account-security/recovery-email/verify') {
+      return accountSecurityRoutes.verifyRecoveryContactEnrollment(request);
+    }
     if (pathname === '/api/connect/status') return connectRoutes.getStatus(request);
     if (pathname === '/api/connect/settings') {
       if (request.method === 'POST') return connectRoutes.updateSettingHandler(request);

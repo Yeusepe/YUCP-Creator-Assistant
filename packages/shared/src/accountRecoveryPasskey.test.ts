@@ -66,28 +66,16 @@ describe('account recovery passkey context', () => {
     const token = await issueRecoveryPasskeyContext(
       {
         authUserId: 'user_123',
-        method: 'backup-code',
+        method: 'totally-made-up-method' as never,
         issuedAt: 1_700_000_000_000,
         expiresAt: 1_700_000_300_000,
         nonce: 'nonce_123',
       },
       SECRET
     );
-    const [encodedPayload, signature] = token.split('.');
-    const payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as {
-      authUserId: string;
-      method: string;
-      expiresAt: number;
-      issuedAt: number;
-      nonce: string;
-      purpose: string;
-      version: string;
-    };
-    payload.method = 'totally-made-up-method';
-    const malformedToken = `${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${signature}`;
 
     await expect(
-      verifyRecoveryPasskeyContext(malformedToken, SECRET, 1_700_000_100_000)
+      verifyRecoveryPasskeyContext(token, SECRET, 1_700_000_100_000)
     ).resolves.toBeNull();
   });
 });

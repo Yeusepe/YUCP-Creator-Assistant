@@ -11,6 +11,7 @@ const apiMock = {
     getPendingEmailRecoveryForApi: 'accountSecurity.getPendingEmailRecoveryForApi',
     consumeEmailRecoveryForApi: 'accountSecurity.consumeEmailRecoveryForApi',
     consumeBackupCodeRecoveryForApi: 'accountSecurity.consumeBackupCodeRecoveryForApi',
+    verifyRecoveryContactEnrollmentForApi: 'accountSecurity.verifyRecoveryContactEnrollmentForApi',
   },
 } as const;
 
@@ -199,8 +200,73 @@ describe('account security routes', () => {
       'Account recovery email verification failed',
       expect.objectContaining({
         errorMessage: expect.stringContaining('Better Auth request'),
-        betterAuthBodyText: '{"error":"database stack trace"}',
+        betterAuthBodyRedacted: true,
+        betterAuthBodyKeys: ['error'],
       })
+    );
+  });
+
+  it('verifies a recovery email enrollment through the authenticated API boundary', async () => {
+    convexMutationMock.mockImplementation(async (...args: unknown[]) => {
+      const [reference] = args;
+      if (reference === apiMock.accountSecurity.verifyRecoveryContactEnrollmentForApi) {
+        return {
+          hasVerifiedRecoveryEmail: true,
+        };
+      }
+
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const checkEmailOtp = mock(async () => ({ success: true }));
+    const getSession = mock(async () => ({
+      user: {
+        id: 'auth-user-123',
+        email: 'owner@example.com',
+      },
+    }));
+
+    const routes = createAccountSecurityRoutes(
+      {
+        sendEmailOtp: mock(async () => ({ success: true })),
+        checkEmailOtp,
+        getSession,
+      } as never,
+      {
+        convexApiSecret: 'test-secret',
+        convexUrl: 'https://test.convex.cloud',
+      }
+    );
+
+    const response = await routes.verifyRecoveryContactEnrollment(
+      new Request('http://localhost/api/account-security/recovery-email/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: 'better-auth.session_token=test',
+        },
+        body: JSON.stringify({
+          email: 'recovery@example.com',
+          otp: '123456',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(getSession).toHaveBeenCalledTimes(1);
+    expect(checkEmailOtp).toHaveBeenCalledWith({
+      email: 'recovery@example.com',
+      type: 'email-verification',
+      otp: '123456',
+    });
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.accountSecurity.verifyRecoveryContactEnrollmentForApi,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-user-123',
+        email: 'recovery@example.com',
+      }
     );
   });
 

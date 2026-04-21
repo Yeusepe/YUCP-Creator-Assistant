@@ -1,3 +1,4 @@
+import { symmetricEncrypt } from 'better-auth/crypto';
 import type { GenericActionCtx, GenericMutationCtx, UserIdentity } from 'convex/server';
 import { sha256Hex } from '@yucp/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -60,6 +61,7 @@ describe('accountSecurity', () => {
     process.env.BETTER_AUTH_SECRET = 'test-better-auth-secret';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret';
     process.env.ACCOUNT_RECOVERY_CONTEXT_SECRET = 'test-recovery-context-secret';
+    process.env.CONVEX_API_SECRET = 'test-secret';
   });
 
   it(
@@ -94,12 +96,12 @@ describe('accountSecurity', () => {
   );
 
   it(
-    'requires a matching enrollment challenge before verifying a recovery contact',
+    'requires the authenticated API boundary to verify a recovery contact',
     async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
     t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
 
-    const { authed } = await createAuthedUser(t, {
+    const { authUserId, authed } = await createAuthedUser(t, {
       email: 'owner@example.com',
       name: 'Owner',
     });
@@ -111,19 +113,22 @@ describe('accountSecurity', () => {
     await expect(
       authed.mutation(api.accountSecurity.verifyRecoveryContactEnrollment, {
         email: prepared.email,
-      })
-    ).rejects.toThrow('Recovery email verification proof is required');
+      } as never)
+    ).rejects.toThrow('Recovery email verification must be completed through the account security API');
 
     await expect(
       authed.mutation(api.accountSecurity.verifyRecoveryContactEnrollment, {
         email: prepared.email,
         challengeToken: 'wrong-challenge',
-      })
-    ).rejects.toThrow('Recovery email verification failed');
+      } as never)
+    ).rejects.toThrow('Recovery email verification must be completed through the account security API');
 
-    const overview = await authed.mutation(api.accountSecurity.verifyRecoveryContactEnrollment, {
+    expect((prepared as Record<string, unknown>).challengeToken).toBeUndefined();
+
+    const overview = await t.mutation(api.accountSecurity.verifyRecoveryContactEnrollmentForApi, {
+      apiSecret: 'test-secret',
+      authUserId,
       email: prepared.email,
-      challengeToken: prepared.challengeToken,
     });
 
     expect(overview.hasVerifiedRecoveryEmail).toBe(true);
@@ -138,6 +143,67 @@ describe('accountSecurity', () => {
     expect(storedContact?.status).toBe('verified');
     expect(storedContact?.enrollmentChallenge).toBeUndefined();
     expect(storedContact?.verifiedAt).toBeTypeOf('number');
+    },
+    20_000
+  );
+
+  it(
+    'locks backup-code recovery after repeated invalid attempts',
+    async () => {
+      const t = makeTestConvex() as ComponentAwareTestConvex;
+      t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
+
+      const { authUserId } = await createAuthedUser(t, {
+        email: 'backup-owner@example.com',
+        name: 'Backup Owner',
+      });
+
+      const validBackupCode = 'ABCDE12345';
+      const encryptedBackupCodes = await symmetricEncrypt({
+        data: JSON.stringify([validBackupCode]),
+        key: process.env.BETTER_AUTH_SECRET!,
+      });
+
+      await t.runInComponent('betterAuth', async (ctx) => {
+        await ctx.db.insert('twoFactor', {
+          secret: 'totp-secret',
+          backupCodes: encryptedBackupCodes,
+          userId: authUserId,
+          verified: true,
+        });
+      });
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await expect(
+          t.mutation(api.accountSecurity.consumeBackupCodeRecoveryForApi, {
+            apiSecret: 'test-secret',
+            email: 'backup-owner@example.com',
+            backupCode: `WRONG${attempt}`,
+          })
+        ).resolves.toBeNull();
+      }
+
+      await expect(
+        t.mutation(api.accountSecurity.consumeBackupCodeRecoveryForApi, {
+          apiSecret: 'test-secret',
+          email: 'backup-owner@example.com',
+          backupCode: validBackupCode,
+        })
+      ).resolves.toBeNull();
+
+      const lookupEmailHash = await sha256Hex('backup-owner@example.com');
+      const sessions = await t.run(async (ctx) => {
+        return await ctx.db
+          .query('account_recovery_sessions')
+          .withIndex('by_lookup_email_hash', (q) => q.eq('lookupEmailHash', lookupEmailHash))
+          .collect();
+      });
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.challengeType).toBe('backup-code');
+      expect(sessions[0]?.attempts).toBe(5);
+      expect(sessions[0]?.status).toBe('cancelled');
+      expect(sessions[0]?.lastAttemptAt).toBeTypeOf('number');
     },
     20_000
   );

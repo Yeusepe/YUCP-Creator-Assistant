@@ -7,6 +7,7 @@ import { AccountPage, AccountSectionCard } from '@/components/account/AccountPag
 import { AccountProfileSkeleton } from '@/components/account/AccountProfileSkeleton';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { StatusChip } from '@/components/ui/StatusChip';
+import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
@@ -26,6 +27,7 @@ export const Route = createLazyFileRoute('/_authenticated/account/')({
 
 function AccountProfile() {
   const { guilds, viewer } = useAccountShell();
+  const toast = useToast();
   const isCreator = guilds.length > 0;
   const [isDismissingRecoveryPrompt, setIsDismissingRecoveryPrompt] = useState(false);
   const securityOverview = useConvexQuery(api.accountSecurity.getSecurityOverview, {});
@@ -195,7 +197,16 @@ function AccountProfile() {
           </Link>
         }
       >
-        {securityOverview?.shouldShowPrompt ? (
+        {securityOverview === undefined ? (
+          <div className="account-status-banner">
+            <div className="account-status-banner-copy">
+              <strong>Checking recovery coverage</strong>
+              <span className="account-status-banner-detail">
+                Loading your current passkeys, backup codes, and recovery inboxes.
+              </span>
+            </div>
+          </div>
+        ) : securityOverview.shouldShowPrompt ? (
           <div className="account-status-banner account-status-banner--warning account-status-banner--recovery-cta">
             <div className="account-status-banner-main">
               <span className="account-status-banner-icon" aria-hidden>
@@ -221,6 +232,10 @@ function AccountProfile() {
                   setIsDismissingRecoveryPrompt(true);
                   try {
                     await dismissRecoveryPrompt({});
+                  } catch (error) {
+                    toast.error('Could not dismiss reminder', {
+                      description: error instanceof Error ? error.message : 'Try again.',
+                    });
                   } finally {
                     setIsDismissingRecoveryPrompt(false);
                   }
@@ -235,9 +250,7 @@ function AccountProfile() {
             <div className="account-status-banner-copy">
               <strong>Recovery options look healthy</strong>
               <span className="account-status-banner-detail">
-                {securityOverview
-                  ? `${securityOverview.strongFactorCount} strong backup${securityOverview.strongFactorCount === 1 ? '' : 's'} on file.`
-                  : 'Open security settings to review details.'}
+                {`${securityOverview.strongFactorCount} strong backup${securityOverview.strongFactorCount === 1 ? '' : 's'} on file.`}
               </span>
             </div>
           </div>

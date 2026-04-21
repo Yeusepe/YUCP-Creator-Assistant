@@ -34,14 +34,19 @@ function getSafeErrorMessage(error: unknown, fallback: string) {
 
 function getErrorLogDetails(error: unknown) {
   if (error instanceof BetterAuthEndpointError) {
+    const betterAuthBodyKeys =
+      error.body && typeof error.body === 'object'
+        ? Object.keys(error.body as Record<string, unknown>)
+        : [];
+
     return {
       errorName: error.name,
       errorMessage: error.message,
       errorStack: error.stack,
       betterAuthPath: error.path,
       betterAuthStatus: error.status,
-      betterAuthBody: error.body,
-      betterAuthBodyText: error.bodyText,
+      betterAuthBodyRedacted: error.body !== null || error.bodyText.trim().length > 0,
+      betterAuthBodyKeys,
     };
   }
   if (error instanceof Error) {
@@ -194,9 +199,52 @@ export function createAccountSecurityRoutes(auth: Auth, config: AccountSecurityR
     }
   }
 
+  async function verifyRecoveryContactEnrollment(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+
+    const session = await auth.getSession(request);
+    if (!session?.user?.id) {
+      return jsonResponse({ error: 'Authentication required' }, 401);
+    }
+
+    const body = await readJsonBody<{ email?: string; otp?: string }>(request);
+    const email = body?.email?.trim();
+    const otp = body?.otp?.trim();
+    if (!email || !otp) {
+      return jsonResponse({ error: 'Email and code are required' }, 400);
+    }
+
+    try {
+      await auth.checkEmailOtp({
+        email,
+        type: 'email-verification',
+        otp,
+      });
+
+      await convex.mutation(api.accountSecurity.verifyRecoveryContactEnrollmentForApi, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+        email,
+      });
+
+      return jsonResponse({ success: true });
+    } catch (error) {
+      logger.warn('Recovery email enrollment verification failed', getErrorLogDetails(error));
+      return jsonResponse(
+        {
+          error: getSafeErrorMessage(error, 'Invalid verification code'),
+        },
+        400
+      );
+    }
+  }
+
   return {
     startRecovery,
     verifyRecoveryEmail,
     verifyRecoveryBackupCode,
+    verifyRecoveryContactEnrollment,
   };
 }

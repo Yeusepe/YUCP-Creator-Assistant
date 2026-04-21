@@ -289,3 +289,10 @@ export async function verifyAccountRecoveryBackupCode(email: string, backupCode:
     }
   );
 }
+
+export async function verifyRecoveryContactEnrollment(email: string, otp: string) {
+  return apiClient.post<{ success: boolean }>('/api/account-security/recovery-email/verify', {
+    email,
+    otp,
+  });
+}

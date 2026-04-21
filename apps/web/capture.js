@@ -3,14 +3,11 @@ const fs = require('node:fs');
 
 (async () => {
   let browser;
+  let context;
   try {
     browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
+    context = await browser.newContext();
     const page = await context.newPage();
-
-    await page.route('**/*', async (route) => {
-      route.continue();
-    });
 
     console.log('Navigating...');
     await page.goto('http://127.0.0.1:3000/account', { waitUntil: 'load' });
@@ -23,7 +20,9 @@ const fs = require('node:fs');
     console.log('Done');
   } catch (e) {
     console.error(e);
+    process.exitCode = 1;
   } finally {
+    if (context) await context.close();
     if (browser) await browser.close();
   }
 })();

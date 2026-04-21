@@ -117,18 +117,9 @@ setInterval(
 
 function getClientAddress(request: Request): string {
   const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
-  if (cloudflareConnectingIp) {
+  const cloudflareRay = request.headers.get('cf-ray')?.trim();
+  if (cloudflareConnectingIp && cloudflareRay) {
     return cloudflareConnectingIp;
-  }
-
-  const realIp = request.headers.get('x-real-ip')?.trim();
-  if (realIp) {
-    return realIp;
-  }
-
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0]?.trim() || 'unknown';
   }
   return 'unknown';
 }
@@ -843,6 +834,9 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/account-recovery/verify-backup-code' && accountSecurityRoutes) {
     return accountSecurityRoutes.verifyRecoveryBackupCode(request);
+  }
+  if (pathname === '/api/account-security/recovery-email/verify' && accountSecurityRoutes) {
+    return accountSecurityRoutes.verifyRecoveryContactEnrollment(request);
   }
   if (pathname === '/api/connect/user/certificates/reconcile' && connectRoutes) {
     return connectRoutes.reconcileUserCertificateBilling(request);

@@ -1,6 +1,7 @@
 import { Tooltip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { providerLabel } from '@yucp/providers';
 import { useMemo, useState } from 'react';
 import { AccountEntityCard } from '@/components/account/AccountEntityCard';
 import {
@@ -35,11 +36,6 @@ export const Route = createLazyFileRoute('/_authenticated/account/licenses')({
   pendingComponent: AccountLicensesPending,
   component: AccountLicenses,
 });
-
-function formatProviderLabel(provider: string): string {
-  if (!provider.trim()) return 'Storefront';
-  return provider.charAt(0).toUpperCase() + provider.slice(1).toLowerCase();
-}
 
 function EntitlementRow({
   entitlement,
@@ -94,7 +90,7 @@ function EntitlementRow({
         </div>
 
         <div className="account-entity-body">
-          <p className="account-entity-kicker">{formatProviderLabel(entitlement.sourceProvider)}</p>
+          <p className="account-entity-kicker">{providerLabel(entitlement.sourceProvider)}</p>
           <h3 className="account-entity-title">Verified product access</h3>
           <dl className="account-entity-dl">
             <div className="account-entity-dl-row">

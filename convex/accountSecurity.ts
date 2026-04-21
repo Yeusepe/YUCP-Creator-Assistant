@@ -34,6 +34,7 @@ const RECOVERY_SESSION_STATUS = {
   expired: 'expired',
 } as const;
 const RECOVERY_EMAIL_SESSION_TTL_MS = 10 * 60 * 1000;
+const RECOVERY_BACKUP_CODE_MAX_ATTEMPTS = 5;
 const RECOVERY_PROMPT_BASE_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000;
 const RECOVERY_PROMPT_JITTER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const RECOVERY_PROMPT_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
@@ -559,7 +560,11 @@ async function createRecoverySession(
   });
 }
 
-async function getLatestActiveRecoverySessionByLookupEmail(ctx: any, lookupEmailHash: string) {
+async function getLatestActiveRecoverySessionByLookupEmail(
+  ctx: any,
+  lookupEmailHash: string,
+  predicate?: (session: any) => boolean
+) {
   const sessions = await ctx.db
     .query('account_recovery_sessions')
     .withIndex('by_lookup_email_hash', (q: any) => q.eq('lookupEmailHash', lookupEmailHash))
@@ -567,6 +572,9 @@ async function getLatestActiveRecoverySessionByLookupEmail(ctx: any, lookupEmail
 
   const sorted = sessions.sort((left: any, right: any) => right.createdAt - left.createdAt);
   for (const session of sorted) {
+    if (predicate && !predicate(session)) {
+      continue;
+    }
     if (
       session.status === RECOVERY_SESSION_STATUS.pending ||
       session.status === RECOVERY_SESSION_STATUS.verified
@@ -787,7 +795,6 @@ export const prepareRecoveryContactEnrollment = mutation({
     if (!emailEncrypted) {
       throw new Error('Recovery email encryption failed');
     }
-    const enrollmentChallenge = generateNonce(24);
     const existing = await ctx.db
       .query('account_recovery_contacts')
       .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
@@ -798,7 +805,9 @@ export const prepareRecoveryContactEnrollment = mutation({
       throw new ConvexError('Recovery email is already in use');
     }
 
-    const existingPrimaryEmailOwnerId = getCanonicalAuthUserId(await getBetterAuthUserByEmail(ctx, email));
+    const existingPrimaryEmailOwnerId = getCanonicalAuthUserId(
+      await getBetterAuthUserByEmail(ctx, email)
+    );
     if (existingPrimaryEmailOwnerId && existingPrimaryEmailOwnerId !== authUserId) {
       throw new ConvexError('Recovery email is already in use');
     }
@@ -808,7 +817,7 @@ export const prepareRecoveryContactEnrollment = mutation({
       await ctx.db.patch(currentForUser._id, {
         kind: RECOVERY_CONTACT_KIND,
         emailEncrypted,
-        enrollmentChallenge,
+        enrollmentChallenge: undefined,
         status: RECOVERY_CONTACT_STATUS.pending,
         verifiedAt: undefined,
         compromisedAt: undefined,
@@ -821,7 +830,6 @@ export const prepareRecoveryContactEnrollment = mutation({
         kind: RECOVERY_CONTACT_KIND,
         emailHash,
         emailEncrypted,
-        enrollmentChallenge,
         status: RECOVERY_CONTACT_STATUS.pending,
         addedAt: now,
         createdAt: now,
@@ -839,7 +847,6 @@ export const prepareRecoveryContactEnrollment = mutation({
     return {
       email,
       emailHash,
-      challengeToken: enrollmentChallenge,
     };
   },
 });
@@ -850,28 +857,33 @@ export const verifyRecoveryContactEnrollment = mutation({
     challengeToken: v.optional(v.string()),
     otpAssertion: v.optional(v.string()),
   },
+  handler: async () => {
+    throw new ConvexError(
+      'Recovery email verification must be completed through the account security API'
+    );
+  },
+});
+
+export const verifyRecoveryContactEnrollmentForApi = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    email: v.string(),
+  },
   handler: async (ctx, args) => {
-    const authUser = await getAuthenticatedAuthUser(ctx);
-    const authUserId = requireAuthenticatedUserId(authUser);
+    requireApiSecret(args.apiSecret);
     const now = Date.now();
     const email = normalizeInputEmail(args.email);
     const emailHash = await sha256Hex(email);
-    const enrollmentProof = args.challengeToken?.trim() || args.otpAssertion?.trim() || null;
-    if (!enrollmentProof) {
-      throw new ConvexError('Recovery email verification proof is required');
-    }
-
     const matchingContacts = await ctx.db
       .query('account_recovery_contacts')
       .withIndex('by_email_hash', (q: any) => q.eq('emailHash', emailHash))
       .collect();
-    const contact = matchingContacts.find((record: any) => record.authUserId === authUserId) ?? null;
+    const contact =
+      matchingContacts.find((record: any) => record.authUserId === args.authUserId) ?? null;
 
     if (!contact) {
       throw new ConvexError('Recovery email enrollment not found');
-    }
-    if (!contact.enrollmentChallenge || contact.enrollmentChallenge !== enrollmentProof) {
-      throw new ConvexError('Recovery email verification failed');
     }
 
     await ctx.db.patch(contact._id, {
@@ -884,13 +896,13 @@ export const verifyRecoveryContactEnrollment = mutation({
     });
 
     await recordAuditEvent(ctx, {
-      authUserId,
+      authUserId: args.authUserId,
       eventType: 'account.security.recovery_email.verified',
       metadata: { emailHash },
       createdAt: now,
     });
 
-    return await syncSecurityStateForUser(ctx, authUserId, now);
+    return await syncSecurityStateForUser(ctx, args.authUserId, now);
   },
 });
 
@@ -1083,7 +1095,11 @@ export const getPendingEmailRecoveryForApi = query({
     const lookupEmailHash = await sha256Hex(lookupEmail);
     const session = await expireRecoverySessionIfNeeded(
       ctx,
-      await getLatestActiveRecoverySessionByLookupEmail(ctx, lookupEmailHash),
+      await getLatestActiveRecoverySessionByLookupEmail(
+        ctx,
+        lookupEmailHash,
+        (candidate) => candidate.challengeType === 'email-otp'
+      ),
       Date.now()
     );
 
@@ -1112,7 +1128,11 @@ export const consumeEmailRecoveryForApi = mutation({
     const lookupEmailHash = await sha256Hex(normalizeInputEmail(args.email));
     const session = await expireRecoverySessionIfNeeded(
       ctx,
-      await getLatestActiveRecoverySessionByLookupEmail(ctx, lookupEmailHash),
+      await getLatestActiveRecoverySessionByLookupEmail(
+        ctx,
+        lookupEmailHash,
+        (candidate) => candidate.challengeType === 'email-otp'
+      ),
       now
     );
 
@@ -1173,6 +1193,51 @@ export const consumeBackupCodeRecoveryForApi = mutation({
       return null;
     }
 
+    const activeAttemptSession = await expireRecoverySessionIfNeeded(
+      ctx,
+      await getLatestActiveRecoverySessionByLookupEmail(
+        ctx,
+        resolution.lookupEmailHash,
+        (candidate) =>
+          candidate.challengeType === 'backup-code' &&
+          candidate.deliveryMethod === 'backup-code' &&
+          candidate.authUserId === resolution.authUserId
+      ),
+      now
+    );
+
+    const attemptSessionId =
+      activeAttemptSession?.status === RECOVERY_SESSION_STATUS.pending
+        ? activeAttemptSession._id
+        : await createRecoverySession(ctx, {
+            authUserId: resolution.authUserId,
+            lookupEmailHash: resolution.lookupEmailHash,
+            deliveryMethod: 'backup-code',
+            challengeType: 'backup-code',
+            expiresAt: now + RECOVERY_EMAIL_SESSION_TTL_MS,
+            now,
+          });
+
+    const attemptSession = (await ctx.db.get(attemptSessionId)) as any;
+    if (!attemptSession || attemptSession.status !== RECOVERY_SESSION_STATUS.pending) {
+      return null;
+    }
+    if (attemptSession.attempts >= RECOVERY_BACKUP_CODE_MAX_ATTEMPTS) {
+      await ctx.db.patch(attemptSession._id, {
+        status: RECOVERY_SESSION_STATUS.cancelled,
+        cancelledAt: attemptSession.cancelledAt ?? now,
+        updatedAt: now,
+      });
+      return null;
+    }
+
+    const nextAttemptCount = attemptSession.attempts + 1;
+    await ctx.db.patch(attemptSession._id, {
+      attempts: nextAttemptCount,
+      lastAttemptAt: now,
+      updatedAt: now,
+    });
+
     const verified = await verifyStoredBackupCode(
       {
         code: args.backupCode.trim(),
@@ -1183,6 +1248,13 @@ export const consumeBackupCodeRecoveryForApi = mutation({
     );
 
     if (!verified.status || !verified.updated) {
+      if (nextAttemptCount >= RECOVERY_BACKUP_CODE_MAX_ATTEMPTS) {
+        await ctx.db.patch(attemptSession._id, {
+          status: RECOVERY_SESSION_STATUS.cancelled,
+          cancelledAt: now,
+          updatedAt: now,
+        });
+      }
       return null;
     }
 

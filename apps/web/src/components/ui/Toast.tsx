@@ -161,23 +161,15 @@ function ToastItemComponent({
     .filter(Boolean)
     .join(' ');
 
-  const headlineId = `toast-headline-${toast.id}`;
-
   return (
-    <div
-      className={className}
-      role="alert"
-      aria-labelledby={toast.visualVariant === 'update' ? headlineId : undefined}
-    >
+    <div className={className} role={toast.visualVariant === 'update' ? 'status' : 'alert'}>
       <span className="toast-icon" aria-hidden="true">
         <ToastIcon type={toast.type} visualVariant={toast.visualVariant} />
       </span>
       {toast.visualVariant === 'update' ? (
         <div className="toast-content toast-content--update">
           <p className="toast-update-kicker">Update</p>
-          <h2 id={headlineId} className="toast-update-headline">
-            {toast.title}
-          </h2>
+          <h2 className="toast-update-headline">{toast.title}</h2>
           {toast.description ? <p className="toast-update-support">{toast.description}</p> : null}
           {toast.action ? (
             <div className="toast-update-actions">
