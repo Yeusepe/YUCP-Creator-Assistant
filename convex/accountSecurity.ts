@@ -945,6 +945,8 @@ export const removeRecoveryContact = mutation({
       updatedAt: now,
     });
 
+    await cancelActiveRecoverySessions(ctx, authUserId, now);
+
     await recordAuditEvent(ctx, {
       authUserId,
       eventType: 'account.security.recovery_email.removed',

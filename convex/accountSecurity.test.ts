@@ -143,6 +143,73 @@ describe('accountSecurity', () => {
     expect(storedContact?.verifiedAt).toBeTypeOf('number');
   }, 20_000);
 
+  it('cancels active recovery sessions when a recovery email is removed', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
+
+    const { authUserId, authed } = await createAuthedUser(t, {
+      email: 'owner@example.com',
+      name: 'Owner',
+    });
+
+    const prepared = await authed.mutation(api.accountSecurity.prepareRecoveryContactEnrollment, {
+      email: 'recovery@example.com',
+    });
+
+    await t.mutation(api.accountSecurity.verifyRecoveryContactEnrollmentForApi, {
+      apiSecret: 'test-secret',
+      authUserId,
+      email: prepared.email,
+    });
+
+    await t.mutation(api.accountSecurity.beginEmailRecoveryForApi, {
+      apiSecret: 'test-secret',
+      authUserId,
+      lookupEmail: 'owner@example.com',
+      deliveryMethod: 'recovery-email-otp',
+      targetEmail: 'recovery@example.com',
+    });
+
+    const beforeRemoval = await t.query(api.accountSecurity.getPendingEmailRecoveryForApi, {
+      apiSecret: 'test-secret',
+      email: 'owner@example.com',
+    });
+
+    expect(beforeRemoval?.deliveryMethod).toBe('recovery-email-otp');
+
+    const storedContact = await t.run(async (ctx) => {
+      return await ctx.db
+        .query('account_recovery_contacts')
+        .withIndex('by_email_hash', (q) => q.eq('emailHash', prepared.emailHash))
+        .first();
+    });
+
+    if (!storedContact) {
+      throw new Error('Expected a stored recovery contact.');
+    }
+
+    await authed.mutation(api.accountSecurity.removeRecoveryContact, {
+      contactId: storedContact._id,
+    });
+
+    const afterRemoval = await t.query(api.accountSecurity.getPendingEmailRecoveryForApi, {
+      apiSecret: 'test-secret',
+      email: 'owner@example.com',
+    });
+
+    expect(afterRemoval).toBeNull();
+
+    const sessions = await t.run(async (ctx) => {
+      return await ctx.db
+        .query('account_recovery_sessions')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+        .collect();
+    });
+
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]?.status).toBe('cancelled');
+  }, 20_000);
+
   it('locks backup-code recovery after repeated invalid attempts', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
     t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
