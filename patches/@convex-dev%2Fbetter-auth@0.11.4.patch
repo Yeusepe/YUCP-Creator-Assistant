@@ -1,5 +1,18 @@
+
+diff --git a/dist/auth-options.js b/dist/auth-options.js
+index 3f4f6ff8c0f25210930d7934a8a9f29da8cc3425..1b67f02ecc231be2054d30b5ce6fbf9e9e323724 100644
+--- a/dist/auth-options.js
++++ b/dist/auth-options.js
+@@ -35,6 +35,7 @@ export const options = {
+         }),
+         oidcProvider({
+             loginPage: "/login",
++            __skipDeprecationWarning: true,
+         }),
+         bearer(),
+         oneTimeToken(),
 diff --git a/dist/client/adapter-utils.d.ts b/dist/client/adapter-utils.d.ts
-index 4e263dd..c6277c5 100644
+index 4e263dd187eb2a4d433ce5147c1b6d1e5df7ac23..c6277c5d5752887387c4cbec60c58d6a2dae9840 100644
 --- a/dist/client/adapter-utils.d.ts
 +++ b/dist/client/adapter-utils.d.ts
 @@ -4,6 +4,7 @@ import type { BetterAuthDBSchema } from "better-auth/db";
@@ -46,15 +59,8 @@ index 4e263dd..c6277c5 100644
      sortBy: import("convex/values").VObject<{
          field: string;
          direction: "asc" | "desc";
-@@ -63,4 +68,4 @@ export declare const paginate: <Doc extends DocumentByName<GenericDataModel, T>,
-     paginationOpts: PaginationOptions;
- }) => Promise<PaginationResult<Doc>>;
- export declare const listOne: <Doc extends DocumentByName<GenericDataModel, T>, T extends TableNamesInDataModel<GenericDataModel>>(ctx: GenericQueryCtx<GenericDataModel>, schema: SchemaDefinition<any, any>, betterAuthSchema: BetterAuthDBSchema, args: Infer<typeof adapterArgsValidator>) => Promise<Doc | null>;
--//# sourceMappingURL=adapter-utils.d.ts.map
-\ No newline at end of file
-+//# sourceMappingURL=adapter-utils.d.ts.map
 diff --git a/dist/client/adapter-utils.js b/dist/client/adapter-utils.js
-index 90b3506..3a163a0 100644
+index 90b3506eb8ca4c41321db669c43eda216499de85..3a163a0666facd3d848451a2bd81543e77a8f232 100644
 --- a/dist/client/adapter-utils.js
 +++ b/dist/client/adapter-utils.js
 @@ -8,6 +8,7 @@ export const adapterWhereValidator = v.object({
@@ -65,27 +71,8 @@ index 90b3506..3a163a0 100644
  });
  export const adapterArgsValidator = v.object({
      model: v.string(),
-@@ -443,4 +444,4 @@ export const listOne = async (ctx, schema, betterAuthSchema, args) => {
-         },
-     })).page[0];
- };
--//# sourceMappingURL=adapter-utils.js.map
-\ No newline at end of file
-+//# sourceMappingURL=adapter-utils.js.map
-diff --git a/src/client/adapter-utils.ts b/src/client/adapter-utils.ts
-index 4618da4..7f23716 100644
---- a/src/client/adapter-utils.ts
-+++ b/src/client/adapter-utils.ts
-@@ -41,6 +41,7 @@ export const adapterWhereValidator = v.object({
-     v.null()
-   ),
-   connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
-+  mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
- });
- 
- export const adapterArgsValidator = v.object({
 diff --git a/dist/client/create-api.js b/dist/client/create-api.js
-index 411d7eb..513c39f 100644
+index d8faa6cf3ec63db230118c6eb97ccd21302d79a8..dab7ef00fa2e5b41cae5a73453f91f18d5784bea 100644
 --- a/dist/client/create-api.js
 +++ b/dist/client/create-api.js
 @@ -9,6 +9,7 @@ const whereValidator = (schema, tableName) => v.object({
@@ -96,8 +83,45 @@ index 411d7eb..513c39f 100644
  });
  export const createApi = (schema, createAuthOptions) => {
      const betterAuthSchema = getAuthTables(createAuthOptions({}));
+diff --git a/dist/plugins/convex/index.js b/dist/plugins/convex/index.js
+index af68d52858e50bb081a64990aa84214910af4e51..d1e362c61ea9e43be2f1d78b01f98b47121fd70a 100644
+--- a/dist/plugins/convex/index.js
++++ b/dist/plugins/convex/index.js
+@@ -47,6 +47,7 @@ export const convex = (opts) => {
+             issuer: `${process.env.CONVEX_SITE_URL}`,
+             jwks_uri: `${process.env.CONVEX_SITE_URL}${opts.options?.basePath ?? "/api/auth"}/convex/jwks`,
+         },
++        __skipDeprecationWarning: true,
+     });
+     const providerConfig = parseAuthConfig(opts.authConfig, opts);
+     const jwtOptions = {
+diff --git a/src/auth-options.ts b/src/auth-options.ts
+index 5eac458894e938f2ab459e99065d28c10bf38157..03f3fc31bf7a8ca5fe957be88515b129e94f7cfb 100644
+--- a/src/auth-options.ts
++++ b/src/auth-options.ts
+@@ -37,6 +37,8 @@ export const options = {
+     }),
+     oidcProvider({
+       loginPage: "/login",
++      // @ts-expect-error Internal Better Auth escape hatch for wrapper compatibility.
++      __skipDeprecationWarning: true,
+     }),
+     bearer(),
+     oneTimeToken(),
+diff --git a/src/client/adapter-utils.ts b/src/client/adapter-utils.ts
+index 4618da4cdbf55a9935a94c0b1fedd1c16e254f45..7f23716c686f93ee6decad4e3830b3ed01913ab2 100644
+--- a/src/client/adapter-utils.ts
++++ b/src/client/adapter-utils.ts
+@@ -41,6 +41,7 @@ export const adapterWhereValidator = v.object({
+     v.null()
+   ),
+   connector: v.optional(v.union(v.literal("AND"), v.literal("OR"))),
++  mode: v.optional(v.union(v.literal("sensitive"), v.literal("insensitive"))),
+ });
+ 
+ export const adapterArgsValidator = v.object({
 diff --git a/src/client/create-api.ts b/src/client/create-api.ts
-index 032f3d2..d72e911 100644
+index 4bed173d8db3942974e970457ff25e9781b8cdb6..ea44703fff37bb498a4ac78c1bf80f956b32aa72 100644
 --- a/src/client/create-api.ts
 +++ b/src/client/create-api.ts
 @@ -55,6 +55,7 @@ const whereValidator = (
@@ -108,3 +132,16 @@ index 032f3d2..d72e911 100644
    });
  
  export const createApi = <Schema extends SchemaDefinition<any, any>>(
+diff --git a/src/plugins/convex/index.ts b/src/plugins/convex/index.ts
+index 91c132f76de057f6b3753d360b9b247bf804b7cb..74fc4d1197b0292a61bcdcc9e84899db1ecfbb3f 100644
+--- a/src/plugins/convex/index.ts
++++ b/src/plugins/convex/index.ts
+@@ -181,6 +181,8 @@ export const convex = (opts: {
+       issuer: `${process.env.CONVEX_SITE_URL}`,
+       jwks_uri: `${process.env.CONVEX_SITE_URL}${opts.options?.basePath ?? "/api/auth"}/convex/jwks`,
+     },
++    // @ts-expect-error Internal Better Auth escape hatch for wrapper compatibility.
++    __skipDeprecationWarning: true,
+   });
+   const providerConfig = parseAuthConfig(opts.authConfig, opts);
+ 

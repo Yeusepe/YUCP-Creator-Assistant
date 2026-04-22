@@ -54,9 +54,10 @@ export function useVersionPoller(): void {
 
       notifiedRef.current = true;
 
-      toast.info('A new version is available', {
+      toast.info('Update ready', {
         duration: 0, // persistent, user must act
-        description: 'Reload to get the latest version.',
+        description: 'Reload to use the latest version.',
+        visualVariant: 'update',
         action: {
           label: 'Reload',
           onClick: () => {

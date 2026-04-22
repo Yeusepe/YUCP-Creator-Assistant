@@ -1,0 +1,404 @@
+/* ============================================================================
+   Personal dashboard home — metrics + storefront connections
+   Ground-up surfaces aligned with account/security glass sections.
+   ============================================================================ */
+
+/* Own padding; avoid stacking with global .section-card responsive padding */
+.section-card.dash-home-pulse,
+.section-card.cpp-panel {
+  padding: 0;
+}
+
+/* ── Verification metrics (StatsOverviewPanel) ─────────────────────── */
+
+.dash-home-pulse {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dash-home-pulse__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px 18px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(248, 250, 252, 0.45) 55%,
+    rgba(241, 245, 249, 0.35) 100%
+  );
+}
+
+.dark .dash-home-pulse__header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.55) 0%, rgba(15, 23, 42, 0.42) 100%);
+}
+
+.dash-home-pulse__leading {
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.75));
+  color: #0369a1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.dark .dash-home-pulse__leading {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(15, 23, 42, 0.55));
+  color: #7dd3fc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dash-home-pulse__leading svg {
+  width: 24px;
+  height: 24px;
+}
+
+.dash-home-pulse__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.dash-home-pulse__title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: #0f172a;
+}
+
+.dark .dash-home-pulse__title {
+  color: #f8fafc;
+}
+
+.dash-home-pulse__lead {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #64748b;
+  max-width: 40rem;
+}
+
+.dark .dash-home-pulse__lead {
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.dash-home-pulse__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px 18px 20px;
+}
+
+@media (max-width: 1023px) {
+  .dash-home-pulse__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 479px) {
+  .dash-home-pulse__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Metric tile */
+.dash-metric {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 2px 8px rgba(15, 23, 42, 0.04);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.dash-metric:hover {
+  border-color: rgba(14, 165, 233, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 6px 20px rgba(14, 165, 233, 0.08);
+}
+
+.dark .dash-metric {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.45);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dark .dash-metric:hover {
+  border-color: rgba(56, 189, 248, 0.22);
+}
+
+.dash-metric__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dash-metric__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  color: #0369a1;
+}
+
+.dark .dash-metric__icon {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(56, 189, 248, 0.22);
+  color: #38bdf8;
+}
+
+.dash-metric__label {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #64748b;
+  line-height: 1.25;
+}
+
+.dark .dash-metric__label {
+  color: #94a3b8;
+}
+
+.dash-metric__value {
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(1.75rem, 4vw, 2.125rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: #0f172a;
+}
+
+.dark .dash-metric__value {
+  color: #f8fafc;
+}
+
+.dash-metric__trend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dash-metric__trend.up {
+  color: #15803d;
+}
+
+.dash-metric__trend.down {
+  color: #dc2626;
+}
+
+.dash-metric__trend.neutral {
+  color: #64748b;
+}
+
+.dark .dash-metric__trend.up {
+  color: #4ade80;
+}
+
+.dark .dash-metric__trend.down {
+  color: #f87171;
+}
+
+.dark .dash-metric__trend.neutral {
+  color: #94a3b8;
+}
+
+.dash-metric__hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  font-weight: 500;
+  color: #64748b;
+}
+
+.dark .dash-metric__hint {
+  color: #94a3b8;
+}
+
+/* Loading skeletons */
+.dash-metric--loading {
+  gap: 10px;
+  pointer-events: none;
+}
+
+.dash-metric-skel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dash-metric-skel-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #e2e8f0;
+  animation: dash-home-pulse 1.4s ease-in-out infinite;
+}
+
+.dash-metric-skel-label {
+  height: 11px;
+  flex: 1;
+  max-width: 100px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  animation: dash-home-pulse 1.4s ease-in-out infinite;
+}
+
+.dash-metric-skel-val {
+  height: 34px;
+  width: min(72px, 50%);
+  border-radius: 8px;
+  background: #e2e8f0;
+  animation: dash-home-pulse 1.4s ease-in-out infinite;
+}
+
+.dash-metric-skel-trend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.dash-metric-skel-trend-i {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: #e2e8f0;
+  animation: dash-home-pulse 1.4s ease-in-out infinite;
+}
+
+.dash-metric-skel-trend-t {
+  height: 11px;
+  width: 72px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  animation: dash-home-pulse 1.4s ease-in-out infinite;
+}
+
+.dark .dash-metric-skel-icon,
+.dark .dash-metric-skel-val,
+.dark .dash-metric-skel-trend-i {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.dark .dash-metric-skel-label,
+.dark .dash-metric-skel-trend-t {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes dash-home-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Activity entry rows (ActivityItem — shared when audit / timelines ship) */
+
+.dash-activity-entry {
+  position: relative;
+  margin-left: -21px;
+  padding-left: 4px;
+}
+
+.dash-activity-entry::before {
+  content: "";
+  position: absolute;
+  left: -17px;
+  top: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.35);
+}
+
+.dark .dash-activity-entry::before {
+  border-color: rgba(15, 23, 42, 0.95);
+  background: #38bdf8;
+}
+
+.dash-activity-entry__card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.dark .dash-activity-entry__card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.dash-activity-entry__card-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.dash-activity-entry__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dash-activity-entry__desc {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.dark .dash-activity-entry__desc {
+  color: #e2e8f0;
+}
+
+.dash-activity-entry__time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.dark .dash-activity-entry__time {
+  color: #94a3b8;
+}

@@ -55,7 +55,7 @@ describe('buildBetterAuthEqualityWhere', () => {
 describe('lookup helpers', () => {
   it('builds a stable user lookup filter', () => {
     expect(buildBetterAuthUserLookupWhere('user_123')).toEqual([
-      { field: 'id', operator: 'eq', value: 'user_123' },
+      { field: '_id', operator: 'eq', value: 'user_123' },
     ]);
   });
 

@@ -35,6 +35,7 @@ export interface Verification {
   createdAt: Date;
 }
 
+export * from './accountRecoveryPasskey';
 export * from './apiActor';
 export * from './authOrigins';
 export * from './authRedirects';

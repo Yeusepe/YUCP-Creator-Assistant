@@ -26,6 +26,29 @@ afterEach(() => {
 });
 
 describe('Convex Better Auth endpoints', () => {
+  it('does not emit the deprecated oidc-provider warning on session requests', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const auth = await createTestAuth();
+
+      const response = await auth.handler(
+        new Request('http://localhost:3000/api/auth/get-session')
+      );
+
+      expect(response.status).toBe(200);
+      expect(
+        warnSpy.mock.calls.some((call) =>
+          call.some(
+            (arg) =>
+              typeof arg === 'string' && arg.includes('The "oidc-provider" plugin is deprecated')
+          )
+        )
+      ).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('serves /api/auth/convex/token instead of returning 404', async () => {
     const auth = await createTestAuth();
 

@@ -1,7 +1,8 @@
 import { oauthProvider } from '@better-auth/oauth-provider';
 import { apiKey } from '@better-auth/api-key';
+import { passkey } from '@better-auth/passkey';
 import type { BetterAuthOptions } from 'better-auth/minimal';
-import { jwt } from 'better-auth/plugins';
+import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { createJwtJwksAdapter } from './jwtAdapter';
 
 const PUBLIC_API_AUDIENCE = 'yucp-public-api';
@@ -51,5 +52,12 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
           oauthAuthServerConfig: true,
         },
       }),
+      emailOTP({
+        sendVerificationOTP: async () => {},
+      }),
+      twoFactor({
+        allowPasswordless: true,
+      }),
+      passkey(),
     ],
   }) as BetterAuthOptions;

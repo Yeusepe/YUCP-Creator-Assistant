@@ -1,23 +1,23 @@
 import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
-import type { CSSProperties } from 'react';
+import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
+import { AlertCircle, KeyRound, ShieldCheck } from 'lucide-react';
+import { type CSSProperties, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
-import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { AccountProfileSkeleton } from '@/components/account/AccountProfileSkeleton';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { StatusChip } from '@/components/ui/StatusChip';
+import { useToast } from '@/components/ui/Toast';
+import { YucpButton } from '@/components/ui/YucpButton';
 import { useAccountShell } from '@/hooks/useAccountShell';
-import { useAuth } from '@/hooks/useAuth';
 import { listUserLicenses, listUserOAuthGrants } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
 import { listCreatorCertificates } from '@/lib/certificates';
 import { listUserAccounts } from '@/lib/dashboard';
+import { api } from '../../../../../../convex/_generated/api';
 
 function AccountProfilePending() {
-  return (
-    <AccountPage>
-      <DashboardListSkeleton rows={4} />
-    </AccountPage>
-  );
+  return <AccountProfileSkeleton />;
 }
 
 export const Route = createLazyFileRoute('/_authenticated/account/')({
@@ -27,8 +27,11 @@ export const Route = createLazyFileRoute('/_authenticated/account/')({
 
 function AccountProfile() {
   const { guilds, viewer } = useAccountShell();
-  const { signOut } = useAuth();
+  const toast = useToast();
   const isCreator = guilds.length > 0;
+  const [isDismissingRecoveryPrompt, setIsDismissingRecoveryPrompt] = useState(false);
+  const securityOverview = useConvexQuery(api.accountSecurity.getSecurityOverview, {});
+  const dismissRecoveryPrompt = useConvexMutation(api.accountSecurity.dismissRecoveryPrompt);
   const sessionQuery = useQuery({
     queryKey: ['better-auth-session'],
     queryFn: async () => {
@@ -145,52 +148,140 @@ function AccountProfile() {
       </AccountSectionCard>
 
       <AccountSectionCard
-        className="bento-col-4 animate-in animate-in-delay-2"
+        className="bento-col-4 animate-in animate-in-delay-2 account-session-card"
+        leading={<KeyRound strokeWidth={1.75} aria-hidden />}
         eyebrow="Session"
-        title="Access and security"
-        description="Quick visibility into how you are signed in and what your account can access."
-        actions={
+        title="Your access"
+        description="How you sign in and what this account can use."
+        bodyClassName="account-session-card-body"
+      >
+        <dl className="account-session-dl">
+          <div className="account-session-stat">
+            <dt>Sign-in</dt>
+            <dd>Discord SSO</dd>
+          </div>
+          <div className="account-session-stat">
+            <dt>Creator dashboard</dt>
+            <dd>{isCreator ? 'On' : 'Off'}</dd>
+          </div>
+          <div className="account-session-stat">
+            <dt>Authorized apps</dt>
+            <dd>{renderMetricValue(grantsQuery, authorizedApps?.length ?? 0)}</dd>
+          </div>
+          <div className="account-session-stat">
+            <dt>Providers</dt>
+            <dd>{renderMetricValue(accountsQuery, accounts.length)}</dd>
+          </div>
+          <div className="account-session-stat">
+            <dt>Active licenses</dt>
+            <dd>{renderMetricValue(licensesQuery, activeLicenses)}</dd>
+          </div>
+        </dl>
+
+        <div className="account-session-footer">
           <Link to="/account/connections" className="account-btn account-btn--secondary">
-            Manage connections
+            Connections
+          </Link>
+        </div>
+      </AccountSectionCard>
+
+      <AccountSectionCard
+        className="bento-col-12 animate-in animate-in-delay-2"
+        leading={<ShieldCheck strokeWidth={1.75} aria-hidden />}
+        eyebrow="Account recovery"
+        title="Can you get back in if Discord breaks?"
+        description="Discord is your normal sign-in. Add backups—passkeys, one-time codes, or a spare inbox—so you are never stuck."
+        actions={
+          <Link to="/account/security" className="account-btn account-btn--primary">
+            Manage recovery
           </Link>
         }
       >
-        <div className="account-kv-list">
-          <div className="account-kv-row">
-            <span className="account-kv-label">Authentication</span>
-            <span className="account-kv-value">Discord SSO</span>
+        {securityOverview === undefined ? (
+          <div className="account-status-banner">
+            <div className="account-status-banner-copy">
+              <strong>Checking recovery coverage</strong>
+              <span className="account-status-banner-detail">
+                Loading your current passkeys, backup codes, and recovery inboxes.
+              </span>
+            </div>
           </div>
-          <div className="account-kv-row">
-            <span className="account-kv-label">Creator dashboard</span>
-            <span className="account-kv-value">{isCreator ? 'Enabled' : 'Not enabled'}</span>
+        ) : securityOverview.shouldShowPrompt ? (
+          <div className="account-status-banner account-status-banner--warning account-status-banner--recovery-cta">
+            <div className="account-status-banner-main">
+              <span className="account-status-banner-icon" aria-hidden>
+                <AlertCircle strokeWidth={1.75} />
+              </span>
+              <div className="account-status-banner-copy">
+                <strong>Add a backup sign-in method</strong>
+                <span className="account-status-banner-detail">
+                  {isCreator
+                    ? 'Keep at least one option besides your Discord email alone.'
+                    : 'Passkeys, backup codes, or a recovery email take a few minutes.'}
+                </span>
+              </div>
+            </div>
+            <div className="account-status-banner-actions">
+              <Link to="/account/security" className="account-btn account-btn--primary">
+                Set up in security
+              </Link>
+              <YucpButton
+                yucp="secondary"
+                isLoading={isDismissingRecoveryPrompt}
+                onPress={async () => {
+                  setIsDismissingRecoveryPrompt(true);
+                  try {
+                    await dismissRecoveryPrompt({});
+                  } catch (error) {
+                    toast.error('Could not dismiss reminder', {
+                      description: error instanceof Error ? error.message : 'Try again.',
+                    });
+                  } finally {
+                    setIsDismissingRecoveryPrompt(false);
+                  }
+                }}
+              >
+                Remind me later
+              </YucpButton>
+            </div>
           </div>
-          <div className="account-kv-row">
-            <span className="account-kv-label">Authorized apps</span>
-            <span className="account-kv-value">
-              {renderMetricValue(grantsQuery, authorizedApps?.length ?? 0)}
-            </span>
+        ) : (
+          <div className="account-status-banner account-status-banner--success">
+            <div className="account-status-banner-copy">
+              <strong>Recovery options look healthy</strong>
+              <span className="account-status-banner-detail">
+                {`${securityOverview.strongFactorCount} strong backup${securityOverview.strongFactorCount === 1 ? '' : 's'} on file.`}
+              </span>
+            </div>
           </div>
-          <div className="account-kv-row">
-            <span className="account-kv-label">Connected providers</span>
-            <span className="account-kv-value">
-              {renderMetricValue(accountsQuery, accounts.length)}
-            </span>
-          </div>
-          <div className="account-kv-row">
-            <span className="account-kv-label">Active licenses</span>
-            <span className="account-kv-value">
-              {renderMetricValue(licensesQuery, activeLicenses)}
-            </span>
-          </div>
-        </div>
+        )}
 
-        <button
-          type="button"
-          className="account-btn account-btn--secondary"
-          onClick={() => signOut()}
-        >
-          Sign out
-        </button>
+        <ul className="account-recovery-metrics" aria-label="Recovery snapshot">
+          <li className="account-recovery-metric">
+            <span>Passkeys</span>
+            <span className="account-recovery-metric-value">
+              {securityOverview?.passkeyCount ?? '—'}
+            </span>
+          </li>
+          <li className="account-recovery-metric">
+            <span>Backup codes</span>
+            <span className="account-recovery-metric-value">
+              {securityOverview?.backupCodeCount ?? '—'}
+            </span>
+          </li>
+          <li className="account-recovery-metric">
+            <span>Recovery inboxes</span>
+            <span className="account-recovery-metric-value">
+              {securityOverview?.verifiedRecoveryEmailCount ?? '—'}
+            </span>
+          </li>
+          <li className="account-recovery-metric account-recovery-metric--policy">
+            <span>Primary email reset</span>
+            <span className="account-recovery-metric-value">
+              {securityOverview?.primaryEmailRecoveryEligible ? 'On' : 'Paused'}
+            </span>
+          </li>
+        </ul>
       </AccountSectionCard>
 
       <AccountSectionCard

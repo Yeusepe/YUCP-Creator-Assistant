@@ -1,8 +1,9 @@
 import { Tooltip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { motion } from 'framer-motion';
+import { providerLabel } from '@yucp/providers';
 import { useMemo, useState } from 'react';
+import { AccountEntityCard } from '@/components/account/AccountEntityCard';
 import {
   AccountEmptyState,
   AccountInlineError,
@@ -43,7 +44,6 @@ function EntitlementRow({
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
-  const rowDelay = Math.min(index * 0.05, 0.25);
 
   const revokeMut = useMutation({
     mutationFn: () => revokeUserLicense(entitlement.id),
@@ -64,106 +64,119 @@ function EntitlementRow({
   const iconPath = getAccountProviderIconPath(entitlement.sourceProvider);
 
   return (
-    <motion.div
-      className="account-list-row"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: rowDelay, duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
-    >
-      <div className="account-list-row-icon">
-        {iconPath ? (
-          <img src={iconPath} alt={entitlement.sourceProvider} width="20" height="20" />
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-            <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-            <circle cx="12" cy="13" r="1" />
-          </svg>
-        )}
-      </div>
+    <AccountEntityCard index={index}>
+      <div className="account-entity-layout">
+        <div className="account-entity-leading" aria-hidden="true">
+          {iconPath ? (
+            <img src={iconPath} alt="" width={24} height={24} />
+          ) : (
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+              <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+              <circle cx="12" cy="13" r="1" />
+            </svg>
+          )}
+        </div>
 
-      <div className="account-list-row-info">
-        <p className="account-list-row-name">{entitlement.productId}</p>
-        <div className="account-list-row-meta">
-          <ProviderChip name={entitlement.sourceProvider} />
-          {entitlement.sourceReference ? (
-            <Tooltip>
-              <button
-                type="button"
-                className="account-reference-chip"
-                style={{ cursor: 'help' }}
-                aria-label={entitlement.sourceReference}
-              >
-                {entitlement.sourceReference.slice(0, 12)}
-                &hellip;
-              </button>
-              <Tooltip.Content>
-                <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: '11px' }}>
-                  {entitlement.sourceReference}
-                </p>
-              </Tooltip.Content>
-            </Tooltip>
-          ) : null}
-          <span>{formatAccountDate(entitlement.grantedAt)}</span>
+        <div className="account-entity-body">
+          <p className="account-entity-kicker">{providerLabel(entitlement.sourceProvider)}</p>
+          <h3 className="account-entity-title">Verified product access</h3>
+          <dl className="account-entity-dl">
+            <div className="account-entity-dl-row">
+              <dt>Product ID</dt>
+              <dd>
+                <code className="account-entity-product-id">{entitlement.productId}</code>
+              </dd>
+            </div>
+            {entitlement.sourceReference ? (
+              <div className="account-entity-dl-row">
+                <dt>Store reference</dt>
+                <dd>
+                  <Tooltip>
+                    <button
+                      type="button"
+                      className="account-reference-chip"
+                      style={{ cursor: 'help' }}
+                      aria-label={entitlement.sourceReference}
+                    >
+                      {entitlement.sourceReference.length > 20
+                        ? `${entitlement.sourceReference.slice(0, 10)}\u2026${entitlement.sourceReference.slice(-6)}`
+                        : entitlement.sourceReference}
+                    </button>
+                    <Tooltip.Content>
+                      <p className="account-tooltip-mono">{entitlement.sourceReference}</p>
+                    </Tooltip.Content>
+                  </Tooltip>
+                </dd>
+              </div>
+            ) : null}
+            <div className="account-entity-dl-row">
+              <dt>Granted</dt>
+              <dd>{formatAccountDate(entitlement.grantedAt)}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="account-entity-aside">
+          <div className="account-entity-aside-row">
+            {(['active', 'revoked', 'expired'] as BadgeStatus[]).includes(
+              entitlement.status as BadgeStatus
+            ) ? (
+              <StatusChip
+                status={entitlement.status as BadgeStatus}
+                label={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
+              />
+            ) : (
+              <ProviderChip
+                name={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
+              />
+            )}
+            {entitlement.status === 'active' && !confirming ? (
+              <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
+                Deactivate
+              </YucpButton>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="account-list-row-actions">
-        {(['active', 'revoked', 'expired'] as BadgeStatus[]).includes(
-          entitlement.status as BadgeStatus
-        ) ? (
-          <StatusChip
-            status={entitlement.status as BadgeStatus}
-            label={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
-          />
-        ) : (
-          <ProviderChip
-            name={entitlement.status.charAt(0).toUpperCase() + entitlement.status.slice(1)}
-          />
-        )}
-        {entitlement.status === 'active' && !confirming ? (
-          <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
-            Deactivate
-          </YucpButton>
-        ) : null}
-        {confirming ? (
-          <AccountModal title="Deactivate license?" onClose={() => setConfirming(false)}>
-            <p className="account-modal-body">
-              This removes the active grant from your account and revokes the linked Discord role.
-              Re-verification requires the full provider flow again.
-            </p>
-            <div className="account-modal-actions">
-              <YucpButton
-                yucp="secondary"
-                onClick={() => setConfirming(false)}
-                isDisabled={revokeMut.isPending}
-              >
-                Cancel
-              </YucpButton>
-              <YucpButton
-                yucp="danger"
-                isLoading={revokeMut.isPending}
-                isDisabled={revokeMut.isPending}
-                onClick={() => revokeMut.mutate()}
-              >
-                {revokeMut.isPending ? 'Deactivating...' : 'Deactivate'}
-              </YucpButton>
-            </div>
-          </AccountModal>
-        ) : null}
-      </div>
-    </motion.div>
+      {confirming ? (
+        <AccountModal title="Deactivate license?" onClose={() => setConfirming(false)}>
+          <p className="account-modal-body">
+            This removes the active grant from your account and revokes the linked Discord role.
+            Re-verification requires the full provider flow again.
+          </p>
+          <div className="account-modal-actions">
+            <YucpButton
+              yucp="secondary"
+              onClick={() => setConfirming(false)}
+              isDisabled={revokeMut.isPending}
+            >
+              Cancel
+            </YucpButton>
+            <YucpButton
+              yucp="danger"
+              isLoading={revokeMut.isPending}
+              isDisabled={revokeMut.isPending}
+              onClick={() => revokeMut.mutate()}
+            >
+              {revokeMut.isPending ? 'Deactivating...' : 'Deactivate'}
+            </YucpButton>
+          </div>
+        </AccountModal>
+      ) : null}
+    </AccountEntityCard>
   );
 }
 
@@ -233,11 +246,13 @@ function AccountLicenses() {
           />
         ) : null}
 
-        {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length > 0
-          ? allEntitlements.map((entitlement, index) => (
+        {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length > 0 ? (
+          <div className="account-entity-list">
+            {allEntitlements.map((entitlement, index) => (
               <EntitlementRow key={entitlement.id} entitlement={entitlement} index={index} />
-            ))
-          : null}
+            ))}
+          </div>
+        ) : null}
       </AccountSectionCard>
 
       <AccountSectionCard

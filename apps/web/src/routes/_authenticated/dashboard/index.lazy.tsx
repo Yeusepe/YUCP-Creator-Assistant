@@ -9,7 +9,6 @@ import {
   OnboardingProgressPanel,
   type OnboardingStep,
 } from '@/components/dashboard/panels/OnboardingProgressPanel';
-import { RecentActivityPanel } from '@/components/dashboard/panels/RecentActivityPanel';
 import { ServerSettingsPanel } from '@/components/dashboard/panels/ServerSettingsPanel';
 import { SetupJourneyCard } from '@/components/dashboard/panels/SetupJourneyCard';
 import { StatsOverviewPanel } from '@/components/dashboard/panels/StatsOverviewPanel';
@@ -267,12 +266,8 @@ function DashboardIndex() {
             <StatsOverviewPanel />
           </div>
 
-          {/* Connected platforms + recent activity */}
-          <div className="col-span-12 lg:col-span-8">
+          <div className="col-span-12">
             <ConnectedPlatformsPanel onCountsChange={handleCountsChange} />
-          </div>
-          <div className="col-span-12 lg:col-span-4">
-            <RecentActivityPanel />
           </div>
 
           {/* Onboarding (conditional) */}
@@ -312,8 +307,7 @@ function DashboardIndex() {
           </div>
         ) : null}
 
-        {/* Server settings + recent activity */}
-        <div className="col-span-12 lg:col-span-8">
+        <div className="col-span-12">
           {authUserId && guildId ? (
             <ServerSettingsPanel
               authUserId={authUserId}
@@ -322,9 +316,6 @@ function DashboardIndex() {
               onAuthError={markSessionExpired}
             />
           ) : null}
-        </div>
-        <div className="col-span-12 lg:col-span-4">
-          <RecentActivityPanel />
         </div>
 
         {/* Danger zone */}

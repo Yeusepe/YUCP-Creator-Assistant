@@ -24,6 +24,7 @@ export function AccountSectionCard({
   className,
   bodyClassName,
   footer,
+  leading,
   children,
 }: Readonly<{
   eyebrow?: string;
@@ -33,15 +34,20 @@ export function AccountSectionCard({
   className?: string;
   bodyClassName?: string;
   footer?: ReactNode;
+  /** Optional icon or illustration shown beside the title block */
+  leading?: ReactNode;
   children: ReactNode;
 }>) {
   return (
     <section className={joinClasses('section-card account-surface-card', className)}>
       <div className="account-surface-card-header">
-        <div className="account-surface-card-copy">
-          {eyebrow ? <div className="account-surface-card-eyebrow">{eyebrow}</div> : null}
-          <h3 className="account-surface-card-title">{title}</h3>
-          {description ? <p className="account-surface-card-desc">{description}</p> : null}
+        <div className="account-surface-card-header-cluster">
+          {leading ? <div className="account-surface-card-leading">{leading}</div> : null}
+          <div className="account-surface-card-copy">
+            {eyebrow ? <div className="account-surface-card-eyebrow">{eyebrow}</div> : null}
+            <h3 className="account-surface-card-title">{title}</h3>
+            {description ? <p className="account-surface-card-desc">{description}</p> : null}
+          </div>
         </div>
         {actions ? <div className="account-surface-card-actions">{actions}</div> : null}
       </div>
@@ -52,6 +58,9 @@ export function AccountSectionCard({
     </section>
   );
 }
+
+/** Alias for {@link AccountSectionCard} — the same security-page glass section pattern for any route. */
+export { AccountSectionCard as WorkspaceSectionCard };
 
 export function AccountEmptyState({
   icon,

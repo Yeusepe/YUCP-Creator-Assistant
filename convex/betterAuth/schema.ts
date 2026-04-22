@@ -20,6 +20,7 @@ export const tables = {
     createdAt: v.number(),
     updatedAt: v.number(),
     userId: v.optional(v.union(v.null(), v.string())),
+    twoFactorEnabled: v.optional(v.boolean()),
   })
     .index('email_name', ['email', 'name'])
     .index('name', ['name'])
@@ -171,6 +172,28 @@ export const tables = {
     updatedAt: v.optional(v.union(v.null(), v.number())),
   })
     .index('clientId_userId', ['clientId', 'userId'])
+    .index('userId', ['userId']),
+  passkey: defineTable({
+    name: v.optional(v.string()),
+    publicKey: v.string(),
+    userId: v.string(),
+    credentialID: v.string(),
+    counter: v.number(),
+    deviceType: v.string(),
+    backedUp: v.boolean(),
+    transports: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    aaguid: v.optional(v.string()),
+  })
+    .index('userId', ['userId'])
+    .index('credentialID', ['credentialID']),
+  twoFactor: defineTable({
+    secret: v.string(),
+    backupCodes: v.string(),
+    userId: v.string(),
+    verified: v.optional(v.boolean()),
+  })
+    .index('secret', ['secret'])
     .index('userId', ['userId']),
 };
 

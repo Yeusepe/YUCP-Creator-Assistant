@@ -53,6 +53,15 @@ h2 {
   filter: drop-shadow(0 0 10px rgba(88, 101, 242, 0.35));
 }
 
+/* YUCP Creator Suite wordmark — full logo asset, allow wider aspect */
+.logo-wrap--suite img {
+  height: auto;
+  max-height: 52px;
+  width: min(100%, 340px);
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(88, 101, 242, 0.3));
+}
+
 .card {
   background: rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(24px) saturate(160%);
@@ -65,6 +74,70 @@ h2 {
   border-radius: 28px;
   padding: 2.5rem 2.25rem;
   text-align: center;
+}
+
+/* Creator Suite card: same glass shell as default .card (no extra tint or accent bar). */
+
+.sign-in-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sign-in-methods {
+  border: none;
+  margin: 0.15rem 0 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+/* Secondary recovery entry — text link, not a second primary CTA (cf. sign-in form best practices) */
+.sign-in-recovery-row {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.sign-in-trouble-link {
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.42);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.sign-in-trouble-link:hover {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.sign-in-trouble-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.45);
+}
+
+.sign-in-method svg {
+  flex-shrink: 0;
+}
+
+.sign-in-method--brand svg {
+  color: #fff;
+}
+
+.sign-in-method--neutral svg {
+  color: rgba(255, 255, 255, 0.92);
 }
 
 /* ── Discord app icon ────────────────────────────────────── */
@@ -95,6 +168,15 @@ h2 {
   margin-bottom: 1.75rem;
 }
 
+.sign-in-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.dark .sign-in-actions {
+  color: inherit;
+}
+
 /* ── Feature pills ───────────────────────────────────────── */
 
 /* ── Discord button ──────────────────────────────────────── */
@@ -122,6 +204,10 @@ h2 {
     transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275),
     box-shadow 0.18s ease;
 }
+.dark .discord-btn {
+  background: var(--discord-blurple);
+  color: #fff;
+}
 
 .discord-btn:hover {
   background: #4752c4;
@@ -138,20 +224,304 @@ h2 {
   flex-shrink: 0;
 }
 
-/* ── Security note ───────────────────────────────────────── */
-.security-note {
+.discord-btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+.dark .discord-btn:disabled {
+  opacity: 0.72;
+}
+
+.secondary-auth-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
-  margin-top: 1.1rem;
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 0.73rem;
-  font-weight: 500;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.85rem 1.35rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.dark .secondary-auth-btn {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.security-note svg {
-  flex-shrink: 0;
+.secondary-auth-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
+  transform: translateY(-2px);
+}
+.dark .secondary-auth-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.secondary-auth-btn:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+.dark .secondary-auth-btn:disabled {
+  opacity: 0.72;
+}
+
+.sign-in-btn-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+.dark .sign-in-btn-spinner {
+  border-color: currentcolor;
+  border-right-color: transparent;
+}
+
+.recovery-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  margin-top: 0.85rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+  text-align: left;
+}
+.dark .recovery-panel {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.recovery-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+.dark .recovery-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.recovery-input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.96);
+  padding: 0.82rem 0.95rem;
+  font-size: 0.9rem;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.dark .recovery-input {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.recovery-input::placeholder {
+  color: rgba(255, 255, 255, 0.34);
+}
+.dark .recovery-input::placeholder {
+  color: rgba(255, 255, 255, 0.34);
+}
+
+.recovery-input:focus {
+  outline: none;
+  border-color: rgba(88, 101, 242, 0.56);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.18);
+}
+.dark .recovery-input:focus {
+  border-color: rgba(88, 101, 242, 0.56);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.18);
+}
+
+.recovery-submit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.82rem 1rem;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.96), rgba(65, 78, 214, 0.96));
+  color: #fff;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+}
+.dark .recovery-submit-btn {
+  background: linear-gradient(135deg, rgba(88, 101, 242, 0.96), rgba(65, 78, 214, 0.96));
+  color: #fff;
+}
+
+.recovery-submit-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(88, 101, 242, 0.24);
+}
+.dark .recovery-submit-btn:hover {
+  box-shadow: 0 12px 28px rgba(88, 101, 242, 0.24);
+}
+
+.recovery-submit-btn:disabled {
+  cursor: wait;
+  opacity: 0.76;
+  transform: none;
+  box-shadow: none;
+}
+.dark .recovery-submit-btn:disabled {
+  opacity: 0.76;
+}
+
+.recovery-submit-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+.dark .recovery-submit-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.recovery-submit-btn--secondary:hover {
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.12);
+}
+.dark .recovery-submit-btn--secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.recovery-challenges {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.85rem;
+}
+.dark .recovery-challenges {
+  color: inherit;
+}
+
+.recovery-challenge-card,
+.recovery-enroll-card {
+  padding: 0.95rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.035);
+}
+.dark .recovery-challenge-card,
+.dark .recovery-enroll-card {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.recovery-panel-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.94);
+}
+.dark .recovery-panel-title {
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.recovery-panel-copy {
+  margin: 0 0 0.95rem;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.54);
+}
+.dark .recovery-panel-copy {
+  color: rgba(255, 255, 255, 0.54);
+}
+
+.recovery-message,
+.recovery-error {
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.recovery-message {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.16);
+  color: rgba(220, 252, 231, 0.92);
+}
+.dark .recovery-message {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.16);
+  color: rgba(220, 252, 231, 0.92);
+}
+
+.recovery-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.16);
+  color: rgba(254, 226, 226, 0.92);
+}
+.dark .recovery-error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.16);
+  color: rgba(254, 226, 226, 0.92);
+}
+
+.recovery-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.dark .recovery-footer {
+  color: inherit;
+}
+
+.recovery-reset-btn {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.dark .recovery-reset-btn {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.recovery-support-note {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.38);
+}
+.dark .recovery-support-note {
+  color: rgba(255, 255, 255, 0.38);
 }
 
 /* ── Divider ─────────────────────────────────────────────── */
@@ -324,5 +694,15 @@ h2 {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 2rem 1.2rem;
+  }
+
+  .recovery-panel {
+    padding: 0.9rem;
   }
 }

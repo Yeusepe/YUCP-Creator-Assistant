@@ -20,6 +20,7 @@ describe('auth browser origins', () => {
     expect(trustedOrigins).toContain('http://localhost:3000');
     expect(trustedOrigins).toContain('http://localhost:3001');
     expect(trustedOrigins).toContain('http://127.0.0.1:3000');
+    expect(trustedOrigins).toContain('http://[::1]:3000');
     expect(trustedOrigins).not.toContain('http://localhost:*');
     expect(trustedOrigins).not.toContain('https://localhost:*');
   });
@@ -33,5 +34,14 @@ describe('auth browser origins', () => {
     expect(trustedOrigins).toContain('https://verify.creators.yucp.club');
     expect(trustedOrigins).not.toContain('http://localhost:3000');
     expect(trustedOrigins).not.toContain('http://127.0.0.1:3000');
+  });
+
+  it('ignores opaque origins instead of throwing while checking local trust', () => {
+    expect(
+      buildAllowedBrowserOrigins({
+        siteUrl: 'https://verify.creators.yucp.club',
+        additionalOrigins: ['file:///tmp/local-dev.html'],
+      })
+    ).toEqual(['https://verify.creators.yucp.club']);
   });
 });

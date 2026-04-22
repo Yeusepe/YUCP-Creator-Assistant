@@ -157,44 +157,39 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
   return (
     <section
       id="connected-platforms-panel"
-      className="intg-card animate-in animate-in-delay-1"
+      className="section-card cpp-panel connected-platforms-panel animate-in animate-in-delay-1"
       aria-label="Connected platforms"
     >
-      {/* Header */}
-      <div className="intg-header">
-        <div className="intg-title-row">
-          <div className="intg-icon">
-            <img src="/Icons/Link.png" alt="" />
-          </div>
-          <div className="intg-copy">
-            <h2 className="intg-title">Connected Platforms</h2>
-            <p className="intg-desc">Storefronts linked for automated verification.</p>
-          </div>
+      <header className="cpp-panel__header">
+        <div className="cpp-panel__title-row">
+          <h2 className="cpp-panel__title">Sales channels</h2>
+          {!isLoading && totalCount > 1 ? (
+            <span className="cpp-panel__count">
+              {connectedCount} of {totalCount}
+            </span>
+          ) : null}
         </div>
-        {!isLoading && totalCount > 1 && (
-          <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-semibold text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
-            {connectedCount}&thinsp;/&thinsp;{totalCount}
-          </span>
-        )}
-      </div>
+        <p className="cpp-panel__lead">
+          Link marketplaces so verification can use purchase data from your accounts.
+        </p>
+      </header>
 
-      {/* Body */}
       <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={4} />}>
-        <div className="flex flex-col gap-2">
-          {/* Discord - always active */}
-          <PlatformCard
-            providerKey="discord"
-            label="Discord"
-            iconPath="/Icons/Discord.png"
-            iconBg="#5865F2"
-            isConnected={true}
-            accountLabel="Bot access active"
-            isAlwaysActive={true}
-            onConnect={() => {}}
-            onDisconnect={() => {}}
-          />
+        <ul className="cpp-panel__list">
+          <li className="cpp-panel__item">
+            <PlatformCard
+              providerKey="discord"
+              label="Discord"
+              iconPath="/Icons/Discord.png"
+              iconBg="#5865F2"
+              isConnected={true}
+              accountLabel="Bot access active"
+              isAlwaysActive={true}
+              onConnect={() => {}}
+              onDisconnect={() => {}}
+            />
+          </li>
 
-          {/* Dynamic providers */}
           {visibleProviders.map((provider) => {
             const account = accountsByProvider.get(provider.key);
             const isConnected = Boolean(account);
@@ -202,7 +197,7 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
               disconnectMutation.isPending && disconnectMutation.variables === account?.id;
 
             return (
-              <div key={provider.key}>
+              <li key={provider.key} className="cpp-panel__item">
                 <PlatformCard
                   providerKey={provider.key}
                   label={provider.label ?? provider.key}
@@ -220,7 +215,6 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
                   onDisconnect={() => setPendingDisconnect(provider.key)}
                 />
 
-                {/* Disconnect confirmation portal */}
                 <DashboardBodyPortal>
                   <div
                     className={`inline-confirm${pendingDisconnect === provider.key ? ' open' : ''}`}
@@ -258,22 +252,26 @@ export function ConnectedPlatformsPanel({ onCountsChange }: ConnectedPlatformsPa
                     </div>
                   </div>
                 </DashboardBodyPortal>
-              </div>
+              </li>
             );
           })}
 
           {!showAll && unconnectedProviders.length > 0 && (
-            <button className="btn-show-more" type="button" onClick={() => setShowAll(true)}>
-              Show {unconnectedProviders.length} more
-            </button>
+            <li className="cpp-panel__item">
+              <button className="btn-show-more" type="button" onClick={() => setShowAll(true)}>
+                Show {unconnectedProviders.length} more
+              </button>
+            </li>
           )}
 
           {showAll && unconnectedProviders.length > 0 && (
-            <button className="btn-show-more" type="button" onClick={() => setShowAll(false)}>
-              Show less
-            </button>
+            <li className="cpp-panel__item">
+              <button className="btn-show-more" type="button" onClick={() => setShowAll(false)}>
+                Show less
+              </button>
+            </li>
           )}
-        </div>
+        </ul>
       </DashboardSkeletonSwap>
     </section>
   );

@@ -107,6 +107,12 @@ export interface UserVerificationIntent {
   updatedAt: number;
 }
 
+export interface AccountRecoveryVerificationResult {
+  success: boolean;
+  recoveryPasskeyContext: string;
+  expiresAt: number;
+}
+
 export interface UserCertificateWorkspace {
   workspaceKey: string;
   creatorProfileId: string | null;
@@ -258,4 +264,35 @@ export async function verifyUserVerificationManualLicense(
     `/api/connect/user/verification-intents/${encodeURIComponent(intentId)}/manual-license`,
     { methodKey, licenseKey }
   );
+}
+
+export async function startAccountRecovery(email: string) {
+  return apiClient.post<{
+    success: boolean;
+    message: string;
+  }>('/api/account-recovery/start', { email });
+}
+
+export async function verifyAccountRecoveryEmail(email: string, otp: string) {
+  return apiClient.post<AccountRecoveryVerificationResult>('/api/account-recovery/verify-email', {
+    email,
+    otp,
+  });
+}
+
+export async function verifyAccountRecoveryBackupCode(email: string, backupCode: string) {
+  return apiClient.post<AccountRecoveryVerificationResult>(
+    '/api/account-recovery/verify-backup-code',
+    {
+      email,
+      backupCode,
+    }
+  );
+}
+
+export async function verifyRecoveryContactEnrollment(email: string, otp: string) {
+  return apiClient.post<{ success: boolean }>('/api/account-security/recovery-email/verify', {
+    email,
+    otp,
+  });
 }

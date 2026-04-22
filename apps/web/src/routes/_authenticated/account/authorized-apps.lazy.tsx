@@ -1,8 +1,8 @@
 import { Tooltip } from '@heroui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute } from '@tanstack/react-router';
-import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
+import { AccountEntityCard } from '@/components/account/AccountEntityCard';
 import {
   AccountEmptyState,
   AccountInlineError,
@@ -39,7 +39,6 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
   const [confirming, setConfirming] = useState(false);
   const queryClient = useQueryClient();
   const toast = useToast();
-  const rowDelay = Math.min(index * 0.05, 0.25);
 
   const revokeMut = useMutation({
     mutationFn: () => revokeUserOAuthGrant(grant.consentId),
@@ -58,85 +57,96 @@ function GrantRow({ grant, index }: Readonly<{ grant: OAuthGrant; index: number 
   });
 
   const appInitial = grant.appName.slice(0, 1).toUpperCase();
+  const clientPreview =
+    grant.clientId.length > 18
+      ? `${grant.clientId.slice(0, 8)}\u2026${grant.clientId.slice(-6)}`
+      : grant.clientId;
 
   return (
-    <motion.div
-      className="account-list-row"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: rowDelay, duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
-    >
-      <div className="account-list-row-icon account-app-icon" aria-hidden="true">
-        <span className="account-app-icon-letter">{appInitial}</span>
-      </div>
-
-      <div className="account-list-row-info">
-        <p className="account-list-row-name">{grant.appName}</p>
-        <div className="account-list-row-meta">
-          <Tooltip>
-            <button
-              type="button"
-              className="account-reference-chip"
-              style={{ cursor: 'help' }}
-              aria-label={grant.clientId}
-            >
-              {grant.clientId.length > 16 ? `${grant.clientId.slice(0, 16)}\u2026` : grant.clientId}
-            </button>
-            <Tooltip.Content>
-              <p style={{ fontFamily: 'ui-monospace, monospace', fontSize: '11px' }}>
-                {grant.clientId}
-              </p>
-            </Tooltip.Content>
-          </Tooltip>
-          {grant.grantedAt ? <span>Authorized {formatAccountDate(grant.grantedAt)}</span> : null}
+    <AccountEntityCard index={index}>
+      <div className="account-entity-layout">
+        <div className="account-entity-leading account-app-icon" aria-hidden="true">
+          <span className="account-app-icon-letter">{appInitial}</span>
         </div>
-        {grant.scopes.length > 0 ? (
-          <div className="account-pill-row account-pill-row--compact">
-            {grant.scopes.map((scope) => (
-              <span
-                key={`${grant.consentId}:${scope}`}
-                className="account-badge account-badge--scope-neutral"
-              >
-                {scope}
-              </span>
-            ))}
-          </div>
-        ) : null}
+
+        <div className="account-entity-body">
+          <p className="account-entity-kicker">OAuth application</p>
+          <h3 className="account-entity-title">{grant.appName}</h3>
+          <dl className="account-entity-dl">
+            <div className="account-entity-dl-row">
+              <dt>Client ID</dt>
+              <dd>
+                <Tooltip>
+                  <button
+                    type="button"
+                    className="account-reference-chip"
+                    style={{ cursor: 'help' }}
+                    aria-label={grant.clientId}
+                  >
+                    {clientPreview}
+                  </button>
+                  <Tooltip.Content>
+                    <p className="account-tooltip-mono">{grant.clientId}</p>
+                  </Tooltip.Content>
+                </Tooltip>
+              </dd>
+            </div>
+            {grant.grantedAt ? (
+              <div className="account-entity-dl-row">
+                <dt>Authorized</dt>
+                <dd>{formatAccountDate(grant.grantedAt)}</dd>
+              </div>
+            ) : null}
+          </dl>
+          {grant.scopes.length > 0 ? (
+            <div className="account-entity-scopes">
+              {grant.scopes.map((scope) => (
+                <span
+                  key={`${grant.consentId}:${scope}`}
+                  className="account-badge account-badge--scope-neutral"
+                >
+                  {scope}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="account-entity-aside">
+          {!confirming ? (
+            <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
+              Revoke
+            </YucpButton>
+          ) : null}
+        </div>
       </div>
 
-      <div className="account-list-row-actions">
-        {!confirming ? (
-          <YucpButton yucp="ghost" onClick={() => setConfirming(true)}>
-            Revoke
-          </YucpButton>
-        ) : null}
-        {confirming ? (
-          <AccountModal title={`Revoke ${grant.appName}?`} onClose={() => setConfirming(false)}>
-            <p className="account-modal-body">
-              Revoking access immediately invalidates this client&apos;s ability to use your
-              account. Any existing access tokens must be reissued after a new consent flow.
-            </p>
-            <div className="account-modal-actions">
-              <YucpButton
-                yucp="secondary"
-                onClick={() => setConfirming(false)}
-                isDisabled={revokeMut.isPending}
-              >
-                Cancel
-              </YucpButton>
-              <YucpButton
-                yucp="danger"
-                isLoading={revokeMut.isPending}
-                isDisabled={revokeMut.isPending}
-                onClick={() => revokeMut.mutate()}
-              >
-                {revokeMut.isPending ? 'Revoking...' : 'Revoke access'}
-              </YucpButton>
-            </div>
-          </AccountModal>
-        ) : null}
-      </div>
-    </motion.div>
+      {confirming ? (
+        <AccountModal title={`Revoke ${grant.appName}?`} onClose={() => setConfirming(false)}>
+          <p className="account-modal-body">
+            Revoking access immediately invalidates this client&apos;s ability to use your account.
+            Any existing access tokens must be reissued after a new consent flow.
+          </p>
+          <div className="account-modal-actions">
+            <YucpButton
+              yucp="secondary"
+              onClick={() => setConfirming(false)}
+              isDisabled={revokeMut.isPending}
+            >
+              Cancel
+            </YucpButton>
+            <YucpButton
+              yucp="danger"
+              isLoading={revokeMut.isPending}
+              isDisabled={revokeMut.isPending}
+              onClick={() => revokeMut.mutate()}
+            >
+              {revokeMut.isPending ? 'Revoking...' : 'Revoke access'}
+            </YucpButton>
+          </div>
+        </AccountModal>
+      ) : null}
+    </AccountEntityCard>
   );
 }
 
@@ -195,11 +205,13 @@ function AccountAuthorizedApps() {
           />
         ) : null}
 
-        {!grantsQuery.isLoading && !grantsQuery.isError && grants.length > 0
-          ? grants.map((grant, index) => (
+        {!grantsQuery.isLoading && !grantsQuery.isError && grants.length > 0 ? (
+          <div className="account-entity-list">
+            {grants.map((grant, index) => (
               <GrantRow key={grant.consentId} grant={grant} index={index} />
-            ))
-          : null}
+            ))}
+          </div>
+        ) : null}
       </AccountSectionCard>
 
       <AccountSectionCard

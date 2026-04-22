@@ -563,5 +563,99 @@ describe('Auth Configuration', () => {
       expect(devConfig.session_token.attributes.secure).toBe(false);
       expect(devConfig.session_token.attributes.sameSite).toBe('lax');
     });
+
+    it('sends recovery email OTPs through the Better Auth internal endpoint', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let requestUrl = '';
+      let requestBody = '';
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        requestBody = String(init?.body ?? '');
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }) as typeof fetch;
+
+      try {
+        const auth = createAuth({
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        });
+
+        const result = await auth.sendEmailOtp({
+          email: 'owner@example.com',
+          type: 'forget-password',
+        });
+
+        expect(requestUrl).toContain('/api/auth/email-otp/send-verification-otp');
+        expect(JSON.parse(requestBody)).toEqual({
+          email: 'owner@example.com',
+          type: 'forget-password',
+        });
+        expect(result).toEqual({ success: true });
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
+    });
+
+    it('checks recovery email OTPs through the Better Auth internal endpoint', async () => {
+      const originalInternalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-secret';
+      const originalFetch = globalThis.fetch;
+      let requestUrl = '';
+      let requestBody = '';
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        requestBody = String(init?.body ?? '');
+        return new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+      }) as typeof fetch;
+
+      try {
+        const auth = createAuth({
+          baseUrl: 'http://localhost:3001',
+          convexSiteUrl: 'https://test-123.convex.site',
+          convexUrl: 'https://test-123.convex.site',
+        });
+
+        const result = await auth.checkEmailOtp({
+          email: 'owner@example.com',
+          type: 'forget-password',
+          otp: '123456',
+        });
+
+        expect(requestUrl).toContain('/api/auth/email-otp/check-verification-otp');
+        expect(JSON.parse(requestBody)).toEqual({
+          email: 'owner@example.com',
+          type: 'forget-password',
+          otp: '123456',
+        });
+        expect(result).toEqual({ success: true });
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalInternalSecret === undefined) {
+          delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+        } else {
+          process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalSecret;
+        }
+      }
+    });
   });
 });

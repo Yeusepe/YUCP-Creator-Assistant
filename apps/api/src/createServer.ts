@@ -21,6 +21,7 @@ import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
 import {
+  createAccountSecurityRoutes,
   createCouplingLicenseRoutes,
   createVerificationRoutes,
   mountVerificationRouteHandlers,
@@ -138,6 +139,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     apiBaseUrl: baseUrl,
     couplingServiceBaseUrl: config.couplingServiceBaseUrl ?? '',
     couplingServiceSharedSecret: config.couplingServiceSharedSecret ?? '',
+    convexUrl: config.convexUrl,
+    convexApiSecret: config.convexApiSecret,
+  });
+  const accountSecurityRoutes = createAccountSecurityRoutes(stubAuth, {
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
   });
@@ -332,6 +337,18 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
       if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    if (pathname === '/api/account-recovery/start') {
+      return accountSecurityRoutes.startRecovery(request);
+    }
+    if (pathname === '/api/account-recovery/verify-email') {
+      return accountSecurityRoutes.verifyRecoveryEmail(request);
+    }
+    if (pathname === '/api/account-recovery/verify-backup-code') {
+      return accountSecurityRoutes.verifyRecoveryBackupCode(request);
+    }
+    if (pathname === '/api/account-security/recovery-email/verify') {
+      return accountSecurityRoutes.verifyRecoveryContactEnrollment(request);
     }
     if (pathname === '/api/connect/status') return connectRoutes.getStatus(request);
     if (pathname === '/api/connect/settings') {

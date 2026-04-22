@@ -62,12 +62,6 @@ vi.mock('@/components/dashboard/panels/OnboardingProgressPanel', () => {
   };
 });
 
-vi.mock('@/components/dashboard/panels/RecentActivityPanel', () => {
-  return {
-    RecentActivityPanel: () => <div data-testid="recent-activity-panel" />,
-  };
-});
-
 vi.mock('@/components/dashboard/panels/ServerSettingsPanel', () => {
   return {
     ServerSettingsPanel: () => <div data-testid="server-settings-panel" />,

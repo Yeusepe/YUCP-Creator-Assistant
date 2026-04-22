@@ -50,6 +50,8 @@ export interface SessionData {
   discordUserId?: string | null;
 }
 
+export type BetterAuthEmailOtpType = 'email-verification' | 'sign-in' | 'forget-password';
+
 interface BetterAuthSessionResponse {
   session?: unknown;
   user?: {
@@ -106,6 +108,11 @@ interface PolarCheckoutResponse {
 
 interface PolarPortalRequest {
   redirect?: boolean;
+}
+
+interface BetterAuthEmailOtpResponse {
+  success?: boolean;
+  message?: string;
 }
 
 function extractBetterAuthErrorDetail(body: unknown, bodyText: string): string | null {
@@ -547,6 +554,67 @@ export function createAuth(config: AuthConfig) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new BetterAuthEndpointError('/customer/portal', 500, { error: detail }, detail);
       }
+    },
+
+    async sendEmailOtp(input: {
+      email: string;
+      type: BetterAuthEmailOtpType;
+    }): Promise<BetterAuthEmailOtpResponse | null> {
+      const { response } = await callInternalAuth('/email-otp/send-verification-otp', {
+        method: 'POST',
+        body: input,
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text();
+        let parsedBody: unknown = null;
+        if (bodyText.trim()) {
+          try {
+            parsedBody = JSON.parse(bodyText) as unknown;
+          } catch {
+            parsedBody = null;
+          }
+        }
+        throw new BetterAuthEndpointError(
+          '/email-otp/send-verification-otp',
+          response.status,
+          parsedBody,
+          bodyText
+        );
+      }
+
+      return (await response.json()) as BetterAuthEmailOtpResponse;
+    },
+
+    async checkEmailOtp(input: {
+      email: string;
+      type: BetterAuthEmailOtpType;
+      otp: string;
+    }): Promise<BetterAuthEmailOtpResponse | null> {
+      const { response } = await callInternalAuth('/email-otp/check-verification-otp', {
+        method: 'POST',
+        body: input,
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text();
+        let parsedBody: unknown = null;
+        if (bodyText.trim()) {
+          try {
+            parsedBody = JSON.parse(bodyText) as unknown;
+          } catch {
+            parsedBody = null;
+          }
+        }
+        throw new BetterAuthEndpointError(
+          '/email-otp/check-verification-otp',
+          response.status,
+          parsedBody,
+          bodyText
+        );
+      }
+
+      return (await response.json()) as BetterAuthEmailOtpResponse;
     },
 
     async persistVrchatSession(

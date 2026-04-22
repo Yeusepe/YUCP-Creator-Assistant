@@ -18,8 +18,8 @@ describe('StatsOverviewPanel loading presentation', () => {
     expect(section).toBeTruthy();
     expect(section.className).toContain('stats-overview-panel');
     expect(section.className).toContain('stats-overview-panel--loading');
-    expect(section.className).toContain('intg-card');
-    expect(section.className).toContain('intg-card--flush');
+    expect(section.className).toContain('section-card');
+    expect(section.className).toContain('dash-home-pulse');
   });
 
   it('restores the standard integrated card once stats have loaded', () => {
@@ -38,8 +38,8 @@ describe('StatsOverviewPanel loading presentation', () => {
     const section = container.querySelector('#stats-overview-section');
     expect(section).toBeTruthy();
     expect(section.className).toContain('stats-overview-panel');
-    expect(section.className).toContain('intg-card');
-    expect(section.className).toContain('intg-card--flush');
+    expect(section.className).toContain('section-card');
+    expect(section.className).toContain('dash-home-pulse');
     expect(section.className).not.toContain('stats-overview-panel--loading');
   });
 });

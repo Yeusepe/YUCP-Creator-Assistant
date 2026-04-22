@@ -25,9 +25,11 @@ export function PlatformCard({
   isAlwaysActive,
 }: PlatformCardProps) {
   return (
-    <div className="platform-row">
-      {/* Provider icon */}
-      <div className="platform-row-icon" style={iconBg ? { backgroundColor: iconBg } : undefined}>
+    <div className="cpp-provider platform-row">
+      <div
+        className="cpp-provider__icon platform-row-icon"
+        style={iconBg ? { backgroundColor: iconBg } : undefined}
+      >
         {iconPath ? (
           <img src={iconPath} alt={`${label} icon`} />
         ) : (
@@ -42,8 +44,7 @@ export function PlatformCard({
         )}
       </div>
 
-      {/* Label and status */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div className="cpp-provider__meta">
         <span className="platform-row-label">{label}</span>
         {isConnected ? (
           <span className="platform-row-sub connected">{accountLabel ?? 'Connected'}</span>
@@ -52,8 +53,7 @@ export function PlatformCard({
         )}
       </div>
 
-      {/* Action area */}
-      <div className="platform-row-actions">
+      <div className="cpp-provider__actions platform-row-actions">
         {isAlwaysActive ? (
           <span className="platform-row-badge">Always active</span>
         ) : isConnected ? (

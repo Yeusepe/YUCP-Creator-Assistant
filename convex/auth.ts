@@ -11,25 +11,31 @@ import './polyfills';
 
 import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
+import { passkey } from '@better-auth/passkey';
 import type { GenericCtx } from '@convex-dev/better-auth';
 import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import { checkout, polar, portal, usage, webhooks } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
+import { verifyRecoveryPasskeyContext } from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
-import { jwt } from 'better-auth/plugins';
+import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import authSchema from './betterAuth/schema';
+import { BETTER_AUTH_BACKUP_CODE_OPTIONS } from './lib/accountSecurityConfig';
+import { sendEmailOtpEmail } from './lib/accountSecurityEmail';
+import { buildBetterAuthUserLookupWhere } from './lib/betterAuthAdapter';
 import { getCertificateBillingConfig } from './lib/certificateBillingConfig';
 import {
   toCertificateBillingProjectionBenefitGrant,
   toCertificateBillingProjectionMeter,
   toCertificateBillingProjectionSubscription,
 } from './lib/certificateBillingProjection';
+import { completeRecoveryPasskeyEnrollmentOrThrow } from './lib/recoveryPasskeyCompletion';
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
@@ -112,6 +118,15 @@ async function scheduleCustomerReconciliation(ctx: GenericCtx<DataModel>, payloa
     polarCustomerId,
     delayMs: 0,
   });
+}
+
+function getRecoveryPasskeySecret(): string {
+  const secret =
+    process.env.ACCOUNT_RECOVERY_CONTEXT_SECRET?.trim() || process.env.BETTER_AUTH_SECRET;
+  if (!secret) {
+    throw new Error('BETTER_AUTH_SECRET is required');
+  }
+  return secret;
 }
 
 export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions => {
@@ -309,6 +324,98 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           name: user?.name ?? null,
           email: user?.email ?? null,
         }),
+      }),
+      emailOTP({
+        expiresIn: 5 * 60,
+        allowedAttempts: 3,
+        storeOTP: 'hashed',
+        rateLimit: {
+          window: 60,
+          max: 3,
+        },
+        disableSignUp: true,
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          await sendEmailOtpEmail({
+            email,
+            otp,
+            type,
+          });
+        },
+      }),
+      twoFactor({
+        allowPasswordless: true,
+        skipVerificationOnEnable: true,
+        issuer: 'Creator Assistant',
+        backupCodeOptions: BETTER_AUTH_BACKUP_CODE_OPTIONS,
+      }),
+      passkey({
+        origin: trustedOrigins,
+        rpID: new URL(siteUrl).hostname,
+        rpName: 'Creator Assistant',
+        registration: {
+          requireSession: false,
+          resolveUser: async ({ context }) => {
+            if (!context) {
+              throw new Error('Recovery passkey context is required');
+            }
+
+            const payload = await verifyRecoveryPasskeyContext(
+              context,
+              getRecoveryPasskeySecret(),
+              Date.now()
+            );
+            if (!payload) {
+              throw new Error('Invalid or expired recovery passkey context');
+            }
+
+            const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+              model: 'user',
+              where: buildBetterAuthUserLookupWhere(payload.authUserId),
+              select: ['id', 'name'],
+            })) as { id?: string; _id?: string; name?: string | null } | null;
+
+            const userId = user?.id ?? user?._id ?? null;
+            if (!userId || typeof userId !== 'string') {
+              throw new Error('Recovery user not found');
+            }
+
+            return {
+              id: userId,
+              name: user?.name?.trim() || 'Recovered account',
+            };
+          },
+          afterVerification: async ({ context, user }) => {
+            if (!context) {
+              return;
+            }
+
+            const payload = await verifyRecoveryPasskeyContext(
+              context,
+              getRecoveryPasskeySecret(),
+              Date.now()
+            );
+            if (!payload) {
+              return;
+            }
+
+            if (!('runMutation' in ctx)) {
+              throw new Error(
+                'Recovery passkey completion requires a mutation-capable auth context'
+              );
+            }
+
+            await completeRecoveryPasskeyEnrollmentOrThrow(
+              (args) =>
+                ctx.runMutation(internal.accountSecurity.completeRecoveryPasskeyEnrollment, args),
+              {
+                authUserId: user.id,
+                contextNonce: payload.nonce,
+                method: payload.method,
+                completedAt: Date.now(),
+              }
+            );
+          },
+        },
       }),
       ...polarPlugins,
       vrchat(),

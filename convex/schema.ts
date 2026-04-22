@@ -446,6 +446,36 @@ const PurchaseFactLifecycleStatus = v.union(
   v.literal('disputed')
 );
 
+const RecoveryContactKind = v.union(v.literal('recovery_email'));
+
+const RecoveryContactStatus = v.union(
+  v.literal('pending'),
+  v.literal('verified'),
+  v.literal('compromised'),
+  v.literal('removed')
+);
+
+const RecoverySessionMethod = v.union(
+  v.literal('primary-email-otp'),
+  v.literal('recovery-email-otp'),
+  v.literal('backup-code'),
+  v.literal('support-review')
+);
+
+const RecoverySessionChallengeType = v.union(
+  v.literal('email-otp'),
+  v.literal('backup-code'),
+  v.literal('manual')
+);
+
+const RecoverySessionStatus = v.union(
+  v.literal('pending'),
+  v.literal('verified'),
+  v.literal('completed'),
+  v.literal('cancelled'),
+  v.literal('expired')
+);
+
 /** Audit event types */
 const AuditEventType = v.union(
   v.literal('verification.session.created'),
@@ -490,7 +520,19 @@ const AuditEventType = v.union(
   v.literal('setup.job.resumed'),
   v.literal('setup.job.status.updated'),
   v.literal('migration.job.created'),
-  v.literal('migration.job.status.updated')
+  v.literal('migration.job.status.updated'),
+  v.literal('account.security.prompt.shown'),
+  v.literal('account.security.prompt.dismissed'),
+  v.literal('account.security.passkey.added'),
+  v.literal('account.security.passkey.removed'),
+  v.literal('account.security.backup_codes.regenerated'),
+  v.literal('account.security.recovery_email.added'),
+  v.literal('account.security.recovery_email.verified'),
+  v.literal('account.security.recovery_email.removed'),
+  v.literal('account.security.recovery.initiated'),
+  v.literal('account.security.recovery.completed'),
+  v.literal('account.security.authenticator.compromised'),
+  v.literal('account.security.sessions.revoked')
 );
 
 const ProtectedMaterializationGrantTraceStatus = v.union(
@@ -1587,6 +1629,64 @@ const creator_oauth_apps = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_client_id', ['clientId']);
 
+const account_recovery_contacts = defineTable({
+  authUserId: v.string(),
+  kind: RecoveryContactKind,
+  emailHash: v.string(),
+  emailEncrypted: v.string(),
+  enrollmentChallenge: v.optional(v.string()),
+  status: RecoveryContactStatus,
+  verifiedAt: v.optional(v.number()),
+  compromisedAt: v.optional(v.number()),
+  addedAt: v.number(),
+  lastUsedAt: v.optional(v.number()),
+  removedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_status', ['authUserId', 'status'])
+  .index('by_email_hash', ['emailHash']);
+
+const account_security_state = defineTable({
+  authUserId: v.string(),
+  lastRecoveryPromptAt: v.optional(v.number()),
+  nextRecoveryPromptAt: v.optional(v.number()),
+  dismissedUntil: v.optional(v.number()),
+  hasVerifiedRecoveryEmail: v.optional(v.boolean()),
+  hasBackupCodes: v.optional(v.boolean()),
+  hasPasskey: v.optional(v.boolean()),
+  primaryEmailCompromisedAt: v.optional(v.number()),
+  discordCompromisedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_next_prompt', ['nextRecoveryPromptAt']);
+
+const account_recovery_sessions = defineTable({
+  authUserId: v.string(),
+  lookupEmailHash: v.optional(v.string()),
+  deliveryMethod: RecoverySessionMethod,
+  challengeType: RecoverySessionChallengeType,
+  targetEmailHash: v.optional(v.string()),
+  targetEmailEncrypted: v.optional(v.string()),
+  status: RecoverySessionStatus,
+  contextNonce: v.optional(v.string()),
+  expiresAt: v.number(),
+  verifiedAt: v.optional(v.number()),
+  completedAt: v.optional(v.number()),
+  cancelledAt: v.optional(v.number()),
+  lastAttemptAt: v.optional(v.number()),
+  attempts: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_lookup_email_hash', ['lookupEmailHash'])
+  .index('by_status_expires', ['status', 'expiresAt'])
+  .index('by_context_nonce', ['contextNonce']);
+
 // ============================================================================
 // PLATFORM-LEVEL TABLES (no authUserId)
 // ============================================================================
@@ -2620,6 +2720,9 @@ export default defineSchema({
   provider_licenses,
   entitlement_evidence,
   creator_oauth_apps,
+  account_recovery_contacts,
+  account_security_state,
+  account_recovery_sessions,
   collaborator_invites,
   collaborator_connections,
 

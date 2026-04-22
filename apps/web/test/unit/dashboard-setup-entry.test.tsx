@@ -57,10 +57,6 @@ vi.mock('@/components/dashboard/panels/ServerSettingsPanel', () => ({
   ServerSettingsPanel: () => <div>server settings</div>,
 }));
 
-vi.mock('@/components/dashboard/panels/RecentActivityPanel', () => ({
-  RecentActivityPanel: () => <div>recent activity</div>,
-}));
-
 vi.mock('@/components/dashboard/panels/DangerZonePanel', () => ({
   DangerZonePanel: () => <div>danger zone</div>,
 }));

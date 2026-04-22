@@ -1,6 +1,8 @@
 import { oauthProviderClient } from '@better-auth/oauth-provider/client';
+import { passkeyClient } from '@better-auth/passkey/client';
 import { convexClient } from '@convex-dev/better-auth/client/plugins';
 import { polarClient } from '@polar-sh/better-auth/client';
+import { emailOTPClient, twoFactorClient } from 'better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 
 /**
@@ -13,5 +15,12 @@ import { createAuthClient } from 'better-auth/react';
  * `/api/auth/*` to Convex via the TanStack Start auth route.
  */
 export const authClient = createAuthClient({
-  plugins: [convexClient(), oauthProviderClient(), polarClient()],
+  plugins: [
+    convexClient(),
+    oauthProviderClient(),
+    polarClient(),
+    emailOTPClient(),
+    twoFactorClient(),
+    passkeyClient(),
+  ],
 });

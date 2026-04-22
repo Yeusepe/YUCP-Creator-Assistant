@@ -74,7 +74,7 @@ export function DashboardHeader({
     );
 
   return (
-    <header className="content-area-header relative z-10">
+    <header className="content-area-header">
       <div className="dashboard-header-shell">
         <div className="dashboard-header-leading">
           {homeIconLink}

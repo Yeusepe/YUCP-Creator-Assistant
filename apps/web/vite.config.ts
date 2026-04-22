@@ -5,7 +5,7 @@ import { cloudflare } from '@cloudflare/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
-import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
+import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins-runtime';
 import { parse as parseDotenv } from 'dotenv';
 import { defineConfig } from 'vite';
 import tsConfigPaths from 'vite-tsconfig-paths';

@@ -1,4 +1,3 @@
-import { Skeleton } from '@heroui/react';
 import { type ReactNode } from 'react';
 
 export interface StatCardProps {
@@ -10,8 +9,10 @@ export interface StatCardProps {
     label: string;
   };
   loading?: boolean;
-  /** When loading, show a third skeleton row matching `.stat-cell-trend` height */
+  /** When loading, show a third skeleton row matching trend height */
   loadingTrendRow?: boolean;
+  /** Optional short context under the trend */
+  hint?: string;
 }
 
 function TrendArrow({ direction }: { direction: 'up' | 'down' | 'neutral' }) {
@@ -53,20 +54,24 @@ function TrendArrow({ direction }: { direction: 'up' | 'down' | 'neutral' }) {
 export function StatCard({
   label,
   value,
-  icon: _icon,
+  icon,
   trend,
   loading,
   loadingTrendRow = false,
+  hint,
 }: StatCardProps) {
   if (loading) {
     return (
-      <div className="stat-cell" aria-hidden="true">
-        <Skeleton className="stat-cell-skeleton-val" />
-        <Skeleton className="stat-cell-skeleton-label" />
+      <div className="dash-metric dash-metric--loading" aria-hidden="true">
+        <div className="dash-metric-skel-head">
+          <div className="dash-metric-skel-icon" />
+          <div className="dash-metric-skel-label" />
+        </div>
+        <div className="dash-metric-skel-val" />
         {loadingTrendRow ? (
-          <div className="stat-cell-skeleton-trend">
-            <Skeleton className="stat-cell-skeleton-trend-icon" />
-            <Skeleton className="stat-cell-skeleton-trend-text" />
+          <div className="dash-metric-skel-trend">
+            <div className="dash-metric-skel-trend-i" />
+            <div className="dash-metric-skel-trend-t" />
           </div>
         ) : null}
       </div>
@@ -74,15 +79,21 @@ export function StatCard({
   }
 
   return (
-    <div className="stat-cell">
-      <div className="stat-cell-value">{value}</div>
-      <div className="stat-cell-label">{label}</div>
+    <div className="dash-metric">
+      <div className="dash-metric__head">
+        <span className="dash-metric__icon" aria-hidden>
+          {icon}
+        </span>
+        <p className="dash-metric__label">{label}</p>
+      </div>
+      <div className="dash-metric__value">{value}</div>
       {trend ? (
-        <div className={`stat-cell-trend ${trend.direction}`}>
+        <div className={`dash-metric__trend ${trend.direction}`}>
           <TrendArrow direction={trend.direction} />
           <span>{trend.label}</span>
         </div>
       ) : null}
+      {hint ? <p className="dash-metric__hint">{hint}</p> : null}
     </div>
   );
 }

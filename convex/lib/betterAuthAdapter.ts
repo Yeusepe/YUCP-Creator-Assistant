@@ -28,7 +28,7 @@ export function buildBetterAuthEqualityWhere(
 }
 
 export function buildBetterAuthUserLookupWhere(authUserId: string) {
-  return buildBetterAuthEqualityWhere([{ field: 'id', value: authUserId }]);
+  return buildBetterAuthEqualityWhere([{ field: '_id', value: authUserId }]);
 }
 
 export function buildBetterAuthIdLookupWhere(id: string) {

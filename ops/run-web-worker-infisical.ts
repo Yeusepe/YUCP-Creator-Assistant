@@ -90,14 +90,37 @@ export function buildInfisicalLoginArgs(config: InfisicalRunConfig): string[] {
     );
   }
 
-  return [
-    'infisical',
-    'login',
-    '--method=universal-auth',
-    ...(config.host ? [`--host=${config.host}`] : []),
-    '--plain',
-    '--silent',
-  ];
+  return ['infisical', 'login', '--method=universal-auth', '--plain', '--silent'];
+}
+
+export function buildInfisicalCliEnv(
+  config: Pick<InfisicalRunConfig, 'host' | 'token' | 'clientId' | 'clientSecret'>,
+  env: NodeJS.ProcessEnv = process.env
+): NodeJS.ProcessEnv {
+  const nextEnv: NodeJS.ProcessEnv = {
+    ...env,
+    INFISICAL_DISABLE_UPDATE_CHECK: 'true',
+  };
+
+  if (config.host) {
+    nextEnv.INFISICAL_API_URL = config.host;
+  }
+
+  if (config.token) {
+    nextEnv.INFISICAL_TOKEN = config.token;
+  }
+
+  if (config.clientId) {
+    nextEnv.INFISICAL_UNIVERSAL_AUTH_CLIENT_ID = config.clientId;
+    nextEnv.INFISICAL_CLIENT_ID = config.clientId;
+  }
+
+  if (config.clientSecret) {
+    nextEnv.INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET = config.clientSecret;
+    nextEnv.INFISICAL_CLIENT_SECRET = config.clientSecret;
+  }
+
+  return nextEnv;
 }
 
 export function buildInfisicalRunArgs(
@@ -135,12 +158,7 @@ async function resolveInfisicalToken(
   const proc = Bun.spawn({
     cmd: withResolvedInfisicalExecutable(buildInfisicalLoginArgs(config)),
     cwd: ROOT_DIR,
-    env: {
-      ...env,
-      INFISICAL_DISABLE_UPDATE_CHECK: 'true',
-      INFISICAL_CLIENT_ID: config.clientId,
-      INFISICAL_CLIENT_SECRET: config.clientSecret,
-    },
+    env: buildInfisicalCliEnv(config, env),
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -176,11 +194,13 @@ async function main(): Promise<void> {
       })
     ),
     cwd: ROOT_DIR,
-    env: {
-      ...process.env,
-      INFISICAL_DISABLE_UPDATE_CHECK: 'true',
-      INFISICAL_TOKEN: token,
-    },
+    env: buildInfisicalCliEnv(
+      {
+        host: config.host,
+        token,
+      },
+      process.env
+    ),
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',

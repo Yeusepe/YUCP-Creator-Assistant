@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountSecurity from "../accountSecurity.js";
 import type * as adminNotifications from "../adminNotifications.js";
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
@@ -31,6 +32,8 @@ import type * as guildLinks from "../guildLinks.js";
 import type * as guildMemberAdd from "../guildMemberAdd.js";
 import type * as http from "../http.js";
 import type * as identitySync from "../identitySync.js";
+import type * as lib_accountSecurityConfig from "../lib/accountSecurityConfig.js";
+import type * as lib_accountSecurityEmail from "../lib/accountSecurityEmail.js";
 import type * as lib_apiActor from "../lib/apiActor.js";
 import type * as lib_apiAuth from "../lib/apiAuth.js";
 import type * as lib_authUser from "../lib/authUser.js";
@@ -59,6 +62,7 @@ import type * as lib_protectedMaterializationGrant from "../lib/protectedMateria
 import type * as lib_providers from "../lib/providers.js";
 import type * as lib_publicAuthIssuer from "../lib/publicAuthIssuer.js";
 import type * as lib_publicProducts from "../lib/publicProducts.js";
+import type * as lib_recoveryPasskeyCompletion from "../lib/recoveryPasskeyCompletion.js";
 import type * as lib_releaseArtifactEnvelope from "../lib/releaseArtifactEnvelope.js";
 import type * as lib_releaseArtifactKeys from "../lib/releaseArtifactKeys.js";
 import type * as lib_roleRules_catalog from "../lib/roleRules/catalog.js";
@@ -121,6 +125,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountSecurity: typeof accountSecurity;
   adminNotifications: typeof adminNotifications;
   audit_events: typeof audit_events;
   auth: typeof auth;
@@ -144,6 +149,8 @@ declare const fullApi: ApiFromModules<{
   guildMemberAdd: typeof guildMemberAdd;
   http: typeof http;
   identitySync: typeof identitySync;
+  "lib/accountSecurityConfig": typeof lib_accountSecurityConfig;
+  "lib/accountSecurityEmail": typeof lib_accountSecurityEmail;
   "lib/apiActor": typeof lib_apiActor;
   "lib/apiAuth": typeof lib_apiAuth;
   "lib/authUser": typeof lib_authUser;
@@ -172,6 +179,7 @@ declare const fullApi: ApiFromModules<{
   "lib/providers": typeof lib_providers;
   "lib/publicAuthIssuer": typeof lib_publicAuthIssuer;
   "lib/publicProducts": typeof lib_publicProducts;
+  "lib/recoveryPasskeyCompletion": typeof lib_recoveryPasskeyCompletion;
   "lib/releaseArtifactEnvelope": typeof lib_releaseArtifactEnvelope;
   "lib/releaseArtifactKeys": typeof lib_releaseArtifactKeys;
   "lib/roleRules/catalog": typeof lib_roleRules_catalog;
@@ -269,6 +277,7 @@ export declare const components: {
                   emailVerified: boolean;
                   image?: null | string;
                   name: string;
+                  twoFactorEnabled?: boolean;
                   updatedAt: number;
                   userId?: null | string;
                 };
@@ -424,6 +433,30 @@ export declare const components: {
                   userId?: null | string;
                 };
                 model: "oauthConsent";
+              }
+            | {
+                data: {
+                  aaguid?: string;
+                  backedUp: boolean;
+                  counter: number;
+                  createdAt?: number;
+                  credentialID: string;
+                  deviceType: string;
+                  name?: string;
+                  publicKey: string;
+                  transports?: string;
+                  userId: string;
+                };
+                model: "passkey";
+              }
+            | {
+                data: {
+                  backupCodes: string;
+                  secret: string;
+                  userId: string;
+                  verified?: boolean;
+                };
+                model: "twoFactor";
               };
           onCreateHandle?: string;
           select?: Array<string>;
@@ -447,6 +480,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
+                    | "twoFactorEnabled"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -805,6 +839,76 @@ export declare const components: {
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "passkey";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "name"
+                    | "publicKey"
+                    | "userId"
+                    | "credentialID"
+                    | "counter"
+                    | "deviceType"
+                    | "backedUp"
+                    | "transports"
+                    | "createdAt"
+                    | "aaguid"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "twoFactor";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "secret"
+                    | "backupCodes"
+                    | "userId"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -857,6 +961,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
+                    | "twoFactorEnabled"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1237,6 +1342,76 @@ export declare const components: {
                     | Array<number>
                     | null;
                 }>;
+              }
+            | {
+                model: "passkey";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "name"
+                    | "publicKey"
+                    | "userId"
+                    | "credentialID"
+                    | "counter"
+                    | "deviceType"
+                    | "backedUp"
+                    | "transports"
+                    | "createdAt"
+                    | "aaguid"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "twoFactor";
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "secret"
+                    | "backupCodes"
+                    | "userId"
+                    | "verified"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
               };
           onDeleteHandle?: string;
         },
@@ -1258,7 +1433,9 @@ export declare const components: {
             | "oauthClient"
             | "oauthRefreshToken"
             | "oauthAccessToken"
-            | "oauthConsent";
+            | "oauthConsent"
+            | "passkey"
+            | "twoFactor";
           offset?: number;
           paginationOpts: {
             cursor: string | null;
@@ -1312,7 +1489,9 @@ export declare const components: {
             | "oauthClient"
             | "oauthRefreshToken"
             | "oauthAccessToken"
-            | "oauthConsent";
+            | "oauthConsent"
+            | "passkey"
+            | "twoFactor";
           select?: Array<string>;
           where?: Array<{
             connector?: "AND" | "OR";
@@ -1354,6 +1533,7 @@ export declare const components: {
                   emailVerified?: boolean;
                   image?: null | string;
                   name?: string;
+                  twoFactorEnabled?: boolean;
                   updatedAt?: number;
                   userId?: null | string;
                 };
@@ -1367,6 +1547,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
+                    | "twoFactorEnabled"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1849,6 +2030,94 @@ export declare const components: {
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "passkey";
+                update: {
+                  aaguid?: string;
+                  backedUp?: boolean;
+                  counter?: number;
+                  createdAt?: number;
+                  credentialID?: string;
+                  deviceType?: string;
+                  name?: string;
+                  publicKey?: string;
+                  transports?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "name"
+                    | "publicKey"
+                    | "userId"
+                    | "credentialID"
+                    | "counter"
+                    | "deviceType"
+                    | "backedUp"
+                    | "transports"
+                    | "createdAt"
+                    | "aaguid"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "twoFactor";
+                update: {
+                  backupCodes?: string;
+                  secret?: string;
+                  userId?: string;
+                  verified?: boolean;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "secret"
+                    | "backupCodes"
+                    | "userId"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -1897,6 +2166,7 @@ export declare const components: {
                   emailVerified?: boolean;
                   image?: null | string;
                   name?: string;
+                  twoFactorEnabled?: boolean;
                   updatedAt?: number;
                   userId?: null | string;
                 };
@@ -1910,6 +2180,7 @@ export declare const components: {
                     | "createdAt"
                     | "updatedAt"
                     | "userId"
+                    | "twoFactorEnabled"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:
@@ -2392,6 +2663,94 @@ export declare const components: {
                     | "scopes"
                     | "createdAt"
                     | "updatedAt"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "passkey";
+                update: {
+                  aaguid?: string;
+                  backedUp?: boolean;
+                  counter?: number;
+                  createdAt?: number;
+                  credentialID?: string;
+                  deviceType?: string;
+                  name?: string;
+                  publicKey?: string;
+                  transports?: string;
+                  userId?: string;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "name"
+                    | "publicKey"
+                    | "userId"
+                    | "credentialID"
+                    | "counter"
+                    | "deviceType"
+                    | "backedUp"
+                    | "transports"
+                    | "createdAt"
+                    | "aaguid"
+                    | "_id";
+                  mode?: "sensitive" | "insensitive";
+                  operator?:
+                    | "lt"
+                    | "lte"
+                    | "gt"
+                    | "gte"
+                    | "eq"
+                    | "in"
+                    | "not_in"
+                    | "ne"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with";
+                  value:
+                    | string
+                    | number
+                    | boolean
+                    | Array<string>
+                    | Array<number>
+                    | null;
+                }>;
+              }
+            | {
+                model: "twoFactor";
+                update: {
+                  backupCodes?: string;
+                  secret?: string;
+                  userId?: string;
+                  verified?: boolean;
+                };
+                where?: Array<{
+                  connector?: "AND" | "OR";
+                  field:
+                    | "secret"
+                    | "backupCodes"
+                    | "userId"
+                    | "verified"
                     | "_id";
                   mode?: "sensitive" | "insensitive";
                   operator?:

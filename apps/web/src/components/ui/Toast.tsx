@@ -22,6 +22,8 @@ export interface ToastOptions {
   description?: string;
   /** Optional action button rendered inside the toast. */
   action?: ToastAction;
+  /** Distinct layout/styling (e.g. app update banner). */
+  visualVariant?: 'default' | 'update';
 }
 
 interface ToastItem {
@@ -32,6 +34,7 @@ interface ToastItem {
   duration: number;
   action?: ToastAction;
   exiting: boolean;
+  visualVariant?: 'default' | 'update';
 }
 
 interface ToastContextValue {
@@ -73,6 +76,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       action: options?.action,
       duration,
       exiting: false,
+      visualVariant: options?.visualVariant ?? 'default',
     };
     setToasts((prev) => {
       const next = [item, ...prev];
@@ -149,6 +153,8 @@ function ToastItemComponent({
   const className = [
     'toast',
     `toast-${toast.type}`,
+    toast.duration <= 0 ? 'toast-persistent' : '',
+    toast.visualVariant === 'update' ? 'toast--update' : '',
     entering ? 'toast-enter' : '',
     toast.exiting ? 'toast-exit' : '',
   ]
@@ -156,26 +162,48 @@ function ToastItemComponent({
     .join(' ');
 
   return (
-    <div className={className} role="alert">
+    <div className={className} role={toast.visualVariant === 'update' ? 'status' : 'alert'}>
       <span className="toast-icon" aria-hidden="true">
-        <ToastIcon type={toast.type} />
+        <ToastIcon type={toast.type} visualVariant={toast.visualVariant} />
       </span>
-      <div className="toast-content">
-        <div className="toast-title">{toast.title}</div>
-        {toast.description ? <div className="toast-description">{toast.description}</div> : null}
-        {toast.action ? (
-          <button
-            type="button"
-            className="toast-action"
-            onClick={() => {
-              toast.action?.onClick();
-              onDismiss(toast.id);
-            }}
-          >
-            {toast.action.label}
-          </button>
-        ) : null}
-      </div>
+      {toast.visualVariant === 'update' ? (
+        <div className="toast-content toast-content--update">
+          <p className="toast-update-kicker">Update</p>
+          <h2 className="toast-update-headline">{toast.title}</h2>
+          {toast.description ? <p className="toast-update-support">{toast.description}</p> : null}
+          {toast.action ? (
+            <div className="toast-update-actions">
+              <button
+                type="button"
+                className="toast-update-reload"
+                onClick={() => {
+                  toast.action?.onClick();
+                  onDismiss(toast.id);
+                }}
+              >
+                {toast.action.label}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="toast-content">
+          <div className="toast-title">{toast.title}</div>
+          {toast.description ? <div className="toast-description">{toast.description}</div> : null}
+          {toast.action ? (
+            <button
+              type="button"
+              className="toast-action"
+              onClick={() => {
+                toast.action?.onClick();
+                onDismiss(toast.id);
+              }}
+            >
+              {toast.action.label}
+            </button>
+          ) : null}
+        </div>
+      )}
       <button
         type="button"
         className="toast-close"
@@ -207,7 +235,34 @@ function ToastItemComponent({
   );
 }
 
-function ToastIcon({ type }: { type: ToastType }) {
+function ToastIcon({
+  type,
+  visualVariant,
+}: {
+  type: ToastType;
+  visualVariant?: 'default' | 'update';
+}) {
+  if (visualVariant === 'update') {
+    return (
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+        <path d="M3 3v5h5" />
+        <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+        <path d="M16 16h5v5" />
+      </svg>
+    );
+  }
+
   switch (type) {
     case 'success':
       return (
@@ -267,12 +322,14 @@ function ToastIcon({ type }: { type: ToastType }) {
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="2.5"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden="true"
         >
-          <line x1="12" y1="8" x2="12.01" y2="8" />
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="11" />
+          <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
         </svg>
       );
     default:

@@ -189,7 +189,7 @@
 .dark .quick-start-card-title,
 .dark .api-key-name,
 .dark .oauth-app-name {
-  color: #ffffff;
+  color: #f8fafc;
 }
 
 .dark .content-header-desc,
@@ -215,12 +215,29 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+.dark .intg-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .intg-eyebrow {
+  color: #7dd3fc;
+}
+
 .dark .svr-cfg-tile-icon,
-.dark .intg-icon,
 .dark .api-key-icon,
 .dark .oauth-app-icon {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .intg-icon {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(15, 23, 42, 0.55));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.dark .intg-icon svg {
+  stroke: #7dd3fc;
 }
 
 .dark .empty-state {

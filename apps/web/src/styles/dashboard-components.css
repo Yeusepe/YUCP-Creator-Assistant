@@ -5,3 +5,5 @@
 @import "./dashboard-components/partials/03-stats-platforms.css";
 @import "./dashboard-components/partials/04-onboarding-settings.css";
 @import "./dashboard-components/partials/05-registry-tail.css";
+@import "./dashboard-components/partials/06-dashboard-home-surface.css";
+@import "./dashboard-components/partials/07-connected-platforms-panel.css";

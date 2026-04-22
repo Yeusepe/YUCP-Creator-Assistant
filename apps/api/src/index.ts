@@ -7,6 +7,7 @@ import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
+import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
@@ -25,6 +26,7 @@ import {
 } from './lib/observability';
 import { detectTunnelUrl } from './lib/tunnel';
 import {
+  createAccountSecurityRoutes,
   createConnectRoutes,
   createCouplingLicenseRoutes,
   createForensicsRoutes,
@@ -52,6 +54,7 @@ let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | n
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let couplingLicenseRoutes: ReturnType<typeof createCouplingLicenseRoutes> | null = null;
+let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
 let packageRoutes: ReturnType<typeof createPackageRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
@@ -112,24 +115,6 @@ setInterval(
   },
   5 * 60 * 1000
 ).unref();
-
-function getClientAddress(request: Request): string {
-  const cloudflareConnectingIp = request.headers.get('cf-connecting-ip')?.trim();
-  if (cloudflareConnectingIp) {
-    return cloudflareConnectingIp;
-  }
-
-  const realIp = request.headers.get('x-real-ip')?.trim();
-  if (realIp) {
-    return realIp;
-  }
-
-  const forwardedFor = request.headers.get('x-forwarded-for');
-  if (forwardedFor) {
-    return forwardedFor.split(',')[0]?.trim() || 'unknown';
-  }
-  return 'unknown';
-}
 
 function isRateLimited(bucketKey: string, maxRequests: number, windowMs: number): boolean {
   const now = Date.now();
@@ -269,6 +254,11 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl,
   });
 
+  accountSecurityRoutes = createAccountSecurityRoutes(auth, {
+    convexUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+  });
+
   forensicsRoutes = createForensicsRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
@@ -389,6 +379,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/connect/')) {
     if (isRateLimited(`connect:${clientAddress}`, 120, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/account-recovery/')) {
+    if (isRateLimited(`account-recovery:${clientAddress}`, 15, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -819,6 +817,18 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/creator/certificates/portal' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getCreatorCertificatePortal(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/account-recovery/start' && accountSecurityRoutes) {
+    return accountSecurityRoutes.startRecovery(request);
+  }
+  if (pathname === '/api/account-recovery/verify-email' && accountSecurityRoutes) {
+    return accountSecurityRoutes.verifyRecoveryEmail(request);
+  }
+  if (pathname === '/api/account-recovery/verify-backup-code' && accountSecurityRoutes) {
+    return accountSecurityRoutes.verifyRecoveryBackupCode(request);
+  }
+  if (pathname === '/api/account-security/recovery-email/verify' && accountSecurityRoutes) {
+    return accountSecurityRoutes.verifyRecoveryContactEnrollment(request);
   }
   if (pathname === '/api/connect/user/certificates/reconcile' && connectRoutes) {
     return connectRoutes.reconcileUserCertificateBilling(request);

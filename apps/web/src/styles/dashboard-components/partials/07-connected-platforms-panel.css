@@ -1,0 +1,233 @@
+/* ============================================================================
+   Connected platforms (dashboard home) — sales channels list
+   (.section-card.cpp-panel padding reset lives in 06-dashboard-home-surface.css)
+   ============================================================================ */
+
+.connected-platforms-panel.cpp-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cpp-panel__header {
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.72) 0%,
+    rgba(248, 250, 252, 0.45) 55%,
+    rgba(241, 245, 249, 0.35) 100%
+  );
+}
+
+.dark .cpp-panel__header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.55) 0%, rgba(15, 23, 42, 0.42) 100%);
+}
+
+.cpp-panel__title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+}
+
+.cpp-panel__title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(1.1rem, 2.2vw, 1.25rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  color: #0f172a;
+}
+
+.dark .cpp-panel__title {
+  color: #f8fafc;
+}
+
+.cpp-panel__count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-display), sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: #0369a1;
+  background: rgba(14, 165, 233, 0.1);
+  border: 1px solid rgba(14, 165, 233, 0.22);
+}
+
+.dark .cpp-panel__count {
+  color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(56, 189, 248, 0.22);
+}
+
+.cpp-panel__lead {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #64748b;
+  max-width: 38rem;
+}
+
+.dark .cpp-panel__lead {
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.cpp-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 14px 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cpp-panel__item {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Provider rows — scoped overrides on top of global .platform-row (04) */
+.cpp-panel .cpp-provider.platform-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.55);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+
+.cpp-panel .cpp-provider.platform-row:hover {
+  border-color: rgba(14, 165, 233, 0.25);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.dark .cpp-panel .cpp-provider.platform-row {
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.dark .cpp-panel .cpp-provider.platform-row:hover {
+  border-color: rgba(56, 189, 248, 0.18);
+  background: rgba(30, 41, 59, 0.48);
+}
+
+.cpp-panel .cpp-provider__icon.platform-row-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.dark .cpp-panel .cpp-provider__icon.platform-row-icon {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.cpp-panel .cpp-provider__icon.platform-row-icon img {
+  width: 22px;
+  height: 22px;
+}
+
+.cpp-panel .cpp-provider__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cpp-panel .platform-row-label {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.dark .cpp-panel .platform-row-label {
+  color: #f8fafc;
+}
+
+.cpp-panel .platform-row-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 0;
+}
+
+.cpp-panel .platform-row-sub.connected {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.dark .cpp-panel .platform-row-sub {
+  color: #94a3b8;
+}
+
+.dark .cpp-panel .platform-row-sub.connected {
+  color: #4ade80;
+}
+
+/* Secondary “show more” — not full-width (overrides registry .btn-show-more) */
+.cpp-panel .btn-show-more {
+  width: auto;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-display), sans-serif;
+  color: #0369a1;
+  background: transparent;
+  border: 1px dashed rgba(14, 165, 233, 0.35);
+  border-radius: 12px;
+}
+
+.cpp-panel .btn-show-more:hover {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: #0ea5e9;
+  color: #0369a1;
+}
+
+.dark .cpp-panel .btn-show-more {
+  color: #7dd3fc;
+  border-color: rgba(56, 189, 248, 0.3);
+  background: transparent;
+}
+
+.dark .cpp-panel .btn-show-more:hover {
+  background: rgba(14, 165, 233, 0.12);
+}
+
+html:not(.dark) .cpp-panel .btn-show-more {
+  width: auto;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-display), sans-serif;
+  color: #0369a1;
+  background: transparent;
+  border: 1px dashed rgba(14, 165, 233, 0.35);
+  border-radius: 12px;
+}
+
+html:not(.dark) .cpp-panel .btn-show-more:hover {
+  background: rgba(14, 165, 233, 0.08);
+  border-color: #0ea5e9;
+  color: #0369a1;
+}
