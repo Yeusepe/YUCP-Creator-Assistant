@@ -212,9 +212,22 @@ export async function completeLicenseVerification(params: {
   licenseKey: string;
   productId?: string;
   provider?: string;
-  subjectId: string;
-  authUserId: string;
-}): Promise<VerificationResultResponse> {
+} & (
+  | {
+      subjectId: string;
+      authUserId: string;
+      creatorAuthUserId?: never;
+      buyerAuthUserId?: never;
+      buyerSubjectId?: never;
+    }
+  | {
+      creatorAuthUserId: string;
+      buyerAuthUserId: string;
+      buyerSubjectId: string;
+      authUserId?: never;
+      subjectId?: never;
+    }
+)): Promise<VerificationResultResponse> {
   const response = await (await getClients()).verification.completeLicenseVerification(params);
   return {
     success: response.success ?? false,
@@ -227,11 +240,24 @@ export async function completeLicenseVerification(params: {
 
 export async function completeVrchatVerification(params: {
   password: string;
-  subjectId: string;
-  authUserId: string;
   twoFactorCode?: string;
   username: string;
-}): Promise<VerificationResultResponse> {
+} & (
+  | {
+      subjectId: string;
+      authUserId: string;
+      creatorAuthUserId?: never;
+      buyerAuthUserId?: never;
+      buyerSubjectId?: never;
+    }
+  | {
+      creatorAuthUserId: string;
+      buyerAuthUserId: string;
+      buyerSubjectId: string;
+      authUserId?: never;
+      subjectId?: never;
+    }
+)): Promise<VerificationResultResponse> {
   const response = await (await getClients()).verification.completeVrchatVerification(params);
   return {
     success: response.success ?? false,

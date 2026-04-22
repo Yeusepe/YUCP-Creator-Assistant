@@ -249,18 +249,34 @@ async function hasProviderUserCollision(
 }
 
 async function listBuyerAttributionCandidates(ctx: Pick<QueryCtx, 'db'>, limit: number) {
-  const bindings = (await ctx.db.query('bindings').collect()) as Doc<'bindings'>[];
   const candidates: BuyerAttributionCandidate[] = [];
+  let cursor: string | null = null;
+  const batchSize = Math.max(50, Math.min(200, limit * 2));
 
-  for (const binding of bindings.sort((left, right) => right.createdAt - left.createdAt)) {
-    const candidate = await buildBuyerAttributionCandidate(ctx, binding);
-    if (!candidate) {
-      continue;
+  while (candidates.length < limit) {
+    const pageResult = await ctx.db.query('bindings').paginate({
+      numItems: batchSize,
+      cursor,
+    });
+    const page = (pageResult.page as Doc<'bindings'>[]).sort(
+      (left, right) => right.createdAt - left.createdAt
+    );
+
+    for (const binding of page) {
+      const candidate = await buildBuyerAttributionCandidate(ctx, binding);
+      if (!candidate) {
+        continue;
+      }
+      candidates.push(candidate);
+      if (candidates.length >= limit) {
+        break;
+      }
     }
-    candidates.push(candidate);
-    if (candidates.length >= limit) {
+
+    if (pageResult.isDone) {
       break;
     }
+    cursor = pageResult.continueCursor;
   }
 
   return {

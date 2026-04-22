@@ -19,6 +19,10 @@ import { createAuth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import { getStateStore } from '../lib/stateStore';
+import {
+  resolveSubjectAuthUserId,
+  SUBJECT_AUTH_USER_REQUIRED_ERROR,
+} from '../lib/subjectIdentity';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import { getBuyerLinkPluginByMode, listBuyerLinkPlugins } from '../providers';
@@ -975,6 +979,16 @@ export function createVerificationRoutes(config: VerificationConfig) {
         body.creatorAuthUserId !== undefined ||
         body.buyerAuthUserId !== undefined ||
         body.buyerSubjectId !== undefined;
+      const legacyBuyerAuthUserId =
+        !hasExplicitIdentity && body.subjectId
+          ? await resolveSubjectAuthUserId(getConvexClientFromUrl(config.convexUrl), body.subjectId)
+          : null;
+      if (!hasExplicitIdentity && body.subjectId && !legacyBuyerAuthUserId) {
+        return Response.json(
+          { success: false, error: SUBJECT_AUTH_USER_REQUIRED_ERROR },
+          { status: 409 }
+        );
+      }
       const result = await handleCompleteLicense(
         config,
         hasExplicitIdentity
@@ -990,8 +1004,9 @@ export function createVerificationRoutes(config: VerificationConfig) {
               licenseKey: body.licenseKey ?? '',
               provider: body.provider,
               productId: body.productId,
-              authUserId: body.authUserId ?? '',
-              subjectId: body.subjectId ?? '',
+              creatorAuthUserId: body.authUserId ?? '',
+              buyerAuthUserId: legacyBuyerAuthUserId ?? '',
+              buyerSubjectId: body.subjectId ?? '',
             }
       );
 

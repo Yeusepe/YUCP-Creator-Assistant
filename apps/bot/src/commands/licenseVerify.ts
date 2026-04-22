@@ -53,7 +53,11 @@ import {
 } from '../lib/internalRpc';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
-import { buildVerifyStatusReply, rememberActiveVerifyPanel } from './verify';
+import {
+  buildVerifyStatusReply,
+  BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE,
+  rememberActiveVerifyPanel,
+} from './verify';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 
@@ -458,6 +462,7 @@ export async function handleVrchatCredentialsModal(
 
   const discordUserId = interaction.user.id;
   let subjectId: string | null = null;
+  let buyerAuthUserId: string | null = null;
   const actor = await getRequiredBotActorBinding();
 
   try {
@@ -469,6 +474,12 @@ export async function handleVrchatCredentialsModal(
       avatarUrl: interaction.user.displayAvatarURL(),
     });
     subjectId = ensureResult.subjectId;
+    const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+      actor,
+      apiSecret,
+      discordUserId,
+    });
+    buyerAuthUserId = subjectResult.found ? subjectResult.subject.authUserId ?? null : null;
     if (!subjectId) {
       throw new Error('Subject lookup did not return a subjectId');
     }
@@ -479,11 +490,18 @@ export async function handleVrchatCredentialsModal(
     });
     return;
   }
+  if (!buyerAuthUserId) {
+    await interaction.editReply({
+      content: BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE,
+    });
+    return;
+  }
 
   try {
     const data = await completeVrchatVerification({
-      authUserId,
-      subjectId,
+      creatorAuthUserId: authUserId,
+      buyerAuthUserId,
+      buyerSubjectId: subjectId,
       username,
       password,
       twoFactorCode,
@@ -574,6 +592,7 @@ export async function handleLicenseKeyModal(
   // Find / create the subject for this Discord user
   const discordUserId = interaction.user.id;
   let subjectId: string | null = null;
+  let buyerAuthUserId: string | null = null;
   const actor = await getRequiredBotActorBinding();
 
   try {
@@ -585,6 +604,12 @@ export async function handleLicenseKeyModal(
       avatarUrl: interaction.user.displayAvatarURL(),
     });
     subjectId = ensureResult.subjectId;
+    const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
+      actor,
+      apiSecret,
+      discordUserId,
+    });
+    buyerAuthUserId = subjectResult.found ? subjectResult.subject.authUserId ?? null : null;
   } catch (err) {
     logger.error('Failed to ensure subject', { err, discordUserId });
     if (interaction.guildId && apiBaseUrl) {
@@ -607,14 +632,21 @@ export async function handleLicenseKeyModal(
     }
     return;
   }
+  if (!buyerAuthUserId) {
+    await interaction.editReply({
+      content: BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE,
+    });
+    return;
+  }
 
   try {
     const data = await completeLicenseVerification({
       licenseKey,
       productId: providerProductRef,
       provider,
-      authUserId,
-      subjectId: subjectId ?? discordUserId,
+      creatorAuthUserId: authUserId,
+      buyerAuthUserId,
+      buyerSubjectId: subjectId ?? discordUserId,
       discordUserId,
     });
 
