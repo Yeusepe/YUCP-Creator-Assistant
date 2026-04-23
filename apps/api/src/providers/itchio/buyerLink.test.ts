@@ -27,6 +27,10 @@ const internalMock = {
     markIntentFailed: 'verificationIntents.markIntentFailed',
     markIntentVerified: 'verificationIntents.markIntentVerified',
   },
+  yucpLicenses: {
+    getProductByProviderRef: 'yucpLicenses.getProductByProviderRef',
+    checkSubjectEntitlement: 'yucpLicenses.checkSubjectEntitlement',
+  },
 } as const;
 
 let queryImpl: (ref: unknown, args?: unknown) => Promise<unknown>;
@@ -151,6 +155,88 @@ function makeCtx() {
   };
 }
 
+function buildActiveBuyerProviderLink(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'link_1',
+    provider: 'itchio',
+    externalAccountId: 'external-account-1',
+    providerUserId: 'itch-user-1',
+    label: 'itch-buyer',
+    status: 'active',
+    linkedAt: Date.now(),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function buildPendingIntent(
+  requirementOverrides: Record<string, unknown> = {},
+  options: { packageId?: string } = {}
+) {
+  return {
+    status: 'pending',
+    expiresAt: Date.now() + 60_000,
+    packageId: options.packageId ?? 'package_1',
+    requirements: [
+      {
+        methodKey: 'itchio-link',
+        providerKey: 'itchio',
+        kind: 'buyer_provider_link',
+        ...requirementOverrides,
+      },
+    ],
+  };
+}
+
+function mockHostedVerificationQueries(options: {
+  intentRequirement: Record<string, unknown>;
+  packageId?: string;
+  buyerProviderLink?: Record<string, unknown> | null;
+  credentials?: Record<string, unknown> | null;
+  subjectResult?: Record<string, unknown>;
+}) {
+  const subjectResult = options.subjectResult ?? {
+    found: true,
+    subject: { _id: 'subject_1' },
+  };
+  const buyerProviderLink =
+    options.buyerProviderLink === undefined
+      ? buildActiveBuyerProviderLink()
+      : options.buyerProviderLink;
+  const credentials =
+    options.credentials === undefined
+      ? {
+          oauthAccessTokenEncrypted: 'enc:buyer-access-token',
+        }
+      : options.credentials;
+
+  queryMock.mockImplementation(async (ref) => {
+    switch (ref) {
+      case apiMock.verificationIntents.getIntentRecord:
+        return buildPendingIntent(options.intentRequirement, {
+          packageId: options.packageId,
+        });
+      case apiMock.subjects.getSubjectByAuthId:
+        return subjectResult;
+      case internalMock.subjects.getBuyerProviderLinkForSubject:
+        return buyerProviderLink;
+      case apiMock.identitySync.getExternalAccountOAuthCredentials:
+        return credentials;
+      case internalMock.yucpLicenses.getProductByProviderRef:
+        return {
+          authUserId: 'creator_1',
+          productId: 'product_1',
+          displayName: 'Volcanic Sinkhole Battlemap',
+        };
+      case internalMock.yucpLicenses.checkSubjectEntitlement:
+        return false;
+      default:
+        throw new Error(`Unhandled query ref ${String(ref)}`);
+    }
+  });
+}
+
 describe('itchio buyer link plugin', () => {
   it('stores the encrypted buyer token on the linked external account', async () => {
     const plugin = createItchioBuyerLinkPlugin();
@@ -181,48 +267,122 @@ describe('itchio buyer link plugin', () => {
     );
   });
 
+  it('backfills entitlements for owned itch.io games when account linking completes', async () => {
+    queryMock.mockImplementation(async (ref, args) => {
+      switch (ref) {
+        case internalMock.yucpLicenses.getProductByProviderRef:
+          return (args as { providerProductRef?: string }).providerProductRef === '42'
+            ? {
+                authUserId: 'creator_1',
+                productId: 'product_1',
+                displayName: 'Volcanic Sinkhole Battlemap',
+              }
+            : null;
+        default:
+          throw new Error(`Unhandled query ref ${String(ref)}`);
+      }
+    });
+    fetchOwnedKeysMock.mockResolvedValueOnce([
+      {
+        ownedKeyId: 'owned-1',
+        gameId: '42',
+        purchaseId: 'purchase-1',
+        gameTitle: 'Volcanic Sinkhole Battlemap',
+        gameUrl: 'https://creator.itch.io/volcanic-sinkhole-battlemap',
+      },
+      {
+        ownedKeyId: 'owned-2',
+        gameId: '999',
+        purchaseId: 'purchase-2',
+        gameTitle: 'Other Game',
+        gameUrl: 'https://other.itch.io/other-game',
+      },
+    ]);
+
+    const plugin = createItchioBuyerLinkPlugin();
+    if (!plugin.afterLink) {
+      throw new Error('Expected afterLink to be defined for itch.io');
+    }
+
+    await plugin.afterLink(
+      {
+        authUserId: 'buyer-auth-user',
+        sessionId: 'verification-session-1' as never,
+        sessionMode: 'itchio',
+        verificationMethod: 'account_link',
+        accessToken: 'buyer-access-token',
+        identity: {
+          providerUserId: 'itch-user-1',
+          username: 'itch-buyer',
+          profileUrl: 'https://itch-buyer.itch.io',
+        },
+        subjectId: 'subject_1' as never,
+        externalAccountId: 'external-account-1' as never,
+      },
+      makeCtx()
+    );
+
+    expect(fetchOwnedKeysMock).toHaveBeenCalledWith('buyer-access-token', {});
+    expect(mutationMock).toHaveBeenCalledWith(
+      apiMock.entitlements.grantEntitlement,
+      expect.objectContaining({
+        authUserId: 'creator_1',
+        subjectId: 'subject_1',
+        productId: 'product_1',
+        evidence: expect.objectContaining({
+          provider: 'itchio',
+          sourceReference: 'owned-1',
+        }),
+      })
+    );
+  });
+
   it('grants entitlement from the linked owned library and marks the intent verified', async () => {
-    queryMock.mockImplementation(async (ref) => {
+    const entitlementChecks = [false, true];
+    mockHostedVerificationQueries({
+      intentRequirement: {
+        creatorAuthUserId: 'creator_1',
+        productId: 'product_1',
+        providerProductRef: '42',
+      },
+    });
+    mutationMock.mockImplementation(async (_ref) => {
+      return null;
+    });
+    queryMock.mockImplementation(async (ref, args) => {
       switch (ref) {
         case apiMock.verificationIntents.getIntentRecord:
-          return {
-            status: 'pending',
-            expiresAt: Date.now() + 60_000,
-            packageId: 'package_1',
-            requirements: [
-              {
-                methodKey: 'itchio-link',
-                providerKey: 'itchio',
-                kind: 'buyer_provider_link',
-                creatorAuthUserId: 'creator_1',
-                productId: 'product_1',
-                providerProductRef: '42',
-              },
-            ],
-          };
+          return buildPendingIntent(
+            {
+              creatorAuthUserId: 'creator_1',
+              productId: 'product_1',
+              providerProductRef: '42',
+            },
+            { packageId: 'package_1' }
+          );
         case apiMock.subjects.getSubjectByAuthId:
           return {
             found: true,
             subject: { _id: 'subject_1' },
           };
         case internalMock.subjects.getBuyerProviderLinkForSubject:
-          return {
-            id: 'link_1',
-            provider: 'itchio',
-            externalAccountId: 'external-account-1',
-            providerUserId: 'itch-user-1',
-            label: 'itch-buyer',
-            status: 'active',
-            linkedAt: Date.now(),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
+          return buildActiveBuyerProviderLink();
         case apiMock.identitySync.getExternalAccountOAuthCredentials:
           return {
             oauthAccessTokenEncrypted: 'enc:buyer-access-token',
           };
+        case internalMock.yucpLicenses.getProductByProviderRef:
+          return {
+            authUserId: 'creator_1',
+            productId: 'product_1',
+            displayName: 'Volcanic Sinkhole Battlemap',
+          };
+        case internalMock.yucpLicenses.checkSubjectEntitlement:
+          return entitlementChecks.length > 1
+            ? (entitlementChecks.shift() ?? false)
+            : (entitlementChecks[0] ?? false);
         default:
-          throw new Error(`Unhandled query ref ${String(ref)}`);
+          throw new Error(`Unhandled query ref ${String(ref)} ${JSON.stringify(args)}`);
       }
     });
 
@@ -262,50 +422,72 @@ describe('itchio buyer link plugin', () => {
     );
   });
 
-  it('marks the link expired when the buyer token is no longer valid', async () => {
-    fetchOwnedKeysMock.mockRejectedValueOnce(new CredentialExpiredError('itchio'));
+  it('marks the hosted intent verified from account-link backfill without re-reading owned keys', async () => {
+    mockHostedVerificationQueries({
+      intentRequirement: {
+        creatorAuthUserId: 'creator_1',
+        productId: 'product_1',
+        providerProductRef: '42',
+      },
+    });
     queryMock.mockImplementation(async (ref) => {
       switch (ref) {
         case apiMock.verificationIntents.getIntentRecord:
-          return {
-            status: 'pending',
-            expiresAt: Date.now() + 60_000,
-            packageId: 'package_1',
-            requirements: [
-              {
-                methodKey: 'itchio-link',
-                providerKey: 'itchio',
-                kind: 'buyer_provider_link',
-                creatorAuthUserId: 'creator_1',
-                productId: 'product_1',
-                providerProductRef: '42',
-              },
-            ],
-          };
+          return buildPendingIntent(
+            {
+              creatorAuthUserId: 'creator_1',
+              productId: 'product_1',
+              providerProductRef: '42',
+            },
+            { packageId: 'package_1' }
+          );
         case apiMock.subjects.getSubjectByAuthId:
           return {
             found: true,
             subject: { _id: 'subject_1' },
           };
         case internalMock.subjects.getBuyerProviderLinkForSubject:
-          return {
-            id: 'link_1',
-            provider: 'itchio',
-            externalAccountId: 'external-account-1',
-            providerUserId: 'itch-user-1',
-            label: 'itch-buyer',
-            status: 'active',
-            linkedAt: Date.now(),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-        case apiMock.identitySync.getExternalAccountOAuthCredentials:
-          return {
-            oauthAccessTokenEncrypted: 'enc:buyer-access-token',
-          };
+          return buildActiveBuyerProviderLink();
+        case internalMock.yucpLicenses.checkSubjectEntitlement:
+          return true;
         default:
           throw new Error(`Unhandled query ref ${String(ref)}`);
       }
+    });
+
+    const plugin = createItchioBuyerLinkPlugin();
+    if (!plugin.verifyHostedIntent) {
+      throw new Error('Expected verifyHostedIntent to be defined for itch.io');
+    }
+
+    const result = await plugin.verifyHostedIntent(
+      {
+        authUserId: 'buyer-auth-user',
+        intentId: 'intent_backfilled' as never,
+        methodKey: 'itchio-link',
+      },
+      makeCtx()
+    );
+
+    expect(result).toEqual({ success: true });
+    expect(fetchOwnedKeysMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledWith(
+      internalMock.verificationIntents.markIntentVerified,
+      expect.objectContaining({
+        intentId: 'intent_backfilled',
+        methodKey: 'itchio-link',
+      })
+    );
+  });
+
+  it('marks the link expired when the buyer token is no longer valid', async () => {
+    fetchOwnedKeysMock.mockRejectedValueOnce(new CredentialExpiredError('itchio'));
+    mockHostedVerificationQueries({
+      intentRequirement: {
+        creatorAuthUserId: 'creator_1',
+        productId: 'product_1',
+        providerProductRef: '42',
+      },
     });
 
     const plugin = createItchioBuyerLinkPlugin();
@@ -342,47 +524,42 @@ describe('itchio buyer link plugin', () => {
   });
 
   it('resolves creator product context for legacy itch intents that only carry providerProductRef', async () => {
+    const entitlementChecks = [false, true];
     queryMock.mockImplementation(async (ref) => {
       switch (ref) {
         case apiMock.verificationIntents.getIntentRecord:
-          return {
-            status: 'pending',
-            expiresAt: Date.now() + 60_000,
-            packageId: 'package_legacy',
-            requirements: [
-              {
-                methodKey: 'itchio-link',
-                providerKey: 'itchio',
-                kind: 'buyer_provider_link',
-                providerProductRef: '42',
-              },
-            ],
-          };
+          return buildPendingIntent(
+            {
+              providerProductRef: '42',
+            },
+            { packageId: 'package_legacy' }
+          );
         case apiMock.subjects.getSubjectByAuthId:
           return {
             found: true,
             subject: { _id: 'subject_1' },
           };
         case internalMock.subjects.getBuyerProviderLinkForSubject:
-          return {
-            id: 'link_1',
-            provider: 'itchio',
-            externalAccountId: 'external-account-1',
-            providerUserId: 'itch-user-1',
-            label: 'itch-buyer',
-            status: 'active',
-            linkedAt: Date.now(),
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
+          return buildActiveBuyerProviderLink();
         case apiMock.identitySync.getExternalAccountOAuthCredentials:
           return {
             oauthAccessTokenEncrypted: 'enc:buyer-access-token',
           };
+        case internalMock.yucpLicenses.getProductByProviderRef:
+          return {
+            authUserId: 'creator_1',
+            productId: 'product_1',
+            displayName: 'Creator Product',
+          };
+        case internalMock.yucpLicenses.checkSubjectEntitlement:
+          return entitlementChecks.length > 1
+            ? (entitlementChecks.shift() ?? false)
+            : (entitlementChecks[0] ?? false);
         default:
           throw new Error(`Unhandled query ref ${String(ref)}`);
       }
     });
+    mutationMock.mockImplementation(async () => null);
 
     const plugin = createItchioBuyerLinkPlugin();
     if (!plugin.verifyHostedIntent) {
@@ -418,5 +595,265 @@ describe('itchio buyer link plugin', () => {
         productId: 'product_1',
       })
     );
+  });
+
+  it('enforces providerProductRef ownership invariants across current and legacy intent shapes', async () => {
+    const cases = [
+      {
+        name: 'current shape keeps creator context inline',
+        intentRequirement: {
+          creatorAuthUserId: 'creator_1',
+          productId: 'product_1',
+          providerProductRef: '42',
+        },
+        expectedResolverCalls: 0,
+      },
+      {
+        name: 'legacy shape resolves creator context from providerProductRef',
+        intentRequirement: {
+          providerProductRef: '42',
+        },
+        expectedResolverCalls: 1,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const entitlementChecks = [false, true];
+      queryMock.mockClear();
+      mutationMock.mockClear();
+      resolveBuyerVerificationStoreContextMock.mockClear();
+      mutationMock.mockImplementation(async () => null);
+      queryMock.mockImplementation(async (ref) => {
+        switch (ref) {
+          case apiMock.verificationIntents.getIntentRecord:
+            return buildPendingIntent(testCase.intentRequirement, { packageId: 'package_1' });
+          case apiMock.subjects.getSubjectByAuthId:
+            return {
+              found: true,
+              subject: { _id: 'subject_1' },
+            };
+          case internalMock.subjects.getBuyerProviderLinkForSubject:
+            return buildActiveBuyerProviderLink();
+          case apiMock.identitySync.getExternalAccountOAuthCredentials:
+            return {
+              oauthAccessTokenEncrypted: 'enc:buyer-access-token',
+            };
+          case internalMock.yucpLicenses.getProductByProviderRef:
+            return {
+              authUserId: 'creator_1',
+              productId: 'product_1',
+              displayName: 'Creator Product',
+            };
+          case internalMock.yucpLicenses.checkSubjectEntitlement:
+            return entitlementChecks.length > 1
+              ? (entitlementChecks.shift() ?? false)
+              : (entitlementChecks[0] ?? false);
+          default:
+            throw new Error(`Unhandled query ref ${String(ref)}`);
+        }
+      });
+
+      const plugin = createItchioBuyerLinkPlugin();
+      if (!plugin.verifyHostedIntent) {
+        throw new Error('Expected verifyHostedIntent to be defined for itch.io');
+      }
+
+      const result = await plugin.verifyHostedIntent(
+        {
+          authUserId: 'buyer-auth-user',
+          intentId: 'intent_shape' as never,
+          methodKey: 'itchio-link',
+        },
+        makeCtx()
+      );
+
+      expect(result, testCase.name).toEqual({ success: true });
+      expect(resolveBuyerVerificationStoreContextMock.mock.calls.length, testCase.name).toBe(
+        testCase.expectedResolverCalls
+      );
+      expect(mutationMock).toHaveBeenCalledWith(
+        apiMock.entitlements.grantEntitlement,
+        expect.objectContaining({
+          authUserId: 'creator_1',
+          productId: 'product_1',
+          subjectId: 'subject_1',
+        })
+      );
+    }
+  });
+
+  it('matches owned itch library entries by exact game id only', async () => {
+    const cases = [
+      {
+        name: 'grants access when an owned key game id matches the providerProductRef',
+        providerProductRef: '42',
+        ownedKeys: [
+          {
+            ownedKeyId: 'owned-1',
+            gameId: '42',
+            purchaseId: 'purchase-1',
+            gameTitle: 'Volcanic Sinkhole Battlemap',
+            gameUrl: 'https://creator.itch.io/volcanic-sinkhole-battlemap',
+          },
+        ],
+        expected: { success: true as const },
+        shouldGrantEntitlement: true,
+      },
+      {
+        name: 'does not match the owned key id when the game id differs',
+        providerProductRef: 'owned-1',
+        ownedKeys: [
+          {
+            ownedKeyId: 'owned-1',
+            gameId: '42',
+            purchaseId: 'purchase-1',
+            gameTitle: 'Volcanic Sinkhole Battlemap',
+            gameUrl: 'https://creator.itch.io/volcanic-sinkhole-battlemap',
+          },
+        ],
+        expected: {
+          success: false as const,
+          errorCode: 'purchase_not_found',
+          errorMessage:
+            'No purchase was found for this itch.io account. If you just bought, please try again in a moment.',
+        },
+        shouldGrantEntitlement: false,
+      },
+      {
+        name: 'does not match the purchase id when the game id differs',
+        providerProductRef: 'purchase-1',
+        ownedKeys: [
+          {
+            ownedKeyId: 'owned-1',
+            gameId: '42',
+            purchaseId: 'purchase-1',
+            gameTitle: 'Volcanic Sinkhole Battlemap',
+            gameUrl: 'https://creator.itch.io/volcanic-sinkhole-battlemap',
+          },
+        ],
+        expected: {
+          success: false as const,
+          errorCode: 'purchase_not_found',
+          errorMessage:
+            'No purchase was found for this itch.io account. If you just bought, please try again in a moment.',
+        },
+        shouldGrantEntitlement: false,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const entitlementChecks = testCase.shouldGrantEntitlement ? [false, true] : [false];
+      queryMock.mockClear();
+      mutationMock.mockClear();
+      fetchOwnedKeysMock.mockResolvedValueOnce([...testCase.ownedKeys]);
+      mutationMock.mockImplementation(async () => null);
+      queryMock.mockImplementation(async (ref) => {
+        switch (ref) {
+          case apiMock.verificationIntents.getIntentRecord:
+            return buildPendingIntent({
+              creatorAuthUserId: 'creator_1',
+              productId: 'product_1',
+              providerProductRef: testCase.providerProductRef,
+            });
+          case apiMock.subjects.getSubjectByAuthId:
+            return {
+              found: true,
+              subject: { _id: 'subject_1' },
+            };
+          case internalMock.subjects.getBuyerProviderLinkForSubject:
+            return buildActiveBuyerProviderLink();
+          case apiMock.identitySync.getExternalAccountOAuthCredentials:
+            return {
+              oauthAccessTokenEncrypted: 'enc:buyer-access-token',
+            };
+          case internalMock.yucpLicenses.getProductByProviderRef:
+            return {
+              authUserId: 'creator_1',
+              productId: 'product_1',
+              displayName: 'Volcanic Sinkhole Battlemap',
+            };
+          case internalMock.yucpLicenses.checkSubjectEntitlement:
+            return entitlementChecks.length > 1
+              ? (entitlementChecks.shift() ?? false)
+              : (entitlementChecks[0] ?? false);
+          default:
+            throw new Error(`Unhandled query ref ${String(ref)}`);
+        }
+      });
+
+      const plugin = createItchioBuyerLinkPlugin();
+      if (!plugin.verifyHostedIntent) {
+        throw new Error('Expected verifyHostedIntent to be defined for itch.io');
+      }
+
+      const result = await plugin.verifyHostedIntent(
+        {
+          authUserId: 'buyer-auth-user',
+          intentId: 'intent_owned_key' as never,
+          methodKey: 'itchio-link',
+        },
+        makeCtx()
+      );
+
+      expect(result, testCase.name).toEqual(testCase.expected);
+      expect(
+        mutationMock.mock.calls.some(([ref]) => ref === apiMock.entitlements.grantEntitlement),
+        testCase.name
+      ).toBe(testCase.shouldGrantEntitlement);
+    }
+  });
+
+  it('rejects malformed itch account-link intents that are missing the providerProductRef', async () => {
+    const cases = [
+      {
+        name: 'current shape with creator context but no provider product reference',
+        intentRequirement: {
+          creatorAuthUserId: 'creator_1',
+          productId: 'product_1',
+        },
+      },
+      {
+        name: 'legacy shape with neither creator context nor provider product reference',
+        intentRequirement: {},
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      queryMock.mockClear();
+      mutationMock.mockClear();
+      resolveBuyerVerificationStoreContextMock.mockClear();
+      mockHostedVerificationQueries({
+        intentRequirement: testCase.intentRequirement,
+      });
+
+      const plugin = createItchioBuyerLinkPlugin();
+      if (!plugin.verifyHostedIntent) {
+        throw new Error('Expected verifyHostedIntent to be defined for itch.io');
+      }
+
+      const result = await plugin.verifyHostedIntent(
+        {
+          authUserId: 'buyer-auth-user',
+          intentId: 'intent_missing_ref' as never,
+          methodKey: 'itchio-link',
+        },
+        makeCtx()
+      );
+
+      expect(result, testCase.name).toEqual({
+        success: false,
+        errorCode: 'invalid_method',
+        errorMessage:
+          'Verification method is missing the itch.io product reference required for linked account verification.',
+      });
+      expect(resolveBuyerVerificationStoreContextMock).not.toHaveBeenCalled();
+      expect(mutationMock).toHaveBeenCalledWith(
+        internalMock.verificationIntents.markIntentFailed,
+        expect.objectContaining({
+          intentId: 'intent_missing_ref',
+          errorCode: 'invalid_method',
+        })
+      );
+    }
   });
 });

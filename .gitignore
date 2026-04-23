@@ -11,6 +11,8 @@ node_modules
 *.md
 !README.md
 !docs/bot-e2e.md
+!docs/review-playbook.md
+!docs/fleet-bugfix-playbook.md
 /.swarm
 /StaticSitesExamples
 

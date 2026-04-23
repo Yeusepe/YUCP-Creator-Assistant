@@ -229,6 +229,31 @@ describe('buildVerifyStatusReply', () => {
     expect(text).not.toContain('license key');
   });
 
+  it('shows reconnect guidance instead of a verified state when itch.io is linked but no matching entitlement exists', async () => {
+    const convex = makeConvex({
+      subjectFound: true,
+      linkedAccounts: [{ provider: 'itchio', status: 'active', _id: 'acct_itch_1' }],
+      entitlements: [],
+      guildProducts: [{ productId: 'prod_itch_1', displayName: 'itch.io Avatar' }],
+      providers: ['itchio'],
+    });
+
+    const reply = await buildVerifyStatusReply(
+      'user_verify_itch_missing',
+      'auth_verify_itch_missing',
+      'guild_verify_itch_missing',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const text = JSON.stringify(reply.components[0].toJSON());
+    expect(text).toContain('We found a linked account, but nothing on it matches this server yet.');
+    expect(text).toContain('Double-check the account or key you used for purchases from itch.io');
+    expect(text).toContain('Disconnect itch.io');
+    expect(text).not.toContain("You're verified!");
+  });
+
   it('handles DM context (null guildId) gracefully without throwing', async () => {
     const convex = makeConvex({ subjectFound: false, providers: [] });
 

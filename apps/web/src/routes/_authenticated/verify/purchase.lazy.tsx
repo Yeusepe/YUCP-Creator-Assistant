@@ -691,7 +691,7 @@ function VerifyPurchasePage() {
 
     setOauthReturnState('checking');
     verifyUserVerificationProviderLink(intentId, method.methodKey)
-      .then(() => queryClient.invalidateQueries({ queryKey: ['vp-intent', intentId] }))
+      .finally(() => queryClient.invalidateQueries({ queryKey: ['vp-intent', intentId] }))
       .catch(() => {})
       .finally(() => setOauthReturnState('done'));
   }, [intent, intentId, justConnectedProvider, oauthReturnState, queryClient]);

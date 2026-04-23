@@ -148,6 +148,9 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 
 ## Development and testing
 
+- Playbooks:
+  - `docs/review-playbook.md`: multi-pass review, regression placement, and risky-change validation.
+  - `docs/fleet-bugfix-playbook.md`: bug-fix workflow, GPT-5.4 fleet decomposition, SQL lane coordination, and combined-branch validation.
 - Lint: `bun run lint`. Typecheck: `bun run typecheck`. Tests: `bun run test` (or `bun run test:ci`).
 - External integration contract gate: `bun run test:external-integrations`. This is the fast PR-facing slice for provider/runtime/API/consumer hardening. It now explicitly covers the production-incident surfaces in `ops/production-regression-loop.ts`: provider contracts, identity boundaries, verification flows, account surfaces, and backfill paths.
 - Production issue -> invariant -> regression loop: when a prod bug lands in any of those surfaces, update `ops/production-regression-loop.ts`, write the invariant it broke, add the primary regression in the listed contract home, add the nearest consumer regression, and run `bun run test:external-integrations`. If bad state may already exist, add the listed remediation or Convex regression too. The loop is enforced by `ops/production-regression-loop.test.ts`, so missing homes or uncovered surfaces fail in `bun run test:ops`.

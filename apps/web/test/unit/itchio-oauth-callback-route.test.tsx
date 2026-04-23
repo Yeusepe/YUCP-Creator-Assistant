@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@tanstack/react-router', () => ({
   createLazyFileRoute: () => (options: unknown) => ({ options }),
@@ -12,6 +12,10 @@ vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
 import { Route } from '@/routes/oauth/callback/itchio.lazy';
 
 describe('itch.io OAuth callback route', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
 
@@ -74,5 +78,69 @@ describe('itch.io OAuth callback route', () => {
       )
     );
     expect(window.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shows restart guidance when the callback state has expired or was already used', async () => {
+    const Component = Route.options.component;
+    if (!Component) {
+      throw new Error('itch.io callback route component is not defined');
+    }
+
+    window.history.replaceState(
+      {},
+      '',
+      '/oauth/callback/itchio#access_token=itch-token&state=verification:itchio:buyer_auth:stale'
+    );
+    vi.mocked(window.fetch).mockResolvedValue(
+      new Response(JSON.stringify({ success: false, error: 'invalid_state' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    render(<Component />);
+
+    expect(await screen.findByText('Connection error')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This itch.io link expired or was already used. Restart verification and try again.'
+      )
+    ).toBeInTheDocument();
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+
+  it('shows legacy-path guidance when itch.io returns to an unsupported callback flow', async () => {
+    const Component = Route.options.component;
+    if (!Component) {
+      throw new Error('itch.io callback route component is not defined');
+    }
+
+    window.history.replaceState(
+      {},
+      '',
+      '/oauth/callback/itchio#access_token=itch-token&state=verification:itchio:buyer_auth:legacy'
+    );
+    vi.mocked(window.fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Verification mode does not support implicit callback: itchio',
+        }),
+        {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    render(<Component />);
+
+    expect(await screen.findByText('Connection error')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This itch.io return link is no longer supported. Start the verification flow again from the latest YUCP screen.'
+      )
+    ).toBeInTheDocument();
+    expect(window.location.replace).not.toHaveBeenCalled();
   });
 });

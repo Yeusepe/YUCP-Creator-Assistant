@@ -221,6 +221,77 @@ describe('verification intents buyer provider links', () => {
     expect(result).toEqual({ success: true });
   });
 
+  it('preserves itch account-link product references across current and legacy intent shapes', async () => {
+    const cases = [
+      {
+        name: 'current buyer-provider-link shape preserves inline creator context',
+        authUserId: 'auth-itch-current-shape',
+        requirement: {
+          methodKey: 'itchio-link-current',
+          providerKey: 'itchio',
+          kind: 'buyer_provider_link' as const,
+          title: 'Linked itch.io account',
+          creatorAuthUserId: 'creator_current',
+          productId: 'product_current',
+          providerProductRef: 'current-game-id',
+        },
+        expectedRequirement: {
+          methodKey: 'itchio-link-current',
+          providerKey: 'itchio',
+          kind: 'buyer_provider_link',
+          creatorAuthUserId: 'creator_current',
+          productId: 'product_current',
+          providerProductRef: 'current-game-id',
+        },
+      },
+      {
+        name: 'legacy manual-license shape canonicalizes to buyer-provider-link while keeping providerProductRef',
+        authUserId: 'auth-itch-legacy-shape',
+        requirement: {
+          methodKey: 'itchio-link-legacy',
+          providerKey: 'itchio',
+          kind: 'manual_license' as const,
+          title: 'itch.io download key',
+          providerProductRef: 'legacy-game-id',
+        },
+        expectedRequirement: {
+          methodKey: 'itchio-link-legacy',
+          providerKey: 'itchio',
+          kind: 'buyer_provider_link',
+          providerProductRef: 'legacy-game-id',
+        },
+      },
+    ] as const;
+
+    const t = makeTestConvex();
+    for (const testCase of cases) {
+      await seedSubject(t, {
+        authUserId: testCase.authUserId,
+        primaryDiscordUserId: `discord-${testCase.authUserId}`,
+      });
+
+      const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+        apiSecret: API_SECRET,
+        authUserId: testCase.authUserId,
+        packageId: `pkg-${testCase.authUserId}`,
+        machineFingerprint: `machine-${testCase.authUserId}`,
+        codeChallenge: `challenge-${testCase.authUserId}`,
+        returnUrl: 'https://example.com/return',
+        requirements: [testCase.requirement],
+      });
+
+      const storedIntent = await t.query(api.verificationIntents.getIntentRecord, {
+        apiSecret: API_SECRET,
+        authUserId: testCase.authUserId,
+        intentId,
+      });
+
+      expect(storedIntent?.requirements, testCase.name).toMatchObject([
+        testCase.expectedRequirement,
+      ]);
+    }
+  });
+
   it('canonicalizes legacy manual-license requirements across provider capability permutations', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-manual-license-permutations';

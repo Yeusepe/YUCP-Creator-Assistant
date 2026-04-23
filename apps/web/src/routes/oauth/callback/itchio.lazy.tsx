@@ -56,6 +56,31 @@ function isCreatorSetupCallback(state: string | null, tenantId: string, guildId:
   return state?.startsWith('connect_itchio:') === true || Boolean(tenantId || guildId);
 }
 
+function getUserFacingItchioCallbackError(error: string | null | undefined): string {
+  if (!error) {
+    return 'Could not finish itch.io callback.';
+  }
+
+  const normalized = error.trim().toLowerCase();
+  if (
+    normalized === 'invalid_state' ||
+    normalized === 'invalid state parameter' ||
+    normalized === 'session not found or expired'
+  ) {
+    return 'This itch.io link expired or was already used. Restart verification and try again.';
+  }
+
+  if (
+    normalized.startsWith('verification mode does not support implicit callback') ||
+    normalized.startsWith('provider does not support implicit account linking') ||
+    normalized.startsWith('unknown verification mode')
+  ) {
+    return 'This itch.io return link is no longer supported. Start the verification flow again from the latest YUCP screen.';
+  }
+
+  return error;
+}
+
 function ItchioSetupPage() {
   const { tenantId, guildId, apiBase } = getUrlParams();
   const [phase, setPhase] = useState<Phase>('redirecting');
@@ -135,10 +160,12 @@ function ItchioSetupPage() {
         if (!cancelled) {
           setPhase('error');
           setError(
-            data.error ??
-              (creatorSetupCallback
-                ? 'Could not finish itch.io setup.'
-                : 'Could not finish itch.io verification.')
+            getUserFacingItchioCallbackError(
+              data.error ??
+                (creatorSetupCallback
+                  ? 'Could not finish itch.io setup.'
+                  : 'Could not finish itch.io verification.')
+            )
           );
         }
         return;
@@ -152,7 +179,11 @@ function ItchioSetupPage() {
       if (!cancelled) {
         setPhase('error');
         setError(
-          caughtError instanceof Error ? caughtError.message : 'Could not finish itch.io callback.'
+          getUserFacingItchioCallbackError(
+            caughtError instanceof Error
+              ? caughtError.message
+              : 'Could not finish itch.io callback.'
+          )
         );
       }
     });
