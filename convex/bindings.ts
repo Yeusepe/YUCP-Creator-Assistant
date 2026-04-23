@@ -143,6 +143,84 @@ async function revokeEntitlementsForSubject(
   return entitlements.length;
 }
 
+export async function revokeBindingRecord(
+  ctx: MutationCtx,
+  args: {
+    bindingId: Id<'bindings'>;
+    expectedAuthUserId?: string;
+    reason: string;
+    actorType?: 'subject' | 'system' | 'admin';
+    actorId?: string;
+    cascadeToEntitlements?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  bindingId: Id<'bindings'>;
+  entitlementsRevoked: number;
+  previousStatus: 'pending' | 'active' | 'revoked' | 'transferred' | 'quarantined';
+}> {
+  const now = Date.now();
+  const actorType = args.actorType || 'system';
+  const cascadeToEntitlements = args.cascadeToEntitlements ?? true;
+
+  const binding = await ctx.db.get(args.bindingId);
+  if (!binding) {
+    throw new Error(`Binding not found: ${args.bindingId}`);
+  }
+
+  if (args.expectedAuthUserId && binding.authUserId !== args.expectedAuthUserId) {
+    throw new ConvexError('Unauthorized: not the owner');
+  }
+
+  const previousStatus = binding.status;
+  if (previousStatus === 'revoked') {
+    return {
+      success: true,
+      bindingId: args.bindingId,
+      entitlementsRevoked: 0,
+      previousStatus,
+    };
+  }
+
+  await ctx.db.patch(args.bindingId, {
+    status: 'revoked',
+    reason: args.reason,
+    version: binding.version + 1,
+    updatedAt: now,
+  });
+
+  let entitlementsRevoked = 0;
+  if (cascadeToEntitlements) {
+    entitlementsRevoked = await revokeEntitlementsForSubject(
+      ctx,
+      binding.authUserId,
+      binding.subjectId,
+      args.reason
+    );
+  }
+
+  await createAuditEvent(ctx, {
+    authUserId: binding.authUserId,
+    eventType: 'binding.revoked',
+    actorType,
+    actorId: args.actorId,
+    subjectId: binding.subjectId,
+    externalAccountId: binding.externalAccountId,
+    metadata: createBindingAuditMetadata('revoke', args.bindingId, {
+      reason: args.reason,
+      entitlementsRevoked,
+      cascadeToEntitlements,
+    }),
+  });
+
+  return {
+    success: true,
+    bindingId: args.bindingId,
+    entitlementsRevoked,
+    previousStatus,
+  };
+}
+
 // ============================================================================
 // MUTATIONS
 // ============================================================================
@@ -333,71 +411,14 @@ export const revokeBinding = mutation({
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const now = Date.now();
-    const actorType = args.actorType || 'system';
-    const cascadeToEntitlements = args.cascadeToEntitlements ?? true;
-
-    const binding = await ctx.db.get(args.bindingId);
-    if (!binding) {
-      throw new Error(`Binding not found: ${args.bindingId}`);
-    }
-
-    if (binding.authUserId !== args.authUserId) {
-      throw new ConvexError('Unauthorized: not the owner');
-    }
-
-    const previousStatus = binding.status;
-
-    // Check if binding can be revoked
-    if (previousStatus === 'revoked') {
-      return {
-        success: true,
-        bindingId: args.bindingId,
-        entitlementsRevoked: 0,
-        previousStatus,
-      };
-    }
-
-    // Update binding status
-    await ctx.db.patch(args.bindingId, {
-      status: 'revoked',
-      reason: args.reason,
-      version: binding.version + 1,
-      updatedAt: now,
-    });
-
-    // Cascade to entitlements if requested
-    let entitlementsRevoked = 0;
-    if (cascadeToEntitlements) {
-      entitlementsRevoked = await revokeEntitlementsForSubject(
-        ctx,
-        binding.authUserId,
-        binding.subjectId,
-        args.reason
-      );
-    }
-
-    // Create audit event
-    await createAuditEvent(ctx, {
-      authUserId: binding.authUserId,
-      eventType: 'binding.revoked',
-      actorType,
-      actorId: args.actorId,
-      subjectId: binding.subjectId,
-      externalAccountId: binding.externalAccountId,
-      metadata: createBindingAuditMetadata('revoke', args.bindingId, {
-        reason: args.reason,
-        entitlementsRevoked,
-        cascadeToEntitlements,
-      }),
-    });
-
-    return {
-      success: true,
+    return await revokeBindingRecord(ctx, {
       bindingId: args.bindingId,
-      entitlementsRevoked,
-      previousStatus,
-    };
+      expectedAuthUserId: args.authUserId,
+      reason: args.reason,
+      actorType: args.actorType,
+      actorId: args.actorId,
+      cascadeToEntitlements: args.cascadeToEntitlements,
+    });
   },
 });
 

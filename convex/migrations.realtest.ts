@@ -32,7 +32,11 @@ async function seedBetterAuthDiscordAccount(
   const now = Date.now();
 
   return await t.runInComponent('betterAuth', async (ctx) => {
-    await ctx.db.insert('user', {
+    const componentDb = ctx.db as typeof ctx.db & {
+      insert: (table: 'user' | 'account', value: Record<string, unknown>) => Promise<string>;
+    };
+
+    await componentDb.insert('user', {
       userId: input.authUserMarker,
       email: input.email,
       emailVerified: true,
@@ -41,7 +45,7 @@ async function seedBetterAuthDiscordAccount(
       updatedAt: now,
     });
 
-    await ctx.db.insert('account', {
+    await componentDb.insert('account', {
       accountId: input.discordUserId,
       providerId: 'discord',
       userId: input.authUserMarker,

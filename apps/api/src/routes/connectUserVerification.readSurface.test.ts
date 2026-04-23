@@ -2,13 +2,16 @@ import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConnectConfig } from '../providers/types';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => [] as unknown[]);
-const convexMutationMock = mock(async () => undefined);
+const convexMutationMock = mock(
+  async (_reference?: unknown, _args?: unknown): Promise<unknown> => undefined
+);
 const loggerErrorMock = mock(() => undefined);
 
 const apiMock = {
   subjects: {
     reconcileBuyerProviderLinksForAuthUser: 'subjects.reconcileBuyerProviderLinksForAuthUser',
     listBuyerProviderLinksForAuthUser: 'subjects.listBuyerProviderLinksForAuthUser',
+    revokeBuyerProviderLink: 'subjects.revokeBuyerProviderLink',
   },
 } as const;
 
@@ -265,5 +268,31 @@ describe('GET /api/connect/user/accounts', () => {
         authUserId: 'buyer_auth_user_B',
       }
     );
+  });
+});
+
+describe('DELETE /api/connect/user/accounts', () => {
+  beforeEach(() => {
+    convexQueryMock.mockReset();
+    convexMutationMock.mockReset();
+    loggerErrorMock.mockReset();
+    convexMutationMock.mockResolvedValue({ success: true });
+  });
+
+  it('disconnects the signed-in user account link through the revoke mutation', async () => {
+    const routes = createRoutes('buyer_auth_user_B');
+    const response = await routes.deleteUserAccount(
+      new Request('http://localhost:3001/api/connect/user/accounts?id=buyer-link-itchio-1', {
+        method: 'DELETE',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(convexMutationMock).toHaveBeenCalledWith(apiMock.subjects.revokeBuyerProviderLink, {
+      apiSecret: 'test-convex-secret',
+      authUserId: 'buyer_auth_user_B',
+      linkId: 'buyer-link-itchio-1',
+    });
   });
 });

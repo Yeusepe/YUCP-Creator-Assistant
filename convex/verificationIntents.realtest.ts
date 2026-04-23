@@ -29,6 +29,30 @@ async function seedExternalAccount(
   });
 }
 
+async function seedVerificationBinding(
+  t: ReturnType<typeof makeTestConvex>,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    externalAccountId: Id<'external_accounts'>;
+    status?: 'pending' | 'active' | 'revoked' | 'transferred' | 'quarantined';
+  }
+): Promise<Id<'bindings'>> {
+  return t.run(async (ctx) => {
+    const now = Date.now();
+    return await ctx.db.insert('bindings', {
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      externalAccountId: args.externalAccountId,
+      bindingType: 'verification',
+      status: args.status ?? 'active',
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
 async function computeCodeChallenge(codeVerifier: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(codeVerifier));
   return Buffer.from(new Uint8Array(digest))
@@ -226,6 +250,56 @@ describe('verification intents buyer provider links', () => {
       authUserId,
     });
     expect(linksAfterRevoke).toHaveLength(0);
+  });
+
+  it('keeps a disconnected buyer provider link revoked after reconciliation runs again', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-buyer-link-disconnect';
+    const subjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-buyer-link-disconnect',
+    });
+    const externalAccountId = await seedExternalAccount(t, {
+      provider: 'vrchat',
+      providerUserId: 'vrchat-user-disconnect',
+      providerUsername: 'DisconnectMe',
+    });
+
+    const bindingId = await seedVerificationBinding(t, {
+      authUserId,
+      subjectId,
+      externalAccountId,
+    });
+
+    const linkId = await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId,
+      provider: 'vrchat',
+      externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const revokeResult = await t.mutation(api.subjects.revokeBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      authUserId,
+      linkId,
+    });
+
+    expect(revokeResult.success).toBe(true);
+
+    await t.mutation(api.subjects.reconcileBuyerProviderLinksForAuthUser, {
+      apiSecret: API_SECRET,
+      authUserId,
+    });
+
+    const linksAfterReconcile = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: API_SECRET,
+      authUserId,
+    });
+    expect(linksAfterReconcile).toHaveLength(0);
+
+    const binding = await t.run(async (ctx) => ctx.db.get(bindingId));
+    expect(binding?.status).toBe('revoked');
   });
 
   it('lists buyer provider links across every active subject for the auth user', async () => {

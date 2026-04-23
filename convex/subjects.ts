@@ -25,6 +25,7 @@ import {
 } from './lib/externalAccountIdentity';
 import { hasActiveBindingForSubject } from './lib/ownership';
 import { ProviderV } from './lib/providers';
+import { revokeBindingRecord } from './bindings';
 
 export const PublicSubjectSelector = v.union(
   v.object({
@@ -1156,6 +1157,31 @@ export const revokeBuyerProviderLink = mutation({
     const subject = await ctx.db.get(link.subjectId);
     if (!subject || subject.authUserId !== args.authUserId) {
       return { success: false };
+    }
+
+    const verificationBindings = await ctx.db
+      .query('bindings')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', subject._id)
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('externalAccountId'), link.externalAccountId),
+          q.eq(q.field('bindingType'), 'verification'),
+          q.or(q.eq(q.field('status'), 'active'), q.eq(q.field('status'), 'pending'))
+        )
+      )
+      .collect();
+
+    for (const binding of verificationBindings) {
+      await revokeBindingRecord(ctx, {
+        bindingId: binding._id,
+        expectedAuthUserId: args.authUserId,
+        reason: 'User disconnected buyer verification account',
+        actorType: 'subject',
+        actorId: args.authUserId,
+        cascadeToEntitlements: false,
+      });
     }
 
     await ctx.db.patch(link._id, {
