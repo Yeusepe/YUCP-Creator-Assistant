@@ -9,10 +9,7 @@
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
-import {
-  resolveSubjectAuthUserId,
-  SUBJECT_AUTH_USER_REQUIRED_ERROR,
-} from '../lib/subjectIdentity';
+import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import type { VerificationConfig } from './verificationConfig';
 
@@ -142,7 +139,7 @@ export async function handleCompleteVrchat(
     const convex = getConvexClientFromUrl(config.convexUrl);
     let verificationInput = resolvedInput.value;
     if (resolvedInput.value.identityMode === 'legacy') {
-      const buyerAuthUserId = await resolveSubjectAuthUserId(
+      const buyerAuthUserId = await ensureSubjectAuthUserId(
         convex,
         resolvedInput.value.buyerSubjectId
       );

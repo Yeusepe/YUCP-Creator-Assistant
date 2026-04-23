@@ -145,6 +145,105 @@ describe('syncUserFromAuth', () => {
 
     expect(await getIdentityCounts(t)).toEqual(before);
   });
+
+  it('given a light buyer identity, when the same Discord user later signs in, then buyer-scoped records migrate to the real auth user', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const lightAuthUserId = 'light-auth-user-1';
+    const realAuthUserId = 'real-auth-user-1';
+    const subjectId = await t.run(async (ctx) =>
+      ctx.db.insert('subjects', {
+        primaryDiscordUserId: 'discord-migrate-1',
+        authUserId: lightAuthUserId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+
+    const externalAccountId = await t.run(async (ctx) =>
+      ctx.db.insert('external_accounts', {
+        provider: 'gumroad',
+        providerUserId: 'gumroad-buyer-1',
+        providerUsername: 'gumroad-buyer',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      })
+    );
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('bindings', {
+        authUserId: lightAuthUserId,
+        subjectId,
+        externalAccountId,
+        bindingType: 'verification',
+        status: 'active',
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('license_subject_links', {
+        authUserId: lightAuthUserId,
+        licenseSubject: 'license-subject-migrate-1',
+        provider: 'gumroad',
+        createdAt: now,
+      });
+    });
+
+    await t.mutation(api.identitySync.syncUserFromAuth, {
+      apiSecret: 'test-secret',
+      authUserId: realAuthUserId,
+      discord: {
+        discordUserId: 'discord-migrate-1',
+        username: 'buyer-user',
+      },
+    });
+
+    const migratedSubject = await t.run(async (ctx) => ctx.db.get(subjectId));
+    expect(migratedSubject?.authUserId).toBe(realAuthUserId);
+
+    const migratedBindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', realAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    expect(migratedBindings).toHaveLength(1);
+    expect(migratedBindings[0]?.externalAccountId).toBe(externalAccountId);
+
+    const staleBindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', lightAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    expect(staleBindings).toHaveLength(0);
+
+    const migratedLicenseLink = await t.run(async (ctx) =>
+      ctx.db
+        .query('license_subject_links')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', realAuthUserId).eq('licenseSubject', 'license-subject-migrate-1')
+        )
+        .first()
+    );
+    expect(migratedLicenseLink).not.toBeNull();
+
+    const staleLicenseLink = await t.run(async (ctx) =>
+      ctx.db
+        .query('license_subject_links')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', lightAuthUserId).eq('licenseSubject', 'license-subject-migrate-1')
+        )
+        .first()
+    );
+    expect(staleLicenseLink).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

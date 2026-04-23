@@ -1,15 +1,16 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 const queryMock = mock(
   async (
     ref: unknown,
     _args?: unknown
   ): Promise<
-    { _id: string; authUserId: string | null } | Array<{
-      productId: string;
-      catalogProductId: string;
-      providerProductRef: string;
-    }>
+    | { _id: string; authUserId: string | null }
+    | Array<{
+        productId: string;
+        catalogProductId: string;
+        providerProductRef: string;
+      }>
   > => {
     if (ref === 'internal.subjects.getSubjectIdentityById') {
       return {
@@ -32,6 +33,7 @@ const mutationMock = mock(async () => ({
   success: true,
   entitlementIds: ['ent_123'],
 }));
+const ensureSubjectAuthUserIdMock = mock(async (): Promise<string | null> => 'buyer_auth_user_456');
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
@@ -57,6 +59,10 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 
+const subjectIdentityModule = await import('../lib/subjectIdentity');
+spyOn(subjectIdentityModule, 'ensureSubjectAuthUserId').mockImplementation(
+  ensureSubjectAuthUserIdMock
+);
 const { handleCompleteVrchat } = await import('./completeVrchat');
 
 afterAll(() => {
@@ -67,6 +73,8 @@ describe('handleCompleteVrchat', () => {
   beforeEach(() => {
     queryMock.mockClear();
     mutationMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockResolvedValue('buyer_auth_user_456');
   });
 
   it('keeps catalog lookups on the creator while writing bindings under the buyer identity', async () => {
@@ -85,10 +93,12 @@ describe('handleCompleteVrchat', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(queryMock.mock.calls[0]?.[0]).toBe('internal.subjects.getSubjectIdentityById');
-    expect(queryMock.mock.calls[0]?.[1]).toEqual({ subjectId: 'buyer_subject_456' });
-    expect(queryMock.mock.calls[1]?.[0]).toBe('role_rules.getVrchatCatalogProductsMatchingAvatars');
-    expect(queryMock.mock.calls[1]?.[1]).toEqual({
+    expect(ensureSubjectAuthUserIdMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      'buyer_subject_456'
+    );
+    expect(queryMock.mock.calls[0]?.[0]).toBe('role_rules.getVrchatCatalogProductsMatchingAvatars');
+    expect(queryMock.mock.calls[0]?.[1]).toEqual({
       apiSecret: 'convex-secret',
       authUserId: 'creator_auth_user_123',
       ownedAvatarIds: ['avatar_123'],
@@ -103,11 +113,8 @@ describe('handleCompleteVrchat', () => {
     );
   });
 
-  it('rejects legacy completion when the buyer subject is not linked to a YUCP account', async () => {
-    queryMock.mockImplementationOnce(async () => ({
-      _id: 'buyer_subject_456',
-      authUserId: null,
-    }));
+  it('continues legacy completion by materializing a light buyer account for an unlinked subject', async () => {
+    ensureSubjectAuthUserIdMock.mockResolvedValueOnce('light_buyer_auth_user_789');
 
     const result = await handleCompleteVrchat(
       {
@@ -123,11 +130,14 @@ describe('handleCompleteVrchat', () => {
       }
     );
 
-    expect(result).toEqual({
-      success: false,
-      error: 'Verification subject must be linked to a YUCP account before completion',
-    });
-    expect(mutationMock).not.toHaveBeenCalled();
-    expect(queryMock.mock.calls).toHaveLength(1);
+    expect(result.success).toBe(true);
+    expect(mutationMock).toHaveBeenCalledWith(
+      'licenseVerification.completeLicenseVerification',
+      expect.objectContaining({
+        creatorAuthUserId: 'creator_auth_user_123',
+        buyerAuthUserId: 'light_buyer_auth_user_789',
+        subjectId: 'buyer_subject_456',
+      })
+    );
   });
 });

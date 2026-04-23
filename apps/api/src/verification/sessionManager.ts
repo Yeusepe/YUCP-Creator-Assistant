@@ -19,10 +19,7 @@ import { createAuth } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import { getStateStore } from '../lib/stateStore';
-import {
-  resolveSubjectAuthUserId,
-  SUBJECT_AUTH_USER_REQUIRED_ERROR,
-} from '../lib/subjectIdentity';
+import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { createApiVerificationSupportError } from '../lib/verificationSupport';
 import { getBuyerLinkPluginByMode, listBuyerLinkPlugins } from '../providers';
@@ -981,7 +978,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         body.buyerSubjectId !== undefined;
       const legacyBuyerAuthUserId =
         !hasExplicitIdentity && body.subjectId
-          ? await resolveSubjectAuthUserId(getConvexClientFromUrl(config.convexUrl), body.subjectId)
+          ? await ensureSubjectAuthUserId(getConvexClientFromUrl(config.convexUrl), body.subjectId)
           : null;
       if (!hasExplicitIdentity && body.subjectId && !legacyBuyerAuthUserId) {
         return Response.json(

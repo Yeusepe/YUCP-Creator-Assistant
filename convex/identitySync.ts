@@ -18,10 +18,12 @@ import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
 import { components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
+import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { buildBetterAuthUserProviderLookupWhere } from './lib/betterAuthAdapter';
 import { PII_PURPOSES } from './lib/credentialKeys';
+import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii, normalizeAndEncryptEmail } from './lib/piiCrypto';
 
 // ============================================================================
@@ -82,6 +84,78 @@ export function buildFullUsername(username: string, discriminator: string | unde
 /** Build Discord profile URL */
 export function buildDiscordProfileUrl(discordUserId: string): string {
   return `https://discord.com/users/${discordUserId}`;
+}
+
+async function migrateBuyerScopedRecords(
+  ctx: Pick<MutationCtx, 'db'>,
+  {
+    fromAuthUserId,
+    toAuthUserId,
+    subjectId,
+    now,
+  }: {
+    fromAuthUserId: string;
+    toAuthUserId: string;
+    subjectId: Id<'subjects'>;
+    now: number;
+  }
+) {
+  const staleBindings = await ctx.db
+    .query('bindings')
+    .withIndex('by_auth_user_subject', (q) =>
+      q.eq('authUserId', fromAuthUserId).eq('subjectId', subjectId)
+    )
+    .collect();
+
+  for (const binding of staleBindings) {
+    const targetBinding = await ctx.db
+      .query('bindings')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', toAuthUserId).eq('subjectId', subjectId)
+      )
+      .filter((q) => q.eq(q.field('externalAccountId'), binding.externalAccountId))
+      .first();
+
+    if (targetBinding) {
+      if (targetBinding.status !== 'active' && binding.status === 'active') {
+        await ctx.db.patch(targetBinding._id, {
+          status: 'active',
+          bindingType: binding.bindingType,
+          createdBy: targetBinding.createdBy ?? binding.createdBy,
+          reason: targetBinding.reason ?? binding.reason,
+          version: targetBinding.version + 1,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.delete(binding._id);
+      continue;
+    }
+
+    await ctx.db.patch(binding._id, {
+      authUserId: toAuthUserId,
+      updatedAt: now,
+    });
+  }
+
+  const staleLicenseLinks = await ctx.db
+    .query('license_subject_links')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', fromAuthUserId))
+    .collect();
+
+  for (const link of staleLicenseLinks) {
+    await upsertLicenseSubjectLink(ctx, {
+      authUserId: toAuthUserId,
+      licenseSubject: link.licenseSubject,
+      packageId: link.packageId,
+      provider: link.provider,
+      licenseKeyEncrypted: link.licenseKeyEncrypted,
+      purchaserEmail: link.purchaserEmail,
+      providerUserId: link.providerUserId,
+      externalOrderId: link.externalOrderId,
+      providerProductId: link.providerProductId,
+    });
+    await ctx.db.delete(link._id);
+  }
 }
 
 // ============================================================================
@@ -381,6 +455,7 @@ export const syncUserFromAuth = mutation({
         // Discord account exists with different authUserId (account reconnection)
         // Link the authUserId to the existing subject
         subjectId = existingByDiscord._id;
+        const previousAuthUserId = existingByDiscord.authUserId ?? null;
         await ctx.db.patch(subjectId, {
           authUserId: args.authUserId,
           displayName: args.discord.username,
@@ -389,6 +464,14 @@ export const syncUserFromAuth = mutation({
             existingByDiscord.avatarUrl,
           updatedAt: now,
         });
+        if (previousAuthUserId && previousAuthUserId !== args.authUserId) {
+          await migrateBuyerScopedRecords(ctx, {
+            fromAuthUserId: previousAuthUserId,
+            toAuthUserId: args.authUserId,
+            subjectId,
+            now,
+          });
+        }
       } else {
         // No existing subject - create new one
         subjectId = await ctx.db.insert('subjects', {

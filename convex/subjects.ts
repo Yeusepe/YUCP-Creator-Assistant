@@ -6,6 +6,7 @@
  */
 
 import { v } from 'convex/values';
+import { components } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
@@ -17,6 +18,7 @@ import {
   requireServiceActor,
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { buildBetterAuthEqualityWhere } from './lib/betterAuthAdapter';
 import {
   type ExternalAccountIdentityCandidate,
   selectCanonicalExternalAccountCandidates,
@@ -81,6 +83,33 @@ function formatBuyerProviderLinkLabel(
   account: Pick<Doc<'external_accounts'>, 'providerUserId' | 'providerUsername'>
 ) {
   return account.providerUsername?.trim() || account.providerUserId;
+}
+
+function buildLightAuthEmail(discordUserId: string) {
+  return `discord+${discordUserId}@buyers.yucp.invalid`;
+}
+
+function buildLightAuthMarker(discordUserId: string) {
+  return `light-discord:${discordUserId}`;
+}
+
+function buildLightAuthDisplayName(
+  subject: Pick<Doc<'subjects'>, 'displayName' | 'primaryDiscordUserId'>
+) {
+  const trimmed = subject.displayName?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : `Discord ${subject.primaryDiscordUserId}`;
+}
+
+async function findBetterAuthUserIdByLightMarker(
+  ctx: Pick<MutationCtx, 'runQuery'>,
+  marker: string
+): Promise<string | null> {
+  const existingUser = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+    model: 'user',
+    where: buildBetterAuthEqualityWhere([{ field: 'userId', value: marker }]),
+  })) as { id?: string; _id?: string } | null;
+
+  return existingUser?.id ?? existingUser?._id ?? null;
 }
 
 export async function upsertBuyerProviderLinkRecord(
@@ -441,7 +470,7 @@ export const getSubjectWithAccounts = query({
     const actor = await requireApiActor(args.actor);
     const effectiveAuthUserId =
       args.authUserId ??
-      (actor.kind === 'auth_user' ? actor.authUserId : actor.authUserId ?? undefined);
+      (actor.kind === 'auth_user' ? actor.authUserId : (actor.authUserId ?? undefined));
     if (effectiveAuthUserId) {
       await requireDelegatedAuthUserActor(args.actor, effectiveAuthUserId);
     } else {
@@ -483,7 +512,7 @@ export const getSubjectWithAccounts = query({
             email?: string;
             avatarUrl?: string;
             profileUrl?: string;
-            rawData?: any;
+            rawData?: unknown;
           };
           lastValidatedAt?: number;
           status: 'active' | 'disconnected' | 'revoked';
@@ -628,7 +657,7 @@ export const listByAuthUser = query({
       const q = args.q.toLowerCase();
       all = all.filter(
         (s) =>
-          (s.displayName && s.displayName.toLowerCase().includes(q)) ||
+          s.displayName?.toLowerCase().includes(q) ||
           String(s._id).toLowerCase().includes(q) ||
           s.primaryDiscordUserId.includes(q)
       );
@@ -704,6 +733,60 @@ export const getSubjectIdentityById = internalQuery({
       _id: subject._id,
       authUserId: subject.authUserId,
     };
+  },
+});
+
+export const ensureAuthUserIdForSubject = internalMutation({
+  args: {
+    subjectId: v.id('subjects'),
+  },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const subject = await ctx.db.get(args.subjectId);
+    if (!subject) {
+      throw new Error(`Subject not found: ${args.subjectId}`);
+    }
+
+    if (subject.authUserId) {
+      return subject.authUserId;
+    }
+
+    if (!subject.primaryDiscordUserId) {
+      throw new Error(`Subject ${args.subjectId} has no Discord identity to materialize`);
+    }
+
+    const marker = buildLightAuthMarker(subject.primaryDiscordUserId);
+    let authUserId = await findBetterAuthUserIdByLightMarker(ctx, marker);
+    const now = Date.now();
+
+    if (!authUserId) {
+      await ctx.runMutation(components.betterAuth.adapter.create, {
+        input: {
+          model: 'user',
+          data: {
+            name: buildLightAuthDisplayName(subject),
+            email: buildLightAuthEmail(subject.primaryDiscordUserId),
+            emailVerified: false,
+            createdAt: now,
+            updatedAt: now,
+            userId: marker,
+          },
+        },
+      });
+
+      authUserId = await findBetterAuthUserIdByLightMarker(ctx, marker);
+    }
+
+    if (!authUserId) {
+      throw new Error(`Failed to materialize auth user for subject ${args.subjectId}`);
+    }
+
+    await ctx.db.patch(subject._id, {
+      authUserId,
+      updatedAt: now,
+    });
+
+    return authUserId;
   },
 });
 

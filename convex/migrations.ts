@@ -254,13 +254,11 @@ async function listBuyerAttributionCandidates(ctx: Pick<QueryCtx, 'db'>, limit: 
   const batchSize = Math.max(50, Math.min(200, limit * 2));
 
   while (candidates.length < limit) {
-    const pageResult = await ctx.db.query('bindings').paginate({
+    const pageResult = await ctx.db.query('bindings').order('desc').paginate({
       numItems: batchSize,
       cursor,
     });
-    const page = (pageResult.page as Doc<'bindings'>[]).sort(
-      (left, right) => right.createdAt - left.createdAt
-    );
+    const page = pageResult.page as Doc<'bindings'>[];
 
     for (const binding of page) {
       const candidate = await buildBuyerAttributionCandidate(ctx, binding);

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import type { Auth } from '../auth';
 
 const apiMock = {
@@ -53,6 +53,7 @@ const decryptMock = mock(async (value: string) =>
   value.startsWith('enc:') ? value.slice(4) : value
 );
 const resolveSetupSessionMock = mock(async () => null);
+const ensureSubjectAuthUserIdMock = mock(async (): Promise<string | null> => 'buyer-user-1');
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
@@ -77,6 +78,10 @@ mock.module('../lib/setupSession', () => ({
   resolveSetupSession: resolveSetupSessionMock,
 }));
 
+const subjectIdentityModule = await import('../lib/subjectIdentity');
+spyOn(subjectIdentityModule, 'ensureSubjectAuthUserId').mockImplementation(
+  ensureSubjectAuthUserIdMock
+);
 const { createProviderPlatformRoutes } = await import('./providerPlatform');
 
 function makePaginatedResponse<T>(type: string, items: Array<{ id: string; attributes: T }>) {
@@ -147,6 +152,8 @@ describe('provider platform routes', () => {
     encryptMock.mockClear();
     decryptMock.mockClear();
     resolveSetupSessionMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockResolvedValue('buyer-user-1');
 
     queryImpl = async (ref, args) => {
       if (ref === apiMock.creatorProfiles.getCreatorProfile) {
@@ -537,7 +544,7 @@ describe('provider platform routes', () => {
     );
   });
 
-  it('rejects completion when a Discord-only subject is not linked to a buyer auth user yet', async () => {
+  it('continues completion by materializing a light buyer account for a Discord-only subject', async () => {
     queryImpl = async (ref, args) => {
       if (ref === apiMock.creatorProfiles.getCreatorProfile)
         return { authUserId: 'owner-user', ownerDiscordUserId: 'discord_owner' };
@@ -578,12 +585,10 @@ describe('provider platform routes', () => {
           },
         ];
       }
-      if (ref === apiMock.subjects.getSubjectIdentityById) {
-        return { _id: 'subject_1', authUserId: null };
-      }
       throw new Error(`Unhandled query ${String(ref)} ${JSON.stringify(args)}`);
     };
 
+    ensureSubjectAuthUserIdMock.mockResolvedValueOnce('light-buyer-user-1');
     const response = await routes.handleRequest(
       new Request('http://localhost:3001/v1/verification-sessions/verification_1/complete', {
         method: 'POST',
@@ -598,13 +603,13 @@ describe('provider platform routes', () => {
       })
     );
 
-    expect(response?.status).toBe(409);
-    expect(await response?.json()).toMatchObject({
-      error: 'Verification subject must be linked to a YUCP account before completion',
-    });
-    expect(mutationMock).not.toHaveBeenCalledWith(
+    expect(response?.status).toBe(200);
+    expect(mutationMock).toHaveBeenCalledWith(
       apiMock.licenseVerification.completeLicenseVerification,
-      expect.anything()
+      expect.objectContaining({
+        creatorAuthUserId: 'user_abc1',
+        buyerAuthUserId: 'light-buyer-user-1',
+      })
     );
   });
 

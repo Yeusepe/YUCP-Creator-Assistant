@@ -14,3 +14,12 @@ export async function resolveSubjectAuthUserId(
   });
   return subjectIdentity?.authUserId ?? null;
 }
+
+export async function ensureSubjectAuthUserId(
+  convex: ConvexServerClient,
+  subjectId: string
+): Promise<string | null> {
+  return await convex.mutation(internal.subjects.ensureAuthUserIdForSubject, {
+    subjectId: subjectId as Id<'subjects'>,
+  });
+}

@@ -4,6 +4,7 @@ import { createAuth, type VrchatOwnershipPayload } from '../auth';
 import { getConvexClientFromUrl } from '../lib/convex';
 import type { StateStore } from '../lib/stateStore';
 import { getStateStore } from '../lib/stateStore';
+import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
 import type { VerificationConfig } from './verificationConfig';
 import {
   isAllowedVrchatOrigin,
@@ -27,10 +28,6 @@ import {
   persistVrchatSession,
   type VrchatSessionAuthClient,
 } from './vrchatSession';
-import {
-  resolveSubjectAuthUserId,
-  SUBJECT_AUTH_USER_REQUIRED_ERROR,
-} from '../lib/subjectIdentity';
 
 const VRCHAT_TOKEN_PREFIX = 'vrchat_verify:';
 const VRCHAT_TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -160,7 +157,7 @@ async function finalizeVrchatOwnership({
   }
 
   const { handleCompleteVrchat } = await import('./completeVrchat');
-  const buyerAuthUserId = await resolveSubjectAuthUserId(
+  const buyerAuthUserId = await ensureSubjectAuthUserId(
     getConvexClientFromUrl(config.convexUrl),
     subjectId
   );

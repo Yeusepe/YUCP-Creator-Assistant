@@ -10,12 +10,7 @@ const getHandlerMock = mock(() => ({
   verify: handlerVerifyMock,
 }));
 
-const queryMock = mock(
-  async (): Promise<{ _id: string; authUserId: string | null }> => ({
-    _id: 'buyer_subject_456',
-    authUserId: 'buyer_auth_user_456',
-  })
-);
+const ensureSubjectAuthUserIdMock = mock(async (): Promise<string | null> => 'buyer_auth_user_456');
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {},
@@ -29,12 +24,17 @@ mock.module('../../../../convex/_generated/api', () => ({
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: () => ({
-    query: queryMock,
+    query: mock(async () => null),
+    mutation: mock(async () => null),
   }),
 }));
 
 const licenseHandlersModule = await import('./licenseHandlers/index');
 spyOn(licenseHandlersModule, 'getHandler').mockImplementation(getHandlerMock);
+const subjectIdentityModule = await import('../lib/subjectIdentity');
+spyOn(subjectIdentityModule, 'ensureSubjectAuthUserId').mockImplementation(
+  ensureSubjectAuthUserIdMock
+);
 
 const { handleCompleteLicense } = await import('./completeLicense');
 
@@ -46,7 +46,8 @@ describe('handleCompleteLicense', () => {
   beforeEach(() => {
     handlerVerifyMock.mockClear();
     getHandlerMock.mockClear();
-    queryMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockClear();
+    ensureSubjectAuthUserIdMock.mockResolvedValue('buyer_auth_user_456');
   });
 
   it('resolves buyer identity from the buyer subject before delegating the write path', async () => {
@@ -65,9 +66,10 @@ describe('handleCompleteLicense', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(queryMock).toHaveBeenCalledWith('internal.subjects.getSubjectIdentityById', {
-      subjectId: 'buyer_subject_456',
-    });
+    expect(ensureSubjectAuthUserIdMock).toHaveBeenCalledWith(
+      expect.any(Object),
+      'buyer_subject_456'
+    );
     expect(handlerVerifyMock).toHaveBeenCalledWith(
       {
         licenseKey: 'license_123',
@@ -82,11 +84,8 @@ describe('handleCompleteLicense', () => {
     );
   });
 
-  it('rejects legacy completion when the buyer subject is not linked to a YUCP account', async () => {
-    queryMock.mockImplementationOnce(async () => ({
-      _id: 'buyer_subject_456',
-      authUserId: null,
-    }));
+  it('continues legacy completion by materializing a light buyer account for an unlinked subject', async () => {
+    ensureSubjectAuthUserIdMock.mockResolvedValueOnce('light_buyer_auth_user_789');
 
     const result = await handleCompleteLicense(
       {
@@ -102,10 +101,18 @@ describe('handleCompleteLicense', () => {
       }
     );
 
-    expect(result).toEqual({
-      success: false,
-      error: 'Verification subject must be linked to a YUCP account before completion',
-    });
-    expect(handlerVerifyMock).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(handlerVerifyMock).toHaveBeenCalledWith(
+      {
+        licenseKey: 'license_123',
+        provider: 'gumroad',
+        productId: 'product_123',
+        creatorAuthUserId: 'creator_auth_user_123',
+        buyerAuthUserId: 'light_buyer_auth_user_789',
+        buyerSubjectId: 'buyer_subject_456',
+      },
+      expect.any(Object),
+      expect.any(Object)
+    );
   });
 });

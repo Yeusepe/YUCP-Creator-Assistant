@@ -9,10 +9,7 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { decrypt, encrypt } from '../lib/encrypt';
 import { logger } from '../lib/logger';
 import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
-import {
-  resolveSubjectAuthUserId,
-  SUBJECT_AUTH_USER_REQUIRED_ERROR,
-} from '../lib/subjectIdentity';
+import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import {
   isWebhookContentLengthTooLarge,
@@ -1052,13 +1049,9 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
           .map((b) => b.toString(16).padStart(2, '0'))
           .join('')
       : undefined;
-    const buyerAuthUserId = await resolveSubjectAuthUserId(convex, ensuredSubject.subjectId);
+    const buyerAuthUserId = await ensureSubjectAuthUserId(convex, ensuredSubject.subjectId);
     if (!buyerAuthUserId)
-      return jsonResponse(
-        { error: SUBJECT_AUTH_USER_REQUIRED_ERROR },
-        requestId,
-        409
-      );
+      return jsonResponse({ error: SUBJECT_AUTH_USER_REQUIRED_ERROR }, requestId, 409);
     const verification = await convex.mutation(
       api.licenseVerification.completeLicenseVerification,
       {

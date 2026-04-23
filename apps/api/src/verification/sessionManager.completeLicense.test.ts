@@ -6,7 +6,7 @@ const handleCompleteLicenseMock = mock(async (_config?: unknown, _input?: unknow
   provider: 'gumroad',
   entitlementIds: ['ent_123'],
 }));
-const resolveSubjectAuthUserIdMock = mock(async (): Promise<string | null> => 'buyer_auth_user_456');
+const ensureSubjectAuthUserIdMock = mock(async (): Promise<string | null> => 'buyer_auth_user_456');
 
 mock.module('./completeLicense', () => ({
   handleCompleteLicense: handleCompleteLicenseMock,
@@ -23,8 +23,8 @@ mock.module('../providers/index', () => providersMock);
 mock.module('../providers/index.ts', () => providersMock);
 
 const subjectIdentityModule = await import('../lib/subjectIdentity');
-spyOn(subjectIdentityModule, 'resolveSubjectAuthUserId').mockImplementation(
-  resolveSubjectAuthUserIdMock
+spyOn(subjectIdentityModule, 'ensureSubjectAuthUserId').mockImplementation(
+  ensureSubjectAuthUserIdMock
 );
 const { createVerificationRoutes } = await import('./sessionManager');
 
@@ -48,8 +48,8 @@ beforeEach(() => {
     provider: 'gumroad',
     entitlementIds: ['ent_123'],
   });
-  resolveSubjectAuthUserIdMock.mockReset();
-  resolveSubjectAuthUserIdMock.mockResolvedValue('buyer_auth_user_456');
+  ensureSubjectAuthUserIdMock.mockReset();
+  ensureSubjectAuthUserIdMock.mockResolvedValue('buyer_auth_user_456');
 });
 
 describe('complete-license verification route', () => {
@@ -96,7 +96,7 @@ describe('complete-license verification route', () => {
     expect(forwardedBody).not.toHaveProperty('subjectId');
   });
 
-  it('resolves the buyer actor from the subject before forwarding legacy input', async () => {
+  it('materializes the buyer actor from the subject before forwarding legacy input', async () => {
     const routes = createVerificationRoutes(testConfig);
 
     await routes.completeLicenseVerification(
@@ -131,8 +131,8 @@ describe('complete-license verification route', () => {
     expect(forwardedBody).not.toHaveProperty('subjectId');
   });
 
-  it('rejects legacy input when the buyer subject is not linked to a YUCP account', async () => {
-    resolveSubjectAuthUserIdMock.mockResolvedValueOnce(null);
+  it('continues legacy verification by materializing a light buyer account for an unlinked subject', async () => {
+    ensureSubjectAuthUserIdMock.mockResolvedValueOnce('light_buyer_auth_user_789');
     const routes = createVerificationRoutes(testConfig);
 
     const response = await routes.completeLicenseVerification(
@@ -152,11 +152,19 @@ describe('complete-license verification route', () => {
       })
     );
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      success: false,
-      error: 'Verification subject must be linked to a YUCP account before completion',
+      success: true,
+      provider: 'gumroad',
+      entitlementIds: ['ent_123'],
     });
-    expect(handleCompleteLicenseMock).not.toHaveBeenCalled();
+    expect(handleCompleteLicenseMock).toHaveBeenCalledWith(testConfig, {
+      licenseKey: 'license_unlinked',
+      provider: 'gumroad',
+      productId: 'product_unlinked',
+      creatorAuthUserId: 'legacy_auth_user',
+      buyerAuthUserId: 'light_buyer_auth_user_789',
+      buyerSubjectId: 'legacy_subject',
+    });
   });
 });

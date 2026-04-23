@@ -488,7 +488,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             );
             return normalizeVerificationResponse(
               await readJsonResponse<Partial<VerificationResultResponse>>(response, {
-                allowErrorStatuses: [400, 401, 500],
+                allowErrorStatuses: [400, 401, 409, 500],
               })
             );
           }

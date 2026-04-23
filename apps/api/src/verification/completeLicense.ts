@@ -12,10 +12,7 @@
 import { detectLicenseFormat } from '@yucp/providers';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
-import {
-  resolveSubjectAuthUserId,
-  SUBJECT_AUTH_USER_REQUIRED_ERROR,
-} from '../lib/subjectIdentity';
+import { ensureSubjectAuthUserId, SUBJECT_AUTH_USER_REQUIRED_ERROR } from '../lib/subjectIdentity';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { getHandler } from './licenseHandlers/index';
 import type { VerificationConfig } from './verificationConfig';
@@ -155,17 +152,13 @@ export async function handleCompleteLicense(
     return { success: false, error: `Unsupported provider: ${providerKey}` };
   }
 
-  logger.info('[completeLicense] Dispatching to provider handler', {
-    providerKey,
-    creatorAuthUserId: resolvedInput.value.creatorAuthUserId,
-    buyerAuthUserId: resolvedInput.value.buyerAuthUserId,
-    licenseKeyPrefix: licenseKey.trim().slice(0, 8),
-  });
-
   const convex = getConvexClientFromUrl(config.convexUrl);
   let verificationInput = resolvedInput.value;
   if (resolvedInput.value.identityMode === 'legacy') {
-    const buyerAuthUserId = await resolveSubjectAuthUserId(convex, resolvedInput.value.buyerSubjectId);
+    const buyerAuthUserId = await ensureSubjectAuthUserId(
+      convex,
+      resolvedInput.value.buyerSubjectId
+    );
     if (!buyerAuthUserId) {
       return { success: false, error: SUBJECT_AUTH_USER_REQUIRED_ERROR };
     }
@@ -174,6 +167,13 @@ export async function handleCompleteLicense(
       buyerAuthUserId,
     };
   }
+
+  logger.info('[completeLicense] Dispatching to provider handler', {
+    providerKey,
+    creatorAuthUserId: verificationInput.creatorAuthUserId,
+    buyerAuthUserId: verificationInput.buyerAuthUserId,
+    licenseKeyPrefix: licenseKey.trim().slice(0, 8),
+  });
   const { identityMode: _identityMode, ...handlerInput } = verificationInput;
 
   try {

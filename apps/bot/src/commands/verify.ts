@@ -57,8 +57,7 @@ type VerifyState = 'nothing' | 'connected_no_products' | 'verified';
 
 const VERIFIED_PRODUCTS_DISPLAY_LIMIT = 10;
 const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
-export const BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE =
-  `${E.X_} Please sign in to YUCP and link this Discord account before verifying. Then try again from the verify panel.`;
+export const BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE = `${E.X_} Please sign in to YUCP and link this Discord account before verifying. Then try again from the verify panel.`;
 
 interface ActiveVerifyPanel {
   guildId: string;
@@ -1103,7 +1102,6 @@ export async function handleLicenseModalSubmit(
   });
 
   let subjectId: string;
-  let buyerAuthUserId: string | null = subjectResult.found ? subjectResult.subject.authUserId ?? null : null;
   if (subjectResult.found) {
     subjectId = subjectResult.subject._id;
   } else {
@@ -1115,13 +1113,6 @@ export async function handleLicenseModalSubmit(
       avatarUrl: interaction.user.displayAvatarURL({ size: 128 }),
     });
     subjectId = created.subjectId as string;
-  }
-  if (!buyerAuthUserId) {
-    await interaction.reply({
-      content: BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE,
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
   }
 
   if (!apiBaseUrl) {
@@ -1141,9 +1132,8 @@ export async function handleLicenseModalSubmit(
   try {
     const result = await completeLicenseVerification({
       licenseKey,
-      creatorAuthUserId: authUserId,
-      buyerAuthUserId,
-      buyerSubjectId: subjectId,
+      authUserId,
+      subjectId,
     });
 
     if (!result.success) {
