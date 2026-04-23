@@ -21,10 +21,4 @@ export const itchio = {
   },
   collabLinkModes: ['api'],
   supportsAutoDiscovery: true,
-  productInput: {
-    label: 'itch.io Game ID',
-    description: 'Select a game from your connected itch.io account.',
-    placeholder: '123456',
-    requiresConnection: true,
-  },
 } as const satisfies ProviderDescriptorInput;

@@ -692,6 +692,37 @@ describe('product command', () => {
     expect(optionValues).toContain('discord_role');
   });
 
+  it('shows itch.io as a catalog-only provider when connected', async () => {
+    const interaction = mockSlashCommand({
+      userId: 'user_prod_itch',
+      guildId: 'guild_product_itch',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      interaction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_itch',
+        guildLinkId: 'link_itch' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_itch',
+      },
+      makeMockConvex({ itchio: true }),
+      TEST_API_SECRET
+    );
+
+    const payload = interaction.reply.mock.calls[0]?.[0];
+    const select = payload?.components?.[0]?.components?.[0];
+    const optionValues: string[] = (select?.options ?? []).map(
+      (o: { data?: { value?: string }; value?: string }) => o.data?.value ?? o.value
+    );
+
+    expect(optionValues).toContain('itchio');
+    expect(optionValues).not.toContain('itchio_url');
+  });
+
   it('shows no commerce providers when none are connected, but still shows VRChat/license/discord_role', async () => {
     const noneConvex = makeMockConvex({});
     const interaction = mockSlashCommand({
