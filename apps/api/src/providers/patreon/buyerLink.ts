@@ -37,6 +37,10 @@ function buildPatreonSourceReference(memberId: string, campaignId: string): stri
 function normalizePatreonMembershipStatus(
   membership: PatreonBuyerMembershipRecord
 ): 'active' | 'past_due' | 'cancelled' {
+  // Patreon member identity responses expose `patron_status` plus the
+  // `currently_entitled_tiers` relationship that we collapse into YUCP's entitlement
+  // states here.
+  // https://docs.patreon.com/#get-api-oauth2-v2-identity
   if (membership.patronStatus === 'declined_patron') {
     return 'past_due';
   }
@@ -134,6 +138,9 @@ async function syncPatreonMembershipEntitlements(
       continue;
     }
 
+    // Patreon identity includes `currently_entitled_tiers`, which is the upstream source
+    // for the tier ids we persist as variant refs and entitlement evidence.
+    // https://docs.patreon.com/#get-api-oauth2-v2-identity
     const activeTierRefs = [
       ...new Set(membership.entitledTierIds.map((tierId) => tierId.trim())),
     ].filter(Boolean);

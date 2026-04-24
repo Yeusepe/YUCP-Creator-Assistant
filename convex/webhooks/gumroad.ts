@@ -1,3 +1,4 @@
+import { buildGumroadTierRefFromPurchaseSelection } from '@yucp/providers/gumroad';
 import { PII_PURPOSES } from '../lib/credentialKeys';
 import { encryptPii } from '../lib/piiCrypto';
 import {
@@ -32,6 +33,11 @@ export async function processGumroadEvent(
   const saleTimestamp = payload.sale_timestamp
     ? Number.parseInt(String(payload.sale_timestamp), 10) * 1000
     : Date.now();
+  const externalVariantId = buildGumroadTierRefFromPurchaseSelection({
+    productId: payload.product_id,
+    variants: payload.variants,
+    recurrence: payload.recurrence,
+  });
 
   const existing = await ctx.db
     .query('purchase_facts')
@@ -46,6 +52,7 @@ export async function processGumroadEvent(
   if (existing) {
     await ctx.db.patch(existing._id, {
       lifecycleStatus,
+      externalVariantId: externalVariantId ?? existing.externalVariantId,
       paymentStatus: refunded ? 'refunded' : existing.paymentStatus,
       updatedAt: now,
       rawSourceEventId: event._id,
@@ -70,6 +77,7 @@ export async function processGumroadEvent(
       buyerEmailHash,
       buyerEmailEncrypted,
       providerProductId: productId,
+      externalVariantId,
       paymentStatus: 'paid',
       lifecycleStatus: 'active',
       purchasedAt: saleTimestamp,

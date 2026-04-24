@@ -258,6 +258,8 @@ export function createLemonSqueezyProviderModule<
         }
         // Lemon Squeezy variants are listed at GET /v1/variants filtered by product_id:
         // https://docs.lemonsqueezy.com/api/variants/list-all-variants
+        // The variant attributes documented there map directly to YUCP tier fields:
+        // `name`, `description`, `price` (already in cents), and `status`.
         const variants = await getClient(ports, credential).getVariants(productId);
         return variants.map((variant) => ({
           id: variant.id,

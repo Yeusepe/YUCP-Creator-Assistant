@@ -225,6 +225,10 @@ export async function fetchPatreonBuyerIdentity(
     throw new Error('Patreon identity response did not include a user id');
   }
 
+  // Patreon identity responses return `member` resources in `included`, with the
+  // `campaign` and `currently_entitled_tiers` relationships used below to normalize
+  // buyer membership entitlements:
+  // https://docs.patreon.com/#get-api-oauth2-v2-identity
   const memberships = (response.included ?? [])
     .filter(
       (
@@ -350,6 +354,10 @@ export function createPatreonProviderModule<
         );
 
         const response = await fetchPatreonJson<PatreonCampaignAttributes>(credential, url, ports);
+        // The included `tier` resources on this endpoint document the fields read below:
+        // `title`, `description`, `amount_cents`, `discord_role_ids`, `patron_count`,
+        // `published`, and `url`.
+        // https://docs.patreon.com/#get-api-oauth2-v2-campaigns-campaign_id
         return (response.included ?? [])
           .filter(
             (

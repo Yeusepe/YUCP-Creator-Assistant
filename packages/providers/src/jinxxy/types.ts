@@ -83,6 +83,7 @@ export interface JinxxyProductVersion {
   object?: string;
   id: string;
   name: string;
+  /** https://api.creators.jinxxy.com/v1/openapi.json documents `price` as a number. */
   price: number;
 }
 

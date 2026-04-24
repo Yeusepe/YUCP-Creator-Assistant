@@ -94,6 +94,93 @@ describe('catalog tier entitlement resolution', () => {
     expect(tierIds).toEqual([catalogTierId]);
   });
 
+  it('resolves Gumroad purchase fact external variant ids into active catalog tiers', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-gumroad-tier';
+    const buyerAuthUserId = 'buyer-gumroad-tier';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-gumroad-tier',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-gumroad-tier',
+    });
+
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-gumroad-product',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-product-1',
+        displayName: 'Tiered Gumroad Membership',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: 'local-gumroad-product',
+      catalogProductId,
+      providerProductRef: 'gumroad-product-1',
+      providerTierRef:
+        'gumroad|product|17:gumroad-product-1|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      displayName: 'Gold Monthly',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'gumroad',
+        externalOrderId: 'sale-gumroad-tier',
+        providerProductId: 'gumroad-product-1',
+        externalVariantId:
+          'gumroad|product|17:gumroad-product-1|variant|4:tier|option|4:gold|recurrence|7:monthly',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        subjectId: buyerSubjectId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as never);
+    });
+
+    await t.mutation(internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+      authUserId: creatorAuthUserId,
+      productId: 'local-gumroad-product',
+      provider: 'gumroad',
+      providerProductRef: 'gumroad-product-1',
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-gumroad-product',
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected projected entitlement');
+    }
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+  });
+
   it('does not return archived catalog tiers as active entitlement tiers', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'creator-archived-tier';

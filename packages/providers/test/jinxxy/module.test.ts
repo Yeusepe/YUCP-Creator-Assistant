@@ -82,7 +82,7 @@ describe('createJinxxyProviderModule', () => {
     ]);
   });
 
-  it('lists product versions as tiers', async () => {
+  it('treats Jinxxy version prices as already-scaled cents', async () => {
     const module = createJinxxyProviderModule({
       logger,
       async getEncryptedCredential() {
@@ -105,8 +105,8 @@ describe('createJinxxyProviderModule', () => {
               visibility: 'PUBLIC',
               currency_code: 'USD',
               versions: [
-                { id: 'version-1', name: 'Regular License', price: 10 },
-                { id: 'version-2', name: 'Commercial License', price: 25 },
+                { id: 'version-1', name: 'Regular License', price: 999 },
+                { id: 'version-2', name: 'Commercial License', price: 9999 },
               ],
             };
           },
@@ -120,24 +120,24 @@ describe('createJinxxyProviderModule', () => {
     await expect(
       module.tiers?.listProductTiers('owner-key', 'product-1', makeCtx())
     ).resolves.toEqual([
-      {
-        id: 'version-1',
-        productId: 'product-1',
-        name: 'Regular License',
-        amountCents: 1000,
-        currency: 'USD',
-        active: true,
-        metadata: { provider: 'jinxxy' },
-      },
-      {
-        id: 'version-2',
-        productId: 'product-1',
-        name: 'Commercial License',
-        amountCents: 2500,
-        currency: 'USD',
-        active: true,
-        metadata: { provider: 'jinxxy' },
-      },
+        {
+          id: 'version-1',
+          productId: 'product-1',
+          name: 'Regular License',
+          amountCents: 999,
+          currency: 'USD',
+          active: true,
+          metadata: { provider: 'jinxxy' },
+        },
+        {
+          id: 'version-2',
+          productId: 'product-1',
+          name: 'Commercial License',
+          amountCents: 9999,
+          currency: 'USD',
+          active: true,
+          metadata: { provider: 'jinxxy' },
+        },
     ]);
   });
 });

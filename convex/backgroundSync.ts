@@ -31,6 +31,7 @@ const BackfillPurchaseRecord = v.object({
   buyerEmailEncrypted: v.optional(v.string()),
   providerUserId: v.optional(v.string()),
   providerProductId: v.string(),
+  externalVariantId: v.optional(v.string()),
   providerProductVersionId: v.optional(v.string()),
   paymentStatus: v.string(),
   lifecycleStatus: v.union(
@@ -168,6 +169,7 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
         buyerEmailEncrypted: p.buyerEmailEncrypted,
         providerUserId: p.providerUserId,
         providerProductId: p.providerProductId,
+        externalVariantId: p.externalVariantId,
         providerProductVersionId: p.providerProductVersionId,
         paymentStatus: p.paymentStatus,
         lifecycleStatus: p.lifecycleStatus,

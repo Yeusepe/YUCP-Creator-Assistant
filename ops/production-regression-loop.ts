@@ -33,7 +33,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, dropping credential expiry, silently rewriting response shape, or violating transport contracts such as int64 serialization.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, or violating transport contracts such as int64 serialization.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',

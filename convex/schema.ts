@@ -1397,6 +1397,9 @@ const purchase_facts = defineTable({
   buyerEmailEncrypted: v.optional(v.string()),
   providerUserId: v.optional(v.string()),
   providerProductId: v.string(),
+  /** Provider-agnostic tier or variant ref recovered from purchase evidence. */
+  externalVariantId: v.optional(v.string()),
+  /** @deprecated Prefer externalVariantId for generic tier identity. */
   providerProductVersionId: v.optional(v.string()),
   paymentStatus: v.string(),
   lifecycleStatus: PurchaseFactLifecycleStatus,

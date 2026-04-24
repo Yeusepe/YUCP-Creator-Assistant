@@ -222,6 +222,9 @@ async function patreonCallback(request: Request, ctx: ConnectContext): Promise<R
       scope?: string;
       token_type?: string;
     };
+    // Patreon documents the OAuth token response fields used here, including
+    // `access_token`, `refresh_token`, `expires_in`, `scope`, and `token_type`:
+    // https://docs.patreon.com/#step-4-validating-receipt-of-the-oauth-token
     const accessToken = tokens.access_token;
     if (!accessToken || !authUserId) {
       return Response.redirect(
@@ -267,6 +270,9 @@ async function patreonCallback(request: Request, ctx: ConnectContext): Promise<R
       );
     }
 
+    // Patreon campaign collection responses return `data[]` campaign resources with the
+    // requested `creation_name` and `url` attributes read below:
+    // https://docs.patreon.com/#get-api-oauth2-v2-campaigns
     const campaignsPayload = (await campaignsRes.json()) as {
       data?: Array<{
         id: string;

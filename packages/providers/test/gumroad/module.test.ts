@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { ProviderContext, ProviderRuntimeClient } from '../../src/contracts';
+import { gumroad as gumroadDescriptor } from '../../src/descriptors/gumroad';
 import {
   createGumroadLicenseVerification,
   createGumroadProviderModule,
@@ -22,6 +23,10 @@ const logger = {
 };
 
 describe('createGumroadProviderModule', () => {
+  it('advertises Gumroad tier catalog support for the rollout lane', () => {
+    expect(gumroadDescriptor.capabilities).toContain('tier_catalog');
+  });
+
   it('fetches paginated products and strips access_token from next_page_url', async () => {
     const seenUrls: string[] = [];
     const module = createGumroadProviderModule({
@@ -305,6 +310,217 @@ describe('createGumroadProviderModule', () => {
         id: 'product-external',
         name: 'External Product',
         productUrl: 'https://store.example.com/l/external-product?recommended_by=library',
+      },
+    ]);
+  });
+
+  it('lists tiered membership options per documented recurrence as deterministic Gumroad tiers', async () => {
+    const module = createGumroadProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-token';
+      },
+      async decryptCredential() {
+        return 'access-token';
+      },
+      async fetchImpl() {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            products: [
+              {
+                id: 'product-membership',
+                name: 'YUCP Membership',
+                price: 500,
+                currency: 'usd',
+                short_url: 'https://gumroad.com/l/yucp-membership',
+                formatted_price: '$5',
+                purchase_type: 'subscription',
+                published: true,
+                created_at: '2024-01-01T00:00:00Z',
+                is_tiered_membership: true,
+                recurrences: ['monthly', 'yearly'],
+                recurrence_prices: {
+                  monthly: { cents: 500, formatted_price: '$5/month' },
+                  yearly: { cents: 5000, formatted_price: '$50/year' },
+                },
+                variants: [
+                  {
+                    title: 'Tier',
+                    options: ['Starter', 'Studio'],
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(
+      module.tiers?.listProductTiers('access-token', 'product-membership', makeCtx())
+    ).resolves.toEqual([
+      {
+        id: 'gumroad|product|18:product-membership|variant|4:tier|option|7:starter|recurrence|7:monthly',
+        productId: 'product-membership',
+        name: 'Starter (Monthly)',
+        amountCents: 500,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: true,
+          selection: 'Tier: Starter',
+          variantTitle: 'Tier',
+          optionLabel: 'Starter',
+          recurrence: 'monthly',
+          formattedPrice: '$5/month',
+        },
+      },
+      {
+        id: 'gumroad|product|18:product-membership|variant|4:tier|option|7:starter|recurrence|6:yearly',
+        productId: 'product-membership',
+        name: 'Starter (Yearly)',
+        amountCents: 5000,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: true,
+          selection: 'Tier: Starter',
+          variantTitle: 'Tier',
+          optionLabel: 'Starter',
+          recurrence: 'yearly',
+          formattedPrice: '$50/year',
+        },
+      },
+      {
+        id: 'gumroad|product|18:product-membership|variant|4:tier|option|6:studio|recurrence|7:monthly',
+        productId: 'product-membership',
+        name: 'Studio (Monthly)',
+        amountCents: 500,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: true,
+          selection: 'Tier: Studio',
+          variantTitle: 'Tier',
+          optionLabel: 'Studio',
+          recurrence: 'monthly',
+          formattedPrice: '$5/month',
+        },
+      },
+      {
+        id: 'gumroad|product|18:product-membership|variant|4:tier|option|6:studio|recurrence|6:yearly',
+        productId: 'product-membership',
+        name: 'Studio (Yearly)',
+        amountCents: 5000,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: true,
+          selection: 'Tier: Studio',
+          variantTitle: 'Tier',
+          optionLabel: 'Studio',
+          recurrence: 'yearly',
+          formattedPrice: '$50/year',
+        },
+      },
+    ]);
+  });
+
+  it('lists non-membership Gumroad variant options with provider-local canonical refs', async () => {
+    const module = createGumroadProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-token';
+      },
+      async decryptCredential() {
+        return 'access-token';
+      },
+      async fetchImpl() {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            products: [
+              {
+                id: 'product-variants',
+                name: 'Avatar Pack',
+                price: 3000,
+                currency: 'usd',
+                short_url: 'https://gumroad.com/l/avatar-pack',
+                formatted_price: '$30',
+                purchase_type: 'buy',
+                published: true,
+                created_at: '2024-01-01T00:00:00Z',
+                variants: [
+                  {
+                    title: 'License',
+                    options: ['Personal', 'Commercial'],
+                  },
+                  {
+                    title: 'Source',
+                    options: ['Included'],
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(
+      module.tiers?.listProductTiers('access-token', 'product-variants', makeCtx())
+    ).resolves.toEqual([
+      {
+        id: 'gumroad|product|16:product-variants|variant|7:license|option|8:personal',
+        productId: 'product-variants',
+        name: 'License: Personal',
+        amountCents: undefined,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: false,
+          selection: 'License: Personal',
+          variantTitle: 'License',
+          optionLabel: 'Personal',
+        },
+      },
+      {
+        id: 'gumroad|product|16:product-variants|variant|7:license|option|10:commercial',
+        productId: 'product-variants',
+        name: 'License: Commercial',
+        amountCents: undefined,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: false,
+          selection: 'License: Commercial',
+          variantTitle: 'License',
+          optionLabel: 'Commercial',
+        },
+      },
+      {
+        id: 'gumroad|product|16:product-variants|variant|6:source|option|8:included',
+        productId: 'product-variants',
+        name: 'Source: Included',
+        amountCents: undefined,
+        currency: 'USD',
+        active: true,
+        metadata: {
+          provider: 'gumroad',
+          isTieredMembership: false,
+          selection: 'Source: Included',
+          variantTitle: 'Source',
+          optionLabel: 'Included',
+        },
       },
     ]);
   });

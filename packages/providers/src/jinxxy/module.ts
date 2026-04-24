@@ -35,6 +35,10 @@ export const JINXXY_DISPLAY_META = {
 
 const HARD_PAGE_LIMIT = 100;
 
+function normalizeJinxxyAmountCents(price: number) {
+  return Math.round(price);
+}
+
 export interface JinxxyCollaboratorConnection {
   id: string;
   provider: string;
@@ -238,7 +242,11 @@ export function createJinxxyProviderModule<
          * Jinxxy product docs:
          * - https://api.creators.jinxxy.com/v1/docs#tag/products/GET/products/{id}
          * - https://api.creators.jinxxy.com/v1/openapi.json
-         * Products include `versions[]`, and each version exposes its own `id`, `name`, and `price`.
+         * The product response schema documents top-level `currency_code` and `visibility`,
+         * plus `versions[]` entries with `id`, `name`, and `price`. Current creator API
+         * payloads surface `price` in cents already, so YUCP preserves the numeric value
+         * as `amountCents` instead of applying a second major-unit conversion. Each
+         * version is treated as a provider tier.
          */
         const product = await client.getProduct(productId);
         if (!product?.versions?.length) {
@@ -250,7 +258,7 @@ export function createJinxxyProviderModule<
           id: version.id,
           productId,
           name: version.name,
-          amountCents: Math.round(version.price * 100),
+          amountCents: normalizeJinxxyAmountCents(version.price),
           currency: product.currency_code ?? 'USD',
           active,
           metadata: {

@@ -136,4 +136,141 @@ describe('gumroad external storefront backfill', () => {
       }),
     });
   });
+
+  it('preserves Gumroad tier refs through backfill ingestion so tier-aware entitlement resolution matches catalog', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-gumroad-tier-backfill';
+    const buyerAuthUserId = 'buyer-gumroad-tier-backfill';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-gumroad-tier-backfill',
+    });
+    const buyerEmail = 'gumroad-tier-backfill@example.com';
+    const buyerEmailHash = await sha256Hex(buyerEmail);
+    const canonicalProductId = 'gumroad-tiered-product';
+    const localProductId = 'local-gumroad-tiered-product';
+    const providerTierRef =
+      'gumroad|product|22:gumroad-tiered-product|variant|4:tier|option|4:gold|recurrence|7:monthly';
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-gumroad-tier-backfill',
+    });
+
+    const catalogProductId = await t.run(async (ctx) => {
+      return ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: localProductId,
+        provider: 'gumroad',
+        providerProductRef: canonicalProductId,
+        displayName: 'Tiered Gumroad Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: localProductId,
+      catalogProductId,
+      providerProductRef: canonicalProductId,
+      providerTierRef,
+      displayName: 'Gold Monthly',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      provider: 'gumroad',
+      providerUserId: 'gumroad-tier-backfill-buyer',
+      username: 'Tier Backfill Buyer',
+      email: buyerEmail,
+      discordUserId: 'discord-gumroad-tier-backfill',
+    });
+
+    await t.mutation(api.bindings.activateBinding, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      externalAccountId: syncResult.externalAccountId,
+      bindingType: 'verification',
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId: buyerSubjectId,
+      provider: 'gumroad',
+      externalAccountId: syncResult.externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    await t.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      purchases: [
+        {
+          authUserId: creatorAuthUserId,
+          provider: 'gumroad',
+          externalOrderId: 'sale-tier-backfill',
+          buyerEmailHash,
+          providerProductId: canonicalProductId,
+          externalVariantId: providerTierRef,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: Date.now() - 60_000,
+        } as never,
+      ],
+    });
+
+    const projection = await t.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creatorAuthUserId,
+        productId: localProductId,
+        provider: 'gumroad',
+        providerProductRef: canonicalProductId,
+      }
+    );
+
+    expect(projection).toMatchObject({
+      purchaseFactsFound: 1,
+      linkedToSubject: 1,
+      entitlementsGranted: 1,
+      unresolved: 0,
+    });
+
+    const purchaseFacts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
+    expect(purchaseFacts[0]).toMatchObject({
+      provider: 'gumroad',
+      externalOrderId: 'sale-tier-backfill',
+      externalVariantId: providerTierRef,
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: localProductId,
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected projected entitlement');
+    }
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+  });
 });

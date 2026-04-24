@@ -472,6 +472,88 @@ describe('product command', () => {
     expect(payload?.content).toContain('Step 4 of 4');
   });
 
+  it('renders Jinxxy tier prices from cent-denominated provider amounts', async () => {
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_jinxxy_price',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_product_jinxxy_price',
+        guildLinkId: 'link_id_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelect = mockStringSelect({
+      userId: 'user_prod_jinxxy_price',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_jinxxy_price',
+      values: ['jinxxy'],
+    });
+    mockListProducts.mockResolvedValueOnce({
+      products: [{ id: 'prod_1', name: 'Main Product' }],
+    });
+    await handleProductTypeSelect(
+      typeSelect as unknown as StringSelectMenuInteraction,
+      'auth_product_jinxxy_price',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    mockListTiers.mockResolvedValueOnce({
+      tiers: [
+        {
+          id: 'tier_regular',
+          productId: 'prod_1',
+          name: 'Regular License',
+          active: true,
+          amountCents: 999,
+          currency: 'USD',
+        },
+        {
+          id: 'tier_commercial',
+          productId: 'prod_1',
+          name: 'Commercial License',
+          active: true,
+          amountCents: 9999,
+          currency: 'USD',
+        },
+      ],
+    });
+
+    const productSelect = mockStringSelect({
+      userId: 'user_prod_jinxxy_price',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:catalog_select:jinxxy:user_prod_jinxxy_price:auth_product_jinxxy_price',
+      values: ['prod_1'],
+    });
+
+    await handleProductCatalogSelect(
+      productSelect as unknown as StringSelectMenuInteraction,
+      'jinxxy',
+      'user_prod_jinxxy_price',
+      'auth_product_jinxxy_price'
+    );
+
+    const payload = productSelect.reply.mock.calls[0]?.[0];
+    const tierSelectRow = payload?.components?.[0];
+    expect(tierSelectRow).toBeDefined();
+    const tierSelectJson = JSON.stringify(tierSelectRow.toJSON());
+    expect(tierSelectJson).toContain('9.99 USD');
+    expect(tierSelectJson).toContain('99.99 USD');
+    expect(tierSelectJson).not.toContain('999.00 USD');
+    expect(tierSelectJson).not.toContain('9999.00 USD');
+  });
+
   it('given Patreon returns no tiers, shows an error instead of an empty tier selector', async () => {
     const slashInteraction = mockSlashCommand({
       userId: 'user_prod_patreon_empty_tiers',

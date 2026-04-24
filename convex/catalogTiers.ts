@@ -187,6 +187,9 @@ export const getActiveCatalogTierIdsForEntitlement = query({
               : q.eq(q.field('externalLineItemId'), undefined)
           )
           .first();
+        if (purchaseFact?.externalVariantId) {
+          providerTierRefs.add(purchaseFact.externalVariantId);
+        }
         if (purchaseFact?.providerProductVersionId) {
           providerTierRefs.add(purchaseFact.providerProductVersionId);
         }

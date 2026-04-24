@@ -13,6 +13,7 @@ export const gumroad = {
   capabilities: [
     'account_link',
     'catalog_sync',
+    'tier_catalog',
     'webhooks',
     'reconciliation',
     'license_verification',
