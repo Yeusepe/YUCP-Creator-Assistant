@@ -10,6 +10,11 @@ const stateStoreGetMock = mock(async () =>
 );
 const stateStoreDeleteMock = mock(async () => undefined);
 const loggerErrorMock = mock(() => undefined);
+let delegatedVerificationRequest: Request | null = null;
+const verificationCallbackMock = mock(async (request: Request) => {
+  delegatedVerificationRequest = request;
+  return new Response('delegated verification callback');
+});
 const originalFetch = globalThis.fetch;
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -58,6 +63,12 @@ mock.module('../../lib/encrypt', () => ({
   encrypt: mock(async () => 'encrypted-token'),
 }));
 
+mock.module('../../verification/sessionManager', () => ({
+  createVerificationRoutes: () => ({
+    handleVerificationCallback: verificationCallbackMock,
+  }),
+}));
+
 const { connect } = await import('./connect');
 
 function createContext(): ConnectContext {
@@ -95,6 +106,8 @@ describe('patreon connect callback', () => {
     stateStoreGetMock.mockClear();
     stateStoreDeleteMock.mockClear();
     loggerErrorMock.mockClear();
+    verificationCallbackMock.mockClear();
+    delegatedVerificationRequest = null;
   });
 
   afterAll(() => {
@@ -124,7 +137,9 @@ describe('patreon connect callback', () => {
     globalThis.fetch = createFetchStub(calls, responses);
 
     await callbackRoute.handler(
-      new Request('https://api.example.com/api/connect/patreon/callback?code=code-1&state=state-1'),
+      new Request(
+        'https://api.example.com/api/connect/patreon/callback?code=code-1&state=patreon_connect:creator_1:state-1'
+      ),
       createContext()
     );
 
@@ -157,7 +172,9 @@ describe('patreon connect callback', () => {
     globalThis.fetch = createFetchStub(calls, responses);
 
     await callbackRoute.handler(
-      new Request('https://api.example.com/api/connect/patreon/callback?code=code-2&state=state-2'),
+      new Request(
+        'https://api.example.com/api/connect/patreon/callback?code=code-2&state=patreon_connect:creator_1:state-2'
+      ),
       createContext()
     );
 
@@ -166,5 +183,29 @@ describe('patreon connect callback', () => {
         signal: expect.any(AbortSignal),
       })
     );
+  });
+
+  it('delegates non-connect states to the verification callback handler', async () => {
+    if (!callbackRoute) {
+      throw new Error('Expected Patreon callback route');
+    }
+
+    const response = await callbackRoute.handler(
+      new Request(
+        'https://api.example.com/api/connect/patreon/callback?code=code-3&state=verify:patreon:buyer_1:state-3'
+      ),
+      createContext()
+    );
+
+    expect(verificationCallbackMock).toHaveBeenCalledTimes(1);
+    const delegatedRequest = delegatedVerificationRequest;
+    expect(delegatedRequest).toBeDefined();
+    if (!delegatedRequest) {
+      throw new Error('Expected delegated verification callback request');
+    }
+    expect(delegatedRequest).toBeInstanceOf(Request);
+    expect(new URL(delegatedRequest.url).pathname).toBe('/api/verification/callback/patreon');
+    expect(await response.text()).toBe('delegated verification callback');
+    expect(stateStoreGetMock).not.toHaveBeenCalled();
   });
 });

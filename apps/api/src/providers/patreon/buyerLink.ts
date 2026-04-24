@@ -14,6 +14,7 @@ import type {
   VerifyHostedBuyerLinkIntentInput,
   VerifyHostedBuyerLinkIntentResult,
 } from '../types';
+import { PATREON_SHARED_CALLBACK_PATH } from './oauth';
 
 const PROVIDER_LINK_EXPIRED_MESSAGE =
   'The linked Patreon account must be reconnected before it can be used.';
@@ -227,7 +228,8 @@ export function createPatreonBuyerLinkPlugin(deps: PatreonBuyerLinkDeps = {}): B
       responseType: 'code',
       usesPkce: true,
       scopes: REQUIRED_PATREON_BUYER_SCOPES,
-      callbackPath: '/api/verification/callback/patreon',
+      callbackPath: PATREON_SHARED_CALLBACK_PATH,
+      callbackHandler: 'connect-plugin',
     },
 
     async fetchIdentity(accessToken) {

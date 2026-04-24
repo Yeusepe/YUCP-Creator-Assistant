@@ -173,6 +173,13 @@ afterAll(() => {
 });
 
 describe('patreon buyer link plugin', () => {
+  it('uses the shared connect callback route for account linking', () => {
+    const plugin = createPatreonBuyerLinkPlugin();
+
+    expect(plugin.oauth.callbackPath).toBe('/api/connect/patreon/callback');
+    expect(plugin.oauth.callbackHandler).toBe('connect-plugin');
+  });
+
   it('stores encrypted buyer access and refresh tokens', async () => {
     const plugin = createPatreonBuyerLinkPlugin({
       encryptCredential: encryptMock,

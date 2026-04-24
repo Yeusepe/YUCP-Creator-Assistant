@@ -12,11 +12,15 @@ import { getConvexClientFromUrl } from '../../lib/convex';
 import { encrypt } from '../../lib/encrypt';
 import { logger } from '../../lib/logger';
 import { getStateStore } from '../../lib/stateStore';
+import { createVerificationRoutes } from '../../verification/sessionManager';
 import type { ConnectContext, ConnectPlugin, ConnectRoute } from '../types';
 import { generateSecureRandom } from '../types';
-
-const PATREON_CONNECT_STATE_PREFIX = 'patreon_connect:';
-const PATREON_SHARED_CALLBACK_PATH = '/api/connect/patreon/callback';
+import {
+  isPatreonConnectState,
+  PATREON_CONNECT_STATE_PREFIX,
+  PATREON_SHARED_CALLBACK_PATH,
+  toPatreonVerificationConfig,
+} from './oauth';
 const PATREON_STATE_EXPIRY_MS = 10 * 60 * 1000;
 const PATREON_SCOPES = ['campaigns'].join(' ');
 const DEFAULT_PATREON_FETCH_TIMEOUT_MS = 10_000;
@@ -134,8 +138,16 @@ async function patreonBegin(request: Request, ctx: ConnectContext): Promise<Resp
 async function patreonCallback(request: Request, ctx: ConnectContext): Promise<Response> {
   const { config } = ctx;
   const url = new URL(request.url);
-  const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
+  if (state && !isPatreonConnectState(state)) {
+    const delegatedUrl = new URL(request.url);
+    delegatedUrl.pathname = '/api/verification/callback/patreon';
+    return createVerificationRoutes(toPatreonVerificationConfig(config)).handleVerificationCallback(
+      new Request(delegatedUrl.toString(), request)
+    );
+  }
+
+  const code = url.searchParams.get('code');
   const error = url.searchParams.get('error');
 
   if (error) {
