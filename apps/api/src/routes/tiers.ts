@@ -45,9 +45,18 @@ export async function handleProviderTiers(request: Request, provider: string): P
   let convex: ReturnType<typeof getConvexClientFromUrl> | undefined;
   let authUserId: string | undefined;
   let apiSecret: string | undefined;
+  let body: TiersRequest;
 
   try {
-    const body = (await request.json()) as TiersRequest;
+    body = (await request.json()) as TiersRequest;
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
     const { productId } = body;
     ({ apiSecret, authUserId } = body);
 

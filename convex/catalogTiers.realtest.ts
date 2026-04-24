@@ -93,4 +93,96 @@ describe('catalog tier entitlement resolution', () => {
 
     expect(tierIds).toEqual([catalogTierId]);
   });
+
+  it('does not return archived catalog tiers as active entitlement tiers', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-archived-tier';
+    const buyerAuthUserId = 'buyer-archived-tier';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-archived-tier',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-archived-tier',
+    });
+
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-jinxxy-archived-product',
+        provider: 'jinxxy',
+        providerProductRef: 'product-archived',
+        displayName: 'Archived Avatar Package',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'jinxxy',
+      productId: 'local-jinxxy-archived-product',
+      catalogProductId,
+      providerProductRef: 'product-archived',
+      providerTierRef: 'version-archived',
+      displayName: 'Archived License',
+      amountCents: 2500,
+      currency: 'USD',
+      status: 'archived',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        externalOrderId: 'order-archived',
+        externalLineItemId: 'line-archived',
+        providerProductId: 'product-archived',
+        providerProductVersionId: 'version-archived',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        subjectId: buyerSubjectId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await t.mutation(api.entitlements.grantEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-jinxxy-archived-product',
+      evidence: {
+        provider: 'jinxxy',
+        sourceReference: 'jinxxy:order-archived:line-archived',
+        purchasedAt: Date.now() - 60_000,
+        rawEvidence: {},
+      },
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-jinxxy-archived-product',
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected active entitlement');
+    }
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([]);
+  });
 });

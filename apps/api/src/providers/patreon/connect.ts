@@ -19,6 +19,40 @@ const PATREON_CONNECT_STATE_PREFIX = 'patreon_connect:';
 const PATREON_SHARED_CALLBACK_PATH = '/api/connect/patreon/callback';
 const PATREON_STATE_EXPIRY_MS = 10 * 60 * 1000;
 const PATREON_SCOPES = ['campaigns'].join(' ');
+const DEFAULT_PATREON_FETCH_TIMEOUT_MS = 10_000;
+
+function getPatreonFetchTimeoutMs(): number {
+  const rawValue = process.env.PATREON_CONNECT_FETCH_TIMEOUT_MS;
+  if (!rawValue) {
+    return DEFAULT_PATREON_FETCH_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PATREON_FETCH_TIMEOUT_MS;
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs = getPatreonFetchTimeoutMs()
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Patreon request timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 function buildDashboardRedirect(
   config: ConnectContext['config'],
@@ -138,7 +172,7 @@ async function patreonCallback(request: Request, ctx: ConnectContext): Promise<R
   try {
     // Patreon OAuth token exchange:
     // https://docs.patreon.com/#step-4-validating-receipt-of-the-oauth-token
-    const tokenRes = await fetch('https://www.patreon.com/api/oauth2/token', {
+    const tokenRes = await fetchWithTimeout('https://www.patreon.com/api/oauth2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -196,7 +230,7 @@ async function patreonCallback(request: Request, ctx: ConnectContext): Promise<R
     // https://docs.patreon.com/#get-api-oauth2-v2-campaigns
     const campaignsUrl = new URL('https://www.patreon.com/api/oauth2/v2/campaigns');
     campaignsUrl.searchParams.set('fields[campaign]', 'creation_name,url');
-    const campaignsRes = await fetch(campaignsUrl, {
+    const campaignsRes = await fetchWithTimeout(campaignsUrl, {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${accessToken}`,

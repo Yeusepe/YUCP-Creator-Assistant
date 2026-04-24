@@ -472,6 +472,72 @@ describe('product command', () => {
     expect(payload?.content).toContain('Step 4 of 4');
   });
 
+  it('given Patreon returns no tiers, shows an error instead of an empty tier selector', async () => {
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_patreon_empty_tiers',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_product_patreon_empty_tiers',
+        guildLinkId: 'link_id_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelect = mockStringSelect({
+      userId: 'user_prod_patreon_empty_tiers',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_patreon_empty_tiers',
+      values: ['patreon'],
+    });
+    mockListProducts.mockResolvedValueOnce({
+      products: [
+        {
+          id: 'prod_1',
+          name: 'Campaign Alpha',
+          productUrl: 'https://www.patreon.com/join/campaign-alpha',
+        },
+      ],
+    });
+    await handleProductTypeSelect(
+      typeSelect as unknown as StringSelectMenuInteraction,
+      'auth_product_patreon_empty_tiers',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    mockListTiers.mockResolvedValueOnce({
+      tiers: [],
+    });
+
+    const productSelect = mockStringSelect({
+      userId: 'user_prod_patreon_empty_tiers',
+      guildId: 'guild_product_test',
+      customId:
+        'creator_product:catalog_select:patreon:user_prod_patreon_empty_tiers:auth_product_patreon_empty_tiers',
+      values: ['prod_1'],
+    });
+    await handleProductCatalogSelect(
+      productSelect as unknown as StringSelectMenuInteraction,
+      'patreon',
+      'user_prod_patreon_empty_tiers',
+      'auth_product_patreon_empty_tiers'
+    );
+
+    const payload = productSelect.reply.mock.calls[0]?.[0];
+    expect(payload?.content).toContain("Couldn't load tiers for this product right now");
+    expect(payload?.content).not.toContain('Remaining tiers: **0**');
+  });
+
   it('given multiple tier mappings, lets the creator finish early and skip remaining tiers', async () => {
     const convex = {
       query: mock((ref: unknown) => {

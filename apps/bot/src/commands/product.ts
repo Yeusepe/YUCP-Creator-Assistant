@@ -811,6 +811,14 @@ export async function handleProductCatalogSelect(
       return;
     }
 
+    if (provider === 'patreon' && tiers.length === 0) {
+      await interaction.reply({
+        content: `${E.X_} Couldn't load tiers for this product right now. Please try again.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     if (tiers.length > 1 || provider === 'patreon') {
       session.hasTierSelectionStep = true;
       session.availableTiers = Object.fromEntries(tiers.map((tier) => [tier.id, tier]));

@@ -208,7 +208,7 @@ export const getActiveCatalogTierIdsForEntitlement = query({
             .eq('providerTierRef', providerTierRef)
         )
         .first();
-      if (catalogTier?._id) {
+      if (catalogTier?._id && catalogTier.status !== 'archived') {
         tierIds.push(catalogTier._id);
       }
     }
