@@ -121,4 +121,48 @@ describe('createPatreonProviderModule', () => {
       'https://www.patreon.com/api/oauth2/v2/campaigns/campaign-1?include=tiers&fields%5Btier%5D=title%2Cdescription%2Camount_cents%2Cdiscord_role_ids%2Cpatron_count%2Cpublished%2Curl',
     ]);
   });
+
+  it('strips Patreon HTML markup from tier descriptions', async () => {
+    const module = createPatreonProviderModule({
+      logger: console,
+      async getEncryptedCredential() {
+        return 'encrypted-token';
+      },
+      async decryptCredential() {
+        return 'access-token';
+      },
+      async fetchImpl() {
+        return new Response(
+          JSON.stringify({
+            data: {
+              id: 'campaign-1',
+              type: 'campaign',
+            },
+            included: [
+              {
+                id: 'tier-1',
+                type: 'tier',
+                attributes: {
+                  title: 'Toolkit Tier',
+                  description:
+                    '<h2 style="">For avatar and world creators who <strong>actually</strong> use the tools.</h2><p style=""></p>',
+                  amount_cents: 1500,
+                  published: true,
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(
+      module.tiers?.listProductTiers('access-token', 'campaign-1', makeCtx())
+    ).resolves.toEqual([
+      expect.objectContaining({
+        description: 'For avatar and world creators who actually use the tools.',
+      }),
+    ]);
+  });
 });

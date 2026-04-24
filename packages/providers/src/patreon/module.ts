@@ -101,6 +101,15 @@ interface PatreonJsonApiResponse<TAttributes, TIncludedAttributes = PatreonTierA
   included?: PatreonJsonApiResource<TIncludedAttributes>[];
 }
 
+const HTML_ENTITY_REPLACEMENTS: Readonly<Record<string, string>> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
+};
+
 export interface PatreonBuyerMembershipRecord {
   campaignId?: string;
   entitledTierIds: string[];
@@ -252,6 +261,39 @@ function normalizeCampaignName(campaignId: string, attributes?: PatreonCampaignA
   return `Campaign ${campaignId}`;
 }
 
+function decodeHtmlEntity(entity: string): string {
+  const named = HTML_ENTITY_REPLACEMENTS[entity];
+  if (named) {
+    return named;
+  }
+
+  if (entity.startsWith('#x') || entity.startsWith('#X')) {
+    const parsed = Number.parseInt(entity.slice(2), 16);
+    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+  }
+
+  if (entity.startsWith('#')) {
+    const parsed = Number.parseInt(entity.slice(1), 10);
+    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+  }
+
+  return `&${entity};`;
+}
+
+function normalizePatreonTierDescription(description?: string | null): string | undefined {
+  if (!description) {
+    return undefined;
+  }
+
+  const plainText = description
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&([^;]+);/g, (_, entity: string) => decodeHtmlEntity(entity))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return plainText || undefined;
+}
+
 export function createPatreonProviderModule<
   TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
 >(ports: PatreonRuntimePorts<TClient>): PatreonProviderRuntime<TClient> {
@@ -319,7 +361,7 @@ export function createPatreonProviderModule<
             id: tier.id,
             productId: campaignId,
             name: tier.attributes?.title?.trim() || `Tier ${tier.id}`,
-            description: tier.attributes?.description ?? undefined,
+            description: normalizePatreonTierDescription(tier.attributes?.description),
             amountCents:
               typeof tier.attributes?.amount_cents === 'number'
                 ? tier.attributes.amount_cents
