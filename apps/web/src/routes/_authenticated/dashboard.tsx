@@ -19,6 +19,10 @@ import { type DashboardShellData, fetchDashboardShell } from '@/lib/server/dashb
  */
 const dashboardLoaderCache = new Map<string, DashboardShellData>();
 
+export function clearDashboardLoaderCache() {
+  dashboardLoaderCache.clear();
+}
+
 interface DashboardSearch {
   guild_id?: string;
   tenant_id?: string;
@@ -40,6 +44,10 @@ export const Route = createFileRoute('/_authenticated/dashboard')({
     tenant_id: normalizeDashboardIdentifier(search.tenant_id as string | undefined),
     setup_token: typeof search.setup_token === 'string' ? search.setup_token : undefined,
     connect_token: typeof search.connect_token === 'string' ? search.connect_token : undefined,
+  }),
+  loaderDeps: ({ search }) => ({
+    guildId: search.guild_id ?? null,
+    tenantId: search.tenant_id ?? null,
   }),
   staleTime: Infinity,
   pendingComponent: DashboardLayoutPending,

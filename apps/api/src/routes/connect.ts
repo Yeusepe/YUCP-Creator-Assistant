@@ -281,6 +281,138 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     });
   }
 
+  function buildMissingDiscordIdentityResponse() {
+    return Response.json(
+      {
+        error: 'Session expired or Discord link lost. Please sign in again from Discord.',
+        details: 'Cannot create profile: missing Discord ID',
+      },
+      { status: 400 }
+    );
+  }
+
+  async function requireConnectSessionForGuild(
+    request: Request,
+    guildId: string,
+    options: {
+      mismatchLogMessage: string;
+      missingTokenError: string;
+    }
+  ): Promise<
+    | { ok: true; discordUserId: string }
+    | {
+        ok: false;
+        response: Response;
+      }
+  > {
+    const connectSession = await resolveConnectSession(request);
+    const connectDiscordUserId = connectSession?.discordUserId ?? null;
+    const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
+    if (
+      connectDiscordUserId &&
+      sessionDiscordUserId &&
+      connectDiscordUserId !== sessionDiscordUserId
+    ) {
+      logger.warn(options.mismatchLogMessage, {
+        expectedDiscordUserId: connectDiscordUserId,
+        actualDiscordUserId: sessionDiscordUserId,
+        guildId,
+      });
+      return {
+        ok: false,
+        response: Response.json(
+          { error: 'This setup link belongs to a different Discord account' },
+          { status: 403 }
+        ),
+      };
+    }
+
+    if (!connectSession?.discordUserId || connectSession.guildId !== guildId) {
+      return {
+        ok: false,
+        response: Response.json(
+          {
+            error: options.missingTokenError,
+          },
+          { status: 403 }
+        ),
+      };
+    }
+
+    return {
+      ok: true,
+      discordUserId: connectDiscordUserId ?? sessionDiscordUserId ?? connectSession.discordUserId,
+    };
+  }
+
+  async function ensureActiveCreatorGuildLink(args: {
+    authUserId: string;
+    guildId: string;
+    discordUserId: string;
+    failureLogMessage: string;
+    failureResponseMessage: string;
+  }): Promise<
+    | {
+        ok: true;
+        authUserId: string;
+        isFirstTime: boolean;
+      }
+    | {
+        ok: false;
+        response: Response;
+      }
+  > {
+    const convex = getConvexClient();
+    const apiSecret = getConvexApiSecret();
+    const existingProfile = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
+      apiSecret,
+      authUserId: args.authUserId,
+    });
+
+    if (!existingProfile && !args.discordUserId) {
+      return {
+        ok: false,
+        response: buildMissingDiscordIdentityResponse(),
+      };
+    }
+
+    try {
+      if (!existingProfile) {
+        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
+          apiSecret,
+          name: `Creator ${args.discordUserId.slice(0, 8)}`,
+          ownerDiscordUserId: args.discordUserId,
+          authUserId: args.authUserId,
+          policy: {},
+        });
+      }
+
+      await convex.mutation(api.guildLinks.upsertGuildLink, {
+        apiSecret,
+        authUserId: args.authUserId,
+        discordGuildId: args.guildId,
+        ...(await fetchGuildMeta(args.guildId)),
+        installedByAuthUserId: args.authUserId,
+        botPresent: true,
+        status: 'active',
+      });
+
+      return {
+        ok: true,
+        authUserId: args.authUserId,
+        isFirstTime: !existingProfile,
+      };
+    } catch (err) {
+      logger.error(args.failureLogMessage, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        ok: false,
+        response: Response.json({ error: args.failureResponseMessage }, { status: 500 }),
+      };
+    }
+  }
+
   async function getCreatorProfile(
     request: Request,
     authUserId: string
@@ -631,94 +763,43 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       return Response.json({ error: 'guildId is required' }, { status: 400 });
     }
 
-    const connectSession = await resolveConnectSession(request);
-    const connectDiscordUserId = connectSession?.discordUserId ?? null;
-    const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (
-      connectDiscordUserId &&
-      sessionDiscordUserId &&
-      connectDiscordUserId !== sessionDiscordUserId
-    ) {
-      logger.warn('Connect token Discord identity mismatch', {
-        expectedDiscordUserId: connectDiscordUserId,
-        actualDiscordUserId: sessionDiscordUserId,
-        guildId,
-      });
-      return Response.json(
-        { error: 'This setup link belongs to a different Discord account' },
-        { status: 403 }
-      );
+    const connectSession = await requireConnectSessionForGuild(request, guildId, {
+      mismatchLogMessage: 'Connect token Discord identity mismatch',
+      missingTokenError:
+        'A valid setup link for this server is required. Run `/creator-admin setup start` again.',
+    });
+    if (!connectSession.ok) {
+      return connectSession.response;
     }
 
-    const discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
-    if (!connectSession?.discordUserId || connectSession.guildId !== guildId) {
-      return Response.json(
-        {
-          error:
-            'A valid setup link for this server is required. Run `/creator-admin setup start` again.',
-        },
-        { status: 403 }
-      );
+    const ensuredLink = await ensureActiveCreatorGuildLink({
+      authUserId: session.user.id,
+      guildId,
+      discordUserId: connectSession.discordUserId,
+      failureLogMessage: 'Connect complete failed',
+      failureResponseMessage: 'Failed to complete setup',
+    });
+    if (!ensuredLink.ok) {
+      return ensuredLink.response;
     }
 
-    const convex = getConvexClient();
-    const apiSecret = getConvexApiSecret();
-    const existing = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
-      apiSecret,
+    logger.info('Connect flow completed', {
+      guildId,
       authUserId: session.user.id,
     });
 
-    if (!existing && !discordUserId) {
-      return Response.json(
-        { error: 'Session expired. Please sign in again from Discord.' },
-        { status: 400 }
-      );
-    }
-
-    try {
-      if (!existing) {
-        if (!discordUserId) {
-          return Response.json(
-            { error: 'Session expired. Please sign in again from Discord.' },
-            { status: 400 }
-          );
-        }
-        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
-          apiSecret,
-          name: `Creator ${discordUserId.slice(0, 8)}`,
-          ownerDiscordUserId: discordUserId,
-          authUserId: session.user.id,
-          policy: {},
-        });
-      }
-      const authUserId = session.user.id;
-
-      await convex.mutation(api.guildLinks.upsertGuildLink, {
-        apiSecret,
-        authUserId,
-        discordGuildId: guildId,
-        ...(await fetchGuildMeta(guildId)),
-        installedByAuthUserId: session.user.id,
-        botPresent: true,
-        status: 'active',
-      });
-
-      logger.info('Connect flow completed', {
-        guildId,
-        authUserId: session.user.id,
-      });
-
-      const clearedCookie = clearCookie(CONNECT_TOKEN_COOKIE, request);
-      return new Response(JSON.stringify({ success: true, authUserId, isFirstTime: !existing }), {
+    const clearedCookie = clearCookie(CONNECT_TOKEN_COOKIE, request);
+    return new Response(
+      JSON.stringify({
+        success: true,
+        authUserId: ensuredLink.authUserId,
+        isFirstTime: ensuredLink.isFirstTime,
+      }),
+      {
         status: 200,
         headers: { 'Content-Type': 'application/json', 'Set-Cookie': clearedCookie },
-      });
-    } catch (err) {
-      logger.error('Connect complete failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return Response.json({ error: 'Failed to complete setup' }, { status: 500 });
-    }
+      }
+    );
   }
 
   /**
@@ -770,94 +851,32 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
           { status: 403 }
         );
       }
-      return Response.json({ authUserId: existingGuildLink.authUserId });
-    }
-
-    const connectSession = await resolveConnectSession(request);
-    const connectDiscordUserId = connectSession?.discordUserId ?? null;
-    const sessionDiscordUserId = await getAuthenticatedDiscordUserId(request);
-    if (
-      connectDiscordUserId &&
-      sessionDiscordUserId &&
-      connectDiscordUserId !== sessionDiscordUserId
-    ) {
-      logger.warn('Ensure tenant connect token Discord identity mismatch', {
-        expectedDiscordUserId: connectDiscordUserId,
-        actualDiscordUserId: sessionDiscordUserId,
-        guildId,
-      });
-      return Response.json(
-        { error: 'This setup link belongs to a different Discord account' },
-        { status: 403 }
-      );
-    }
-
-    if (!connectSession?.discordUserId || connectSession.guildId !== guildId) {
-      return Response.json(
-        {
-          error:
-            'A valid setup link for this server is required. Run `/creator-admin setup start` again.',
-        },
-        { status: 403 }
-      );
-    }
-
-    const discordUserId: string | null = connectDiscordUserId ?? sessionDiscordUserId;
-
-    const existing = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
-      apiSecret,
-      authUserId: session.user.id,
-    });
-
-    // 4. If we STILL don't have a discordUserId and no existing profile, we can't create one
-    if (!existing && !discordUserId) {
-      return Response.json(
-        {
-          error: 'Session expired or Discord link lost. Please sign in again from Discord.',
-          details: 'Cannot create profile: missing Discord ID',
-        },
-        { status: 400 }
-      );
-    }
-
-    try {
-      if (!existing) {
-        if (!discordUserId) {
-          return Response.json(
-            {
-              error: 'Session expired or Discord link lost. Please sign in again from Discord.',
-              details: 'Cannot create profile: missing Discord ID',
-            },
-            { status: 400 }
-          );
-        }
-        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
-          apiSecret,
-          name: `Creator ${discordUserId.slice(0, 8)}`,
-          ownerDiscordUserId: discordUserId,
-          authUserId: session.user.id,
-          policy: {},
-        });
+      if (existingGuildLink.status === 'active') {
+        return Response.json({ authUserId: existingGuildLink.authUserId });
       }
-      const authUserId = session.user.id;
-
-      await convex.mutation(api.guildLinks.upsertGuildLink, {
-        apiSecret,
-        authUserId,
-        discordGuildId: guildId,
-        ...(await fetchGuildMeta(guildId)),
-        installedByAuthUserId: session.user.id,
-        botPresent: true,
-        status: 'active',
-      });
-
-      return Response.json({ authUserId });
-    } catch (err) {
-      logger.error('Ensure tenant failed', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return Response.json({ error: 'Failed to ensure tenant' }, { status: 500 });
     }
+
+    const connectSession = await requireConnectSessionForGuild(request, guildId, {
+      mismatchLogMessage: 'Ensure tenant connect token Discord identity mismatch',
+      missingTokenError:
+        'A valid setup link for this server is required. Run `/creator-admin setup start` again.',
+    });
+    if (!connectSession.ok) {
+      return connectSession.response;
+    }
+
+    const ensuredLink = await ensureActiveCreatorGuildLink({
+      authUserId: session.user.id,
+      guildId,
+      discordUserId: connectSession.discordUserId,
+      failureLogMessage: 'Ensure tenant failed',
+      failureResponseMessage: 'Failed to ensure tenant',
+    });
+    if (!ensuredLink.ok) {
+      return ensuredLink.response;
+    }
+
+    return Response.json({ authUserId: ensuredLink.authUserId });
   }
 
   /**

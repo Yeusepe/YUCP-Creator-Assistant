@@ -6,34 +6,50 @@ const dashboardRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard.tsx'),
   'utf8'
 );
+const dashboardLazyRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.lazy.tsx'),
+  'utf8'
+);
 
 describe('dashboard token compatibility', () => {
-  it('bootstraps setup tokens after mount and allows fresh guild dashboard loads', () => {
+  it('allows fresh guild dashboard loads when the link carries a hash token', () => {
     expect(dashboardRouteSource).toContain("locationHref.includes('guild_id=')");
     expect(dashboardRouteSource).toContain("locationHash.includes('s=')");
     expect(dashboardRouteSource).toContain("locationHash.includes('token=')");
-    expect(dashboardRouteSource).toContain('const [bootstrapState, setBootstrapState] = useState');
-    expect(dashboardRouteSource).toContain("window.location.hash.replace(/^#/, '')");
-    expect(dashboardRouteSource).not.toContain(
-      "if (typeof window === 'undefined' || bootstrapState.status === 'idle')"
-    );
+    expect(dashboardRouteSource).toContain('loaderDeps: ({ search }) => ({');
+    expect(dashboardRouteSource).toContain('guildId: search.guild_id ?? null');
+    expect(dashboardRouteSource).toContain('tenantId: search.tenant_id ?? null');
   });
 
-  it('holds the bootstrap state until the refreshed dashboard shell is ready', () => {
-    expect(dashboardRouteSource).toContain("status: 'checking'");
-
-    const navigateIndex = dashboardRouteSource.indexOf('await navigate({');
-    const idleIndex = dashboardRouteSource.lastIndexOf("setBootstrapState({ status: 'idle' });");
-
-    expect(navigateIndex).toBeGreaterThan(-1);
-    expect(idleIndex).toBeGreaterThan(-1);
-    expect(navigateIndex).toBeLessThan(idleIndex);
+  it('bootstraps setup and connect tokens from the URL hash after mount', () => {
+    expect(dashboardLazyRouteSource).toContain(
+      "const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));"
+    );
+    expect(dashboardLazyRouteSource).toContain(
+      "const setupToken = search.setup_token ?? hashParams.get('s') ?? undefined;"
+    );
+    expect(dashboardLazyRouteSource).toContain(
+      "const connectToken = search.connect_token ?? hashParams.get('token') ?? undefined;"
+    );
   });
 
   it('keeps the server selector out of the generic fallback while bootstrap is pending', () => {
-    expect(dashboardRouteSource).toContain('const selectedServer = selectedGuild ?? pendingGuild;');
-    expect(dashboardRouteSource).toMatch(
+    expect(dashboardLazyRouteSource).toContain(
+      'const selectedServer = selectedGuild ?? pendingGuild;'
+    );
+    expect(dashboardLazyRouteSource).toMatch(
       /const selectedName =\s*selectedServer\?\.name \?\? \(hasBootstrapPending \? 'Linking server\.\.\.' : 'Select a Server'\);/
     );
+  });
+
+  it('clears the route-level dashboard shell cache before navigating after bootstrap', () => {
+    expect(dashboardRouteSource).toContain('export function clearDashboardLoaderCache()');
+
+    const clearIndex = dashboardLazyRouteSource.indexOf('clearDashboardLoaderCache();');
+    const navigateIndex = dashboardLazyRouteSource.indexOf('await navigate({');
+
+    expect(clearIndex).toBeGreaterThan(-1);
+    expect(navigateIndex).toBeGreaterThan(-1);
+    expect(clearIndex).toBeLessThan(navigateIndex);
   });
 });

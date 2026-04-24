@@ -224,6 +224,7 @@ export const getGuildLinkForUninstall = query({
     return {
       guildLinkId: link._id,
       authUserId: link.authUserId,
+      status: link.status,
     };
   },
 });

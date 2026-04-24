@@ -34,10 +34,13 @@ const apiMock = {
     revokeOwnedCertificate: 'certificateBilling.revokeOwnedCertificate',
   },
   creatorProfiles: {
+    createCreatorProfile: 'creatorProfiles.createCreatorProfile',
+    getCreatorByAuthUser: 'creatorProfiles.getCreatorByAuthUser',
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
   },
   guildLinks: {
     getGuildLinkForUninstall: 'guildLinks.getGuildLinkForUninstall',
+    upsertGuildLink: 'guildLinks.upsertGuildLink',
     getUserGuilds: 'guildLinks.getUserGuilds',
   },
   providerConnections: {
@@ -345,6 +348,93 @@ describe('GET /api/connect/dashboard/shell', () => {
     expect(body.branding).toEqual({
       isPlus: true,
       billingStatus: 'active',
+    });
+  });
+});
+
+describe('GET /api/connect/ensure-tenant', () => {
+  it('reactivates an inactive guild link for the same owner instead of returning early', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+
+    testStore.set('connect:test-connect-token', {
+      value: JSON.stringify({
+        discordUserId: 'discord-user-001',
+        guildId: 'guild-dashboard-001',
+      }),
+    });
+
+    queryImpl = async (fn, args) => {
+      if (fn === apiMock.guildLinks.getGuildLinkForUninstall) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          discordGuildId: 'guild-dashboard-001',
+        });
+        return {
+          authUserId: 'user-dashboard-001',
+          status: 'uninstalled',
+        };
+      }
+
+      if (fn === apiMock.creatorProfiles.getCreatorByAuthUser) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'user-dashboard-001',
+        });
+        return {
+          authUserId: 'user-dashboard-001',
+        };
+      }
+
+      throw new Error(`Unexpected query fn: ${String(fn)}`);
+    };
+
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      return null;
+    };
+
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({
+        user: {
+          id: 'user-dashboard-001',
+        },
+      }),
+      getDiscordUserId: async () => 'discord-user-001',
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig) as typeof routes & {
+      ensureTenant?: (request: Request) => Promise<Response>;
+    };
+
+    const ensureTenant = isolatedRoutes.ensureTenant;
+    expect(ensureTenant).toBeDefined();
+    if (!ensureTenant) {
+      throw new Error('ensureTenant route is not defined');
+    }
+
+    const res = await ensureTenant(
+      new Request('http://localhost:3001/api/connect/ensure-tenant?guildId=guild-dashboard-001', {
+        headers: {
+          Origin: 'http://localhost:3000',
+          Cookie: 'yucp_connect_token=test-connect-token',
+        },
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      authUserId: 'user-dashboard-001',
+    });
+    expect(mutationCalls).toContainEqual({
+      fn: apiMock.guildLinks.upsertGuildLink,
+      args: {
+        apiSecret: 'test-convex-secret',
+        authUserId: 'user-dashboard-001',
+        discordGuildId: 'guild-dashboard-001',
+        installedByAuthUserId: 'user-dashboard-001',
+        botPresent: true,
+        status: 'active',
+      },
     });
   });
 });

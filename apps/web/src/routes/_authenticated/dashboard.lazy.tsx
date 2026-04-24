@@ -20,6 +20,7 @@ import {
 import { type Guild } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
+import { clearDashboardLoaderCache } from './dashboard';
 
 export const Route = createLazyFileRoute('/_authenticated/dashboard')({
   component: DashboardLayout,
@@ -329,6 +330,7 @@ function DashboardLayout() {
         }
 
         queryClient.removeQueries({ queryKey: ['dashboard-shell'] });
+        clearDashboardLoaderCache();
         const nextDashboardPath =
           typeof window !== 'undefined' && window.location.pathname === '/dashboard/setup'
             ? '/dashboard/setup'
