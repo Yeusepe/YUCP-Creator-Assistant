@@ -33,7 +33,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters must reject or normalize upstream drift without looping pagination, dropping credential expiry, or silently rewriting response shape.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, dropping credential expiry, silently rewriting response shape, or violating transport contracts such as int64 serialization.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
@@ -42,6 +42,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/api/src/internalRpc/router.test.ts',
     ],
     secondaryRegressionHomes: [
+      'apps/bot/test/lib/internalRpc.test.ts',
       'apps/bot/test/lib/setupCatalog.test.ts',
       'apps/bot/test/commands/autosetup.test.ts',
     ],
@@ -100,10 +101,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     label: 'Backfill and repair paths',
     invariant:
       'Backfill and repair jobs must authenticate correctly, preserve tenant ownership, and replay provider state without creating duplicate or cross-tenant records.',
-    primaryRegressionHomes: [
-      'apps/api/src/routes/backfill.test.ts',
-      'apps/api/test/providers',
-    ],
+    primaryRegressionHomes: ['apps/api/src/routes/backfill.test.ts', 'apps/api/test/providers'],
     secondaryRegressionHomes: [
       'ops/buyer-attribution-remediation.test.ts',
       'ops/subject-ownership-remediation.test.ts',

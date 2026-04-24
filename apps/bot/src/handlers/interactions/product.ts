@@ -22,6 +22,16 @@ export async function handleProductButton(
     return true;
   }
 
+  if (customId.startsWith('creator_product:finish_tiers:')) {
+    const rest = customId.slice('creator_product:finish_tiers:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const authUserId = rest.slice(colonIdx + 1) as string;
+    const { handleProductFinishTierMappings } = await import('../../commands/product');
+    await handleProductFinishTierMappings(interaction, userId, authUserId);
+    return true;
+  }
+
   if (customId.startsWith('creator_product:cancel_add:')) {
     const authUserId = customId.slice('creator_product:cancel_add:'.length) as string;
     const { handleProductCancelAdd } = await import('../../commands/product');
@@ -163,6 +173,16 @@ export async function handleProductStringSelect(
     const authUserId = rest2.slice(colonIdx + 1) as string;
     const { handleProductCatalogSelect } = await import('../../commands/product');
     await handleProductCatalogSelect(interaction, provider, userId, authUserId);
+    return true;
+  }
+
+  if (customId.startsWith('creator_product:tier_select:')) {
+    const rest = customId.slice('creator_product:tier_select:'.length);
+    const colonIdx = rest.indexOf(':');
+    const userId = rest.slice(0, colonIdx);
+    const authUserId = rest.slice(colonIdx + 1) as string;
+    const { handleProductTierSelect } = await import('../../commands/product');
+    await handleProductTierSelect(interaction, userId, authUserId);
     return true;
   }
 

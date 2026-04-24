@@ -14,6 +14,7 @@ import gumroad from './gumroad/index';
 import itchio from './itchio/index';
 import jinxxy from './jinxxy/index';
 import lemonsqueezy from './lemonsqueezy/index';
+import patreon from './patreon/index';
 import payhip from './payhip/index';
 import type {
   ApiProviderEntry,
@@ -43,6 +44,7 @@ const PROVIDER_ENTRIES = defineProviderRegistry({
   itchio,
   jinxxy,
   lemonsqueezy,
+  patreon,
   payhip,
   vrchat,
 });

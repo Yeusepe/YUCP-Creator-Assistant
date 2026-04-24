@@ -79,6 +79,13 @@ export interface JinxxyUserResponse {
 /**
  * Jinxxy product resource
  */
+export interface JinxxyProductVersion {
+  object?: string;
+  id: string;
+  name: string;
+  price: number;
+}
+
 export interface JinxxyProduct {
   id: string;
   name: string;
@@ -90,6 +97,11 @@ export interface JinxxyProduct {
   updated_at?: string;
   external_url?: string;
   thumbnail_url?: string;
+  versions?: JinxxyProductVersion[];
+  url?: string;
+  visibility?: string;
+  base_price?: number;
+  currency_code?: string;
 }
 
 /**
@@ -168,6 +180,7 @@ export interface JinxxyLicense {
   id: string;
   key: string;
   product_id: string;
+  product_version_id?: string;
   customer_id?: string;
   status: 'active' | 'disabled' | 'expired' | 'revoked';
   created_at: string;

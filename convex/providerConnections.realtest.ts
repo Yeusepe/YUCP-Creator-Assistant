@@ -341,6 +341,51 @@ describe('provider connection credential storage', () => {
     ]);
   });
 
+  it('keeps boolean connection status aligned with visible active connections', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-connection-visible-status-alignment';
+
+    const connectionId = await t.mutation(api.providerConnections.upsertProviderConnection, {
+      apiSecret: API_SECRET,
+      authUserId,
+      providerKey: 'patreon',
+      authMode: 'oauth',
+      label: 'Patreon Campaign',
+      credentials: [],
+      capabilities: [
+        {
+          capabilityKey: 'catalog_sync',
+          status: 'active',
+          requiredCredentialKeys: ['oauth_access_token'],
+        },
+      ],
+    });
+
+    await expect(
+      t.query(api.providerConnections.listConnectionsForUser, {
+        apiSecret: API_SECRET,
+        authUserId,
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: connectionId,
+        provider: 'patreon',
+        label: 'Patreon Campaign',
+        status: 'active',
+        hasAccessToken: false,
+      }),
+    ]);
+
+    await expect(
+      t.query(api.providerConnections.getConnectionStatus, {
+        apiSecret: API_SECRET,
+        authUserId,
+      })
+    ).resolves.toMatchObject({
+      patreon: true,
+    });
+  });
+
   it('given provider data for 2 creators, when destructive reset runs for one creator, then only that creator provider data is deleted', async () => {
     const t = makeTestConvex();
 

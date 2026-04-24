@@ -13,6 +13,8 @@ export const lemonsqueezy = {
   capabilities: [
     'account_link',
     'catalog_sync',
+    'tier_catalog',
+    'tier_entitlements',
     'webhooks',
     'managed_webhooks',
     'reconciliation',

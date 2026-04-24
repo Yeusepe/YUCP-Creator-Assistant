@@ -43,6 +43,7 @@ import {
   createDiscordRoleSetupSessionToken,
   getDiscordRoleSetupResult,
   listProviderProducts,
+  listProviderTiers,
   resolveVrchatProductName,
   upsertProductCredential,
 } from '../lib/internalRpc';
@@ -77,6 +78,27 @@ interface ProductSession {
   productUrls?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> source/collaborator name) */
   productSources?: Record<string, Record<string, string>>;
+  availableTiers?: Record<
+    string,
+    {
+      active: boolean;
+      amountCents?: number;
+      currency?: string;
+      description?: string;
+      id: string;
+      name: string;
+      productId: string;
+    }
+  >;
+  selectedTierId?: string;
+  selectedTierName?: string;
+  hasTierSelectionStep?: boolean;
+  mappedTierIds?: string[];
+  createdTierMappings?: Array<{
+    roleIds: string[];
+    tierId: string;
+    tierName: string;
+  }>;
   removeProductIds?: string[];
   expiresAt: number;
 }
@@ -199,6 +221,92 @@ function cleanExpiredSessions(): void {
   for (const [key, session] of productSessions.entries()) {
     if (now > session.expiresAt) productSessions.delete(key);
   }
+}
+
+function formatTierAmount(amountCents?: number, currency?: string): string | null {
+  if (amountCents == null) return null;
+  const normalizedCurrency = currency?.trim().toUpperCase() || 'USD';
+  return `${(amountCents / 100).toFixed(2)} ${normalizedCurrency}`;
+}
+
+function getRoleSelectionStepCopy(session: ProductSession): string {
+  return session.hasTierSelectionStep
+    ? '**Step 4 of 4:** Which role(s) should users receive when they verify this tier? You can select multiple.'
+    : '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.';
+}
+
+function getTierSelectionCustomId(userId: string, authUserId: string): string {
+  return `creator_product:tier_select:${userId}:${authUserId}`;
+}
+
+function getRemainingTierOptions(session: ProductSession) {
+  const mappedTierIds = new Set(session.mappedTierIds ?? []);
+  return Object.values(session.availableTiers ?? {}).filter((tier) => !mappedTierIds.has(tier.id));
+}
+
+function buildTierSelectionComponents(
+  session: ProductSession,
+  userId: string,
+  authUserId: string
+): Array<ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>> {
+  const remainingTiers = getRemainingTierOptions(session);
+  const tierSelect = new StringSelectMenuBuilder()
+    .setCustomId(getTierSelectionCustomId(userId, authUserId))
+    .setPlaceholder('Select the next tier to map...')
+    .addOptions(
+      remainingTiers.slice(0, 25).map((tier) => {
+        const price = formatTierAmount(tier.amountCents, tier.currency);
+        const descriptionParts = [price, tier.description].filter(Boolean);
+        const description = descriptionParts.join(' • ').slice(0, 100) || `Tier ID: ${tier.id}`;
+        return new StringSelectMenuOptionBuilder()
+          .setLabel(tier.name.slice(0, 100))
+          .setValue(tier.id)
+          .setDescription(description);
+      })
+    );
+
+  const rows: Array<ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>> = [
+    new ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>().addComponents(tierSelect),
+  ];
+
+  if ((session.createdTierMappings?.length ?? 0) > 0) {
+    rows.push(
+      new ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`creator_product:finish_tiers:${userId}:${authUserId}`)
+          .setLabel('Finish Tier Mapping')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`creator_product:cancel_add:${authUserId}`)
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Secondary)
+      )
+    );
+  }
+
+  return rows;
+}
+
+function getTierSelectionStepCopy(session: ProductSession): string {
+  const remainingCount = getRemainingTierOptions(session).length;
+  const mappedCount = session.createdTierMappings?.length ?? 0;
+  const mappedSummary =
+    mappedCount > 0
+      ? `\nAlready mapped: ${session.createdTierMappings
+          ?.map((mapping) => `**${mapping.tierName}**`)
+          .join(', ')}`
+      : '';
+  return `**Step 3 of 4:** Select the next tier to map. You can finish once you've mapped the tiers you want. Any remaining tiers will be skipped.\nRemaining tiers: **${remainingCount}**${mappedSummary}`;
+}
+
+function buildTierMappingSummary(session: ProductSession): string {
+  const mappings = session.createdTierMappings ?? [];
+  return mappings
+    .map(
+      (mapping) =>
+        `**${mapping.tierName}:** ${mapping.roleIds.map((roleId) => `<@&${roleId}>`).join(', ')}`
+    )
+    .join('\n');
 }
 
 /** Returns the Discord custom ID for the catalog product select menu.
@@ -684,6 +792,37 @@ export async function handleProductCatalogSelect(
   }
 
   session.urlOrId = productId;
+  session.selectedTierId = undefined;
+  session.selectedTierName = undefined;
+  session.availableTiers = undefined;
+  session.hasTierSelectionStep = false;
+  session.mappedTierIds = [];
+  session.createdTierMappings = [];
+
+  const provider = session.type;
+  const descriptor = provider ? getProviderDescriptor(provider) : undefined;
+  if (provider && descriptor?.capabilities.includes('tier_catalog')) {
+    const { tiers, error } = await listProviderTiers(provider, authUserId, productId);
+    if (error && error !== 'not_supported') {
+      await interaction.reply({
+        content: `${E.X_} Couldn't load tiers for this product right now. Please try again.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (tiers.length > 1 || provider === 'patreon') {
+      session.hasTierSelectionStep = true;
+      session.availableTiers = Object.fromEntries(tiers.map((tier) => [tier.id, tier]));
+
+      await interaction.reply({
+        content: getTierSelectionStepCopy(session),
+        components: buildTierSelectionComponents(session, userId, authUserId),
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+  }
 
   const roleSelect = new RoleSelectMenuBuilder()
     .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
@@ -694,9 +833,58 @@ export async function handleProductCatalogSelect(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content: getRoleSelectionStepCopy(session),
     components: [row],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
+export async function handleProductTierSelect(
+  interaction: StringSelectMenuInteraction,
+  userId: string,
+  authUserId: string
+): Promise<void> {
+  const tierId = interaction.values[0];
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.reply({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if ((session.mappedTierIds ?? []).includes(tierId)) {
+    await interaction.reply({
+      content: `${E.X_} That tier is already mapped in this session. Pick a different tier or finish mapping.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const selectedTier = session.availableTiers?.[tierId];
+  if (!selectedTier) {
+    await interaction.reply({
+      content: `${E.X_} That tier is no longer available. Please run \`/creator-admin product add\` again.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  session.selectedTierId = selectedTier.id;
+  session.selectedTierName = selectedTier.name;
+
+  const roleSelect = new RoleSelectMenuBuilder()
+    .setCustomId(`creator_product:role_select:${userId}:${authUserId}`)
+    .setMinValues(1)
+    .setMaxValues(25)
+    .setPlaceholder('Select role(s) to assign when verified (1–25)');
+
+  await interaction.reply({
+    content: getRoleSelectionStepCopy(session),
+    components: [new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect)],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -747,8 +935,7 @@ export async function handleProductUrlModal(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content: getRoleSelectionStepCopy(session),
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -809,8 +996,7 @@ export async function handleProductPayhipModal(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content: getRoleSelectionStepCopy(session),
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -863,8 +1049,7 @@ export async function handleProductPerCredentialModal(
   const row = new ActionRowBuilder<RoleSelectMenuBuilder>().addComponents(roleSelect);
 
   await interaction.reply({
-    content:
-      '**Step 3 of 3:** Which role(s) should users receive when they verify this product? You can select multiple.',
+    content: getRoleSelectionStepCopy(session),
     components: [row],
     flags: MessageFlags.Ephemeral,
   });
@@ -1080,6 +1265,9 @@ export async function handleProductRoleSelect(
     }
     detailLines.push(`**Product:** ${productLabel}`);
   }
+  if (session.selectedTierName) {
+    detailLines.push(`**Tier:** ${session.selectedTierName}`);
+  }
 
   detailLines.push(`**Assigns Role(s):** ${roleIds.map((id) => `<@&${id}>`).join(', ')}`);
 
@@ -1102,7 +1290,7 @@ export async function handleProductRoleSelect(
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`creator_product:confirm_add:${userId}:${authUserId}`)
-      .setLabel('Add Product')
+      .setLabel(session.hasTierSelectionStep ? 'Add Tier Mapping' : 'Add Product')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`creator_product:cancel_add:${authUserId}`)
@@ -1139,6 +1327,8 @@ export async function handleProductConfirmAdd(
     const {
       type,
       urlOrId,
+      selectedTierId,
+      selectedTierName,
       sourceGuildId,
       sourceRoleId,
       sourceRoleIds,
@@ -1154,6 +1344,7 @@ export async function handleProductConfirmAdd(
 
     let productId: string;
     let catalogProductId: Id<'product_catalog'> | undefined;
+    let catalogTierId: Id<'catalog_tiers'> | undefined;
 
     if (type === 'discord_role') {
       const reqIds = sourceRoleIds ?? (sourceRoleId ? [sourceRoleId] : []);
@@ -1402,6 +1593,33 @@ export async function handleProductConfirmAdd(
       throw new Error('Unknown product type');
     }
 
+    if (selectedTierId) {
+      if (!type || !catalogProductId) {
+        throw new Error('Tier mapping requires a catalog-backed provider product');
+      }
+      const selectedTier = session.availableTiers?.[selectedTierId];
+      if (!selectedTier) {
+        throw new Error('Selected tier details are missing');
+      }
+      catalogTierId = await convex.mutation(api.catalogTiers.upsertCatalogTier, {
+        apiSecret,
+        authUserId,
+        provider: type,
+        productId,
+        catalogProductId,
+        providerProductRef: urlOrId ?? productId,
+        providerTierRef: selectedTier.id,
+        displayName: selectedTier.name,
+        description: selectedTier.description,
+        amountCents: selectedTier.amountCents,
+        currency: selectedTier.currency,
+        status: selectedTier.active ? 'active' : 'archived',
+        metadata: {
+          source: 'discord_product_add',
+        },
+      });
+    }
+
     const { ruleId } = await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,
       authUserId,
@@ -1409,9 +1627,9 @@ export async function handleProductConfirmAdd(
       guildLinkId,
       productId,
       catalogProductId,
+      catalogTierId,
       verifiedRoleIds,
     });
-    productSessions.delete(sessionKey);
     track(interaction.user.id, 'product_added', { authUserId, guildId, productId, ruleId });
 
     let finalProductLabel = productId;
@@ -1422,7 +1640,46 @@ export async function handleProductConfirmAdd(
       const src = savedSources?.[productId];
       finalProductLabel = src ? `${name} (via ${src})` : name;
     }
+    if (selectedTierName) {
+      finalProductLabel = `${finalProductLabel} / ${selectedTierName}`;
+    }
     const rolesMsg = verifiedRoleIds.map((id) => `<@&${id}>`).join(', ');
+
+    if (session.hasTierSelectionStep && selectedTierId && selectedTierName) {
+      session.createdTierMappings = [
+        ...(session.createdTierMappings ?? []),
+        {
+          tierId: selectedTierId,
+          tierName: selectedTierName,
+          roleIds: verifiedRoleIds,
+        },
+      ];
+      session.mappedTierIds = [...(session.mappedTierIds ?? []), selectedTierId];
+      session.selectedTierId = undefined;
+      session.selectedTierName = undefined;
+      session.roleId = undefined;
+      session.roleIds = undefined;
+
+      const remainingTiers = getRemainingTierOptions(session);
+      if (remainingTiers.length > 0) {
+        await interaction.editReply({
+          content: `${E.Checkmark} Added mapping for **${finalProductLabel}** -> ${rolesMsg}.\n\n${getTierSelectionStepCopy(session)}`,
+          components: buildTierSelectionComponents(session, userId, authUserId),
+          embeds: [],
+        });
+        return;
+      }
+
+      productSessions.delete(sessionKey);
+      await interaction.editReply({
+        content: `${E.Checkmark} Product mapped.\n${buildTierMappingSummary(session)}`,
+        components: [],
+        embeds: [],
+      });
+      return;
+    }
+
+    productSessions.delete(sessionKey);
     await interaction.editReply({
       content: `${E.Checkmark} Product **${finalProductLabel}** mapped to ${rolesMsg}. Users who verify this product will automatically receive the role(s).`,
       components: [],
@@ -1442,6 +1699,53 @@ export async function handleProductConfirmAdd(
       embeds: [],
     });
   }
+}
+
+export async function handleProductFinishTierMappings(
+  interaction: ButtonInteraction,
+  userId: string,
+  authUserId: string
+): Promise<void> {
+  const sessionKey = getSessionKey(userId, authUserId, interaction.guildId ?? '');
+  const session = productSessions.get(sessionKey);
+
+  if (!session || Date.now() > session.expiresAt) {
+    await interaction.update({
+      content: `${E.Timer} Session expired. Please run \`/creator-admin product add\` again.`,
+      components: [],
+      embeds: [],
+    });
+    return;
+  }
+
+  const mappedCount = session.createdTierMappings?.length ?? 0;
+  if (mappedCount === 0) {
+    await interaction.update({
+      content: `${E.X_} Pick at least one tier to map before finishing, or cancel this flow.`,
+      components: buildTierSelectionComponents(session, userId, authUserId),
+      embeds: [],
+    });
+    return;
+  }
+
+  const remainingCount = getRemainingTierOptions(session).length;
+  const names = session.type ? session.productNames?.[session.type] : undefined;
+  const sources = session.type ? session.productSources?.[session.type] : undefined;
+  let productLabel = session.urlOrId ?? 'product';
+  if (session.urlOrId && names?.[session.urlOrId]) {
+    const name = names[session.urlOrId];
+    const src = sources?.[session.urlOrId];
+    productLabel = src ? `${name} (via ${src})` : name;
+  }
+
+  productSessions.delete(sessionKey);
+  await interaction.update({
+    content: `${E.Checkmark} Product **${productLabel}** mapped.\n${buildTierMappingSummary(session)}${
+      remainingCount > 0 ? `\nSkipped tiers: **${remainingCount}**` : ''
+    }`,
+    components: [],
+    embeds: [],
+  });
 }
 
 /** Cancel button - clears session */
@@ -1500,7 +1804,10 @@ export async function handleProductList(
         .map((r) => {
           const roleIds = r.verifiedRoleIds ?? (r.verifiedRoleId ? [r.verifiedRoleId] : []);
           const rolesStr = roleIds.map((id) => `<@&${id}>`).join(', ');
-          return `• **${productProviderPrefix(r)}${r.displayName ?? r.productId}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
+          const targetName = r.tierDisplayName
+            ? `${r.displayName ?? r.productId} / ${r.tierDisplayName}`
+            : (r.displayName ?? r.productId);
+          return `• **${productProviderPrefix(r)}${targetName}** → ${rolesStr} ${r.enabled !== false ? E.Checkmark : '(disabled)'}`;
         })
         .join('\n')
     );
@@ -1549,9 +1856,13 @@ export async function handleProductRemove(
     .setMaxValues(toShow.length)
     .addOptions(
       toShow.map((r) => {
-        const labelText = `${productProviderPrefix(r)}${r.displayName ?? r.productId}`;
+        const labelText = `${productProviderPrefix(r)}${
+          r.tierDisplayName
+            ? `${r.displayName ?? r.productId} / ${r.tierDisplayName}`
+            : (r.displayName ?? r.productId)
+        }`;
         const label = labelText.length > 100 ? `${labelText.slice(0, 97)}...` : labelText;
-        return new StringSelectMenuOptionBuilder().setLabel(label).setValue(r.productId);
+        return new StringSelectMenuOptionBuilder().setLabel(label).setValue(r.ruleId);
       })
     );
 
@@ -1575,8 +1886,8 @@ export async function handleProductRemoveSelect(
   _apiSecret: string,
   authUserId: string
 ): Promise<void> {
-  const productIds = interaction.values;
-  if (!productIds || productIds.length === 0) {
+  const ruleIds = interaction.values;
+  if (!ruleIds || ruleIds.length === 0) {
     if (!interaction.deferred && !interaction.replied) {
       await interaction.update({ content: 'No products selected.', components: [] });
     } else {
@@ -1597,14 +1908,14 @@ export async function handleProductRemoveSelect(
     productSessions.set(sessionKey, session);
   }
 
-  session.removeProductIds = productIds;
+  session.removeProductIds = ruleIds;
   session.expiresAt = Date.now() + 10 * 60 * 1000;
 
   const embed = new EmbedBuilder()
     .setTitle(`${E.Wrench} Confirm Removal`)
     .setColor(0xfee75c)
     .setDescription(
-      `Are you sure you want to remove **${productIds.length}** product mapping(s)? This will stop granting roles for these products.`
+      `Are you sure you want to remove **${ruleIds.length}** mapping(s)? This will stop granting roles for these mappings.`
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -1648,7 +1959,7 @@ export async function handleProductConfirmRemove(
     return;
   }
 
-  const productIds = session.removeProductIds;
+  const ruleIds = session.removeProductIds;
 
   const rules = await convex.query(api.role_rules.getByTenant, {
     apiSecret,
@@ -1660,32 +1971,30 @@ export async function handleProductConfirmRemove(
   const removedDiscordRoles: any[] = [];
   const notFoundIds: string[] = [];
 
-  for (const productId of productIds) {
-    const matching = rules.filter(
-      (r: (typeof rules)[number]) => r.productId === productId && r.guildId === session.guildId
+  for (const ruleId of ruleIds) {
+    const rule = rules.find(
+      (entry: (typeof rules)[number]) => entry._id === ruleId && entry.guildId === session.guildId
     );
 
-    if (matching.length === 0) {
-      notFoundIds.push(productId);
+    if (!rule) {
+      notFoundIds.push(ruleId);
       continue;
     }
 
-    for (const rule of matching) {
-      await convex.mutation(api.role_rules.deleteRoleRule, {
-        apiSecret,
-        ruleId: rule._id,
-      });
-      removedCount++;
-      if (productId.startsWith('discord_role:')) {
-        removedDiscordRoles.push(rule);
-      }
+    await convex.mutation(api.role_rules.deleteRoleRule, {
+      apiSecret,
+      ruleId: rule._id,
+    });
+    removedCount++;
+    if (rule.productId.startsWith('discord_role:')) {
+      removedDiscordRoles.push(rule);
     }
   }
 
   let content = '';
 
   if (removedCount > 0) {
-    content += `${E.Checkmark} Removed ${removedCount} rule(s) for ${productIds.length - notFoundIds.length} product(s).\n\n`;
+    content += `${E.Checkmark} Removed ${removedCount} rule mapping(s).\n\n`;
 
     for (const r of removedDiscordRoles) {
       let sourceRoleName = '?';

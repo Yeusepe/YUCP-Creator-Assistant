@@ -68,6 +68,9 @@ describe('createLemonSqueezyProviderModule', () => {
           async getStores() {
             return { stores: [{ id: 'store-1' }] };
           },
+          async getVariants() {
+            return [];
+          },
           async validateLicenseKey() {
             return { valid: false };
           },
@@ -104,6 +107,9 @@ describe('createLemonSqueezyLicenseVerification', () => {
           },
           async getStores() {
             return { stores: [{ id: 'store-1' }] };
+          },
+          async getVariants() {
+            return [];
           },
           async validateLicenseKey() {
             return {

@@ -13,7 +13,13 @@ export const payhip = {
   creatorAuthModes: ['api_key'],
   buyerVerificationMethods: ['license_key', 'account_link'],
   // Note: no separate webhook_secret -- Payhip signature = SHA256(apiKey), derived from api_key
-  capabilities: ['account_link', 'webhooks', 'license_verification', 'orders', 'refunds'],
+  capabilities: [
+    'account_link',
+    'webhooks',
+    'license_verification',
+    'orders',
+    'refunds',
+  ],
   setupRequirements: ['api_key', 'webhook_endpoint'],
   verificationMethods: ['license_key'],
   supportsCredentialLogin: true,

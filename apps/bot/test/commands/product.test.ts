@@ -17,6 +17,19 @@ const mockListProducts = mock(() =>
     }>,
   })
 );
+const mockListTiers = mock(() =>
+  Promise.resolve({
+    tiers: [] as Array<{
+      active: boolean;
+      amountCents?: number;
+      currency?: string;
+      description?: string;
+      id: string;
+      name: string;
+      productId: string;
+    }>,
+  })
+);
 const mockCreateDiscordRoleSetupSessionToken = mock(() =>
   Promise.resolve<string | undefined>(undefined)
 );
@@ -24,6 +37,7 @@ const mockGetDiscordRoleSetupResult = mock(() => Promise.resolve({ completed: fa
 
 mock.module('../../src/lib/internalRpc', () => ({
   listProviderProducts: mockListProducts,
+  listProviderTiers: mockListTiers,
   createDiscordRoleSetupSessionToken: mockCreateDiscordRoleSetupSessionToken,
   getDiscordRoleSetupResult: mockGetDiscordRoleSetupResult,
   resolveVrchatAvatarName: mock(() => Promise.resolve({ name: undefined })),
@@ -48,6 +62,9 @@ mock.module('../../../../convex/_generated/api', () => ({
       createRoleRule: 'role_rules:createRoleRule',
       getByTenant: 'role_rules:getByTenant',
       deleteRoleRule: 'role_rules:deleteRoleRule',
+    },
+    catalogTiers: {
+      upsertCatalogTier: 'catalogTiers:upsertCatalogTier',
     },
     creatorProfiles: {
       getCreatorProfile: 'creatorProfiles:getCreatorProfile',
@@ -132,9 +149,11 @@ import {
   handleProductCatalogSelect,
   handleProductConfirmAdd,
   handleProductDiscordRoleDone,
+  handleProductFinishTierMappings,
   handleProductList,
   handleProductPayhipModal,
   handleProductRoleSelect,
+  handleProductTierSelect,
   handleProductTypeSelect,
 } from '../../src/commands/product';
 import type { MockFn } from '../helpers/mockInteraction';
@@ -170,6 +189,7 @@ const ALL_CONNECTED = makeMockConvex({
   gumroad: true,
   jinxxy: true,
   lemonsqueezy: true,
+  patreon: true,
   payhip: true,
   vrchat: true,
 });
@@ -186,6 +206,12 @@ beforeEach(() => {
   mockListProducts.mockImplementation(() =>
     Promise.resolve({
       products: [],
+    })
+  );
+  mockListTiers.mockReset();
+  mockListTiers.mockImplementation(() =>
+    Promise.resolve({
+      tiers: [],
     })
   );
 });
@@ -239,9 +265,10 @@ describe('product command', () => {
     expect(optionValues).toContain('discord_role');
     // discord provider itself is handled only as discord_role, not as a raw entry
     expect(optionValues).not.toContain('discord');
+    // Active creator-connected membership provider
+    expect(optionValues).toContain('patreon');
     // Planned/manual providers must not appear
     expect(optionValues).not.toContain('manual');
-    expect(optionValues).not.toContain('patreon');
   });
 
   it('given gumroad_url type selected, shows text input modal for URL or ID', async () => {
@@ -285,6 +312,334 @@ describe('product command', () => {
     const modal = selectInteraction.showModal.mock.calls[0]?.[0];
     // Modal custom ID uses url_modal
     expect(modal?.data?.custom_id ?? modal?.customId).toContain('url_modal');
+  });
+
+  it('given tiered catalog provider product selected, shows tier selection before role selection', async () => {
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_tier',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_product_tier',
+        guildLinkId: 'link_id_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelect = mockStringSelect({
+      userId: 'user_prod_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_tier',
+      values: ['lemonsqueezy'],
+    });
+    mockListProducts.mockResolvedValueOnce({
+      products: [{ id: 'prod_1', name: 'Main Product' }],
+    });
+    await handleProductTypeSelect(
+      typeSelect as unknown as StringSelectMenuInteraction,
+      'auth_product_tier',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    mockListTiers.mockResolvedValueOnce({
+      tiers: [
+        {
+          id: 'tier_basic',
+          productId: 'prod_1',
+          name: 'Basic',
+          active: true,
+        },
+        {
+          id: 'tier_pro',
+          productId: 'prod_1',
+          name: 'Pro',
+          active: true,
+        },
+      ],
+    });
+
+    const productSelect = mockStringSelect({
+      userId: 'user_prod_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:ls_product_select:user_prod_tier:auth_product_tier',
+      values: ['prod_1'],
+    });
+
+    await handleProductCatalogSelect(
+      productSelect as unknown as StringSelectMenuInteraction,
+      'lemonsqueezy',
+      'user_prod_tier',
+      'auth_product_tier'
+    );
+
+    const payload = productSelect.reply.mock.calls[0]?.[0];
+    expect(payload?.content).toContain('Step 3 of 4');
+    const customIds = extractAllCustomIds(productSelect);
+    expect(customIds).toContain('creator_product:tier_select:user_prod_tier:auth_product_tier');
+  });
+
+  it('given a tier selected, shows role selection as step 4', async () => {
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_tier_role',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_product_tier_role',
+        guildLinkId: 'link_id_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      ALL_CONNECTED,
+      TEST_API_SECRET
+    );
+
+    const typeSelect = mockStringSelect({
+      userId: 'user_prod_tier_role',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_tier_role',
+      values: ['lemonsqueezy'],
+    });
+    mockListProducts.mockResolvedValueOnce({
+      products: [{ id: 'prod_1', name: 'Main Product' }],
+    });
+    await handleProductTypeSelect(
+      typeSelect as unknown as StringSelectMenuInteraction,
+      'auth_product_tier_role',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    mockListTiers.mockResolvedValueOnce({
+      tiers: [
+        {
+          id: 'tier_basic',
+          productId: 'prod_1',
+          name: 'Basic',
+          active: true,
+        },
+        {
+          id: 'tier_pro',
+          productId: 'prod_1',
+          name: 'Pro',
+          active: true,
+        },
+      ],
+    });
+
+    const productSelect = mockStringSelect({
+      userId: 'user_prod_tier_role',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:ls_product_select:user_prod_tier_role:auth_product_tier_role',
+      values: ['prod_1'],
+    });
+    await handleProductCatalogSelect(
+      productSelect as unknown as StringSelectMenuInteraction,
+      'lemonsqueezy',
+      'user_prod_tier_role',
+      'auth_product_tier_role'
+    );
+
+    const tierSelect = mockStringSelect({
+      userId: 'user_prod_tier_role',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:tier_select:user_prod_tier_role:auth_product_tier_role',
+      values: ['tier_pro'],
+    });
+
+    await handleProductTierSelect(
+      tierSelect as unknown as StringSelectMenuInteraction,
+      'user_prod_tier_role',
+      'auth_product_tier_role'
+    );
+
+    const payload = tierSelect.reply.mock.calls[0]?.[0];
+    expect(payload?.content).toContain('Step 4 of 4');
+  });
+
+  it('given multiple tier mappings, lets the creator finish early and skip remaining tiers', async () => {
+    const convex = {
+      query: mock((ref: unknown) => {
+        if (ref === 'providerConnections:getConnectionStatus') {
+          return Promise.resolve({
+            lemonsqueezy: true,
+            patreon: true,
+          });
+        }
+        return Promise.resolve([]);
+      }),
+      mutation: mock((ref: unknown, args: Record<string, unknown>) => {
+        if (ref === 'role_rules:addCatalogProduct') {
+          return Promise.resolve({
+            productId: 'prod_1',
+            catalogProductId: 'catalog_prod_1',
+          });
+        }
+        if (ref === 'role_rules:createRoleRule') {
+          return Promise.resolve({
+            ruleId: `rule_${args.catalogTierId ?? 'product'}`,
+          });
+        }
+        if (ref === 'catalogTiers:upsertCatalogTier') {
+          return Promise.resolve(`catalog_tier_${String(args.providerTierRef)}`);
+        }
+        return Promise.resolve(undefined);
+      }),
+      action: mock(() => Promise.resolve(undefined)),
+    } as unknown as import('convex/browser').ConvexHttpClient;
+
+    const slashInteraction = mockSlashCommand({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      commandName: 'creator-admin',
+      subcommandGroup: 'product',
+      subcommand: 'add',
+      isAdmin: true,
+    });
+
+    await handleProductAddInteractive(
+      slashInteraction as unknown as ChatInputCommandInteraction,
+      {
+        authUserId: 'auth_product_multi_tier',
+        guildLinkId: 'link_id_1' as ProductCtx['guildLinkId'],
+        guildId: 'guild_product_test',
+      },
+      convex,
+      TEST_API_SECRET
+    );
+
+    const typeSelect = mockStringSelect({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:type_select:auth_product_multi_tier',
+      values: ['patreon'],
+    });
+    mockListProducts.mockResolvedValueOnce({
+      products: [
+        {
+          id: 'prod_1',
+          name: 'Campaign Alpha',
+          productUrl: 'https://www.patreon.com/join/campaign-alpha',
+        },
+      ],
+    });
+    await handleProductTypeSelect(
+      typeSelect as unknown as StringSelectMenuInteraction,
+      'auth_product_multi_tier',
+      TYPE_SELECT_CONVEX,
+      TEST_API_SECRET
+    );
+
+    mockListTiers.mockResolvedValueOnce({
+      tiers: [
+        { id: 'tier_basic', productId: 'prod_1', name: 'Basic', active: true },
+        { id: 'tier_pro', productId: 'prod_1', name: 'Pro', active: true },
+        { id: 'tier_vip', productId: 'prod_1', name: 'VIP', active: true },
+      ],
+    });
+
+    const productSelect = mockStringSelect({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId:
+        'creator_product:catalog_select:patreon:user_prod_multi_tier:auth_product_multi_tier',
+      values: ['prod_1'],
+    });
+    await handleProductCatalogSelect(
+      productSelect as unknown as StringSelectMenuInteraction,
+      'patreon',
+      'user_prod_multi_tier',
+      'auth_product_multi_tier'
+    );
+
+    const tierSelect = mockStringSelect({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:tier_select:user_prod_multi_tier:auth_product_multi_tier',
+      values: ['tier_basic'],
+    });
+    await handleProductTierSelect(
+      tierSelect as unknown as StringSelectMenuInteraction,
+      'user_prod_multi_tier',
+      'auth_product_multi_tier'
+    );
+
+    const roleSelect = mockStringSelect({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:role_select:user_prod_multi_tier:auth_product_multi_tier',
+      values: ['verified_role_1'],
+    });
+    roleSelect.isRoleSelectMenu = () => true;
+    roleSelect.guild = {
+      roles: {
+        cache: new Map([['verified_role_1', { position: 1 }]]),
+        fetch: () => Promise.resolve({ name: 'Verified Role' }),
+      },
+      members: {
+        me: {
+          roles: {
+            highest: { position: 10 },
+          },
+        },
+      },
+    } as never;
+    await handleProductRoleSelect(
+      roleSelect as unknown as RoleSelectMenuInteraction,
+      'user_prod_multi_tier',
+      'auth_product_multi_tier'
+    );
+
+    const confirmInteraction = mockButton({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:confirm_add:user_prod_multi_tier:auth_product_multi_tier',
+    });
+    await handleProductConfirmAdd(
+      confirmInteraction as unknown as ButtonInteraction,
+      convex,
+      TEST_API_SECRET,
+      'user_prod_multi_tier',
+      'auth_product_multi_tier'
+    );
+
+    const loopPayload = confirmInteraction.editReply.mock.calls[0]?.[0];
+    expect(loopPayload?.content).toContain('Added mapping for **Campaign Alpha / Basic**');
+    expect(loopPayload?.content).toContain('Remaining tiers: **2**');
+    const loopCustomIds = extractAllCustomIds(confirmInteraction);
+    expect(loopCustomIds).toContain(
+      'creator_product:finish_tiers:user_prod_multi_tier:auth_product_multi_tier'
+    );
+
+    const finishInteraction = mockButton({
+      userId: 'user_prod_multi_tier',
+      guildId: 'guild_product_test',
+      customId: 'creator_product:finish_tiers:user_prod_multi_tier:auth_product_multi_tier',
+    });
+    await handleProductFinishTierMappings(
+      finishInteraction as unknown as ButtonInteraction,
+      'user_prod_multi_tier',
+      'auth_product_multi_tier'
+    );
+
+    const finishPayload = finishInteraction.update.mock.calls[0]?.[0];
+    expect(finishPayload?.content).toContain('**Basic:** <@&verified_role_1>');
+    expect(finishPayload?.content).toContain('Skipped tiers: **2**');
   });
 
   it('given gumroad type selected but no products configured, shows empty-state error', async () => {

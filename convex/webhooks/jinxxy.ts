@@ -55,10 +55,17 @@ export async function processJinxxyEvent(
   const createdAt = data.created_at as string | undefined;
   const purchasedAt = createdAt ? new Date(createdAt).getTime() : Date.now();
 
+  /**
+   * Jinxxy order and license docs:
+   * - https://api.creators.jinxxy.com/v1/docs
+   * - https://api.creators.jinxxy.com/v1/openapi.json
+   * Order items expose `target_version_id`, which identifies the purchased product version tier.
+   */
   const orderItems = (data.order_items ?? []) as Array<{
     id: string;
     target_type: string;
     target_id: string;
+    target_version_id?: string;
     name?: string;
   }>;
 
@@ -79,6 +86,7 @@ export async function processJinxxyEvent(
 
     const externalLineItemId = item.id;
     const providerProductId = item.target_id;
+    const providerProductVersionId = item.target_version_id;
     const sourceRef = `jinxxy:${orderId}:${externalLineItemId}`;
 
     const existing = await ctx.db
@@ -97,6 +105,7 @@ export async function processJinxxyEvent(
       await ctx.db.patch(existing._id, {
         paymentStatus: paymentStatus.toLowerCase(),
         lifecycleStatus,
+        providerProductVersionId: providerProductVersionId ?? existing.providerProductVersionId,
         updatedAt: now,
         rawSourceEventId: event._id,
         subjectId: resolvedSubjectId,
@@ -124,6 +133,7 @@ export async function processJinxxyEvent(
         buyerEmailEncrypted,
         providerUserId: jinxxyUserId,
         providerProductId,
+        providerProductVersionId,
         paymentStatus: paymentStatus.toLowerCase(),
         lifecycleStatus: 'active',
         purchasedAt,

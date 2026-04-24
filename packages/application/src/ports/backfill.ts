@@ -7,6 +7,7 @@ export interface BackfillRecord {
   buyerEmailEncrypted?: string;
   providerUserId?: string;
   providerProductId: string;
+  providerProductVersionId?: string;
   paymentStatus: string;
   lifecycleStatus: 'active' | 'refunded' | 'cancelled' | 'disputed';
   purchasedAt: number;

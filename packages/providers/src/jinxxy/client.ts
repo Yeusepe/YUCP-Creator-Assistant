@@ -258,9 +258,19 @@ export class JinxxyApiClient {
    */
   async getProduct(productId: string): Promise<JinxxyProduct | null> {
     try {
-      const response = await this.request<JinxxyProductResponse>('GET', `/products/${productId}`);
+      /**
+       * Jinxxy product docs:
+       * - https://api.creators.jinxxy.com/v1/docs#tag/products/GET/products/{id}
+       * - https://api.creators.jinxxy.com/v1/openapi.json
+       * The endpoint returns the product object directly, including `versions[]`.
+       */
+      const data = await this.request<JinxxyProductResponse | JinxxyProduct>(
+        'GET',
+        `/products/${productId}`
+      );
 
-      return response.product ?? null;
+      const product = (data as JinxxyProductResponse).product ?? (data as JinxxyProduct);
+      return product?.id ? product : null;
     } catch (error) {
       if (error instanceof JinxxyApiError && error.statusCode === 404) {
         return null;
@@ -371,6 +381,7 @@ export class JinxxyApiClient {
       id: raw.id,
       key: raw.key,
       product_id: inv?.target_id ?? '',
+      product_version_id: inv?.target_version_id,
       customer_id: raw.user?.id,
       status: 'active', // Jinxxy API has no status; existence implies valid (matches jinx-master)
       created_at: '',

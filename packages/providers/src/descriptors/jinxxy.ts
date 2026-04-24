@@ -13,6 +13,7 @@ export const jinxxy = {
   capabilities: [
     'account_link',
     'catalog_sync',
+    'tier_catalog',
     'webhooks',
     'reconciliation',
     'license_verification',

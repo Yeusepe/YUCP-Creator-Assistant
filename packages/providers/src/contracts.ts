@@ -16,6 +16,27 @@ export interface ProductRecord {
   [key: string]: unknown;
 }
 
+export interface ProviderTierRecord {
+  id: string;
+  productId: string;
+  name: string;
+  description?: string | null;
+  amountCents?: number | null;
+  currency?: string | null;
+  active?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderTierEntitlementRecord {
+  subjectId: string;
+  productId: string;
+  tierIds: string[];
+  status?: string;
+  observedAt: string;
+  rawRef: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface BackfillPage<TFact = unknown> {
   readonly facts: TFact[];
   readonly nextCursor: string | null;
@@ -61,6 +82,19 @@ export interface LicenseVerificationPlugin<
     authUserId: string,
     ctx: ProviderContext<TClient>
   ): Promise<LicenseVerificationResult | null>;
+}
+
+export interface ProviderTierPlugin<TClient extends ProviderRuntimeClient = ProviderRuntimeClient> {
+  listProductTiers(
+    credential: string | null,
+    productId: string,
+    ctx: ProviderContext<TClient>
+  ): Promise<ProviderTierRecord[]>;
+  listEntitlements?(
+    credential: string,
+    cursor: string | null,
+    ctx: ProviderContext<TClient>
+  ): Promise<BackfillPage<ProviderTierEntitlementRecord>>;
 }
 
 export type BuyerVerificationMethodKind = 'manual_license';
@@ -145,6 +179,7 @@ export interface ProviderRuntimeModule<
   readonly needsCredential: boolean;
   getCredential(ctx: ProviderContext<TClient>): Promise<string | null>;
   fetchProducts(credential: string | null, ctx: ProviderContext<TClient>): Promise<ProductRecord[]>;
+  readonly tiers?: ProviderTierPlugin<TClient>;
   readonly backfill?: BackfillPlugin<TBackfillFact>;
   readonly verification?: LicenseVerificationPlugin<TClient>;
   readonly buyerVerification?: BuyerVerificationAdapter<TClient>;

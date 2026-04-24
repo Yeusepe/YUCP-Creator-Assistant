@@ -1,0 +1,96 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { api, internal } from './_generated/api';
+import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
+
+const API_SECRET = 'test-secret';
+
+describe('catalog tier entitlement resolution', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = API_SECRET;
+  });
+
+  it('resolves Jinxxy purchase fact version ids into active catalog tiers', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-jinxxy-tier';
+    const buyerAuthUserId = 'buyer-jinxxy-tier';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-jinxxy-tier',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-jinxxy-tier',
+    });
+
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-jinxxy-product',
+        provider: 'jinxxy',
+        providerProductRef: 'product-1',
+        displayName: 'Avatar Package',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'jinxxy',
+      productId: 'local-jinxxy-product',
+      catalogProductId,
+      providerProductRef: 'product-1',
+      providerTierRef: 'version-commercial',
+      displayName: 'Commercial License',
+      amountCents: 2500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        externalOrderId: 'order-1',
+        externalLineItemId: 'line-1',
+        providerProductId: 'product-1',
+        providerProductVersionId: 'version-commercial',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        subjectId: buyerSubjectId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await t.mutation(internal.backgroundSync.projectBackfilledPurchasesForProduct, {
+      authUserId: creatorAuthUserId,
+      productId: 'local-jinxxy-product',
+      provider: 'jinxxy',
+      providerProductRef: 'product-1',
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-jinxxy-product',
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected projected entitlement');
+    }
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+  });
+});

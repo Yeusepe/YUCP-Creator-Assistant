@@ -49,6 +49,17 @@ interface JinxxyClientLike {
     products: Array<{ id: string; name: string }>;
     pagination?: { has_next?: boolean };
   }>;
+  getProduct(productId: string): Promise<{
+    id: string;
+    versions?: Array<{
+      id: string;
+      name: string;
+      price: number;
+    }>;
+    base_price?: number;
+    currency_code?: string;
+    visibility?: string;
+  } | null>;
   verifyLicenseByKey(licenseKey: string): Promise<{
     valid: boolean;
     error?: string;
@@ -94,6 +105,10 @@ export type JinxxyProviderRuntime<TClient extends ProviderRuntimeClient = Provid
 
 function getClient(ports: JinxxyRuntimePorts, apiKey: string): JinxxyClientLike {
   return ports.createClient?.(apiKey) ?? new JinxxyApiClient({ apiKey });
+}
+
+function mapVisibilityToActive(visibility: string | undefined): boolean {
+  return visibility !== 'ARCHIVED' && visibility !== 'archived';
 }
 
 async function listProductsForKey(
@@ -211,6 +226,38 @@ export function createJinxxyProviderModule<
         seen.add(product.id);
         return true;
       });
+    },
+    tiers: {
+      async listProductTiers(credential, productId) {
+        if (!credential) {
+          return [];
+        }
+
+        const client = getClient(ports, credential);
+        /**
+         * Jinxxy product docs:
+         * - https://api.creators.jinxxy.com/v1/docs#tag/products/GET/products/{id}
+         * - https://api.creators.jinxxy.com/v1/openapi.json
+         * Products include `versions[]`, and each version exposes its own `id`, `name`, and `price`.
+         */
+        const product = await client.getProduct(productId);
+        if (!product?.versions?.length) {
+          return [];
+        }
+
+        const active = mapVisibilityToActive(product.visibility);
+        return product.versions.map((version) => ({
+          id: version.id,
+          productId,
+          name: version.name,
+          amountCents: Math.round(version.price * 100),
+          currency: product.currency_code ?? 'USD',
+          active,
+          metadata: {
+            provider: 'jinxxy',
+          },
+        }));
+      },
     },
     verification: createJinxxyLicenseVerification(ports),
     async collabValidate(credential: string): Promise<void> {

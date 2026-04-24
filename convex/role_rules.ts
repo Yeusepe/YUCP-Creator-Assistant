@@ -178,9 +178,12 @@ export const getByGuildWithProductNames = query({
   },
   returns: v.array(
     v.object({
+      ruleId: v.id('role_rules'),
       productId: v.string(),
       displayName: v.union(v.string(), v.null()),
       provider: v.optional(v.string()),
+      catalogTierId: v.optional(v.id('catalog_tiers')),
+      tierDisplayName: v.optional(v.string()),
       sourceGuildId: v.optional(v.string()),
       sourceGuildName: v.optional(v.string()),
       requiredRoleId: v.optional(v.string()),
@@ -203,9 +206,12 @@ export const getByGuildWithProductNames = query({
 
     const seen = new Set<string>();
     const result: Array<{
+      ruleId: Id<'role_rules'>;
       productId: string;
       displayName: string | null;
       provider?: string;
+      catalogTierId?: Id<'catalog_tiers'>;
+      tierDisplayName?: string;
       sourceGuildId?: string;
       sourceGuildName?: string;
       requiredRoleId?: string;
@@ -217,11 +223,13 @@ export const getByGuildWithProductNames = query({
     }> = [];
 
     for (const r of rules) {
-      if (seen.has(r.productId)) continue;
-      seen.add(r.productId);
+      const dedupeKey = `${r.productId}:${r.catalogTierId ?? ''}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
 
       let displayName: string | null = null;
       let provider: string | undefined;
+      let tierDisplayName: string | undefined;
       if (r.catalogProductId) {
         const catalog = await ctx.db.get(r.catalogProductId);
         if (catalog) {
@@ -231,6 +239,12 @@ export const getByGuildWithProductNames = query({
             catalog.providerProductRef ??
             r.productId;
           provider = catalog.provider;
+        }
+      }
+      if (r.catalogTierId) {
+        const catalogTier = await ctx.db.get(r.catalogTierId);
+        if (catalogTier) {
+          tierDisplayName = catalogTier.displayName;
         }
       }
       // For discord_role products: fall back to the name stored at add time
@@ -243,8 +257,11 @@ export const getByGuildWithProductNames = query({
 
       result.push({
         productId: r.productId,
+        ruleId: r._id,
         displayName,
         provider,
+        catalogTierId: r.catalogTierId,
+        tierDisplayName,
         sourceGuildId: r.sourceGuildId,
         sourceGuildName: r.sourceGuildName,
         requiredRoleId: r.requiredRoleId,
@@ -376,6 +393,7 @@ export const createRoleRule = mutation({
     guildLinkId: v.id('guild_links'),
     productId: v.string(),
     catalogProductId: v.optional(v.id('product_catalog')),
+    catalogTierId: v.optional(v.id('catalog_tiers')),
     verifiedRoleId: v.optional(v.string()),
     verifiedRoleIds: v.optional(v.array(v.string())),
     removeOnRevoke: v.optional(v.boolean()),
@@ -404,6 +422,7 @@ export const createRoleRule = mutation({
       guildLinkId: args.guildLinkId,
       productId: args.productId,
       catalogProductId: args.catalogProductId,
+      catalogTierId: args.catalogTierId,
       verifiedRoleId,
       verifiedRoleIds: roleIds.length > 1 ? roleIds : undefined,
       removeOnRevoke: args.removeOnRevoke ?? true,

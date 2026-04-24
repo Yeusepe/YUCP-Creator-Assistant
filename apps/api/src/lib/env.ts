@@ -43,6 +43,8 @@ export interface LocalEnv {
   GUMROAD_CLIENT_ID?: string;
   GUMROAD_CLIENT_SECRET?: string;
   ITCHIO_CLIENT_ID?: string;
+  PATREON_CLIENT_ID?: string;
+  PATREON_CLIENT_SECRET?: string;
   // Legacy aliases (kept for backward compat)
   GUMROAD_API_KEY?: string;
   GUMROAD_SECRET_KEY?: string;
@@ -183,6 +185,8 @@ function loadFromEnv(): LocalEnv {
     GUMROAD_CLIENT_ID: process.env.GUMROAD_CLIENT_ID,
     GUMROAD_CLIENT_SECRET: process.env.GUMROAD_CLIENT_SECRET,
     ITCHIO_CLIENT_ID: process.env.ITCHIO_CLIENT_ID,
+    PATREON_CLIENT_ID: process.env.PATREON_CLIENT_ID,
+    PATREON_CLIENT_SECRET: process.env.PATREON_CLIENT_SECRET,
     GUMROAD_API_KEY: process.env.GUMROAD_API_KEY,
     GUMROAD_SECRET_KEY: process.env.GUMROAD_SECRET_KEY,
     JINXXY_API_BASE_URL: process.env.JINXXY_API_BASE_URL,
