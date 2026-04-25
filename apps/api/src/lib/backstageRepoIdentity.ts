@@ -12,6 +12,10 @@ type CreatorProfileRecord = {
   slug?: string;
 } | null;
 
+type AuthViewerRecord = {
+  name?: string | null;
+} | null;
+
 export type CreatorRepoIdentity = {
   creatorName?: string;
   creatorRepoRef: string;
@@ -45,9 +49,22 @@ function humanizeCreatorSlug(value: string | undefined): string | undefined {
     .join(' ');
 }
 
+function isSyntheticCreatorName(value: string | undefined): boolean {
+  const normalized = trimOptional(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return /^creator\s+\d+$/iu.test(normalized);
+}
+
 function isFriendlyCreatorName(value: string | undefined): value is string {
   const normalized = trimOptional(value);
-  return typeof normalized === 'string' && /[\p{L}]/u.test(normalized);
+  return (
+    typeof normalized === 'string' &&
+    /[\p{L}]/u.test(normalized) &&
+    !isSyntheticCreatorName(normalized)
+  );
 }
 
 export function buildCreatorRepoRef(input: { authUserId: string; creatorSlug?: string }): string {
@@ -68,26 +85,34 @@ export async function getCreatorRepoIdentity(input: {
   convexApiSecret: string;
   authUserId: string;
 }): Promise<CreatorRepoIdentity> {
-  const profile = await input.convex.query<CreatorProfileRecord>(
-    api.creatorProfiles.getCreatorByAuthUser,
-    {
+  const [profile, viewer] = await Promise.all([
+    input.convex.query<CreatorProfileRecord>(api.creatorProfiles.getCreatorByAuthUser, {
       apiSecret: input.convexApiSecret,
       authUserId: input.authUserId,
-    }
-  );
+    }),
+    input.convex.query<AuthViewerRecord>(api.authViewer.getViewerByAuthUser, {
+      apiSecret: input.convexApiSecret,
+      authUserId: input.authUserId,
+    }),
+  ]);
   const creatorRepoRef = buildCreatorRepoRef({
     authUserId: input.authUserId,
     creatorSlug: profile?.slug,
   });
-  const creatorName = isFriendlyCreatorName(profile?.name)
+  const configuredCreatorName = isFriendlyCreatorName(profile?.name)
     ? profile?.name.trim()
-    : humanizeCreatorSlug(profile?.slug);
+    : undefined;
+  const discordCreatorName = isFriendlyCreatorName(viewer?.name ?? undefined)
+    ? viewer?.name?.trim()
+    : undefined;
+  const creatorName =
+    configuredCreatorName ?? discordCreatorName ?? humanizeCreatorSlug(profile?.slug);
 
   return {
     creatorName,
     creatorRepoRef,
     creatorSlug: profile?.slug,
     repositoryId: `club.yucp.backstage.${sanitizeRepositoryIdSegment(creatorRepoRef)}`,
-    repositoryName: creatorName ? `${creatorName} Backstage Repos` : 'Backstage Repos',
+    repositoryName: creatorName ? `${creatorName} repo` : 'Backstage repo',
   };
 }

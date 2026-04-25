@@ -19,8 +19,8 @@ import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
-import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import type { MutationCtx, QueryCtx } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
@@ -28,6 +28,8 @@ const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PACKAGE_NAME_MAX_LENGTH = 120;
 const PACKAGE_DELETE_BLOCKED_REASON =
   'Package has signing or license history and cannot be deleted.';
+const PRODUCT_DELETE_BLOCKED_REASON =
+  'Product has package, role, entitlement, or tier history and cannot be deleted.';
 const PACKAGE_ARCHIVED_UPDATE_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before renaming it.';
 const PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON =
@@ -207,6 +209,40 @@ async function requireOwnedCatalogProduct(
     throw new ConvexError('Catalog product not found.');
   }
   return product;
+}
+
+async function getProductDeleteBlockedReason(
+  ctx: RegistryReaderCtx,
+  authUserId: string,
+  catalogProductId: Id<'product_catalog'>
+): Promise<string | undefined> {
+  const deliveryLink = await ctx.db
+    .query('delivery_package_products')
+    .withIndex('by_auth_user_catalog_product', (q) =>
+      q.eq('authUserId', authUserId).eq('catalogProductId', catalogProductId)
+    )
+    .first();
+  if (deliveryLink) return PRODUCT_DELETE_BLOCKED_REASON;
+
+  const roleRule = await ctx.db
+    .query('role_rules')
+    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
+    .first();
+  if (roleRule) return PRODUCT_DELETE_BLOCKED_REASON;
+
+  const entitlement = await ctx.db
+    .query('entitlements')
+    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
+    .first();
+  if (entitlement) return PRODUCT_DELETE_BLOCKED_REASON;
+
+  const tier = await ctx.db
+    .query('catalog_tiers')
+    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
+    .first();
+  if (tier) return PRODUCT_DELETE_BLOCKED_REASON;
+
+  return undefined;
 }
 
 async function assertPackageNamespaceOwnership(
@@ -1017,14 +1053,131 @@ export const listByAuthUser = query({
       data.map((product) => product._id)
     );
     const hasMore = startIndex + limit < all.length;
+    const dataWithCapabilities = await Promise.all(
+      data.map(async (product) => {
+        const deleteBlockedReason = await getProductDeleteBlockedReason(
+          ctx,
+          args.authUserId,
+          product._id
+        );
+        return {
+          ...product,
+          backstagePackages: backstagePackagesByCatalogProduct.get(String(product._id)) ?? [],
+          canArchive: product.status === 'active',
+          canRestore: product.status === 'archived',
+          canDelete: deleteBlockedReason === undefined,
+          deleteBlockedReason,
+        };
+      })
+    );
+
     return {
-      data: data.map((product) => ({
-        ...product,
-        backstagePackages: backstagePackagesByCatalogProduct.get(String(product._id)) ?? [],
-      })),
+      data: dataWithCapabilities,
       hasMore,
       nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
     };
+  },
+});
+
+export const archiveProductForAuthUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  },
+  returns: v.union(
+    v.object({
+      archived: v.literal(true),
+      catalogProductId: v.id('product_catalog'),
+    }),
+    v.object({
+      archived: v.literal(false),
+      reason: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    const product = await requireOwnedCatalogProduct(ctx, args.authUserId, args.catalogProductId);
+    if (product.status !== 'archived') {
+      await ctx.db.patch(product._id, {
+        status: 'archived',
+        updatedAt: Date.now(),
+      });
+    }
+    return { archived: true as const, catalogProductId: product._id };
+  },
+});
+
+export const restoreProductForAuthUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  },
+  returns: v.union(
+    v.object({
+      restored: v.literal(true),
+      catalogProductId: v.id('product_catalog'),
+    }),
+    v.object({
+      restored: v.literal(false),
+      reason: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    const product = await requireOwnedCatalogProduct(ctx, args.authUserId, args.catalogProductId);
+    if (product.status === 'archived') {
+      await ctx.db.patch(product._id, {
+        status: 'active',
+        updatedAt: Date.now(),
+      });
+    }
+    return { restored: true as const, catalogProductId: product._id };
+  },
+});
+
+export const deleteProductForAuthUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  },
+  returns: v.union(
+    v.object({
+      deleted: v.literal(true),
+      catalogProductId: v.id('product_catalog'),
+    }),
+    v.object({
+      deleted: v.literal(false),
+      reason: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    const product = await requireOwnedCatalogProduct(ctx, args.authUserId, args.catalogProductId);
+    const deleteBlockedReason = await getProductDeleteBlockedReason(
+      ctx,
+      args.authUserId,
+      product._id
+    );
+    if (deleteBlockedReason) {
+      return { deleted: false as const, reason: deleteBlockedReason };
+    }
+
+    const catalogLinks = await ctx.db
+      .query('catalog_product_links')
+      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+      .collect();
+    await Promise.all(catalogLinks.map((link) => ctx.db.delete(link._id)));
+    await ctx.db.delete(product._id);
+    return { deleted: true as const, catalogProductId: product._id };
   },
 });
 

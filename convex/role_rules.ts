@@ -13,7 +13,7 @@
 
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
 import { addCatalogProductImpl } from './lib/roleRules/catalog';
 import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
@@ -608,6 +608,7 @@ export const addProductFromGumroad = mutation({
     providerProductRef: v.string(),
     canonicalSlug: v.optional(v.string()),
     displayName: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),
@@ -624,9 +625,15 @@ export const addProductFromGumroad = mutation({
       .first();
 
     if (existing) {
-      // Update displayName if we now have one and it was previously missing
+      const patch: Partial<Doc<'product_catalog'>> = {};
       if (args.displayName && !existing.displayName) {
-        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+        patch.displayName = args.displayName;
+      }
+      if (args.thumbnailUrl && existing.thumbnailUrl !== args.thumbnailUrl) {
+        patch.thumbnailUrl = args.thumbnailUrl;
+      }
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
       }
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
         authUserId: args.authUserId,
@@ -644,6 +651,7 @@ export const addProductFromGumroad = mutation({
       providerProductRef: args.providerProductRef,
       canonicalSlug: args.canonicalSlug,
       displayName: args.displayName,
+      thumbnailUrl: args.thumbnailUrl,
       status: 'active',
       supportsAutoDiscovery: true,
       createdAt: now,
@@ -848,6 +856,7 @@ export const addProductForProvider = mutation({
     displayName: v.optional(v.string()),
     /** Canonical product URL. Caller derives this from PROVIDER_REGISTRY.catalogProductUrlTemplate. */
     productUrl: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
     /** Whether this product supports auto-discovery. Caller reads from PROVIDER_REGISTRY. */
     supportsAutoDiscovery: v.optional(v.boolean()),
   },
@@ -868,8 +877,15 @@ export const addProductForProvider = mutation({
       .first();
 
     if (existing) {
+      const patch: Partial<Doc<'product_catalog'>> = {};
       if (args.displayName && existing.displayName !== args.displayName) {
-        await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+        patch.displayName = args.displayName;
+      }
+      if (args.thumbnailUrl && existing.thumbnailUrl !== args.thumbnailUrl) {
+        patch.thumbnailUrl = args.thumbnailUrl;
+      }
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
       }
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
         authUserId: args.authUserId,
@@ -891,6 +907,7 @@ export const addProductForProvider = mutation({
       provider: args.provider,
       providerProductRef: args.providerProductRef,
       displayName: args.displayName,
+      thumbnailUrl: args.thumbnailUrl,
       status: 'active',
       supportsAutoDiscovery: args.supportsAutoDiscovery ?? false,
       createdAt: now,
@@ -948,6 +965,7 @@ export const addCatalogProduct = mutation({
     /** Whether this provider supports auto-discovery via backfill. Pre-computed by caller. */
     supportsAutoDiscovery: v.boolean(),
     displayName: v.optional(v.string()),
+    thumbnailUrl: v.optional(v.string()),
   },
   returns: v.object({
     productId: v.string(),

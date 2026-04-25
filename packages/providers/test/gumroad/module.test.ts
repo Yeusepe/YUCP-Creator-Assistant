@@ -314,6 +314,43 @@ describe('createGumroadProviderModule', () => {
     ]);
   });
 
+  it('preserves Gumroad product thumbnails from the products API payload', async () => {
+    const module = createGumroadProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-token';
+      },
+      async decryptCredential() {
+        return 'access-token';
+      },
+      async fetchImpl() {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            products: [
+              {
+                id: 'product-with-thumbnail',
+                name: 'Creator Pack',
+                short_url: 'https://gumroad.com/l/creator-pack',
+                thumbnail_url: 'https://public-files.gumroad.com/creator-pack.png',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(module.fetchProducts('access-token', makeCtx())).resolves.toEqual([
+      {
+        id: 'product-with-thumbnail',
+        name: 'Creator Pack',
+        productUrl: 'https://gumroad.com/l/creator-pack',
+        thumbnailUrl: 'https://public-files.gumroad.com/creator-pack.png',
+      },
+    ]);
+  });
+
   it('lists tiered membership options per documented recurrence as deterministic Gumroad tiers', async () => {
     const module = createGumroadProviderModule({
       logger,

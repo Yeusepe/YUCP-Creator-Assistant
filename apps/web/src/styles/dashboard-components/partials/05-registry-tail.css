@@ -81,6 +81,80 @@
 }
 
 /* ===================================================
+   Package manager redesign
+   =================================================== */
+
+.pm-card {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.dark .pm-card {
+  background: rgba(12, 18, 31, 0.72);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.pm-muted-card {
+  background: rgba(241, 245, 249, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.dark .pm-muted-card {
+  background: rgba(20, 28, 43, 0.78);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.pm-muted-panel {
+  background: rgba(241, 245, 249, 0.68);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.dark .pm-muted-panel {
+  background: rgba(20, 28, 43, 0.7);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.pm-empty-state {
+  background: rgba(241, 245, 249, 0.58);
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+.dark .pm-empty-state {
+  background: rgba(20, 28, 43, 0.58);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.pm-package-row {
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+}
+
+.dark .pm-package-row {
+  background: rgba(16, 23, 37, 0.76);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.pm-product-row {
+  background: rgba(248, 250, 252, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.dark .pm-product-row {
+  background: rgba(16, 23, 37, 0.62);
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+.pm-icon-shell {
+  background: rgba(226, 232, 240, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.07);
+}
+
+.dark .pm-icon-shell {
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* ===================================================
    Connected Platforms redesign, cp-* design system
    =================================================== */
 

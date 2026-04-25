@@ -89,7 +89,7 @@ export default function DashboardPackages() {
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <PackageRegistryPanel description="Package IDs are managed from certificates now. This compatibility view stays available for direct links and Unity handoffs." />
+        <PackageRegistryPanel />
       </div>
     </div>
   );

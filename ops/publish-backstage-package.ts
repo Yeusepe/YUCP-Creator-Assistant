@@ -372,14 +372,14 @@ export async function publishBackstagePackage(
   }
   const storageId =
     config.storageId ||
-     (await uploadBackstagePackageArtifact(
-       await requestBackstageUploadUrl(config, fetchImpl),
-       preparedArtifact ? preparedArtifact.bytes : Bun.file(sourcePath as string),
-       preparedArtifact?.contentType ??
-         config.contentType ??
-         inferBackstageArtifactContentType(sourcePath as string),
-       fetchImpl
-     ));
+    (await uploadBackstagePackageArtifact(
+      await requestBackstageUploadUrl(config, fetchImpl),
+      preparedArtifact ? preparedArtifact.bytes : Bun.file(sourcePath as string),
+      preparedArtifact?.contentType ??
+        config.contentType ??
+        inferBackstageArtifactContentType(sourcePath as string),
+      fetchImpl
+    ));
   return await publishBackstageRelease(
     {
       ...config,
@@ -387,8 +387,7 @@ export async function publishBackstagePackage(
         ? {
             contentType: preparedArtifact.contentType,
             deliveryName: preparedArtifact.deliveryName,
-            metadata:
-              config.metadata === undefined ? preparedArtifact.metadata : config.metadata,
+            metadata: config.metadata === undefined ? preparedArtifact.metadata : config.metadata,
           }
         : {}),
     },

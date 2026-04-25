@@ -7,6 +7,9 @@ let lastActionArgs: unknown;
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
+    authViewer: {
+      getViewerByAuthUser: 'authViewer.getViewerByAuthUser',
+    },
     backstageRepos: {
       getSubjectByAuthUserForApi: 'backstageRepos.getSubjectByAuthUserForApi',
       issueRepoTokenForApi: 'backstageRepos.issueRepoTokenForApi',
@@ -23,6 +26,9 @@ mock.module('../../../../convex/_generated/api', () => ({
       archiveForAuthUser: 'packageRegistry.archiveForAuthUser',
       restoreForAuthUser: 'packageRegistry.restoreForAuthUser',
       deleteForAuthUser: 'packageRegistry.deleteForAuthUser',
+      archiveProductForAuthUser: 'packageRegistry.archiveProductForAuthUser',
+      restoreProductForAuthUser: 'packageRegistry.restoreProductForAuthUser',
+      deleteProductForAuthUser: 'packageRegistry.deleteProductForAuthUser',
     },
   },
   internal: {},
@@ -71,6 +77,14 @@ describe('package Backstage publishing routes', () => {
           return { _id: 'subject_1' };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
         case 'packageRegistry.listByAuthUser':
           return {
             data: [
@@ -81,10 +95,15 @@ describe('package Backstage publishing routes', () => {
                 provider: 'gumroad',
                 providerProductRef: 'gumroad-product-1',
                 displayName: 'Backstage Bundle',
+                thumbnailUrl: 'https://public-files.gumroad.com/backstage-bundle.png',
                 canonicalSlug: 'backstage-bundle',
                 status: 'active',
                 supportsAutoDiscovery: true,
                 updatedAt: 1_710_000_000_000,
+                canArchive: true,
+                canDelete: false,
+                canRestore: false,
+                deleteBlockedReason: 'Product has package history.',
                 backstagePackages: [
                   {
                     packageId: 'com.yucp.example',
@@ -124,6 +143,10 @@ describe('package Backstage publishing routes', () => {
           };
         case 'backstageRepos.generateReleaseUploadUrlForAuthUser':
           return 'https://upload.test/backstage';
+        case 'packageRegistry.archiveProductForAuthUser':
+          return { archived: true, catalogProductId: 'product_1' };
+        case 'packageRegistry.deleteProductForAuthUser':
+          return { deleted: true, catalogProductId: 'product_2' };
         default:
           return null;
       }
@@ -179,9 +202,59 @@ describe('package Backstage publishing routes', () => {
       creatorName: 'Mapache',
       creatorRepoRef: 'mapache',
       repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
-      repositoryName: 'Mapache Backstage Repos',
+      repositoryName: 'Mapache repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
+      repoTokenHeader: 'X-YUCP-Repo-Token',
+      repoToken: 'ybt_example',
+      expiresAt: 1_710_000_000_000,
+    });
+  });
+
+  it('falls back to generic repo labeling for synthetic creator names', async () => {
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: 'Creator 10705330' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Actual Discord Name',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        case 'packageRegistry.listByAuthUser':
+          return {
+            data: [],
+            hasMore: false,
+            nextCursor: null,
+          };
+        default:
+          return [];
+      }
+    };
+
+    const response = await routes.getBackstageRepoAccess(
+      new Request('https://api.test/api/packages/backstage/repo-access', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toEqual({
+      creatorName: 'Actual Discord Name',
+      creatorRepoRef: 'auth-user-1',
+      repositoryUrl: 'https://api.test/v1/backstage/repos/auth-user-1/index.json',
+      repositoryName: 'Actual Discord Name repo',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fauth-user-1%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
       repoTokenHeader: 'X-YUCP-Repo-Token',
       repoToken: 'ybt_example',
       expiresAt: 1_710_000_000_000,
@@ -222,17 +295,54 @@ describe('package Backstage publishing routes', () => {
               },
             },
           ],
+          canArchive: true,
+          canDelete: false,
+          canRestore: false,
           canonicalSlug: 'backstage-bundle',
           catalogProductId: 'product_1',
           displayName: 'Backstage Bundle',
+          thumbnailUrl: 'https://public-files.gumroad.com/backstage-bundle.png',
           productId: 'gumroad-product-1',
           provider: 'gumroad',
           providerProductRef: 'gumroad-product-1',
           status: 'active',
           supportsAutoDiscovery: true,
           updatedAt: 1_710_000_000_000,
+          deleteBlockedReason: 'Product has package history.',
         },
       ],
+    });
+  });
+
+  it('hides and deletes Backstage product links through catalog product mutations', async () => {
+    const archiveResponse = await routes.archiveBackstageProduct(
+      new Request('https://api.test/api/packages/backstage/products/product_1/archive', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'product_1'
+    );
+    expect(archiveResponse.status).toBe(200);
+    await expect(archiveResponse.json()).resolves.toEqual({
+      archived: true,
+      catalogProductId: 'product_1',
+    });
+
+    const deleteResponse = await routes.deleteBackstageProduct(
+      new Request('https://api.test/api/packages/backstage/products/product_2', {
+        method: 'DELETE',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'product_2'
+    );
+    expect(deleteResponse.status).toBe(200);
+    await expect(deleteResponse.json()).resolves.toEqual({
+      deleted: true,
+      catalogProductId: 'product_2',
     });
   });
 

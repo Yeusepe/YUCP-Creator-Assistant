@@ -1,5 +1,5 @@
-import { apiClient } from '@/api/client';
 import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
+import { apiClient } from '@/api/client';
 
 export interface CreatorPackageSummary {
   packageId: string;
@@ -44,12 +44,17 @@ export interface CreatorBackstageProductSummary {
   canonicalSlug?: string;
   catalogProductId: string;
   displayName?: string;
+  thumbnailUrl?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
   status: string;
   supportsAutoDiscovery: boolean;
   updatedAt: number;
+  canArchive: boolean;
+  canRestore: boolean;
+  canDelete: boolean;
+  deleteBlockedReason?: string;
 }
 
 export interface CreatorBackstageProductListResponse {
@@ -79,6 +84,7 @@ export interface BackstageStorageUploadResponse {
 export interface BackstageReleaseUploadResult {
   contentType: string;
   deliveryName: string;
+  metadata: Record<string, unknown>;
   storageId: string;
   zipSha256: string;
 }
@@ -157,6 +163,27 @@ export async function restoreCreatorPackage(input: { packageId: string }) {
   }>(`/api/packages/${encodeURIComponent(input.packageId)}/restore`);
 }
 
+export async function archiveCreatorBackstageProduct(input: { catalogProductId: string }) {
+  return await apiClient.post<{
+    archived: true;
+    catalogProductId: string;
+  }>(`/api/packages/backstage/products/${encodeURIComponent(input.catalogProductId)}/archive`);
+}
+
+export async function restoreCreatorBackstageProduct(input: { catalogProductId: string }) {
+  return await apiClient.post<{
+    restored: true;
+    catalogProductId: string;
+  }>(`/api/packages/backstage/products/${encodeURIComponent(input.catalogProductId)}/restore`);
+}
+
+export async function deleteCreatorBackstageProduct(input: { catalogProductId: string }) {
+  return await apiClient.delete<{
+    deleted: true;
+    catalogProductId: string;
+  }>(`/api/packages/backstage/products/${encodeURIComponent(input.catalogProductId)}`);
+}
+
 export async function createBackstageReleaseUploadUrl(input: { packageId: string }) {
   return await apiClient.post<BackstageReleaseUploadUrlResponse>(
     `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-url`
@@ -174,6 +201,7 @@ export async function uploadBackstageReleaseFile(input: {
   version: string;
   unityVersion?: string;
 }): Promise<BackstageReleaseUploadResult> {
+  const sourceBuffer = await input.file.arrayBuffer();
   const preparedArtifact = await prepareBackstageArtifactForPublish({
     packageId: input.packageId,
     version: input.version,
@@ -182,15 +210,22 @@ export async function uploadBackstageReleaseFile(input: {
     unityVersion: input.unityVersion,
     metadata: input.metadata,
     deliveryName: input.deliveryName,
-    sourceBytes: new Uint8Array(await input.file.arrayBuffer()),
+    sourceBytes: new Uint8Array(sourceBuffer),
     sourceFileName: input.file.name,
   });
+  const artifactBuffer =
+    preparedArtifact.bytes.buffer instanceof ArrayBuffer
+      ? preparedArtifact.bytes.buffer.slice(
+          preparedArtifact.bytes.byteOffset,
+          preparedArtifact.bytes.byteOffset + preparedArtifact.bytes.byteLength
+        )
+      : Uint8Array.from(preparedArtifact.bytes).buffer;
   const response = await fetch(input.uploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': preparedArtifact.contentType,
     },
-    body: new Blob([preparedArtifact.bytes], { type: preparedArtifact.contentType }),
+    body: new Blob([artifactBuffer], { type: preparedArtifact.contentType }),
   });
 
   const payload = (await response
@@ -209,6 +244,7 @@ export async function uploadBackstageReleaseFile(input: {
   return {
     contentType: preparedArtifact.contentType,
     deliveryName: preparedArtifact.deliveryName,
+    metadata: preparedArtifact.metadata,
     storageId: payload.storageId,
     zipSha256: preparedArtifact.zipSha256,
   };

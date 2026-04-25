@@ -204,6 +204,7 @@ function normalizeProductsResponse(
       name: product?.name,
       collaboratorName: product?.collaboratorName,
       productUrl: product?.productUrl,
+      thumbnailUrl: product?.thumbnailUrl,
     })),
     error: payload?.error,
   };

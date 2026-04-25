@@ -182,6 +182,7 @@ async function listGumroadProducts(
     id: product.id,
     name: product.name,
     ...(product.short_url ? { productUrl: product.short_url } : {}),
+    ...(product.thumbnail_url ? { thumbnailUrl: product.thumbnail_url } : {}),
   }));
 }
 

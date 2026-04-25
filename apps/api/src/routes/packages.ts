@@ -2,8 +2,8 @@ import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
-import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { createAuthUserActorBinding } from '../lib/apiActor';
+import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -28,12 +28,17 @@ type BackstageProductQueryResult = {
     aliases?: string[];
     canonicalSlug: string;
     displayName: string;
+    thumbnailUrl?: string;
     productId: string;
     provider: string;
     providerProductRef: string;
     status: string;
     supportsAutoDiscovery: boolean;
     updatedAt: number;
+    canArchive?: boolean;
+    canRestore?: boolean;
+    canDelete?: boolean;
+    deleteBlockedReason?: string;
     backstagePackages?: Array<{
       packageId: string;
       packageName?: string;
@@ -194,6 +199,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const result = (await convex.query(api.packageRegistry.listByAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
       })) as BackstageProductQueryResult;
 
@@ -222,12 +228,17 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
           canonicalSlug: product.canonicalSlug,
           catalogProductId: String(product._id),
           displayName: product.displayName,
+          thumbnailUrl: product.thumbnailUrl,
           productId: product.productId,
           provider: product.provider,
           providerProductRef: product.providerProductRef,
           status: product.status,
           supportsAutoDiscovery: product.supportsAutoDiscovery,
           updatedAt: product.updatedAt,
+          canArchive: product.canArchive ?? product.status === 'active',
+          canRestore: product.canRestore ?? product.status === 'archived',
+          canDelete: product.canDelete ?? false,
+          deleteBlockedReason: product.deleteBlockedReason,
         })),
       });
     } catch (error) {
@@ -250,6 +261,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       const includeArchived = new URL(request.url).searchParams.get('includeArchived') === 'true';
       const result = await convex.query(api.packageRegistry.listForAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         ...(includeArchived ? { includeArchived: true } : {}),
       });
@@ -294,6 +306,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const result = await convex.mutation(api.packageRegistry.renameForAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         packageId,
         packageName: body.packageName,
@@ -335,6 +348,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const result = await convex.mutation(api.packageRegistry.archiveForAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         packageId,
       });
@@ -375,6 +389,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const result = await convex.mutation(api.packageRegistry.restoreForAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         packageId,
       });
@@ -415,6 +430,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const result = await convex.mutation(api.packageRegistry.deleteForAuthUser, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         packageId,
       });
@@ -432,6 +448,108 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         error: error instanceof Error ? error.message : String(error),
       });
       return jsonResponse({ error: 'Failed to delete package' }, 500);
+    }
+  }
+
+  async function archiveBackstageProduct(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+
+    try {
+      const result = await convex.mutation(api.packageRegistry.archiveProductForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
+        authUserId: viewer.authUserId,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      });
+
+      if (!result.archived) {
+        const status = result.reason === 'Catalog product not found.' ? 404 : 409;
+        return jsonResponse({ error: result.reason }, status);
+      }
+
+      return jsonResponse(result);
+    } catch (error) {
+      logger.error('Failed to archive Backstage product link', {
+        authUserId: viewer.authUserId,
+        catalogProductId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to hide product link' }, 500);
+    }
+  }
+
+  async function restoreBackstageProduct(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+
+    try {
+      const result = await convex.mutation(api.packageRegistry.restoreProductForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
+        authUserId: viewer.authUserId,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      });
+
+      if (!result.restored) {
+        const status = result.reason === 'Catalog product not found.' ? 404 : 409;
+        return jsonResponse({ error: result.reason }, status);
+      }
+
+      return jsonResponse(result);
+    } catch (error) {
+      logger.error('Failed to restore Backstage product link', {
+        authUserId: viewer.authUserId,
+        catalogProductId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to restore product link' }, 500);
+    }
+  }
+
+  async function deleteBackstageProduct(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+
+    try {
+      const result = await convex.mutation(api.packageRegistry.deleteProductForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
+        authUserId: viewer.authUserId,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      });
+
+      if (!result.deleted) {
+        const status = result.reason === 'Catalog product not found.' ? 404 : 409;
+        return jsonResponse({ error: result.reason }, status);
+      }
+
+      return jsonResponse(result);
+    } catch (error) {
+      logger.error('Failed to delete Backstage product link', {
+        authUserId: viewer.authUserId,
+        catalogProductId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to delete product link' }, 500);
     }
   }
 
@@ -587,6 +705,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     archivePackage,
     restorePackage,
     deletePackage,
+    archiveBackstageProduct,
+    restoreBackstageProduct,
+    deleteBackstageProduct,
     createBackstageReleaseUploadUrl,
     publishBackstageRelease,
   };

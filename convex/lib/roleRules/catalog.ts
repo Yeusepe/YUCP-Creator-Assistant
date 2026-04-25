@@ -7,7 +7,7 @@
 
 import type { GenericMutationCtx } from 'convex/server';
 import { internal } from '../../_generated/api';
-import type { DataModel, Id } from '../../_generated/dataModel';
+import type { DataModel, Doc, Id } from '../../_generated/dataModel';
 import { requireApiSecret, sha256Hex } from './queries';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
@@ -23,6 +23,7 @@ export interface AddCatalogProductArgs {
   /** Whether this provider supports auto-discovery via backfill. Pre-computed by caller. */
   supportsAutoDiscovery: boolean;
   displayName?: string;
+  thumbnailUrl?: string;
 }
 
 export async function addCatalogProductImpl(
@@ -41,8 +42,15 @@ export async function addCatalogProductImpl(
     .first();
 
   if (existing) {
+    const patch: Partial<Doc<'product_catalog'>> = {};
     if (args.displayName && existing.displayName !== args.displayName) {
-      await ctx.db.patch(existing._id, { displayName: args.displayName, updatedAt: now });
+      patch.displayName = args.displayName;
+    }
+    if (args.thumbnailUrl && existing.thumbnailUrl !== args.thumbnailUrl) {
+      patch.thumbnailUrl = args.thumbnailUrl;
+    }
+    if (Object.keys(patch).length > 0) {
+      await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
     }
     if (args.supportsAutoDiscovery) {
       await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
@@ -64,6 +72,7 @@ export async function addCatalogProductImpl(
     provider: args.provider,
     providerProductRef: args.providerProductRef,
     displayName: args.displayName,
+    thumbnailUrl: args.thumbnailUrl,
     status: 'active',
     supportsAutoDiscovery: args.supportsAutoDiscovery,
     createdAt: now,

@@ -905,6 +905,31 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  const backstageProductArchiveMatch = pathname.match(
+    /^\/api\/packages\/backstage\/products\/([^/]+)\/archive$/
+  );
+  if (backstageProductArchiveMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.archiveBackstageProduct(request, backstageProductArchiveMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageProductRestoreMatch = pathname.match(
+    /^\/api\/packages\/backstage\/products\/([^/]+)\/restore$/
+  );
+  if (backstageProductRestoreMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.restoreBackstageProduct(request, backstageProductRestoreMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageProductMatch = pathname.match(/^\/api\/packages\/backstage\/products\/([^/]+)$/);
+  if (backstageProductMatch && packageRoutes) {
+    if (request.method === 'DELETE') {
+      return packageRoutes.deleteBackstageProduct(request, backstageProductMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   const packagesMatch = pathname.match(/^\/api\/packages\/([^/]+)$/);
   if (packagesMatch && packageRoutes) {
     if (request.method === 'PATCH') {

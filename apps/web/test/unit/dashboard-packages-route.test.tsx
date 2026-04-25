@@ -119,13 +119,14 @@ vi.mock('@heroui-pro/react', () => {
 
 vi.mock('@/lib/packages', () => ({
   archiveCreatorPackage: vi.fn(),
+  archiveCreatorBackstageProduct: vi.fn(),
   createBackstageReleaseUploadUrl: vi.fn(),
-  deleteCreatorPackage: vi.fn(),
   listCreatorBackstageProducts: vi.fn(),
   listCreatorPackages: vi.fn(),
   publishBackstageRelease: vi.fn(),
   renameCreatorPackage: vi.fn(),
   requestBackstageRepoAccess: vi.fn(),
+  restoreCreatorBackstageProduct: vi.fn(),
   restoreCreatorPackage: vi.fn(),
   uploadBackstageReleaseFile: vi.fn(),
 }));
@@ -138,6 +139,9 @@ const listCreatorBackstageProductsMock = packagesApi.listCreatorBackstageProduct
 >;
 const listCreatorPackagesMock = packagesApi.listCreatorPackages as ReturnType<typeof vi.fn>;
 const renameCreatorPackageMock = packagesApi.renameCreatorPackage as ReturnType<typeof vi.fn>;
+const archiveCreatorBackstageProductMock = packagesApi.archiveCreatorBackstageProduct as ReturnType<
+  typeof vi.fn
+>;
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
@@ -213,12 +217,17 @@ describe('dashboard packages route', () => {
           canonicalSlug: 'creator-bundle',
           catalogProductId: 'product_1',
           displayName: 'Creator Bundle Product',
+          thumbnailUrl: 'https://public-files.gumroad.com/creator-bundle.png',
           productId: 'gumroad-product-1',
           provider: 'gumroad',
           providerProductRef: 'gumroad-product-1',
           status: 'active',
           supportsAutoDiscovery: true,
           updatedAt: 1_710_000_100_000,
+          canArchive: true,
+          canRestore: false,
+          canDelete: false,
+          deleteBlockedReason: 'Product has package, role, entitlement, or tier history.',
         },
         {
           aliases: ['Creator Bundle Product'],
@@ -232,6 +241,25 @@ describe('dashboard packages route', () => {
           status: 'active',
           supportsAutoDiscovery: true,
           updatedAt: 1_710_000_100_000,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+        },
+        {
+          aliases: ['Old Creator Product'],
+          backstagePackages: [],
+          canonicalSlug: 'old-creator-product',
+          catalogProductId: 'product_hidden',
+          displayName: 'Old Creator Product',
+          productId: 'gumroad-product-hidden',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-product-hidden',
+          status: 'archived',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_709_000_100_000,
+          canArchive: false,
+          canRestore: true,
+          canDelete: true,
         },
       ],
     });
@@ -239,7 +267,7 @@ describe('dashboard packages route', () => {
       creatorName: 'Mapache',
       creatorRepoRef: 'mapache',
       repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
-      repositoryName: 'Mapache Backstage Repos',
+      repositoryName: 'Mapache repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
       repoTokenHeader: 'X-YUCP-Repo-Token',
@@ -250,6 +278,10 @@ describe('dashboard packages route', () => {
       updated: true,
       packageId: 'pkg.creator.bundle',
       packageName: 'Creator Bundle+',
+    });
+    archiveCreatorBackstageProductMock.mockResolvedValue({
+      archived: true,
+      catalogProductId: 'product_1',
     });
   });
 
@@ -268,11 +300,17 @@ describe('dashboard packages route', () => {
     await waitFor(() => expect(screen.getByText('2 storefronts')).toBeInTheDocument());
     expect(screen.getAllByText('Creator Bundle Product').length).toBeGreaterThan(0);
     expect(screen.getByText('Mapache')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /copy add-repo link/i })).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /publish release/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /open in vcc/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /upload package/i }).length).toBeGreaterThan(0);
     expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
     expect(screen.getByText('Drop a Unity package here')).toBeInTheDocument();
     expect(document.querySelector('input[accept*=".unitypackage"]')).not.toBeNull();
+    expect(
+      document.querySelector('img[src="https://public-files.gumroad.com/creator-bundle.png"]')
+    ).not.toBeNull();
+    expect(
+      document.querySelector('img[src="https://public-files.gumroad.com/creator-bundle.png"]')
+    ).toHaveAttribute('src', 'https://public-files.gumroad.com/creator-bundle.png');
   });
 
   it('renames a package from the dashboard manager', async () => {
@@ -284,10 +322,10 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /rename package/i }));
+    fireEvent.click(screen.getByRole('button', { name: /rename/i }));
     const input = screen.getByDisplayValue('Creator Bundle');
     fireEvent.change(input, { target: { value: 'Creator Bundle+' } });
-    fireEvent.click(screen.getByRole('button', { name: /save package name/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() =>
       expect(renameCreatorPackageMock.mock.calls[0]?.[0]).toEqual({
@@ -297,7 +335,7 @@ describe('dashboard packages route', () => {
     );
   });
 
-  it('disables delete when the package has historical records and explains why', async () => {
+  it('does not surface delete controls on the packages dashboard', async () => {
     const Component = PackagesRoute.options.component;
     if (!Component) {
       throw new Error('Packages route component is not defined');
@@ -306,14 +344,11 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument());
-    const deleteButton = screen.getByRole('button', { name: /delete package/i });
-    expect(deleteButton).toBeDisabled();
-    expect(
-      screen.getByText('Package has signing or license history and cannot be deleted.')
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
+    expect(screen.queryByText('Delete locked')).toBeNull();
   });
 
-  it('keeps archived packages collapsed until the submenu is expanded', async () => {
+  it('keeps hidden packages collapsed by default when archived entries exist', async () => {
     const Component = PackagesRoute.options.component;
     if (!Component) {
       throw new Error('Packages route component is not defined');
@@ -324,14 +359,28 @@ describe('dashboard packages route', () => {
     await waitFor(() =>
       expect(listCreatorPackagesMock).toHaveBeenCalledWith({ includeArchived: true })
     );
+    await screen.findByText('Hidden packages');
+    const hiddenPackagesDetails = screen.getByText('Hidden packages').closest('details');
+    expect(hiddenPackagesDetails?.open).toBe(false);
+  });
+
+  it('keeps hidden product links collapsed by default and lets visible links be hidden', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await screen.findByText('Hidden product links');
+    const hiddenProductsDetails = screen.getByText('Hidden product links').closest('details');
+    expect(hiddenProductsDetails?.open).toBe(false);
+    fireEvent.click(screen.getAllByRole('button', { name: /^hide$/i })[0]);
+
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /archived package ids/i })).toBeInTheDocument()
+      expect(archiveCreatorBackstageProductMock.mock.calls[0]?.[0]).toEqual({
+        catalogProductId: 'product_1',
+      })
     );
-    expect(screen.queryByText('Legacy Bundle')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /archived package ids/i }));
-
-    expect(screen.getByText('Legacy Bundle')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /restore package/i })).toBeInTheDocument();
   });
 });

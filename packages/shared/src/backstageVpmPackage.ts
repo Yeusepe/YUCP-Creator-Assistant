@@ -43,7 +43,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function sanitizeDeliveryNameSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+  return value
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function defaultWrappedDeliveryName(packageId: string, version: string): string {
@@ -121,7 +124,6 @@ function buildInstallerScript(symbolSuffix: string): string {
   return `using System;
 using System.IO;
 using UnityEditor;
-using UnityEditor.PackageManager;
 
 namespace Yucp.Backstage.Generated
 {
@@ -155,7 +157,7 @@ namespace Yucp.Backstage.Generated
                 return;
             }
 
-            var packageInfo = PackageInfo.FindForAssembly(typeof(${className}).Assembly);
+            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(${className}).Assembly);
             if (packageInfo == null || string.IsNullOrWhiteSpace(packageInfo.resolvedPath))
             {
                 return;
@@ -168,7 +170,7 @@ namespace Yucp.Backstage.Generated
                 return;
             }
 
-            var manifest = JsonUtility.FromJson<BackstagePayloadManifest>(File.ReadAllText(manifestPath));
+            var manifest = UnityEngine.JsonUtility.FromJson<BackstagePayloadManifest>(File.ReadAllText(manifestPath));
             if (manifest == null || string.IsNullOrWhiteSpace(manifest.packageId) || string.IsNullOrWhiteSpace(manifest.payloadSha256))
             {
                 return;
@@ -208,35 +210,44 @@ function buildInstallerAssemblyDefinition(symbolSuffix: string): string {
   );
 }
 
-function buildWrappedUnitypackageArtifact(input: {
+function buildPackageJson(input: {
+  packageId: string;
+  version: string;
+  displayName: string;
+  metadata: Record<string, unknown>;
+}): Uint8Array {
+  return strToU8(
+    JSON.stringify(
+      {
+        name: input.packageId,
+        version: input.version,
+        displayName: input.displayName,
+        ...input.metadata,
+      },
+      null,
+      2
+    )
+  );
+}
+
+function buildWrappedUnitypackageZip(input: {
   packageId: string;
   version: string;
   displayName: string;
   deliveryName?: string;
   metadata: Record<string, unknown>;
+  payloadSha256: string;
   sourceBytes: Uint8Array;
   sourceFileName: string;
 }): Omit<PreparedBackstageArtifact, 'zipSha256'> {
   const symbolSuffix = toInstallerSymbolSuffix(input.packageId);
-  const payloadMetadata = {
-    packageId: input.packageId,
-    version: input.version,
-    displayName: input.displayName,
-    payloadFileName: input.sourceFileName,
-  };
   const files = {
-    'package.json': strToU8(
-      JSON.stringify(
-        {
-          name: input.packageId,
-          version: input.version,
-          displayName: input.displayName,
-          ...input.metadata,
-        },
-        null,
-        2
-      )
-    ),
+    'package.json': buildPackageJson({
+      packageId: input.packageId,
+      version: input.version,
+      displayName: input.displayName,
+      metadata: input.metadata,
+    }),
     'Editor/Yucp.Backstage.PackageInstaller.asmdef': strToU8(
       buildInstallerAssemblyDefinition(symbolSuffix)
     ),
@@ -244,8 +255,21 @@ function buildWrappedUnitypackageArtifact(input: {
       buildInstallerScript(symbolSuffix)
     ),
     'BackstagePayload~/payload.unitypackage': input.sourceBytes,
-    'BackstagePayload~/backstage-payload.json': strToU8(JSON.stringify(payloadMetadata, null, 2)),
+    'BackstagePayload~/backstage-payload.json': strToU8(
+      JSON.stringify(
+        {
+          packageId: input.packageId,
+          version: input.version,
+          displayName: input.displayName,
+          payloadFileName: input.sourceFileName,
+          payloadSha256: input.payloadSha256,
+        },
+        null,
+        2
+      )
+    ),
   };
+
   return {
     bytes: zipSync(files, { level: 6 }),
     contentType: 'application/zip',
@@ -269,122 +293,36 @@ export async function prepareBackstageArtifactForPublish(
     unityVersion: input.unityVersion,
   });
   const displayName = trimOptional(input.displayName) ?? input.packageId;
-  const sourceKind = sourceFileName.toLowerCase().endsWith(UNITYPACKAGE_EXTENSION)
-    ? 'unitypackage'
-    : sourceFileName.toLowerCase().endsWith(ZIP_EXTENSION)
-      ? 'zip'
-      : null;
-  if (!sourceKind) {
-    throw new Error('Backstage artifacts must be .unitypackage files or .zip files.');
+  const lowerFileName = sourceFileName.toLowerCase();
+
+  if (lowerFileName.endsWith(UNITYPACKAGE_EXTENSION)) {
+    const payloadSha256 = await sha256Hex(input.sourceBytes);
+    const wrappedArtifact = buildWrappedUnitypackageZip({
+      packageId: input.packageId,
+      version: input.version,
+      displayName,
+      deliveryName: input.deliveryName,
+      metadata,
+      payloadSha256,
+      sourceBytes: input.sourceBytes,
+      sourceFileName,
+    });
+    return {
+      ...wrappedArtifact,
+      zipSha256: await sha256Hex(wrappedArtifact.bytes),
+    };
   }
 
-  const preparedArtifact =
-    sourceKind === 'unitypackage'
-      ? buildWrappedUnitypackageArtifact({
-          packageId: input.packageId,
-          version: input.version,
-          displayName,
-          deliveryName: input.deliveryName,
-          metadata,
-          sourceBytes: input.sourceBytes,
-          sourceFileName,
-        })
-      : {
-          bytes: input.sourceBytes,
-          contentType: 'application/zip' as const,
-          deliveryName: trimOptional(input.deliveryName) ?? sourceFileName,
-          metadata,
-          sourceKind: 'zip' as const,
-        };
-
-  const zipSha256 = await sha256Hex(preparedArtifact.bytes);
-  if (sourceKind === 'unitypackage') {
-    const payloadManifest = JSON.parse(
-      new TextDecoder().decode(
-        zipSync(
-          {},
-          { level: 0 }
-        )
-      )
-    );
-    void payloadManifest;
+  if (lowerFileName.endsWith(ZIP_EXTENSION)) {
+    return {
+      bytes: input.sourceBytes,
+      contentType: 'application/zip',
+      deliveryName: trimOptional(input.deliveryName) ?? sourceFileName,
+      metadata,
+      sourceKind: 'zip',
+      zipSha256: await sha256Hex(input.sourceBytes),
+    };
   }
-  return {
-    ...preparedArtifact,
-    bytes: sourceKind === 'unitypackage'
-      ? zipSync(
-          {
-            ...unzipFilesWithPayloadHash(preparedArtifact.bytes, input.packageId, input.version, displayName, sourceFileName, metadata, input.sourceBytes, input.deliveryName, zipSha256),
-          },
-          { level: 6 }
-        )
-      : preparedArtifact.bytes,
-    zipSha256: sourceKind === 'unitypackage'
-      ? await sha256Hex(
-          zipSync(
-            unzipFilesWithPayloadHash(
-              preparedArtifact.bytes,
-              input.packageId,
-              input.version,
-              displayName,
-              sourceFileName,
-              metadata,
-              input.sourceBytes,
-              input.deliveryName,
-              zipSha256
-            ),
-            { level: 6 }
-          )
-        )
-      : zipSha256,
-  };
-}
 
-function unzipFilesWithPayloadHash(
-  _bytes: Uint8Array,
-  packageId: string,
-  version: string,
-  displayName: string,
-  sourceFileName: string,
-  metadata: Record<string, unknown>,
-  sourceBytes: Uint8Array,
-  deliveryName: string | undefined,
-  payloadSha256: string
-): Record<string, Uint8Array> {
-  const symbolSuffix = toInstallerSymbolSuffix(packageId);
-  return {
-    'package.json': strToU8(
-      JSON.stringify(
-        {
-          name: packageId,
-          version,
-          displayName,
-          ...metadata,
-        },
-        null,
-        2
-      )
-    ),
-    'Editor/Yucp.Backstage.PackageInstaller.asmdef': strToU8(
-      buildInstallerAssemblyDefinition(symbolSuffix)
-    ),
-    'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs': strToU8(
-      buildInstallerScript(symbolSuffix)
-    ),
-    'BackstagePayload~/payload.unitypackage': sourceBytes,
-    'BackstagePayload~/backstage-payload.json': strToU8(
-      JSON.stringify(
-        {
-          packageId,
-          version,
-          displayName,
-          payloadFileName: sourceFileName,
-          payloadSha256,
-          deliveryName: toZipDeliveryName(deliveryName, packageId, version),
-        },
-        null,
-        2
-      )
-    ),
-  };
+  throw new Error('Backstage artifacts must be .unitypackage files or .zip files.');
 }

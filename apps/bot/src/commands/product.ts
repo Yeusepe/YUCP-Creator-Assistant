@@ -76,6 +76,8 @@ interface ProductSession {
   productNames?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> provider-supplied canonical product URL) */
   productUrls?: Record<string, Record<string, string>>;
+  /** provider key -> (product id -> provider-supplied thumbnail URL) */
+  productThumbnails?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> source/collaborator name) */
   productSources?: Record<string, Record<string, string>>;
   availableTiers?: Record<
@@ -214,6 +216,14 @@ function resolveCatalogProductUrl(
     return providerProductUrl;
   }
   return buildCatalogProductUrl(provider, productId);
+}
+
+function resolveCatalogProductThumbnail(
+  session: ProductSession,
+  provider: string,
+  productId: string
+): string | undefined {
+  return session.productThumbnails?.[provider]?.[productId]?.trim() || undefined;
 }
 
 function cleanExpiredSessions(): void {
@@ -619,6 +629,15 @@ export async function handleProductTypeSelect(
       );
       if (Object.keys(productUrls).length > 0) {
         session.productUrls = { ...session.productUrls, [selectedType]: productUrls };
+      }
+      const productThumbnails = Object.fromEntries(
+        products.flatMap((p) => (p.thumbnailUrl ? [[p.id, p.thumbnailUrl]] : []))
+      );
+      if (Object.keys(productThumbnails).length > 0) {
+        session.productThumbnails = {
+          ...session.productThumbnails,
+          [selectedType]: productThumbnails,
+        };
       }
       const sourcesMap: Record<string, string> = Object.fromEntries(
         products.flatMap((p) => (p.collaboratorName ? [[p.id, p.collaboratorName]] : []))
@@ -1462,6 +1481,7 @@ export async function handleProductConfirmAdd(
         canonicalUrl,
         supportsAutoDiscovery: descriptor.supportsAutoDiscovery ?? false,
         displayName,
+        thumbnailUrl: resolveCatalogProductThumbnail(session, type, productIdFromApi),
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

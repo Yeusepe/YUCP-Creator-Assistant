@@ -6,6 +6,9 @@ let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
+    authViewer: {
+      getViewerByAuthUser: 'authViewer.getViewerByAuthUser',
+    },
     backstageRepos: {
       getSubjectByAuthUserForApi: 'backstageRepos.getSubjectByAuthUserForApi',
       issueRepoTokenForApi: 'backstageRepos.issueRepoTokenForApi',
@@ -60,6 +63,14 @@ describe('backstage repo routes', () => {
           return { _id: 'subject_1' };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
         case 'backstageRepos.getRepoAccessByTokenForApi':
           return {
             tokenId: 'token_1',
@@ -124,7 +135,7 @@ describe('backstage repo routes', () => {
       creatorName: 'Mapache',
       creatorRepoRef: 'mapache',
       repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
-      repositoryName: 'Mapache Backstage Repos',
+      repositoryName: 'Mapache repo',
       repoToken: 'ybt_example',
       repoTokenHeader: 'X-YUCP-Repo-Token',
     });
@@ -149,6 +160,53 @@ describe('backstage repo routes', () => {
     expect(response?.headers.get('location')).toBe(
       'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example'
     );
+  });
+
+  it('falls back to a generic repository name for synthetic creator labels', async () => {
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: 'Creator 10705330' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Actual Discord Name',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/v1/backstage/repos/access', {
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
+      creatorName: 'Actual Discord Name',
+      creatorRepoRef: 'auth-user-1',
+      repositoryUrl: 'https://api.test/v1/backstage/repos/auth-user-1/index.json',
+      repositoryName: 'Actual Discord Name repo',
+      repoToken: 'ybt_example',
+      repoTokenHeader: 'X-YUCP-Repo-Token',
+    });
   });
 
   it('does not expose the session-backed API route when session access is disabled', async () => {

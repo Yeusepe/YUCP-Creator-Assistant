@@ -1366,6 +1366,8 @@ const product_catalog = defineTable({
   canonicalSlug: v.optional(v.string()),
   // Human-readable name for display (e.g. Jinxxy product name)
   displayName: v.optional(v.string()),
+  // Cached provider thumbnail for product management surfaces.
+  thumbnailUrl: v.optional(v.string()),
   // Alternative names/identifiers
   aliases: v.optional(v.array(v.string())),
   // Current status

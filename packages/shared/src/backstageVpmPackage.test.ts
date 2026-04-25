@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
-import { unzipSync, strFromU8 } from 'fflate';
+import { strFromU8, unzipSync } from 'fflate';
 import {
-  prepareBackstageArtifactForPublish,
   type PreparedBackstageArtifact,
+  prepareBackstageArtifactForPublish,
 } from './backstageVpmPackage';
 
 function readZipTextFile(artifact: PreparedBackstageArtifact, path: string): string {
@@ -71,9 +71,12 @@ describe('prepareBackstageArtifactForPublish', () => {
     expect(strFromU8(files['Editor/Yucp.Backstage.PackageInstaller.asmdef'])).toContain(
       'Yucp.Backstage.PackageInstaller.'
     );
-    expect(strFromU8(files['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs'])).toContain(
-      'AssetDatabase.ImportPackage'
+    const installerScript = strFromU8(
+      files['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
     );
+    expect(installerScript).toContain('AssetDatabase.ImportPackage');
+    expect(installerScript).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
+    expect(installerScript).toContain('UnityEngine.JsonUtility.FromJson<BackstagePayloadManifest>');
   });
 
   it('passes ZIP uploads through unchanged', async () => {

@@ -13,6 +13,7 @@ export interface ProviderContext<TClient extends ProviderRuntimeClient = Provide
 export interface ProductRecord {
   id: string;
   name?: string;
+  thumbnailUrl?: string;
   [key: string]: unknown;
 }
 

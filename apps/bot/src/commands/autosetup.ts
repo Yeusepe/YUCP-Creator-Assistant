@@ -58,6 +58,7 @@ export interface AutosetupProduct {
   id: string;
   name: string;
   provider: string;
+  thumbnailUrl?: string;
 }
 
 interface AutosetupSession {
@@ -910,6 +911,7 @@ export async function handleAutosetupProductsSelect(
           provider: product.provider,
           displayName: product.name,
           productUrl: buildCatalogProductUrl(product.provider, product.id) ?? undefined,
+          thumbnailUrl: product.thumbnailUrl,
           supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
         });
         await convex.mutation(api.role_rules.createRoleRule, {
