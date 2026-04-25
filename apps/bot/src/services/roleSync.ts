@@ -154,6 +154,7 @@ export interface RoleRule {
   authUserId: string;
   guildId: string;
   productId: string;
+  catalogTierId?: Id<'catalog_tiers'>;
   verifiedRoleId: string;
   verifiedRoleIds?: string[];
   removeOnRevoke: boolean;
@@ -585,8 +586,18 @@ export class RoleSyncService {
       };
     }
 
+    const activeCatalogTierIds = await this.fetchActiveCatalogTierIds(payload.entitlementId);
+
     // Get all role rules for this product
     let roleRules = await this.fetchRoleRules(job.authUserId, entitlement.productId);
+    if (activeCatalogTierIds.length > 0) {
+      const activeTierIdSet = new Set(activeCatalogTierIds);
+      roleRules = roleRules.filter(
+        (rule) => !rule.catalogTierId || activeTierIdSet.has(rule.catalogTierId)
+      );
+    } else {
+      roleRules = roleRules.filter((rule) => !rule.catalogTierId);
+    }
 
     // When targetGuildId is set (e.g. from guild member add), only sync in that guild
     if (payload.targetGuildId) {
@@ -2145,6 +2156,35 @@ export class RoleSyncService {
             error: error instanceof Error ? error.message : String(error),
           });
           return null;
+        }
+      }
+    );
+  }
+
+  private async fetchActiveCatalogTierIds(
+    entitlementId: Id<'entitlements'>
+  ): Promise<Array<Id<'catalog_tiers'>>> {
+    return withBotStageSpan(
+      'catalog_tiers.fetch_active',
+      {
+        entitlementId,
+      },
+      async () => {
+        try {
+          const tierIds = await this.convexClient.query(
+            api.catalogTiers.getActiveCatalogTierIdsForEntitlement,
+            {
+              apiSecret: this.apiSecret,
+              entitlementId,
+            }
+          );
+          return tierIds as Array<Id<'catalog_tiers'>>;
+        } catch (error) {
+          this.logger.error('Failed to fetch active catalog tiers for entitlement', {
+            entitlementId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
         }
       }
     );

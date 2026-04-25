@@ -3,6 +3,27 @@ message ListProviderProductsRequest {
   2 -> string provider;
 }
 
+message ListProviderTiersRequest {
+  1 -> string authUserId;
+  2 -> string provider;
+  3 -> string productId;
+}
+
+message TierRecord {
+  1 -> string id;
+  2 -> string productId;
+  3 -> string name;
+  4 -> string description;
+  5 -> int64 amountCents;
+  6 -> string currency;
+  7 -> bool active;
+}
+
+message TiersResponse {
+  1 -> TierRecord[] tiers;
+  2 -> string error;
+}
+
 message ResolveProductNameRequest {
   1 -> string authUserId;
   2 -> string provider;
@@ -23,6 +44,7 @@ message UpsertProductCredentialRequest {
 
 service Catalog {
   listProviderProducts(ListProviderProductsRequest): ProductsResponse;
+  listProviderTiers(ListProviderTiersRequest): TiersResponse;
   resolveProductName(ResolveProductNameRequest): ResolveProductNameResponse;
   upsertProductCredential(UpsertProductCredentialRequest): SuccessResponse;
 }

@@ -18,6 +18,7 @@ export const RUNTIME_PROVIDER_KEYS = [
   'itchio',
   'jinxxy',
   'lemonsqueezy',
+  'patreon',
   'payhip',
   'vrchat',
 ] as const;
@@ -62,6 +63,8 @@ export type VerificationMethodKey = (typeof VERIFICATION_METHOD_KEYS)[number];
 export const PROVIDER_CAPABILITY_KEYS = [
   'account_link',
   'catalog_sync',
+  'tier_catalog',
+  'tier_entitlements',
   'webhooks',
   'managed_webhooks',
   'reconciliation',

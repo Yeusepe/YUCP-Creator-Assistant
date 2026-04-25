@@ -1,19 +1,21 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 const handleProviderProductsMock = mock(async () => new Response(null, { status: 200 }));
+const handleProviderTiersMock = mock(async () => new Response(null, { status: 200 }));
 
-const { listProviderProductsViaApi } = await import('./router');
+const { listProviderProductsViaApi, listProviderTiersViaApi } = await import('./router');
 
-describe('listProviderProductsViaApi', () => {
+describe('internal RPC catalog normalization', () => {
   beforeEach(() => {
     handleProviderProductsMock.mockReset();
+    handleProviderTiersMock.mockReset();
   });
 
   afterAll(() => {
     mock.restore();
   });
 
-  it('normalizes sanitized 500 route payloads instead of throwing transport errors', async () => {
+  it('normalizes sanitized product 500 route payloads instead of throwing transport errors', async () => {
     handleProviderProductsMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({ products: [], error: 'Could not load gumroad products right now.' }),
@@ -107,6 +109,60 @@ describe('listProviderProductsViaApi', () => {
         },
       ],
       error: 'Could not load gumroad products right now.',
+    });
+  });
+
+  it('normalizes tier amount cents into bigint for the Tempo int64 contract', async () => {
+    handleProviderTiersMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          tiers: [
+            {
+              id: 'tier_1',
+              productId: 'campaign_1',
+              name: 'VIP',
+              description: 'Top tier',
+              amountCents: 1500,
+              currency: 'USD',
+              active: true,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        }
+      )
+    );
+
+    await expect(
+      listProviderTiersViaApi(
+        {
+          apiBaseUrl: 'https://api.example.com',
+          convexApiSecret: 'convex-secret',
+        },
+        {
+          provider: 'patreon',
+          authUserId: 'creator-user',
+          productId: 'campaign_1',
+        },
+        handleProviderTiersMock
+      )
+    ).resolves.toEqual({
+      tiers: [
+        {
+          id: 'tier_1',
+          productId: 'campaign_1',
+          name: 'VIP',
+          description: 'Top tier',
+          amountCents: 1500n,
+          currency: 'USD',
+          active: true,
+        },
+      ],
+      error: undefined,
     });
   });
 });

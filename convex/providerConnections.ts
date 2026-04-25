@@ -11,7 +11,6 @@ import type { Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
-import { AUTH_MODE_CREDENTIAL_KEY } from './lib/credentialKeys';
 import {
   type ExternalAccountIdentityCandidate,
   findDuplicateExternalAccountIdentityGroups,
@@ -62,6 +61,22 @@ async function getConnectionCredentialPresence(
     hasApiKey: !!apiKey,
     hasAccessToken: !!accessToken,
   };
+}
+
+function deriveReadConnectionStatus(input: {
+  storedStatus?: string;
+  webhookConfigured?: boolean;
+  hasApiKey: boolean;
+  hasApiToken: boolean;
+  hasAccessToken: boolean;
+}): string {
+  if (input.storedStatus) {
+    return input.storedStatus;
+  }
+
+  return input.webhookConfigured || input.hasApiKey || input.hasApiToken || input.hasAccessToken
+    ? 'active'
+    : 'disconnected';
 }
 
 async function upsertCredential(
@@ -405,13 +420,19 @@ export const getConnectionStatus = query({
     await Promise.all(
       connections.map(async (conn) => {
         const providerKey = getConnectionProviderKey(conn);
-        if (conn.status === 'disconnected') {
-          result[providerKey] = false;
-          return;
-        }
-        const credKey = conn.authMode ? AUTH_MODE_CREDENTIAL_KEY[conn.authMode] : undefined;
-        const credValue = credKey ? await getCredentialValue(ctx, conn._id, credKey) : null;
-        result[providerKey] = !!credValue;
+        const [credentialPresence, apiToken] = await Promise.all([
+          getConnectionCredentialPresence(ctx, conn._id),
+          getCredentialValue(ctx, conn._id, 'api_token'),
+        ]);
+
+        result[providerKey] =
+          deriveReadConnectionStatus({
+            storedStatus: conn.status,
+            webhookConfigured: conn.webhookConfigured,
+            hasApiKey: credentialPresence.hasApiKey,
+            hasApiToken: !!apiToken,
+            hasAccessToken: credentialPresence.hasAccessToken,
+          }) !== 'disconnected';
       })
     );
     for (const connection of collaboratorConnections) {
@@ -462,11 +483,13 @@ export const listConnections = query({
             providerKey,
             label: c.label ?? getDefaultConnectionLabel(providerKey),
             connectionType: c.connectionType ?? 'setup',
-            status:
-              c.status ??
-              (credentialPresence.hasApiKey || apiToken || credentialPresence.hasAccessToken
-                ? 'active'
-                : 'disconnected'),
+            status: deriveReadConnectionStatus({
+              storedStatus: c.status,
+              webhookConfigured: c.webhookConfigured,
+              hasApiKey: credentialPresence.hasApiKey,
+              hasApiToken: !!apiToken,
+              hasAccessToken: credentialPresence.hasAccessToken,
+            }),
             authMode: c.authMode,
             externalShopId: c.externalShopId,
             externalShopName: c.externalShopName,
@@ -1356,13 +1379,13 @@ export const listConnectionsForUser = query({
           provider: c.provider,
           label: c.label ?? `${c.provider} Connection`,
           connectionType: c.connectionType ?? 'setup',
-          status:
-            c.status ??
-            (c.webhookConfigured ||
-            credentialPresence.hasApiKey ||
-            credentialPresence.hasAccessToken
-              ? 'active'
-              : 'disconnected'),
+          status: deriveReadConnectionStatus({
+            storedStatus: c.status,
+            webhookConfigured: c.webhookConfigured,
+            hasApiKey: credentialPresence.hasApiKey,
+            hasApiToken: false,
+            hasAccessToken: credentialPresence.hasAccessToken,
+          }),
           webhookConfigured: c.webhookConfigured,
           hasApiKey: credentialPresence.hasApiKey,
           hasAccessToken: credentialPresence.hasAccessToken,

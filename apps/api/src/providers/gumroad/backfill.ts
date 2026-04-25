@@ -3,7 +3,10 @@ import {
   parseRetryAfterMs,
   withProviderRateLimitRetries,
 } from '@yucp/providers/core/rateLimit';
-import { resolveGumroadProductId } from '@yucp/providers/gumroad';
+import {
+  buildGumroadTierRefFromPurchaseSelection,
+  resolveGumroadProductId,
+} from '@yucp/providers/gumroad';
 import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { encrypt } from '../../lib/encrypt';
 import { logger } from '../../lib/logger';
@@ -91,6 +94,11 @@ export const backfill: BackfillPlugin = {
                 buyerEmailHash,
                 buyerEmailEncrypted,
                 providerProductId: String(s.product_id ?? salesProductRef),
+                externalVariantId: buildGumroadTierRefFromPurchaseSelection({
+                  productId: s.product_id ?? salesProductRef,
+                  variants: s.variants,
+                  recurrence: s.recurrence,
+                }),
                 paymentStatus: s.refunded === true || s.refunded === 'true' ? 'refunded' : 'paid',
                 lifecycleStatus: (s.refunded === true || s.refunded === 'true'
                   ? 'refunded'

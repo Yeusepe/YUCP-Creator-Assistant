@@ -31,6 +31,8 @@ const BackfillPurchaseRecord = v.object({
   buyerEmailEncrypted: v.optional(v.string()),
   providerUserId: v.optional(v.string()),
   providerProductId: v.string(),
+  externalVariantId: v.optional(v.string()),
+  providerProductVersionId: v.optional(v.string()),
   paymentStatus: v.string(),
   lifecycleStatus: v.union(
     v.literal('active'),
@@ -154,6 +156,17 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
         .first();
 
       if (existing) {
+        const patch: Record<string, unknown> = {};
+        if (!existing.externalVariantId && p.externalVariantId) {
+          patch.externalVariantId = p.externalVariantId;
+        }
+        if (!existing.providerProductVersionId && p.providerProductVersionId) {
+          patch.providerProductVersionId = p.providerProductVersionId;
+        }
+        if (Object.keys(patch).length > 0) {
+          patch.updatedAt = now;
+          await ctx.db.patch(existing._id, patch);
+        }
         skipped++;
         continue;
       }
@@ -167,6 +180,8 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
         buyerEmailEncrypted: p.buyerEmailEncrypted,
         providerUserId: p.providerUserId,
         providerProductId: p.providerProductId,
+        externalVariantId: p.externalVariantId,
+        providerProductVersionId: p.providerProductVersionId,
         paymentStatus: p.paymentStatus,
         lifecycleStatus: p.lifecycleStatus,
         purchasedAt: p.purchasedAt,
@@ -663,7 +678,11 @@ export const projectBackfilledPurchasesForProduct = internalMutation({
       }
 
       if (!subjectId && purchaseFact.providerUserId) {
-        subjectId = await findSubjectByProviderUserId(ctx, args.provider, purchaseFact.providerUserId);
+        subjectId = await findSubjectByProviderUserId(
+          ctx,
+          args.provider,
+          purchaseFact.providerUserId
+        );
       }
 
       if (!subjectId) {
@@ -779,7 +798,11 @@ async function findSubjectByExternalAccountId(
     .withIndex('by_external_account', (q) => q.eq('externalAccountId', externalAccountId))
     .collect();
 
-  const buyerLinkSubjectIds = await collectActiveBuyerLinkSubjectIds(ctx, buyerLinks, externalAccount);
+  const buyerLinkSubjectIds = await collectActiveBuyerLinkSubjectIds(
+    ctx,
+    buyerLinks,
+    externalAccount
+  );
   if (buyerLinks.length > 0) {
     return buyerLinkSubjectIds.length === 1 ? buyerLinkSubjectIds[0] : undefined;
   }
@@ -789,7 +812,10 @@ async function findSubjectByExternalAccountId(
     .withIndex('by_external_account', (q) => q.eq('externalAccountId', externalAccountId))
     .collect();
 
-  const boundSubjectIds = await collectActiveVerificationBindingSubjectIds(ctx, verificationBindings);
+  const boundSubjectIds = await collectActiveVerificationBindingSubjectIds(
+    ctx,
+    verificationBindings
+  );
   return boundSubjectIds.length === 1 ? boundSubjectIds[0] : undefined;
 }
 

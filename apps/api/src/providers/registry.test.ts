@@ -162,4 +162,44 @@ describe('provider plugin registry', () => {
       expect(runtimesWithLicenseVerification.has(providerKey)).toBe(true);
     }
   });
+
+  it('keeps active tier catalog descriptors aligned with runtime tier listing handlers', () => {
+    const runtimeProviderKeys = new Set<string>(RUNTIME_PROVIDER_KEYS);
+    const descriptorsWithTierCatalog = PROVIDER_REGISTRY.filter(
+      (provider) =>
+        provider.status === 'active' &&
+        runtimeProviderKeys.has(provider.providerKey) &&
+        provider.capabilities.includes('tier_catalog')
+    ).map((provider) => provider.providerKey);
+
+    const runtimesWithTierCatalog = new Set(
+      ALL_PROVIDER_RUNTIMES.filter((provider) => provider.tiers?.listProductTiers != null).map(
+        (provider) => provider.id
+      )
+    );
+
+    for (const providerKey of descriptorsWithTierCatalog) {
+      expect(runtimesWithTierCatalog.has(providerKey)).toBe(true);
+    }
+  });
+
+  it('keeps active tier entitlement descriptors aligned with runtime tier plugins', () => {
+    const runtimeProviderKeys = new Set<string>(RUNTIME_PROVIDER_KEYS);
+    const descriptorsWithTierEntitlements = PROVIDER_REGISTRY.filter(
+      (provider) =>
+        provider.status === 'active' &&
+        runtimeProviderKeys.has(provider.providerKey) &&
+        provider.capabilities.includes('tier_entitlements')
+    ).map((provider) => provider.providerKey);
+
+    const runtimesWithTierPlugins = new Set(
+      ALL_PROVIDER_RUNTIMES.filter((provider) => provider.tiers != null).map(
+        (provider) => provider.id
+      )
+    );
+
+    for (const providerKey of descriptorsWithTierEntitlements) {
+      expect(runtimesWithTierPlugins.has(providerKey)).toBe(true);
+    }
+  });
 });

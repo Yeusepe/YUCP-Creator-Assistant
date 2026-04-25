@@ -6,6 +6,7 @@ import type {
   ProviderPurposes,
   ProviderRuntimeClient,
   ProviderRuntimeModule,
+  ProviderTierRecord,
 } from '../contracts';
 import { LemonSqueezyApiClient } from './client';
 
@@ -49,6 +50,15 @@ interface LemonSqueezyClientLike {
     products: Array<{ id: string; name: string }>;
     pagination: { nextPage: number | null };
   }>;
+  getVariants(productId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      description?: string | null;
+      price?: number | null;
+      status?: string | null;
+    }>
+  >;
   getStores(
     page?: number,
     perPage?: number
@@ -85,7 +95,18 @@ export type LemonSqueezyProviderRuntime<
 };
 
 function getClient(ports: LemonSqueezyRuntimePorts, apiToken: string): LemonSqueezyClientLike {
-  return ports.createClient?.(apiToken) ?? new LemonSqueezyApiClient({ apiToken });
+  const client = ports.createClient?.(apiToken);
+  if (client) {
+    return client;
+  }
+
+  const apiClient = new LemonSqueezyApiClient({ apiToken });
+  return {
+    getProducts: (params) => apiClient.getProducts(params),
+    getVariants: async (productId) => apiClient.getAllVariants(productId),
+    getStores: (page, perPage) => apiClient.getStores(page, perPage),
+    validateLicenseKey: (licenseKey) => apiClient.validateLicenseKey(licenseKey),
+  };
 }
 
 async function listProductsForToken(
@@ -226,6 +247,34 @@ export function createLemonSqueezyProviderModule<
         seen.add(product.id);
         return true;
       });
+    },
+    tiers: {
+      async listProductTiers(
+        credential: string | null,
+        productId: string
+      ): Promise<ProviderTierRecord[]> {
+        if (!credential) {
+          return [];
+        }
+        // Lemon Squeezy variants are listed at GET /v1/variants filtered by product_id:
+        // https://docs.lemonsqueezy.com/api/variants/list-all-variants
+        // The variant attributes documented there map directly to YUCP tier fields:
+        // `name`, `description`, `price` (already in cents), and `status`.
+        const variants = await getClient(ports, credential).getVariants(productId);
+        return variants.map((variant) => ({
+          id: variant.id,
+          productId,
+          name: variant.name,
+          description: variant.description ?? undefined,
+          amountCents: variant.price ?? undefined,
+          currency: undefined,
+          active: variant.status !== 'archived',
+          metadata: {
+            provider: 'lemonsqueezy',
+            status: variant.status ?? undefined,
+          },
+        }));
+      },
     },
     verification: createLemonSqueezyLicenseVerification(ports),
     async collabValidate(credential: string): Promise<void> {

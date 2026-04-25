@@ -8,10 +8,10 @@
  * - https://www.svix.com/resources/webhook-best-practices/receiving/
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
-import { makeTestConvex } from './testHelpers';
+import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
 
@@ -141,6 +141,11 @@ describe('insertWebhookEvent', () => {
 describe('processWebhookEvent pipeline', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('given pending gumroad webhook event, when processed, then status becomes processed', async () => {
@@ -257,6 +262,262 @@ describe('processWebhookEvent pipeline', () => {
     const facts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
     expect(facts).toHaveLength(1);
     expect(facts[0].subjectId).toBeUndefined();
+  });
+
+  it('given tiered Gumroad sale payload, when processed, then the canonical tier ref is stored and resolves the matching catalog tier', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-creator-gumroad-tier-webhook';
+    const buyerAuthUserId = 'auth-buyer-gumroad-tier-webhook';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-gumroad-tier-webhook',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-gumroad-tier-webhook',
+    });
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      provider: 'gumroad',
+      providerUserId: 'gumroad-tier-webhook-buyer',
+      username: 'Tier Webhook Buyer',
+      email: 'gumroad-tier-webhook@example.com',
+      discordUserId: 'discord-gumroad-tier-webhook',
+    });
+
+    await t.mutation(api.bindings.activateBinding, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      externalAccountId: syncResult.externalAccountId,
+      bindingType: 'verification',
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId: buyerSubjectId,
+      provider: 'gumroad',
+      externalAccountId: syncResult.externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const catalogProductId = await t.run(async (ctx) =>
+      ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-gumroad-tier-webhook-product',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-tier-webhook-product',
+        displayName: 'Tier Webhook Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: 'local-gumroad-tier-webhook-product',
+      catalogProductId,
+      providerProductRef: 'gumroad-tier-webhook-product',
+      providerTierRef:
+        'gumroad|product|28:gumroad-tier-webhook-product|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      displayName: 'Gold Monthly',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    const insertResult = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      providerEventId: 'sale_tiered_webhook',
+      eventType: 'sale',
+      rawPayload: {
+        sale_id: 'sale-tier-webhook',
+        product_id: 'gumroad-tier-webhook-product',
+        email: 'gumroad-tier-webhook@example.com',
+        variants: 'Tier: Gold',
+        recurrence: 'monthly',
+        subscription_id: 'sub_123',
+      },
+      signatureValid: true,
+      verificationMethod: 'hmac',
+    });
+
+    const processResult = await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: API_SECRET,
+        eventId: insertResult.eventId!,
+      })
+    );
+
+    expect(processResult.success).toBe(true);
+
+    const facts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({
+      provider: 'gumroad',
+      externalOrderId: 'sale-tier-webhook',
+      externalVariantId:
+        'gumroad|product|28:gumroad-tier-webhook-product|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      subjectId: buyerSubjectId,
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-gumroad-tier-webhook-product',
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected active entitlement');
+    }
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it('given Gumroad webhook only exposes short_product_id, when processed, then tier refs still resolve', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-gumroad-short-product-tier';
+    const buyerAuthUserId = 'buyer-gumroad-short-product-tier';
+    const buyerEmail = 'gumroad-short-product-tier@example.com';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-gumroad-short-product-tier',
+    });
+    const providerProductRef = 'AbC123xY';
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-gumroad-short-product-tier',
+    });
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      provider: 'gumroad',
+      providerUserId: 'gumroad-short-product-tier-buyer',
+      username: 'Short Product Buyer',
+      email: buyerEmail,
+      discordUserId: 'discord-gumroad-short-product-tier',
+    });
+
+    await t.mutation(api.bindings.activateBinding, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      externalAccountId: syncResult.externalAccountId,
+      bindingType: 'verification',
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId: buyerSubjectId,
+      provider: 'gumroad',
+      externalAccountId: syncResult.externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const catalogProductId = await t.run(async (ctx) =>
+      ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-gumroad-short-product-tier',
+        provider: 'gumroad',
+        providerProductRef,
+        displayName: 'Short Product Tier Webhook Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    );
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: 'local-gumroad-short-product-tier',
+      catalogProductId,
+      providerProductRef,
+      providerTierRef:
+        'gumroad|product|8:AbC123xY|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      displayName: 'Gold Monthly',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    const insertResult = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      providerEventId: 'sale_short_product_tiered_webhook',
+      eventType: 'sale',
+      rawPayload: {
+        sale_id: 'sale-short-product-tier-webhook',
+        short_product_id: providerProductRef,
+        email: buyerEmail,
+        variants: 'Tier: Gold',
+        recurrence: 'monthly',
+        subscription_id: 'sub_short_123',
+      },
+      signatureValid: true,
+      verificationMethod: 'hmac',
+    });
+
+    const processResult = await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: API_SECRET,
+        eventId: insertResult.eventId!,
+      })
+    );
+
+    expect(processResult.success).toBe(true);
+
+    const facts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
+    expect(facts).toHaveLength(1);
+    expect(facts[0]).toMatchObject({
+      provider: 'gumroad',
+      externalOrderId: 'sale-short-product-tier-webhook',
+      providerProductId: providerProductRef,
+      externalVariantId:
+        'gumroad|product|8:AbC123xY|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      subjectId: buyerSubjectId,
+    });
+
+    const entitlement = await t.query(api.entitlements.getActiveEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'local-gumroad-short-product-tier',
+    });
+
+    expect(entitlement.found).toBe(true);
+    if (!entitlement.entitlement) {
+      throw new Error('Expected active entitlement');
+    }
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId: entitlement.entitlement._id,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
   });
 
   it('given wrong apiSecret, when webhook processing is attempted, then pending event remains unchanged', async () => {

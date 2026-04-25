@@ -64,6 +64,9 @@ describe('createJinxxyProviderModule', () => {
               pagination: { has_next: false },
             };
           },
+          async getProduct() {
+            return null;
+          },
           async verifyLicenseByKey() {
             return { valid: false };
           },
@@ -76,6 +79,65 @@ describe('createJinxxyProviderModule', () => {
       { id: 'a', name: 'Owner Product' },
       { id: 'b', name: 'Shared Product' },
       { id: 'c', name: 'Collab Product', collaboratorName: 'Collab' },
+    ]);
+  });
+
+  it('treats Jinxxy version prices as already-scaled cents', async () => {
+    const module = createJinxxyProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-owner';
+      },
+      async decryptCredential() {
+        return 'owner-key';
+      },
+      async listCollaboratorConnections() {
+        return [];
+      },
+      createClient() {
+        return {
+          async getProducts() {
+            return { products: [], pagination: { has_next: false } };
+          },
+          async getProduct() {
+            return {
+              id: 'product-1',
+              visibility: 'PUBLIC',
+              currency_code: 'USD',
+              versions: [
+                { id: 'version-1', name: 'Regular License', price: 999 },
+                { id: 'version-2', name: 'Commercial License', price: 9999 },
+              ],
+            };
+          },
+          async verifyLicenseByKey() {
+            return { valid: false };
+          },
+        };
+      },
+    });
+
+    await expect(
+      module.tiers?.listProductTiers('owner-key', 'product-1', makeCtx())
+    ).resolves.toEqual([
+      {
+        id: 'version-1',
+        productId: 'product-1',
+        name: 'Regular License',
+        amountCents: 999,
+        currency: 'USD',
+        active: true,
+        metadata: { provider: 'jinxxy' },
+      },
+      {
+        id: 'version-2',
+        productId: 'product-1',
+        name: 'Commercial License',
+        amountCents: 9999,
+        currency: 'USD',
+        active: true,
+        metadata: { provider: 'jinxxy' },
+      },
     ]);
   });
 });
@@ -97,6 +159,9 @@ describe('createJinxxyLicenseVerification', () => {
         return {
           async getProducts() {
             return { products: [], pagination: { has_next: false } };
+          },
+          async getProduct() {
+            return null;
           },
           async verifyLicenseByKey() {
             return {

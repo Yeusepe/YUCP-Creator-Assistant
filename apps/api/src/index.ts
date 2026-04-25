@@ -225,6 +225,10 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret,
     providerClientIds: {
       itchio: env.ITCHIO_CLIENT_ID ?? '',
+      patreon: env.PATREON_CLIENT_ID ?? '',
+    },
+    providerClientSecrets: {
+      patreon: env.PATREON_CLIENT_SECRET ?? '',
     },
   };
   verificationHandlers = createVerificationRoutes(verificationConfig);
@@ -242,6 +246,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     itchioClientId: env.ITCHIO_CLIENT_ID,
+    patreonClientId: env.PATREON_CLIENT_ID,
+    patreonClientSecret: env.PATREON_CLIENT_SECRET,
     encryptionSecret,
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
@@ -351,6 +357,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     frontendUrl,
     discordEnabled: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET),
     gumroadConfigured: !!(env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY),
+    patreonConfigured: !!(env.PATREON_CLIENT_ID && env.PATREON_CLIENT_SECRET),
   });
 
   return auth;
@@ -710,6 +717,13 @@ async function routeRequest(request: Request): Promise<Response> {
     const providerSlug = productsMatch[1];
     const { handleProviderProducts } = await import('./routes/products');
     return handleProviderProducts(request, providerSlug);
+  }
+
+  const tiersMatch = pathname.match(/^\/api\/([^/]+)\/tiers$/);
+  if (tiersMatch && request.method === 'POST') {
+    const providerSlug = tiersMatch[1];
+    const { handleProviderTiers } = await import('./routes/tiers');
+    return handleProviderTiers(request, providerSlug);
   }
 
   // Webhook routes (Gumroad, Jinxxy)

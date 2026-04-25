@@ -84,8 +84,10 @@ export interface GumroadSale {
   license_code?: string;
   custom_fields?: Record<string, string>;
   variants?: string;
+  recurrence?: string;
   offer_code?: string;
   order_id?: string;
+  subscription_id?: string | number | null;
   sale_timestamp: string;
 }
 
@@ -113,6 +115,143 @@ export interface GumroadSaleResponse {
 // ============================================================================
 
 /**
+ * Gumroad product variant group from GET /products.
+ * Products expose variant groups with `variants[].options[]`.
+ * See: https://gumroad.com/api#products
+ */
+export interface GumroadProductVariant {
+  title?: string;
+  name?: string;
+  options?: Array<string | { name?: string; title?: string; value?: string }>;
+}
+
+/**
+ * Gumroad recurrence price entry from GET /products.
+ * Tiered memberships expose `recurrences` and `recurrence_prices`.
+ * See: https://gumroad.com/api#products
+ */
+export type GumroadRecurrencePrice =
+  | number
+  | string
+  | {
+      cents?: number;
+      price?: number;
+      amount_cents?: number;
+      formatted_price?: string;
+      currency?: string;
+    };
+
+export interface GumroadTierRefInput {
+  productId: string;
+  variantTitle: string;
+  optionLabel: string;
+  recurrence?: string;
+}
+
+export function normalizeGumroadWhitespace(value: string): string {
+  return value.trim().replace(/\s+/g, ' ');
+}
+
+export function normalizeGumroadCanonicalTierPart(value: string): string {
+  return normalizeGumroadWhitespace(value).normalize('NFKC').toLowerCase();
+}
+
+function normalizeGumroadOpaqueTierPart(value: string): string {
+  return normalizeGumroadWhitespace(value).normalize('NFKC');
+}
+
+export function formatGumroadCanonicalTierPart(
+  value: string,
+  options?: { preserveCase?: boolean }
+): string {
+  const canonicalValue = options?.preserveCase
+    ? normalizeGumroadOpaqueTierPart(value)
+    : normalizeGumroadCanonicalTierPart(value);
+  return `${canonicalValue.length}:${canonicalValue}`;
+}
+
+export function parseGumroadVariantSelection(
+  value: unknown
+): { variantTitle: string; optionLabel: string } | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = normalizeGumroadWhitespace(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const separatorIndex = normalized.indexOf(':');
+  if (separatorIndex <= 0 || separatorIndex === normalized.length - 1) {
+    return undefined;
+  }
+
+  const variantTitle = normalizeGumroadWhitespace(normalized.slice(0, separatorIndex));
+  const optionLabel = normalizeGumroadWhitespace(normalized.slice(separatorIndex + 1));
+  if (!variantTitle || !optionLabel) {
+    return undefined;
+  }
+
+  return { variantTitle, optionLabel };
+}
+
+export function normalizeGumroadRecurrence(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+export function buildGumroadTierRef({
+  productId,
+  variantTitle,
+  optionLabel,
+  recurrence,
+}: GumroadTierRefInput): string {
+  const parts = [
+    'gumroad',
+    'product',
+    formatGumroadCanonicalTierPart(productId, { preserveCase: true }),
+    'variant',
+    formatGumroadCanonicalTierPart(variantTitle),
+    'option',
+    formatGumroadCanonicalTierPart(optionLabel),
+  ];
+  if (recurrence) {
+    parts.push('recurrence', formatGumroadCanonicalTierPart(recurrence));
+  }
+  return parts.join('|');
+}
+
+export function buildGumroadTierRefFromPurchaseSelection(input: {
+  productId: unknown;
+  variants: unknown;
+  recurrence?: unknown;
+}): string | undefined {
+  /**
+   * Gumroad product docs: https://gumroad.com/api#products
+   * Gumroad sales docs: https://gumroad.com/api#sales
+   * Current Gumroad sale and webhook payloads expose the purchased selection through
+   * `variants` and the billing cadence through `recurrence`, so the stable tier
+   * identity must be rebuilt from those documented fields.
+   */
+  const productId =
+    typeof input.productId === 'string' ? normalizeGumroadWhitespace(input.productId) : '';
+  const selection = parseGumroadVariantSelection(input.variants);
+  const recurrence = normalizeGumroadRecurrence(input.recurrence);
+  if (!productId || !selection) {
+    return undefined;
+  }
+
+  return buildGumroadTierRef({
+    productId,
+    variantTitle: selection.variantTitle,
+    optionLabel: selection.optionLabel,
+    recurrence,
+  });
+}
+
+/**
  * Gumroad product resource from /products/:id
  */
 export interface GumroadProduct {
@@ -129,6 +268,9 @@ export interface GumroadProduct {
   created_at: string;
   deleted_at?: string;
   is_tiered_membership?: boolean;
+  recurrences?: string[];
+  recurrence_prices?: Record<string, GumroadRecurrencePrice>;
+  variants?: GumroadProductVariant[];
   subscription_duration?: 'monthly' | 'yearly';
   max_purchase_count?: number;
 }
@@ -148,6 +290,7 @@ export interface GumroadProductResponse {
 export interface GumroadProductsResponse {
   success: boolean;
   products: GumroadProduct[];
+  next_page_url?: string;
   message?: string;
 }
 

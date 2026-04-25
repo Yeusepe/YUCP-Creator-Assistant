@@ -7,6 +7,9 @@ export interface BackfillRecord {
   buyerEmailEncrypted?: string;
   providerUserId?: string;
   providerProductId: string;
+  externalVariantId?: string;
+  /** @deprecated Prefer externalVariantId for generic tier identity. */
+  providerProductVersionId?: string;
   paymentStatus: string;
   lifecycleStatus: 'active' | 'refunded' | 'cancelled' | 'disputed';
   purchasedAt: number;

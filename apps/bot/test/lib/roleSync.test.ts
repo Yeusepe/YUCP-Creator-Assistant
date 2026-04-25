@@ -44,6 +44,55 @@ mock.module('../../src/lib/internalRpc', () => ({
   listProviderProducts: mock(async () => ({ products: [] })),
 }));
 
+mock.module('../../../../convex/_generated/api', () => ({
+  api: {
+    guildLinks: {
+      getVerifyPromptMessageForBot: 'guildLinks:getVerifyPromptMessageForBot',
+      clearVerifyPromptMessage: 'guildLinks:clearVerifyPromptMessage',
+    },
+    role_rules: {
+      getByGuildWithProductNames: 'role_rules:getByGuildWithProductNames',
+      getEnabledVerificationProvidersFromProducts:
+        'role_rules:getEnabledVerificationProvidersFromProducts',
+      addProductForProvider: 'role_rules:addProductForProvider',
+      createRoleRule: 'role_rules:createRoleRule',
+      getByProduct: 'role_rules:getByProduct',
+    },
+    setupJobs: {
+      upsertSetupRecommendation: 'setupJobs:upsertSetupRecommendation',
+      advanceSetupToReviewExceptions: 'setupJobs:advanceSetupToReviewExceptions',
+      getSetupRolePlanEntries: 'setupJobs:getSetupRolePlanEntries',
+      upsertSetupStep: 'setupJobs:upsertSetupStep',
+      appendSetupEvent: 'setupJobs:appendSetupEvent',
+      updateSetupJobState: 'setupJobs:updateSetupJobState',
+      upsertMigrationRoleMapping: 'setupJobs:upsertMigrationRoleMapping',
+      upsertMigrationSource: 'setupJobs:upsertMigrationSource',
+      appendMigrationEvent: 'setupJobs:appendMigrationEvent',
+      updateMigrationJobState: 'setupJobs:updateMigrationJobState',
+    },
+    backgroundSync: {
+      processRetroactiveRuleSyncJob: 'backgroundSync:processRetroactiveRuleSyncJob',
+    },
+    identitySync: {
+      getOrCreateSubjectForDiscordUser: 'identitySync:getOrCreateSubjectForDiscordUser',
+    },
+    entitlements: {
+      grantEntitlement: 'entitlements:grantEntitlement',
+      getEntitlement: 'entitlements:getEntitlement',
+    },
+    catalogTiers: {
+      getActiveCatalogTierIdsForEntitlement: 'catalogTiers:getActiveCatalogTierIdsForEntitlement',
+    },
+    audit_events: {
+      createAuditEvent: 'audit_events:createAuditEvent',
+    },
+    outbox_jobs: {
+      getPendingJobs: 'outbox_jobs:getPendingJobs',
+      updateJobStatus: 'outbox_jobs:updateJobStatus',
+    },
+  },
+}));
+
 import type { Client } from 'discord.js';
 import { type OutboxJob, RoleSyncService } from '../../src/services/roleSync';
 
@@ -235,6 +284,74 @@ describe('role sync service regressions', () => {
     );
 
     expect(matched).toBe(true);
+  });
+
+  it('retries role sync jobs when active tier lookup fails instead of collapsing to product-wide rules', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<unknown>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{
+        _id: string;
+        productId: string;
+        status: 'active';
+      }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        catalogTierId: 'catalog-tier-1',
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-123',
+      },
+    ]);
+    (queryMock as unknown as { mockRejectedValueOnce(value: unknown): void }).mockRejectedValueOnce(
+      new Error('catalog tiers unavailable')
+    );
+
+    await expect(
+      processRoleSyncJob(
+        createJob({
+          jobType: 'role_sync',
+          payload: {
+            subjectId: 'subject-123' as never,
+            entitlementId: 'entitlement-123' as never,
+            discordUserId: 'user-123',
+          },
+        })
+      )
+    ).rejects.toThrow('catalog tiers unavailable');
   });
 
   it('skips already-applied plan entries instead of replaying create role rule work', async () => {

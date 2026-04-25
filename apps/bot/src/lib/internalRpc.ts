@@ -14,6 +14,7 @@ import {
 } from '@yucp/private-rpc';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getApiUrls } from './apiUrls';
+import { normalizeProviderTiers } from './internalRpcTiers';
 
 const INTERNAL_RPC_PATH = '/__internal/tempo';
 
@@ -152,6 +153,33 @@ export async function listProviderProducts(
   });
   return {
     products: normalizeProducts(response.products),
+    error: response.error,
+  };
+}
+
+export async function listProviderTiers(
+  provider: string,
+  authUserId: string,
+  productId: string
+): Promise<{
+  error?: string;
+  tiers: Array<{
+    active: boolean;
+    amountCents?: number;
+    currency?: string;
+    description?: string;
+    id: string;
+    name: string;
+    productId: string;
+  }>;
+}> {
+  const response = await (await getClients()).catalog.listProviderTiers({
+    provider,
+    authUserId,
+    productId,
+  });
+  return {
+    tiers: normalizeProviderTiers(response.tiers),
     error: response.error,
   };
 }

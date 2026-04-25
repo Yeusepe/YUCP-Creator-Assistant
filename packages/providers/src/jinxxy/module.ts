@@ -35,6 +35,10 @@ export const JINXXY_DISPLAY_META = {
 
 const HARD_PAGE_LIMIT = 100;
 
+function normalizeJinxxyAmountCents(price: number) {
+  return Math.round(price);
+}
+
 export interface JinxxyCollaboratorConnection {
   id: string;
   provider: string;
@@ -49,6 +53,17 @@ interface JinxxyClientLike {
     products: Array<{ id: string; name: string }>;
     pagination?: { has_next?: boolean };
   }>;
+  getProduct(productId: string): Promise<{
+    id: string;
+    versions?: Array<{
+      id: string;
+      name: string;
+      price: number;
+    }>;
+    base_price?: number;
+    currency_code?: string;
+    visibility?: string;
+  } | null>;
   verifyLicenseByKey(licenseKey: string): Promise<{
     valid: boolean;
     error?: string;
@@ -94,6 +109,10 @@ export type JinxxyProviderRuntime<TClient extends ProviderRuntimeClient = Provid
 
 function getClient(ports: JinxxyRuntimePorts, apiKey: string): JinxxyClientLike {
   return ports.createClient?.(apiKey) ?? new JinxxyApiClient({ apiKey });
+}
+
+function mapVisibilityToActive(visibility: string | undefined): boolean {
+  return visibility !== 'ARCHIVED' && visibility !== 'archived';
 }
 
 async function listProductsForKey(
@@ -211,6 +230,42 @@ export function createJinxxyProviderModule<
         seen.add(product.id);
         return true;
       });
+    },
+    tiers: {
+      async listProductTiers(credential, productId) {
+        if (!credential) {
+          return [];
+        }
+
+        const client = getClient(ports, credential);
+        /**
+         * Jinxxy product docs:
+         * - https://api.creators.jinxxy.com/v1/docs#tag/products/GET/products/{id}
+         * - https://api.creators.jinxxy.com/v1/openapi.json
+         * The product response schema documents top-level `currency_code` and `visibility`,
+         * plus `versions[]` entries with `id`, `name`, and `price`. Current creator API
+         * payloads surface `price` in cents already, so YUCP preserves the numeric value
+         * as `amountCents` instead of applying a second major-unit conversion. Each
+         * version is treated as a provider tier.
+         */
+        const product = await client.getProduct(productId);
+        if (!product?.versions?.length) {
+          return [];
+        }
+
+        const active = mapVisibilityToActive(product.visibility);
+        return product.versions.map((version) => ({
+          id: version.id,
+          productId,
+          name: version.name,
+          amountCents: normalizeJinxxyAmountCents(version.price),
+          currency: product.currency_code ?? 'USD',
+          active,
+          metadata: {
+            provider: 'jinxxy',
+          },
+        }));
+      },
     },
     verification: createJinxxyLicenseVerification(ports),
     async collabValidate(credential: string): Promise<void> {

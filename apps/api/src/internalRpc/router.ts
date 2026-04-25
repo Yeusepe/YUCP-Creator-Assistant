@@ -23,12 +23,14 @@ import {
   type ListCollaboratorConnectionsRequest,
   type ListCollaboratorConnectionsResponse,
   type ListProviderProductsRequest,
+  type ListProviderTiersRequest,
   type ProductsResponse,
   type RemoveCollaboratorConnectionRequest,
   type ResolveProductNameRequest,
   type ResolveProductNameResponse,
   type SuccessResponse,
   TempoServiceRegistry,
+  type TiersResponse,
   type TokenResponse,
   type UpsertProductCredentialRequest,
   type VerificationResultResponse,
@@ -44,6 +46,7 @@ import type { CollabConfig } from '../routes/collab';
 import { createCollabRoutes } from '../routes/collab';
 import { type ConnectConfig, createConnectRoutes } from '../routes/connect';
 import { handleProviderProducts } from '../routes/products';
+import { handleProviderTiers } from '../routes/tiers';
 import { handleCompleteVrchat } from '../verification/completeVrchat';
 import type { VerificationConfig } from '../verification/verificationConfig';
 import { createJsonRequest, readJsonResponse } from './httpAdapter';
@@ -206,6 +209,34 @@ function normalizeProductsResponse(
   };
 }
 
+function normalizeOptionalInt64(value: unknown): bigint | undefined {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? BigInt(value) : undefined;
+  }
+  if (typeof value === 'string' && /^-?\d+$/.test(value)) {
+    return BigInt(value);
+  }
+  return undefined;
+}
+
+function normalizeTiersResponse(payload: Partial<TiersResponse> | null | undefined): TiersResponse {
+  return {
+    tiers: (payload?.tiers ?? []).map((tier) => ({
+      id: tier?.id,
+      productId: tier?.productId,
+      name: tier?.name,
+      description: tier?.description,
+      amountCents: normalizeOptionalInt64(tier?.amountCents),
+      currency: tier?.currency,
+      active: tier?.active ?? false,
+    })),
+    error: payload?.error,
+  };
+}
+
 export async function listProviderProductsViaApi(
   config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
   request: ListProviderProductsRequest,
@@ -221,6 +252,27 @@ export async function listProviderProductsViaApi(
   );
   return normalizeProductsResponse(
     await readJsonResponse<Partial<ProductsResponse>>(response, {
+      allowErrorStatuses: [500],
+    })
+  );
+}
+
+export async function listProviderTiersViaApi(
+  config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
+  request: ListProviderTiersRequest,
+  handleTiers: typeof handleProviderTiers = handleProviderTiers
+): Promise<TiersResponse> {
+  const provider = request.provider ?? '';
+  const response = await handleTiers(
+    createJsonRequest(`${config.apiBaseUrl}/api/${provider}/tiers`, {
+      apiSecret: config.convexApiSecret,
+      authUserId: request.authUserId ?? '',
+      productId: request.productId ?? '',
+    }),
+    provider
+  );
+  return normalizeTiersResponse(
+    await readJsonResponse<Partial<TiersResponse>>(response, {
       allowErrorStatuses: [500],
     })
   );
@@ -314,6 +366,15 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
       ): Promise<ProductsResponse> {
         return withTelemetry('CatalogService.listProviderProducts', request, async () => {
           return await listProviderProductsViaApi(deps.config, request);
+        });
+      }
+
+      async listProviderTiers(
+        request: ListProviderTiersRequest,
+        _context: ServerContext
+      ): Promise<TiersResponse> {
+        return withTelemetry('CatalogService.listProviderTiers', request, async () => {
+          return await listProviderTiersViaApi(deps.config, request);
         });
       }
 

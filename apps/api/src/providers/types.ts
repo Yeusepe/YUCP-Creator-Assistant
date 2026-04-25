@@ -133,6 +133,8 @@ export interface ConnectConfig {
   gumroadClientId?: string;
   gumroadClientSecret?: string;
   itchioClientId?: string;
+  patreonClientId?: string;
+  patreonClientSecret?: string;
   encryptionSecret: string;
 }
 
