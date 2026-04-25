@@ -819,6 +819,13 @@ export async function handleProductCatalogSelect(
       return;
     }
 
+    if (tiers.length === 1) {
+      const selectedTier = tiers[0];
+      session.availableTiers = { [selectedTier.id]: selectedTier };
+      session.selectedTierId = selectedTier.id;
+      session.selectedTierName = selectedTier.name;
+    }
+
     if (tiers.length > 1 || provider === 'patreon') {
       session.hasTierSelectionStep = true;
       session.availableTiers = Object.fromEntries(tiers.map((tier) => [tier.id, tier]));

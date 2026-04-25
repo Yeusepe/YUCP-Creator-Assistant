@@ -272,4 +272,65 @@ describe('catalog tier entitlement resolution', () => {
 
     expect(tierIds).toEqual([]);
   });
+
+  it('preserves existing optional catalog tier metadata when later upserts omit it', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-tier-metadata';
+
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-tier-metadata-product',
+        provider: 'jinxxy',
+        providerProductRef: 'product-tier-metadata',
+        displayName: 'Metadata Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'jinxxy',
+      productId: 'local-tier-metadata-product',
+      catalogProductId,
+      providerProductRef: 'product-tier-metadata',
+      providerTierRef: 'version-vip',
+      displayName: 'VIP License',
+      description: 'Full commercial rights',
+      amountCents: 9900,
+      currency: 'USD',
+      metadata: { provider: 'jinxxy', scope: 'vip' },
+      status: 'active',
+    });
+
+    await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'jinxxy',
+      productId: 'local-tier-metadata-product',
+      catalogProductId,
+      providerProductRef: 'product-tier-metadata',
+      providerTierRef: 'version-vip',
+      displayName: 'VIP License Updated',
+      status: 'active',
+    });
+
+    const catalogTier = await t.query(api.catalogTiers.getCatalogTier, {
+      apiSecret: API_SECRET,
+      catalogTierId,
+    });
+
+    expect(catalogTier).toMatchObject({
+      _id: catalogTierId,
+      displayName: 'VIP License Updated',
+      description: 'Full commercial rights',
+      amountCents: 9900,
+      currency: 'USD',
+      metadata: { provider: 'jinxxy', scope: 'vip' },
+    });
+  });
 });

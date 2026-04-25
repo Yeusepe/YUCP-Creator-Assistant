@@ -350,6 +350,61 @@ describe('role rules CRUD and isolation', () => {
     expect(await getRoleRuleCounts(t)).toEqual(before);
   });
 
+  it('given attacker points a rule at another tenant catalog tier, then rejects and writes nothing', async () => {
+    const t = makeTestConvex();
+    const attackerGuildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-attacker-tier',
+      discordGuildId: 'guild-attacker-tier',
+    });
+    const before = await getRoleRuleCounts(t);
+
+    const { catalogProductId, catalogTierId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId: 'auth-victim-tier',
+        productId: 'victim-product',
+        provider: 'gumroad',
+        providerProductRef: 'victim-product-ref',
+        displayName: 'Victim Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const tierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: 'auth-victim-tier',
+        provider: 'gumroad',
+        productId: 'victim-product',
+        catalogProductId: productId,
+        providerProductRef: 'victim-product-ref',
+        providerTierRef: 'victim-tier-ref',
+        displayName: 'Victim Tier',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return {
+        catalogProductId: productId,
+        catalogTierId: tierId,
+      };
+    });
+
+    await expect(
+      t.mutation(api.role_rules.createRoleRule, {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-attacker-tier',
+        guildId: 'guild-attacker-tier',
+        guildLinkId: attackerGuildLinkId,
+        productId: 'attacker-product',
+        catalogProductId,
+        catalogTierId,
+        verifiedRoleId: 'role-attacker-tier',
+      })
+    ).rejects.toThrow();
+
+    expect(await getRoleRuleCounts(t)).toEqual(before);
+  });
+
   it('given same guildId reused across tenants, when queried, then only caller tenant rules are returned', async () => {
     const t = makeTestConvex();
     const guildId = 'shared-guild-id';

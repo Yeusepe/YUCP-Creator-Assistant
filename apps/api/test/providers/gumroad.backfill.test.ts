@@ -156,6 +156,31 @@ describe('Gumroad backfill fetchPage', () => {
     });
   });
 
+  it('preserves mixed-case Gumroad product ids in canonical externalVariantId values', async () => {
+    restoreFetch = mockFetch({
+      success: true,
+      sales: [
+        {
+          sale_id: 'sale-tiered-mixed-case',
+          product_id: 'AbC123xY',
+          email: 'tiered-mixed@example.com',
+          created_at: NINETY_DAYS_AGO_ISO,
+          variants: 'Tier: Gold',
+          recurrence: 'Monthly',
+          subscription_id: 'sub_mixed',
+        },
+      ],
+    });
+
+    const result = await backfill.fetchPage(FAKE_TOKEN, FAKE_PRODUCT_REF, null, 100, '');
+
+    expect(result.facts[0]).toMatchObject({
+      externalOrderId: 'sale-tiered-mixed-case',
+      externalVariantId:
+        'gumroad|product|8:AbC123xY|variant|4:tier|option|4:gold|recurrence|7:monthly',
+    });
+  });
+
   it('returns nextCursor when next_page_url is present', async () => {
     restoreFetch = mockFetch({
       sales: [],

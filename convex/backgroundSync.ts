@@ -156,6 +156,17 @@ export const ingestBackfillPurchaseFactsBatch = mutation({
         .first();
 
       if (existing) {
+        const patch: Record<string, unknown> = {};
+        if (!existing.externalVariantId && p.externalVariantId) {
+          patch.externalVariantId = p.externalVariantId;
+        }
+        if (!existing.providerProductVersionId && p.providerProductVersionId) {
+          patch.providerProductVersionId = p.providerProductVersionId;
+        }
+        if (Object.keys(patch).length > 0) {
+          patch.updatedAt = now;
+          await ctx.db.patch(existing._id, patch);
+        }
         skipped++;
         continue;
       }

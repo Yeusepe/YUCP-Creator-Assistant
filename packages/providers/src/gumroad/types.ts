@@ -156,8 +156,17 @@ export function normalizeGumroadCanonicalTierPart(value: string): string {
   return normalizeGumroadWhitespace(value).normalize('NFKC').toLowerCase();
 }
 
-export function formatGumroadCanonicalTierPart(value: string): string {
-  const canonicalValue = normalizeGumroadCanonicalTierPart(value);
+function normalizeGumroadOpaqueTierPart(value: string): string {
+  return normalizeGumroadWhitespace(value).normalize('NFKC');
+}
+
+export function formatGumroadCanonicalTierPart(
+  value: string,
+  options?: { preserveCase?: boolean }
+): string {
+  const canonicalValue = options?.preserveCase
+    ? normalizeGumroadOpaqueTierPart(value)
+    : normalizeGumroadCanonicalTierPart(value);
   return `${canonicalValue.length}:${canonicalValue}`;
 }
 
@@ -202,7 +211,7 @@ export function buildGumroadTierRef({
   const parts = [
     'gumroad',
     'product',
-    formatGumroadCanonicalTierPart(productId),
+    formatGumroadCanonicalTierPart(productId, { preserveCase: true }),
     'variant',
     formatGumroadCanonicalTierPart(variantTitle),
     'option',

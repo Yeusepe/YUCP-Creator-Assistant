@@ -409,6 +409,27 @@ export const createRoleRule = mutation({
     if (!link || link.authUserId !== args.authUserId) {
       throw new ConvexError('Unauthorized: caller does not own this guild link');
     }
+    const catalogProduct = args.catalogProductId ? await ctx.db.get(args.catalogProductId) : null;
+    if (args.catalogProductId) {
+      if (!catalogProduct || catalogProduct.authUserId !== args.authUserId) {
+        throw new ConvexError('Unauthorized: caller does not own this catalog product');
+      }
+      if (catalogProduct.productId !== args.productId) {
+        throw new ConvexError('Catalog product does not match the selected product');
+      }
+    }
+    if (args.catalogTierId) {
+      const catalogTier = await ctx.db.get(args.catalogTierId);
+      if (!catalogTier || catalogTier.authUserId !== args.authUserId) {
+        throw new ConvexError('Unauthorized: caller does not own this catalog tier');
+      }
+      if (catalogTier.productId !== args.productId) {
+        throw new ConvexError('Catalog tier does not match the selected product');
+      }
+      if (args.catalogProductId && catalogTier.catalogProductId !== args.catalogProductId) {
+        throw new ConvexError('Catalog tier does not belong to the selected catalog product');
+      }
+    }
     const now = Date.now();
     const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
     if (roleIds.length === 0) {

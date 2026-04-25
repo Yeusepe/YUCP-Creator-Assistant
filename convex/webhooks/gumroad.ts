@@ -1,4 +1,4 @@
-import { buildGumroadTierRefFromPurchaseSelection } from '@yucp/providers/gumroad';
+import { buildGumroadTierRefFromPurchaseSelection } from '../../packages/providers/src/gumroad/types';
 import { PII_PURPOSES } from '../lib/credentialKeys';
 import { encryptPii } from '../lib/piiCrypto';
 import {
@@ -34,7 +34,7 @@ export async function processGumroadEvent(
     ? Number.parseInt(String(payload.sale_timestamp), 10) * 1000
     : Date.now();
   const externalVariantId = buildGumroadTierRefFromPurchaseSelection({
-    productId: payload.product_id,
+    productId,
     variants: payload.variants,
     recurrence: payload.recurrence,
   });

@@ -2184,7 +2184,7 @@ export class RoleSyncService {
             entitlementId,
             error: error instanceof Error ? error.message : String(error),
           });
-          return [];
+          throw error;
         }
       }
     );

@@ -273,4 +273,55 @@ describe('gumroad external storefront backfill', () => {
 
     expect(tierIds).toEqual([catalogTierId]);
   });
+
+  it('enriches existing backfill purchase facts with Gumroad tier refs on rerun', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-gumroad-tier-enrichment';
+    const providerTierRef =
+      'gumroad|product|22:gumroad-tiered-product|variant|4:tier|option|4:gold|recurrence|7:monthly';
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'gumroad',
+        externalOrderId: 'sale-tier-enrichment',
+        providerProductId: 'gumroad-tiered-product',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        createdAt: Date.now() - 60_000,
+        updatedAt: Date.now() - 60_000,
+      } as never);
+    });
+
+    const result = await t.mutation(api.backgroundSync.ingestBackfillPurchaseFactsBatch, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      purchases: [
+        {
+          authUserId: creatorAuthUserId,
+          provider: 'gumroad',
+          externalOrderId: 'sale-tier-enrichment',
+          providerProductId: 'gumroad-tiered-product',
+          externalVariantId: providerTierRef,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: Date.now() - 60_000,
+        } as never,
+      ],
+    });
+
+    expect(result).toMatchObject({
+      inserted: 0,
+      skipped: 1,
+    });
+
+    const purchaseFacts = await t.run(async (ctx) => ctx.db.query('purchase_facts').collect());
+    expect(purchaseFacts).toHaveLength(1);
+    expect(purchaseFacts[0]).toMatchObject({
+      externalOrderId: 'sale-tier-enrichment',
+      externalVariantId: providerTierRef,
+    });
+  });
 });
