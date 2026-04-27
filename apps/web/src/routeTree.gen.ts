@@ -31,6 +31,7 @@ import { Route as LegalPrivacyPolicyRouteImport } from './routes/legal/privacy-p
 import { Route as InstallSuccessRouteImport } from './routes/install/success'
 import { Route as InstallErrorRouteImport } from './routes/install/error'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as AccessCatalogProductIdRouteImport } from './routes/access.$catalogProductId'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
@@ -55,7 +56,6 @@ import { Route as AuthenticatedAccountLicensesRouteImport } from './routes/_auth
 import { Route as AuthenticatedAccountConnectionsRouteImport } from './routes/_authenticated/account/connections'
 import { Route as AuthenticatedAccountCertificatesRouteImport } from './routes/_authenticated/account/certificates'
 import { Route as AuthenticatedAccountAuthorizedAppsRouteImport } from './routes/_authenticated/account/authorized-apps'
-import { Route as AuthenticatedAccessCatalogProductIdRouteImport } from './routes/_authenticated/access/$catalogProductId'
 
 const SignInRedirectRoute = SignInRedirectRouteImport.update({
   id: '/sign-in-redirect',
@@ -168,6 +168,11 @@ const InstallErrorRoute = InstallErrorRouteImport.update({
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessCatalogProductIdRoute = AccessCatalogProductIdRouteImport.update({
+  id: '/access/$catalogProductId',
+  path: '/access/$catalogProductId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -380,16 +385,6 @@ const AuthenticatedAccountAuthorizedAppsRoute =
       (d) => d.Route,
     ),
   )
-const AuthenticatedAccessCatalogProductIdRoute =
-  AuthenticatedAccessCatalogProductIdRouteImport.update({
-    id: '/access/$catalogProductId',
-    path: '/access/$catalogProductId',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any).lazy(() =>
-    import('./routes/_authenticated/access/$catalogProductId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -400,6 +395,7 @@ export interface FileRoutesByFullPath {
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account': typeof AuthenticatedAccountRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -415,7 +411,6 @@ export interface FileRoutesByFullPath {
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/access/$catalogProductId': typeof AuthenticatedAccessCatalogProductIdRoute
   '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
   '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/account/connections': typeof AuthenticatedAccountConnectionsRoute
@@ -446,6 +441,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -461,7 +457,6 @@ export interface FileRoutesByTo {
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/access/$catalogProductId': typeof AuthenticatedAccessCatalogProductIdRoute
   '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
   '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/account/connections': typeof AuthenticatedAccountConnectionsRoute
@@ -496,6 +491,7 @@ export interface FileRoutesById {
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/_authenticated/account': typeof AuthenticatedAccountRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -511,7 +507,6 @@ export interface FileRoutesById {
   '/setup/vrchat': typeof SetupVrchatRoute
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
-  '/_authenticated/access/$catalogProductId': typeof AuthenticatedAccessCatalogProductIdRoute
   '/_authenticated/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
   '/_authenticated/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/_authenticated/account/connections': typeof AuthenticatedAccountConnectionsRoute
@@ -546,6 +541,7 @@ export interface FileRouteTypes {
     | '/sign-in-redirect'
     | '/account'
     | '/dashboard'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -561,7 +557,6 @@ export interface FileRouteTypes {
     | '/setup/vrchat'
     | '/verify/error'
     | '/verify/success'
-    | '/access/$catalogProductId'
     | '/account/authorized-apps'
     | '/account/certificates'
     | '/account/connections'
@@ -592,6 +587,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/sign-in'
     | '/sign-in-redirect'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -607,7 +603,6 @@ export interface FileRouteTypes {
     | '/setup/vrchat'
     | '/verify/error'
     | '/verify/success'
-    | '/access/$catalogProductId'
     | '/account/authorized-apps'
     | '/account/certificates'
     | '/account/connections'
@@ -641,6 +636,7 @@ export interface FileRouteTypes {
     | '/sign-in-redirect'
     | '/_authenticated/account'
     | '/_authenticated/dashboard'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -656,7 +652,6 @@ export interface FileRouteTypes {
     | '/setup/vrchat'
     | '/verify/error'
     | '/verify/success'
-    | '/_authenticated/access/$catalogProductId'
     | '/_authenticated/account/authorized-apps'
     | '/_authenticated/account/certificates'
     | '/_authenticated/account/connections'
@@ -689,6 +684,7 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   SignInRoute: typeof SignInRoute
   SignInRedirectRoute: typeof SignInRedirectRoute
+  AccessCatalogProductIdRoute: typeof AccessCatalogProductIdRoute
   ApiSplatRoute: typeof ApiSplatRoute
   InstallErrorRoute: typeof InstallErrorRoute
   InstallSuccessRoute: typeof InstallSuccessRoute
@@ -865,6 +861,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/access/$catalogProductId': {
+      id: '/access/$catalogProductId'
+      path: '/access/$catalogProductId'
+      fullPath: '/access/$catalogProductId'
+      preLoaderRoute: typeof AccessCatalogProductIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -1033,13 +1036,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountAuthorizedAppsRouteImport
       parentRoute: typeof AuthenticatedAccountRoute
     }
-    '/_authenticated/access/$catalogProductId': {
-      id: '/_authenticated/access/$catalogProductId'
-      path: '/access/$catalogProductId'
-      fullPath: '/access/$catalogProductId'
-      preLoaderRoute: typeof AuthenticatedAccessCatalogProductIdRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
   }
 }
 
@@ -1108,15 +1104,12 @@ const AuthenticatedDashboardRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRouteWithChildren
-  AuthenticatedAccessCatalogProductIdRoute: typeof AuthenticatedAccessCatalogProductIdRoute
   AuthenticatedVerifyPurchaseRoute: typeof AuthenticatedVerifyPurchaseRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRouteWithChildren,
-  AuthenticatedAccessCatalogProductIdRoute:
-    AuthenticatedAccessCatalogProductIdRoute,
   AuthenticatedVerifyPurchaseRoute: AuthenticatedVerifyPurchaseRoute,
 }
 
@@ -1132,6 +1125,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   SignInRoute: SignInRoute,
   SignInRedirectRoute: SignInRedirectRoute,
+  AccessCatalogProductIdRoute: AccessCatalogProductIdRoute,
   ApiSplatRoute: ApiSplatRoute,
   InstallErrorRoute: InstallErrorRoute,
   InstallSuccessRoute: InstallSuccessRoute,

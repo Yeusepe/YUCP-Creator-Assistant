@@ -900,7 +900,9 @@ function VerifyPurchasePage() {
                   borderColor: 'rgba(255, 255, 255, 0.16)',
                 }}
               >
-                {returnsToBuyerAccess ? 'Continue after adding the repo' : 'Return to Unity after adding the repo'}
+                {returnsToBuyerAccess
+                  ? 'Continue after adding the repo'
+                  : 'Return to Unity after adding the repo'}
               </a>
             ) : null}
             <p

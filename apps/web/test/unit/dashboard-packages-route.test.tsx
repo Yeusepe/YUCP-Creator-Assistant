@@ -75,6 +75,14 @@ vi.mock('@heroui/react', () => {
     <span {...props}>{children}</span>
   );
 
+  const Label = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+    <span {...props}>{children}</span>
+  );
+
+  const Description = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+    <span {...props}>{children}</span>
+  );
+
   const Card = Object.assign(Div, {
     Header: Div,
     Content: Div,
@@ -94,6 +102,22 @@ vi.mock('@heroui/react', () => {
     Popover: Div,
   });
 
+  const Radio = Object.assign(Div, {
+    Control: Div,
+    Indicator: Div,
+    Content: Div,
+  });
+
+  const RadioGroup = Div;
+
+  const Checkbox = Object.assign(Div, {
+    Control: Div,
+    Indicator: Div,
+    Content: Div,
+  });
+
+  const CheckboxGroup = Div;
+
   const Skeleton = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
     <div {...props}>{children}</div>
   );
@@ -105,8 +129,14 @@ vi.mock('@heroui/react', () => {
   return {
     Button,
     Card,
+    Checkbox,
+    CheckboxGroup,
     Chip,
+    Description,
+    Label,
     ListBox,
+    Radio,
+    RadioGroup,
     Select,
     Skeleton,
     TextArea,
@@ -637,6 +667,46 @@ describe('dashboard packages route', () => {
       'tier_gold',
       'tier_platinum',
     ]);
+  });
+
+  it('does not show tier access controls when the selected product has no synced subscription tiers', async () => {
+    listCreatorBackstageProductsMock.mockResolvedValue({
+      products: [
+        {
+          aliases: ['One-time Bundle'],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          catalogProductId: 'product_onetime',
+          catalogTiers: [],
+          canonicalSlug: 'one-time-bundle',
+          displayName: 'One-time Bundle',
+          productId: 'gumroad-one-time',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-one-time',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_000_000,
+        },
+      ],
+    });
+
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /upload a package/i })).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
+
+    expect(screen.queryByText('Whole subscription product')).not.toBeInTheDocument();
+    expect(screen.queryByText('Specific subscription tiers')).not.toBeInTheDocument();
   });
 
   it('keeps first-upload products behind the upload button instead of a separate setup section', async () => {

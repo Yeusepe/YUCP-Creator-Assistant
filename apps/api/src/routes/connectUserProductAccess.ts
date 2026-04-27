@@ -1,9 +1,14 @@
-import { buildCatalogProductUrl, getProviderDescriptor, providerLabel } from '@yucp/providers';
+import {
+  buildCatalogProductUrl,
+  getProviderDescriptor,
+  providerLabel,
+} from '@yucp/providers/providerMetadata';
 import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { sha256Base64Url } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import type { ConnectConfig } from '../providers/types';
@@ -63,6 +68,8 @@ function buildHostedVerificationRequirements(
       methodKey: `${product.provider}-buyer-provider-link`,
       providerKey: product.provider,
       kind: 'buyer_provider_link',
+      creatorAuthUserId: product.creatorAuthUserId,
+      productId: product.productId,
     });
   }
 
@@ -92,11 +99,11 @@ export function createConnectUserProductAccessRoutes({
     })) as BuyerAccessCatalogProduct | null;
   }
 
-  async function getBuyerProductAccess(request: Request, catalogProductId: string): Promise<Response> {
+  async function getBuyerProductAccess(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
     const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
-    }
 
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
@@ -105,13 +112,15 @@ export function createConnectUserProductAccessRoutes({
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
 
-      const entitlementsResult = await convex.query(api.entitlements.listByAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-        productId: product.productId,
-        status: 'active',
-        limit: 20,
-      });
+      const entitlementsResult = session
+        ? await convex.query(api.entitlements.listByAuthUser, {
+            apiSecret: config.convexApiSecret,
+            authUserId: session.user.id,
+            productId: product.productId,
+            status: 'active',
+            limit: 20,
+          })
+        : { data: [] };
       const activeEntitlement =
         entitlementsResult.data?.find(
           (entitlement: { catalogProductId?: Id<'product_catalog'> | null }) =>
@@ -206,9 +215,14 @@ export function createConnectUserProductAccessRoutes({
       const requirements = normalizeHostedVerificationRequirements(
         buildHostedVerificationRequirements(product)
       );
+      const actor = await createAuthUserActorBinding({
+        authUserId: session.user.id,
+        source: 'session',
+      });
 
       const created = await convex.mutation(api.verificationIntents.createVerificationIntent, {
         apiSecret: config.convexApiSecret,
+        actor,
         authUserId: session.user.id,
         packageId,
         packageName,

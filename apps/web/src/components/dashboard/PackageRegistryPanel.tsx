@@ -23,7 +23,6 @@ import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
-import { buildBuyerBackstageAccessPath } from '@/lib/backstageAccess';
 import {
   archiveCreatorBackstageProduct,
   archiveCreatorBackstageRelease,
@@ -44,6 +43,7 @@ import {
   restoreCreatorPackage,
   uploadBackstageReleaseFile,
 } from '@/lib/packages';
+import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { copyToClipboard } from '@/lib/utils';
 
 interface PackageRegistryPanelProps {
@@ -674,7 +674,7 @@ function ProductLaneCard({
               onPress={() => onCopyBuyerAccess(buyerAccessUrl)}
             >
               <Copy className="size-4" />
-              Copy access link
+              Copy store-page link
             </Button>
           ) : null}
           {!archived ? (
@@ -765,7 +765,7 @@ function ProductLaneDetailsSheet({
                               onPress={() => onCopyBuyerAccess(buyerAccessUrl)}
                             >
                               <Copy className="size-4" />
-                              Copy access link
+                              Copy store-page link
                             </Button>
                           ) : null}
                           {lane.status === 'archived' ? (
@@ -1583,19 +1583,12 @@ export function PackageRegistryPanel({
   }
 
   function getBuyerAccessUrl(lane: ProductLane): string | null {
-    const creatorRepoRef = repoAccessQuery.data?.creatorRepoRef?.trim();
-    if (!creatorRepoRef) {
+    const catalogProductId = lane.catalogProductIds.find((value) => value.trim().length > 0);
+    if (!catalogProductId) {
       return null;
     }
 
-    const productRef = lane.products
-      .map((product) => (product.canonicalSlug ?? product.providerProductRef).trim())
-      .find(Boolean);
-    if (!productRef) {
-      return null;
-    }
-
-    const accessPath = buildBuyerBackstageAccessPath(creatorRepoRef, productRef);
+    const accessPath = buildBuyerProductAccessPath(catalogProductId);
     if (typeof window === 'undefined') {
       return accessPath;
     }
@@ -1724,11 +1717,20 @@ export function PackageRegistryPanel({
                     </p>
                   </div>
                   <p className="pm-copy max-w-[52ch] text-sm leading-6">
-                    Choose a product below, then upload the new file.
+                    Choose a product below, upload the new file, and link buyers from the store page
+                    to the matching YUCP access page.
                   </p>
                 </div>
               </Card.Header>
               <Card.Content className="space-y-4 p-4 pt-0">
+                <div className="pm-inline-note rounded-[18px] p-3">
+                  <p className="text-foreground text-sm font-semibold">How customers should join</p>
+                  <p className="pm-subtle-copy mt-1 text-sm leading-6">
+                    Add the YUCP access page link to your store page, download instructions, or
+                    post-purchase CTA. Buyers should start there, sign in, verify their purchase,
+                    and then click Add to VCC.
+                  </p>
+                </div>
                 {activeProductLanes.length === 0 && archivedProductLanes.length === 0 ? (
                   <EmptyState className="pm-empty-state rounded-2xl border border-dashed">
                     <EmptyState.Header>
@@ -1751,7 +1753,7 @@ export function PackageRegistryPanel({
                         lane={lane}
                         isRestoring={false}
                         onCopyBuyerAccess={(value) =>
-                          handleCopyValue(value, 'Customer access link copied')
+                          handleCopyValue(value, 'Store-page link copied')
                         }
                         onOpenDetails={openProductDetails}
                         onPublish={openPublishSheet}
@@ -1768,77 +1770,75 @@ export function PackageRegistryPanel({
               </Card.Content>
             </Card>
 
-            <div className="pm-management-details rounded-2xl p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="space-y-1">
-                  <p className="text-foreground text-sm font-semibold">
-                    Test the buyer repo in VCC
-                  </p>
-                  <p className="pm-subtle-copy text-sm">
-                    Customers should start from your YUCP access link, sign in, verify their
-                    purchase, and then click Add to VCC. Use these controls only for your own
-                    testing or guided support.
-                  </p>
-                  {repoAccessQuery.data?.creatorRepoRef ? (
-                    <p className="pm-subtle-copy break-all font-mono text-xs">
-                      {repoAccessQuery.data.creatorName ??
-                        repoAccessQuery.data.repositoryName ??
-                        'Backstage repo'}
-                      {' · '}
-                      {repoAccessQuery.data.creatorRepoRef}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2 md:justify-end">
-                  {repoAccessQuery.data?.addRepoUrl ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onPress={() => {
-                        window.location.href = repoAccessQuery.data?.addRepoUrl ?? '';
-                      }}
-                    >
-                      <ExternalLink className="size-4" />
-                      Open in VCC
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() =>
-                      repoAccessQuery.data?.addRepoUrl
-                        ? handleCopyValue(repoAccessQuery.data.addRepoUrl, 'VCC link copied')
-                        : Promise.resolve(false)
-                    }
-                  >
-                    <Copy className="size-4" />
-                    Copy VCC link
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onPress={() =>
-                      repoAccessQuery.data?.repositoryUrl
-                        ? handleCopyValue(repoAccessQuery.data.repositoryUrl, 'Repo URL copied')
-                        : Promise.resolve(false)
-                    }
-                  >
-                    <Copy className="size-4" />
-                    Copy repo URL
-                  </Button>
-                </div>
-              </div>
-            </div>
-
             <details className="pm-management-details rounded-2xl p-4">
               <summary className="text-foreground flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
                 <span>More tools</span>
               </summary>
               <div className="mt-4 space-y-4">
                 <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
-                  Open this only when you need install ID cleanup, hidden links, or support
-                  diagnostics.
+                  Keep customer-facing distribution on the YUCP access page. Open these sections
+                  only for install ID cleanup, hidden links, or creator-side testing and support.
                 </p>
+
+                <section className="pm-tool-section space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-foreground text-sm font-semibold">
+                      Testing and support repo tools
+                    </p>
+                    <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
+                      Use these only after your store page points buyers to the YUCP access page.
+                      These open the repo directly for your own QA or guided support, not for
+                      customer-facing distribution.
+                    </p>
+                    {repoAccessQuery.data?.creatorRepoRef ? (
+                      <p className="pm-subtle-copy break-all font-mono text-xs">
+                        {repoAccessQuery.data.creatorName ??
+                          repoAccessQuery.data.repositoryName ??
+                          'Backstage repo'}
+                        {' · '}
+                        {repoAccessQuery.data.creatorRepoRef}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {repoAccessQuery.data?.addRepoUrl ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onPress={() => {
+                          window.location.href = repoAccessQuery.data?.addRepoUrl ?? '';
+                        }}
+                      >
+                        <ExternalLink className="size-4" />
+                        Open test repo in VCC
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPress={() =>
+                        repoAccessQuery.data?.addRepoUrl
+                          ? handleCopyValue(repoAccessQuery.data.addRepoUrl, 'Test VCC link copied')
+                          : Promise.resolve(false)
+                      }
+                    >
+                      <Copy className="size-4" />
+                      Copy test VCC link
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPress={() =>
+                        repoAccessQuery.data?.repositoryUrl
+                          ? handleCopyValue(repoAccessQuery.data.repositoryUrl, 'Raw repo URL copied')
+                          : Promise.resolve(false)
+                      }
+                    >
+                      <Copy className="size-4" />
+                      Copy raw repo URL
+                    </Button>
+                  </div>
+                </section>
 
                 <section className="pm-tool-section space-y-4">
                   <div className="space-y-1">
@@ -2024,7 +2024,7 @@ export function PackageRegistryPanel({
             deliveryPackageReleaseId: release.deliveryPackageReleaseId,
           })
         }
-        onCopyBuyerAccess={(value) => handleCopyValue(value, 'Customer access link copied')}
+        onCopyBuyerAccess={(value) => handleCopyValue(value, 'Store-page link copied')}
         onCopyPackageId={(packageId) =>
           handleCopyValue(packageId, `Copied install ID ${packageId}`)
         }

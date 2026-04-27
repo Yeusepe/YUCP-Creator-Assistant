@@ -1529,6 +1529,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
                 id: string;
                 sourceProvider: string;
                 productId: string;
+                catalogProductId?: string | null;
                 sourceReference?: string;
                 status: string;
                 grantedAt: number;

@@ -232,7 +232,7 @@ function normalizeTiersResponse(payload: Partial<TiersResponse> | null | undefin
       description: tier?.description,
       amountCents: normalizeOptionalInt64(tier?.amountCents),
       currency: tier?.currency,
-      active: tier?.active ?? false,
+      active: typeof tier?.active === 'boolean' ? tier.active : undefined,
     })),
     error: payload?.error,
   };

@@ -2021,13 +2021,15 @@ export const getBuyerAccessContextByCatalogProductId = query({
       return null;
     }
 
-    const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(ctx, product.authUserId, [
-      args.catalogProductId,
-    ]);
+    const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(
+      ctx,
+      product.authUserId,
+      [args.catalogProductId]
+    );
     const backstagePackages =
       backstagePackagesByCatalogProduct
         .get(String(product._id))
-        ?.sort(compareBackstagePackageLinks)
+        ?.sort(compareBackstagePackages)
         .map((packageLink) => ({
           packageId: packageLink.packageId,
           packageName: packageLink.packageName,

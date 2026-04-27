@@ -8,7 +8,7 @@ import { legacyProductIdsToSelectors, normalizeProductSelectorList } from '@yucp
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
-import { listProviderProductsViaApi } from '../internalRpc/router';
+import { listProviderProductsViaApi, listProviderTiersViaApi } from '../internalRpc/router';
 import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { getConvexClientFromUrl } from '../lib/convex';
@@ -107,9 +107,21 @@ type BackstageProductQueryResult = {
 type BackstageProductQueryRow = BackstageProductQueryResult['data'][number];
 type LiveProviderProduct = Awaited<ReturnType<typeof listProviderProductsViaApi>>['products'];
 type LiveProviderProductRecord = NonNullable<LiveProviderProduct>[number];
+type LiveProviderTier = Awaited<ReturnType<typeof listProviderTiersViaApi>>['tiers'];
+type LiveProviderTierRecord = NonNullable<LiveProviderTier>[number];
 type BackstageProductMetadataOverride = {
   displayName?: string;
   thumbnailUrl?: string;
+};
+type BackstageCatalogTierRow = NonNullable<BackstageProductQueryRow['catalogTiers']>[number];
+
+const HTML_ENTITY_REPLACEMENTS: Readonly<Record<string, string>> = {
+  amp: '&',
+  apos: "'",
+  gt: '>',
+  lt: '<',
+  nbsp: ' ',
+  quot: '"',
 };
 
 function jsonResponse(body: object, status = 200): Response {
@@ -159,6 +171,99 @@ function buildLiveProductMetadataOverride(
   };
 }
 
+function decodeHtmlEntity(entity: string): string {
+  const named = HTML_ENTITY_REPLACEMENTS[entity];
+  if (named) {
+    return named;
+  }
+
+  if (entity.startsWith('#x') || entity.startsWith('#X')) {
+    const parsed = Number.parseInt(entity.slice(2), 16);
+    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+  }
+
+  if (entity.startsWith('#')) {
+    const parsed = Number.parseInt(entity.slice(1), 10);
+    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+  }
+
+  return `&${entity};`;
+}
+
+function normalizeRichTextToPlainText(value?: string | null): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const plainText = value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&([^;]+);/g, (_, entity: string) => decodeHtmlEntity(entity))
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return plainText || undefined;
+}
+
+function normalizeAmountCents(value: bigint | number | null | undefined): number | undefined {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'bigint') {
+    const numeric = Number(value);
+    return Number.isSafeInteger(numeric) ? numeric : undefined;
+  }
+  return undefined;
+}
+
+function resolveLiveTierStatus(
+  tier: LiveProviderTierRecord,
+  existingTier?: BackstageCatalogTierRow
+): 'active' | 'archived' {
+  if (tier.active === true) {
+    return 'active';
+  }
+  if (tier.active === false) {
+    return 'archived';
+  }
+  return existingTier?.status === 'archived' ? 'archived' : 'active';
+}
+
+function shouldUpsertLiveTier(args: {
+  existingTier?: BackstageCatalogTierRow;
+  liveTier: LiveProviderTierRecord;
+}): boolean {
+  const { existingTier, liveTier } = args;
+  if (!existingTier) {
+    return true;
+  }
+
+  const nextDescription = normalizeRichTextToPlainText(liveTier.description);
+  const nextAmountCents = normalizeAmountCents(liveTier.amountCents);
+  const nextCurrency = liveTier.currency?.trim();
+  const nextStatus = resolveLiveTierStatus(liveTier, existingTier);
+
+  return (
+    existingTier.displayName !== (liveTier.name?.trim() || existingTier.displayName) ||
+    existingTier.description !== nextDescription ||
+    existingTier.amountCents !== nextAmountCents ||
+    existingTier.currency !== nextCurrency ||
+    existingTier.status !== nextStatus
+  );
+}
+
+async function getConnectedCatalogProviders(args: {
+  convex: ReturnType<typeof getConvexClientFromUrl>;
+  config: PackagesConfig;
+  authUserId: string;
+}): Promise<string[]> {
+  const connectionStatus = (await args.convex.query(api.providerConnections.getConnectionStatus, {
+    apiSecret: args.config.convexApiSecret,
+    authUserId: args.authUserId,
+  })) as Record<string, boolean>;
+
+  return CATALOG_SYNC_PROVIDER_KEYS.filter((providerKey) => connectionStatus[providerKey]);
+}
+
 function mapBackstageProductForResponse(
   product: BackstageProductQueryRow,
   override?: BackstageProductMetadataOverride
@@ -171,7 +276,7 @@ function mapBackstageProductForResponse(
       provider: tier.provider,
       providerTierRef: tier.providerTierRef,
       displayName: tier.displayName,
-      description: tier.description,
+      description: normalizeRichTextToPlainText(tier.description),
       amountCents: tier.amountCents,
       currency: tier.currency,
       status: tier.status,
@@ -240,20 +345,13 @@ function mapBackstageProductForResponse(
 }
 
 async function reconcileBackstageCatalogFromConnectedProviders(args: {
+  connectedCatalogProviders: string[];
   convex: ReturnType<typeof getConvexClientFromUrl>;
   config: PackagesConfig;
   authUserId: string;
   existingProducts: BackstageProductQueryRow[];
 }): Promise<{ refreshCatalog: boolean; overrides: Map<string, BackstageProductMetadataOverride> }> {
-  const connectionStatus = (await args.convex.query(api.providerConnections.getConnectionStatus, {
-    apiSecret: args.config.convexApiSecret,
-    authUserId: args.authUserId,
-  })) as Record<string, boolean>;
-
-  const connectedCatalogProviders = CATALOG_SYNC_PROVIDER_KEYS.filter(
-    (providerKey) => connectionStatus[providerKey]
-  );
-  if (connectedCatalogProviders.length === 0) {
+  if (args.connectedCatalogProviders.length === 0) {
     return { refreshCatalog: false, overrides: new Map() };
   }
 
@@ -265,7 +363,7 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
   const overrides = new Map<string, BackstageProductMetadataOverride>();
   let refreshCatalog = false;
 
-  for (const provider of connectedCatalogProviders) {
+  for (const provider of args.connectedCatalogProviders) {
     try {
       const liveProducts = await listProviderProductsViaApi(
         {
@@ -331,6 +429,94 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
   }
 
   return { refreshCatalog, overrides };
+}
+
+async function reconcileBackstageTiersFromConnectedProviders(args: {
+  connectedCatalogProviders: string[];
+  convex: ReturnType<typeof getConvexClientFromUrl>;
+  config: PackagesConfig;
+  authUserId: string;
+  existingProducts: BackstageProductQueryRow[];
+}): Promise<boolean> {
+  if (args.connectedCatalogProviders.length === 0) {
+    return false;
+  }
+
+  let refreshCatalog = false;
+
+  for (const product of args.existingProducts) {
+    if (!args.connectedCatalogProviders.includes(product.provider)) {
+      continue;
+    }
+
+    const descriptor = getProviderDescriptor(product.provider);
+    if (
+      !descriptor?.capabilities.includes('tier_entitlements') &&
+      !descriptor?.capabilities.includes('subscriptions')
+    ) {
+      continue;
+    }
+
+    const liveProductId = product.providerProductRef?.trim() || product.productId?.trim();
+    if (!liveProductId) {
+      continue;
+    }
+
+    try {
+      const liveTiers = await listProviderTiersViaApi(
+        {
+          apiBaseUrl: args.config.apiBaseUrl,
+          convexApiSecret: args.config.convexApiSecret,
+        },
+        {
+          authUserId: args.authUserId,
+          provider: product.provider,
+          productId: liveProductId,
+        }
+      );
+
+      const existingTierMap = new Map(
+        (product.catalogTiers ?? []).map((tier) => [tier.providerTierRef, tier] as const)
+      );
+
+      for (const liveTier of liveTiers.tiers ?? []) {
+        const providerTierRef = liveTier.id?.trim();
+        if (!providerTierRef) {
+          continue;
+        }
+
+        const existingTier = existingTierMap.get(providerTierRef);
+        if (!shouldUpsertLiveTier({ existingTier, liveTier })) {
+          continue;
+        }
+
+        await args.convex.mutation(api.catalogTiers.upsertCatalogTier, {
+          apiSecret: args.config.convexApiSecret,
+          authUserId: args.authUserId,
+          provider: product.provider,
+          productId: product.productId,
+          catalogProductId: product._id as Id<'product_catalog'>,
+          providerProductRef: product.providerProductRef,
+          providerTierRef,
+          displayName: liveTier.name?.trim() || existingTier?.displayName || providerTierRef,
+          description: normalizeRichTextToPlainText(liveTier.description),
+          amountCents: normalizeAmountCents(liveTier.amountCents),
+          currency: liveTier.currency?.trim(),
+          status: resolveLiveTierStatus(liveTier, existingTier),
+        });
+        refreshCatalog = true;
+      }
+    } catch (error) {
+      logger.warn('Failed to reconcile Backstage provider tiers from live catalog', {
+        authUserId: args.authUserId,
+        provider: product.provider,
+        productId: product.productId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return refreshCatalog;
 }
 
 async function resolveViewer(
@@ -448,13 +634,35 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         authUserId: viewer.authUserId,
       })) as BackstageProductQueryResult;
 
+      const connectedCatalogProviders = await getConnectedCatalogProviders({
+        convex,
+        config,
+        authUserId: viewer.authUserId,
+      });
+
       const { refreshCatalog, overrides } = await reconcileBackstageCatalogFromConnectedProviders({
+        connectedCatalogProviders,
         convex,
         config,
         authUserId: viewer.authUserId,
         existingProducts: result.data,
       });
       if (refreshCatalog) {
+        result = (await convex.query(api.packageRegistry.listByAuthUser, {
+          apiSecret: config.convexApiSecret,
+          actor: viewer.actorBinding,
+          authUserId: viewer.authUserId,
+        })) as BackstageProductQueryResult;
+      }
+
+      const refreshTiers = await reconcileBackstageTiersFromConnectedProviders({
+        connectedCatalogProviders,
+        convex,
+        config,
+        authUserId: viewer.authUserId,
+        existingProducts: result.data,
+      });
+      if (refreshTiers) {
         result = (await convex.query(api.packageRegistry.listByAuthUser, {
           apiSecret: config.convexApiSecret,
           actor: viewer.actorBinding,

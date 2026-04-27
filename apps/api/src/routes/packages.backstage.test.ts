@@ -6,12 +6,18 @@ let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let listProviderProductsViaApiImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
   products: [],
 });
+let listProviderTiersViaApiImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
+  tiers: [],
+});
 let lastActionArgs: unknown;
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
     authViewer: {
       getViewerByAuthUser: 'authViewer.getViewerByAuthUser',
+    },
+    catalogTiers: {
+      upsertCatalogTier: 'catalogTiers.upsertCatalogTier',
     },
     backstageRepos: {
       getSubjectByAuthUserForApi: 'backstageRepos.getSubjectByAuthUserForApi',
@@ -66,6 +72,7 @@ mock.module('../lib/apiActor', () => ({
 
 mock.module('../internalRpc/router', () => ({
   listProviderProductsViaApi: (...args: unknown[]) => listProviderProductsViaApiImpl(...args),
+  listProviderTiersViaApi: (...args: unknown[]) => listProviderTiersViaApiImpl(...args),
 }));
 
 const { createPackageRoutes } = await import('./packages');
@@ -442,6 +449,147 @@ describe('package Backstage publishing routes', () => {
           supportsAutoDiscovery: true,
           updatedAt: 1_710_000_000_000,
           deleteBlockedReason: 'Product has package history.',
+        },
+      ],
+    });
+  });
+
+  it('syncs provider tiers into the Backstage picker and strips Patreon HTML descriptions', async () => {
+    let syncedTiers = [
+      {
+        _id: 'tier_existing',
+        catalogProductId: 'product_1',
+        provider: 'patreon',
+        providerTierRef: 'tier_existing',
+        displayName: 'Existing Tier',
+        description: '<p>Legacy <strong>HTML</strong></p>',
+        amountCents: 500,
+        currency: 'USD',
+        status: 'active',
+        createdAt: 1_710_000_000_000,
+        updatedAt: 1_710_000_000_000,
+      },
+    ];
+    const tierUpserts: Array<Record<string, unknown>> = [];
+
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'providerConnections.getConnectionStatus':
+          return { patreon: true };
+        case 'packageRegistry.listByAuthUser':
+          return {
+            data: [
+              {
+                _id: 'product_1',
+                aliases: ['Membership Bundle'],
+                productId: 'patreon-campaign-1',
+                provider: 'patreon',
+                providerProductRef: 'patreon-campaign-1',
+                displayName: 'Membership Bundle',
+                canonicalSlug: 'membership-bundle',
+                status: 'active',
+                supportsAutoDiscovery: true,
+                updatedAt: 1_710_000_000_000,
+                canArchive: true,
+                canDelete: true,
+                canRestore: false,
+                catalogTiers: syncedTiers,
+                backstagePackages: [],
+              },
+            ],
+          };
+        default:
+          return null;
+      }
+    };
+
+    mutationImpl = async (ref: unknown, args: unknown) => {
+      switch (ref) {
+        case 'catalogTiers.upsertCatalogTier': {
+          const payload = args as {
+            providerTierRef: string;
+            displayName: string;
+            description?: string;
+            amountCents?: number;
+            currency?: string;
+            status?: 'active' | 'archived';
+          };
+          tierUpserts.push(payload as Record<string, unknown>);
+          syncedTiers = [
+            ...syncedTiers.filter((tier) => tier.providerTierRef !== payload.providerTierRef),
+            {
+              _id: payload.providerTierRef,
+              catalogProductId: 'product_1',
+              provider: 'patreon',
+              providerTierRef: payload.providerTierRef,
+              displayName: payload.displayName,
+              description: payload.description,
+              amountCents: payload.amountCents,
+              currency: payload.currency,
+              status: payload.status ?? 'active',
+              createdAt: 1_710_000_000_000,
+              updatedAt: 1_710_000_000_100,
+            },
+          ];
+          return payload.providerTierRef;
+        }
+        default:
+          return null;
+      }
+    };
+
+    listProviderProductsViaApiImpl = async () => ({ products: [] });
+    listProviderTiersViaApiImpl = async () => ({
+      tiers: [
+        {
+          id: 'tier_existing',
+          productId: 'patreon-campaign-1',
+          name: 'Existing Tier',
+          description: '<p>Legacy <strong>HTML</strong></p>',
+          amountCents: 500,
+          currency: 'USD',
+          active: true,
+        },
+        {
+          id: 'tier_gold',
+          productId: 'patreon-campaign-1',
+          name: 'Gold Monthly',
+          description: '<div><p>Includes <strong>Discord</strong> role</p></div>',
+          amountCents: 1200,
+          currency: 'USD',
+          active: true,
+        },
+      ],
+    });
+
+    const response = await routes.listBackstageProducts(
+      new Request('https://api.test/api/packages/backstage/products', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(tierUpserts).toHaveLength(2);
+    await expect(response.json()).resolves.toMatchObject({
+      products: [
+        {
+          catalogProductId: 'product_1',
+          provider: 'patreon',
+          catalogTiers: [
+            {
+              catalogTierId: 'tier_existing',
+              displayName: 'Existing Tier',
+              description: 'Legacy HTML',
+            },
+            {
+              catalogTierId: 'tier_gold',
+              displayName: 'Gold Monthly',
+              description: 'Includes Discord role',
+            },
+          ],
         },
       ],
     });
