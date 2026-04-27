@@ -154,10 +154,20 @@ vi.mock('@heroui-pro/react', () => {
   const Input = ({
     children: _children,
     isDisabled: _isDisabled,
+    onSelect,
     onOpenChange: _onOpenChange,
     onPress: _onPress,
     ...props
-  }: PropsWithChildren<Record<string, unknown>>) => <input {...props} />;
+  }: PropsWithChildren<Record<string, unknown>>) => (
+    <input
+      {...props}
+      onChange={(event) => {
+        if (typeof onSelect === 'function') {
+          onSelect((event.target as HTMLInputElement).files);
+        }
+      }}
+    />
+  );
 
   const DropZone = Object.assign(Div, {
     Area: Div,
@@ -264,6 +274,13 @@ const archiveCreatorBackstageReleaseMock = packagesApi.archiveCreatorBackstageRe
 const archiveCreatorBackstageProductMock = packagesApi.archiveCreatorBackstageProduct as ReturnType<
   typeof vi.fn
 >;
+const createBackstageReleaseUploadUrlMock = packagesApi.createBackstageReleaseUploadUrl as ReturnType<
+  typeof vi.fn
+>;
+const uploadBackstageReleaseFileMock = packagesApi.uploadBackstageReleaseFile as ReturnType<
+  typeof vi.fn
+>;
+const publishBackstageReleaseMock = packagesApi.publishBackstageRelease as ReturnType<typeof vi.fn>;
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
@@ -346,6 +363,36 @@ describe('dashboard packages route', () => {
       products: [
         {
           aliases: ['Creator Bundle Product'],
+          catalogTiers: [
+            {
+              catalogTierId: 'tier_gold',
+              catalogProductId: 'product_1',
+              provider: 'gumroad',
+              providerTierRef:
+                'gumroad|product|17:gumroad-product-1|variant|4:tier|option|4:gold|recurrence|7:monthly',
+              displayName: 'Gold Monthly',
+              description: 'Monthly supporter tier',
+              amountCents: 1200,
+              currency: 'USD',
+              status: 'active',
+              createdAt: 1_710_000_000_000,
+              updatedAt: 1_710_000_000_000,
+            },
+            {
+              catalogTierId: 'tier_platinum',
+              catalogProductId: 'product_1',
+              provider: 'gumroad',
+              providerTierRef:
+                'gumroad|product|17:gumroad-product-1|variant|8:platinum|recurrence|7:monthly',
+              displayName: 'Platinum Monthly',
+              description: 'Higher supporter tier',
+              amountCents: 2400,
+              currency: 'USD',
+              status: 'active',
+              createdAt: 1_710_000_000_000,
+              updatedAt: 1_710_000_000_000,
+            },
+          ],
           backstagePackages: [
             {
               packageId: 'pkg.creator.bundle',
@@ -424,6 +471,7 @@ describe('dashboard packages route', () => {
         },
         {
           aliases: ['Creator Bundle Product'],
+          catalogTiers: [],
           backstagePackages: [],
           canonicalSlug: 'creator-bundle',
           catalogProductId: 'product_2',
@@ -440,6 +488,7 @@ describe('dashboard packages route', () => {
         },
         {
           aliases: ['Old Creator Product'],
+          catalogTiers: [],
           backstagePackages: [],
           canonicalSlug: 'old-creator-product',
           catalogProductId: 'product_hidden',
@@ -480,6 +529,25 @@ describe('dashboard packages route', () => {
       archived: true,
       deliveryPackageReleaseId: 'release_old',
     });
+    createBackstageReleaseUploadUrlMock.mockResolvedValue({
+      packageId: 'pkg.creator.bundle',
+      uploadUrl: 'https://uploads.test/package',
+    });
+    uploadBackstageReleaseFileMock.mockResolvedValue({
+      storageId: 'storage_1',
+      zipSha256: 'c'.repeat(64),
+      deliveryName: 'creator-bundle-2.0.0.zip',
+      contentType: 'application/zip',
+      metadata: { source: 'unitypackage' },
+    });
+    publishBackstageReleaseMock.mockResolvedValue({
+      deliveryPackageReleaseId: 'release_new',
+      artifactId: 'artifact_new',
+      artifactKey: 'artifact:creator-bundle',
+      zipSha256: 'c'.repeat(64),
+      version: '2.0.0',
+      channel: 'stable',
+    });
   });
 
   afterEach(() => {
@@ -509,6 +577,41 @@ describe('dashboard packages route', () => {
     expect(
       document.querySelector('img[src="https://public-files.gumroad.com/creator-bundle.png"]')
     ).toHaveAttribute('src', 'https://public-files.gumroad.com/creator-bundle.png');
+  });
+
+  it('publishes tier-gated Backstage packages with tier selectors', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /upload a package/i })).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
+    fireEvent.click(screen.getByLabelText(/specific subscription tiers/i));
+    fireEvent.click(screen.getByLabelText(/gold monthly/i));
+    fireEvent.change(screen.getByLabelText(/version/i), { target: { value: '2.0.0' } });
+    fireEvent.change(screen.getByLabelText(/choose update file/i), {
+      target: {
+        files: [new File(['unitypackage-bytes'], 'creator-bundle-2.0.0.unitypackage')],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /upload package/i }));
+
+    await waitFor(() =>
+      expect(publishBackstageReleaseMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          packageId: 'pkg.creator.bundle',
+          body: expect.objectContaining({
+            accessSelectors: [{ kind: 'catalogTier', catalogTierId: 'tier_gold' }],
+          }),
+        })
+      )
+    );
   });
 
   it('keeps first-upload products behind the upload button instead of a separate setup section', async () => {

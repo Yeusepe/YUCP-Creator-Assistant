@@ -27,6 +27,7 @@ import {
   archiveCreatorBackstageProduct,
   archiveCreatorBackstageRelease,
   archiveCreatorPackage,
+  type CreatorBackstageCatalogTierSummary,
   type CreatorBackstagePackageReleaseSummary,
   type CreatorBackstageProductPackageSummary,
   type CreatorBackstageProductSummary,
@@ -52,6 +53,8 @@ interface PackageRegistryPanelProps {
 
 type PublishDraft = {
   catalogProductIds: string[];
+  catalogTierIds: string[];
+  accessMode: 'product' | 'tiers';
   laneKey: string;
   packageId: string;
   version: string;
@@ -72,6 +75,7 @@ type SelectedUpload = {
 
 type ProductLane = {
   catalogProductIds: string[];
+  catalogTiers: CreatorBackstageCatalogTierSummary[];
   canArchive: boolean;
   canRestore: boolean;
   laneKey: string;
@@ -377,6 +381,14 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
       const providerRefs = laneProducts.map(
         (product) => `${formatProviderLabel(product.provider)} · ${product.providerProductRef}`
       );
+      const catalogTiers = Array.from(
+        new Map(
+          laneProducts
+            .flatMap((product) => product.catalogTiers ?? [])
+            .filter((tier) => tier.status === 'active')
+            .map((tier) => [tier.catalogTierId, tier])
+        ).values()
+      ).sort((left, right) => left.displayName.localeCompare(right.displayName));
       const status: ProductLane['status'] = laneProducts.every(
         (product) => product.status === 'archived'
       )
@@ -385,6 +397,7 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
 
       return {
         catalogProductIds: laneProducts.map((product) => product.catalogProductId),
+        catalogTiers,
         canArchive: laneProducts.some((product) => product.canArchive),
         canRestore: laneProducts.some((product) => product.canRestore),
         laneKey,
@@ -407,6 +420,8 @@ function buildDraftFromLane(lane?: ProductLane | null): PublishDraft {
   const linkedPackage = lane?.primaryPackage ?? null;
   return {
     catalogProductIds: lane?.catalogProductIds ?? [],
+    catalogTierIds: [],
+    accessMode: 'product',
     laneKey: lane?.laneKey ?? '',
     packageId: linkedPackage?.packageId ?? '',
     version: '',
@@ -421,6 +436,20 @@ function buildDraftFromLane(lane?: ProductLane | null): PublishDraft {
 function formatLaneStorefrontSummary(lane: ProductLane): string {
   const storefrontLabel = `${lane.products.length} storefront${lane.products.length === 1 ? '' : 's'}`;
   return `${storefrontLabel} · ${lane.providerLabels.join(', ')}`;
+}
+
+function formatTierPrice(tier: CreatorBackstageCatalogTierSummary): string | null {
+  if (tier.amountCents == null || !tier.currency) {
+    return null;
+  }
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: tier.currency.toUpperCase(),
+    }).format(tier.amountCents / 100);
+  } catch {
+    return `${(tier.amountCents / 100).toFixed(2)} ${tier.currency.toUpperCase()}`;
+  }
 }
 
 function StreamlineLinkChainIcon(props: ComponentPropsWithoutRef<'svg'>) {
@@ -1363,12 +1392,21 @@ export function PackageRegistryPanel({
         description: draft.description.trim() || undefined,
         unityVersion: draft.unityVersion.trim() || undefined,
       });
+      const accessSelectors =
+        draft.accessMode === 'tiers' && draft.catalogTierIds.length > 0
+          ? draft.catalogTierIds.map((catalogTierId) => ({
+              kind: 'catalogTier' as const,
+              catalogTierId,
+            }))
+          : draft.catalogProductIds.map((catalogProductId) => ({
+              kind: 'catalogProduct' as const,
+              catalogProductId,
+            }));
 
       const result = await publishBackstageRelease({
         packageId,
         body: {
-          catalogProductId: draft.catalogProductIds[0] ?? '',
-          catalogProductIds: draft.catalogProductIds,
+          accessSelectors,
           storageId: upload.storageId,
           version: draft.version.trim(),
           zipSha256: upload.zipSha256,
@@ -1482,6 +1520,7 @@ export function PackageRegistryPanel({
   const selectedLaneHasSinglePackage = Boolean(
     selectedLane?.primaryPackage && selectedLane.packageLinks.length === 1
   );
+  const selectedLaneActiveTiers = selectedLane?.catalogTiers ?? [];
   const installIdSuggestions = selectedLane
     ? selectedLane.packageLinks.length > 1
       ? selectedLane.packageLinks.slice(0, 4).map((packageLink) => ({
@@ -2002,6 +2041,115 @@ export function PackageRegistryPanel({
                 {selectedLane ? (
                   <>
                     <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
+                      <div className="space-y-1">
+                        <p className="text-foreground text-sm font-semibold">Access</p>
+                        <p className="pm-subtle-copy text-sm">
+                          Choose whether this package unlocks for the whole subscription product or
+                          only for specific synced tiers.
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
+                          <input
+                            type="radio"
+                            name="package-access-mode"
+                            checked={publishDraft.accessMode === 'product'}
+                            onChange={() =>
+                              setPublishDraft((current) => ({
+                                ...current,
+                                accessMode: 'product',
+                                catalogTierIds: [],
+                              }))
+                            }
+                          />
+                          <span className="space-y-1">
+                            <span className="text-foreground block text-sm font-semibold">
+                              Whole subscription product
+                            </span>
+                            <span className="pm-subtle-copy block text-sm">
+                              Anyone entitled to this product or campaign can install the package.
+                            </span>
+                          </span>
+                        </label>
+
+                        <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
+                          <input
+                            type="radio"
+                            name="package-access-mode"
+                            checked={publishDraft.accessMode === 'tiers'}
+                            disabled={selectedLaneActiveTiers.length === 0}
+                            onChange={() =>
+                              setPublishDraft((current) => ({
+                                ...current,
+                                accessMode: 'tiers',
+                              }))
+                            }
+                          />
+                          <span className="space-y-1">
+                            <span className="text-foreground block text-sm font-semibold">
+                              Specific subscription tiers
+                            </span>
+                            <span className="pm-subtle-copy block text-sm">
+                              {selectedLaneActiveTiers.length > 0
+                                ? 'Only buyers with one of the selected active tiers can install this package.'
+                                : 'No synced active tiers are available for this product yet.'}
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+
+                      {publishDraft.accessMode === 'tiers' && selectedLaneActiveTiers.length > 0 ? (
+                        <div className="space-y-3">
+                          <p className="pm-field-label">Allowed tiers</p>
+                          <div className="space-y-2">
+                            {selectedLaneActiveTiers.map((tier) => {
+                              const tierPrice = formatTierPrice(tier);
+                              const isChecked = publishDraft.catalogTierIds.includes(
+                                tier.catalogTierId
+                              );
+                              return (
+                                <label
+                                  key={tier.catalogTierId}
+                                  className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(event) =>
+                                      setPublishDraft((current) => ({
+                                        ...current,
+                                        catalogTierIds: event.target.checked
+                                          ? [...current.catalogTierIds, tier.catalogTierId]
+                                          : current.catalogTierIds.filter(
+                                              (catalogTierId) =>
+                                                catalogTierId !== tier.catalogTierId
+                                            ),
+                                      }))
+                                    }
+                                  />
+                                  <span className="space-y-1">
+                                    <span className="text-foreground block text-sm font-semibold">
+                                      {tier.displayName}
+                                      {tierPrice ? ` · ${tierPrice}` : ''}
+                                    </span>
+                                    {tier.description ? (
+                                      <span className="pm-subtle-copy block text-sm">
+                                        {tier.description}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <p className="pm-subtle-copy text-xs">
+                            Select at least one tier to keep this package subscription-gated.
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
                       <div className="pm-form-grid">
                         <div className="pm-field-stack">
                           <p className="pm-field-label">
@@ -2275,6 +2423,7 @@ export function PackageRegistryPanel({
                   isDisabled={
                     publishMutation.isPending ||
                     publishDraft.catalogProductIds.length === 0 ||
+                    (publishDraft.accessMode === 'tiers' && publishDraft.catalogTierIds.length === 0) ||
                     !publishDraft.packageId.trim() ||
                     !publishDraft.version.trim() ||
                     !selectedUpload?.file

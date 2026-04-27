@@ -74,7 +74,7 @@ export interface CreatorBackstageCatalogTierSummary {
 
 export interface CreatorBackstageProductSummary {
   aliases: string[];
-  catalogTiers: CreatorBackstageCatalogTierSummary[];
+  catalogTiers?: CreatorBackstageCatalogTierSummary[];
   backstagePackages: CreatorBackstageProductPackageSummary[];
   canonicalSlug?: string;
   catalogProductId: string;
@@ -125,7 +125,7 @@ export interface BackstageReleaseUploadResult {
 }
 
 export interface PublishBackstageReleaseInput {
-  catalogProductId: string;
+  catalogProductId?: string;
   catalogProductIds?: string[];
   accessSelectors?: BackstageAccessSelector[];
   storageId: string;
