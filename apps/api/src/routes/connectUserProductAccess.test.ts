@@ -192,7 +192,9 @@ describe('connect user product access routes', () => {
     });
   });
 
-  it('creates a hosted verification intent that returns to the product access page when the caller sends an unsafe return path', async () => {
+  it('creates a hosted verification intent with a flow-scoped machine fingerprint when the caller sends an unsafe return path', async () => {
+    let createdMachineFingerprint: string | null = null;
+
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         return {
@@ -226,7 +228,12 @@ describe('connect user product access routes', () => {
         packageId: 'com.yucp.avatar.bundle',
         packageName: 'Avatar Bundle',
         returnUrl: 'http://localhost:3000/access/catalog_123',
+        idempotencyKey: 'buyer-access:catalog_123:%2Faccess%2Fcatalog_123',
       });
+      expect((args as { machineFingerprint: string }).machineFingerprint).toMatch(
+        /^buyer-access-web:[0-9a-f]{32}$/
+      );
+      createdMachineFingerprint = (args as { machineFingerprint: string }).machineFingerprint;
       expect((args as { requirements: Array<{ kind: string }> }).requirements).toEqual([
         expect.objectContaining({ kind: 'existing_entitlement' }),
         expect.objectContaining({ kind: 'buyer_provider_link' }),
@@ -263,5 +270,70 @@ describe('connect user product access routes', () => {
     await expect(response.json()).resolves.toEqual({
       verificationUrl: 'http://localhost:3000/verify/purchase?intent=intent_123',
     });
+    expect(response.headers.get('Set-Cookie')).toContain(
+      `yucp_buyer_access_machine=${createdMachineFingerprint}`
+    );
+  });
+
+  it('reuses the existing buyer access machine fingerprint for the same product access flow', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          backstagePackages: [
+            {
+              packageId: 'com.yucp.avatar.bundle',
+              displayName: 'Avatar Bundle',
+              repositoryVisibility: 'hidden',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference !== apiMock.verificationIntents.createVerificationIntent) {
+        throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+      }
+
+      expect(args).toMatchObject({
+        machineFingerprint: 'buyer-access-web:0123456789abcdef0123456789abcdef',
+        returnUrl: 'http://localhost:3000/account/licenses',
+        idempotencyKey: 'buyer-access:catalog_123:%2Faccount%2Flicenses',
+      });
+      return { intentId: 'intent_456' };
+    });
+    convexActionMock.mockImplementation(async (reference: unknown) => {
+      if (reference !== apiMock.verificationIntents.getVerificationIntent) {
+        throw new Error(`Unexpected action reference: ${String(reference)}`);
+      }
+
+      return { id: 'intent_456' };
+    });
+
+    const routes = createRoutes();
+    const response = await routes.postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          cookie: 'yucp_buyer_access_machine=buyer-access-web:0123456789abcdef0123456789abcdef',
+        },
+        body: JSON.stringify({
+          returnTo: '/account/licenses',
+        }),
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Set-Cookie')).toBeNull();
   });
 });

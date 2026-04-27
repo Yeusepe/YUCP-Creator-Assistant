@@ -9,6 +9,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
 import { createAuthUserActorBinding } from '../lib/apiActor';
+import { buildCookie, getCookieValue } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import type { ConnectConfig } from '../providers/types';
@@ -47,6 +48,41 @@ type BuyerAccessCatalogProduct = {
 
 function buildBuyerProductAccessPath(catalogProductId: string): string {
   return `/access/${encodeURIComponent(catalogProductId)}`;
+}
+
+const BUYER_ACCESS_MACHINE_COOKIE = 'yucp_buyer_access_machine';
+const BUYER_ACCESS_MACHINE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const BUYER_ACCESS_MACHINE_FINGERPRINT_PATTERN = /^buyer-access-web:[0-9a-f]{32}$/;
+
+function createBuyerAccessMachineFingerprint(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `buyer-access-web:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function resolveBuyerAccessMachineFingerprint(request: Request): {
+  machineFingerprint: string;
+  setCookie: string | null;
+} {
+  const existing = getCookieValue(request, BUYER_ACCESS_MACHINE_COOKIE)?.trim();
+  if (existing && BUYER_ACCESS_MACHINE_FINGERPRINT_PATTERN.test(existing)) {
+    return {
+      machineFingerprint: existing,
+      setCookie: null,
+    };
+  }
+
+  const machineFingerprint = createBuyerAccessMachineFingerprint();
+  return {
+    machineFingerprint,
+    setCookie: buildCookie(BUYER_ACCESS_MACHINE_COOKIE, machineFingerprint, request, {
+      maxAgeSeconds: BUYER_ACCESS_MACHINE_COOKIE_MAX_AGE_SECONDS,
+    }),
+  };
+}
+
+function buildBuyerAccessIdempotencyKey(catalogProductId: string, returnPath: string): string {
+  return `buyer-access:${catalogProductId}:${encodeURIComponent(returnPath)}`;
 }
 
 function buildHostedVerificationRequirements(
@@ -203,6 +239,7 @@ export function createConnectUserProductAccessRoutes({
         getSafeRelativeRedirectTarget(body.returnTo) ??
         buildBuyerProductAccessPath(String(product.catalogProductId));
       const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
+      const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
       const primaryPackage = product.backstagePackages[0];
       const packageId = primaryPackage?.packageId ?? product.productId;
       const packageName =
@@ -226,9 +263,13 @@ export function createConnectUserProductAccessRoutes({
         authUserId: session.user.id,
         packageId,
         packageName,
-        machineFingerprint: `web:${crypto.randomUUID()}`,
+        machineFingerprint: buyerAccessFingerprint.machineFingerprint,
         codeChallenge: await sha256Base64Url(codeVerifier),
         returnUrl,
+        idempotencyKey: buildBuyerAccessIdempotencyKey(
+          String(product.catalogProductId),
+          safeReturnPath
+        ),
         requirements,
       });
       const intent = (await convex.action(api.verificationIntents.getVerificationIntent, {
@@ -241,7 +282,15 @@ export function createConnectUserProductAccessRoutes({
         return Response.json({ error: 'Failed to create verification intent' }, { status: 500 });
       }
 
-      return Response.json(mapHostedVerificationIntentResponse(intent, config.frontendBaseUrl));
+      const headers = new Headers();
+      if (buyerAccessFingerprint.setCookie) {
+        headers.set('Set-Cookie', buyerAccessFingerprint.setCookie);
+      }
+
+      return Response.json(
+        mapHostedVerificationIntentResponse(intent, config.frontendBaseUrl),
+        buyerAccessFingerprint.setCookie ? { headers } : undefined
+      );
     } catch (error) {
       logger.error('Failed to create buyer product access verification intent', {
         catalogProductId,

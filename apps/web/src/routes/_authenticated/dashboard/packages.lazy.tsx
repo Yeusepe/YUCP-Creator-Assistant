@@ -1,9 +1,9 @@
+import { Spinner } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
-import { DashboardPackageRegistrySkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
@@ -11,16 +11,24 @@ import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardS
 import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
 
-function DashboardPackagesPending() {
+function DashboardPackagesLoadingShell() {
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <section className="intg-card animate-in bento-col-12">
-          <DashboardPackageRegistrySkeleton rows={4} />
+        <section
+          className="intg-card animate-in bento-col-12 flex min-h-[220px] items-center justify-center py-12"
+          aria-busy="true"
+          aria-label="Loading packages"
+        >
+          <Spinner size="lg" color="accent" />
         </section>
       </div>
     </div>
   );
+}
+
+function DashboardPackagesPending() {
+  return <DashboardPackagesLoadingShell />;
 }
 
 export const Route = createLazyFileRoute('/_authenticated/dashboard/packages')({
@@ -107,15 +115,7 @@ export default function DashboardPackages() {
   }
 
   if (isLoading) {
-    return (
-      <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
-        <div className="bento-grid">
-          <section className="intg-card animate-in bento-col-12">
-            <DashboardPackageRegistrySkeleton rows={4} />
-          </section>
-        </div>
-      </div>
-    );
+    return <DashboardPackagesLoadingShell />;
   }
 
   if (hasCapabilityQueryError) {

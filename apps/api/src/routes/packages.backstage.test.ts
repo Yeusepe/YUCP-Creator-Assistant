@@ -455,7 +455,19 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('syncs provider tiers into the Backstage picker and strips Patreon HTML descriptions', async () => {
-    let syncedTiers = [
+    let syncedTiers: Array<{
+      _id: string;
+      catalogProductId: string;
+      provider: string;
+      providerTierRef: string;
+      displayName: string;
+      description?: string;
+      amountCents?: number;
+      currency?: string;
+      status: 'active' | 'archived';
+      createdAt: number;
+      updatedAt: number;
+    }> = [
       {
         _id: 'tier_existing',
         catalogProductId: 'product_1',

@@ -10,6 +10,35 @@ type MockLinkProps = ComponentPropsWithoutRef<'a'> & {
   to?: unknown;
 };
 
+async function findMoreToolsTrigger() {
+  const [trigger] = await screen.findAllByText(/^More tools$/);
+  if (!trigger) {
+    throw new Error('More tools trigger not found');
+  }
+  return trigger as HTMLElement;
+}
+
+async function openMoreTools() {
+  fireEvent.click(await findMoreToolsTrigger());
+}
+
+async function findExactTextNode(value: string) {
+  const [match] = await screen.findAllByText((_content, element) => {
+    const textContent = element?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    if (!textContent.includes(value)) {
+      return false;
+    }
+    return Array.from(element?.children ?? []).every((child) => {
+      const childText = child.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+      return !childText.includes(value);
+    });
+  });
+  if (!match) {
+    throw new Error(`Text node not found: ${value}`);
+  }
+  return match;
+}
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, search: _search, to: _to, ...props }: MockLinkProps) => (
     <a {...props}>{children}</a>
@@ -122,6 +151,8 @@ vi.mock('@heroui/react', () => {
     <div {...props}>{children}</div>
   );
 
+  const Spinner = ({ ...props }: Record<string, unknown>) => <div {...props} />;
+
   const Tooltip = Object.assign(({ children }: PropsWithChildren) => <>{children}</>, {
     Content: Div,
   });
@@ -139,6 +170,7 @@ vi.mock('@heroui/react', () => {
     RadioGroup,
     Select,
     Skeleton,
+    Spinner,
     TextArea,
     Tooltip,
     Input,
@@ -570,20 +602,42 @@ describe('dashboard packages route', () => {
       expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
     );
     expect(
-      screen.getByText(/customers should start from your YUCP access link/i)
+      screen.getByText(/Add the YUCP access page link to your store page/i)
     ).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /copy store-page link/i }).length).toBeGreaterThan(
+      0
+    );
     expect(screen.getAllByText('Creator Bundle Product').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Mapache/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /open in vcc/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /upload a package/i })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /^upload$/i }).length).toBeGreaterThan(0);
-    expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
     expect(
       document.querySelector('img[src="https://public-files.gumroad.com/creator-bundle.png"]')
     ).not.toBeNull();
     expect(
       document.querySelector('img[src="https://public-files.gumroad.com/creator-bundle.png"]')
     ).toHaveAttribute('src', 'https://public-files.gumroad.com/creator-bundle.png');
+  });
+
+  it('keeps repo testing guidance under collapsed more tools copy', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
+    );
+
+    await openMoreTools();
+
+    expect(screen.getByText(/testing and support repo tools/i)).toBeInTheDocument();
+    expect(screen.getByText(/not for customer-facing distribution/i)).toBeInTheDocument();
+    expect(screen.getByText(/Mapache/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /open test repo in vcc/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy test vcc link/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /copy raw repo url/i })).toBeInTheDocument();
   });
 
   it('aggregates active subscription tiers into a product lane for package setup', () => {
@@ -1054,7 +1108,8 @@ describe('dashboard packages route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument());
+    await openMoreTools();
+    await expect(findExactTextNode('pkg.creator.bundle')).resolves.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /rename/i }));
     const input = screen.getByDisplayValue('Creator Bundle');
     fireEvent.change(input, { target: { value: 'Creator Bundle+' } });
@@ -1076,7 +1131,8 @@ describe('dashboard packages route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument());
+    await openMoreTools();
+    await expect(findExactTextNode('pkg.creator.bundle')).resolves.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
     expect(screen.queryByText('Delete locked')).toBeNull();
   });
@@ -1089,12 +1145,11 @@ describe('dashboard packages route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
+    await openMoreTools();
     await waitFor(() =>
       expect(listCreatorPackagesMock).toHaveBeenCalledWith({ includeArchived: true })
     );
-    await screen.findByText('Hidden install IDs');
-    const hiddenPackagesDetails = screen.getByText('Hidden install IDs').closest('details');
-    expect(hiddenPackagesDetails?.open).toBe(false);
+    await findExactTextNode('Hidden install IDs');
   });
 
   it('keeps hidden product links collapsed by default and lets visible links be hidden', async () => {
@@ -1105,9 +1160,8 @@ describe('dashboard packages route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    await screen.findByText('Hidden product links');
-    const hiddenProductsDetails = screen.getByText('Hidden product links').closest('details');
-    expect(hiddenProductsDetails?.open).toBe(false);
+    await openMoreTools();
+    await findExactTextNode('Hidden product links');
     const mergedProductLane = screen
       .getByText(/Install ID:\s*pkg\.creator\.bundle/i)
       .closest('.pm-product-row');

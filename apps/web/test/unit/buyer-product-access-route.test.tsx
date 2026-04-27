@@ -31,11 +31,15 @@ vi.mock('@/components/three/CloudBackground', () => ({
 }));
 
 const signInMock = vi.fn();
+const mockAuthState = {
+  isAuthenticated: true,
+  isPending: false,
+};
 
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({
-    isAuthenticated: true,
-    isPending: false,
+    isAuthenticated: mockAuthState.isAuthenticated,
+    isPending: mockAuthState.isPending,
     signIn: signInMock,
   }),
 }));
@@ -99,6 +103,8 @@ describe('buyer product access route', () => {
     vi.resetAllMocks();
     mockUseParams.mockReturnValue({ catalogProductId: 'catalog_123' });
     mockUseSearch.mockReturnValue({});
+    mockAuthState.isAuthenticated = true;
+    mockAuthState.isPending = false;
   });
 
   afterEach(() => {
@@ -146,6 +152,8 @@ describe('buyer product access route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
+    expect(await screen.findByText('Bought on Gumroad')).toBeInTheDocument();
+    expect((await screen.findAllByText('1 Unity package')).length).toBeGreaterThan(0);
     const verifyButton = await screen.findByRole('button', { name: 'Verify purchase' });
     fireEvent.click(verifyButton);
 
@@ -156,9 +164,59 @@ describe('buyer product access route', () => {
       )
     );
     expect(await screen.findByText(/verify the store account or license/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /manual repo setup stays hidden until this account has verified access/i
+      )
+    ).toBeInTheDocument();
   });
 
-  it('prioritizes Add to VCC and manual repo copy after access is active', async () => {
+  it('asks the buyer to sign in before starting verification when the route is opened anonymously', async () => {
+    mockAuthState.isAuthenticated = false;
+    vi.mocked(productAccessApi.getBuyerProductAccess).mockResolvedValue({
+      product: {
+        catalogProductId: 'catalog_123',
+        displayName: 'Avatar Bundle',
+        canonicalSlug: 'avatar-bundle',
+        thumbnailUrl: null,
+        provider: 'gumroad',
+        providerLabel: 'Gumroad',
+        storefrontUrl: 'https://store.test/product',
+        accessPagePath: '/access/catalog_123',
+        packagePreview: [
+          {
+            packageId: 'com.yucp.avatar.bundle',
+            packageName: null,
+            displayName: 'Avatar Bundle',
+            defaultChannel: null,
+            latestPublishedVersion: '1.2.0',
+            latestPublishedAt: null,
+            repositoryVisibility: 'hidden',
+          },
+        ],
+      },
+      accessState: {
+        hasActiveEntitlement: false,
+        requiresVerification: true,
+        hasPublishedPackages: true,
+      },
+    });
+
+    const Component = BuyerProductAccessRoute.options.component;
+    if (!Component) {
+      throw new Error('Buyer product access route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    const signInButton = await screen.findByRole('button', { name: 'Sign in to continue' });
+    fireEvent.click(signInButton);
+
+    await waitFor(() => expect(signInMock).toHaveBeenCalledWith(window.location.href));
+    expect(productAccessApi.createBuyerProductAccessVerificationIntent).not.toHaveBeenCalled();
+  });
+
+  it('prioritizes Add to VCC and keeps manual repo details hidden until expanded', async () => {
     vi.mocked(productAccessApi.getBuyerProductAccess).mockResolvedValue({
       product: {
         catalogProductId: 'catalog_123',
@@ -206,7 +264,12 @@ describe('buyer product access route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('button', { name: 'Add to VCC' })).toBeInTheDocument();
-    expect(await screen.findByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
+    expect(await screen.findByText('Owned product context')).toBeInTheDocument();
+    expect(screen.queryByText('https://repo.test/private.json')).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: /show manual setup/i }));
+
+    expect(await screen.findByText('https://repo.test/private.json')).toBeInTheDocument();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Copy repo URL' }));
 

@@ -1,4 +1,18 @@
-import { Button, Card, Chip, ListBox, Select, TextArea, Tooltip } from '@heroui/react';
+import {
+  Button,
+  Card,
+  Checkbox,
+  CheckboxGroup,
+  Chip,
+  Description,
+  Label,
+  ListBox,
+  Radio,
+  RadioGroup,
+  Select,
+  TextArea,
+  Tooltip,
+} from '@heroui/react';
 import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -812,6 +826,18 @@ function ProductLaneDetailsSheet({
                           </Chip>
                         ))}
                       </div>
+                      {buyerAccessUrl ? (
+                        <div className="pm-inline-note rounded-[18px] p-3">
+                          <p className="text-foreground text-sm font-semibold">
+                            Store page distribution
+                          </p>
+                          <p className="pm-subtle-copy mt-1 text-sm leading-6">
+                            Put the YUCP access page on your store page or delivery instructions.
+                            Buyers should start there, then sign in, verify purchase, and add the
+                            repo in VCC.
+                          </p>
+                        </div>
+                      ) : null}
                     </Card.Content>
                   </Card>
 
@@ -1181,6 +1207,7 @@ export function PackageRegistryPanel({
   const [pendingReleaseArchiveId, setPendingReleaseArchiveId] = useState<string | null>(null);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [isProductDetailsOpen, setIsProductDetailsOpen] = useState(false);
+  const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
   const [publishDraft, setPublishDraft] = useState<PublishDraft>(() => buildDraftFromLane(null));
   const [selectedProductLaneKey, setSelectedProductLaneKey] = useState<string | null>(null);
   const [selectedUpload, setSelectedUpload] = useState<SelectedUpload | null>(null);
@@ -1551,6 +1578,7 @@ export function PackageRegistryPanel({
     selectedLane?.primaryPackage && selectedLane.packageLinks.length === 1
   );
   const selectedLaneActiveTiers = selectedLane?.catalogTiers ?? [];
+  const selectedLaneSupportsTierAccess = selectedLaneActiveTiers.length > 0;
   const installIdSuggestions = selectedLane
     ? selectedLane.packageLinks.length > 1
       ? selectedLane.packageLinks.slice(0, 4).map((packageLink) => ({
@@ -1686,7 +1714,7 @@ export function PackageRegistryPanel({
         ) : null}
 
         {isWorkspaceLoading ? (
-          <Card className="pm-card rounded-2xl shadow-none">
+          <Card className="pm-card pm-primary-panel rounded-2xl shadow-none">
             <Card.Content className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
               <div className="flex min-w-0 gap-4">
                 <div className="pm-icon-shell text-accent flex size-12 shrink-0 items-center justify-center rounded-2xl">
@@ -1770,232 +1798,254 @@ export function PackageRegistryPanel({
               </Card.Content>
             </Card>
 
-            <details className="pm-management-details rounded-2xl p-4">
-              <summary className="text-foreground flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
+            <section className="pm-management-details rounded-2xl p-4">
+              <button
+                type="button"
+                className="text-foreground flex w-full cursor-pointer items-center justify-between gap-3 text-left text-sm font-medium"
+                aria-expanded={isMoreToolsOpen}
+                onClick={() => setIsMoreToolsOpen((current) => !current)}
+              >
                 <span>More tools</span>
-              </summary>
-              <div className="mt-4 space-y-4">
-                <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
-                  Keep customer-facing distribution on the YUCP access page. Open these sections
-                  only for install ID cleanup, hidden links, or creator-side testing and support.
-                </p>
+              </button>
+              {isMoreToolsOpen ? (
+                <div className="mt-4 space-y-4">
+                  <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
+                    Keep customer-facing distribution on the YUCP access page. Open these sections
+                    only for install ID cleanup, hidden links, or creator-side testing and support.
+                  </p>
 
-                <section className="pm-tool-section space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-foreground text-sm font-semibold">
-                      Testing and support repo tools
-                    </p>
-                    <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
-                      Use these only after your store page points buyers to the YUCP access page.
-                      These open the repo directly for your own QA or guided support, not for
-                      customer-facing distribution.
-                    </p>
-                    {repoAccessQuery.data?.creatorRepoRef ? (
-                      <p className="pm-subtle-copy break-all font-mono text-xs">
-                        {repoAccessQuery.data.creatorName ??
-                          repoAccessQuery.data.repositoryName ??
-                          'Backstage repo'}
-                        {' · '}
-                        {repoAccessQuery.data.creatorRepoRef}
+                  <section className="pm-tool-section space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-foreground text-sm font-semibold">
+                        Testing and support repo tools
                       </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {repoAccessQuery.data?.addRepoUrl ? (
+                      <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
+                        Use these only after your store page points buyers to the YUCP access page.
+                        These open the repo directly for your own QA or guided support, not for
+                        customer-facing distribution.
+                      </p>
+                      {repoAccessQuery.data?.creatorRepoRef ? (
+                        <p className="pm-subtle-copy break-all font-mono text-xs">
+                          {repoAccessQuery.data.creatorName ??
+                            repoAccessQuery.data.repositoryName ??
+                            'Backstage repo'}
+                          {' · '}
+                          {repoAccessQuery.data.creatorRepoRef}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {repoAccessQuery.data?.addRepoUrl ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onPress={() => {
+                            window.location.href = repoAccessQuery.data?.addRepoUrl ?? '';
+                          }}
+                        >
+                          <ExternalLink className="size-4" />
+                          Open test repo in VCC
+                        </Button>
+                      ) : null}
                       <Button
                         size="sm"
-                        variant="outline"
-                        onPress={() => {
-                          window.location.href = repoAccessQuery.data?.addRepoUrl ?? '';
-                        }}
+                        variant="ghost"
+                        onPress={() =>
+                          repoAccessQuery.data?.addRepoUrl
+                            ? handleCopyValue(
+                                repoAccessQuery.data.addRepoUrl,
+                                'Test VCC link copied'
+                              )
+                            : Promise.resolve(false)
+                        }
                       >
-                        <ExternalLink className="size-4" />
-                        Open test repo in VCC
+                        <Copy className="size-4" />
+                        Copy test VCC link
                       </Button>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onPress={() =>
-                        repoAccessQuery.data?.addRepoUrl
-                          ? handleCopyValue(repoAccessQuery.data.addRepoUrl, 'Test VCC link copied')
-                          : Promise.resolve(false)
-                      }
-                    >
-                      <Copy className="size-4" />
-                      Copy test VCC link
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onPress={() =>
-                        repoAccessQuery.data?.repositoryUrl
-                          ? handleCopyValue(repoAccessQuery.data.repositoryUrl, 'Raw repo URL copied')
-                          : Promise.resolve(false)
-                      }
-                    >
-                      <Copy className="size-4" />
-                      Copy raw repo URL
-                    </Button>
-                  </div>
-                </section>
-
-                <section className="pm-tool-section space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-foreground text-sm font-semibold">Manage install IDs</p>
-                    <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
-                      These are the package IDs buyers install from your repo. Open this to rename,
-                      copy, or hide old ones.
-                    </p>
-                  </div>
-                  {packages.length === 0 ? (
-                    <EmptyState className="pm-empty-state rounded-2xl border border-dashed">
-                      <EmptyState.Header>
-                        <EmptyState.Media variant="icon">
-                          <FolderUp />
-                        </EmptyState.Media>
-                        <EmptyState.Title>No install IDs yet</EmptyState.Title>
-                        <EmptyState.Description>
-                          Upload the first package to create one.
-                        </EmptyState.Description>
-                      </EmptyState.Header>
-                    </EmptyState>
-                  ) : (
-                    <>
-                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[320px] sm:flex-row">
-                        <div className="relative min-w-0 flex-1">
-                          <Search className="pm-subtle-copy pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
-                          <YucpInput
-                            aria-label="Search install IDs"
-                            className="w-full pl-9"
-                            placeholder="Find an install ID"
-                            value={searchQuery}
-                            onValueChange={setSearchQuery}
-                          />
-                        </div>
-                      </div>
-                      <p className="pm-subtle-copy text-sm">
-                        {activePackages.length} active · {archivedPackages.length} hidden
-                      </p>
-                      {filteredActivePackages.length > 0 ? (
-                        <div className="space-y-3">
-                          {filteredActivePackages.map((pkg) => (
-                            <PackageRegistryItem
-                              key={pkg.packageId}
-                              pkg={pkg}
-                              isEditing={editingId === pkg.packageId}
-                              editName={
-                                editingId === pkg.packageId ? editingName : (pkg.packageName ?? '')
-                              }
-                              isSaving={pendingSaveId === pkg.packageId && renameMutation.isPending}
-                              isArchiving={
-                                pendingArchiveId === pkg.packageId && archiveMutation.isPending
-                              }
-                              isRestoring={false}
-                              onEditStart={() => {
-                                setEditingId(pkg.packageId);
-                                setEditingName(pkg.packageName ?? '');
-                              }}
-                              onEditCancel={() => setEditingId(null)}
-                              onEditChange={setEditingName}
-                              onSave={() =>
-                                renameMutation.mutate({
-                                  packageId: pkg.packageId,
-                                  packageName: editingName.trim(),
-                                })
-                              }
-                              onArchive={() => archiveMutation.mutate({ packageId: pkg.packageId })}
-                              onRestore={() => {}}
-                              onCopyId={() => handleCopyId(pkg.packageId)}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="pm-muted-panel pm-subtle-copy rounded-2xl p-4 text-sm">
-                          No install IDs match that search.
-                        </p>
-                      )}
-
-                      {archivedPackages.length > 0 ? (
-                        <details className="pm-muted-panel rounded-2xl p-4">
-                          <summary className="text-foreground flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
-                            <span className="flex items-center gap-2">
-                              <Archive className="size-4" />
-                              Hidden install IDs
-                            </span>
-                            <Chip size="sm" variant="soft">
-                              {archivedPackages.length}
-                            </Chip>
-                          </summary>
-                          <div className="mt-4 space-y-3">
-                            {filteredArchivedPackages.length > 0 ? (
-                              filteredArchivedPackages.map((pkg) => (
-                                <PackageRegistryItem
-                                  key={pkg.packageId}
-                                  pkg={pkg}
-                                  isEditing={false}
-                                  editName={pkg.packageName ?? ''}
-                                  isSaving={false}
-                                  isArchiving={false}
-                                  isRestoring={
-                                    pendingRestoreId === pkg.packageId && restoreMutation.isPending
-                                  }
-                                  onEditStart={() => {}}
-                                  onEditCancel={() => {}}
-                                  onEditChange={() => {}}
-                                  onSave={() => {}}
-                                  onArchive={() => {}}
-                                  onRestore={() =>
-                                    restoreMutation.mutate({ packageId: pkg.packageId })
-                                  }
-                                  onCopyId={() => handleCopyId(pkg.packageId)}
-                                />
-                              ))
-                            ) : (
-                              <p className="pm-subtle-copy text-sm">
-                                No hidden install IDs match that search.
-                              </p>
-                            )}
-                          </div>
-                        </details>
-                      ) : null}
-                    </>
-                  )}
-                </section>
-
-                {archivedProductLanes.length > 0 ? (
-                  <section className="pm-tool-section space-y-3">
-                    <div className="space-y-1">
-                      <p className="text-foreground text-sm font-semibold">Hidden product links</p>
-                      <p className="pm-subtle-copy text-sm">
-                        Restore these when you want the product back in your upload list.
-                      </p>
-                    </div>
-                    <div className="space-y-3">
-                      {filteredArchivedProductLanes.length > 0 ? (
-                        filteredArchivedProductLanes.map((lane) => (
-                          <ProductLaneCard
-                            key={lane.laneKey}
-                            lane={lane}
-                            isRestoring={
-                              pendingProductRestoreKey === lane.laneKey &&
-                              restoreProductMutation.isPending
-                            }
-                            onOpenDetails={openProductDetails}
-                            onPublish={openPublishSheet}
-                            onRestore={(targetLane) => restoreProductMutation.mutate(targetLane)}
-                          />
-                        ))
-                      ) : (
-                        <p className="pm-subtle-copy text-sm">
-                          No hidden product links match that search.
-                        </p>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onPress={() =>
+                          repoAccessQuery.data?.repositoryUrl
+                            ? handleCopyValue(
+                                repoAccessQuery.data.repositoryUrl,
+                                'Raw repo URL copied'
+                              )
+                            : Promise.resolve(false)
+                        }
+                      >
+                        <Copy className="size-4" />
+                        Copy raw repo URL
+                      </Button>
                     </div>
                   </section>
-                ) : null}
-              </div>
-            </details>
+
+                  <section className="pm-tool-section space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-foreground text-sm font-semibold">Manage install IDs</p>
+                      <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
+                        These are the package IDs buyers install from your repo. Open this to
+                        rename, copy, or hide old ones.
+                      </p>
+                    </div>
+                    {packages.length === 0 ? (
+                      <EmptyState className="pm-empty-state rounded-2xl border border-dashed">
+                        <EmptyState.Header>
+                          <EmptyState.Media variant="icon">
+                            <FolderUp />
+                          </EmptyState.Media>
+                          <EmptyState.Title>No install IDs yet</EmptyState.Title>
+                          <EmptyState.Description>
+                            Upload the first package to create one.
+                          </EmptyState.Description>
+                        </EmptyState.Header>
+                      </EmptyState>
+                    ) : (
+                      <>
+                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[320px] sm:flex-row">
+                          <div className="relative min-w-0 flex-1">
+                            <Search className="pm-subtle-copy pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2" />
+                            <YucpInput
+                              aria-label="Search install IDs"
+                              className="w-full pl-9"
+                              placeholder="Find an install ID"
+                              value={searchQuery}
+                              onValueChange={setSearchQuery}
+                            />
+                          </div>
+                        </div>
+                        <p className="pm-subtle-copy text-sm">
+                          {activePackages.length} active · {archivedPackages.length} hidden
+                        </p>
+                        {filteredActivePackages.length > 0 ? (
+                          <div className="space-y-3">
+                            {filteredActivePackages.map((pkg) => (
+                              <PackageRegistryItem
+                                key={pkg.packageId}
+                                pkg={pkg}
+                                isEditing={editingId === pkg.packageId}
+                                editName={
+                                  editingId === pkg.packageId
+                                    ? editingName
+                                    : (pkg.packageName ?? '')
+                                }
+                                isSaving={
+                                  pendingSaveId === pkg.packageId && renameMutation.isPending
+                                }
+                                isArchiving={
+                                  pendingArchiveId === pkg.packageId && archiveMutation.isPending
+                                }
+                                isRestoring={false}
+                                onEditStart={() => {
+                                  setEditingId(pkg.packageId);
+                                  setEditingName(pkg.packageName ?? '');
+                                }}
+                                onEditCancel={() => setEditingId(null)}
+                                onEditChange={setEditingName}
+                                onSave={() =>
+                                  renameMutation.mutate({
+                                    packageId: pkg.packageId,
+                                    packageName: editingName.trim(),
+                                  })
+                                }
+                                onArchive={() =>
+                                  archiveMutation.mutate({ packageId: pkg.packageId })
+                                }
+                                onRestore={() => {}}
+                                onCopyId={() => handleCopyId(pkg.packageId)}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="pm-muted-panel pm-subtle-copy rounded-2xl p-4 text-sm">
+                            No install IDs match that search.
+                          </p>
+                        )}
+
+                        {archivedPackages.length > 0 ? (
+                          <details className="pm-muted-panel rounded-2xl p-4">
+                            <summary className="text-foreground flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium">
+                              <span className="flex items-center gap-2">
+                                <Archive className="size-4" />
+                                Hidden install IDs
+                              </span>
+                              <Chip size="sm" variant="soft">
+                                {archivedPackages.length}
+                              </Chip>
+                            </summary>
+                            <div className="mt-4 space-y-3">
+                              {filteredArchivedPackages.length > 0 ? (
+                                filteredArchivedPackages.map((pkg) => (
+                                  <PackageRegistryItem
+                                    key={pkg.packageId}
+                                    pkg={pkg}
+                                    isEditing={false}
+                                    editName={pkg.packageName ?? ''}
+                                    isSaving={false}
+                                    isArchiving={false}
+                                    isRestoring={
+                                      pendingRestoreId === pkg.packageId &&
+                                      restoreMutation.isPending
+                                    }
+                                    onEditStart={() => {}}
+                                    onEditCancel={() => {}}
+                                    onEditChange={() => {}}
+                                    onSave={() => {}}
+                                    onArchive={() => {}}
+                                    onRestore={() =>
+                                      restoreMutation.mutate({ packageId: pkg.packageId })
+                                    }
+                                    onCopyId={() => handleCopyId(pkg.packageId)}
+                                  />
+                                ))
+                              ) : (
+                                <p className="pm-subtle-copy text-sm">
+                                  No hidden install IDs match that search.
+                                </p>
+                              )}
+                            </div>
+                          </details>
+                        ) : null}
+                      </>
+                    )}
+                  </section>
+
+                  {archivedProductLanes.length > 0 ? (
+                    <section className="pm-tool-section space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-foreground text-sm font-semibold">
+                          Hidden product links
+                        </p>
+                        <p className="pm-subtle-copy text-sm">
+                          Restore these when you want the product back in your upload list.
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        {filteredArchivedProductLanes.length > 0 ? (
+                          filteredArchivedProductLanes.map((lane) => (
+                            <ProductLaneCard
+                              key={lane.laneKey}
+                              lane={lane}
+                              isRestoring={
+                                pendingProductRestoreKey === lane.laneKey &&
+                                restoreProductMutation.isPending
+                              }
+                              onOpenDetails={openProductDetails}
+                              onPublish={openPublishSheet}
+                              onRestore={(targetLane) => restoreProductMutation.mutate(targetLane)}
+                            />
+                          ))
+                        ) : (
+                          <p className="pm-subtle-copy text-sm">
+                            No hidden product links match that search.
+                          </p>
+                        )}
+                      </div>
+                    </section>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
           </div>
         )}
       </div>
@@ -2101,117 +2151,123 @@ export function PackageRegistryPanel({
 
                 {selectedLane ? (
                   <>
-                    <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
-                      <div className="space-y-1">
-                        <p className="text-foreground text-sm font-semibold">Access</p>
-                        <p className="pm-subtle-copy text-sm">
-                          Choose whether this package unlocks for the whole subscription product or
-                          only for specific synced tiers.
-                        </p>
-                      </div>
-                      <div className="space-y-3">
-                        <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
-                          <input
-                            type="radio"
-                            aria-label="Whole subscription product"
-                            name="package-access-mode"
-                            checked={publishDraft.accessMode === 'product'}
-                            onChange={() =>
-                              setPublishDraft((current) => ({
-                                ...current,
-                                accessMode: 'product',
-                                catalogTierIds: [],
-                              }))
-                            }
-                          />
-                          <span className="space-y-1">
-                            <span className="text-foreground block text-sm font-semibold">
-                              Whole subscription product
-                            </span>
-                            <span className="pm-subtle-copy block text-sm">
-                              Anyone entitled to this product or campaign can install the package.
-                            </span>
-                          </span>
-                        </label>
-
-                        <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
-                          <input
-                            type="radio"
-                            aria-label="Specific subscription tiers"
-                            name="package-access-mode"
-                            checked={publishDraft.accessMode === 'tiers'}
-                            disabled={selectedLaneActiveTiers.length === 0}
-                            onChange={() =>
-                              setPublishDraft((current) => ({
-                                ...current,
-                                accessMode: 'tiers',
-                              }))
-                            }
-                          />
-                          <span className="space-y-1">
-                            <span className="text-foreground block text-sm font-semibold">
-                              Specific subscription tiers
-                            </span>
-                            <span className="pm-subtle-copy block text-sm">
-                              {selectedLaneActiveTiers.length > 0
-                                ? 'Only buyers with one of the selected active tiers can install this package.'
-                                : 'No synced active tiers are available for this product yet.'}
-                            </span>
-                          </span>
-                        </label>
-                      </div>
-
-                      {publishDraft.accessMode === 'tiers' && selectedLaneActiveTiers.length > 0 ? (
-                        <div className="space-y-3">
-                          <p className="pm-field-label">Allowed tiers</p>
-                          <div className="space-y-2">
-                            {selectedLaneActiveTiers.map((tier) => {
-                              const tierPrice = formatTierPrice(tier);
-                              const isChecked = publishDraft.catalogTierIds.includes(
-                                tier.catalogTierId
-                              );
-                              return (
-                                <label
-                                  key={tier.catalogTierId}
-                                  className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    aria-label={tier.displayName}
-                                    checked={isChecked}
-                                    onChange={(event) =>
-                                      setPublishDraft((current) => ({
-                                        ...current,
-                                        catalogTierIds: event.target.checked
-                                          ? [...current.catalogTierIds, tier.catalogTierId]
-                                          : current.catalogTierIds.filter(
-                                              (catalogTierId) =>
-                                                catalogTierId !== tier.catalogTierId
-                                            ),
-                                      }))
-                                    }
-                                  />
-                                  <span className="space-y-1">
-                                    <span className="text-foreground block text-sm font-semibold">
-                                      {tier.displayName}
-                                      {tierPrice ? ` · ${tierPrice}` : ''}
-                                    </span>
-                                    {tier.description ? (
-                                      <span className="pm-subtle-copy block text-sm">
-                                        {tier.description}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                </label>
-                              );
-                            })}
+                    {selectedLaneSupportsTierAccess ? (
+                      <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-foreground text-sm font-semibold">Access</p>
+                            <Chip size="sm" variant="soft">
+                              {selectedLaneActiveTiers.length} synced tier
+                              {selectedLaneActiveTiers.length === 1 ? '' : 's'}
+                            </Chip>
                           </div>
-                          <p className="pm-subtle-copy text-xs">
-                            Select at least one tier to keep this package subscription-gated.
+                          <p className="pm-subtle-copy text-sm">
+                            Release to the whole subscription product, or narrow installs to the
+                            synced tiers that should keep access.
                           </p>
                         </div>
-                      ) : null}
-                    </div>
+
+                        <RadioGroup
+                          aria-label="Package access mode"
+                          className="space-y-3"
+                          name="package-access-mode"
+                          value={publishDraft.accessMode}
+                          onChange={(value) =>
+                            setPublishDraft((current) => ({
+                              ...current,
+                              accessMode: value === 'tiers' ? 'tiers' : 'product',
+                              catalogTierIds: value === 'tiers' ? current.catalogTierIds : [],
+                            }))
+                          }
+                        >
+                          <Radio value="product" className="pm-inline-note rounded-[18px] p-3">
+                            <Radio.Control>
+                              <Radio.Indicator />
+                            </Radio.Control>
+                            <Radio.Content className="space-y-1">
+                              <Label className="text-foreground block text-sm font-semibold">
+                                Whole subscription product
+                              </Label>
+                              <Description className="pm-subtle-copy block text-sm">
+                                Anyone entitled to this product or campaign can install the package.
+                              </Description>
+                            </Radio.Content>
+                          </Radio>
+
+                          <Radio value="tiers" className="pm-inline-note rounded-[18px] p-3">
+                            <Radio.Control>
+                              <Radio.Indicator />
+                            </Radio.Control>
+                            <Radio.Content className="space-y-1">
+                              <Label className="text-foreground block text-sm font-semibold">
+                                Specific subscription tiers
+                              </Label>
+                              <Description className="pm-subtle-copy block text-sm">
+                                Only buyers with one of the selected active tiers can install this
+                                package.
+                              </Description>
+                            </Radio.Content>
+                          </Radio>
+                        </RadioGroup>
+
+                        {publishDraft.accessMode === 'tiers' ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <p className="pm-field-label">Allowed tiers</p>
+                              <p className="pm-subtle-copy text-sm">
+                                Pick every tier that should continue to unlock this install ID.
+                              </p>
+                            </div>
+                            <CheckboxGroup
+                              aria-label="Allowed subscription tiers"
+                              className="space-y-2"
+                              value={publishDraft.catalogTierIds}
+                              onChange={(value) =>
+                                setPublishDraft((current) => ({
+                                  ...current,
+                                  catalogTierIds: value,
+                                }))
+                              }
+                            >
+                              {selectedLaneActiveTiers.map((tier) => {
+                                const tierPrice = formatTierPrice(tier);
+                                return (
+                                  <Checkbox
+                                    key={tier.catalogTierId}
+                                    value={tier.catalogTierId}
+                                    className="pm-inline-note rounded-[18px] p-3"
+                                  >
+                                    <Checkbox.Control>
+                                      <Checkbox.Indicator />
+                                    </Checkbox.Control>
+                                    <Checkbox.Content className="space-y-1">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Label className="text-foreground text-sm font-semibold">
+                                          {tier.displayName}
+                                        </Label>
+                                        {tierPrice ? (
+                                          <Chip size="sm" variant="soft">
+                                            {tierPrice}
+                                          </Chip>
+                                        ) : null}
+                                      </div>
+                                      {tier.description ? (
+                                        <Description className="pm-subtle-copy block text-sm">
+                                          {tier.description}
+                                        </Description>
+                                      ) : null}
+                                    </Checkbox.Content>
+                                  </Checkbox>
+                                );
+                              })}
+                            </CheckboxGroup>
+                            <p className="pm-subtle-copy text-xs">
+                              Select at least one tier to keep this package subscription-gated.
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
                       <div className="pm-form-grid">

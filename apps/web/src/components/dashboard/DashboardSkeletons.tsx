@@ -188,35 +188,6 @@ export function DashboardCertificatesSkeleton() {
   );
 }
 
-/** Package registry row skeleton, icon + name/id pair + status pill + icon actions. */
-function DashboardPackageRowSkeleton() {
-  return (
-    <div className="pkg-row pkg-row--skeleton" aria-hidden="true">
-      <SkeletonCircle size="36px" />
-      <div className="pkg-row__body">
-        <SkeletonLine width="42%" />
-        <SkeletonLine width="60%" className="skeleton-line-muted" />
-      </div>
-      <SkeletonPill width="56px" />
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <SkeletonCircle size="30px" />
-        <SkeletonCircle size="30px" />
-      </div>
-    </div>
-  );
-}
-
-export function DashboardPackageRegistrySkeleton({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="skeleton-stack" aria-hidden="true">
-      {Array.from({ length: rows }, (_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-        <DashboardPackageRowSkeleton key={i} />
-      ))}
-    </div>
-  );
-}
-
 export function DashboardBackstageWorkspaceSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
