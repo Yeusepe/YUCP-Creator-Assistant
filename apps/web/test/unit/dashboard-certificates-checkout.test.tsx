@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 
 type MockLinkProps = ComponentPropsWithoutRef<'a'> & {
   children?: ReactNode;
@@ -74,10 +75,30 @@ vi.mock('@/hooks/useDashboardSession', () => ({
 vi.mock('@/lib/certificates', () => ({
   createCreatorCertificateCheckout: vi.fn(),
   formatCertificateDate: vi.fn((value: number | null) => (value ? String(value) : 'Unknown date')),
+  hasActiveCreatorBillingCapability: vi.fn(
+    (
+      capabilities: Array<{ capabilityKey: string; status: string }> | undefined,
+      capabilityKey: string
+    ) =>
+      capabilities?.some(
+        (capability) =>
+          capability.capabilityKey === capabilityKey &&
+          (capability.status === 'active' || capability.status === 'grace')
+      ) ?? false
+  ),
   getCreatorCertificatePortal: vi.fn(),
   listCreatorCertificates: vi.fn(),
   reconcileCreatorCertificateBilling: vi.fn(),
   revokeCreatorCertificate: vi.fn(),
+}));
+
+vi.mock('@/components/dashboard/PackageRegistryPanel', () => ({
+  PackageRegistryPanel: ({ description }: { description?: string }) => (
+    <section>
+      <h2>Package Registry</h2>
+      {description ? <p>{description}</p> : null}
+    </section>
+  ),
 }));
 
 vi.mock('@/lib/packages', () => ({
@@ -153,7 +174,12 @@ describe('dashboard billing and certificates routes', () => {
         currentPeriodEnd: null,
         graceUntil: null,
         reason: 'Certificate subscription required',
-        capabilities: [],
+        capabilities: [
+          {
+            capabilityKey: BILLING_CAPABILITY_KEYS.vpmRepo,
+            status: 'active',
+          },
+        ],
       },
       devices: [],
       availablePlans: [
@@ -225,7 +251,12 @@ describe('dashboard billing and certificates routes', () => {
           currentPeriodEnd: null,
           graceUntil: null,
           reason: null,
-          capabilities: [],
+          capabilities: [
+            {
+              capabilityKey: BILLING_CAPABILITY_KEYS.vpmRepo,
+              status: 'active',
+            },
+          ],
         },
         devices: [],
         availablePlans: [],
@@ -326,15 +357,42 @@ describe('dashboard billing and certificates routes', () => {
     render(<DashboardCertificates />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('Package Registry')).toBeInTheDocument());
-    await waitFor(() =>
-      expect(packagesApi.listCreatorPackages).toHaveBeenCalledWith({ includeArchived: true })
-    );
-    await waitFor(() => expect(screen.getByDisplayValue('Creator Bundle')).toBeInTheDocument());
-    expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
-    const archivedPackagesToggle = screen.getByRole('button', { name: /archived packages \(1\)/i });
-    expect(archivedPackagesToggle).toBeInTheDocument();
-    fireEvent.click(archivedPackagesToggle);
-    expect(screen.getByDisplayValue('Legacy Bundle')).toBeDisabled();
-    expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('hides the package registry behind the Polar feature flag when the VPM repo benefit is absent', async () => {
+    vi.mocked(certificateApi.listCreatorCertificates).mockResolvedValue({
+      workspaceKey: 'creator-profile:profile-1',
+      creatorProfileId: 'profile-1',
+      billing: {
+        billingEnabled: true,
+        status: 'inactive',
+        allowEnrollment: false,
+        allowSigning: false,
+        planKey: null,
+        productId: null,
+        deviceCap: null,
+        activeDeviceCount: 0,
+        signQuotaPerPeriod: null,
+        auditRetentionDays: null,
+        supportTier: null,
+        currentPeriodEnd: null,
+        graceUntil: null,
+        reason: 'Certificate subscription required',
+        capabilities: [],
+      },
+      devices: [],
+      availablePlans: [],
+      meters: [],
+    });
+
+    render(<DashboardCertificates />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Custom VPM repo required')).toBeInTheDocument());
+    expect(screen.queryByText('Package Registry')).not.toBeInTheDocument();
   });
 });

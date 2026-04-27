@@ -13,7 +13,7 @@ import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
-import { listCreatorCertificates } from '@/lib/certificates';
+import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import {
   type CouplingForensicsLookupResponse,
   isCouplingTraceabilityRequiredError,
@@ -129,12 +129,10 @@ export default function DashboardForensics() {
     retry: noRetryOn4xx,
   });
 
-  const capabilityEnabled =
-    certificatesQuery.data?.billing.capabilities.some(
-      (capability) =>
-        capability.capabilityKey === BILLING_CAPABILITY_KEYS.couplingTraceability &&
-        (capability.status === 'active' || capability.status === 'grace')
-    ) ?? false;
+  const capabilityEnabled = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
+  );
 
   const packagesQuery = useQuery({
     queryKey: ['coupling-forensics', 'packages'],

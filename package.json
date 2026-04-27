@@ -130,5 +130,22 @@
     "heroui-pro",
     "@heroui-pro/react",
     "heroui-native-pro"
-  ]
+  ],
+  "description": "![YUCP Creator Assistant](https://github.com/user-attachments/assets/592a7c28-0bec-4673-9a43-0656d2a9ca6c)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yeusepe/YUCP-Creator-Assistant.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Yeusepe/YUCP-Creator-Assistant/issues"
+  },
+  "homepage": "https://github.com/Yeusepe/YUCP-Creator-Assistant#readme"
 }

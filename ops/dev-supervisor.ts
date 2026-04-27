@@ -32,6 +32,7 @@ export interface DevCommandSpec {
   command: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  required?: boolean;
 }
 
 interface DevSupervisorOptions {
@@ -62,6 +63,7 @@ const TUNNEL_COMMAND: DevCommandSpec = {
   name: 'tunnel',
   color: 'cyan',
   command: 'tailscale funnel 3001',
+  required: false,
 };
 
 export function getCdngineDir(baseEnv: NodeJS.ProcessEnv = process.env): string | null {
@@ -130,6 +132,7 @@ export function buildDevCommands(
       color: 'cyan',
       command: buildCdngineCommand(cdngineStartMode),
       cwd: cdngineDir,
+      required: false,
     });
   }
   commands.push(TUNNEL_COMMAND);
@@ -156,6 +159,10 @@ function buildShellCommand(command: string): { file: string; args: string[] } {
 
 function buildPrefix(name: string, color: PrefixColor): string {
   return `${PREFIX_COLORS[color]}[${name}]${PREFIX_RESET} `;
+}
+
+function isCommandRequired(spec: DevCommandSpec): boolean {
+  return spec.required ?? true;
 }
 
 function forwardPrefixedOutput(
@@ -360,23 +367,42 @@ export class DevSupervisor {
   }
 
   async waitForExit(): Promise<number> {
-    const firstExit = await Promise.race(
-      this.managed.map(async (command) => ({
-        command,
-        code: await command.closePromise,
-      }))
-    );
-
-    if (!this.shutdownPromise) {
-      const prefix = buildPrefix('dev', 'magenta');
-      const exitCode = firstExit.code ?? 0;
-      process.stderr.write(
-        `${prefix}${firstExit.command.spec.name} exited with code ${exitCode}. Shutting down the remaining dev processes.\n`
+    const remaining = [...this.managed];
+    while (remaining.length > 0) {
+      const firstExit = await Promise.race(
+        remaining.map(async (command) => ({
+          command,
+          code: await command.closePromise,
+        }))
       );
-      await this.shutdown(exitCode === 0 ? 'SIGTERM' : 'SIGINT');
+      const exitCode = firstExit.code ?? 0;
+      const exitedIndex = remaining.indexOf(firstExit.command);
+      if (exitedIndex >= 0) {
+        remaining.splice(exitedIndex, 1);
+      }
+
+      if (!isCommandRequired(firstExit.command.spec)) {
+        if (!this.shutdownPromise) {
+          const prefix = buildPrefix('dev', 'yellow');
+          process.stderr.write(
+            `${prefix}Optional dev helper ${firstExit.command.spec.name} exited with code ${exitCode}. Keeping the main dev processes running.\n`
+          );
+        }
+        continue;
+      }
+
+      if (!this.shutdownPromise) {
+        const prefix = buildPrefix('dev', 'magenta');
+        process.stderr.write(
+          `${prefix}${firstExit.command.spec.name} exited with code ${exitCode}. Shutting down the remaining dev processes.\n`
+        );
+        await this.shutdown(exitCode === 0 ? 'SIGTERM' : 'SIGINT');
+      }
+
+      return exitCode;
     }
 
-    return firstExit.code ?? 0;
+    return 0;
   }
 }
 

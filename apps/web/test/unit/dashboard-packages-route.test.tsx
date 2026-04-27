@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 
 type MockLinkProps = ComponentPropsWithoutRef<'a'> & {
   children?: ReactNode;
@@ -117,6 +118,21 @@ vi.mock('@heroui-pro/react', () => {
   };
 });
 
+vi.mock('@/lib/certificates', () => ({
+  hasActiveCreatorBillingCapability: vi.fn(
+    (
+      capabilities: Array<{ capabilityKey: string; status: string }> | undefined,
+      capabilityKey: string
+    ) =>
+      capabilities?.some(
+        (capability) =>
+          capability.capabilityKey === capabilityKey &&
+          (capability.status === 'active' || capability.status === 'grace')
+      ) ?? false
+  ),
+  listCreatorCertificates: vi.fn(),
+}));
+
 vi.mock('@/lib/packages', () => ({
   archiveCreatorPackage: vi.fn(),
   archiveCreatorBackstageProduct: vi.fn(),
@@ -131,9 +147,13 @@ vi.mock('@/lib/packages', () => ({
   uploadBackstageReleaseFile: vi.fn(),
 }));
 
+import * as certificateApi from '@/lib/certificates';
 import * as packagesApi from '@/lib/packages';
 import { Route as PackagesRoute } from '@/routes/_authenticated/dashboard/packages.lazy';
 
+const listCreatorCertificatesMock = certificateApi.listCreatorCertificates as ReturnType<
+  typeof vi.fn
+>;
 const listCreatorBackstageProductsMock = packagesApi.listCreatorBackstageProducts as ReturnType<
   typeof vi.fn
 >;
@@ -163,6 +183,35 @@ function createWrapper() {
 describe('dashboard packages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listCreatorCertificatesMock.mockResolvedValue({
+      workspaceKey: 'creator-profile:profile-1',
+      creatorProfileId: 'profile-1',
+      billing: {
+        billingEnabled: true,
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        planKey: 'creator-suite',
+        productId: 'prod_creator_suite',
+        deviceCap: 5,
+        activeDeviceCount: 1,
+        signQuotaPerPeriod: null,
+        auditRetentionDays: 90,
+        supportTier: 'premium',
+        currentPeriodEnd: null,
+        graceUntil: null,
+        reason: null,
+        capabilities: [
+          {
+            capabilityKey: BILLING_CAPABILITY_KEYS.vpmRepo,
+            status: 'active',
+          },
+        ],
+      },
+      devices: [],
+      availablePlans: [],
+      meters: [],
+    });
     listCreatorPackagesMock.mockResolvedValue({
       packages: [
         {
@@ -352,6 +401,44 @@ describe('dashboard packages route', () => {
     ).toHaveAttribute('src', 'https://public-files.gumroad.com/creator-bundle.png');
   });
 
+  it('shows the Polar upgrade gate when the custom VPM repo entitlement is missing', async () => {
+    listCreatorCertificatesMock.mockResolvedValue({
+      workspaceKey: 'creator-profile:profile-1',
+      creatorProfileId: 'profile-1',
+      billing: {
+        billingEnabled: true,
+        status: 'inactive',
+        allowEnrollment: false,
+        allowSigning: false,
+        planKey: null,
+        productId: null,
+        deviceCap: null,
+        activeDeviceCount: 0,
+        signQuotaPerPeriod: null,
+        auditRetentionDays: null,
+        supportTier: null,
+        currentPeriodEnd: null,
+        graceUntil: null,
+        reason: 'Certificate subscription required',
+        capabilities: [],
+      },
+      devices: [],
+      availablePlans: [],
+      meters: [],
+    });
+
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Custom VPM repo required')).toBeInTheDocument());
+    expect(screen.getByText('Upgrade billing')).toBeInTheDocument();
+    expect(listCreatorPackagesMock).not.toHaveBeenCalled();
+  });
+
   it('opens a product link and shows previous uploads', async () => {
     const Component = PackagesRoute.options.component;
     if (!Component) {
@@ -361,13 +448,15 @@ describe('dashboard packages route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(screen.getByText('2 storefronts')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /open upload history for creator bundle product/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /open upload history for creator bundle product/i })
+    );
 
     expect(screen.getByText('Product uploads')).toBeInTheDocument();
     expect(screen.getByText('creator-bundle-1.2.3.zip')).toBeInTheDocument();
     expect(screen.getByText('creator-bundle-1.2.2.zip')).toBeInTheDocument();
     expect(screen.getByText(/SHA-256 a{64}/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /copy package id/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /copy package id/i }).length).toBeGreaterThan(0);
   });
 
   it('renames a package from the dashboard manager', async () => {
@@ -434,7 +523,9 @@ describe('dashboard packages route', () => {
     expect(hiddenProductsDetails?.open).toBe(false);
     const mergedProductLane = screen.getByText('2 storefronts').closest('.pm-product-row');
     expect(mergedProductLane).not.toBeNull();
-    fireEvent.click(within(mergedProductLane as HTMLElement).getByRole('button', { name: /^hide$/i }));
+    fireEvent.click(
+      within(mergedProductLane as HTMLElement).getByRole('button', { name: /^hide$/i })
+    );
 
     await waitFor(() =>
       expect(archiveCreatorBackstageProductMock).toHaveBeenCalledWith({

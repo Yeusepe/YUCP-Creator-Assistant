@@ -7,6 +7,7 @@ import path from 'node:path';
 import {
   applyLocalDevDefaults,
   buildDevCommands,
+  DevSupervisor,
   describeCdngineStartup,
   getCdngineDir,
   getCdngineStartMode,
@@ -39,6 +40,10 @@ async function waitFor<T>(
   }
 
   throw new Error('Timed out waiting for expected condition');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('DevSupervisor', () => {
@@ -246,8 +251,12 @@ describe('DevSupervisor', () => {
     expect(commands.some((command) => command.name === 'cdngine')).toBe(true);
     expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
       cwd: tempDir,
+      required: false,
       command:
         'npm start && npm run build -w @cdngine/auth && npm run build -w @cdngine/api && npm run build -w @cdngine/workflows && node ./apps/demo/scripts/start-demo-api.mjs',
+    });
+    expect(commands.find((command) => command.name === 'tunnel')).toMatchObject({
+      required: false,
     });
   });
 
@@ -283,5 +292,52 @@ describe('DevSupervisor', () => {
         false
       )
     ).toThrow('CDNGINE_DIR does not exist');
+  });
+
+  test('waitForExit keeps required commands running when cdngine exits early', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-dev-supervisor-optional-'));
+    const startedPath = path.join(tempDir, 'required-started.txt');
+    const runningFixturePath = path.join(process.cwd(), 'ops', 'test-fixtures', 'wait-forever.mjs');
+    const failingFixturePath = path.join(
+      process.cwd(),
+      'ops',
+      'test-fixtures',
+      'exit-with-code.mjs'
+    );
+    const supervisor = new DevSupervisor(
+      [
+        {
+          name: 'api',
+          color: 'blue',
+          command: `node ${runningFixturePath} ${startedPath}`,
+        },
+        {
+          name: 'cdngine',
+          color: 'cyan',
+          command: `node ${failingFixturePath} 1`,
+          required: false,
+        },
+      ],
+      process.env,
+      { prefixOutput: false }
+    );
+
+    await supervisor.start();
+    const waitForExitPromise = supervisor.waitForExit();
+    await waitFor(
+      async () => readFile(startedPath, 'utf8'),
+      (contents) => contents.includes('started')
+    );
+    await delay(250);
+
+    const exitState = await Promise.race([
+      waitForExitPromise.then((code) => ({ status: 'resolved' as const, code })),
+      delay(500).then(() => ({ status: 'pending' as const })),
+    ]);
+
+    await supervisor.shutdown('SIGINT');
+    await waitForExitPromise;
+
+    expect(exitState).toEqual({ status: 'pending' });
   });
 });

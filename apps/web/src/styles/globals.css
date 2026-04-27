@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@heroui-pro/react/css";
+@import "@heroui-pro/react/themes/glass";
 @import "./heroui-theme.css";
 
 /* Scan route and component files for Tailwind utility classes */

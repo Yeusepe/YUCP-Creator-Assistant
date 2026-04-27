@@ -61,6 +61,8 @@ describe('dashboard UI contracts', () => {
     expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
+    expect(dashboardLazyRouteSource).toContain('Custom VPM repo');
+    expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 
   it('declares dashboard shell styles from the base route head so SSR markup is styled on first paint', () => {

@@ -23,6 +23,19 @@ export interface CreatorCertificateBillingCapability {
   status: string;
 }
 
+export function hasActiveCreatorBillingCapability(
+  capabilities: CreatorCertificateBillingCapability[] | undefined,
+  capabilityKey: string
+) {
+  return (
+    capabilities?.some(
+      (capability) =>
+        capability.capabilityKey === capabilityKey &&
+        (capability.status === 'active' || capability.status === 'grace')
+    ) ?? false
+  );
+}
+
 export interface CreatorCertificateDevice {
   certNonce: string;
   devPublicKey: string;

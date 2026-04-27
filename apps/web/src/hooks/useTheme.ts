@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const STORAGE_KEY = 'yucp_theme';
+const LIGHT_THEME = 'glass-light';
+const DARK_THEME = 'glass-dark';
+
+function syncDocumentTheme(isDark: boolean) {
+  const root = document.documentElement;
+  root.classList.toggle('dark', isDark);
+  root.dataset.theme = isDark ? DARK_THEME : LIGHT_THEME;
+}
 
 export function useTheme() {
   const [isDark, setIsDark] = useState(false);
@@ -13,11 +21,7 @@ export function useTheme() {
     const stored = localStorage.getItem(STORAGE_KEY);
     const next =
       stored === 'dark' || (stored === null && matchMedia('(prefers-color-scheme: dark)').matches);
-    if (next) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    syncDocumentTheme(next);
     setIsDark(next);
   }, []);
 
@@ -25,11 +29,7 @@ export function useTheme() {
     setIsDark((prev) => {
       const next = !prev;
       localStorage.setItem(STORAGE_KEY, next ? 'dark' : 'light');
-      if (next) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
+      syncDocumentTheme(next);
       return next;
     });
   }, []);

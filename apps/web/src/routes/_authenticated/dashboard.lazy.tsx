@@ -9,7 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { DashboardSessionProvider, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { ServerContextProvider } from '@/hooks/useServerContext';
-import { listCreatorCertificates } from '@/lib/certificates';
+import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import {
   addHyperdxActionWithNumbers,
   buildHyperdxNavigationPhases,
@@ -478,12 +478,14 @@ function Sidebar({
     enabled: canRunPanelQueries && _isPersonalDashboard,
   });
 
-  const hasForensicsCapability =
-    certificatesQuery.data?.billing.capabilities.some(
-      (c) =>
-        c.capabilityKey === BILLING_CAPABILITY_KEYS.couplingTraceability &&
-        (c.status === 'active' || c.status === 'grace')
-    ) ?? false;
+  const hasForensicsCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
+  );
+  const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.vpmRepo
+  );
 
   return (
     <aside id="sidebar" className="sidebar" aria-label="Main navigation">
@@ -581,6 +583,39 @@ function Sidebar({
                 </svg>
                 Certificates
               </Link>
+              {hasVpmRepoCapability ? (
+                <Link
+                  id="tab-btn-packages"
+                  to="/dashboard/packages"
+                  search={(prev) => ({
+                    ...prev,
+                    guild_id: undefined,
+                    tenant_id: undefined,
+                  })}
+                  className="sidebar-nav-btn"
+                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                  role="tab"
+                  aria-selected={false}
+                  aria-controls="tab-panel-packages"
+                >
+                  <svg
+                    className="sidebar-nav-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 8.5L12 13 3 8.5" />
+                    <path d="M12 22V13" />
+                    <path d="M3.27 6.96 12 2l8.73 4.96" />
+                    <path d="M3.27 6.96 3 17l9 5 9-5-.27-10.04" />
+                  </svg>
+                  Custom VPM repo
+                </Link>
+              ) : null}
               {hasForensicsCapability ? (
                 <div className="sidebar-nav-reveal" key="sidebar-nav-forensics">
                   <Link

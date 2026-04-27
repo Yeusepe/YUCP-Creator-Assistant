@@ -9,13 +9,19 @@ import {
   CertificateFeatureShowcase,
 } from '@/components/dashboard/CertificateWorkspacePanels';
 import { DashboardCertificatesSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
 import { isDashboardAuthError } from '@/hooks/useDashboardSession';
-import { formatCertificateDate, revokeCreatorCertificate } from '@/lib/certificates';
+import {
+  formatCertificateDate,
+  hasActiveCreatorBillingCapability,
+  revokeCreatorCertificate,
+} from '@/lib/certificates';
+import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
 
 function DashboardCertificatesPending() {
   return (
@@ -68,6 +74,11 @@ export default function DashboardCertificates() {
   });
 
   const hasCertificateAccess = billing?.status === 'active' || billing?.status === 'grace';
+  const hasPackageRegistryAccess = hasActiveCreatorBillingCapability(
+    billing?.capabilities,
+    BILLING_CAPABILITY_KEYS.vpmRepo
+  );
+  const hasPackageRegistryCapabilityError = query.isError && !hasAuthError;
   const statusCopy = buildBillingStatusCopy(billing);
 
   const handleRevoke = (certNonce: string) => {
@@ -310,10 +321,26 @@ export default function DashboardCertificates() {
           </div>
         </section>
 
-        <PackageRegistryPanel
-          className="intg-card animate-in animate-in-delay-3 bento-col-12"
-          description="Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects."
-        />
+        {hasPackageRegistryCapabilityError ? (
+          <PackageRegistryAccessGate
+            className="intg-card animate-in animate-in-delay-3 bento-col-12"
+            mode="error"
+            isRetrying={query.isFetching}
+            onRetry={() => {
+              void query.refetch();
+            }}
+          />
+        ) : hasPackageRegistryAccess ? (
+          <PackageRegistryPanel
+            className="intg-card animate-in animate-in-delay-3 bento-col-12"
+            description="Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects."
+          />
+        ) : (
+          <PackageRegistryAccessGate
+            className="intg-card animate-in animate-in-delay-3 bento-col-12"
+            mode="missing"
+          />
+        )}
       </div>
     </div>
   );
