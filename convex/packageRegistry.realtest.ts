@@ -486,6 +486,101 @@ describe('packageRegistry', () => {
     ]);
   });
 
+  it('resolves tier-gated Backstage packages from active subscription tier evidence', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-tier-package';
+    const buyerAuthUserId = 'buyer-tier-package';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-tier-package-user',
+    });
+
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-tier-package',
+      provider: 'gumroad',
+      providerProductRef: 'gumroad-tier-package',
+      displayName: 'Tiered Subscription Product',
+    });
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: 'test-secret',
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: 'product-tier-package',
+      catalogProductId,
+      providerProductRef: 'gumroad-tier-package',
+      providerTierRef:
+        'gumroad|product|20:gumroad-tier-package|variant|4:tier|option|4:gold|recurrence|7:monthly',
+      displayName: 'Gold Monthly',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.subscription.gold',
+      packageName: 'Gold Subscription Package',
+      publisherId: 'publisher-1',
+      yucpUserId: creatorAuthUserId,
+    });
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForAccessSelectors, {
+      authUserId: creatorAuthUserId,
+      accessSelectors: [{ kind: 'catalogTier', catalogTierId }],
+      packageId: 'com.yucp.subscription.gold',
+      packageName: 'Gold Subscription Package',
+      displayName: 'Gold Subscription Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: creatorAuthUserId,
+      packageId: 'com.yucp.subscription.gold',
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'subscription-gold-stable',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'gumroad',
+        externalOrderId: 'sale-tier-package',
+        providerProductId: 'gumroad-tier-package',
+        externalVariantId:
+          'gumroad|product|20:gumroad-tier-package|variant|4:tier|option|4:gold|recurrence|7:monthly',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: Date.now() - 60_000,
+        subjectId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as never);
+      await ctx.db.insert('entitlements', {
+        authUserId: creatorAuthUserId,
+        subjectId,
+        productId: 'product-tier-package',
+        sourceProvider: 'gumroad',
+        sourceReference: 'gumroad:sale-tier-package',
+        catalogProductId,
+        status: 'active',
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const entitledPackages = await t.query(
+      internal.packageRegistry.listEntitledPackagesForSubject,
+      {
+        authUserId: creatorAuthUserId,
+        subjectId,
+      }
+    );
+
+    expect(entitledPackages.map((pkg) => pkg.packageId)).toEqual(['com.yucp.subscription.gold']);
+  });
+
   it('builds a VPM-style Backstage Repos document from entitled packages', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {

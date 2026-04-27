@@ -934,10 +934,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     );
     const accessSelectors = Array.from(
       new Map(
-        (
-          Array.isArray(body.accessSelectors)
-            ? normalizeProductSelectorList(body.accessSelectors)
-            : legacyProductIdsToSelectors(catalogProductIds)
+        (Array.isArray(body.accessSelectors)
+          ? normalizeProductSelectorList(body.accessSelectors)
+          : legacyProductIdsToSelectors(catalogProductIds)
         ).map((selector) => [
           selector.kind === 'catalogTier'
             ? `tier:${selector.catalogTierId}`

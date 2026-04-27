@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute, useSearch } from '@tanstack/react-router';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -11,6 +11,7 @@ import {
   verifyUserVerificationManualLicense,
   verifyUserVerificationProviderLink,
 } from '@/lib/account';
+import { requestUserBackstageRepoAccess } from '@/lib/backstageAccess';
 import {
   getProviderIconPath,
   listUserAccounts,
@@ -600,8 +601,6 @@ function VerifyPurchasePage() {
 
   const [isVisible, setIsVisible] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [redirectCountdown, setRedirectCountdown] = useState(5);
-  const successHandledRef = useRef(false);
 
   const [entitlementCheckState, setEntitlementCheckState] = useState<'idle' | 'checking' | 'done'>(
     'idle'
@@ -697,30 +696,24 @@ function VerifyPurchasePage() {
   }, [intent, intentId, justConnectedProvider, oauthReturnState, queryClient]);
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
+  const returnsToBuyerAccess = useMemo(() => {
+    if (!returnToUrl) {
+      return false;
+    }
 
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!intent || intent.status !== 'verified' || successHandledRef.current || !returnToUrl)
-      return;
-    successHandledRef.current = true;
-    setRedirectCountdown(5);
-
-    countdownRef.current = setInterval(() => {
-      setRedirectCountdown((c) => {
-        if (c <= 1) {
-          if (countdownRef.current) clearInterval(countdownRef.current);
-          window.location.href = returnToUrl;
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-
-    return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
-  }, [intent, returnToUrl]);
+    try {
+      return new URL(returnToUrl).pathname.startsWith('/get-in-unity/');
+    } catch {
+      return false;
+    }
+  }, [returnToUrl]);
+  const repoAccessQuery = useQuery({
+    queryKey: ['vp-backstage-repo-access'],
+    queryFn: requestUserBackstageRepoAccess,
+    enabled: intent?.status === 'verified',
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const providersByKey = useMemo(
     () => new Map((providersQuery.data ?? []).map((p) => [p.id, p])),
@@ -867,29 +860,124 @@ function VerifyPurchasePage() {
         </div>
 
         <h1 className="vp-success-title fade-up" style={{ animationDelay: '0.3s' }}>
-          Verified!
+          Purchase verified
         </h1>
 
         <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
-          {intent.packageName || intent.packageId} - purchase confirmed. Return to Unity to finish
-          installing.
+          {returnsToBuyerAccess
+            ? `${intent.packageName || intent.packageId} is ready. Add your entitled repo in VCC, then continue back to your buyer access page.`
+            : `${intent.packageName || intent.packageId} is ready. Add your entitled repo in VCC, then return to Unity to install the package.`}
         </p>
 
-        {returnToUrl ? (
+        {repoAccessQuery.isLoading ? (
+          <div className="vp-checking-section fade-up" style={{ animationDelay: '0.6s' }}>
+            <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
+            <p className="vp-checking-text">Preparing your VCC access...</p>
+          </div>
+        ) : null}
+
+        {repoAccessQuery.data ? (
+          <div
+            className="fade-up"
+            style={{
+              animationDelay: '0.6s',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.875rem',
+              padding: '0 2rem 2rem',
+            }}
+          >
+            <a href={repoAccessQuery.data.addRepoUrl} className="vp-primary-btn">
+              Add to VCC
+            </a>
+            {returnToUrl ? (
+              <a
+                href={returnToUrl}
+                className="vp-primary-btn"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  borderColor: 'rgba(255, 255, 255, 0.16)',
+                }}
+              >
+                {returnsToBuyerAccess ? 'Continue after adding the repo' : 'Return to Unity after adding the repo'}
+              </a>
+            ) : null}
+            <p
+              className="vp-section-desc"
+              style={{ marginBottom: 0, maxWidth: '32rem', textAlign: 'center' }}
+            >
+              {repoAccessQuery.data.repositoryName} is now ready for this entitled buyer account.
+            </p>
+            <details
+              style={{
+                width: '100%',
+                maxWidth: '32rem',
+                textAlign: 'left',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '16px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                padding: '1rem 1rem 0',
+              }}
+            >
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: 'rgba(255, 255, 255, 0.92)',
+                  marginBottom: '1rem',
+                }}
+              >
+                Manual setup and troubleshooting
+              </summary>
+              <div style={{ paddingBottom: '1rem' }}>
+                <p className="vp-section-desc" style={{ marginBottom: '0.75rem' }}>
+                  Use Add to VCC for the normal flow. If support asks for the repo URL, use the
+                  entitled address below.
+                </p>
+                <code
+                  style={{
+                    display: 'block',
+                    overflowWrap: 'anywhere',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    background: 'rgba(0, 0, 0, 0.24)',
+                    padding: '0.875rem 1rem',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '0.8rem',
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {repoAccessQuery.data.repositoryUrl}
+                </code>
+              </div>
+            </details>
+          </div>
+        ) : returnToUrl ? (
           <div className="fade-up" style={{ animationDelay: '0.6s' }}>
             <a href={returnToUrl} className="vp-primary-btn">
               Return to Unity
             </a>
-            <p className="vp-countdown-text">Returning automatically in {redirectCountdown}s</p>
           </div>
-        ) : (
+        ) : null}
+
+        {repoAccessQuery.isError ? (
           <p
             className="vp-success-subtitle fade-up"
-            style={{ animationDelay: '0.6s', marginBottom: '2rem' }}
+            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
+          >
+            Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Return
+            to Unity and try again.
+          </p>
+        ) : !repoAccessQuery.data && !returnToUrl ? (
+          <p
+            className="vp-success-subtitle fade-up"
+            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
           >
             You can close this window and return to Unity.
           </p>
-        )}
+        ) : null}
       </div>
     );
   }
@@ -1037,8 +1125,8 @@ function VerifyPurchasePage() {
       {/* Footer */}
       <div className="vp-card-footer">
         <p className="vp-footer-note">
-          Verification is handled securely in your browser. Unity only receives access after the
-          server confirms your purchase.
+          Verification is handled securely in your browser. After the server confirms your purchase,
+          YUCP prepares entitled repo access for VCC and package install.
         </p>
       </div>
     </div>

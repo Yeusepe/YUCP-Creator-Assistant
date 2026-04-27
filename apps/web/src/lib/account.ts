@@ -4,6 +4,7 @@ export interface UserLicenseEntitlement {
   id: string;
   sourceProvider: string;
   productId: string;
+  catalogProductId: string | null;
   sourceReference: string | null;
   status: string;
   grantedAt: number;

@@ -535,7 +535,9 @@ async function ensureActiveDeliveryPackageLinks(
     })
   );
 
-  const existingLinkKeys = new Set(existingLinks.map((link) => getDeliveryPackageLinkSelectorKey(link)));
+  const existingLinkKeys = new Set(
+    existingLinks.map((link) => getDeliveryPackageLinkSelectorKey(link))
+  );
   await Promise.all(
     resolvedSelectors.map(async (selector) => {
       const selectorKey = getResolvedDeliveryAccessSelectorKey(selector);
@@ -989,21 +991,21 @@ export const upsertDeliveryPackageForProduct = internalMutation({
     deliveryPackageId: v.id('delivery_packages'),
     packageId: v.string(),
   }),
-    handler: async (ctx, args) => {
-      const deliveryPackageId = await upsertOwnedDeliveryPackage(ctx, {
-        authUserId: args.authUserId,
+  handler: async (ctx, args) => {
+    const deliveryPackageId = await upsertOwnedDeliveryPackage(ctx, {
+      authUserId: args.authUserId,
       packageId: args.packageId,
       packageName: args.packageName,
       displayName: args.displayName,
       description: args.description,
       repositoryVisibility: args.repositoryVisibility,
       defaultChannel: args.defaultChannel,
-      });
-      await ensureActiveDeliveryPackageLinks(ctx, {
-        authUserId: args.authUserId,
-        accessSelectors: [{ kind: 'catalogProduct', catalogProductId: args.catalogProductId }],
-        deliveryPackageId,
-      });
+    });
+    await ensureActiveDeliveryPackageLinks(ctx, {
+      authUserId: args.authUserId,
+      accessSelectors: [{ kind: 'catalogProduct', catalogProductId: args.catalogProductId }],
+      deliveryPackageId,
+    });
 
     return {
       deliveryPackageId,
@@ -1478,6 +1480,103 @@ export const listByAuthUser = query({
   },
 });
 
+export const getPublicBackstageProductAccessByRef = query({
+  args: {
+    apiSecret: v.string(),
+    creatorRef: v.string(),
+    productRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      creatorAuthUserId: v.string(),
+      creatorSlug: v.optional(v.string()),
+      catalogProductId: v.id('product_catalog'),
+      productId: v.string(),
+      provider: v.string(),
+      providerProductRef: v.string(),
+      canonicalSlug: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+      thumbnailUrl: v.optional(v.string()),
+      primaryPackageId: v.optional(v.string()),
+      primaryPackageName: v.optional(v.string()),
+      packageSummaries: v.array(
+        v.object({
+          packageId: v.string(),
+          displayName: v.optional(v.string()),
+          latestPublishedVersion: v.optional(v.string()),
+        })
+      ),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const normalizedCreatorRef = args.creatorRef.trim().toLowerCase();
+    const normalizedProductRef = args.productRef.trim().toLowerCase();
+    if (!normalizedCreatorRef || !normalizedProductRef) {
+      return null;
+    }
+
+    const creatorProfileBySlug = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_slug', (q) => q.eq('slug', normalizedCreatorRef))
+      .first();
+    const creatorAuthUserId = creatorProfileBySlug?.authUserId ?? args.creatorRef.trim();
+    const creatorProfile =
+      creatorProfileBySlug ??
+      (await ctx.db
+        .query('creator_profiles')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', creatorAuthUserId))
+        .first());
+
+    const catalogProducts = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', creatorAuthUserId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+
+    const product =
+      catalogProducts.find(
+        (entry) => entry.canonicalSlug?.trim().toLowerCase() === normalizedProductRef
+      ) ??
+      catalogProducts.find(
+        (entry) => entry.providerProductRef.trim().toLowerCase() === normalizedProductRef
+      );
+    if (!product) {
+      return null;
+    }
+
+    const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(
+      ctx,
+      creatorAuthUserId,
+      [product._id]
+    );
+    const packageSummaries = (backstagePackagesByCatalogProduct.get(String(product._id)) ?? [])
+      .filter((pkg) => pkg.status === 'active')
+      .map((pkg) => ({
+        packageId: pkg.packageId,
+        displayName: pkg.displayName ?? pkg.packageName,
+        latestPublishedVersion: pkg.latestPublishedVersion,
+      }));
+    const primaryPackage = packageSummaries[0];
+
+    return {
+      creatorAuthUserId,
+      creatorSlug: creatorProfile?.slug,
+      catalogProductId: product._id,
+      productId: product.productId,
+      provider: product.provider,
+      providerProductRef: product.providerProductRef,
+      canonicalSlug: product.canonicalSlug,
+      displayName: product.displayName,
+      thumbnailUrl: product.thumbnailUrl,
+      primaryPackageId: primaryPackage?.packageId,
+      primaryPackageName: primaryPackage?.displayName,
+      packageSummaries,
+    };
+  },
+});
+
 export const archiveProductForAuthUser = mutation({
   args: {
     apiSecret: v.string(),
@@ -1900,6 +1999,56 @@ export const getByIdForAuthUser = query({
       ...doc,
       catalogTiers,
       backstagePackages: backstagePackagesByCatalogProduct.get(String(doc._id)) ?? [],
+    };
+  },
+});
+
+export const getBuyerAccessContextByCatalogProductId = query({
+  args: {
+    apiSecret: v.string(),
+    catalogProductId: v.id('product_catalog'),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+
+    const product = await ctx.db.get(args.catalogProductId);
+    if (!product) {
+      return null;
+    }
+
+    const status = getCatalogProductWorkspaceStatus(product);
+    if (status !== 'active') {
+      return null;
+    }
+
+    const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(ctx, product.authUserId, [
+      args.catalogProductId,
+    ]);
+    const backstagePackages =
+      backstagePackagesByCatalogProduct
+        .get(String(product._id))
+        ?.sort(compareBackstagePackageLinks)
+        .map((packageLink) => ({
+          packageId: packageLink.packageId,
+          packageName: packageLink.packageName,
+          displayName: packageLink.displayName,
+          defaultChannel: packageLink.defaultChannel,
+          latestPublishedVersion: packageLink.latestPublishedVersion,
+          latestPublishedAt: packageLink.latestPublishedAt,
+          repositoryVisibility: packageLink.repositoryVisibility,
+        })) ?? [];
+
+    return {
+      catalogProductId: product._id,
+      creatorAuthUserId: product.authUserId,
+      productId: product.productId,
+      provider: product.provider,
+      providerProductRef: product.providerProductRef,
+      displayName: product.displayName,
+      canonicalSlug: product.canonicalSlug,
+      thumbnailUrl: product.thumbnailUrl,
+      status,
+      backstagePackages,
     };
   },
 });

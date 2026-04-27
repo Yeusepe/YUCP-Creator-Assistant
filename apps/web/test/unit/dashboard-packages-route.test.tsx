@@ -274,13 +274,6 @@ const archiveCreatorBackstageReleaseMock = packagesApi.archiveCreatorBackstageRe
 const archiveCreatorBackstageProductMock = packagesApi.archiveCreatorBackstageProduct as ReturnType<
   typeof vi.fn
 >;
-const createBackstageReleaseUploadUrlMock = packagesApi.createBackstageReleaseUploadUrl as ReturnType<
-  typeof vi.fn
->;
-const uploadBackstageReleaseFileMock = packagesApi.uploadBackstageReleaseFile as ReturnType<
-  typeof vi.fn
->;
-const publishBackstageReleaseMock = packagesApi.publishBackstageRelease as ReturnType<typeof vi.fn>;
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
@@ -529,25 +522,6 @@ describe('dashboard packages route', () => {
       archived: true,
       deliveryPackageReleaseId: 'release_old',
     });
-    createBackstageReleaseUploadUrlMock.mockResolvedValue({
-      packageId: 'pkg.creator.bundle',
-      uploadUrl: 'https://uploads.test/package',
-    });
-    uploadBackstageReleaseFileMock.mockResolvedValue({
-      storageId: 'storage_1',
-      zipSha256: 'c'.repeat(64),
-      deliveryName: 'creator-bundle-2.0.0.zip',
-      contentType: 'application/zip',
-      metadata: { source: 'unitypackage' },
-    });
-    publishBackstageReleaseMock.mockResolvedValue({
-      deliveryPackageReleaseId: 'release_new',
-      artifactId: 'artifact_new',
-      artifactKey: 'artifact:creator-bundle',
-      zipSha256: 'c'.repeat(64),
-      version: '2.0.0',
-      channel: 'stable',
-    });
   });
 
   afterEach(() => {
@@ -565,6 +539,9 @@ describe('dashboard packages route', () => {
     await waitFor(() =>
       expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
     );
+    expect(
+      screen.getByText(/customers should start from your YUCP access link/i)
+    ).toBeInTheDocument();
     expect(screen.getAllByText('Creator Bundle Product').length).toBeGreaterThan(0);
     expect(screen.getByText(/Mapache/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /open in vcc/i })).toBeInTheDocument();
@@ -579,39 +556,87 @@ describe('dashboard packages route', () => {
     ).toHaveAttribute('src', 'https://public-files.gumroad.com/creator-bundle.png');
   });
 
-  it('publishes tier-gated Backstage packages with tier selectors', async () => {
-    const Component = PackagesRoute.options.component;
-    if (!Component) {
-      throw new Error('Packages route component is not defined');
-    }
-
-    render(<Component />, { wrapper: createWrapper() });
-
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /upload a package/i })).toBeInTheDocument()
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
-    fireEvent.click(screen.getByLabelText(/specific subscription tiers/i));
-    fireEvent.click(screen.getByLabelText(/gold monthly/i));
-    fireEvent.change(screen.getByLabelText(/version/i), { target: { value: '2.0.0' } });
-    fireEvent.change(screen.getByLabelText(/choose update file/i), {
-      target: {
-        files: [new File(['unitypackage-bytes'], 'creator-bundle-2.0.0.unitypackage')],
+  it('aggregates active subscription tiers into a product lane for package setup', () => {
+    const lanes = buildProductLanes([
+      {
+        aliases: ['Creator Bundle Product'],
+        catalogTiers: [
+          {
+            catalogTierId: 'tier_gold',
+            catalogProductId: 'product_1',
+            provider: 'gumroad',
+            providerTierRef: 'gumroad-tier-gold',
+            displayName: 'Gold Monthly',
+            description: 'Monthly supporter tier',
+            amountCents: 1200,
+            currency: 'USD',
+            status: 'active',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          {
+            catalogTierId: 'tier_legacy',
+            catalogProductId: 'product_1',
+            provider: 'gumroad',
+            providerTierRef: 'gumroad-tier-legacy',
+            displayName: 'Legacy Tier',
+            status: 'archived',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        backstagePackages: [],
+        canonicalSlug: 'creator-bundle',
+        catalogProductId: 'product_1',
+        displayName: 'Creator Bundle Product',
+        productId: 'gumroad-product-1',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-product-1',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1,
+        canArchive: true,
+        canRestore: false,
+        canDelete: false,
       },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /upload package/i }));
+      {
+        aliases: ['Creator Bundle Product'],
+        catalogTiers: [
+          {
+            catalogTierId: 'tier_platinum',
+            catalogProductId: 'product_2',
+            provider: 'patreon',
+            providerTierRef: 'patreon-tier-platinum',
+            displayName: 'Platinum Monthly',
+            description: 'Higher supporter tier',
+            amountCents: 2400,
+            currency: 'USD',
+            status: 'active',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+        backstagePackages: [],
+        canonicalSlug: 'creator-bundle',
+        catalogProductId: 'product_2',
+        displayName: 'Creator Bundle Product',
+        productId: 'patreon-campaign-1',
+        provider: 'patreon',
+        providerProductRef: 'patreon-campaign-1',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1,
+        canArchive: true,
+        canRestore: false,
+        canDelete: true,
+      },
+    ]);
 
-    await waitFor(() =>
-      expect(publishBackstageReleaseMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          packageId: 'pkg.creator.bundle',
-          body: expect.objectContaining({
-            accessSelectors: [{ kind: 'catalogTier', catalogTierId: 'tier_gold' }],
-          }),
-        })
-      )
-    );
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.catalogTiers.map((tier) => tier.catalogTierId)).toEqual([
+      'tier_gold',
+      'tier_platinum',
+    ]);
   });
 
   it('keeps first-upload products behind the upload button instead of a separate setup section', async () => {

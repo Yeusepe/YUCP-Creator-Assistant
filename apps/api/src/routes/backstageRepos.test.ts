@@ -17,6 +17,12 @@ mock.module('../../../../convex/_generated/api', () => ({
       buildRepositoryForApi: 'backstageRepos.buildRepositoryForApi',
       resolvePackageDownloadForApi: 'backstageRepos.resolvePackageDownloadForApi',
     },
+    packageRegistry: {
+      getPublicBackstageProductAccessByRef: 'packageRegistry.getPublicBackstageProductAccessByRef',
+    },
+    verificationIntents: {
+      createVerificationIntent: 'verificationIntents.createVerificationIntent',
+    },
     creatorProfiles: {
       getCreatorByAuthUser: 'creatorProfiles.getCreatorByAuthUser',
     },
@@ -101,6 +107,27 @@ describe('backstage repo routes', () => {
             version: '1.2.3',
             channel: 'stable',
           };
+        case 'packageRegistry.getPublicBackstageProductAccessByRef':
+          return {
+            creatorAuthUserId: 'auth-user-1',
+            creatorSlug: 'mapache',
+            catalogProductId: 'catalog_1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            thumbnailUrl: 'https://cdn.test/song.png',
+            primaryPackageId: 'com.yucp.song',
+            primaryPackageName: 'Song Thing Package',
+            packageSummaries: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                latestPublishedVersion: '1.2.3',
+              },
+            ],
+          };
         default:
           return null;
       }
@@ -115,6 +142,12 @@ describe('backstage repo routes', () => {
           };
         case 'backstageRepos.touchRepoTokenForApi':
           return null;
+        case 'verificationIntents.createVerificationIntent':
+          return {
+            intentId: 'intent_1',
+            status: 'pending',
+            expiresAt: 1_700_000_000_000,
+          };
         default:
           return null;
       }
@@ -264,5 +297,50 @@ describe('backstage repo routes', () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
+  });
+
+  it('returns public buyer access details for a creator product link', async () => {
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing')
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      creatorName: 'Mapache',
+      creatorRepoRef: 'mapache',
+      productRef: 'song-thing',
+      title: 'Song Thing',
+      ready: true,
+      primaryPackageId: 'com.yucp.song',
+    });
+  });
+
+  it('bootstraps a hosted verification intent from the session-backed buyer access route', async () => {
+    sessionImpl = async () => ({
+      user: {
+        id: 'auth-user-1',
+      },
+    });
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing/verification-intent', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnUrl: 'https://app.test/get-in-unity/mapache/song-thing',
+          machineFingerprint: 'machine_1',
+          codeChallenge: 'challenge_1',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      intentId: 'intent_1',
+      verificationUrl: 'https://app.test/verify/purchase?intent=intent_1',
+    });
   });
 });

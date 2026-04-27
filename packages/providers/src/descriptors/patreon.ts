@@ -10,7 +10,7 @@ export const patreon = {
   addProductDescription: 'Pick a campaign from your connected Patreon creator account',
   creatorAuthModes: ['oauth'],
   buyerVerificationMethods: ['account_link'],
-  capabilities: ['catalog_sync', 'tier_catalog'],
+  capabilities: ['catalog_sync', 'tier_catalog', 'tier_entitlements', 'subscriptions'],
   setupRequirements: ['oauth_client'],
   verificationMethods: [],
   supportsCredentialLogin: false,

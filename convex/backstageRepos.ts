@@ -341,7 +341,9 @@ export const publishUploadedReleaseForAuthUser = action({
       ).values()
     );
     if (accessSelectors.length === 0) {
-      throw new Error('At least one package access selector is required to publish a Backstage release.');
+      throw new Error(
+        'At least one package access selector is required to publish a Backstage release.'
+      );
     }
     const deliveryName =
       (args.deliveryName || '').trim() ||

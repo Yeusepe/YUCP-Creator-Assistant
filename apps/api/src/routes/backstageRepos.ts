@@ -1,15 +1,38 @@
+import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { normalizeHostedVerificationRequirements } from '../verification/hostedIntents';
+import { getVerificationConfig } from '../verification/verificationConfig';
 
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+type PublicBackstageAccessRecord = {
+  creatorAuthUserId: string;
+  creatorSlug?: string;
+  catalogProductId: string;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  canonicalSlug?: string;
+  displayName?: string;
+  thumbnailUrl?: string;
+  primaryPackageId?: string;
+  primaryPackageName?: string;
+  packageSummaries: Array<{
+    packageId: string;
+    displayName?: string;
+    latestPublishedVersion?: string;
+  }>;
+};
 
 export type BackstageRepoConfig = {
   auth?: Auth;
@@ -42,6 +65,10 @@ function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): str
   return addRepoUrl.toString();
 }
 
+function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
+  return `${frontendBaseUrl.replace(/\/$/, '')}/verify/purchase?intent=${encodeURIComponent(intentId)}`;
+}
+
 function parseCreatorRepoRoute(
   pathname: string
 ): { creatorRepoRef: string; routeType: 'index' | 'package' } | null {
@@ -66,6 +93,100 @@ function parseCreatorRepoRoute(
 
 function getAllowedOrigins(config: BackstageRepoConfig): Set<string> {
   return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
+}
+
+function buildBuyerAccessRequirements(product: PublicBackstageAccessRecord) {
+  const descriptor = getProviderDescriptor(product.provider);
+  if (!descriptor) {
+    throw new Error(`Provider '${product.provider}' is not registered`);
+  }
+
+  const supportsAccountLink =
+    descriptor.buyerVerificationMethods.includes('account_link') &&
+    descriptor.supportsBuyerOAuthLink === true &&
+    Boolean(getVerificationConfig(product.provider));
+  const supportsManualLicense = descriptor.buyerVerificationMethods.includes('license_key');
+  const requirements = [];
+
+  if (supportsAccountLink) {
+    requirements.push({
+      methodKey: `${product.provider}-entitlement`,
+      providerKey: product.provider,
+      kind: 'existing_entitlement' as const,
+      creatorAuthUserId: product.creatorAuthUserId,
+      productId: product.productId,
+    });
+    requirements.push({
+      methodKey: `${product.provider}-account-link`,
+      providerKey: product.provider,
+      kind: 'buyer_provider_link' as const,
+      creatorAuthUserId: product.creatorAuthUserId,
+      productId: product.productId,
+    });
+  }
+
+  if (supportsManualLicense) {
+    requirements.push({
+      methodKey: `${product.provider}-license-key`,
+      providerKey: product.provider,
+      kind: 'manual_license' as const,
+      providerProductRef: product.providerProductRef,
+    });
+  }
+
+  if (requirements.length === 0) {
+    throw new Error(`Provider '${product.provider}' does not support buyer verification`);
+  }
+
+  return normalizeHostedVerificationRequirements(requirements);
+}
+
+async function requireSessionAuthUserId(
+  request: Request,
+  config: BackstageRepoConfig
+): Promise<string | Response> {
+  if (!config.auth) {
+    return errorResponse('Authentication required', 401);
+  }
+
+  const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
+  if (csrfBlock) {
+    return csrfBlock;
+  }
+
+  const session = await config.auth.getSession(request);
+  if (!session) {
+    return errorResponse('Authentication required', 401);
+  }
+
+  return session.user.id;
+}
+
+async function getPublicProductAccess(
+  config: BackstageRepoConfig,
+  creatorRef: string,
+  productRef: string
+): Promise<{
+  access: PublicBackstageAccessRecord;
+  creatorRepoIdentity: CreatorRepoIdentity;
+} | null> {
+  const convex = getConvexClientFromUrl(config.convexUrl);
+  const access = (await convex.query(api.packageRegistry.getPublicBackstageProductAccessByRef, {
+    apiSecret: config.convexApiSecret,
+    creatorRef,
+    productRef,
+  })) as PublicBackstageAccessRecord | null;
+  if (!access) {
+    return null;
+  }
+
+  const creatorRepoIdentity = await getCreatorRepoIdentity({
+    convex,
+    convexApiSecret: config.convexApiSecret,
+    authUserId: access.creatorAuthUserId,
+  });
+
+  return { access, creatorRepoIdentity };
 }
 
 async function authenticateBackstageAccess(
@@ -217,6 +338,105 @@ async function issueRepoAccess(
   });
 }
 
+async function getBuyerAccessInfo(
+  config: BackstageRepoConfig,
+  creatorRef: string,
+  productRef: string
+): Promise<Response> {
+  const resolved = await getPublicProductAccess(config, creatorRef, productRef);
+  if (!resolved) {
+    return errorResponse('Product not found', 404);
+  }
+
+  return jsonResponse({
+    creatorName: resolved.creatorRepoIdentity.creatorName,
+    creatorRepoRef: resolved.creatorRepoIdentity.creatorRepoRef,
+    productRef: resolved.access.canonicalSlug ?? resolved.access.providerProductRef,
+    title:
+      resolved.access.displayName ??
+      resolved.access.primaryPackageName ??
+      resolved.access.providerProductRef,
+    thumbnailUrl: resolved.access.thumbnailUrl,
+    provider: resolved.access.provider,
+    primaryPackageId: resolved.access.primaryPackageId,
+    packageSummaries: resolved.access.packageSummaries,
+    ready: Boolean(resolved.access.primaryPackageId),
+  });
+}
+
+async function bootstrapBuyerVerificationIntent(
+  request: Request,
+  config: BackstageRepoConfig,
+  creatorRef: string,
+  productRef: string
+): Promise<Response> {
+  const authUserId = await requireSessionAuthUserId(request, config);
+  if (authUserId instanceof Response) {
+    return authUserId;
+  }
+
+  const resolved = await getPublicProductAccess(config, creatorRef, productRef);
+  if (!resolved) {
+    return errorResponse('Product not found', 404);
+  }
+  if (!resolved.access.primaryPackageId) {
+    return errorResponse('This product is not ready for Unity yet', 409);
+  }
+
+  let body: {
+    returnUrl?: string;
+    machineFingerprint?: string;
+    codeChallenge?: string;
+    idempotencyKey?: string;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return errorResponse('Invalid JSON body', 400);
+  }
+
+  if (!body.returnUrl || !body.machineFingerprint || !body.codeChallenge) {
+    return errorResponse('returnUrl, machineFingerprint, and codeChallenge are required', 400);
+  }
+
+  try {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    const actor = await createAuthUserActorBinding({
+      authUserId,
+      source: 'session',
+    });
+    const requirements = buildBuyerAccessRequirements(resolved.access);
+    const result = await convex.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: config.convexApiSecret,
+      actor,
+      authUserId,
+      packageId: resolved.access.primaryPackageId,
+      packageName:
+        resolved.access.displayName ??
+        resolved.access.primaryPackageName ??
+        resolved.access.providerProductRef,
+      machineFingerprint: body.machineFingerprint,
+      codeChallenge: body.codeChallenge,
+      returnUrl: body.returnUrl,
+      idempotencyKey: body.idempotencyKey,
+      requirements,
+    });
+
+    return jsonResponse({
+      intentId: String(result.intentId),
+      verificationUrl: buildHostedVerificationUrl(config.frontendBaseUrl, String(result.intentId)),
+    });
+  } catch (error) {
+    logger.error('Failed to bootstrap buyer verification intent', {
+      authUserId,
+      creatorRef,
+      productRef,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Failed to start verification', 500);
+  }
+}
+
 async function serveRepositoryIndex(
   request: Request,
   config: BackstageRepoConfig,
@@ -286,6 +506,10 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
     async handleRequest(request: Request): Promise<Response | null> {
       const url = new URL(request.url);
       const creatorRepoRoute = parseCreatorRepoRoute(url.pathname);
+      const buyerAccessMatch = url.pathname.match(/^\/api\/backstage\/access\/([^/]+)\/([^/]+)$/);
+      const buyerIntentMatch = url.pathname.match(
+        /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/verification-intent$/
+      );
       if (request.method === 'GET' && url.pathname === '/v1/backstage/repos/access') {
         return await issueRepoAccess(request, config);
       }
@@ -301,6 +525,21 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       }
       if (request.method === 'GET' && creatorRepoRoute?.routeType === 'package') {
         return await servePackageDownload(request, config, creatorRepoRoute.creatorRepoRef);
+      }
+      if (request.method === 'GET' && buyerAccessMatch) {
+        return await getBuyerAccessInfo(
+          config,
+          decodeURIComponent(buyerAccessMatch[1] ?? ''),
+          decodeURIComponent(buyerAccessMatch[2] ?? '')
+        );
+      }
+      if (request.method === 'POST' && buyerIntentMatch) {
+        return await bootstrapBuyerVerificationIntent(
+          request,
+          config,
+          decodeURIComponent(buyerIntentMatch[1] ?? ''),
+          decodeURIComponent(buyerIntentMatch[2] ?? '')
+        );
       }
       if (request.method === 'GET' && url.pathname === '/v1/backstage/repos/index.json') {
         return await serveRepositoryIndex(request, config);

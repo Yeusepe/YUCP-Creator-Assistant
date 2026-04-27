@@ -264,7 +264,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   backstageRepoRoutes = createBackstageRepoRoutes({
     auth,
     apiBaseUrl: publicBaseUrl,
-    enableSessionAccess: (env.NODE_ENV ?? 'development') !== 'production',
+    enableSessionAccess: true,
     frontendBaseUrl: frontendUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
@@ -774,6 +774,22 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
     return connectRoutes.postUserVerifyStart(request);
+  }
+  const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
+  if (buyerProductAccessMatch && connectRoutes) {
+    if (request.method === 'GET') {
+      return connectRoutes.getBuyerProductAccess(
+        request,
+        decodeURIComponent(buyerProductAccessMatch[1])
+      );
+    }
+    if (request.method === 'POST') {
+      return connectRoutes.postBuyerProductAccessVerificationIntent(
+        request,
+        decodeURIComponent(buyerProductAccessMatch[1])
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   const userVerificationIntentMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)$/

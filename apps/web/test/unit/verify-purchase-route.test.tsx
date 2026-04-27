@@ -31,6 +31,10 @@ vi.mock('@/lib/account', () => ({
   verifyUserVerificationProviderLink: vi.fn(),
 }));
 
+vi.mock('@/lib/backstageAccess', () => ({
+  requestUserBackstageRepoAccess: vi.fn(),
+}));
+
 vi.mock('@/lib/dashboard', async () => {
   const actual = await vi.importActual<typeof import('@/lib/dashboard')>('@/lib/dashboard');
 
@@ -43,6 +47,7 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as accountApi from '@/lib/account';
+import * as backstageAccessApi from '@/lib/backstageAccess';
 import * as dashboardApi from '@/lib/dashboard';
 import { Route as VerifyPurchaseRoute } from '@/routes/_authenticated/verify/purchase.lazy';
 
@@ -560,5 +565,105 @@ describe('verify purchase route', () => {
     expect(
       (await screen.findAllByRole('button', { name: /verify purchase/i })).length
     ).toBeGreaterThan(0);
+  });
+
+  it('shows Add to VCC after verification and keeps Unity return as the follow-up action', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_vcc',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_vcc',
+      packageId: 'pkg-verified-1',
+      packageName: 'Verified Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_vcc',
+      returnUrl: 'http://127.0.0.1:5173/callback',
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: 'grant-token',
+      grantAvailable: true,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
+      creatorName: 'Mapache',
+      creatorRepoRef: 'mapache',
+      repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
+      repositoryName: 'Mapache repo',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
+      repoTokenHeader: 'X-YUCP-Repo-Token',
+      repoToken: 'ybt_example',
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('link', { name: /add to vcc/i })).toHaveAttribute(
+      'href',
+      'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json'
+    );
+    expect(
+      await screen.findByRole('link', { name: /return to unity after adding the repo/i })
+    ).toHaveAttribute(
+      'href',
+      'http://127.0.0.1:5173/callback?intent_id=intent_verified_vcc&grant=grant-token'
+    );
+    expect(await screen.findByText(/Mapache repo is now ready/i)).toBeInTheDocument();
+    expect(await screen.findByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
+  });
+
+  it('falls back to Unity when the VCC handoff cannot be prepared', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_return_only',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_return_only',
+      packageId: 'pkg-verified-2',
+      packageName: 'Fallback Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_return_only',
+      returnUrl: 'http://127.0.0.1:5173/callback',
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: 'grant-token-2',
+      grantAvailable: true,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockRejectedValue(
+      new Error('Could not prepare repo access')
+    );
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('link', { name: /^return to unity$/i })).toHaveAttribute(
+      'href',
+      'http://127.0.0.1:5173/callback?intent_id=intent_verified_return_only&grant=grant-token-2'
+    );
+    expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
+    expect(await screen.findByText(/could not prepare the VCC handoff/i)).toBeInTheDocument();
   });
 });

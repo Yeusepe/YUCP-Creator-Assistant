@@ -120,6 +120,21 @@ describe('package Backstage publishing routes', () => {
                 canDelete: false,
                 canRestore: false,
                 deleteBlockedReason: 'Product has package history.',
+                catalogTiers: [
+                  {
+                    _id: 'tier_gold',
+                    catalogProductId: 'product_1',
+                    provider: 'gumroad',
+                    providerTierRef: 'gumroad-tier-gold',
+                    displayName: 'Gold Monthly',
+                    description: 'Monthly supporter tier',
+                    amountCents: 1200,
+                    currency: 'USD',
+                    status: 'active',
+                    createdAt: 1_710_000_000_000,
+                    updatedAt: 1_710_000_000_000,
+                  },
+                ],
                 backstagePackages: [
                   {
                     packageId: 'com.yucp.example',
@@ -337,6 +352,21 @@ describe('package Backstage publishing routes', () => {
       products: [
         {
           aliases: ['Backstage Bundle'],
+          catalogTiers: [
+            {
+              catalogTierId: 'tier_gold',
+              catalogProductId: 'product_1',
+              provider: 'gumroad',
+              providerTierRef: 'gumroad-tier-gold',
+              displayName: 'Gold Monthly',
+              description: 'Monthly supporter tier',
+              amountCents: 1200,
+              currency: 'USD',
+              status: 'active',
+              createdAt: 1_710_000_000_000,
+              updatedAt: 1_710_000_000_000,
+            },
+          ],
           backstagePackages: [
             {
               packageId: 'com.yucp.example',
@@ -567,6 +597,7 @@ describe('package Backstage publishing routes', () => {
           canRestore: false,
           canonicalSlug: 'song-thing',
           catalogProductId: 'product_song_gumroad',
+          catalogTiers: [],
           displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
           thumbnailUrl: 'https://public-files.gumroad.com/song-thing.png',
           productId: 'QAJc7ErxdAC815P5P8R89g==',
@@ -584,8 +615,8 @@ describe('package Backstage publishing routes', () => {
           canRestore: false,
           canonicalSlug: 'song-thing',
           catalogProductId: 'product_song_jinxxy',
+          catalogTiers: [],
           displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
-          thumbnailUrl: undefined,
           productId: '3788600424102102387',
           provider: 'jinxxy',
           providerProductRef: '3788600424102102387',

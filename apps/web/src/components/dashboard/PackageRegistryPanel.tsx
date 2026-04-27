@@ -23,6 +23,7 @@ import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
+import { buildBuyerBackstageAccessPath } from '@/lib/backstageAccess';
 import {
   archiveCreatorBackstageProduct,
   archiveCreatorBackstageRelease,
@@ -578,14 +579,18 @@ function IconActionButton({
 }
 
 function ProductLaneCard({
+  buyerAccessUrl,
   lane,
   isRestoring,
+  onCopyBuyerAccess,
   onOpenDetails,
   onPublish,
   onRestore,
 }: {
+  buyerAccessUrl?: string | null;
   lane: ProductLane;
   isRestoring: boolean;
+  onCopyBuyerAccess?: (url: string) => void;
   onOpenDetails: (lane: ProductLane) => void;
   onPublish: (lane: ProductLane) => void;
   onRestore: (lane: ProductLane) => void;
@@ -661,6 +666,17 @@ function ProductLaneCard({
           </div>
         </button>
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
+          {buyerAccessUrl && onCopyBuyerAccess ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              isDisabled={busy}
+              onPress={() => onCopyBuyerAccess(buyerAccessUrl)}
+            >
+              <Copy className="size-4" />
+              Copy access link
+            </Button>
+          ) : null}
           {!archived ? (
             <Button size="sm" variant="outline" isDisabled={busy} onPress={() => onPublish(lane)}>
               <ArrowUpFromLine className="size-4" />
@@ -689,6 +705,7 @@ function ProductLaneCard({
 }
 
 function ProductLaneDetailsSheet({
+  buyerAccessUrl,
   isArchiving,
   archivingReleaseId,
   isRestoring,
@@ -696,11 +713,13 @@ function ProductLaneDetailsSheet({
   isOpen,
   onArchive,
   onArchiveRelease,
+  onCopyBuyerAccess,
   onCopyPackageId,
   onOpenChange,
   onPublish,
   onRestore,
 }: {
+  buyerAccessUrl?: string | null;
   isArchiving: boolean;
   archivingReleaseId: string | null;
   isRestoring: boolean;
@@ -708,6 +727,7 @@ function ProductLaneDetailsSheet({
   isOpen: boolean;
   onArchive: (lane: ProductLane) => void;
   onArchiveRelease: (packageId: string, release: CreatorBackstagePackageReleaseSummary) => void;
+  onCopyBuyerAccess: (url: string) => void;
   onCopyPackageId: (packageId: string) => void;
   onOpenChange: (isOpen: boolean) => void;
   onPublish: (lane: ProductLane) => void;
@@ -738,6 +758,16 @@ function ProductLaneDetailsSheet({
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
+                          {buyerAccessUrl ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onPress={() => onCopyBuyerAccess(buyerAccessUrl)}
+                            >
+                              <Copy className="size-4" />
+                              Copy access link
+                            </Button>
+                          ) : null}
                           {lane.status === 'archived' ? (
                             <Button
                               size="sm"
@@ -1552,6 +1582,26 @@ export function PackageRegistryPanel({
     });
   }
 
+  function getBuyerAccessUrl(lane: ProductLane): string | null {
+    const creatorRepoRef = repoAccessQuery.data?.creatorRepoRef?.trim();
+    if (!creatorRepoRef) {
+      return null;
+    }
+
+    const productRef = lane.products
+      .map((product) => (product.canonicalSlug ?? product.providerProductRef).trim())
+      .find(Boolean);
+    if (!productRef) {
+      return null;
+    }
+
+    const accessPath = buildBuyerBackstageAccessPath(creatorRepoRef, productRef);
+    if (typeof window === 'undefined') {
+      return accessPath;
+    }
+    return `${window.location.origin}${accessPath}`;
+  }
+
   function openPublishSheet(lane?: ProductLane | null) {
     const defaultLane =
       lane ??
@@ -1697,8 +1747,12 @@ export function PackageRegistryPanel({
                     {filteredLinkedLanes.map((lane) => (
                       <ProductLaneCard
                         key={lane.laneKey}
+                        buyerAccessUrl={getBuyerAccessUrl(lane)}
                         lane={lane}
                         isRestoring={false}
+                        onCopyBuyerAccess={(value) =>
+                          handleCopyValue(value, 'Customer access link copied')
+                        }
                         onOpenDetails={openProductDetails}
                         onPublish={openPublishSheet}
                         onRestore={() => {}}
@@ -1717,9 +1771,13 @@ export function PackageRegistryPanel({
             <div className="pm-management-details rounded-2xl p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="space-y-1">
-                  <p className="text-foreground text-sm font-semibold">Add this repo in VCC</p>
+                  <p className="text-foreground text-sm font-semibold">
+                    Test the buyer repo in VCC
+                  </p>
                   <p className="pm-subtle-copy text-sm">
-                    Send this to yourself or a tester when the repo needs to be added in VCC.
+                    Customers should start from your YUCP access link, sign in, verify their
+                    purchase, and then click Add to VCC. Use these controls only for your own
+                    testing or guided support.
                   </p>
                   {repoAccessQuery.data?.creatorRepoRef ? (
                     <p className="pm-subtle-copy break-all font-mono text-xs">
@@ -1778,7 +1836,8 @@ export function PackageRegistryPanel({
               </summary>
               <div className="mt-4 space-y-4">
                 <p className="pm-subtle-copy max-w-[58ch] text-sm leading-6">
-                  Open this only when you need install ID cleanup or hidden links.
+                  Open this only when you need install ID cleanup, hidden links, or support
+                  diagnostics.
                 </p>
 
                 <section className="pm-tool-section space-y-4">
@@ -1942,6 +2001,7 @@ export function PackageRegistryPanel({
       </div>
 
       <ProductLaneDetailsSheet
+        buyerAccessUrl={selectedProductLane ? getBuyerAccessUrl(selectedProductLane) : null}
         isArchiving={
           selectedProductLane
             ? pendingProductArchiveKey === selectedProductLane.laneKey &&
@@ -1964,6 +2024,7 @@ export function PackageRegistryPanel({
             deliveryPackageReleaseId: release.deliveryPackageReleaseId,
           })
         }
+        onCopyBuyerAccess={(value) => handleCopyValue(value, 'Customer access link copied')}
         onCopyPackageId={(packageId) =>
           handleCopyValue(packageId, `Copied install ID ${packageId}`)
         }
@@ -2052,6 +2113,7 @@ export function PackageRegistryPanel({
                         <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
                           <input
                             type="radio"
+                            aria-label="Whole subscription product"
                             name="package-access-mode"
                             checked={publishDraft.accessMode === 'product'}
                             onChange={() =>
@@ -2075,6 +2137,7 @@ export function PackageRegistryPanel({
                         <label className="pm-inline-note flex cursor-pointer items-start gap-3 rounded-[18px] p-3">
                           <input
                             type="radio"
+                            aria-label="Specific subscription tiers"
                             name="package-access-mode"
                             checked={publishDraft.accessMode === 'tiers'}
                             disabled={selectedLaneActiveTiers.length === 0}
@@ -2114,6 +2177,7 @@ export function PackageRegistryPanel({
                                 >
                                   <input
                                     type="checkbox"
+                                    aria-label={tier.displayName}
                                     checked={isChecked}
                                     onChange={(event) =>
                                       setPublishDraft((current) => ({
@@ -2423,7 +2487,8 @@ export function PackageRegistryPanel({
                   isDisabled={
                     publishMutation.isPending ||
                     publishDraft.catalogProductIds.length === 0 ||
-                    (publishDraft.accessMode === 'tiers' && publishDraft.catalogTierIds.length === 0) ||
+                    (publishDraft.accessMode === 'tiers' &&
+                      publishDraft.catalogTierIds.length === 0) ||
                     !publishDraft.packageId.trim() ||
                     !publishDraft.version.trim() ||
                     !selectedUpload?.file
