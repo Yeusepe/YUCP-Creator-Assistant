@@ -23,7 +23,6 @@ import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/
 import {
   createAccountSecurityRoutes,
   createBackstageRepoRoutes,
-  createCouplingLicenseRoutes,
   createVerificationRoutes,
   mountVerificationRouteHandlers,
   type VerificationConfig,
@@ -136,13 +135,6 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
   };
   const verificationHandlers = createVerificationRoutes(verificationConfig);
   const verificationRoutes = mountVerificationRouteHandlers(verificationHandlers);
-  const couplingLicenseRoutes = createCouplingLicenseRoutes({
-    apiBaseUrl: baseUrl,
-    couplingServiceBaseUrl: config.couplingServiceBaseUrl ?? '',
-    couplingServiceSharedSecret: config.couplingServiceSharedSecret ?? '',
-    convexUrl: config.convexUrl,
-    convexApiSecret: config.convexApiSecret,
-  });
   const backstageRepoRoutes = createBackstageRepoRoutes({
     auth: stubAuth,
     apiBaseUrl: baseUrl,
@@ -251,8 +243,6 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
 
     // Provider platform routes (/v1/*) and session-backed Backstage access (/api/backstage/*)
     if (pathname.startsWith('/v1/') || pathname.startsWith('/api/backstage/')) {
-      const couplingResponse = await couplingLicenseRoutes.handleRequest(request);
-      if (couplingResponse) return couplingResponse;
       const backstageResponse = await backstageRepoRoutes.handleRequest(request);
       if (backstageResponse) return backstageResponse;
       if (pathname.startsWith('/v1/')) {

@@ -50,8 +50,8 @@ type UploadStorageResponse = {
 
 export type PublishBackstagePackageResult = {
   deliveryPackageReleaseId: string;
-  artifactId: string;
-  artifactKey: string;
+  artifactId?: string;
+  artifactKey?: string;
   zipSha256: string;
   version: string;
   channel: string;
@@ -348,21 +348,19 @@ export async function publishBackstagePackage(
   fetchImpl: FetchLike = fetch
 ): Promise<PublishBackstagePackageResult> {
   const sourcePath = config.sourcePath;
-  const sourceIsUnitypackage = sourcePath?.toLowerCase().endsWith('.unitypackage') ?? false;
-  const preparedArtifact =
-    sourcePath && sourceIsUnitypackage
-      ? await prepareBackstageArtifactForPublish({
-          packageId: config.packageId,
-          version: config.version,
-          displayName: config.displayName,
-          description: config.description,
-          unityVersion: config.unityVersion,
-          metadata: config.metadata,
-          deliveryName: config.deliveryName,
-          sourceBytes: new Uint8Array(await Bun.file(sourcePath).arrayBuffer()),
-          sourceFileName: sourcePath.split(/[\\/]/).pop() ?? sourcePath,
-        })
-      : null;
+  const preparedArtifact = sourcePath
+    ? await prepareBackstageArtifactForPublish({
+        packageId: config.packageId,
+        version: config.version,
+        displayName: config.displayName,
+        description: config.description,
+        unityVersion: config.unityVersion,
+        metadata: config.metadata,
+        deliveryName: config.deliveryName,
+        sourceBytes: new Uint8Array(await Bun.file(sourcePath).arrayBuffer()),
+        sourceFileName: sourcePath.split(/[\\/]/).pop() ?? sourcePath,
+      })
+    : null;
   const zipSha256 =
     preparedArtifact?.zipSha256 ||
     config.zipSha256 ||
@@ -387,7 +385,7 @@ export async function publishBackstagePackage(
         ? {
             contentType: preparedArtifact.contentType,
             deliveryName: preparedArtifact.deliveryName,
-            metadata: config.metadata === undefined ? preparedArtifact.metadata : config.metadata,
+            metadata: preparedArtifact.metadata,
           }
         : {}),
     },
@@ -404,7 +402,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     `[publish-backstage-package] published ${config.packageId}@${result.version} channel=${result.channel}`
   );
   console.log(
-    `[publish-backstage-package] releaseId=${result.deliveryPackageReleaseId} artifactId=${result.artifactId}`
+    `[publish-backstage-package] releaseId=${result.deliveryPackageReleaseId}${result.artifactId ? ` artifactId=${result.artifactId}` : ''}`
   );
 }
 

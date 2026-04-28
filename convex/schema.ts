@@ -94,6 +94,25 @@ const SignedReleaseArtifactStatus = v.union(
   v.literal('revoked')
 );
 
+const DeliveryArtifactMode = v.union(v.literal('legacy_signed'), v.literal('server_materialized'));
+
+const DeliveryReleaseArtifactRole = v.union(
+  v.literal('raw_upload'),
+  v.literal('server_deliverable')
+);
+
+const DeliveryReleaseArtifactOwnership = v.union(
+  v.literal('creator_upload'),
+  v.literal('server_materialized')
+);
+
+const DeliveryReleaseArtifactStatus = v.union(v.literal('active'), v.literal('inactive'));
+
+const DeliveryReleaseMaterializationStrategy = v.union(
+  v.literal('passthrough'),
+  v.literal('normalized_repack')
+);
+
 /** Catalog product link kinds */
 const LinkKind = v.union(
   v.literal('storefront'),
@@ -1450,7 +1469,7 @@ const delivery_package_products = defineTable({
   .index('by_auth_user_catalog_tier', ['authUserId', 'catalogTierId']);
 
 /**
- * Delivery Package Releases - published package versions and delivery metadata.
+ * Delivery Package Releases - published package versions and canonical delivery references.
  * This is the release layer that future VCC listing and resolver endpoints will read from.
  */
 const delivery_package_releases = defineTable({
@@ -2480,6 +2499,26 @@ const signed_release_artifacts = defineTable({
   .index('by_artifact_key_status', ['artifactKey', 'status'])
   .index('by_status', ['status']);
 
+const delivery_release_artifacts = defineTable({
+  deliveryPackageReleaseId: v.id('delivery_package_releases'),
+  artifactRole: DeliveryReleaseArtifactRole,
+  ownership: DeliveryReleaseArtifactOwnership,
+  materializationStrategy: v.optional(DeliveryReleaseMaterializationStrategy),
+  sourceArtifactId: v.optional(v.id('delivery_release_artifacts')),
+  storageId: v.id('_storage'),
+  contentType: v.string(),
+  deliveryName: v.string(),
+  sha256: v.string(),
+  byteSize: v.number(),
+  status: DeliveryReleaseArtifactStatus,
+  activatedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_release', ['deliveryPackageReleaseId'])
+  .index('by_release_role_status', ['deliveryPackageReleaseId', 'artifactRole', 'status'])
+  .index('by_source_artifact', ['sourceArtifactId']);
+
 const coupling_trace_records = defineTable({
   authUserId: v.string(),
   packageId: v.string(),
@@ -2899,6 +2938,7 @@ export default defineSchema({
   creator_billing_meters,
   creator_billing_reconciliation_targets,
   signed_release_artifacts,
+  delivery_release_artifacts,
   coupling_trace_records,
   license_subject_links,
   revoked_grants,

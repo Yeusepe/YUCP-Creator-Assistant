@@ -206,8 +206,12 @@ export async function verifyCertEnvelope(
   }
 }
 
-export async function verifyCertEnvelopeAgainstPinnedRoots(envelope: CertEnvelope): Promise<boolean> {
-  const rootPublicKeyBase64 = getConfiguredYucpRootByKeyId(envelope.signature.keyId)?.publicKeyBase64;
+export async function verifyCertEnvelopeAgainstPinnedRoots(
+  envelope: CertEnvelope
+): Promise<boolean> {
+  const rootPublicKeyBase64 = getConfiguredYucpRootByKeyId(
+    envelope.signature.keyId
+  )?.publicKeyBase64;
   if (!rootPublicKeyBase64) {
     return false;
   }
@@ -272,20 +276,6 @@ export interface ProtectedUnlockClaims {
   exp: number;
 }
 
-export interface ProtectedInstallIntentClaims {
-  iss: string;
-  aud: 'yucp-protected-install-intent';
-  sub: string;
-  jti: string;
-  package_id: string;
-  protected_asset_id: string;
-  machine_fingerprint: string;
-  project_id: string;
-  manifest_binding_sha256: string;
-  iat: number;
-  exp: number;
-}
-
 export interface YucpTrustBundleClaims {
   iss: string;
   aud: typeof TRUST_BUNDLE_AUDIENCE;
@@ -297,84 +287,6 @@ export interface YucpTrustBundleClaims {
 
 export async function signProtectedUnlockJwt(
   claims: ProtectedUnlockClaims,
-  privateKeyBase64: string,
-  keyId: string
-): Promise<string> {
-  return signJwt(claims, privateKeyBase64, keyId);
-}
-
-export async function signProtectedInstallIntentJwt(
-  claims: ProtectedInstallIntentClaims,
-  privateKeyBase64: string,
-  keyId: string
-): Promise<string> {
-  return signJwt(claims, privateKeyBase64, keyId);
-}
-
-export interface CouplingRuntimeClaims {
-  iss: string;
-  aud: 'yucp-coupling-runtime';
-  sub: string;
-  jti: string;
-  package_id: string;
-  machine_fingerprint: string;
-  project_id: string;
-  artifact_key: string;
-  artifact_channel: string;
-  artifact_platform: string;
-  artifact_version: string;
-  metadata_version: number;
-  delivery_name: string;
-  content_type: string;
-  envelope_cipher: string;
-  envelope_iv_b64: string;
-  ciphertext_sha256: string;
-  ciphertext_size: number;
-  plaintext_sha256: string;
-  plaintext_size: number;
-  code_signing_subject?: string;
-  code_signing_thumbprint?: string;
-  iat: number;
-  exp: number;
-}
-
-export interface CouplingRuntimePackageClaims {
-  iss: string;
-  aud: 'yucp-runtime-package';
-  sub: string;
-  jti: string;
-  package_id: string;
-  machine_fingerprint: string;
-  project_id: string;
-  artifact_key: string;
-  artifact_channel: string;
-  artifact_platform: string;
-  artifact_version: string;
-  metadata_version: number;
-  delivery_name: string;
-  content_type: string;
-  envelope_cipher: string;
-  envelope_iv_b64: string;
-  ciphertext_sha256: string;
-  ciphertext_size: number;
-  plaintext_sha256: string;
-  plaintext_size: number;
-  code_signing_subject?: string;
-  code_signing_thumbprint?: string;
-  iat: number;
-  exp: number;
-}
-
-export async function signCouplingRuntimeJwt(
-  claims: CouplingRuntimeClaims,
-  privateKeyBase64: string,
-  keyId: string
-): Promise<string> {
-  return signJwt(claims, privateKeyBase64, keyId);
-}
-
-export async function signCouplingRuntimePackageJwt(
-  claims: CouplingRuntimePackageClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -409,13 +321,7 @@ export async function signYucpTrustBundleJwt(
 }
 
 async function signJwt(
-  claims:
-    | LicenseClaims
-    | ProtectedUnlockClaims
-    | ProtectedInstallIntentClaims
-    | CouplingRuntimeClaims
-    | CouplingRuntimePackageClaims
-    | YucpTrustBundleClaims,
+  claims: LicenseClaims | ProtectedUnlockClaims | YucpTrustBundleClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -525,81 +431,6 @@ export async function verifyProtectedUnlockJwtAgainstPinnedRoots(
     (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-protected-unlock'
-  );
-}
-
-export async function verifyProtectedInstallIntentJwt(
-  jwt: string,
-  publicKeyBase64: string,
-  expectedIssuer: string
-): Promise<ProtectedInstallIntentClaims | null> {
-  return verifyJwt<ProtectedInstallIntentClaims>(
-    jwt,
-    publicKeyBase64,
-    expectedIssuer,
-    'yucp-protected-install-intent'
-  );
-}
-
-export async function verifyProtectedInstallIntentJwtAgainstPinnedRoots(
-  jwt: string,
-  expectedIssuer: string
-): Promise<ProtectedInstallIntentClaims | null> {
-  return await verifyJwtWithPublicKeyResolver<ProtectedInstallIntentClaims>(
-    jwt,
-    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
-    expectedIssuer,
-    'yucp-protected-install-intent'
-  );
-}
-
-export async function verifyCouplingRuntimeJwt(
-  jwt: string,
-  publicKeyBase64: string,
-  expectedIssuer: string
-): Promise<CouplingRuntimeClaims | null> {
-  return verifyJwt<CouplingRuntimeClaims>(
-    jwt,
-    publicKeyBase64,
-    expectedIssuer,
-    'yucp-coupling-runtime'
-  );
-}
-
-export async function verifyCouplingRuntimeJwtAgainstPinnedRoots(
-  jwt: string,
-  expectedIssuer: string
-): Promise<CouplingRuntimeClaims | null> {
-  return await verifyJwtWithPublicKeyResolver<CouplingRuntimeClaims>(
-    jwt,
-    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
-    expectedIssuer,
-    'yucp-coupling-runtime'
-  );
-}
-
-export async function verifyCouplingRuntimePackageJwt(
-  jwt: string,
-  publicKeyBase64: string,
-  expectedIssuer: string
-): Promise<CouplingRuntimePackageClaims | null> {
-  return verifyJwt<CouplingRuntimePackageClaims>(
-    jwt,
-    publicKeyBase64,
-    expectedIssuer,
-    'yucp-runtime-package'
-  );
-}
-
-export async function verifyCouplingRuntimePackageJwtAgainstPinnedRoots(
-  jwt: string,
-  expectedIssuer: string
-): Promise<CouplingRuntimePackageClaims | null> {
-  return await verifyJwtWithPublicKeyResolver<CouplingRuntimePackageClaims>(
-    jwt,
-    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
-    expectedIssuer,
-    'yucp-runtime-package'
   );
 }
 

@@ -5,10 +5,7 @@ import { action, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
-const BACKSTAGE_ARTIFACT_KEY_PREFIX = 'backstage-package:';
-const BACKSTAGE_PACKAGE_PLATFORM = 'unity-vpm';
 const BACKSTAGE_PACKAGE_CONTENT_TYPE = 'application/zip';
-const BACKSTAGE_PACKAGE_ENVELOPE_CIPHER = 'none';
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const BackstageAccessSelectorV = v.union(
   v.object({
@@ -30,8 +27,10 @@ type BackstageRepoAccessRecord = {
 };
 
 type BackstagePackageDownloadRecord = {
+  deliveryArtifactId?: Id<'delivery_release_artifacts'>;
+  deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
   artifactId?: Id<'signed_release_artifacts'>;
-  artifactKey: string;
+  artifactKey?: string;
   downloadUrl: string;
   contentType: string;
   deliveryName: string;
@@ -42,16 +41,10 @@ type BackstagePackageDownloadRecord = {
 
 type BackstagePublishedReleaseRecord = {
   deliveryPackageReleaseId: Id<'delivery_package_releases'>;
-  artifactId: Id<'signed_release_artifacts'>;
-  artifactKey: string;
   zipSha256: string;
   version: string;
   channel: string;
 };
-
-function buildBackstageArtifactKey(packageId: string): string {
-  return `${BACKSTAGE_ARTIFACT_KEY_PREFIX}${packageId}`;
-}
 
 function defaultBackstageDeliveryName(packageId: string, version: string): string {
   const packageToken = packageId.split('.').at(-1)?.trim() || 'package';
@@ -184,8 +177,12 @@ export const resolvePackageDownloadForApi = query({
   returns: v.union(
     v.null(),
     v.object({
+      deliveryArtifactId: v.optional(v.id('delivery_release_artifacts')),
+      deliveryArtifactMode: v.optional(
+        v.union(v.literal('legacy_signed'), v.literal('server_materialized'))
+      ),
       artifactId: v.optional(v.id('signed_release_artifacts')),
-      artifactKey: v.string(),
+      artifactKey: v.optional(v.string()),
       downloadUrl: v.string(),
       contentType: v.string(),
       deliveryName: v.string(),
@@ -196,8 +193,8 @@ export const resolvePackageDownloadForApi = query({
   ),
   handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
     requireApiSecret(args.apiSecret);
-    const release = (await ctx.runQuery(
-      internal.packageRegistry.getEntitledPackageReleaseForSubject,
+    return await ctx.runQuery(
+      internal.packageRegistry.getResolvedEntitledPackageDownloadForSubject,
       {
         authUserId: args.authUserId,
         subjectId: args.subjectId,
@@ -205,51 +202,7 @@ export const resolvePackageDownloadForApi = query({
         version: args.version,
         channel: args.channel,
       }
-    )) as {
-      artifactKey?: string;
-      signedArtifactId?: Id<'signed_release_artifacts'>;
-      zipSha256?: string;
-      version: string;
-      channel: string;
-    } | null;
-    if (!release) {
-      return null;
-    }
-
-    const artifact = (
-      release.signedArtifactId
-        ? await ctx.runQuery(internal.releaseArtifacts.getArtifactById, {
-            artifactId: release.signedArtifactId,
-          })
-        : release.artifactKey
-          ? await ctx.runQuery(internal.releaseArtifacts.getLatestActiveArtifactByKey, {
-              artifactKey: release.artifactKey,
-            })
-          : null
-    ) as {
-      artifactKey: string;
-      storageId: Id<'_storage'>;
-      contentType: string;
-      deliveryName: string;
-    } | null;
-    if (!artifact) {
-      return null;
-    }
-    const downloadUrl = await ctx.storage.getUrl(artifact.storageId);
-    if (!downloadUrl) {
-      return null;
-    }
-
-    return {
-      artifactId: release.signedArtifactId,
-      artifactKey: artifact.artifactKey,
-      downloadUrl,
-      contentType: artifact.contentType,
-      deliveryName: artifact.deliveryName,
-      zipSha256: release.zipSha256,
-      version: release.version,
-      channel: release.channel,
-    };
+    );
   },
 });
 
@@ -300,8 +253,6 @@ export const publishUploadedReleaseForAuthUser = action({
   },
   returns: v.object({
     deliveryPackageReleaseId: v.id('delivery_package_releases'),
-    artifactId: v.id('signed_release_artifacts'),
-    artifactKey: v.string(),
     zipSha256: v.string(),
     version: v.string(),
     channel: v.string(),
@@ -320,7 +271,6 @@ export const publishUploadedReleaseForAuthUser = action({
       throw new Error('zipSha256 must be a lowercase 64-character SHA-256 hex digest.');
     }
     const channel = (args.channel || '').trim() || 'stable';
-    const artifactKey = buildBackstageArtifactKey(args.packageId);
     const accessSelectors = Array.from(
       new Map(
         (
@@ -364,32 +314,6 @@ export const publishUploadedReleaseForAuthUser = action({
       defaultChannel: args.defaultChannel ?? channel,
     });
 
-    const artifactId = (await ctx.runMutation(internal.releaseArtifacts.publishArtifact, {
-      artifactKey,
-      channel,
-      platform: BACKSTAGE_PACKAGE_PLATFORM,
-      version: args.version,
-      metadataVersion: 1,
-      storageId: args.storageId,
-      contentType,
-      deliveryName,
-      envelopeCipher: BACKSTAGE_PACKAGE_ENVELOPE_CIPHER,
-      envelopeIvBase64: '',
-      ciphertextSha256: zipSha256,
-      ciphertextSize: uploaded.size,
-      plaintextSha256: zipSha256,
-      plaintextSize: uploaded.size,
-    })) as Id<'signed_release_artifacts'>;
-
-    await ctx.runMutation(internal.releaseArtifacts.recordArtifactPublishedAudit, {
-      artifactKey,
-      channel,
-      platform: BACKSTAGE_PACKAGE_PLATFORM,
-      version: args.version,
-      plaintextSha256: zipSha256,
-      ciphertextSha256: zipSha256,
-    });
-
     const release = (await ctx.runMutation(internal.packageRegistry.recordDeliveryPackageRelease, {
       authUserId: args.authUserId,
       packageId: args.packageId,
@@ -397,18 +321,22 @@ export const publishUploadedReleaseForAuthUser = action({
       channel,
       releaseStatus: args.releaseStatus,
       repositoryVisibility: args.repositoryVisibility,
-      signedArtifactId: artifactId,
-      artifactKey,
       unityVersion: args.unityVersion,
       zipSha256,
       metadata: args.metadata,
     })) as { deliveryPackageReleaseId: Id<'delivery_package_releases'> };
 
+    const materialized = await ctx.runAction(internal.releaseArtifacts.materializeUploadedReleaseDeliverable, {
+      deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+      storageId: args.storageId,
+      contentType,
+      deliveryName,
+      sha256: zipSha256,
+    });
+
     return {
       deliveryPackageReleaseId: release.deliveryPackageReleaseId,
-      artifactId,
-      artifactKey,
-      zipSha256,
+      zipSha256: materialized.deliverableSha256,
       version: args.version,
       channel,
     };

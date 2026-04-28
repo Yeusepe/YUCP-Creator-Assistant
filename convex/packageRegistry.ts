@@ -15,6 +15,11 @@
  *   Sigstore policy engine         https://docs.sigstore.dev/policy-controller/overview/
  */
 
+import {
+  buildRepoTokenVpmDeliveryMetadata,
+  inferBackstageVpmDeliverySourceKind,
+  stripBackstageVpmReservedMetadata,
+} from '@yucp/shared/backstageVpmDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { api, internal } from './_generated/api';
@@ -25,6 +30,7 @@ import { ApiActorBindingV, requireApiActor, requireDelegatedAuthUserActor } from
 import { requireApiSecret } from './lib/apiAuth';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const PACKAGE_NAME_MAX_LENGTH = 120;
 const PACKAGE_DELETE_BLOCKED_REASON =
   'Package has signing or license history and cannot be deleted.';
@@ -46,6 +52,7 @@ const DeliveryPackageReleaseStatusV = v.union(
   v.literal('revoked'),
   v.literal('superseded')
 );
+const DeliveryArtifactModeV = v.union(v.literal('legacy_signed'), v.literal('server_materialized'));
 const BACKSTAGE_REPO_TOKEN_PREFIX = 'ybt_';
 const BACKSTAGE_REPO_TOKEN_BYTES = 24;
 
@@ -70,6 +77,9 @@ type BackstageReleaseSummary = {
   channel: string;
   releaseStatus: Doc<'delivery_package_releases'>['releaseStatus'];
   repositoryVisibility: Doc<'delivery_package_releases'>['repositoryVisibility'];
+  deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
+  rawArtifactId?: Id<'delivery_release_artifacts'>;
+  deliverableArtifactId?: Id<'delivery_release_artifacts'>;
   artifactKey?: string;
   signedArtifactId?: Id<'signed_release_artifacts'>;
   zipSha256?: string;
@@ -81,6 +91,55 @@ type BackstageReleaseSummary = {
   deliveryName?: string;
   contentType?: string;
 };
+
+type DeliveryArtifactSummary = Pick<
+  Doc<'delivery_release_artifacts'>,
+  '_id' | 'artifactRole' | 'status' | 'storageId' | 'contentType' | 'deliveryName'
+>;
+
+type DownloadablePackageReleaseRecord = {
+  deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+  artifactKey?: string;
+  signedArtifactId?: Id<'signed_release_artifacts'>;
+  zipSha256?: string;
+  version: string;
+  channel: string;
+};
+
+type BackstagePackageDownloadRecord = {
+  deliveryArtifactId?: Id<'delivery_release_artifacts'>;
+  deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
+  artifactId?: Id<'signed_release_artifacts'>;
+  artifactKey?: string;
+  downloadUrl: string;
+  contentType: string;
+  deliveryName: string;
+  zipSha256?: string;
+  version: string;
+  channel: string;
+};
+
+const DownloadablePackageReleaseRecordV = v.object({
+  deliveryPackageReleaseId: v.id('delivery_package_releases'),
+  artifactKey: v.optional(v.string()),
+  signedArtifactId: v.optional(v.id('signed_release_artifacts')),
+  zipSha256: v.optional(v.string()),
+  version: v.string(),
+  channel: v.string(),
+});
+
+const BackstagePackageDownloadRecordV = v.object({
+  deliveryArtifactId: v.optional(v.id('delivery_release_artifacts')),
+  deliveryArtifactMode: v.optional(DeliveryArtifactModeV),
+  artifactId: v.optional(v.id('signed_release_artifacts')),
+  artifactKey: v.optional(v.string()),
+  downloadUrl: v.string(),
+  contentType: v.string(),
+  deliveryName: v.string(),
+  zipSha256: v.optional(v.string()),
+  version: v.string(),
+  channel: v.string(),
+});
 
 const DeliveryAccessSelectorV = v.union(
   v.object({
@@ -175,13 +234,55 @@ function shouldReplaceLatestRelease(
   return compareReleaseRecency(candidate, existing) < 0;
 }
 
+type ActiveDeliveryArtifactsForRelease = {
+  rawArtifact?: DeliveryArtifactSummary;
+  deliverableArtifact?: DeliveryArtifactSummary;
+};
+
+async function loadActiveDeliveryArtifactsByReleaseId(
+  ctx: RegistryReaderCtx,
+  releases: Array<Pick<Doc<'delivery_package_releases'>, '_id'>>
+): Promise<Map<string, ActiveDeliveryArtifactsForRelease>> {
+  const artifactsByReleaseId = new Map<string, ActiveDeliveryArtifactsForRelease>();
+  const artifactRows = (
+    await Promise.all(
+      releases.map(async (release) => {
+        return await ctx.db
+          .query('delivery_release_artifacts')
+          .withIndex('by_release', (q) => q.eq('deliveryPackageReleaseId', release._id))
+          .collect();
+      })
+    )
+  ).flat();
+
+  for (const artifact of artifactRows) {
+    if (artifact.status !== 'active') {
+      continue;
+    }
+    const releaseId = String(artifact.deliveryPackageReleaseId);
+    const existing = artifactsByReleaseId.get(releaseId) ?? {};
+    if (artifact.artifactRole === 'raw_upload') {
+      existing.rawArtifact = artifact;
+    } else if (artifact.artifactRole === 'server_deliverable') {
+      existing.deliverableArtifact = artifact;
+    }
+    artifactsByReleaseId.set(releaseId, existing);
+  }
+
+  return artifactsByReleaseId;
+}
+
 function toBackstageReleaseSummary(
   release: Doc<'delivery_package_releases'>,
-  artifactsById: Map<string, Doc<'signed_release_artifacts'>>
+  signedArtifactsById: Map<string, Doc<'signed_release_artifacts'>>,
+  activeDeliveryArtifactsByReleaseId: Map<string, ActiveDeliveryArtifactsForRelease>
 ): BackstageReleaseSummary {
-  const artifact = release.signedArtifactId
-    ? artifactsById.get(String(release.signedArtifactId))
+  const signedArtifact = release.signedArtifactId
+    ? signedArtifactsById.get(String(release.signedArtifactId))
     : undefined;
+  const releaseArtifacts = activeDeliveryArtifactsByReleaseId.get(String(release._id));
+  const rawArtifact = releaseArtifacts?.rawArtifact;
+  const deliveryArtifact = releaseArtifacts?.deliverableArtifact;
 
   return {
     deliveryPackageReleaseId: String(release._id),
@@ -189,6 +290,9 @@ function toBackstageReleaseSummary(
     channel: release.channel,
     releaseStatus: release.releaseStatus,
     repositoryVisibility: release.repositoryVisibility,
+    deliveryArtifactMode: deliveryArtifact ? 'server_materialized' : undefined,
+    rawArtifactId: rawArtifact?._id,
+    deliverableArtifactId: deliveryArtifact?._id,
     artifactKey: release.artifactKey,
     signedArtifactId: release.signedArtifactId,
     zipSha256: release.zipSha256,
@@ -197,8 +301,81 @@ function toBackstageReleaseSummary(
     createdAt: release.createdAt,
     updatedAt: release.updatedAt,
     unityVersion: release.unityVersion,
-    deliveryName: artifact?.deliveryName,
-    contentType: artifact?.contentType,
+    deliveryName: deliveryArtifact?.deliveryName ?? signedArtifact?.deliveryName,
+    contentType: deliveryArtifact?.contentType ?? signedArtifact?.contentType,
+  };
+}
+
+async function resolveDownloadableArtifactForReleaseRecord(
+  ctx: QueryCtx,
+  release: DownloadablePackageReleaseRecord | null
+): Promise<BackstagePackageDownloadRecord | null> {
+  if (!release) {
+    return null;
+  }
+
+  const deliverable = await ctx.db
+    .query('delivery_release_artifacts')
+    .withIndex('by_release_role_status', (q) =>
+      q
+        .eq('deliveryPackageReleaseId', release.deliveryPackageReleaseId)
+        .eq('artifactRole', 'server_deliverable')
+        .eq('status', 'active')
+    )
+    .first();
+  if (deliverable) {
+    const downloadUrl = await ctx.storage.getUrl(deliverable.storageId);
+    if (!downloadUrl) {
+      return null;
+    }
+
+    return {
+      deliveryArtifactId: deliverable._id,
+      deliveryArtifactMode: 'server_materialized',
+      downloadUrl,
+      contentType: deliverable.contentType,
+      deliveryName: deliverable.deliveryName,
+      zipSha256: release.zipSha256,
+      version: release.version,
+      channel: release.channel,
+    };
+  }
+
+  const artifact = (
+    release.signedArtifactId
+      ? await ctx.runQuery(internal.releaseArtifacts.getArtifactById, {
+          artifactId: release.signedArtifactId,
+        })
+      : release.artifactKey
+        ? await ctx.runQuery(internal.releaseArtifacts.getLatestActiveArtifactByKey, {
+            artifactKey: release.artifactKey,
+          })
+        : null
+  ) as {
+    artifactKey: string;
+    storageId: Id<'_storage'>;
+    contentType: string;
+    deliveryName: string;
+  } | null;
+  if (!artifact) {
+    return null;
+  }
+
+  const downloadUrl = await ctx.storage.getUrl(artifact.storageId);
+  if (!downloadUrl) {
+    return null;
+  }
+
+  return {
+    deliveryArtifactMode: 'legacy_signed',
+    artifactId: release.signedArtifactId,
+    artifactKey: artifact.artifactKey,
+    downloadUrl,
+    contentType: artifact.contentType,
+    deliveryName: artifact.deliveryName,
+    zipSha256: release.zipSha256,
+    version: release.version,
+    channel: release.channel,
   };
 }
 
@@ -213,6 +390,22 @@ function compareBackstagePackages(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toBackstageReleaseManifestMetadata(
+  release: Pick<BackstageReleaseSummary, 'metadata' | 'deliveryName' | 'contentType'>
+): Record<string, unknown> {
+  const normalizedMetadata = stripBackstageVpmReservedMetadata(
+    isRecord(release.metadata) ? release.metadata : {}
+  );
+  const sourceKind = inferBackstageVpmDeliverySourceKind({
+    deliveryName: release.deliveryName,
+    contentType: release.contentType,
+  });
+  return {
+    ...normalizedMetadata,
+    ...buildRepoTokenVpmDeliveryMetadata(sourceKind),
+  };
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -249,9 +442,7 @@ function toVpmVersionManifest(
     return null;
   }
 
-  const metadata = isRecord(packageSummary.latestRelease.metadata)
-    ? packageSummary.latestRelease.metadata
-    : {};
+  const metadata = toBackstageReleaseManifestMetadata(packageSummary.latestRelease);
 
   return {
     ...metadata,
@@ -647,6 +838,10 @@ async function summarizeBackstagePackagesFromLinks(
   const signedArtifactsById = new Map(
     signedArtifacts.map((artifact) => [String(artifact._id), artifact])
   );
+  const activeDeliveryArtifactsByReleaseId = await loadActiveDeliveryArtifactsByReleaseId(
+    ctx,
+    relevantReleases
+  );
 
   const latestReleaseByPackageId = new Map<string, Doc<'delivery_package_releases'>>();
   const releasesByPackageId = new Map<string, Doc<'delivery_package_releases'>[]>();
@@ -679,7 +874,9 @@ async function summarizeBackstagePackagesFromLinks(
     const packageReleaseHistory = (releasesByPackageId.get(String(link.deliveryPackageId)) ?? [])
       .slice()
       .sort(compareReleaseRecency)
-      .map((release) => toBackstageReleaseSummary(release, signedArtifactsById));
+      .map((release) =>
+        toBackstageReleaseSummary(release, signedArtifactsById, activeDeliveryArtifactsByReleaseId)
+      );
     const latestRelease = latestReleaseByPackageId.get(String(link.deliveryPackageId)) ?? null;
     const summary: BackstagePackageSummary = {
       deliveryPackageId: deliveryPackage._id,
@@ -693,7 +890,11 @@ async function summarizeBackstagePackagesFromLinks(
       latestPublishedVersion: deliveryPackage.latestPublishedVersion,
       latestPublishedAt: deliveryPackage.latestPublishedAt,
       latestRelease: latestRelease
-        ? toBackstageReleaseSummary(latestRelease, signedArtifactsById)
+        ? toBackstageReleaseSummary(
+            latestRelease,
+            signedArtifactsById,
+            activeDeliveryArtifactsByReleaseId
+          )
         : null,
       releases: packageReleaseHistory,
     };
@@ -1184,6 +1385,28 @@ export const recordDeliveryPackageRelease = internalMutation({
     return {
       deliveryPackageReleaseId,
     };
+  },
+});
+
+export const updateMaterializedReleaseDigest = internalMutation({
+  args: {
+    deliveryPackageReleaseId: v.id('delivery_package_releases'),
+    zipSha256: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!SHA256_HEX_RE.test(args.zipSha256)) {
+      throw new ConvexError('zipSha256 must be a lowercase 64-character SHA-256 hex digest.');
+    }
+    const release = await ctx.db.get(args.deliveryPackageReleaseId);
+    if (!release) {
+      throw new ConvexError('Delivery package release not found.');
+    }
+    await ctx.db.patch(args.deliveryPackageReleaseId, {
+      zipSha256: args.zipSha256,
+      updatedAt: Date.now(),
+    });
+    return null;
   },
 });
 
@@ -2124,6 +2347,7 @@ export const getEntitledPackageReleaseForSubject = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
+      deliveryPackageReleaseId: v.id('delivery_package_releases'),
       deliveryPackageId: v.id('delivery_packages'),
       packageId: v.string(),
       version: v.string(),
@@ -2162,6 +2386,7 @@ export const getEntitledPackageReleaseForSubject = internalQuery({
     }
 
     return {
+      deliveryPackageReleaseId: matchingRelease._id,
       deliveryPackageId: entitledPackage.deliveryPackageId,
       packageId: matchingRelease.packageId,
       version: matchingRelease.version,
@@ -2171,5 +2396,41 @@ export const getEntitledPackageReleaseForSubject = internalQuery({
       zipSha256: matchingRelease.zipSha256,
       repositoryVisibility: matchingRelease.repositoryVisibility,
     };
+  },
+});
+
+export const resolveDownloadableArtifactForRelease = internalQuery({
+  args: DownloadablePackageReleaseRecordV,
+  returns: v.union(v.null(), BackstagePackageDownloadRecordV),
+  handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
+    return await resolveDownloadableArtifactForReleaseRecord(ctx, args);
+  },
+});
+
+export const getResolvedEntitledPackageDownloadForSubject = internalQuery({
+  args: {
+    authUserId: v.string(),
+    subjectId: v.id('subjects'),
+    packageId: v.string(),
+    version: v.optional(v.string()),
+    channel: v.optional(v.string()),
+  },
+  returns: v.union(v.null(), BackstagePackageDownloadRecordV),
+  handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
+    const release = await ctx.runQuery(
+      internal.packageRegistry.getEntitledPackageReleaseForSubject,
+      {
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        packageId: args.packageId,
+        version: args.version,
+        channel: args.channel,
+      }
+    );
+
+    return await resolveDownloadableArtifactForReleaseRecord(
+      ctx,
+      release as DownloadablePackageReleaseRecord | null
+    );
   },
 });

@@ -87,6 +87,7 @@ describe('publish-backstage-package', () => {
       storageId: 'storage_123',
       version: '1.2.3',
       zipSha256: expectedSha,
+      metadata: {},
     });
   });
 
@@ -156,10 +157,11 @@ describe('publish-backstage-package', () => {
     expect(config.sourcePath).toBe(sourcePath);
   });
 
-  it('wraps unitypackage source files into ZIP uploads before publishing', async () => {
+  it('uploads unitypackage source files raw before publishing', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
     const sourcePath = join(tempDir, 'example.unitypackage');
     writeFileSync(sourcePath, Buffer.from('unitypackage-bytes'));
+    const expectedSha = createHash('sha256').update('unitypackage-bytes').digest('hex');
 
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -203,11 +205,13 @@ describe('publish-backstage-package', () => {
     );
 
     expect(calls[1].init?.headers).toEqual({
-      'Content-Type': 'application/zip',
+      'Content-Type': 'application/octet-stream',
     });
     expect(JSON.parse(String(calls[2].init?.body))).toMatchObject({
-      deliveryName: 'com.yucp.example-3.0.0.zip',
-      contentType: 'application/zip',
+      deliveryName: 'example.unitypackage',
+      contentType: 'application/octet-stream',
+      zipSha256: expectedSha,
+      metadata: {},
     });
   });
 });

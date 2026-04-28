@@ -29,7 +29,6 @@ import {
   createAccountSecurityRoutes,
   createBackstageRepoRoutes,
   createConnectRoutes,
-  createCouplingLicenseRoutes,
   createForensicsRoutes,
   createPackageRoutes,
   createProviderPlatformRoutes,
@@ -54,7 +53,6 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
-let couplingLicenseRoutes: ReturnType<typeof createCouplingLicenseRoutes> | null = null;
 let backstageRepoRoutes: ReturnType<typeof createBackstageRepoRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
@@ -254,13 +252,6 @@ function initializeAuth(webhookBaseUrl?: string) {
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
 
-  couplingLicenseRoutes = createCouplingLicenseRoutes({
-    apiBaseUrl: publicBaseUrl,
-    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
-    convexApiSecret: env.CONVEX_API_SECRET ?? '',
-    convexUrl,
-  });
   backstageRepoRoutes = createBackstageRepoRoutes({
     auth,
     apiBaseUrl: publicBaseUrl,
@@ -565,13 +556,6 @@ async function routeRequest(request: Request): Promise<Response> {
   // requests to Convex. Auth, YUCP OAuth, and the versioned public API (/v1/)
   // all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
-  if (pathname.startsWith('/v1/') && couplingLicenseRoutes) {
-    const localCouplingResponse = await couplingLicenseRoutes.handleRequest(request);
-    if (localCouplingResponse) {
-      return localCouplingResponse;
-    }
-  }
-
   if (
     (pathname.startsWith('/v1/') || pathname.startsWith('/api/backstage/')) &&
     backstageRepoRoutes

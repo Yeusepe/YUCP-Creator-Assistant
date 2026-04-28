@@ -144,8 +144,8 @@ export interface PublishBackstageReleaseInput {
 
 export interface PublishBackstageReleaseResponse {
   deliveryPackageReleaseId: string;
-  artifactId: string;
-  artifactKey: string;
+  artifactId?: string;
+  artifactKey?: string;
   zipSha256: string;
   version: string;
   channel: string;

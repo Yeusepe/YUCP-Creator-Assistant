@@ -1,4 +1,5 @@
 import { createApiActorBinding } from '@yucp/shared/apiActor';
+import { zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -6,6 +7,10 @@ import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
 process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
 
 async function createAuthUserActorBinding(authUserId: string) {
   const now = Date.now();
@@ -21,6 +26,13 @@ async function createAuthUserActorBinding(authUserId: string) {
     },
     process.env.INTERNAL_SERVICE_AUTH_SECRET as string
   );
+}
+
+async function sha256Hex(input: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(input));
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
 }
 
 async function seedCatalogProduct(
@@ -735,6 +747,8 @@ describe('packageRegistry', () => {
               },
               zipSHA256: 'abcdef1234567890',
               yucpArtifactKey: 'vpm-package-stable',
+              yucpDeliveryMode: 'repo-token-vpm-v1',
+              yucpDeliverySourceKind: 'zip',
             },
           },
         },
@@ -747,6 +761,310 @@ describe('packageRegistry', () => {
     expect(repositoryPackages['com.yucp.backstage.vpm'].versions['3.1.0'].url).toBe(
       'https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.vpm&version=3.1.0&channel=stable'
     );
+  });
+
+  it('materializes raw uploads into server-owned deliverables for published package downloads', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-raw-upload',
+      providerProductRef: 'gumroad-product-raw-upload',
+      displayName: 'Raw Upload Product',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.backstage.raw',
+      packageName: 'Raw Upload Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    const uploadBytes = zipSync(
+      {
+        'Packages/com.yucp.backstage.raw/package.json': [
+          new TextEncoder().encode('{"name":"com.yucp.backstage.raw"}'),
+          { mtime: new Date() },
+        ],
+        'Packages/com.yucp.backstage.raw/README.md': [
+          new TextEncoder().encode('hello'),
+          { mtime: new Date() },
+        ],
+      },
+      { level: 9 }
+    );
+    const uploadSha256 = await sha256Hex(uploadBytes);
+    const storageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([toArrayBuffer(uploadBytes)], { type: 'application/zip' })
+      );
+    });
+
+    const published = await t.action(api.backstageRepos.publishUploadedReleaseForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
+      authUserId: 'auth-user-1',
+      accessSelectors: [{ kind: 'catalogProduct', catalogProductId }],
+      packageId: 'com.yucp.backstage.raw',
+      storageId,
+      version: '1.0.0',
+      zipSha256: uploadSha256,
+      deliveryName: 'example.zip',
+      contentType: 'application/zip',
+    });
+
+    expect(published).toEqual({
+      deliveryPackageReleaseId: expect.any(String),
+      zipSha256: expect.any(String),
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    const release = await t.run(async (ctx) => {
+      return await ctx.db.get(
+        published.deliveryPackageReleaseId as Id<'delivery_package_releases'>
+      );
+    });
+    expect(release?.zipSha256).toBe(published.zipSha256);
+
+    const subjectId = await seedSubject(t, {
+      authUserId: 'buyer-1',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('entitlements', {
+        authUserId: 'auth-user-1',
+        subjectId,
+        productId: 'product-raw-upload',
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-raw-upload',
+        catalogProductId,
+        status: 'active',
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const repository = await t.query(internal.packageRegistry.buildBackstageRepositoryForSubject, {
+      authUserId: 'auth-user-1',
+      subjectId,
+      repositoryUrl: 'https://api.yucp.test/v1/backstage/repos/index.json',
+      packageBaseUrl: 'https://api.yucp.test/v1/backstage/package',
+      packageHeaders: {
+        'X-YUCP-Repo-Token': 'ybt_example',
+      },
+    });
+    expect(repository).toMatchObject({
+      packages: {
+        'com.yucp.backstage.raw': {
+          versions: {
+            '1.0.0': {
+              yucpDeliveryMode: 'repo-token-vpm-v1',
+              yucpDeliverySourceKind: 'zip',
+            },
+          },
+        },
+      },
+    });
+    const publishedVersion = repository?.packages?.['com.yucp.backstage.raw']?.versions?.[
+      '1.0.0'
+    ] as Record<string, unknown> | undefined;
+    expect(publishedVersion).not.toHaveProperty('yucpInstallAuth');
+    expect(publishedVersion).not.toHaveProperty('yucpInstallSemantics');
+    expect(publishedVersion).not.toHaveProperty('yucpPackageDownloadAuth');
+    expect(publishedVersion).not.toHaveProperty('yucpPackageDownloadPath');
+
+    const entitledResolved = await t.query(api.backstageRepos.resolvePackageDownloadForApi, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-user-1',
+      subjectId,
+      packageId: 'com.yucp.backstage.raw',
+      version: '1.0.0',
+      channel: 'stable',
+    });
+
+    const activeDeliverable = await t.run(async (ctx) => {
+      return await ctx.db
+        .query('delivery_release_artifacts')
+        .withIndex('by_release_role_status', (q) =>
+          q
+            .eq(
+              'deliveryPackageReleaseId',
+              published.deliveryPackageReleaseId as Id<'delivery_package_releases'>
+            )
+            .eq('artifactRole', 'server_deliverable')
+            .eq('status', 'active')
+        )
+        .first();
+    });
+
+    expect(entitledResolved).toMatchObject({
+      deliveryName: 'example.zip',
+      contentType: 'application/zip',
+      deliveryArtifactId: activeDeliverable?._id,
+      deliveryArtifactMode: 'server_materialized',
+      zipSha256: activeDeliverable?.sha256,
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    expect(published.zipSha256).toBe(activeDeliverable?.sha256);
+    expect(published.zipSha256).not.toBe(uploadSha256);
+    expect(entitledResolved?.artifactKey).toBeUndefined();
+    expect(entitledResolved?.downloadUrl).toContain('/storage/');
+  });
+
+  it('resolves legacy signed releases through the centralized release artifact resolver', async () => {
+    const t = makeTestConvex();
+    const deliveryPackageReleaseId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.backstage.legacy',
+        packageName: 'Legacy Resolver',
+        displayName: 'Legacy Resolver',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.legacy',
+        version: '1.0.0',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: 'e'.repeat(64),
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    });
+    const storageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([new Uint8Array([8, 9, 10])], { type: 'application/zip' })
+      );
+    });
+
+    const artifactId = await t.mutation(internal.releaseArtifacts.publishArtifact, {
+      artifactKey: 'backstage-package:com.yucp.backstage.legacy',
+      channel: 'stable',
+      platform: 'any',
+      version: '1.0.0',
+      metadataVersion: 1,
+      storageId,
+      contentType: 'application/zip',
+      deliveryName: 'legacy-package-1.0.0.zip',
+      envelopeCipher: 'aes-256-gcm',
+      envelopeIvBase64: 'ZmFrZS1pdi1iYXNlNjQ=',
+      ciphertextSha256: 'c'.repeat(64),
+      ciphertextSize: 3,
+      plaintextSha256: 'd'.repeat(64),
+      plaintextSize: 3,
+    });
+
+    const resolved = await t.query(internal.packageRegistry.resolveDownloadableArtifactForRelease, {
+      deliveryPackageReleaseId,
+      signedArtifactId: artifactId,
+      version: '1.0.0',
+      channel: 'stable',
+      zipSha256: 'e'.repeat(64),
+    });
+
+    expect(resolved).toMatchObject({
+      deliveryArtifactMode: 'legacy_signed',
+      artifactId,
+      artifactKey: 'backstage-package:com.yucp.backstage.legacy',
+      deliveryName: 'legacy-package-1.0.0.zip',
+      contentType: 'application/zip',
+      zipSha256: 'e'.repeat(64),
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    expect(resolved?.deliveryArtifactId).toBeUndefined();
+    expect(resolved?.downloadUrl).toContain('/storage/');
+  });
+
+  it('resolves server-owned deliverables through the centralized release artifact resolver', async () => {
+    const t = makeTestConvex();
+    const uploadBytes = zipSync(
+      {
+        'Packages/com.yucp.backstage.centralized/package.json': [
+          new TextEncoder().encode('{"name":"com.yucp.backstage.centralized"}'),
+          { mtime: new Date() },
+        ],
+        'Packages/com.yucp.backstage.centralized/README.md': [
+          new TextEncoder().encode('hello'),
+          { mtime: new Date() },
+        ],
+      },
+      { level: 9 }
+    );
+    const uploadSha256 = await sha256Hex(uploadBytes);
+    const uploadStorageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([toArrayBuffer(uploadBytes)], { type: 'application/zip' })
+      );
+    });
+
+    const release = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.backstage.centralized',
+        packageName: 'Centralized Resolver',
+        displayName: 'Centralized Resolver',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.centralized',
+        version: '1.0.0',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: uploadSha256,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      return { deliveryPackageReleaseId };
+    });
+
+    const materialized = await t.action(
+      internal.releaseArtifacts.materializeUploadedReleaseDeliverable,
+      {
+        deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+        storageId: uploadStorageId,
+        contentType: 'application/zip',
+        deliveryName: 'centralized.zip',
+        sha256: uploadSha256,
+      }
+    );
+
+    const resolved = await t.query(internal.packageRegistry.resolveDownloadableArtifactForRelease, {
+      deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+      version: '1.0.0',
+      channel: 'stable',
+      zipSha256: materialized.deliverableSha256,
+    });
+
+    expect(resolved).toMatchObject({
+      deliveryArtifactId: materialized.deliverableArtifactId,
+      deliveryArtifactMode: 'server_materialized',
+      deliveryName: 'centralized.zip',
+      contentType: 'application/zip',
+      zipSha256: materialized.deliverableSha256,
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    expect(resolved?.artifactId).toBeUndefined();
+    expect(resolved?.artifactKey).toBeUndefined();
+    expect(resolved?.downloadUrl).toContain('/storage/');
   });
 
   it('issues revocable Backstage repo tokens for an authenticated subject', async () => {

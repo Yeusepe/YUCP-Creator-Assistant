@@ -247,8 +247,6 @@ describe('package Backstage publishing routes', () => {
         case 'backstageRepos.publishUploadedReleaseForAuthUser':
           return {
             deliveryPackageReleaseId: 'release_1',
-            artifactId: 'artifact_1',
-            artifactKey: 'backstage-package:com.yucp.example',
             zipSha256: 'a'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
@@ -955,12 +953,16 @@ describe('package Backstage publishing routes', () => {
       ],
       zipSha256: 'd'.repeat(64),
     });
-    await expect(response.json()).resolves.toMatchObject({
+    const payload = await response.json();
+    expect(payload).toMatchObject({
       deliveryPackageReleaseId: 'release_1',
-      artifactId: 'artifact_1',
       version: '1.2.3',
       channel: 'stable',
     });
+    expect(payload).not.toHaveProperty('rawArtifactId');
+    expect(payload).not.toHaveProperty('deliverableArtifactId');
+    expect(payload).not.toHaveProperty('deliveryArtifactMode');
+    expect(payload).not.toHaveProperty('materializationStrategy');
   });
 
   it('publishes wrapped VPM ZIP metadata for unitypackage sources', async () => {

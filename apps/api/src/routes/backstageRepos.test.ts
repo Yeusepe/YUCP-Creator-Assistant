@@ -93,6 +93,8 @@ describe('backstage repo routes', () => {
                   '1.2.3': {
                     name: 'com.yucp.example',
                     version: '1.2.3',
+                    yucpDeliveryMode: 'repo-token-vpm-v1',
+                    yucpDeliverySourceKind: 'zip',
                   },
                 },
               },
@@ -278,6 +280,8 @@ describe('backstage repo routes', () => {
           versions: {
             '1.2.3': {
               name: 'com.yucp.example',
+              yucpDeliveryMode: 'repo-token-vpm-v1',
+              yucpDeliverySourceKind: 'zip',
             },
           },
         },

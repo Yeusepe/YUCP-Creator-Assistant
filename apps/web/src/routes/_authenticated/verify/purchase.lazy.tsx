@@ -987,6 +987,7 @@ function VerifyPurchasePage() {
   const hasLinkedEntitlement = linkedEntitlementMethods.length > 0;
   const hasSignInMethods = hasOAuth || hasLinkedEntitlement;
   const hasLicense = licenseMethods.length > 0;
+  const hasDualEntryModes = hasSignInMethods && hasLicense;
   const hasEntitlement = standaloneEntitlementMethods.length > 0;
   const visibleErrorMessage = getVisiblePurchaseVerificationError({
     errorCode: intent.errorCode,
@@ -1013,74 +1014,81 @@ function VerifyPurchasePage() {
         </div>
       ) : (
         <>
-          {/* OAuth sign-in section */}
-          {hasSignInMethods ? (
-            <div className="vp-oauth-section">
-              <p className="vp-section-eyebrow">Sign in to verify</p>
-              <p className="vp-section-desc">Choose the store where you purchased this product.</p>
-              {!connectionQueriesSettled ? (
-                <output
-                  className="vp-oauth-connections-loading"
-                  aria-live="polite"
-                  aria-label="Loading store connections"
-                >
-                  <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
-                  <p className="vp-oauth-connections-loading-text">
-                    Loading your store connections...
+          <div
+            className={`vp-pending-layout${hasDualEntryModes ? ' vp-pending-layout--split' : ''}`}
+          >
+            {hasSignInMethods ? (
+              <div className="vp-pending-panel vp-pending-panel--oauth">
+                <div className="vp-oauth-section">
+                  <p className="vp-section-eyebrow">Sign in to verify</p>
+                  <p className="vp-section-desc">
+                    Choose the store where you purchased this product.
                   </p>
-                </output>
-              ) : (
-                <div className="vp-oauth-buttons">
-                  {oauthMethods.map((req) => (
-                    <OAuthMethodButton
+                  {!connectionQueriesSettled ? (
+                    <output
+                      className="vp-oauth-connections-loading"
+                      aria-live="polite"
+                      aria-label="Loading store connections"
+                    >
+                      <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
+                      <p className="vp-oauth-connections-loading-text">
+                        Loading your store connections...
+                      </p>
+                    </output>
+                  ) : (
+                    <div className="vp-oauth-buttons">
+                      {oauthMethods.map((req) => (
+                        <OAuthMethodButton
+                          key={req.methodKey}
+                          intentId={intentId}
+                          requirement={req}
+                          linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
+                          provider={null}
+                          verifiedMethodKey={verifiedMethodKey}
+                          onSuccess={invalidateIntent}
+                        />
+                      ))}
+                      {linkedEntitlementMethods.map((req) => (
+                        <LinkedEntitlementMethodButton
+                          key={req.methodKey}
+                          intentId={intentId}
+                          requirement={req}
+                          linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
+                          provider={null}
+                          verifiedMethodKey={verifiedMethodKey}
+                          onSuccess={invalidateIntent}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {hasDualEntryModes ? (
+              <div className="vp-methods-divider">
+                <span className="vp-methods-divider-label">or enter license key</span>
+              </div>
+            ) : null}
+
+            {hasLicense ? (
+              <div className="vp-pending-panel vp-pending-panel--license">
+                <div className={`vp-section${!hasSignInMethods ? ' vp-section--top' : ''}`}>
+                  {!hasSignInMethods ? <p className="vp-section-title">Enter license key</p> : null}
+                  {licenseMethods.map((req) => (
+                    <LicenseMethodRow
                       key={req.methodKey}
                       intentId={intentId}
                       requirement={req}
-                      linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
-                      provider={null}
-                      verifiedMethodKey={verifiedMethodKey}
-                      onSuccess={invalidateIntent}
-                    />
-                  ))}
-                  {linkedEntitlementMethods.map((req) => (
-                    <LinkedEntitlementMethodButton
-                      key={req.methodKey}
-                      intentId={intentId}
-                      requirement={req}
-                      linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
                       provider={null}
                       verifiedMethodKey={verifiedMethodKey}
                       onSuccess={invalidateIntent}
                     />
                   ))}
                 </div>
-              )}
-            </div>
-          ) : null}
-
-          {/* Divider between OAuth and license */}
-          {hasSignInMethods && hasLicense ? (
-            <div className="vp-methods-divider">
-              <span className="vp-methods-divider-label">or enter license key</span>
-            </div>
-          ) : null}
-
-          {/* License key section */}
-          {hasLicense ? (
-            <div className={`vp-section${!hasSignInMethods ? ' vp-section--top' : ''}`}>
-              {!hasSignInMethods ? <p className="vp-section-title">Enter license key</p> : null}
-              {licenseMethods.map((req) => (
-                <LicenseMethodRow
-                  key={req.methodKey}
-                  intentId={intentId}
-                  requirement={req}
-                  provider={null}
-                  verifiedMethodKey={verifiedMethodKey}
-                  onSuccess={invalidateIntent}
-                />
-              ))}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
 
           {/* Entitlement check rows (shown only if no OAuth or they failed) */}
           {hasEntitlement && !hasSignInMethods && !hasLicense ? (
