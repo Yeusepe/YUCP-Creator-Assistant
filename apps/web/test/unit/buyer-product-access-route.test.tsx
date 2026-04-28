@@ -36,8 +36,8 @@ const mockAuthState = {
   isPending: false,
 };
 
-vi.mock('@/hooks/useAuth', () => ({
-  useAuth: () => ({
+vi.mock('@/hooks/usePublicAuth', () => ({
+  usePublicAuth: () => ({
     isAuthenticated: mockAuthState.isAuthenticated,
     isPending: mockAuthState.isPending,
     signIn: signInMock,

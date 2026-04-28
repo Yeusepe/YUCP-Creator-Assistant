@@ -33,13 +33,14 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, or violating transport contracts such as int64 serialization.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, or violating transport contracts such as int64 serialization.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
       'packages/providers/test/lemonsqueezy/module.test.ts',
       'packages/providers/test/vrchat/module.test.ts',
       'apps/api/src/internalRpc/router.test.ts',
+      'apps/api/src/routes/packages.backstage.test.ts',
     ],
     secondaryRegressionHomes: [
       'apps/bot/test/lib/internalRpc.test.ts',
@@ -123,6 +124,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/jinxxy/module.test.ts',
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
+      './apps/api/src/routes/packages.backstage.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',
     ],

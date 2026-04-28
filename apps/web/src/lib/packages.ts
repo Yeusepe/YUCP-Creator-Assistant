@@ -102,8 +102,6 @@ export interface BackstageRepoAccessResponse {
   repositoryUrl: string;
   repositoryName: string;
   addRepoUrl: string;
-  repoTokenHeader: string;
-  repoToken: string;
   expiresAt: number;
 }
 

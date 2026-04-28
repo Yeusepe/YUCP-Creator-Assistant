@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
-import { useAuth } from '@/hooks/useAuth';
+import { usePublicAuth } from '@/hooks/usePublicAuth';
 import { requestBackstageRepoAccess } from '@/lib/packages';
 import {
   createBuyerProductAccessVerificationIntent,
@@ -53,7 +53,7 @@ function BuyerProductAccessPage() {
   const { catalogProductId } = Route.useParams();
   const search = Route.useSearch();
   const toast = useToast();
-  const { isAuthenticated, isPending: isAuthPending, signIn } = useAuth();
+  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [isStartingVerification, setIsStartingVerification] = useState(false);
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
 

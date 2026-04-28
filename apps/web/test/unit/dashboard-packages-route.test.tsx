@@ -567,8 +567,6 @@ describe('dashboard packages route', () => {
       repositoryName: 'Mapache repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
-      repoToken: 'ybt_example',
       expiresAt: 1_710_000_100_000,
     });
     renameCreatorPackageMock.mockResolvedValue({

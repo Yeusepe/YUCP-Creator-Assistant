@@ -20,6 +20,8 @@ const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
+const BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = getBackstageLiveSyncTimeoutMs();
 
 export type PackagesConfig = {
   apiBaseUrl: string;
@@ -124,6 +126,13 @@ const HTML_ENTITY_REPLACEMENTS: Readonly<Record<string, string>> = {
   quot: '"',
 };
 
+class BackstageLiveSyncTimeoutError extends Error {
+  constructor(operation: string, timeoutMs: number) {
+    super(`${operation} timed out after ${timeoutMs}ms`);
+    this.name = 'BackstageLiveSyncTimeoutError';
+  }
+}
+
 function jsonResponse(body: object, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -132,6 +141,39 @@ function jsonResponse(body: object, status = 200): Response {
       'Cache-Control': 'no-store',
     },
   });
+}
+
+function getBackstageLiveSyncTimeoutMs(): number {
+  const configured = process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS?.trim();
+  if (!configured) {
+    return DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+  }
+
+  const parsed = Number.parseInt(configured, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+  }
+
+  return parsed;
+}
+
+async function withBackstageLiveSyncTimeout<T>(promise: Promise<T>, operation: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new BackstageLiveSyncTimeoutError(operation, BACKSTAGE_LIVE_SYNC_TIMEOUT_MS));
+        }, BACKSTAGE_LIVE_SYNC_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 function getAllowedOrigins(config: PackagesConfig): Set<string> {
@@ -355,80 +397,101 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
     return { refreshCatalog: false, overrides: new Map() };
   }
 
-  const knownProducts = new Set(
-    args.existingProducts.map((product) =>
-      buildBackstageProductRecordKey(product.provider, product.providerProductRef)
-    )
-  );
-  const overrides = new Map<string, BackstageProductMetadataOverride>();
-  let refreshCatalog = false;
-
-  for (const provider of args.connectedCatalogProviders) {
-    try {
-      const liveProducts = await listProviderProductsViaApi(
-        {
-          apiBaseUrl: args.config.apiBaseUrl,
-          convexApiSecret: args.config.convexApiSecret,
-        },
-        {
-          authUserId: args.authUserId,
-          provider,
-        }
+  const providerResults = await Promise.all(
+    args.connectedCatalogProviders.map(async (provider) => {
+      const knownProducts = new Set(
+        args.existingProducts
+          .filter((product) => product.provider === provider)
+          .map((product) =>
+            buildBackstageProductRecordKey(product.provider, product.providerProductRef)
+          )
       );
+      const providerOverrides = new Map<string, BackstageProductMetadataOverride>();
+      let refreshCatalog = false;
 
-      for (const liveProduct of liveProducts.products ?? []) {
-        const providerProductRef = liveProduct.id?.trim();
-        if (!providerProductRef) {
-          continue;
-        }
+      try {
+        const liveProducts = await withBackstageLiveSyncTimeout(
+          listProviderProductsViaApi(
+            {
+              apiBaseUrl: args.config.apiBaseUrl,
+              convexApiSecret: args.config.convexApiSecret,
+            },
+            {
+              authUserId: args.authUserId,
+              provider,
+            }
+          ),
+          `Backstage ${provider} product sync`
+        );
 
-        const productKey = buildBackstageProductRecordKey(provider, providerProductRef);
-        const override = buildLiveProductMetadataOverride(liveProduct);
-        if (override) {
-          overrides.set(productKey, override);
-        }
+        for (const liveProduct of liveProducts.products ?? []) {
+          const providerProductRef = liveProduct.id?.trim();
+          if (!providerProductRef) {
+            continue;
+          }
 
-        if (knownProducts.has(productKey)) {
-          continue;
-        }
+          const productKey = buildBackstageProductRecordKey(provider, providerProductRef);
+          const override = buildLiveProductMetadataOverride(liveProduct);
+          if (override) {
+            providerOverrides.set(productKey, override);
+          }
 
-        const canonicalUrl =
-          liveProduct.productUrl?.trim() ?? buildCatalogProductUrl(provider, providerProductRef);
-        if (!canonicalUrl) {
-          logger.warn('Skipping Backstage provider product without canonical URL', {
+          if (knownProducts.has(productKey)) {
+            continue;
+          }
+
+          const canonicalUrl =
+            liveProduct.productUrl?.trim() ?? buildCatalogProductUrl(provider, providerProductRef);
+          if (!canonicalUrl) {
+            logger.warn('Skipping Backstage provider product without canonical URL', {
+              authUserId: args.authUserId,
+              provider,
+              providerProductRef,
+            });
+            continue;
+          }
+
+          await args.convex.mutation(api.role_rules.addCatalogProduct, {
+            apiSecret: args.config.convexApiSecret,
             authUserId: args.authUserId,
-            provider,
+            productId: providerProductRef,
             providerProductRef,
+            provider,
+            canonicalUrl,
+            supportsAutoDiscovery: getProviderDescriptor(provider)?.supportsAutoDiscovery ?? false,
+            ...(liveProduct.name?.trim() ? { displayName: liveProduct.name.trim() } : {}),
+            ...(liveProduct.thumbnailUrl?.trim()
+              ? { thumbnailUrl: liveProduct.thumbnailUrl.trim() }
+              : {}),
           });
-          continue;
+          knownProducts.add(productKey);
+          refreshCatalog = true;
         }
-
-        await args.convex.mutation(api.role_rules.addCatalogProduct, {
-          apiSecret: args.config.convexApiSecret,
+      } catch (error) {
+        logger.warn('Failed to reconcile Backstage provider products from live catalog', {
           authUserId: args.authUserId,
-          productId: providerProductRef,
-          providerProductRef,
           provider,
-          canonicalUrl,
-          supportsAutoDiscovery: getProviderDescriptor(provider)?.supportsAutoDiscovery ?? false,
-          ...(liveProduct.name?.trim() ? { displayName: liveProduct.name.trim() } : {}),
-          ...(liveProduct.thumbnailUrl?.trim()
-            ? { thumbnailUrl: liveProduct.thumbnailUrl.trim() }
-            : {}),
+          timeoutMs:
+            error instanceof BackstageLiveSyncTimeoutError
+              ? BACKSTAGE_LIVE_SYNC_TIMEOUT_MS
+              : undefined,
+          error: error instanceof Error ? error.message : String(error),
         });
-        knownProducts.add(productKey);
-        refreshCatalog = true;
       }
-    } catch (error) {
-      logger.warn('Failed to reconcile Backstage provider products from live catalog', {
-        authUserId: args.authUserId,
-        provider,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
-  return { refreshCatalog, overrides };
+      return {
+        refreshCatalog,
+        overrides: [...providerOverrides.entries()] as Array<
+          readonly [string, BackstageProductMetadataOverride]
+        >,
+      };
+    })
+  );
+
+  return {
+    refreshCatalog: providerResults.some((result) => result.refreshCatalog),
+    overrides: new Map(providerResults.flatMap((result) => result.overrides)),
+  };
 }
 
 async function reconcileBackstageTiersFromConnectedProviders(args: {
@@ -442,81 +505,92 @@ async function reconcileBackstageTiersFromConnectedProviders(args: {
     return false;
   }
 
-  let refreshCatalog = false;
+  const refreshCatalog = await Promise.all(
+    args.existingProducts.map(async (product) => {
+      if (!args.connectedCatalogProviders.includes(product.provider)) {
+        return false;
+      }
 
-  for (const product of args.existingProducts) {
-    if (!args.connectedCatalogProviders.includes(product.provider)) {
-      continue;
-    }
+      const descriptor = getProviderDescriptor(product.provider);
+      if (
+        !descriptor?.capabilities.includes('tier_entitlements') &&
+        !descriptor?.capabilities.includes('subscriptions')
+      ) {
+        return false;
+      }
 
-    const descriptor = getProviderDescriptor(product.provider);
-    if (
-      !descriptor?.capabilities.includes('tier_entitlements') &&
-      !descriptor?.capabilities.includes('subscriptions')
-    ) {
-      continue;
-    }
+      const liveProductId = product.providerProductRef?.trim() || product.productId?.trim();
+      if (!liveProductId) {
+        return false;
+      }
 
-    const liveProductId = product.providerProductRef?.trim() || product.productId?.trim();
-    if (!liveProductId) {
-      continue;
-    }
+      let productRefreshCatalog = false;
 
-    try {
-      const liveTiers = await listProviderTiersViaApi(
-        {
-          apiBaseUrl: args.config.apiBaseUrl,
-          convexApiSecret: args.config.convexApiSecret,
-        },
-        {
-          authUserId: args.authUserId,
-          provider: product.provider,
-          productId: liveProductId,
+      try {
+        const liveTiers = await withBackstageLiveSyncTimeout(
+          listProviderTiersViaApi(
+            {
+              apiBaseUrl: args.config.apiBaseUrl,
+              convexApiSecret: args.config.convexApiSecret,
+            },
+            {
+              authUserId: args.authUserId,
+              provider: product.provider,
+              productId: liveProductId,
+            }
+          ),
+          `Backstage ${product.provider} tier sync for ${liveProductId}`
+        );
+
+        const existingTierMap = new Map(
+          (product.catalogTiers ?? []).map((tier) => [tier.providerTierRef, tier] as const)
+        );
+
+        for (const liveTier of liveTiers.tiers ?? []) {
+          const providerTierRef = liveTier.id?.trim();
+          if (!providerTierRef) {
+            continue;
+          }
+
+          const existingTier = existingTierMap.get(providerTierRef);
+          if (!shouldUpsertLiveTier({ existingTier, liveTier })) {
+            continue;
+          }
+
+          await args.convex.mutation(api.catalogTiers.upsertCatalogTier, {
+            apiSecret: args.config.convexApiSecret,
+            authUserId: args.authUserId,
+            provider: product.provider,
+            productId: product.productId,
+            catalogProductId: product._id as Id<'product_catalog'>,
+            providerProductRef: product.providerProductRef,
+            providerTierRef,
+            displayName: liveTier.name?.trim() || existingTier?.displayName || providerTierRef,
+            description: normalizeRichTextToPlainText(liveTier.description),
+            amountCents: normalizeAmountCents(liveTier.amountCents),
+            currency: liveTier.currency?.trim(),
+            status: resolveLiveTierStatus(liveTier, existingTier),
+          });
+          productRefreshCatalog = true;
         }
-      );
-
-      const existingTierMap = new Map(
-        (product.catalogTiers ?? []).map((tier) => [tier.providerTierRef, tier] as const)
-      );
-
-      for (const liveTier of liveTiers.tiers ?? []) {
-        const providerTierRef = liveTier.id?.trim();
-        if (!providerTierRef) {
-          continue;
-        }
-
-        const existingTier = existingTierMap.get(providerTierRef);
-        if (!shouldUpsertLiveTier({ existingTier, liveTier })) {
-          continue;
-        }
-
-        await args.convex.mutation(api.catalogTiers.upsertCatalogTier, {
-          apiSecret: args.config.convexApiSecret,
+      } catch (error) {
+        logger.warn('Failed to reconcile Backstage provider tiers from live catalog', {
           authUserId: args.authUserId,
           provider: product.provider,
           productId: product.productId,
-          catalogProductId: product._id as Id<'product_catalog'>,
-          providerProductRef: product.providerProductRef,
-          providerTierRef,
-          displayName: liveTier.name?.trim() || existingTier?.displayName || providerTierRef,
-          description: normalizeRichTextToPlainText(liveTier.description),
-          amountCents: normalizeAmountCents(liveTier.amountCents),
-          currency: liveTier.currency?.trim(),
-          status: resolveLiveTierStatus(liveTier, existingTier),
+          timeoutMs:
+            error instanceof BackstageLiveSyncTimeoutError
+              ? BACKSTAGE_LIVE_SYNC_TIMEOUT_MS
+              : undefined,
+          error: error instanceof Error ? error.message : String(error),
         });
-        refreshCatalog = true;
       }
-    } catch (error) {
-      logger.warn('Failed to reconcile Backstage provider tiers from live catalog', {
-        authUserId: args.authUserId,
-        provider: product.provider,
-        productId: product.productId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
 
-  return refreshCatalog;
+      return productRefreshCatalog;
+    })
+  );
+
+  return refreshCatalog.some(Boolean);
 }
 
 async function resolveViewer(
@@ -607,8 +681,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         repositoryUrl,
         repositoryName: creatorRepoIdentity.repositoryName,
         addRepoUrl: buildBackstageAddRepoUrl(repositoryUrl, issued.token),
-        repoTokenHeader: BACKSTAGE_REPO_TOKEN_HEADER,
-        repoToken: issued.token,
         expiresAt: issued.expiresAt,
       });
     } catch (error) {

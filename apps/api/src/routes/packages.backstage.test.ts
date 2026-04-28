@@ -75,7 +75,14 @@ mock.module('../internalRpc/router', () => ({
   listProviderTiersViaApi: (...args: unknown[]) => listProviderTiersViaApiImpl(...args),
 }));
 
+const originalBackstageLiveSyncTimeoutMs = process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = '25';
 const { createPackageRoutes } = await import('./packages');
+if (originalBackstageLiveSyncTimeoutMs === undefined) {
+  delete process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+} else {
+  process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = originalBackstageLiveSyncTimeoutMs;
+}
 
 describe('package Backstage publishing routes', () => {
   const routes = createPackageRoutes(
@@ -281,17 +288,18 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    const payload = await response.json();
+    expect(payload).toEqual({
       creatorName: 'Mapache',
       creatorRepoRef: 'mapache',
       repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
       repositoryName: 'Mapache repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
-      repoToken: 'ybt_example',
       expiresAt: 1_710_000_000_000,
     });
+    expect(payload).not.toHaveProperty('repoToken');
+    expect(payload).not.toHaveProperty('repoTokenHeader');
   });
 
   it('falls back to generic repo labeling for synthetic creator names', async () => {
@@ -338,10 +346,10 @@ describe('package Backstage publishing routes', () => {
       repositoryName: 'Actual Discord Name repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fauth-user-1%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
-      repoToken: 'ybt_example',
       expiresAt: 1_710_000_000_000,
     });
+    expect(payload).not.toHaveProperty('repoToken');
+    expect(payload).not.toHaveProperty('repoTokenHeader');
   });
 
   it('lists creator product links for the Backstage release picker', async () => {
@@ -784,6 +792,84 @@ describe('package Backstage publishing routes', () => {
           supportsAutoDiscovery: false,
           updatedAt: 1_710_000_000_001,
         },
+      ],
+    });
+  });
+
+  it('returns stored products when live provider sync stalls', async () => {
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'providerConnections.getConnectionStatus':
+          return { gumroad: true };
+        case 'packageRegistry.listByAuthUser':
+          return {
+            data: [
+              {
+                _id: 'product_1',
+                aliases: ['Backstage Bundle'],
+                productId: 'gumroad-product-1',
+                provider: 'gumroad',
+                providerProductRef: 'gumroad-product-1',
+                displayName: 'Backstage Bundle',
+                thumbnailUrl: 'https://public-files.gumroad.com/backstage-bundle.png',
+                canonicalSlug: 'backstage-bundle',
+                status: 'active',
+                supportsAutoDiscovery: true,
+                updatedAt: 1_710_000_000_000,
+                canArchive: true,
+                canDelete: false,
+                canRestore: false,
+                deleteBlockedReason: 'Product has package history.',
+                catalogTiers: [],
+                backstagePackages: [],
+              },
+            ],
+            hasMore: false,
+            nextCursor: null,
+          };
+        default:
+          return [];
+      }
+    };
+
+    listProviderProductsViaApiImpl = async () => new Promise<never>(() => {});
+
+    const outcome = (await Promise.race([
+      routes
+        .listBackstageProducts(
+          new Request('https://api.test/api/packages/backstage/products', {
+            method: 'GET',
+            headers: {
+              authorization: 'Bearer oauth-token',
+            },
+          })
+        )
+        .then(async (response) => ({
+          type: 'response' as const,
+          status: response.status,
+          payload: await response.json(),
+        })),
+      new Promise<{ type: 'timeout' }>((resolve) =>
+        setTimeout(() => resolve({ type: 'timeout' }), 250)
+      ),
+    ])) as
+      | { type: 'response'; status: number; payload: { products: Array<Record<string, unknown>> } }
+      | { type: 'timeout' };
+
+    expect(outcome).not.toEqual({ type: 'timeout' });
+    if (outcome.type !== 'response') {
+      throw new Error('Backstage products response timed out');
+    }
+
+    expect(outcome.status).toBe(200);
+    expect(outcome.payload).toEqual({
+      products: [
+        expect.objectContaining({
+          catalogProductId: 'product_1',
+          displayName: 'Backstage Bundle',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-product-1',
+        }),
       ],
     });
   });

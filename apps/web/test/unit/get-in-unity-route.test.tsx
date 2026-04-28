@@ -21,8 +21,8 @@ vi.mock('@/components/three/CloudBackground', () => ({
   ),
 }));
 
-vi.mock('@/hooks/useAuth', () => ({
-  useAuth: vi.fn(),
+vi.mock('@/hooks/usePublicAuth', () => ({
+  usePublicAuth: vi.fn(),
 }));
 
 vi.mock('@/lib/backstageAccess', () => ({
@@ -31,7 +31,7 @@ vi.mock('@/lib/backstageAccess', () => ({
   requestUserBackstageRepoAccess: vi.fn(),
 }));
 
-import { useAuth } from '@/hooks/useAuth';
+import { usePublicAuth } from '@/hooks/usePublicAuth';
 import * as backstageAccessApi from '@/lib/backstageAccess';
 import { Route as GetInUnityRoute } from '@/routes/get-in-unity.$creatorRef.$productRef';
 
@@ -65,7 +65,7 @@ describe('get in unity route', () => {
       intent_id: undefined,
     });
 
-    vi.mocked(useAuth).mockReturnValue({
+    vi.mocked(usePublicAuth).mockReturnValue({
       isAuthenticated: false,
       isPending: false,
       signIn: signInMock,
@@ -111,7 +111,7 @@ describe('get in unity route', () => {
       grant: 'grant-token',
       intent_id: 'intent_1',
     });
-    vi.mocked(useAuth).mockReturnValue({
+    vi.mocked(usePublicAuth).mockReturnValue({
       isAuthenticated: true,
       isPending: false,
       signIn: signInMock,
@@ -124,8 +124,6 @@ describe('get in unity route', () => {
       repositoryName: 'Mapache repo',
       addRepoUrl:
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
-      repoToken: 'ybt_example',
       expiresAt: Date.now() + 60_000,
     });
 

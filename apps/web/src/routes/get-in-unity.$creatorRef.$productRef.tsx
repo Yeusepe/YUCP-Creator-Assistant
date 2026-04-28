@@ -4,7 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Copy, ExternalLink, LogIn, Package, ShieldCheck, Store } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
-import { useAuth } from '@/hooks/useAuth';
+import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
   createBuyerBackstageVerificationIntent,
   getBuyerBackstageAccessInfo,
@@ -41,7 +41,7 @@ function buildReturnUrl(href: string): string {
 function BuyerUnityAccessPage() {
   const { creatorRef, productRef } = Route.useParams();
   const { grant } = Route.useSearch();
-  const { isAuthenticated, isPending: isAuthPending, signIn } = useAuth();
+  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   const accessQuery = useQuery({
