@@ -7,7 +7,8 @@ export const patreon = {
   status: 'active',
   docsUrl: 'https://docs.patreon.com',
   emojiKey: 'Patreon',
-  addProductDescription: 'Pick a campaign from your connected Patreon creator account',
+  addProductDescription:
+    'Pick a campaign from Patreon connected to your Creator Identity',
   creatorAuthModes: ['oauth'],
   buyerVerificationMethods: ['account_link'],
   capabilities: ['catalog_sync', 'tier_catalog', 'tier_entitlements', 'subscriptions'],

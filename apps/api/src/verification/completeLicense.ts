@@ -37,7 +37,7 @@ interface CompleteLicenseLegacyIdentityInput {
 }
 
 interface CompleteLicenseExplicitIdentityInput {
-  /** Creator account that owns the product and store credentials used for verification. */
+  /** Creator Identity that owns the product and store credentials used for verification. */
   creatorAuthUserId: string;
   /** Buyer account that should own the linked external account. */
   buyerAuthUserId: string;

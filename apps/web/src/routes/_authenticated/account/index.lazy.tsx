@@ -130,7 +130,7 @@ function AccountProfile() {
 
         <div className="account-pill-row">
           <StatusChip status="connected" label="Discord linked" />
-          <ProviderChip name={isCreator ? 'Creator account' : 'Personal account'} />
+          <ProviderChip name={isCreator ? 'Creator Identity' : 'Personal account'} />
           {accountsQuery.isSuccess &&
             connectedLabels.map(({ key, label }, index) => (
               <ProviderChip
@@ -287,10 +287,10 @@ function AccountProfile() {
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow={isCreator ? 'Creator mode' : 'Get started'}
-        title={isCreator ? 'Your creator workspace is ready' : 'Unlock the creator dashboard'}
+        title={isCreator ? 'Your Creator Identity is ready' : 'Unlock the creator dashboard'}
         description={
           isCreator
-            ? 'Switch from account controls into your creator workspace whenever you want.'
+            ? 'Switch from account controls into your Creator Identity whenever you want.'
             : 'Invite the bot to a Discord server to unlock storefront connections, role automation, and creator-only tooling.'
         }
       >

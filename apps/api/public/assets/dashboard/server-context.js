@@ -434,7 +434,7 @@ export function initServerContext(deps) {
         {
           emoji: '⚠️', title: 'Warning: Disconnect Server', color: '#ffa500',
           borderColor: 'rgba(255,165,0,0.2)', bgColor: 'rgba(255,165,0,0.15)', borderBtn: 'rgba(255,165,0,0.3)',
-          text: () => `You are about to disconnect <strong style="color:#fff;">${escHtml(getServerName())}</strong> from your Creator Assistant account. This will completely stop role verification.`,
+          text: () => `You are about to disconnect <strong style="color:#fff;">${escHtml(getServerName())}</strong> from your Creator Identity. This will completely stop role verification.`,
           btn: 'I understand, continue',
         },
         {

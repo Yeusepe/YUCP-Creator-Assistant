@@ -200,7 +200,7 @@ export async function runSetupStartUnconfigured(
       {
         name: '1. Sign In & Register This Server',
         value:
-          'Click the button below, sign in with your creator account, and the dashboard will link this server for you.',
+          'Click the button below, sign in with your Creator Identity, and the dashboard will link this server for you.',
         inline: false,
       },
       {

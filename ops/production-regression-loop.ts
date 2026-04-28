@@ -71,7 +71,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, write entitlements for the correct auth user, and preserve degraded or failure signals all the way to the public surface.',
+      'Verification must resolve the buyer subject, write entitlements for the correct auth user, preserve degraded or failure signals all the way to the public surface, and keep actor-protected Convex helper contracts aligned with the API service actor envelope.',
     primaryRegressionHomes: [
       'apps/api/src/verification/completeLicense.test.ts',
       'apps/api/src/routes/connect.user-verify.behavior.test.ts',

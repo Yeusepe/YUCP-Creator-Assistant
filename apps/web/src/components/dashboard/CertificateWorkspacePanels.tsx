@@ -210,7 +210,7 @@ export function CertificateFeatureShowcase() {
             icon: '/Icons/Shield.png',
             colorClass: 'cert-feature-icon--blue',
             title: 'Verified identity',
-            desc: 'Packages are signed with a certificate tied to your creator profile.',
+            desc: 'Packages are signed with a certificate tied to your Creator Identity.',
           },
           {
             icon: '/Icons/Laptop.png',

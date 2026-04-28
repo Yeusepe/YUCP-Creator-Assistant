@@ -303,8 +303,7 @@ function BuyerProductAccessPage() {
                             Sign in with your Creator Identity
                           </p>
                           <p className="vp-access-signin-copy">
-                            Use your Creator Identity account in VCC so this purchase links
-                            correctly.
+                            Use your Creator Identity in VCC so this purchase links correctly.
                           </p>
                         </div>
                       </div>
@@ -365,7 +364,7 @@ function BuyerProductAccessPage() {
                 {isViewerPending
                   ? 'We are checking your account before showing the active step.'
                   : isSignedOut
-                    ? 'You only need to do this once for your Creator Identity account.'
+                    ? 'You only need to do this once for your Creator Identity.'
                     : 'Complete the active step, then continue in Unity.'}
               </p>
             </div>
@@ -374,7 +373,7 @@ function BuyerProductAccessPage() {
                 index={0}
                 currentStep={currentStep}
                 title="Sign in"
-                description="Choose your Creator Identity account in VCC."
+                description="Choose your Creator Identity in VCC."
               />
               <AccessStep
                 index={1}

@@ -115,7 +115,7 @@ export default function DashboardCertificates() {
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Certificates belong to your creator identity. Return to your root dashboard to
+                  Certificates belong to your Creator Identity. Return to your root dashboard to
                   manage enrolled machines and revocations.
                 </p>
               </div>

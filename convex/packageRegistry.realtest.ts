@@ -28,6 +28,21 @@ async function createAuthUserActorBinding(authUserId: string) {
   );
 }
 
+async function createServiceActorBinding(scopes: readonly string[]) {
+  const now = Date.now();
+  return await createApiActorBinding(
+    {
+      version: 1,
+      kind: 'service',
+      service: 'api-server',
+      scopes: [...scopes],
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    },
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
 async function sha256Hex(input: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', toArrayBuffer(input));
   return Array.from(new Uint8Array(digest))
@@ -131,6 +146,29 @@ describe('packageRegistry', () => {
 
     expect(registration?.publisherId).toBe('publisher-2');
     expect(registration?.packageName).toBe('Creator Suite+');
+  });
+
+  it('allows actor-protected package lookups used by hosted verification helpers', async () => {
+    const t = makeTestConvex();
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'pkg.lookup',
+      packageName: 'Lookup Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-lookup',
+    });
+
+    const registration = await t.query(api.packageRegistry.lookupRegistration, {
+      apiSecret: 'test-secret',
+      actor: await createServiceActorBinding(['verification-intents:service']),
+      packageId: 'pkg.lookup',
+    });
+
+    expect(registration).toEqual({
+      packageId: 'pkg.lookup',
+      yucpUserId: 'auth-user-lookup',
+      status: 'active',
+    });
   });
 
   it('does not disclose the owning creator when a different creator hits a package namespace conflict', async () => {

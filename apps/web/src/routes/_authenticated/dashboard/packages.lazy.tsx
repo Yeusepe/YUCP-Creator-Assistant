@@ -89,7 +89,7 @@ export default function DashboardPackages() {
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Package ownership belongs to your creator account. Open the root dashboard to
+                  Package ownership belongs to your Creator Identity. Open the root dashboard to
                   manage install IDs.
                 </p>
               </div>

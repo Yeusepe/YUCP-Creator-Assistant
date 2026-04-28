@@ -1487,7 +1487,7 @@ type PackageRegistrationLookupResult = {
 } | null;
 
 export const lookupRegistration = query({
-  args: { apiSecret: v.string(), packageId: v.string() },
+  args: { apiSecret: v.string(), actor: ApiActorBindingV, packageId: v.string() },
   returns: v.union(
     v.null(),
     v.object({
@@ -1498,6 +1498,7 @@ export const lookupRegistration = query({
   ),
   handler: async (ctx, args): Promise<PackageRegistrationLookupResult> => {
     requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
     const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
       packageId: args.packageId,
     });

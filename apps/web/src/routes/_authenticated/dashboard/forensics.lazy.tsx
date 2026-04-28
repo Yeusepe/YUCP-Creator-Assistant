@@ -292,7 +292,7 @@ export default function DashboardForensics() {
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Leak tracing is scoped to your creator account. Open it from your root creator
+                  Leak tracing is scoped to your Creator Identity. Open it from your root creator
                   dashboard.
                 </p>
               </div>

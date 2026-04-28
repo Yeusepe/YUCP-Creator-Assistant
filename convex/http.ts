@@ -789,7 +789,7 @@ http.route({
     const tenantDuration = performance.now() - tenantStart;
     if (!tenant) {
       console.log(`[products] No creator profile found for user ${tokenResult.yucpUserId}`);
-      return errorResponse('Creator account not found', 404);
+      return errorResponse('Creator Identity not found', 404);
     }
 
     const productSources = new Map<string, string | null>();
@@ -1740,7 +1740,7 @@ http.route({
     const creatorProfile = await ctx.runQuery(internal.yucpLicenses.getTenantByAuthUser, {
       ownerAuthUserId: creatorAuthUserId,
     });
-    if (!creatorProfile) return errorResponse('Creator account not found', 404);
+    if (!creatorProfile) return errorResponse('Creator Identity not found', 404);
 
     // Check for an active entitlement
     const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {

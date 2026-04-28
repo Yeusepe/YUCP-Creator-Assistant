@@ -119,7 +119,7 @@ describe('sign-in passkey flows', () => {
       recoveryPasskeyContext: 'recovery-context-token',
     });
     addPasskeyMock.mockResolvedValue({
-      data: { id: 'passkey-1', name: 'Creator account passkey' },
+      data: { id: 'passkey-1', name: 'Creator Identity passkey' },
       error: null,
     });
     signInPasskeyMock.mockResolvedValue({

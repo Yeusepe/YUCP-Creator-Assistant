@@ -24,12 +24,16 @@ vi.mock('@/components/three/CloudBackground', () => ({
   ),
 }));
 
-vi.mock('@/lib/account', () => ({
-  getUserVerificationIntent: vi.fn(),
-  verifyUserVerificationEntitlement: vi.fn(),
-  verifyUserVerificationManualLicense: vi.fn(),
-  verifyUserVerificationProviderLink: vi.fn(),
-}));
+vi.mock('@/lib/account', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/account')>('@/lib/account');
+  return {
+    ...actual,
+    getUserVerificationIntent: vi.fn(),
+    verifyUserVerificationEntitlement: vi.fn(),
+    verifyUserVerificationManualLicense: vi.fn(),
+    verifyUserVerificationProviderLink: vi.fn(),
+  };
+});
 
 vi.mock('@/lib/backstageAccess', () => ({
   requestUserBackstageRepoAccess: vi.fn(),
@@ -561,7 +565,9 @@ describe('verify purchase route', () => {
     await waitFor(() => expect(accountApi.getUserVerificationIntent).toHaveBeenCalled());
     await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
 
-    expect((await screen.findAllByText(/sign in to verify/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/linked stores|sign in to verify/i)).length).toBeGreaterThan(
+      0
+    );
     expect(await screen.findByText(/jinxxy-main/i)).toBeInTheDocument();
     expect(
       (await screen.findAllByRole('button', { name: /verify purchase/i })).length
