@@ -183,6 +183,7 @@ describe('verify purchase route', () => {
 
     await waitFor(() => expect(accountApi.getUserVerificationIntent).toHaveBeenCalled());
     await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
+    expect(dashboardApi.listUserProviders).not.toHaveBeenCalled();
 
     expect(await screen.findByText(/gumroad-main/i)).toBeInTheDocument();
     expect(await screen.findByText(/gumroad-alt/i)).toBeInTheDocument();
@@ -201,8 +202,8 @@ describe('verify purchase route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     await waitFor(() => expect(accountApi.getUserVerificationIntent).toHaveBeenCalled());
-    await waitFor(() => expect(dashboardApi.listUserProviders).toHaveBeenCalled());
     await waitFor(() => expect(dashboardApi.listUserAccounts).toHaveBeenCalled());
+    expect(dashboardApi.listUserProviders).not.toHaveBeenCalled();
 
     expect(await screen.findByLabelText('Loading store connections')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^sign in$/i })).not.toBeInTheDocument();

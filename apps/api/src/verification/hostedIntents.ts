@@ -69,6 +69,35 @@ export function decorateHostedVerificationRequirement(
   return hostedVerificationService.decorateRequirement(requirement);
 }
 
+export function shouldResolveLinkedEntitlementRequirements(intent: HostedVerificationIntentRecord) {
+  const existingEntitlementProviders = new Set(
+    intent.requirements
+      .filter((requirement) => requirement.kind === 'existing_entitlement')
+      .map((requirement) => requirement.providerKey)
+  );
+  const buyerProviderLinkProviders = new Set(
+    intent.requirements
+      .filter((requirement) => requirement.kind === 'buyer_provider_link')
+      .map((requirement) => requirement.providerKey)
+  );
+
+  return intent.requirements.some((requirement) => {
+    if (requirement.kind !== 'manual_license') {
+      return false;
+    }
+
+    const descriptor = getProviderDescriptor(requirement.providerKey);
+    if (!descriptor?.buyerVerificationMethods.includes('account_link')) {
+      return false;
+    }
+
+    return (
+      !existingEntitlementProviders.has(requirement.providerKey) &&
+      !buyerProviderLinkProviders.has(requirement.providerKey)
+    );
+  });
+}
+
 export async function buildLinkedEntitlementRequirements(
   intent: HostedVerificationIntentRecord,
   linkedProviders: Iterable<string>,

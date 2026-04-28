@@ -284,14 +284,7 @@ describe('GET /api/connect/user/accounts', () => {
     await expect(creatorResponse.json()).resolves.toEqual({
       connections: [],
     });
-    expect(convexMutationMock).toHaveBeenNthCalledWith(
-      1,
-      apiMock.subjects.reconcileBuyerProviderLinksForAuthUser,
-      {
-        apiSecret: 'test-convex-secret',
-        authUserId: 'creator_auth_user_A',
-      }
-    );
+    expect(convexMutationMock).not.toHaveBeenCalled();
     expect(store.snapshot()[0]?.status).toBe('active');
 
     const creatorDisconnect = await creatorRoutes.deleteUserAccount(
@@ -356,6 +349,42 @@ describe('GET /api/connect/user/accounts', () => {
     await expect(buyerAfterDisconnect.json()).resolves.toEqual({
       connections: [],
     });
+  });
+
+  it('reconciles buyer provider links only when refresh=1 is requested', async () => {
+    const store = createBuyerProviderLinkStore([
+      createBuyerProviderLinkRecord({
+        authUserId: 'buyer_auth_user_B',
+      }),
+    ]);
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference !== apiMock.subjects.listBuyerProviderLinksForAuthUser) {
+        throw new Error(`Unexpected query reference: ${String(reference)}`);
+      }
+
+      return store.listBuyerProviderLinks((args as { authUserId: string }).authUserId);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown) => {
+      if (reference !== apiMock.subjects.reconcileBuyerProviderLinksForAuthUser) {
+        throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+      }
+
+      return { reconciledCount: 0 };
+    });
+
+    const routes = createRoutes('buyer_auth_user_B');
+    const response = await routes.getUserAccounts(
+      new Request('http://localhost:3001/api/connect/user/accounts?refresh=1')
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.subjects.reconcileBuyerProviderLinksForAuthUser,
+      {
+        apiSecret: 'test-convex-secret',
+        authUserId: 'buyer_auth_user_B',
+      }
+    );
   });
 
   for (const matrixCase of BUYER_PROVIDER_LINK_SURFACE_MATRIX) {

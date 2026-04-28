@@ -15,6 +15,7 @@ import {
   buildLinkedEntitlementRequirements,
   type HostedVerificationIntentRecord,
   mapHostedVerificationIntentResponse,
+  shouldResolveLinkedEntitlementRequirements,
   verifyHostedBuyerProviderLinkIntent,
   verifyHostedManualLicenseIntent,
 } from '../verification/hostedIntents';
@@ -163,7 +164,14 @@ export function createConnectUserVerificationRoutes({
     }
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const links = await reconcileBuyerVerificationAccounts(convex, session.user.id);
+      const url = new URL(request.url);
+      const shouldRefresh = url.searchParams.get('refresh') === '1';
+      const links = shouldRefresh
+        ? await reconcileBuyerVerificationAccounts(convex, session.user.id)
+        : await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+            apiSecret: config.convexApiSecret,
+            authUserId: session.user.id,
+          });
       return Response.json({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
@@ -317,13 +325,14 @@ export function createConnectUserVerificationRoutes({
         authUserId: session.user.id,
         intentId: intentId as Id<'verification_intents'>,
       });
-      const intent = storedIntent
-        ? await ensureLinkedEntitlementRequirements(
-            convex,
-            storedIntent as HostedVerificationIntentRecord,
-            session.user.id
-          )
-        : null;
+      const intent =
+        storedIntent && shouldResolveLinkedEntitlementRequirements(storedIntent)
+          ? await ensureLinkedEntitlementRequirements(
+              convex,
+              storedIntent as HostedVerificationIntentRecord,
+              session.user.id
+            )
+          : storedIntent;
       if (!intent) {
         const diagnostic = await convex.query(api.verificationIntents.getIntentAccessDiagnostic, {
           apiSecret: config.convexApiSecret,
@@ -426,7 +435,7 @@ export function createConnectUserVerificationRoutes({
         authUserId: session.user.id,
         intentId: intentId as Id<'verification_intents'>,
       });
-      if (storedIntent) {
+      if (storedIntent && shouldResolveLinkedEntitlementRequirements(storedIntent)) {
         await ensureLinkedEntitlementRequirements(
           convex,
           storedIntent as HostedVerificationIntentRecord,

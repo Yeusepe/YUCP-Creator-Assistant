@@ -213,6 +213,22 @@ export function createGumroadBuyerLinkPlugin(): BuyerLinkPlugin {
         productId = storeContext.creatorProductId;
       }
 
+      const hasExistingEntitlement = await ctx.convex.query(
+        internal.yucpLicenses.checkSubjectEntitlement,
+        {
+          authUserId: creatorAuthUserId,
+          subjectId: subjectResult.subject._id,
+          productId,
+        }
+      );
+      if (hasExistingEntitlement) {
+        await ctx.convex.mutation(internal.verificationIntents.markIntentVerified, {
+          intentId: input.intentId,
+          methodKey: input.methodKey,
+        });
+        return { success: true };
+      }
+
       const accountInfo = await ctx.convex.query(internal.subjects.getExternalAccountEmailHash, {
         externalAccountId: buyerProviderLink.externalAccountId,
       });

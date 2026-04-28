@@ -234,9 +234,10 @@ export async function startUserVerify(
   });
 }
 
-export async function listUserAccounts() {
+export async function listUserAccounts(options?: { refresh?: boolean }) {
   const data = await apiClient.get<{ connections?: UserAccountConnection[] }>(
-    '/api/connect/user/accounts'
+    '/api/connect/user/accounts',
+    options?.refresh ? { params: { refresh: '1' } } : undefined
   );
   return data.connections ?? [];
 }
