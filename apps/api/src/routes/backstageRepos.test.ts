@@ -169,8 +169,8 @@ describe('backstage repo routes', () => {
       creatorRepoRef: 'mapache',
       repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
       repositoryName: 'Mapache repo',
-      repoToken: 'ybt_example',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
     });
   });
 
@@ -237,9 +237,11 @@ describe('backstage repo routes', () => {
       creatorRepoRef: 'auth-user-1',
       repositoryUrl: 'https://api.test/v1/backstage/repos/auth-user-1/index.json',
       repositoryName: 'Actual Discord Name repo',
-      repoToken: 'ybt_example',
-      repoTokenHeader: 'X-YUCP-Repo-Token',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fauth-user-1%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
     });
+    expect(payload).not.toHaveProperty('repoToken');
+    expect(payload).not.toHaveProperty('repoTokenHeader');
   });
 
   it('does not expose the session-backed API route when session access is disabled', async () => {

@@ -332,8 +332,6 @@ async function issueRepoAccess(
     repositoryUrl,
     repositoryName: creatorRepoIdentity.repositoryName,
     addRepoUrl,
-    repoTokenHeader: BACKSTAGE_REPO_TOKEN_HEADER,
-    repoToken: issued.token,
     expiresAt: issued.expiresAt,
   });
 }

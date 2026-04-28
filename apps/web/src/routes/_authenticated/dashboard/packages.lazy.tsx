@@ -1,9 +1,9 @@
-import { Spinner } from '@heroui/react';
 import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
@@ -15,13 +15,7 @@ function DashboardPackagesLoadingShell() {
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <section
-          className="intg-card animate-in bento-col-12 flex min-h-[220px] items-center justify-center py-12"
-          aria-busy="true"
-          aria-label="Loading packages"
-        >
-          <Spinner size="lg" color="accent" />
-        </section>
+        <PackageRegistryWorkspaceSkeleton showHeader />
       </div>
     </div>
   );

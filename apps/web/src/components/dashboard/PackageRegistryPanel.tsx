@@ -31,6 +31,7 @@ import {
 import type { ComponentPropsWithoutRef, Key, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';
+import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
@@ -1714,25 +1715,11 @@ export function PackageRegistryPanel({
         ) : null}
 
         {isWorkspaceLoading ? (
-          <Card className="pm-card pm-primary-panel rounded-2xl shadow-none">
-            <Card.Content className="flex flex-col gap-5 p-6 md:flex-row md:items-center md:justify-between">
-              <div className="flex min-w-0 gap-4">
-                <div className="pm-icon-shell text-accent flex size-12 shrink-0 items-center justify-center rounded-2xl">
-                  <Package2 className="size-6" />
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <p className="text-foreground text-base font-semibold">Loading packages</p>
-                  <p className="text-muted text-sm">
-                    Syncing install IDs, product links, and repo access.
-                  </p>
-                </div>
-              </div>
-              <div className="pm-muted-panel text-foreground inline-flex items-center gap-3 self-start rounded-full px-4 py-2 text-sm md:self-auto">
-                <span className="btn-loading-spinner" aria-hidden="true" />
-                <span>Loading...</span>
-              </div>
-            </Card.Content>
-          </Card>
+          <PackageRegistryWorkspaceSkeleton
+            showHeader={false}
+            className="w-full min-w-0"
+            listRows={4}
+          />
         ) : (
           <div className="flex flex-col gap-4">
             <Card className="pm-card pm-primary-panel rounded-2xl shadow-none">

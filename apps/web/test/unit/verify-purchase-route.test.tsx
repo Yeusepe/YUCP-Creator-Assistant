@@ -624,6 +624,57 @@ describe('verify purchase route', () => {
     expect(await screen.findByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
   });
 
+  it('treats buyer access returns as the follow-up path after verification succeeds', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_buyer_access',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_buyer_access',
+      packageId: 'pkg-verified-3',
+      packageName: 'Buyer Access Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_buyer_access',
+      returnUrl: 'https://app.test/access/catalog_123',
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: 'grant-token-3',
+      grantAvailable: true,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
+      creatorName: 'Mapache',
+      creatorRepoRef: 'mapache',
+      repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
+      repositoryName: 'Mapache repo',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText(/continue back to your buyer access page/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole('link', { name: /continue after adding the repo/i })
+    ).toHaveAttribute(
+      'href',
+      'https://app.test/access/catalog_123?intent_id=intent_verified_buyer_access&grant=grant-token-3'
+    );
+    expect(screen.queryByRole('link', { name: /return to unity/i })).not.toBeInTheDocument();
+  });
+
   it('falls back to Unity when the VCC handoff cannot be prepared', async () => {
     mockUseSearch.mockReturnValue({
       intent: 'intent_verified_return_only',

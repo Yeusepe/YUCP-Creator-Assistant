@@ -27,8 +27,6 @@ export interface BuyerBackstageRepoAccess {
   repositoryUrl: string;
   repositoryName: string;
   addRepoUrl: string;
-  repoTokenHeader: string;
-  repoToken: string;
   expiresAt: number;
 }
 

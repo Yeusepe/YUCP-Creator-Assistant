@@ -1,3 +1,4 @@
+import { Skeleton } from '@heroui/react';
 import type { CSSProperties } from 'react';
 
 import {
@@ -185,6 +186,81 @@ export function DashboardCertificatesSkeleton() {
         <SkeletonPill width="100%" />
       </div>
     </>
+  );
+}
+
+export type PackageRegistryWorkspaceSkeletonProps = {
+  className?: string;
+  /** Full page (route loading) or body only (panel queries while header stays real). */
+  showHeader?: boolean;
+  listRows?: number;
+};
+
+function PackageRegistryRowSkeleton() {
+  return (
+    <div className="pkg-row pkg-row--skeleton">
+      <Skeleton className="size-9 shrink-0 rounded-2xl" />
+      <div className="pkg-row__body min-w-0">
+        <Skeleton className="h-3.5 w-[42%] max-w-[200px] rounded-md" />
+        <Skeleton className="h-3 w-3/5 max-w-[280px] rounded-md" />
+      </div>
+      <Skeleton className="h-7 w-14 shrink-0 rounded-full" />
+      <div className="flex gap-1.5">
+        <Skeleton className="size-8 shrink-0 rounded-lg" />
+        <Skeleton className="size-8 shrink-0 rounded-lg" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Package registry tab loading (HeroUI v3 Skeleton: https://www.heroui.com/docs/react/components/skeleton).
+ * Matches PackageRegistryPanel header + primary panel + pkg-list structure.
+ */
+export function PackageRegistryWorkspaceSkeleton({
+  className = 'bento-col-12',
+  showHeader = true,
+  listRows = 4,
+}: PackageRegistryWorkspaceSkeletonProps) {
+  return (
+    <section
+      className={['flex flex-col gap-4', className].filter(Boolean).join(' ')}
+      aria-label="Loading packages"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {showHeader ? (
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-[64ch] space-y-3">
+            <Skeleton className="h-10 w-48 max-w-full rounded-lg" />
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full max-w-[52ch] rounded-md" />
+              <Skeleton className="h-4 w-[min(100%,48ch)] rounded-md" />
+            </div>
+          </div>
+          <Skeleton className="h-10 w-40 shrink-0 rounded-full" />
+        </div>
+      ) : null}
+
+      <div className="pm-card pm-primary-panel flex flex-col gap-4 rounded-2xl p-4 shadow-none md:p-5">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-6 shrink-0 rounded-md" />
+            <Skeleton className="h-5 w-[min(100%,16rem)] rounded-md" />
+          </div>
+          <Skeleton className="h-4 w-full max-w-2xl rounded-md" />
+          <Skeleton className="h-4 w-[min(100%,32rem)] rounded-md" />
+        </div>
+        <Skeleton className="h-16 w-full max-w-3xl rounded-2xl" />
+      </div>
+
+      <div className="pkg-list">
+        {Array.from({ length: listRows }, (_, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+          <PackageRegistryRowSkeleton key={index} />
+        ))}
+      </div>
+    </section>
   );
 }
 

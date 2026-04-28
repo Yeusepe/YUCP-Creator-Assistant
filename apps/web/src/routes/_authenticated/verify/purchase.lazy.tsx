@@ -56,6 +56,19 @@ function buildReturnUrl(intent: UserVerificationIntent): string | null {
   return url.toString();
 }
 
+function isBuyerAccessReturnUrl(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const pathname = new URL(value).pathname;
+    return pathname.startsWith('/access/') || pathname.startsWith('/get-in-unity/');
+  } catch {
+    return false;
+  }
+}
+
 // ---- Branded OAuth button -------------------------------------------------
 
 interface OAuthButtonProps {
@@ -696,17 +709,7 @@ function VerifyPurchasePage() {
   }, [intent, intentId, justConnectedProvider, oauthReturnState, queryClient]);
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
-  const returnsToBuyerAccess = useMemo(() => {
-    if (!returnToUrl) {
-      return false;
-    }
-
-    try {
-      return new URL(returnToUrl).pathname.startsWith('/get-in-unity/');
-    } catch {
-      return false;
-    }
-  }, [returnToUrl]);
+  const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
   const repoAccessQuery = useQuery({
     queryKey: ['vp-backstage-repo-access'],
     queryFn: requestUserBackstageRepoAccess,
@@ -969,8 +972,9 @@ function VerifyPurchasePage() {
             className="vp-success-subtitle fade-up"
             style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
           >
-            Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Return
-            to Unity and try again.
+            {returnsToBuyerAccess
+              ? 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Continue back to your buyer access page and try again.'
+              : 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Return to Unity and try again.'}
           </p>
         ) : !repoAccessQuery.data && !returnToUrl ? (
           <p
