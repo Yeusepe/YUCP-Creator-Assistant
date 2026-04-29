@@ -1,4 +1,4 @@
-import { zipSync } from 'fflate';
+import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { internal } from './_generated/api';
 import { makeTestConvex } from './testHelpers';
@@ -12,6 +12,64 @@ async function sha256Hex(input: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
+  const encoded = new TextEncoder().encode(value);
+  target.set(encoded.subarray(0, length), offset);
+}
+
+function writeOctal(target: Uint8Array, offset: number, length: number, value: number) {
+  const encoded = value.toString(8).padStart(length - 1, '0');
+  writeAscii(target, offset, length - 1, encoded);
+  target[offset + length - 1] = 0;
+}
+
+function writeChecksum(target: Uint8Array, value: number) {
+  const encoded = value.toString(8).padStart(6, '0');
+  writeAscii(target, 148, 6, encoded);
+  target[154] = 0;
+  target[155] = 0x20;
+}
+
+function buildTarHeader(path: string, size: number): Uint8Array {
+  const header = new Uint8Array(512);
+  writeAscii(header, 0, 100, path);
+  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, size);
+  writeOctal(header, 136, 12, 123);
+  header.fill(0x20, 148, 156);
+  header[156] = '0'.charCodeAt(0);
+  writeAscii(header, 257, 6, 'ustar');
+  writeAscii(header, 263, 2, '00');
+  const checksum = header.reduce((sum, value) => sum + value, 0);
+  writeChecksum(header, checksum);
+  return header;
+}
+
+function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>): Uint8Array {
+  const blocks: Uint8Array[] = [];
+  for (const entry of entries) {
+    const header = buildTarHeader(entry.path, entry.content.byteLength);
+    blocks.push(header);
+    blocks.push(entry.content);
+    const remainder = entry.content.byteLength % 512;
+    if (remainder !== 0) {
+      blocks.push(new Uint8Array(512 - remainder));
+    }
+  }
+  blocks.push(new Uint8Array(1024));
+
+  const totalSize = blocks.reduce((sum, block) => sum + block.byteLength, 0);
+  const tarBytes = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const block of blocks) {
+    tarBytes.set(block, offset);
+    offset += block.byteLength;
+  }
+  return gzipSync(tarBytes, { level: 9, mtime: 123 });
 }
 
 describe('releaseArtifacts.getActiveArtifact', () => {
@@ -164,5 +222,92 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       return await ctx.db.get(deliveryPackageReleaseId);
     });
     expect(release?.zipSha256).toBe(materialized.deliverableSha256);
+  });
+
+  it('wraps unitypackage uploads in a compile-safe backstage installer zip', async () => {
+    const t = makeTestConvex();
+    const uploadBytes = buildUnitypackage([
+      { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+      { path: 'asset-guid/pathname', content: strToU8('Assets/JAMMR/readme.txt') },
+    ]);
+    const uploadSha256 = await sha256Hex(uploadBytes);
+    const storageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([toArrayBuffer(uploadBytes)], { type: 'application/octet-stream' })
+      );
+    });
+
+    const { deliveryPackageReleaseId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.jammr',
+        packageName:
+          'JAMMR | NEW UPDATE: Song recognition | Create/Join Spotify® Jams from within VRChat | VRCFury Ready',
+        displayName:
+          'JAMMR | NEW UPDATE: Song recognition | Create/Join Spotify® Jams from within VRChat | VRCFury Ready',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.jammr',
+        version: '2.1.5',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: uploadSha256,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      return { deliveryPackageReleaseId };
+    });
+
+    const materialized = await t.action(
+      internal.releaseArtifacts.materializeUploadedReleaseDeliverable,
+      {
+        deliveryPackageReleaseId,
+        storageId,
+        contentType: 'application/octet-stream',
+        deliveryName: 'JAMMR_2.1.5.unitypackage',
+        sha256: uploadSha256,
+      }
+    );
+
+    const deliverableArtifact = await t.query(internal.releaseArtifacts.getDeliveryArtifactById, {
+      artifactId: materialized.deliverableArtifactId,
+    });
+    expect(deliverableArtifact).toMatchObject({
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.jammr-2.1.5.zip',
+      materializationStrategy: 'normalized_repack',
+    });
+
+    const deliverableBytes = await t.run(async (ctx) => {
+      const blob = deliverableArtifact ? await ctx.storage.get(deliverableArtifact.storageId) : null;
+      return blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : null;
+    });
+    expect(deliverableBytes).not.toBeNull();
+
+    const archive = unzipSync(new Uint8Array(deliverableBytes!));
+    expect(Object.keys(archive).sort()).toEqual([
+      'BackstagePayload~/backstage-payload.json',
+      'BackstagePayload~/payload.unitypackage',
+      'Editor/Yucp.Backstage.PackageInstaller.asmdef',
+      'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs',
+      'package.json',
+    ]);
+
+    const installerSource = new TextDecoder().decode(
+      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
+    );
+    expect(installerSource).toContain('using UnityEngine;');
+    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
+    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
   });
 });

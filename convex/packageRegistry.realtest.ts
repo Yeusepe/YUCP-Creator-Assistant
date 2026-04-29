@@ -1,5 +1,5 @@
 import { createApiActorBinding } from '@yucp/shared/apiActor';
-import { zipSync } from 'fflate';
+import { gzipSync, strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -48,6 +48,64 @@ async function sha256Hex(input: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((value) => value.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
+  const encoded = new TextEncoder().encode(value);
+  target.set(encoded.subarray(0, length), offset);
+}
+
+function writeOctal(target: Uint8Array, offset: number, length: number, value: number) {
+  const encoded = value.toString(8).padStart(length - 1, '0');
+  writeAscii(target, offset, length - 1, encoded);
+  target[offset + length - 1] = 0;
+}
+
+function writeChecksum(target: Uint8Array, value: number) {
+  const encoded = value.toString(8).padStart(6, '0');
+  writeAscii(target, 148, 6, encoded);
+  target[154] = 0;
+  target[155] = 0x20;
+}
+
+function buildTarHeader(path: string, size: number): Uint8Array {
+  const header = new Uint8Array(512);
+  writeAscii(header, 0, 100, path);
+  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, size);
+  writeOctal(header, 136, 12, 123);
+  header.fill(0x20, 148, 156);
+  header[156] = '0'.charCodeAt(0);
+  writeAscii(header, 257, 6, 'ustar');
+  writeAscii(header, 263, 2, '00');
+  const checksum = header.reduce((sum, value) => sum + value, 0);
+  writeChecksum(header, checksum);
+  return header;
+}
+
+function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>): Uint8Array {
+  const blocks: Uint8Array[] = [];
+  for (const entry of entries) {
+    const header = buildTarHeader(entry.path, entry.content.byteLength);
+    blocks.push(header);
+    blocks.push(entry.content);
+    const remainder = entry.content.byteLength % 512;
+    if (remainder !== 0) {
+      blocks.push(new Uint8Array(512 - remainder));
+    }
+  }
+  blocks.push(new Uint8Array(1024));
+
+  const totalSize = blocks.reduce((sum, block) => sum + block.byteLength, 0);
+  const tarBytes = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const block of blocks) {
+    tarBytes.set(block, offset);
+    offset += block.byteLength;
+  }
+  return gzipSync(tarBytes, { level: 9, mtime: 123 });
 }
 
 async function seedCatalogProduct(
@@ -1103,6 +1161,77 @@ describe('packageRegistry', () => {
     expect(resolved?.artifactId).toBeUndefined();
     expect(resolved?.artifactKey).toBeUndefined();
     expect(resolved?.downloadUrl).toContain('/storage/');
+  });
+
+  it('resolves unitypackage uploads through the centralized zip deliverable resolver', async () => {
+    const t = makeTestConvex();
+    const uploadBytes = buildUnitypackage([
+      { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+      { path: 'asset-guid/pathname', content: strToU8('Assets/JAMMR/readme.txt') },
+    ]);
+    const uploadSha256 = await sha256Hex(uploadBytes);
+    const uploadStorageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([toArrayBuffer(uploadBytes)], { type: 'application/octet-stream' })
+      );
+    });
+
+    const release = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.jammr',
+        packageName: 'JAMMR',
+        displayName: 'JAMMR',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.jammr',
+        version: '2.1.5',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: uploadSha256,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      return { deliveryPackageReleaseId };
+    });
+
+    const materialized = await t.action(
+      internal.releaseArtifacts.materializeUploadedReleaseDeliverable,
+      {
+        deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+        storageId: uploadStorageId,
+        contentType: 'application/octet-stream',
+        deliveryName: 'JAMMR_2.1.5.unitypackage',
+        sha256: uploadSha256,
+      }
+    );
+
+    const resolved = await t.query(internal.packageRegistry.resolveDownloadableArtifactForRelease, {
+      deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+      version: '2.1.5',
+      channel: 'stable',
+      zipSha256: materialized.deliverableSha256,
+    });
+
+    expect(resolved).toMatchObject({
+      deliveryArtifactId: materialized.deliverableArtifactId,
+      deliveryArtifactMode: 'server_materialized',
+      deliveryName: 'vrc-get-com.yucp.jammr-2.1.5.zip',
+      contentType: 'application/zip',
+      zipSha256: materialized.deliverableSha256,
+      version: '2.1.5',
+      channel: 'stable',
+    });
   });
 
   it('issues revocable Backstage repo tokens for an authenticated subject', async () => {

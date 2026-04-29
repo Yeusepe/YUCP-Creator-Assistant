@@ -90,6 +90,13 @@ function listUnitypackageFiles(input: Uint8Array): Record<string, string> {
   return files;
 }
 
+async function sha256Hex(input: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', Uint8Array.from(input));
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 describe('materializeBackstageReleaseArtifact', () => {
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
     const firstInput = zipSync(
@@ -134,7 +141,7 @@ describe('materializeBackstageReleaseArtifact', () => {
     ]);
   });
 
-  it('canonicalizes unitypackage uploads into deterministic deliverable bytes', async () => {
+  it('wraps unitypackage uploads in deterministic compile-safe package zips', async () => {
     const firstInput = buildUnitypackage(
       [
         { path: 'b-guid/asset', content: strToU8('readme-bytes') },
@@ -158,18 +165,61 @@ describe('materializeBackstageReleaseArtifact', () => {
       sourceBytes: firstInput,
       deliveryName: 'example.unitypackage',
       contentType: 'application/octet-stream',
+      packageId: 'com.yucp.example',
+      version: '1.2.3',
+      displayName: 'Example Package',
     });
     const second = await materializeBackstageReleaseArtifact({
       sourceBytes: secondInput,
       deliveryName: 'example.unitypackage',
       contentType: 'application/octet-stream',
+      packageId: 'com.yucp.example',
+      version: '1.2.3',
+      displayName: 'Example Package',
     });
 
     expect(first.materializationStrategy).toBe('normalized_repack');
     expect(first.bytes).toEqual(second.bytes);
     expect(first.sha256).toBe(second.sha256);
     expect(first.bytes).not.toEqual(firstInput);
-    expect(listUnitypackageFiles(first.bytes)).toEqual({
+    expect(first.contentType).toBe('application/zip');
+    expect(first.deliveryName).toBe('vrc-get-com.yucp.example-1.2.3.zip');
+    expect(first.sourceKind).toBe('zip');
+
+    const archive = unzipSync(first.bytes);
+    expect(Object.keys(archive).sort()).toEqual([
+      'BackstagePayload~/backstage-payload.json',
+      'BackstagePayload~/payload.unitypackage',
+      'Editor/Yucp.Backstage.PackageInstaller.asmdef',
+      'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs',
+      'package.json',
+    ]);
+
+    const installerSource = new TextDecoder().decode(
+      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
+    );
+    expect(installerSource).toContain('using UnityEngine;');
+    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
+    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    expect(packageJson).toEqual({
+      name: 'com.yucp.example',
+      version: '1.2.3',
+      displayName: 'Example Package',
+    });
+
+    const payloadManifest = JSON.parse(
+      new TextDecoder().decode(archive['BackstagePayload~/backstage-payload.json'])
+    );
+    expect(payloadManifest).toEqual({
+      packageId: 'com.yucp.example',
+      version: '1.2.3',
+      displayName: 'Example Package',
+      payloadFileName: 'example.unitypackage',
+      payloadSha256: await sha256Hex(archive['BackstagePayload~/payload.unitypackage']),
+    });
+    expect(listUnitypackageFiles(archive['BackstagePayload~/payload.unitypackage'])).toEqual({
       'a-guid/asset': 'png-bytes',
       'a-guid/pathname': 'Assets/Avatar/body.png',
       'b-guid/asset': 'readme-bytes',

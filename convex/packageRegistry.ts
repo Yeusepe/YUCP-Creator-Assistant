@@ -1410,6 +1410,58 @@ export const updateMaterializedReleaseDigest = internalMutation({
   },
 });
 
+export const getDeliveryPackageReleaseById = internalQuery({
+  args: {
+    deliveryPackageReleaseId: v.id('delivery_package_releases'),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id('delivery_package_releases'),
+      deliveryPackageId: v.id('delivery_packages'),
+      packageId: v.string(),
+      version: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const release = await ctx.db.get(args.deliveryPackageReleaseId);
+    if (!release) {
+      return null;
+    }
+    return {
+      _id: release._id,
+      deliveryPackageId: release.deliveryPackageId,
+      packageId: release.packageId,
+      version: release.version,
+    };
+  },
+});
+
+export const getDeliveryPackageById = internalQuery({
+  args: {
+    deliveryPackageId: v.id('delivery_packages'),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      _id: v.id('delivery_packages'),
+      packageName: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const deliveryPackage = await ctx.db.get(args.deliveryPackageId);
+    if (!deliveryPackage) {
+      return null;
+    }
+    return {
+      _id: deliveryPackage._id,
+      packageName: deliveryPackage.packageName,
+      displayName: deliveryPackage.displayName,
+    };
+  },
+});
+
 export const archiveReleaseForAuthUser = mutation({
   args: {
     apiSecret: v.string(),

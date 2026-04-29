@@ -1,17 +1,30 @@
 import { sha256Hex } from '@yucp/shared/crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
 
 describe('gumroad external storefront backfill', () => {
+  let t: ReturnType<typeof makeTestConvex> | null = null;
+
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
+    vi.useFakeTimers();
+  });
+
+  afterEach(async () => {
+    if (t) {
+      await t.finishAllScheduledFunctions(() => {
+        vi.runAllTimers();
+      });
+      t = null;
+    }
+    vi.useRealTimers();
   });
 
   it('projects account-link backfill purchases into entitlements when the purchase fact uses Gumroad’s canonical product id', async () => {
-    const t = makeTestConvex();
+    t = makeTestConvex();
     const creatorAuthUserId = 'creator-external-storefront';
     const buyerAuthUserId = 'buyer-external-storefront';
     const buyerSubjectId = await seedSubject(t, {
@@ -24,6 +37,8 @@ describe('gumroad external storefront backfill', () => {
     const localProductId = 'gumroad-external-storefront-product';
     const storefrontUrl =
       'https://quaggycharr.gumroad.com/l/Fluffgan?layout=profile&recommended_by=library';
+    const normalizedStorefrontUrl = storefrontUrl.toLowerCase().trim();
+    const storefrontUrlHash = await sha256Hex(normalizedStorefrontUrl);
 
     await seedCreatorProfile(t, {
       authUserId: creatorAuthUserId,
@@ -44,14 +59,13 @@ describe('gumroad external storefront backfill', () => {
       });
     });
 
-    const normalizedStorefrontUrl = storefrontUrl.toLowerCase().trim();
     await t.run(async (ctx) => {
       await ctx.db.insert('catalog_product_links', {
         catalogProductId,
         provider: 'gumroad',
         originalUrl: storefrontUrl,
         normalizedUrl: normalizedStorefrontUrl,
-        urlHash: await sha256Hex(normalizedStorefrontUrl),
+        urlHash: storefrontUrlHash,
         linkKind: 'direct_product',
         status: 'active',
         submittedByAuthUserId: creatorAuthUserId,
@@ -138,7 +152,7 @@ describe('gumroad external storefront backfill', () => {
   });
 
   it('preserves Gumroad tier refs through backfill ingestion so tier-aware entitlement resolution matches catalog', async () => {
-    const t = makeTestConvex();
+    t = makeTestConvex();
     const creatorAuthUserId = 'creator-gumroad-tier-backfill';
     const buyerAuthUserId = 'buyer-gumroad-tier-backfill';
     const buyerSubjectId = await seedSubject(t, {
@@ -275,7 +289,7 @@ describe('gumroad external storefront backfill', () => {
   });
 
   it('enriches existing backfill purchase facts with Gumroad tier refs on rerun', async () => {
-    const t = makeTestConvex();
+    t = makeTestConvex();
     const creatorAuthUserId = 'creator-gumroad-tier-enrichment';
     const providerTierRef =
       'gumroad|product|22:gumroad-tiered-product|variant|4:tier|option|4:gold|recurrence|7:monthly';

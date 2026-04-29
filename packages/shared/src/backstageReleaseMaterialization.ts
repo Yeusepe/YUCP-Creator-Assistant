@@ -221,27 +221,213 @@ function materializeUnitypackage(sourceBytes: Uint8Array): Uint8Array {
   });
 }
 
+function sanitizeCSharpIdentifier(input: string): string {
+  const normalized = input.replace(/[^A-Za-z0-9_]/g, '_');
+  return /^[A-Za-z_]/.test(normalized) ? normalized : `pkg_${normalized}`;
+}
+
+function sanitizeAssemblyNameSegment(input: string): string {
+  return input.replace(/[^A-Za-z0-9_.]/g, '_').replace(/^\.*/, '') || 'package';
+}
+
+function buildEmbeddedUnitypackageInstallerSource(input: { className: string }): string {
+  return [
+    'using System;',
+    'using System.IO;',
+    'using UnityEditor;',
+    'using UnityEngine;',
+    '',
+    'namespace Yucp.Backstage.Generated',
+    '{',
+    '    [Serializable]',
+    '    internal sealed class BackstagePayloadManifest',
+    '    {',
+    '        public string packageId = "";',
+    '        public string version = "";',
+    '        public string displayName = "";',
+    '        public string payloadFileName = "";',
+    '        public string payloadSha256 = "";',
+    '    }',
+    '',
+    '    [InitializeOnLoad]',
+    `    internal static class ${input.className}`,
+    '    {',
+    '        private const string ManifestRelativePath = "BackstagePayload~/backstage-payload.json";',
+    '        private const string PayloadRelativePath = "BackstagePayload~/payload.unitypackage";',
+    '        private const string ImportStatePrefix = "yucp.backstage.imported.";',
+    '',
+    `        static ${input.className}()`,
+    '        {',
+    '            EditorApplication.delayCall += MaybeImportPayload;',
+    '        }',
+    '',
+    '        private static void MaybeImportPayload()',
+    '        {',
+    '            if (EditorApplication.isCompiling || EditorApplication.isUpdating)',
+    '            {',
+    '                EditorApplication.delayCall += MaybeImportPayload;',
+    '                return;',
+    '            }',
+    '',
+    `            var packageInfo = UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(${input.className}).Assembly);`,
+    '            if (packageInfo == null || string.IsNullOrWhiteSpace(packageInfo.resolvedPath))',
+    '            {',
+    '                return;',
+    '            }',
+    '',
+    '            var manifestPath = Path.Combine(packageInfo.resolvedPath, ManifestRelativePath);',
+    '            var payloadPath = Path.Combine(packageInfo.resolvedPath, PayloadRelativePath);',
+    '            if (!File.Exists(manifestPath) || !File.Exists(payloadPath))',
+    '            {',
+    '                return;',
+    '            }',
+    '',
+    '            var manifest = JsonUtility.FromJson<BackstagePayloadManifest>(File.ReadAllText(manifestPath));',
+    '            if (manifest == null || string.IsNullOrWhiteSpace(manifest.packageId) || string.IsNullOrWhiteSpace(manifest.payloadSha256))',
+    '            {',
+    '                return;',
+    '            }',
+    '',
+    '            var importKey = ImportStatePrefix + manifest.packageId + "@" + manifest.version + ":" + manifest.payloadSha256;',
+    '            if (EditorPrefs.GetBool(importKey, false))',
+    '            {',
+    '                return;',
+    '            }',
+    '',
+    '            var displayLabel = string.IsNullOrWhiteSpace(manifest.displayName) ? manifest.packageId : manifest.displayName;',
+    '            try',
+    '            {',
+    '                AssetDatabase.ImportPackage(payloadPath, false);',
+    '                EditorPrefs.SetBool(importKey, true);',
+    '                Debug.Log("[YUCP Backstage] Imported " + displayLabel + " from Backstage Repos.");',
+    '            }',
+    '            catch (Exception ex)',
+    '            {',
+    '                Debug.LogError("[YUCP Backstage] Failed to import " + displayLabel + ": " + ex.Message);',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+}
+
+async function buildEmbeddedUnitypackageZip(input: {
+  packageId: string;
+  version: string;
+  displayName?: string;
+  payloadFileName: string;
+  payloadBytes: Uint8Array;
+}): Promise<MaterializedBackstageReleaseArtifact> {
+  const payloadSha256 = await sha256Hex(input.payloadBytes);
+  const suffix = payloadSha256.slice(0, 8);
+  const className = `${sanitizeCSharpIdentifier(input.packageId)}_${suffix}`;
+  const installerClassName = `YucpBackstageEmbeddedUnitypackageInstaller_${className}`;
+  const asmdefName = `Yucp.Backstage.PackageInstaller.${sanitizeAssemblyNameSegment(input.packageId)}_${suffix}`;
+  const packageJson = JSON.stringify(
+    {
+      name: input.packageId,
+      version: input.version,
+      displayName: input.displayName?.trim() || input.packageId,
+    },
+    null,
+    2
+  );
+  const payloadManifest = JSON.stringify(
+    {
+      packageId: input.packageId,
+      version: input.version,
+      displayName: input.displayName?.trim() || input.packageId,
+      payloadFileName: input.payloadFileName,
+      payloadSha256,
+    },
+    null,
+    2
+  );
+  const zippable: Zippable = {
+    'package.json': [
+      new TextEncoder().encode(packageJson),
+      { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
+    ],
+    'Editor/Yucp.Backstage.PackageInstaller.asmdef': [
+      new TextEncoder().encode(
+        JSON.stringify(
+          {
+            name: asmdefName,
+            includePlatforms: ['Editor'],
+          },
+          null,
+          2
+        )
+      ),
+      { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
+    ],
+    'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs': [
+      new TextEncoder().encode(
+        buildEmbeddedUnitypackageInstallerSource({
+          className: installerClassName,
+        })
+      ),
+      { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
+    ],
+    'BackstagePayload~/payload.unitypackage': [
+      input.payloadBytes,
+      { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
+    ],
+    'BackstagePayload~/backstage-payload.json': [
+      new TextEncoder().encode(payloadManifest),
+      { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
+    ],
+  };
+  const bytes = zipSync(zippable, { level: 9 });
+  return {
+    bytes,
+    byteSize: bytes.byteLength,
+    contentType: 'application/zip',
+    deliveryName: `vrc-get-${input.packageId}-${input.version}.zip`,
+    materializationStrategy: 'normalized_repack',
+    sha256: await sha256Hex(bytes),
+    sourceKind: 'zip',
+  };
+}
+
 export async function materializeBackstageReleaseArtifact(input: {
   sourceBytes: Uint8Array;
   deliveryName: string;
   contentType?: string;
+  packageId?: string;
+  version?: string;
+  displayName?: string;
 }): Promise<MaterializedBackstageReleaseArtifact> {
   const sourceKind = inferBackstageVpmDeliverySourceKind({
     deliveryName: input.deliveryName,
     contentType: input.contentType,
   });
-  const bytes =
-    sourceKind === 'unitypackage'
-      ? materializeUnitypackage(input.sourceBytes)
-      : materializeZip(input.sourceBytes);
+  if (sourceKind === 'unitypackage') {
+    if (!input.packageId?.trim() || !input.version?.trim()) {
+      throw new Error(
+        'Backstage unitypackage materialization requires packageId and version to build the deliverable wrapper.'
+      );
+    }
+    const payloadBytes = materializeUnitypackage(input.sourceBytes);
+    return await buildEmbeddedUnitypackageZip({
+      packageId: input.packageId.trim(),
+      version: input.version.trim(),
+      displayName: input.displayName?.trim(),
+      payloadFileName: input.deliveryName,
+      payloadBytes,
+    });
+  }
+
+  const bytes = materializeZip(input.sourceBytes);
 
   return {
     bytes,
     byteSize: bytes.byteLength,
-    contentType: sourceKind === 'unitypackage' ? 'application/octet-stream' : 'application/zip',
+    contentType: 'application/zip',
     deliveryName: input.deliveryName,
     materializationStrategy: 'normalized_repack',
     sha256: await sha256Hex(bytes),
-    sourceKind,
+    sourceKind: 'zip',
   };
 }

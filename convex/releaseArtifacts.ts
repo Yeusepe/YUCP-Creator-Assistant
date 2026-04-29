@@ -306,6 +306,18 @@ export const materializeUploadedReleaseDeliverable = internalAction({
     if (!uploaded) {
       throw new Error(`Uploaded release storage not found: ${args.storageId}`);
     }
+    const release = await ctx.runQuery(internal.packageRegistry.getDeliveryPackageReleaseById, {
+      deliveryPackageReleaseId: args.deliveryPackageReleaseId,
+    });
+    if (!release) {
+      throw new Error(`Delivery package release not found: ${args.deliveryPackageReleaseId}`);
+    }
+    const deliveryPackage = await ctx.runQuery(internal.packageRegistry.getDeliveryPackageById, {
+      deliveryPackageId: release.deliveryPackageId,
+    });
+    if (!deliveryPackage) {
+      throw new Error(`Delivery package not found: ${release.deliveryPackageId}`);
+    }
 
     const byteSize = uploaded.size;
     const rawArtifactId: Id<'delivery_release_artifacts'> = await ctx.runMutation(
@@ -326,6 +338,9 @@ export const materializeUploadedReleaseDeliverable = internalAction({
       sourceBytes: new Uint8Array(await uploaded.arrayBuffer()),
       deliveryName: args.deliveryName,
       contentType: args.contentType,
+      packageId: release.packageId,
+      version: release.version,
+      displayName: deliveryPackage.displayName ?? deliveryPackage.packageName,
     });
     const deliverableBytes = materialized.bytes.buffer.slice(
       materialized.bytes.byteOffset,

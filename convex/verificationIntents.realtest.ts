@@ -386,6 +386,7 @@ describe('verification intents buyer provider links', () => {
       expect(String(input)).toBe('https://api.gumroad.com/v2/licenses/verify');
       expect(init?.method).toBe('POST');
       expect(init?.headers).toEqual({
+        Accept: 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded',
       });
       expect(String(init?.body)).toContain('access_token=gumroad-access-token');
@@ -511,6 +512,7 @@ describe('verification intents buyer provider links', () => {
       expect(String(input)).toBe('https://api.gumroad.com/v2/licenses/verify');
       expect(init?.method).toBe('POST');
       expect(init?.headers).toEqual({
+        Accept: 'application/json',
         'Content-Type': 'application/x-www-form-urlencoded',
       });
       expect(String(init?.body)).toContain('access_token=gumroad-access-token');
