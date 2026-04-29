@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
 import { api, internal } from './_generated/api';
-import type { DataModel } from './_generated/dataModel';
+import type { DataModel, Id } from './_generated/dataModel';
 import betterAuthSchema from './betterAuth/schema';
 import { makeTestConvex } from './testHelpers';
 

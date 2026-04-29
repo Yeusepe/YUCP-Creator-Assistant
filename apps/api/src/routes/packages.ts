@@ -1108,6 +1108,57 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
+  async function deleteBackstageRelease(
+    request: Request,
+    packageIdParam: string,
+    deliveryPackageReleaseId: string
+  ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+
+    let packageId: string;
+    try {
+      packageId = assertPackageId(packageIdParam);
+    } catch (error) {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : 'Invalid packageId' },
+        400
+      );
+    }
+
+    try {
+      const result = await convex.mutation(api.packageRegistry.deleteReleaseForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
+        authUserId: viewer.authUserId,
+        packageId,
+        deliveryPackageReleaseId: deliveryPackageReleaseId as Id<'delivery_package_releases'>,
+      });
+
+      if (!result.deleted) {
+        const status =
+          result.reason === 'Delivery package not found.' ||
+          result.reason === 'Delivery package release not found.'
+            ? 404
+            : 409;
+        return jsonResponse({ error: result.reason }, status);
+      }
+
+      return jsonResponse(result);
+    } catch (error) {
+      logger.error('Failed to delete Backstage release', {
+        authUserId: viewer.authUserId,
+        packageId,
+        deliveryPackageReleaseId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to delete Backstage release' }, 500);
+    }
+  }
+
   async function createBackstageReleaseUploadUrl(
     request: Request,
     packageIdParam: string
@@ -1305,6 +1356,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     restoreBackstageProduct,
     deleteBackstageProduct,
     archiveBackstageRelease,
+    deleteBackstageRelease,
     createBackstageReleaseUploadUrl,
     publishBackstageRelease,
   };

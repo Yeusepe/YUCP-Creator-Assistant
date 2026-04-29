@@ -39,6 +39,7 @@ mock.module('../../../../convex/_generated/api', () => ({
       restoreProductForAuthUser: 'packageRegistry.restoreProductForAuthUser',
       deleteProductForAuthUser: 'packageRegistry.deleteProductForAuthUser',
       archiveReleaseForAuthUser: 'packageRegistry.archiveReleaseForAuthUser',
+      deleteReleaseForAuthUser: 'packageRegistry.deleteReleaseForAuthUser',
     },
     providerConnections: {
       getConnectionStatus: 'providerConnections.getConnectionStatus',
@@ -235,6 +236,8 @@ describe('package Backstage publishing routes', () => {
           return { archived: true, catalogProductId: 'product_1' };
         case 'packageRegistry.archiveReleaseForAuthUser':
           return { archived: true, deliveryPackageReleaseId: 'release_old' };
+        case 'packageRegistry.deleteReleaseForAuthUser':
+          return { deleted: true, deliveryPackageReleaseId: 'release_old' };
         case 'packageRegistry.deleteProductForAuthUser':
           return { deleted: true, catalogProductId: 'product_2' };
         default:
@@ -1041,6 +1044,25 @@ describe('package Backstage publishing routes', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       archived: true,
+      deliveryPackageReleaseId: 'release_old',
+    });
+  });
+
+  it('deletes old Backstage package releases through release mutations', async () => {
+    const response = await routes.deleteBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases/release_old', {
+        method: 'DELETE',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'com.yucp.example',
+      'release_old'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      deleted: true,
       deliveryPackageReleaseId: 'release_old',
     });
   });

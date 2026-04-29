@@ -230,6 +230,18 @@ export async function archiveCreatorBackstageRelease(input: {
   );
 }
 
+export async function deleteCreatorBackstageRelease(input: {
+  packageId: string;
+  deliveryPackageReleaseId: string;
+}) {
+  return await apiClient.delete<{
+    deleted: true;
+    deliveryPackageReleaseId: string;
+  }>(
+    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/releases/${encodeURIComponent(input.deliveryPackageReleaseId)}`
+  );
+}
+
 export async function createBackstageReleaseUploadUrl(input: { packageId: string }) {
   return await apiClient.post<BackstageReleaseUploadUrlResponse>(
     `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-url`

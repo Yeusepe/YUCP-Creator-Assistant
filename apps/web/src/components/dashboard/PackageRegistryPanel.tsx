@@ -27,6 +27,7 @@ import {
   Search,
   ShieldCheck,
   Store,
+  Trash2,
 } from 'lucide-react';
 import type { ComponentPropsWithoutRef, Key, ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
@@ -50,6 +51,7 @@ import {
   type CreatorPackageListResponse,
   type CreatorPackageSummary,
   createBackstageReleaseUploadUrl,
+  deleteCreatorBackstageRelease,
   listCreatorBackstageProducts,
   listCreatorPackages,
   publishBackstageRelease,
@@ -768,6 +770,7 @@ function ProductLaneDetailsSheet({
   buyerAccessUrl,
   isArchiving,
   archivingReleaseId,
+  deletingReleaseId,
   isRestoring,
   lane,
   isOpen,
@@ -775,6 +778,7 @@ function ProductLaneDetailsSheet({
   onArchiveRelease,
   onCopyBuyerAccess,
   onCopyPackageId,
+  onDeleteRelease,
   onOpenChange,
   onPublish,
   onRestore,
@@ -782,6 +786,7 @@ function ProductLaneDetailsSheet({
   buyerAccessUrl?: string | null;
   isArchiving: boolean;
   archivingReleaseId: string | null;
+  deletingReleaseId: string | null;
   isRestoring: boolean;
   lane: ProductLane | null;
   isOpen: boolean;
@@ -789,10 +794,19 @@ function ProductLaneDetailsSheet({
   onArchiveRelease: (packageId: string, release: CreatorBackstagePackageReleaseSummary) => void;
   onCopyBuyerAccess: (url: string) => void;
   onCopyPackageId: (packageId: string) => void;
+  onDeleteRelease: (packageId: string, release: CreatorBackstagePackageReleaseSummary) => void;
   onOpenChange: (isOpen: boolean) => void;
   onPublish: (lane: ProductLane) => void;
   onRestore: (lane: ProductLane) => void;
 }) {
+  const [confirmDeleteReleaseId, setConfirmDeleteReleaseId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setConfirmDeleteReleaseId(null);
+    }
+  }, [isOpen]);
+
   return (
     <Sheet isOpen={isOpen} onOpenChange={onOpenChange}>
       <Sheet.Backdrop variant="blur">
@@ -929,6 +943,10 @@ function ProductLaneDetailsSheet({
                                   release.deliveryPackageReleaseId;
                                 const isArchivingRelease =
                                   archivingReleaseId === release.deliveryPackageReleaseId;
+                                const isDeletingRelease =
+                                  deletingReleaseId === release.deliveryPackageReleaseId;
+                                const isConfirmingDelete =
+                                  confirmDeleteReleaseId === release.deliveryPackageReleaseId;
 
                                 return (
                                   <div key={release.deliveryPackageReleaseId}>
@@ -955,28 +973,62 @@ function ProductLaneDetailsSheet({
                                               Current
                                             </Chip>
                                           ) : (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              isDisabled={
-                                                isArchivingRelease || lane.status === 'archived'
-                                              }
-                                              onPress={() =>
-                                                onArchiveRelease(packageLink.packageId, release)
-                                              }
-                                            >
-                                              {isArchivingRelease ? (
-                                                <span
-                                                  className="btn-loading-spinner"
-                                                  aria-hidden="true"
-                                                />
-                                              ) : (
-                                                <Archive className="size-4" />
-                                              )}
-                                              {isArchivingRelease
-                                                ? 'Archiving...'
-                                                : 'Archive upload'}
-                                            </Button>
+                                            <>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                isDisabled={
+                                                  isArchivingRelease ||
+                                                  isDeletingRelease ||
+                                                  lane.status === 'archived'
+                                                }
+                                                onPress={() => {
+                                                  setConfirmDeleteReleaseId(null);
+                                                  onArchiveRelease(packageLink.packageId, release);
+                                                }}
+                                              >
+                                                {isArchivingRelease ? (
+                                                  <span
+                                                    className="btn-loading-spinner"
+                                                    aria-hidden="true"
+                                                  />
+                                                ) : (
+                                                  <Archive className="size-4" />
+                                                )}
+                                                {isArchivingRelease
+                                                  ? 'Archiving...'
+                                                  : 'Archive upload'}
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-danger"
+                                                isDisabled={isArchivingRelease || isDeletingRelease}
+                                                onPress={() => {
+                                                  if (isConfirmingDelete) {
+                                                    onDeleteRelease(packageLink.packageId, release);
+                                                    return;
+                                                  }
+                                                  setConfirmDeleteReleaseId(
+                                                    release.deliveryPackageReleaseId
+                                                  );
+                                                }}
+                                              >
+                                                {isDeletingRelease ? (
+                                                  <span
+                                                    className="btn-loading-spinner"
+                                                    aria-hidden="true"
+                                                  />
+                                                ) : (
+                                                  <Trash2 className="size-4" />
+                                                )}
+                                                {isDeletingRelease
+                                                  ? 'Deleting...'
+                                                  : isConfirmingDelete
+                                                    ? 'Confirm delete'
+                                                    : 'Delete upload'}
+                                              </Button>
+                                            </>
                                           )}
                                         </div>
                                       </div>
@@ -1006,6 +1058,12 @@ function ProductLaneDetailsSheet({
                                       {release.zipSha256 ? (
                                         <p className="text-muted break-all font-mono text-[11px]">
                                           SHA-256 {release.zipSha256}
+                                        </p>
+                                      ) : null}
+                                      {isConfirmingDelete && !isDeletingRelease ? (
+                                        <p className="text-danger text-xs">
+                                          Delete removes this upload and its stored artifacts. This
+                                          cannot be undone.
                                         </p>
                                       ) : null}
                                     </div>
@@ -1052,7 +1110,47 @@ function ProductLaneDetailsSheet({
                                             )}
                                           </p>
                                         </div>
-                                        <StatusChip status="revoked" label="Archived" />
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <StatusChip status="revoked" label="Archived" />
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="text-danger"
+                                            isDisabled={
+                                              archivingReleaseId ===
+                                                release.deliveryPackageReleaseId ||
+                                              deletingReleaseId === release.deliveryPackageReleaseId
+                                            }
+                                            onPress={() => {
+                                              if (
+                                                confirmDeleteReleaseId ===
+                                                release.deliveryPackageReleaseId
+                                              ) {
+                                                onDeleteRelease(packageLink.packageId, release);
+                                                return;
+                                              }
+                                              setConfirmDeleteReleaseId(
+                                                release.deliveryPackageReleaseId
+                                              );
+                                            }}
+                                          >
+                                            {deletingReleaseId ===
+                                            release.deliveryPackageReleaseId ? (
+                                              <span
+                                                className="btn-loading-spinner"
+                                                aria-hidden="true"
+                                              />
+                                            ) : (
+                                              <Trash2 className="size-4" />
+                                            )}
+                                            {deletingReleaseId === release.deliveryPackageReleaseId
+                                              ? 'Deleting...'
+                                              : confirmDeleteReleaseId ===
+                                                  release.deliveryPackageReleaseId
+                                                ? 'Confirm delete'
+                                                : 'Delete upload'}
+                                          </Button>
+                                        </div>
                                       </div>
                                       <div className="flex flex-wrap gap-2">
                                         <Chip size="sm" variant="soft">
@@ -1062,6 +1160,14 @@ function ProductLaneDetailsSheet({
                                           {release.channel}
                                         </Chip>
                                       </div>
+                                      {confirmDeleteReleaseId ===
+                                        release.deliveryPackageReleaseId &&
+                                      deletingReleaseId !== release.deliveryPackageReleaseId ? (
+                                        <p className="text-danger text-xs">
+                                          Delete removes this upload and its stored artifacts. This
+                                          cannot be undone.
+                                        </p>
+                                      ) : null}
                                     </div>
                                   ))}
                               </div>
@@ -1251,6 +1357,7 @@ export function PackageRegistryPanel({
   const [pendingProductArchiveKey, setPendingProductArchiveKey] = useState<string | null>(null);
   const [pendingProductRestoreKey, setPendingProductRestoreKey] = useState<string | null>(null);
   const [pendingReleaseArchiveId, setPendingReleaseArchiveId] = useState<string | null>(null);
+  const [pendingReleaseDeleteId, setPendingReleaseDeleteId] = useState<string | null>(null);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [isProductDetailsOpen, setIsProductDetailsOpen] = useState(false);
   const [isMoreToolsOpen, setIsMoreToolsOpen] = useState(false);
@@ -1462,6 +1569,33 @@ export function PackageRegistryPanel({
       toast.error('Could not archive upload', { description: errorMessage });
     },
     onSettled: () => setPendingReleaseArchiveId(null),
+  });
+
+  const deleteReleaseMutation = useMutation({
+    mutationFn: ({
+      packageId,
+      deliveryPackageReleaseId,
+    }: {
+      packageId: string;
+      deliveryPackageReleaseId: string;
+    }) => deleteCreatorBackstageRelease({ packageId, deliveryPackageReleaseId }),
+    onMutate: ({ deliveryPackageReleaseId }) => {
+      setPendingReleaseDeleteId(deliveryPackageReleaseId);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: creatorBackstageProductsQueryKey });
+      toast.success('Upload deleted');
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      const errorMessage =
+        error instanceof Error ? error.message : 'This upload could not be deleted.';
+      toast.error('Could not delete upload', { description: errorMessage });
+    },
+    onSettled: () => setPendingReleaseDeleteId(null),
   });
 
   const publishMutation = useMutation({
@@ -2090,6 +2224,7 @@ export function PackageRegistryPanel({
       </div>
 
       <ProductLaneDetailsSheet
+        key={selectedProductLane?.laneKey ?? 'no-lane-selected'}
         buyerAccessUrl={selectedProductLane ? getBuyerAccessUrl(selectedProductLane) : null}
         isArchiving={
           selectedProductLane
@@ -2098,6 +2233,7 @@ export function PackageRegistryPanel({
             : false
         }
         archivingReleaseId={pendingReleaseArchiveId}
+        deletingReleaseId={pendingReleaseDeleteId}
         isRestoring={
           selectedProductLane
             ? pendingProductRestoreKey === selectedProductLane.laneKey &&
@@ -2116,6 +2252,12 @@ export function PackageRegistryPanel({
         onCopyBuyerAccess={(value) => handleCopyValue(value, 'Store-page link copied')}
         onCopyPackageId={(packageId) =>
           handleCopyValue(packageId, `Copied install ID ${packageId}`)
+        }
+        onDeleteRelease={(packageId, release) =>
+          deleteReleaseMutation.mutate({
+            packageId,
+            deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+          })
         }
         onOpenChange={setIsProductDetailsOpen}
         onPublish={openPublishSheet}

@@ -1665,6 +1665,213 @@ describe('packageRegistry', () => {
     expect(installPlan).toBeNull();
   });
 
+  it('deletes non-current Backstage uploads and their stored release artifacts', async () => {
+    const t = makeTestConvex();
+    const seeded = await t.run(async (ctx) => {
+      const now = Date.now();
+      const signedStorageId = await ctx.storage.store(
+        new Blob([new Uint8Array([1, 2, 3])], { type: 'application/zip' })
+      );
+      const rawStorageId = await ctx.storage.store(
+        new Blob([new Uint8Array([4, 5, 6])], { type: 'application/zip' })
+      );
+      const deliverableStorageId = await ctx.storage.store(
+        new Blob([new Uint8Array([7, 8, 9])], { type: 'application/zip' })
+      );
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.backstage.deleteable',
+        packageName: 'Deleteable Package',
+        displayName: 'Deleteable Package',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        latestPublishedVersion: '2.0.0',
+        latestPublishedAt: now + 1_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.deleteable',
+        version: '2.0.0',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: 'a'.repeat(64),
+        publishedAt: now + 1_000,
+        createdAt: now + 1_000,
+        updatedAt: now + 1_000,
+      } as never);
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.deleteable',
+        version: '1.0.0',
+        channel: 'stable',
+        releaseStatus: 'revoked',
+        repositoryVisibility: 'hidden',
+        zipSha256: 'b'.repeat(64),
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      const signedArtifactId = await ctx.db.insert('signed_release_artifacts', {
+        artifactKey: 'backstage-package:com.yucp.backstage.deleteable',
+        channel: 'stable',
+        platform: 'any',
+        version: '1.0.0',
+        metadataVersion: 1,
+        storageId: signedStorageId,
+        contentType: 'application/zip',
+        deliveryName: 'deleteable-package-1.0.0.zip',
+        envelopeCipher: 'aes-256-gcm',
+        envelopeIvBase64: 'ZmFrZS1pdi1iYXNlNjQ=',
+        ciphertextSha256: 'c'.repeat(64),
+        ciphertextSize: 3,
+        plaintextSha256: 'd'.repeat(64),
+        plaintextSize: 3,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.patch(deliveryPackageReleaseId, {
+        signedArtifactId,
+        artifactKey: 'backstage-package:com.yucp.backstage.deleteable',
+      });
+      const rawArtifactId = await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId,
+        artifactRole: 'raw_upload',
+        ownership: 'creator_upload',
+        storageId: rawStorageId,
+        contentType: 'application/zip',
+        deliveryName: 'deleteable-package-1.0.0-source.zip',
+        sha256: '1'.repeat(64),
+        byteSize: 3,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId,
+        artifactRole: 'server_deliverable',
+        ownership: 'server_materialized',
+        materializationStrategy: 'normalized_repack',
+        sourceArtifactId: rawArtifactId,
+        storageId: deliverableStorageId,
+        contentType: 'application/zip',
+        deliveryName: 'deleteable-package-1.0.0.zip',
+        sha256: '2'.repeat(64),
+        byteSize: 3,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return {
+        deliveryPackageId,
+        deliveryPackageReleaseId,
+        signedArtifactId,
+        signedStorageId,
+        rawStorageId,
+        deliverableStorageId,
+      };
+    });
+
+    const result = await t.mutation(api.packageRegistry.deleteReleaseForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.backstage.deleteable',
+      deliveryPackageReleaseId: seeded.deliveryPackageReleaseId,
+    });
+
+    expect(result).toEqual({
+      deleted: true,
+      deliveryPackageReleaseId: seeded.deliveryPackageReleaseId,
+    });
+
+    const deletedState = await t.run(async (ctx) => {
+      return {
+        deliveryPackage: await ctx.db.get(seeded.deliveryPackageId),
+        release: await ctx.db.get(seeded.deliveryPackageReleaseId),
+        signedArtifact: await ctx.db.get(seeded.signedArtifactId),
+        releaseArtifacts: await ctx.db
+          .query('delivery_release_artifacts')
+          .withIndex('by_release', (q) =>
+            q.eq('deliveryPackageReleaseId', seeded.deliveryPackageReleaseId)
+          )
+          .collect(),
+        signedBlob: await ctx.storage.get(seeded.signedStorageId),
+        rawBlob: await ctx.storage.get(seeded.rawStorageId),
+        deliverableBlob: await ctx.storage.get(seeded.deliverableStorageId),
+      };
+    });
+
+    expect(deletedState.deliveryPackage).not.toBeNull();
+    expect(deletedState.release).toBeNull();
+    expect(deletedState.signedArtifact).toBeNull();
+    expect(deletedState.releaseArtifacts).toHaveLength(0);
+    expect(deletedState.signedBlob).toBeNull();
+    expect(deletedState.rawBlob).toBeNull();
+    expect(deletedState.deliverableBlob).toBeNull();
+  });
+
+  it('blocks deleting the current Backstage upload', async () => {
+    const t = makeTestConvex();
+    const deliveryPackageReleaseId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.backstage.current-delete',
+        packageName: 'Current Delete Package',
+        displayName: 'Current Delete Package',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        latestPublishedVersion: '1.0.0',
+        latestPublishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.current-delete',
+        version: '1.0.0',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: 'e'.repeat(64),
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    });
+
+    const result = await t.mutation(api.packageRegistry.deleteReleaseForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.backstage.current-delete',
+      deliveryPackageReleaseId,
+    });
+
+    expect(result).toEqual({
+      deleted: false,
+      reason: 'Current uploads cannot be deleted. Upload a new version first.',
+    });
+
+    const release = await t.run(async (ctx) => {
+      return await ctx.db.get(deliveryPackageReleaseId);
+    });
+    expect(release).not.toBeNull();
+  });
+
   it('resolves legacy signed releases through the centralized release artifact resolver', async () => {
     const t = makeTestConvex();
     const deliveryPackageReleaseId = await t.run(async (ctx) => {

@@ -948,6 +948,19 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  const backstageReleaseDeleteMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/releases\/([^/]+)$/
+  );
+  if (backstageReleaseDeleteMatch && packageRoutes) {
+    if (request.method === 'DELETE') {
+      return packageRoutes.deleteBackstageRelease(
+        request,
+        backstageReleaseDeleteMatch[1],
+        backstageReleaseDeleteMatch[2]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   const packagesMatch = pathname.match(/^\/api\/packages\/([^/]+)$/);
   if (packagesMatch && packageRoutes) {
     if (request.method === 'PATCH') {

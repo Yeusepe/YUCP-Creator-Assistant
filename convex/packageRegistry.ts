@@ -16,11 +16,11 @@
  */
 
 import {
+  applyYucpAliasPackageManifestDefaults,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS,
   BACKSTAGE_VPM_SOURCE_KINDS,
-  applyYucpAliasPackageManifestDefaults,
   buildRepoTokenVpmDeliveryMetadata,
   getYucpAliasPackageContract,
   inferBackstageVpmDeliverySourceKind,
@@ -38,12 +38,12 @@ import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireApiActor, requireDelegatedAuthUserActor } from './lib/apiActor';
+import { requireApiSecret } from './lib/apiAuth';
 import {
   buildSyntheticAliasMetadataSeed,
   type CatalogProductAliasSource,
   type SyntheticAliasMetadataSeed,
 } from './lib/backstageAliasMetadata';
-import { requireApiSecret } from './lib/apiAuth';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
@@ -56,6 +56,10 @@ const PACKAGE_ARCHIVED_UPDATE_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before renaming it.';
 const PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before signing or changing it.';
+const CURRENT_RELEASE_ARCHIVE_BLOCKED_REASON =
+  'Current uploads cannot be archived. Upload a new version first.';
+const CURRENT_RELEASE_DELETE_BLOCKED_REASON =
+  'Current uploads cannot be deleted. Upload a new version first.';
 const DeliveryPackageVisibilityV = v.union(v.literal('hidden'), v.literal('listed'));
 const DeliveryRepoTokenStatusV = v.union(
   v.literal('active'),
@@ -488,7 +492,8 @@ function toBackstageReleaseManifestMetadata(
     BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS.serverDerived;
   const reservedSourceKind =
     trustedPersistedSourceKind &&
-    (releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY] === BACKSTAGE_VPM_SOURCE_KINDS.unitypackage ||
+    (releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY] ===
+      BACKSTAGE_VPM_SOURCE_KINDS.unitypackage ||
       releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY] === BACKSTAGE_VPM_SOURCE_KINDS.zip)
       ? releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]
       : undefined;
@@ -735,6 +740,57 @@ async function getOwnedDeliveryPackageRelease(
   return { deliveryPackage, release, siblingReleases };
 }
 
+function getLatestOwnedDeliveryPackageRelease(
+  siblingReleases: Doc<'delivery_package_releases'>[]
+): Doc<'delivery_package_releases'> | undefined {
+  return siblingReleases.reduce<Doc<'delivery_package_releases'> | undefined>(
+    (current, candidate) => (shouldReplaceLatestRelease(candidate, current) ? candidate : current),
+    undefined
+  );
+}
+
+async function deleteOwnedDeliveryPackageRelease(
+  ctx: MutationCtx,
+  args: {
+    release: Doc<'delivery_package_releases'>;
+    siblingReleases: Doc<'delivery_package_releases'>[];
+  }
+): Promise<void> {
+  const deliveryArtifacts = await ctx.db
+    .query('delivery_release_artifacts')
+    .withIndex('by_release', (q) => q.eq('deliveryPackageReleaseId', args.release._id))
+    .collect();
+  const signedArtifact =
+    args.release.signedArtifactId &&
+    !args.siblingReleases.some(
+      (candidate) =>
+        candidate._id !== args.release._id &&
+        candidate.signedArtifactId === args.release.signedArtifactId
+    )
+      ? await ctx.db.get(args.release.signedArtifactId)
+      : null;
+
+  const storageIdsToDelete = new Set<string>();
+  for (const artifact of deliveryArtifacts) {
+    storageIdsToDelete.add(String(artifact.storageId));
+  }
+  if (signedArtifact) {
+    storageIdsToDelete.add(String(signedArtifact.storageId));
+  }
+
+  for (const artifact of deliveryArtifacts) {
+    await ctx.db.delete(artifact._id);
+  }
+  if (signedArtifact) {
+    await ctx.db.delete(signedArtifact._id);
+  }
+  await ctx.db.delete(args.release._id);
+
+  for (const storageId of storageIdsToDelete) {
+    await ctx.storage.delete(storageId as Id<'_storage'>);
+  }
+}
+
 async function upsertOwnedDeliveryPackage(
   ctx: MutationCtx,
   args: {
@@ -917,10 +973,12 @@ async function summarizeBackstagePackagesFromLinks(
   const relevantDeliveryPackageIdSet = new Set(
     deliveryPackages.map((deliveryPackage) => String(deliveryPackage._id))
   );
-  const activeLinksForRelevantPackages = ((await ctx.db
-    .query('delivery_package_products')
-    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
-    .collect()) as Doc<'delivery_package_products'>[]).filter(
+  const activeLinksForRelevantPackages = (
+    (await ctx.db
+      .query('delivery_package_products')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+      .collect()) as Doc<'delivery_package_products'>[]
+  ).filter(
     (link) =>
       link.status === 'active' && relevantDeliveryPackageIdSet.has(String(link.deliveryPackageId))
   );
@@ -943,7 +1001,8 @@ async function summarizeBackstagePackagesFromLinks(
     if (!linkedCatalogProduct) {
       continue;
     }
-    const existingProducts = catalogProductsByDeliveryPackageId.get(String(link.deliveryPackageId)) ?? [];
+    const existingProducts =
+      catalogProductsByDeliveryPackageId.get(String(link.deliveryPackageId)) ?? [];
     existingProducts.push(linkedCatalogProduct);
     catalogProductsByDeliveryPackageId.set(String(link.deliveryPackageId), existingProducts);
   }
@@ -1758,16 +1817,12 @@ export const archiveReleaseForAuthUser = mutation({
     }
 
     const { deliveryPackage, release, siblingReleases } = ownedRelease;
-    const latestRelease = siblingReleases.reduce<Doc<'delivery_package_releases'> | undefined>(
-      (current, candidate) =>
-        shouldReplaceLatestRelease(candidate, current) ? candidate : current,
-      undefined
-    );
+    const latestRelease = getLatestOwnedDeliveryPackageRelease(siblingReleases);
 
     if (latestRelease && String(latestRelease._id) === String(release._id)) {
       return {
         archived: false as const,
-        reason: 'Current uploads cannot be archived. Upload a new version first.',
+        reason: CURRENT_RELEASE_ARCHIVE_BLOCKED_REASON,
       };
     }
 
@@ -1786,6 +1841,63 @@ export const archiveReleaseForAuthUser = mutation({
 
     return {
       archived: true as const,
+      deliveryPackageReleaseId: release._id,
+    };
+  },
+});
+
+export const deleteReleaseForAuthUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    packageId: v.string(),
+    deliveryPackageReleaseId: v.id('delivery_package_releases'),
+  },
+  returns: v.union(
+    v.object({
+      deleted: v.literal(true),
+      deliveryPackageReleaseId: v.id('delivery_package_releases'),
+    }),
+    v.object({
+      deleted: v.literal(false),
+      reason: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+
+    let ownedRelease: Awaited<ReturnType<typeof getOwnedDeliveryPackageRelease>>;
+    try {
+      ownedRelease = await getOwnedDeliveryPackageRelease(ctx, args);
+    } catch (error) {
+      if (
+        error instanceof ConvexError &&
+        (error.message === 'Delivery package not found.' ||
+          error.message === 'Delivery package release not found.')
+      ) {
+        return { deleted: false as const, reason: error.message };
+      }
+      throw error;
+    }
+
+    const { deliveryPackage, release, siblingReleases } = ownedRelease;
+    const latestRelease = getLatestOwnedDeliveryPackageRelease(siblingReleases);
+    if (latestRelease && String(latestRelease._id) === String(release._id)) {
+      return {
+        deleted: false as const,
+        reason: CURRENT_RELEASE_DELETE_BLOCKED_REASON,
+      };
+    }
+
+    await deleteOwnedDeliveryPackageRelease(ctx, { release, siblingReleases });
+    await ctx.db.patch(deliveryPackage._id, {
+      updatedAt: Date.now(),
+    });
+
+    return {
+      deleted: true as const,
       deliveryPackageReleaseId: release._id,
     };
   },

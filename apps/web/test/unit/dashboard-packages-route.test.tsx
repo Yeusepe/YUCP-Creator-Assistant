@@ -307,6 +307,7 @@ vi.mock('@/lib/packages', () => ({
   archiveCreatorBackstageRelease: vi.fn(),
   archiveCreatorBackstageProduct: vi.fn(),
   createBackstageReleaseUploadUrl: vi.fn(),
+  deleteCreatorBackstageRelease: vi.fn(),
   listCreatorBackstageProducts: vi.fn(),
   listCreatorPackages: vi.fn(),
   publishBackstageRelease: vi.fn(),
@@ -331,6 +332,9 @@ const listCreatorBackstageProductsMock = packagesApi.listCreatorBackstageProduct
 const listCreatorPackagesMock = packagesApi.listCreatorPackages as ReturnType<typeof vi.fn>;
 const renameCreatorPackageMock = packagesApi.renameCreatorPackage as ReturnType<typeof vi.fn>;
 const archiveCreatorBackstageReleaseMock = packagesApi.archiveCreatorBackstageRelease as ReturnType<
+  typeof vi.fn
+>;
+const deleteCreatorBackstageReleaseMock = packagesApi.deleteCreatorBackstageRelease as ReturnType<
   typeof vi.fn
 >;
 const archiveCreatorBackstageProductMock = packagesApi.archiveCreatorBackstageProduct as ReturnType<
@@ -599,6 +603,10 @@ describe('dashboard packages route', () => {
     });
     archiveCreatorBackstageReleaseMock.mockResolvedValue({
       archived: true,
+      deliveryPackageReleaseId: 'release_old',
+    });
+    deleteCreatorBackstageReleaseMock.mockResolvedValue({
+      deleted: true,
       deliveryPackageReleaseId: 'release_old',
     });
   });
@@ -1149,6 +1157,32 @@ describe('dashboard packages route', () => {
 
     await waitFor(() =>
       expect(archiveCreatorBackstageReleaseMock).toHaveBeenCalledWith({
+        packageId: 'pkg.creator.bundle',
+        deliveryPackageReleaseId: 'release_old',
+      })
+    );
+  });
+
+  it('deletes an old upload from the past uploads sheet after confirmation', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /open past uploads for creator bundle product/i })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /delete upload/i }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+
+    await waitFor(() =>
+      expect(deleteCreatorBackstageReleaseMock).toHaveBeenCalledWith({
         packageId: 'pkg.creator.bundle',
         deliveryPackageReleaseId: 'release_old',
       })
