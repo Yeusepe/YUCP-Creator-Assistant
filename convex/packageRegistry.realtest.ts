@@ -855,7 +855,7 @@ describe('packageRegistry', () => {
       { versions: Record<string, { url: string }> }
     >;
     expect(repositoryPackages['com.yucp.backstage.vpm'].versions['3.1.0'].url).toBe(
-      'https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.vpm&version=3.1.0&channel=stable'
+      'https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.vpm&version=3.1.0&channel=stable&zipSHA256=abcdef1234567890'
     );
   });
 
@@ -1003,6 +1003,9 @@ describe('packageRegistry', () => {
     expect(published.zipSha256).toBe(activeDeliverable?.sha256);
     expect(published.zipSha256).not.toBe(uploadSha256);
     expect(entitledResolved?.artifactKey).toBeUndefined();
+    expect(publishedVersion?.url).toBe(
+      `https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.raw&version=1.0.0&channel=stable&zipSHA256=${activeDeliverable?.sha256}`
+    );
     expect(entitledResolved?.downloadUrl).toContain('/storage/');
   });
 

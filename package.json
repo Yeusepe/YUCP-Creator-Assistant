@@ -50,6 +50,7 @@
     "test:bot:e2e:ci": "bun run --filter '@yucp/bot' test:e2e:ci",
     "capture:discord-storage": "tsx ops/capture-discord-storage-state.ts",
     "ops:buyer-attribution-remediation": "bun run ops/buyer-attribution-remediation.ts",
+    "ops:backstage-deliverable-remediation": "bun run ops/backstage-deliverable-remediation.ts",
     "ops:subject-ownership-remediation": "bun run ops/subject-ownership-remediation.ts",
     "build:docs:index": "bun run --filter @yucp/api build:docs:index",
     "build": "bun run --filter '*' build",

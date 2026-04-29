@@ -424,12 +424,16 @@ function buildBackstageDownloadUrl(
   packageBaseUrl: string,
   packageId: string,
   version: string,
-  channel: string
+  channel: string,
+  zipSha256?: string
 ): string {
   const url = new URL(packageBaseUrl);
   url.searchParams.set('packageId', packageId);
   url.searchParams.set('version', version);
   url.searchParams.set('channel', channel);
+  if (zipSha256) {
+    url.searchParams.set('zipSHA256', zipSha256);
+  }
   return url.toString();
 }
 
@@ -454,7 +458,8 @@ function toVpmVersionManifest(
       packageBaseUrl,
       packageSummary.packageId,
       packageSummary.latestRelease.version,
-      packageSummary.latestRelease.channel
+      packageSummary.latestRelease.channel,
+      packageSummary.latestRelease.zipSha256
     ),
     ...(packageHeaders && Object.keys(packageHeaders).length > 0
       ? { headers: packageHeaders }
@@ -1421,6 +1426,9 @@ export const getDeliveryPackageReleaseById = internalQuery({
       deliveryPackageId: v.id('delivery_packages'),
       packageId: v.string(),
       version: v.string(),
+      zipSha256: v.optional(v.string()),
+      signedArtifactId: v.optional(v.id('signed_release_artifacts')),
+      artifactKey: v.optional(v.string()),
     })
   ),
   handler: async (ctx, args) => {
@@ -1433,7 +1441,52 @@ export const getDeliveryPackageReleaseById = internalQuery({
       deliveryPackageId: release.deliveryPackageId,
       packageId: release.packageId,
       version: release.version,
+      zipSha256: release.zipSha256,
+      signedArtifactId: release.signedArtifactId,
+      artifactKey: release.artifactKey,
     };
+  },
+});
+
+export const listDeliveryPackageReleasesByPackage = internalQuery({
+  args: {
+    packageId: v.string(),
+    version: v.optional(v.string()),
+    channel: v.optional(v.string()),
+  },
+  returns: v.array(
+    v.object({
+      deliveryPackageReleaseId: v.id('delivery_package_releases'),
+      version: v.string(),
+      channel: v.string(),
+      releaseStatus: DeliveryPackageReleaseStatusV,
+      zipSha256: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const deliveryPackage = await ctx.db
+      .query('delivery_packages')
+      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+      .first();
+    if (!deliveryPackage) {
+      return [];
+    }
+    const releases = await ctx.db
+      .query('delivery_package_releases')
+      .withIndex('by_delivery_package', (q) => q.eq('deliveryPackageId', deliveryPackage._id))
+      .collect();
+
+    return releases
+      .filter((release) => (args.version ? release.version === args.version : true))
+      .filter((release) => (args.channel ? release.channel === args.channel : true))
+      .map((release) => ({
+        deliveryPackageReleaseId: release._id,
+        version: release.version,
+        channel: release.channel,
+        releaseStatus: release.releaseStatus,
+        zipSha256: release.zipSha256,
+      }))
+      .sort((left, right) => right.version.localeCompare(left.version));
   },
 });
 

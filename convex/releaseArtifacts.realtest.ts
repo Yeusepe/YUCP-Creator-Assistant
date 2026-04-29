@@ -72,6 +72,84 @@ function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>
   return gzipSync(tarBytes, { level: 9, mtime: 123 });
 }
 
+function buildLegacyUnitypackageWrapperZip(input: {
+  packageId: string;
+  version: string;
+  displayName: string;
+  payloadBytes: Uint8Array;
+}): Uint8Array {
+  const legacyInstallerSource = [
+    'using System;',
+    'using System.IO;',
+    'using UnityEditor;',
+    'using UnityEditor.PackageManager;',
+    'namespace Yucp.Backstage.Generated',
+    '{',
+    '    [Serializable]',
+    '    internal sealed class BackstagePayloadManifest',
+    '    {',
+    '        public string packageId = "";',
+    '        public string version = "";',
+    '        public string displayName = "";',
+    '        public string payloadFileName = "";',
+    '        public string payloadSha256 = "";',
+    '    }',
+    '',
+    '    [InitializeOnLoad]',
+    '    internal static class YucpBackstageEmbeddedUnitypackageInstaller_Legacy',
+    '    {',
+    '        private const string ManifestRelativePath = "BackstagePayload~/backstage-payload.json";',
+    '        private const string PayloadRelativePath = "BackstagePayload~/payload.unitypackage";',
+    '',
+    '        static YucpBackstageEmbeddedUnitypackageInstaller_Legacy()',
+    '        {',
+    '            EditorApplication.delayCall += MaybeImportPayload;',
+    '        }',
+    '',
+    '        private static void MaybeImportPayload()',
+    '        {',
+    '            var packageInfo = PackageInfo.FindForAssembly(typeof(YucpBackstageEmbeddedUnitypackageInstaller_Legacy).Assembly);',
+    '            var manifestPath = Path.Combine(packageInfo.resolvedPath, ManifestRelativePath);',
+    '            var payloadPath = Path.Combine(packageInfo.resolvedPath, PayloadRelativePath);',
+    '            var manifest = JsonUtility.FromJson<BackstagePayloadManifest>(File.ReadAllText(manifestPath));',
+    '            AssetDatabase.ImportPackage(payloadPath, false);',
+    '            Debug.Log("[YUCP Backstage] Imported " + manifest.displayName + " from Backstage Repos.");',
+    '        }',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+  const payloadManifest = JSON.stringify({
+    packageId: input.packageId,
+    version: input.version,
+    displayName: input.displayName,
+    payloadFileName: 'payload.unitypackage',
+    payloadSha256: 'legacy-sha-placeholder',
+  });
+  const asmdef = JSON.stringify({
+    name: 'Yucp.Backstage.PackageInstaller',
+    includePlatforms: ['Editor'],
+  });
+
+  return zipSync(
+    {
+      'package.json': strToU8(
+        JSON.stringify({
+          name: input.packageId,
+          version: input.version,
+          displayName: input.displayName,
+          unity: '2022.3',
+        })
+      ),
+      'Editor/Yucp.Backstage.PackageInstaller.asmdef': strToU8(asmdef),
+      'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs': strToU8(legacyInstallerSource),
+      'BackstagePayload~/payload.unitypackage': input.payloadBytes,
+      'BackstagePayload~/backstage-payload.json': strToU8(payloadManifest),
+    },
+    { level: 9 }
+  );
+}
+
 describe('releaseArtifacts.getActiveArtifact', () => {
   it('returns an artifact shape that satisfies its validator', async () => {
     const t = makeTestConvex();
@@ -309,5 +387,192 @@ describe('releaseArtifacts.getActiveArtifact', () => {
     expect(installerSource).toContain('using UnityEngine;');
     expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
     expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+  });
+
+  it('repairs stale unitypackage deliverables and updates the published digest', async () => {
+    const t = makeTestConvex();
+    const uploadBytes = buildUnitypackage([
+      { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+      { path: 'asset-guid/pathname', content: strToU8('Assets/JAMMR/readme.txt') },
+    ]);
+    const uploadSha256 = await sha256Hex(uploadBytes);
+    const staleZipBytes = buildLegacyUnitypackageWrapperZip({
+      packageId: 'com.yucp.jammr',
+      version: '2.1.5',
+      displayName: 'JAMMR',
+      payloadBytes: uploadBytes,
+    });
+    const staleZipSha256 = await sha256Hex(staleZipBytes);
+    const { deliveryPackageReleaseId, staleStorageId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const staleStorageId = await ctx.storage.store(
+        new Blob([toArrayBuffer(staleZipBytes)], { type: 'application/zip' })
+      );
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.jammr',
+        packageName: 'JAMMR',
+        displayName: 'JAMMR',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.jammr',
+        version: '2.1.5',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: staleZipSha256,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      return { deliveryPackageReleaseId, staleStorageId };
+    });
+
+    await t.mutation(internal.releaseArtifacts.publishDeliveryArtifact, {
+      deliveryPackageReleaseId,
+      artifactRole: 'server_deliverable',
+      ownership: 'server_materialized',
+      materializationStrategy: 'normalized_repack',
+      storageId: staleStorageId,
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.jammr-2.1.5.zip',
+      sha256: staleZipSha256,
+      byteSize: staleZipBytes.byteLength,
+    });
+
+    const repaired = await t.action(internal.releaseArtifacts.repairMaterializedReleaseDeliverable, {
+      deliveryPackageReleaseId,
+      apply: true,
+    });
+
+    expect(repaired.status).toBe('repaired');
+    if (repaired.status !== 'repaired') {
+      throw new Error(`Expected repaired stale deliverable, got ${repaired.status}`);
+    }
+    expect(repaired).toMatchObject({
+      status: 'repaired',
+      deliveryPackageReleaseId,
+      previousSha256: staleZipSha256,
+      nextSha256: expect.any(String),
+    });
+    expect(repaired.nextSha256).not.toBe(staleZipSha256);
+
+    const activeDeliverable = await t.run(async (ctx) => {
+      return await ctx.db
+        .query('delivery_release_artifacts')
+        .withIndex('by_release_role_status', (q) =>
+          q
+            .eq('deliveryPackageReleaseId', deliveryPackageReleaseId)
+            .eq('artifactRole', 'server_deliverable')
+            .eq('status', 'active')
+        )
+        .first();
+    });
+    expect(activeDeliverable?.sha256).toBe(repaired.nextSha256);
+
+    const deliverableBytes = await t.run(async (ctx) => {
+      const blob = activeDeliverable ? await ctx.storage.get(activeDeliverable.storageId) : null;
+      return blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : null;
+    });
+    expect(deliverableBytes).not.toBeNull();
+    const archive = unzipSync(new Uint8Array(deliverableBytes!));
+    const installerSource = new TextDecoder().decode(
+      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
+    );
+    expect(installerSource).toContain('using UnityEngine;');
+    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
+    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+
+    const release = await t.run(async (ctx) => {
+      return await ctx.db.get(deliveryPackageReleaseId);
+    });
+    expect(release?.zipSha256).toBe(repaired.nextSha256);
+  });
+
+  it('recovers stale wrapped payloads from legacy signed artifacts when no raw upload exists', async () => {
+    const t = makeTestConvex();
+    const uploadBytes = buildUnitypackage([
+      { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+      { path: 'asset-guid/pathname', content: strToU8('Assets/JAMMR/readme.txt') },
+    ]);
+    const staleZipBytes = buildLegacyUnitypackageWrapperZip({
+      packageId: 'com.yucp.jammr',
+      version: '2.1.5',
+      displayName: 'JAMMR',
+      payloadBytes: uploadBytes,
+    });
+    const staleZipSha256 = await sha256Hex(staleZipBytes);
+    const staleStorageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(new Blob([toArrayBuffer(staleZipBytes)], { type: 'application/zip' }));
+    });
+    const signedArtifactId = await t.mutation(internal.releaseArtifacts.publishArtifact, {
+      artifactKey: 'backstage-package:com.yucp.jammr',
+      channel: 'stable',
+      platform: 'unity',
+      version: '2.1.5',
+      metadataVersion: 1,
+      storageId: staleStorageId,
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.jammr-2.1.5.zip',
+      envelopeCipher: 'aes-256-gcm',
+      envelopeIvBase64: 'ZmFrZS1pdi1iYXNlNjQ=',
+      ciphertextSha256: 'a'.repeat(64),
+      ciphertextSize: staleZipBytes.byteLength,
+      plaintextSha256: staleZipSha256,
+      plaintextSize: staleZipBytes.byteLength,
+    });
+    const deliveryPackageReleaseId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.jammr',
+        packageName: 'JAMMR',
+        displayName: 'JAMMR',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      return await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.jammr',
+        version: '2.1.5',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        artifactKey: 'backstage-package:com.yucp.jammr',
+        signedArtifactId,
+        zipSha256: staleZipSha256,
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    });
+
+    const repaired = await t.action(internal.releaseArtifacts.repairMaterializedReleaseDeliverable, {
+      deliveryPackageReleaseId,
+      apply: true,
+    });
+
+    expect(repaired.status).toBe('repaired');
+    if (repaired.status !== 'repaired') {
+      throw new Error(`Expected repaired signed-artifact deliverable, got ${repaired.status}`);
+    }
+    expect(repaired.previousSha256).toBe(staleZipSha256);
+    expect(repaired.nextSha256).not.toBe(staleZipSha256);
+
+    const release = await t.run(async (ctx) => {
+      return await ctx.db.get(deliveryPackageReleaseId);
+    });
+    expect(release?.zipSha256).toBe(repaired.nextSha256);
   });
 });
