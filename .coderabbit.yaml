@@ -1,0 +1,508 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+reviews:
+  # Strictest built-in review style.
+  profile: "assertive"
+
+  # Allows CodeRabbit to request changes and block when error-mode checks fail.
+  request_changes_workflow: true
+
+  # Make review state visible and fail closed if CodeRabbit cannot review.
+  review_status: true
+  review_details: true
+  commit_status: true
+  fail_commit_status: true
+
+  # Reduce non-security noise.
+  poem: false
+  in_progress_fortune: false
+
+  # Avoid extra AI-agent prompts in review comments.
+  enable_prompt_for_ai_agents: false
+
+  # Always run automatic and incremental reviews.
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    ignore_title_keywords: []
+
+  pre_merge_checks:
+    # Prevent PR authors from overriding failing pre-merge checks.
+    override_requested_reviewers_only: true
+
+    title:
+      mode: "error"
+      requirements: |
+        The PR title must clearly describe the security-relevant scope when the PR touches authentication, authorization, secrets, logging, telemetry, frontend data exposure, public endpoints, API routes, networking, storage, database migrations, dependencies, CI/CD, infrastructure, deployment configuration, workload behavior, or permissions.
+
+    description:
+      mode: "error"
+      requirements: |
+        PR descriptions must include the following when applicable:
+        - Security impact: authentication, authorization, data exposure, secrets, logging, telemetry, network access, public endpoints, frontend bundle impact, dependencies, and permissions.
+        - Reachable endpoint impact: any new or changed route, API, webhook, GraphQL resolver, RPC method, server action, public page, static asset, or externally reachable service.
+        - Leakage review: whether sensitive data, PII, tenant data, credentials, tokens, internal IDs, or hidden implementation details can reach clients, logs, analytics, errors, traces, metrics, caches, URLs, downloads, or exported files.
+        - Migration impact: data loss risk, rollback plan, backup or preservation steps, and compatibility with rolling deploys.
+        - Workload robustness: timeout, cancellation, retry, idempotency, rate limit, resource limit, queue, shutdown, and failure behavior for jobs, workers, queues, schedulers, cron, stream processors, and public services.
+        - Testing evidence for security-sensitive and leakage-sensitive code paths.
+        - Justification for new dependencies, permissions, environment variables, secrets, external network calls, cloud resources, public buckets, public endpoints, or deployment changes.
+
+    issue_assessment:
+      mode: "error"
+
+    custom_checks:
+      - name: "No Hardcoded Secrets"
+        mode: "error"
+        instructions: |
+          Fail the PR if any hardcoded credential, API key, token, private key, password, webhook secret, DSN, database URL, cookie secret, JWT secret, OAuth secret, cloud credential, signing key, session secret, recovery code, refresh token, SSH key, certificate, or production identifier appears anywhere in the diff.
+
+          Treat test fixtures, examples, docs, snapshots, seed data, generated files, local development files, config templates, frontend assets, and public files as unsafe unless values are obvious placeholders such as "example", "dummy", "test", "fake", "placeholder", or "changeme".
+
+          Fail if variables or config fields named SECRET, TOKEN, API_KEY, PRIVATE_KEY, PASSWORD, CREDENTIAL, SESSION, COOKIE_SECRET, JWT_SECRET, DATABASE_URL, DSN, AWS_*, GCP_*, AZURE_*, *_KEY, *_TOKEN, *_PASSWORD, *_SECRET, or *_CREDENTIAL are assigned literal sensitive values instead of being loaded from an approved secret source.
+
+          Reads from environment variables are allowed only when the value is never logged, serialized, sent to clients, written to files, emitted in telemetry, included in errors, or embedded into frontend bundles.
+
+      - name: "Data Leakage Protection"
+        mode: "error"
+        instructions: |
+          Fail the PR if it introduces any risk of sensitive information leakage.
+
+          Treat the following as merge-blocking:
+          - secrets, tokens, API keys, passwords, private keys, session IDs, cookies, JWTs, OAuth codes, database URLs, DSNs, signing keys, webhook secrets, or cloud credentials in code, configs, tests, docs, fixtures, snapshots, logs, examples, public assets, or generated output
+          - PII, user data, tenant data, payment data, health data, auth headers, raw request bodies, raw responses, internal identifiers, object keys, stack traces, debug dumps, or internal metadata exposed through logs, errors, traces, metrics, analytics, client responses, telemetry, cache keys, object names, URLs, screenshots, exports, downloaded files, or debug output
+          - sensitive values copied into test fixtures, snapshots, mock data, documentation, README examples, seed data, Storybook examples, public assets, or local development files
+          - new exports, reports, downloads, admin views, dashboards, APIs, static pages, or frontend views that lack field-level redaction, authorization, tenant isolation, auditability, pagination limits, and data minimization
+
+          Require deny-by-default exposure rules, explicit allowlisted fields, masking or redaction, safe structured logging, and tests for leakage-sensitive paths.
+
+      - name: "Frontend Client Bundle Leakage"
+        mode: "error"
+        instructions: |
+          Fail the PR if frontend, browser, mobile-web, public static asset, client component, hydration payload, source map, service worker, manifest, Storybook, demo page, analytics, or client-side configuration changes can expose sensitive data.
+
+          Treat the following as merge-blocking:
+          - secrets, private API keys, privileged tokens, service credentials, server-only environment variables, database URLs, internal endpoints, admin URLs, signing material, feature flag secrets, or private config embedded in client bundles or public assets
+          - accidental exposure through NEXT_PUBLIC_*, VITE_*, REACT_APP_*, PUBLIC_*, import.meta.env, window.__*, hydration JSON, route loaders, server-rendered props, serialized state, cookies readable by JavaScript, localStorage, sessionStorage, IndexedDB, service worker caches, or source maps
+          - client-side code that trusts hidden fields, user IDs, tenant IDs, roles, prices, permissions, feature flags, object IDs, or authorization decisions from the browser
+          - frontend error messages, toast messages, telemetry, analytics, console logs, screenshots, crash reports, or performance events that include PII, tokens, raw payloads, internal IDs, stack traces, SQL, headers, cookies, or internal implementation details
+          - pages or components that render more fields than needed, render cross-tenant data, expose admin-only data, leak user enumeration signals, or allow scraping of sensitive data
+
+          Require server-side authorization, field allowlists, safe serialization, redaction, HttpOnly and Secure cookies for session tokens, no privileged secrets in public env vars, and tests or explicit evidence that client-visible data is minimized.
+
+      - name: "Reachable Endpoint Leakage"
+        mode: "error"
+        instructions: |
+          Fail the PR if any public, authenticated, internal, or externally reachable endpoint can leak sensitive data.
+
+          This applies to HTTP routes, API routes, REST endpoints, GraphQL resolvers, tRPC methods, RPC handlers, webhooks, WebSocket handlers, Server-Sent Events, Next.js server actions, loaders, actions, edge functions, serverless functions, file downloads, exports, admin endpoints, health endpoints, metrics endpoints, static file routes, object storage URLs, redirects, and preview or debug routes.
+
+          Treat the following as merge-blocking:
+          - endpoints returning secrets, tokens, cookies, auth headers, PII, tenant data, internal IDs, stack traces, SQL errors, raw exceptions, internal config, cloud metadata, object storage paths, private URLs, or hidden authorization state
+          - missing authentication, missing object-level authorization, missing tenant isolation, IDOR, confused-deputy behavior, user enumeration, excessive response fields, unsafe default includes, mass assignment, or trusting client-controlled roles, IDs, headers, cookies, or tenant claims
+          - unauthenticated or weakly authenticated debug, preview, health, metrics, status, admin, export, upload, webhook, or internal endpoints
+          - error responses that distinguish account existence, permission state, token validity, internal service names, database state, or stack details
+          - endpoints without response field allowlists, pagination caps, size limits, rate limits, audit logging for sensitive access, or safe cache-control headers
+
+          Require least-data responses, explicit field allowlists, deny-by-default authz, secure cache headers, safe errors, tenant isolation, and security tests for reachable endpoints.
+
+      - name: "Prompt AI Data Leakage"
+        mode: "error"
+        instructions: |
+          Fail the PR if AI, LLM, prompt, embedding, vector search, agent, RAG, eval, telemetry, or model-calling code can leak sensitive data.
+
+          Treat the following as merge-blocking:
+          - sending secrets, credentials, raw user data, tenant data, internal docs, system prompts, hidden chain-of-thought, auth headers, cookies, access tokens, private metadata, or regulated data to external model providers without explicit minimization and approval
+          - prompt injection paths that allow retrieved content, user input, documents, web pages, or tool output to override system, developer, safety, tenant, access-control, or data-handling instructions
+          - tool calls that can exfiltrate data through URLs, webhooks, emails, logs, analytics, traces, exports, downloads, or arbitrary network requests
+          - embeddings or vector indexes that store sensitive data without retention, deletion, access control, and tenant isolation
+          - responses that reveal internal prompts, policies, keys, stack traces, private document snippets, cross-tenant data, or hidden implementation details
+
+          Require input and output filtering, least-privilege tool access, redaction, provenance checks, allowlisted egress, tenant-scoped retrieval, and tests for prompt injection and data leakage scenarios.
+
+      - name: "Authentication Authorization Gate"
+        mode: "error"
+        instructions: |
+          Fail the PR if any API route, RPC method, webhook, server action, admin action, background job trigger, file operation, storage access path, export, report, mutation, or reachable endpoint lacks explicit authentication and authorization checks.
+
+          Fail if authorization is inferred only from client-provided IDs, roles, tenant IDs, email addresses, headers, cookies, query params, request bodies, hidden fields, frontend state, local storage, JWT contents without server-side validation, or object ownership claims.
+
+          Require tenant isolation, object-level authorization, deny-by-default behavior, least privilege, secure session handling, clear failure modes, and tests or convincing evidence for security-sensitive access control changes.
+
+      - name: "Injection Boundary Gate"
+        mode: "error"
+        instructions: |
+          Fail the PR if user-controlled input reaches SQL, NoSQL, LDAP, XPath, shell commands, template rendering, regex construction, file paths, URLs, redirects, HTML, XML, YAML, JSON parsing, deserialization, subprocesses, eval-like APIs, dynamic imports, GraphQL query construction, ORM filters, search queries, or logging sinks without validation, escaping, parameterization, allowlisting, or safe APIs.
+
+          Require positive validation at trust boundaries.
+
+          Fail on string-concatenated queries, unsafe deserialization, command construction from user input, path traversal risk, open redirects, unsafe HTML injection, prototype pollution, LDAP injection, XPath injection, template injection, header injection, log injection, insecure regex denial of service, unsafe archive extraction, or untrusted code execution.
+
+      - name: "SSRF Egress Gate"
+        mode: "error"
+        instructions: |
+          Fail the PR if server-side code makes network requests to user-controlled URLs, hosts, redirects, webhooks, metadata endpoints, internal IP ranges, localhost, link-local ranges, private networks, cloud metadata services, or arbitrary external services without strict allowlisting and redirect controls.
+
+          Require scheme restrictions, host allowlists, DNS and IP validation after resolution, redirect validation, timeout limits, response size limits, request method limits, no credential forwarding to untrusted hosts, protection against DNS rebinding, and tests for bypass attempts.
+
+      - name: "Crypto Token Safety"
+        mode: "error"
+        instructions: |
+          Fail the PR for weak cryptography or unsafe token handling.
+
+          Treat the following as merge-blocking:
+          - insecure randomness for secrets, tokens, nonces, IDs, salts, invitation links, reset links, or passwords
+          - MD5, SHA1, DES, 3DES, RC4, ECB mode, static IVs, hardcoded keys, homegrown crypto, disabled certificate validation, or unauthenticated encryption
+          - JWTs accepted without issuer, audience, expiry, signature, and algorithm validation
+          - password storage without a modern password hashing function
+          - sensitive tokens stored in localStorage, sessionStorage, IndexedDB, client-readable cookies, logs, analytics, telemetry, URLs, or long-lived client-accessible storage without explicit security justification
+          - missing token rotation, revocation, expiry, one-time-use enforcement, replay protection, or secure cookie attributes where relevant
+
+      - name: "Database Storage Safety"
+        mode: "error"
+        instructions: |
+          Fail the PR if destructive schema, migration, retention, object storage, queue, cache, index, or data transformation changes lack explicit rollback logic, backup strategy, data preservation steps, and operational safety notes.
+
+          Fail on DROP, TRUNCATE, irreversible ALTER, destructive backfill, bulk delete, key rotation, bucket policy changes, public ACLs, retention changes, data export changes, cache key changes, or object naming changes unless the PR explains safety, reversibility, blast radius, validation, and rollback.
+
+          Require migrations to be compatible with zero-downtime deploys when applicable.
+
+          Require tenant isolation, encryption, least privilege, safe retention, non-public defaults, and tests or verification queries for sensitive data paths.
+
+      - name: "Non Robust Workloads"
+        mode: "error"
+        instructions: |
+          Fail the PR if it adds or changes workloads that are fragile, unbounded, or unsafe under failure, load, retries, malformed input, partial outages, or adversarial traffic.
+
+          This applies to HTTP services, workers, queues, cron jobs, schedulers, batch jobs, migrations, consumers, webhooks, stream processors, serverless functions, CLIs, background tasks, model calls, ETL jobs, and data exports.
+
+          Treat the following as merge-blocking:
+          - no timeout, deadline, cancellation, retry budget, backoff, circuit breaker, or rate limit for network, database, filesystem, queue, model, or external service calls
+          - unbounded concurrency, unbounded memory growth, unbounded queues, unbounded file reads, unbounded response bodies, unbounded recursion, unbounded batch sizes, or unbounded pagination
+          - non-idempotent retries, duplicate-processing risk, missing deduplication, missing transaction boundaries, missing lock safety, unsafe partial-failure behavior, or unclear recovery
+          - no graceful shutdown, signal handling, job cancellation, checkpointing, visibility timeout handling, lease renewal, or poison-message handling where relevant
+          - missing health checks, readiness checks, observability, audit logs, dead-letter queues, alertable failure signals, or safe fallback behavior
+          - workloads that can amplify traffic, trigger cascading failures, starve shared resources, overload dependencies, corrupt data, or degrade multi-tenant isolation
+
+          Require explicit limits, safe defaults, defensive error handling, resilience tests, rollback or fallback behavior, and operational visibility.
+
+      - name: "Resource Exhaustion DoS"
+        mode: "error"
+        instructions: |
+          Fail the PR if user-controlled input can cause denial of service or resource exhaustion.
+
+          Flag:
+          - request bodies, file uploads, decompression, image or video processing, archive extraction, JSON/XML/YAML parsing, regex, pagination, sorting, filtering, search, exports, reports, or batch APIs without strict size and complexity limits
+          - regex patterns vulnerable to catastrophic backtracking
+          - XML external entity risks, zip bombs, decompression bombs, archive traversal, parser expansion attacks, or malicious media payloads
+          - endpoints without rate limits, authentication throttling, pagination caps, timeout controls, request cancellation, response size limits, or upload limits
+          - expensive database queries, N+1 patterns, full table scans, unbounded joins, unindexed filters, user-controlled query complexity, or unbounded GraphQL depth
+          - client or server code that can loop indefinitely, recursively expand data, render huge lists, leak memory, or block the event loop
+
+          Require bounded resource usage, streaming where safe, input caps, timeouts, pagination limits, and tests for oversized or malformed input.
+
+      - name: "General Vulnerability Gate"
+        mode: "error"
+        instructions: |
+          Fail the PR if it introduces or worsens common security vulnerabilities.
+
+          Treat the following as merge-blocking:
+          - broken access control, missing object-level authorization, tenant isolation bypass, confused-deputy flaws, IDOR, privilege escalation, unsafe admin paths, or insecure direct data access
+          - SQL, NoSQL, LDAP, XPath, template, header, log, GraphQL, or command injection
+          - XSS, CSRF, SSRF, open redirect, path traversal, prototype pollution, unsafe deserialization, insecure file upload, unsafe dynamic code execution, insecure CORS, clickjacking, cache poisoning, request smuggling, response splitting, or dependency confusion
+          - weak crypto, insecure randomness, hardcoded keys, JWT validation gaps, missing token expiry, insecure cookie flags, disabled TLS verification, insecure transport, downgrade-prone protocols, or plaintext sensitive data
+          - insecure defaults in auth, sessions, password reset, email verification, invitation flows, webhooks, OAuth/OIDC, SAML, API keys, admin features, feature flags, or public pages
+          - missing validation at trust boundaries or trusting client-controlled roles, tenant IDs, user IDs, permissions, headers, cookies, hidden fields, frontend state, or metadata
+
+          Require secure-by-default behavior, explicit authorization, positive validation, least privilege, safe error handling, and relevant security regression tests.
+
+      - name: "Dependency Runtime CVE Gate"
+        mode: "error"
+        instructions: |
+          Fail the PR if it adds, upgrades, downgrades, or reconfigures dependencies, base images, runtimes, package managers, build tools, plugins, GitHub Actions, containers, or system packages in a way that introduces known critical or high vulnerabilities or materially increases attack surface.
+
+          Flag:
+          - unpinned dependencies, mutable Docker tags, unpinned GitHub Actions, insecure package sources, install scripts, postinstall hooks, or arbitrary downloads
+          - dependency confusion risk, typosquatting risk, abandoned packages, suspicious maintainers, broad transitive dependency expansion, unnecessary privileged packages, or unexplained native extensions
+          - vulnerable base images, vulnerable lockfile changes, vulnerable package manager config, disabled vulnerability scanning, relaxed integrity checks, or insecure mirrors
+
+          Require justification for new dependencies, least-privilege runtime permissions, pinned versions or digests where applicable, and a remediation plan for known high or critical vulnerabilities.
+
+      - name: "IaC Deployment Hardening"
+        mode: "error"
+        instructions: |
+          Fail the PR if Docker, Kubernetes, Terraform, Helm, CloudFormation, GitHub Actions, CircleCI, deployment configuration, cloud resources, CDN config, object storage, secrets management, or network configuration introduces insecure defaults.
+
+          Flag privileged containers, root users, host networking, hostPath mounts, broad volumes, broad IAM permissions, public buckets, public databases, public queues, exposed admin ports, missing TLS, disabled verification, wildcard CORS, permissive security groups, unbounded egress, mutable tags like latest, secrets in ARG or ENV, missing resource limits, missing probes, missing audit logs, disabled encryption, public read policies, and unsafe deployment permissions.
+
+      - name: "Security Regression Tests"
+        mode: "error"
+        instructions: |
+          Fail the PR if security-sensitive changes lack relevant automated tests, documented manual verification, or a clear reason tests are impossible.
+
+          Security-sensitive changes include authentication, authorization, session handling, input validation, frontend data exposure, reachable endpoints, parsing, file access, network calls, crypto, logging, telemetry, metrics, migrations, dependency updates, CI/CD, IaC, public assets, exports, downloads, workers, queues, jobs, cron, and workload resilience.
+
+          Require tests for leakage prevention, authorization failures, tenant isolation, malformed inputs, oversized inputs, failure behavior, retry behavior, and safe client-visible errors where relevant.
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Act as a strict Go security auditor.
+        Aggressively flag:
+        - missing context timeouts or cancellation on network, database, filesystem, goroutine, subprocess, queue, or external service work
+        - goroutine leaks, race conditions, unsafe shared state, missing synchronization, non-idempotent retries, and unbounded concurrency
+        - unchecked errors, panics on user input, unsafe type assertions, nil dereferences, unsafe reflection, and unsafe JSON or XML parsing
+        - SQL injection, command injection, path traversal, SSRF, open redirects, unsafe template rendering, insecure deserialization, and log leakage
+        - HTTP handlers without explicit authentication, authorization, tenant isolation, request size limits, response size limits, content-type validation, input validation, rate limits, and safe error responses
+        - filesystem access that does not clean, resolve, and constrain paths to an allowed base directory
+        - client-visible responses that include secrets, tokens, PII, tenant data, internal IDs, stack traces, raw errors, SQL, headers, cookies, or private implementation details
+
+    - path: "**/*.rs"
+      instructions: |
+        Act as a strict Rust security auditor.
+        Aggressively flag:
+        - every unsafe block unless narrowly scoped, documented, justified, and covered by tests
+        - panic paths, unwrap or expect on untrusted input, integer overflow risks, out-of-bounds access, memory leaks, and denial-of-service parsing behavior
+        - unsafe deserialization, path traversal, command injection, SSRF, weak boundary checks, and leakage through debug formatting
+        - lifetime or aliasing assumptions that could invalidate safety invariants
+        - cryptographic misuse, insecure randomness, sensitive data lingering in memory where zeroization is expected, and client-visible leakage
+
+    - path: "**/*.{ts,tsx,js,jsx}"
+      instructions: |
+        Act as a strict TypeScript and JavaScript security auditor.
+        Aggressively flag:
+        - SSRF, injection, XSS, prototype pollution, insecure redirects, unsafe dynamic imports, eval-like APIs, and shell command construction
+        - API routes, server actions, RPC handlers, middleware, loaders, actions, edge functions, and webhooks without explicit authentication, authorization, CSRF protection where applicable, tenant isolation, and input validation
+        - unsafe JSON parsing, schema gaps, mass assignment, confused-deputy issues, trusting client-controlled IDs or roles, and unsafe use of headers or cookies
+        - tokens, secrets, private config, server-only env vars, API keys, tenant data, PII, or internal endpoints exposed to client bundles, hydration payloads, browser storage, source maps, analytics, logs, errors, or public assets
+        - logging of request headers, cookies, tokens, user payloads, PII, tenant IDs, raw errors, or internal stack traces
+        - non-robust workloads in Node runtimes, including missing abort signals, missing timeouts, unbounded promises, unbounded queues, unbounded response bodies, and event-loop blocking work
+
+    - path: "**/*.{tsx,jsx}"
+      instructions: |
+        Treat UI components as possible data-exposure surfaces.
+        Flag:
+        - rendering fields that are not strictly needed by the user
+        - exposing admin-only, tenant-private, or internal fields
+        - rendering raw HTML or markdown without sanitization
+        - leaking sensitive information through error states, loading states, empty states, debug panels, tooltips, form defaults, data attributes, ARIA labels, hidden inputs, console logs, or analytics events
+        - trusting frontend-only checks for authorization, role, tenant, price, ownership, or feature access
+
+    - path: "**/{pages,app,routes,api,server,src/app,src/pages,src/routes}/**"
+      instructions: |
+        Treat all route files as reachable until proven otherwise.
+        Require:
+        - explicit authentication and object-level authorization
+        - tenant isolation
+        - safe response field allowlists
+        - safe errors with no stack traces, raw exceptions, SQL, headers, cookies, tokens, or internal IDs
+        - no user enumeration
+        - rate limits and request size limits for public endpoints
+        - secure cache-control headers for sensitive responses
+        - CSRF protection where cookie-based auth is used
+        - tests for forbidden, unauthenticated, cross-tenant, malformed, oversized, and leakage scenarios
+
+    - path: "**/*.{controller,controllers,route,routes,handler,handlers,middleware,server,api,rpc,webhook,action,actions,loader,loaders,resolver,resolvers}*"
+      instructions: |
+        Treat all request-handling code as internet-exposed unless proven otherwise.
+        Require explicit authentication, object-level authorization, tenant isolation, CSRF protection where applicable, input validation, rate limiting, request size limits, response size limits, timeout and cancellation handling, safe error messages, and no sensitive response fields.
+        Flag any endpoint that returns secrets, tokens, cookies, auth headers, PII, tenant data, raw user payloads, stack traces, SQL errors, internal URLs, object storage keys, internal IDs, or implementation details.
+
+    - path: "**/{public,static,assets,dist,build,out,.next,storybook,stories}/**"
+      instructions: |
+        Treat public assets and generated frontend artifacts as externally visible.
+        Flag secrets, tokens, private config, source maps exposing sensitive source, internal URLs, admin endpoints, tenant data, PII, hidden feature flags, raw fixtures, screenshots with sensitive data, debug output, generated JSON containing private fields, or examples that normalize insecure patterns.
+        Require all public examples and fixtures to use fake placeholder data only.
+
+    - path: "**/*.{html,css,scss,sass,less,vue,svelte,astro}"
+      instructions: |
+        Review frontend template and style files for leakage, XSS, clickjacking, unsafe inline scripts, unsafe external resources, mixed content, hidden sensitive data, unsafe CSP changes, and accidental exposure of internal or user data.
+        Flag raw HTML rendering, untrusted markdown rendering, unsafe link targets, unsafe iframe usage, and user-controlled URLs in resource attributes.
+
+    - path: "**/*.{sql,prisma}"
+      instructions: |
+        Treat all database and schema changes as high risk.
+        Flag destructive changes, unsafe defaults, missing rollback, missing data migration, missing tenant isolation, weak constraints, missing indexes for auth-critical lookups, raw query construction, overly broad selected fields, public-readable data, and migrations that can leak or corrupt sensitive data.
+        Require data preservation, rollback notes, validation queries, and zero-downtime compatibility where applicable.
+
+    - path: "**/migrations/**"
+      instructions: |
+        Treat migrations as merge-blocking security and reliability surfaces.
+        Require explicit rollback or forward-fix plan, backup or preservation notes, compatibility with rolling deploys, validation queries, lock impact assessment, data exposure review, and operational safety notes for destructive or large-scale data changes.
+
+    - path: "**/{workers,jobs,queues,cron,schedulers,consumers,batch,serverless,functions,tasks}/**"
+      instructions: |
+        Treat workload robustness as security-critical.
+        Aggressively flag missing timeouts, cancellation, retry budgets, exponential backoff, idempotency keys, deduplication, dead-letter queues, poison-message handling, concurrency limits, memory limits, batch-size limits, response-size limits, graceful shutdown, checkpointing, lease handling, transaction safety, audit logs, and alertable observability.
+        Fail unsafe patterns that can cause cascading failures, duplicate side effects, resource exhaustion, data corruption, data leakage, or cross-tenant impact.
+
+    - path: "**/*.{log,logging,logger,telemetry,analytics,metrics,tracing,audit}*"
+      instructions: |
+        Review all logging, telemetry, metrics, tracing, analytics, and audit changes for leakage.
+        Flag any raw user data, PII, secrets, tokens, cookies, auth headers, request bodies, response bodies, tenant identifiers, payment data, internal IDs, stack traces, SQL, prompts, model inputs, model outputs, external service credentials, or private URLs.
+        Require field allowlists, redaction, hashing or tokenization where appropriate, retention awareness, safe structured logging, and no sensitive values in labels, tags, dimensions, metric names, spans, events, or breadcrumbs.
+
+    - path: "**/*.{prompt,prompts,rag,llm,agent,agents,embedding,embeddings,vector,eval,tool,tools}*"
+      instructions: |
+        Treat AI, LLM, RAG, tool-calling, embedding, and eval code as high risk for data leakage and prompt injection.
+        Flag system prompt exposure, hidden instruction disclosure, tool-output injection, cross-tenant retrieval, unsafe document ingestion, sensitive embedding storage, unconstrained tool permissions, arbitrary URL or webhook egress, missing provenance checks, missing retrieval filters, missing redaction, and missing eval coverage for leakage.
+
+    - path: "**/{Dockerfile,Dockerfile.*,*.dockerfile,docker-compose.yml,docker-compose.yaml,compose.yml,compose.yaml}"
+      instructions: |
+        Act as a strict container security auditor.
+        Flag root users, privileged mode, host networking, broad mounts, mutable image tags, unpinned base images, curl-pipe-shell installers, secrets in ARG or ENV, missing health checks, excessive capabilities, writable root filesystems, unnecessary packages, disabled TLS verification, public admin ports, missing resource limits, and exposed sensitive files.
+
+    - path: "**/.github/workflows/**"
+      instructions: |
+        Act as a strict CI/CD security auditor.
+        Flag broad permissions, unpinned third-party actions, pull_request_target misuse, secrets exposed to forks, unsafe checkout of untrusted code, command injection from PR metadata, missing concurrency controls, deployment workflows without environment protection, public artifact leakage, cache poisoning, untrusted script execution, and missing least-privilege permissions.
+
+    - path: "**/*.{tf,tfvars,hcl,yaml,yml,json,toml,env,env.example,conf,config,ini,properties}"
+      instructions: |
+        Review configuration for leakage and insecure defaults.
+        Flag plaintext secrets, real-looking credentials, unsafe CORS, disabled TLS verification, public endpoints, debug mode, permissive auth, broad IAM, insecure cookie settings, exposed admin ports, mutable image tags, missing resource limits, missing production-safe defaults, public buckets, public databases, public queues, unbounded egress, and missing encryption.
+        Treat public frontend env vars as public. Fail if server-only values are exposed through NEXT_PUBLIC_*, VITE_*, REACT_APP_*, PUBLIC_*, or equivalent variables.
+
+    - path: "**/*test*"
+      instructions: |
+        Security still matters in tests.
+        Flag real-looking credentials, copied production tokens, unsafe fixtures with live endpoints, disabled TLS verification without isolation, frontend snapshots containing sensitive data, test logs that reveal secrets or PII, and tests that normalize insecure patterns.
+        Test-only bypasses must be isolated, obvious, and impossible to activate in production.
+
+    - path: "**/*.{md,mdx,txt,rst}"
+      instructions: |
+        Review documentation for leaked secrets, internal URLs, credentials, production identifiers, screenshots with sensitive data, unsafe setup instructions, real tokens, real tenant IDs, insecure examples, insecure curl commands, permissive CORS guidance, disabled TLS guidance, or examples that normalize storing secrets in frontend env vars.
+
+  tools:
+    # Secret scanning. Betterleaks is configured through the legacy gitleaks key.
+    gitleaks:
+      enabled: true
+
+    # Verified secret scanning.
+    trufflehog:
+      enabled: true
+
+    # Static application security testing.
+    semgrep:
+      enabled: true
+    # Semgrep-compatible static analysis engine.
+    opengrep:
+      enabled: true
+
+    # Dependency vulnerability scanning.
+    osvScanner:
+      enabled: true
+
+    # Infrastructure and container security.
+    trivy:
+      enabled: true
+    checkov:
+      enabled: true
+    tflint:
+      enabled: true
+    hadolint:
+      enabled: true
+
+    # CI and config linting.
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    dotenvLint:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 900000
+
+    # Frontend and web linting.
+    eslint:
+      enabled: true
+    biome:
+      enabled: true
+    oxc:
+      enabled: true
+    htmlhint:
+      enabled: true
+    stylelint:
+      enabled: true
+
+    # Go, Rust, Python, SQL, shell, and protobuf.
+    golangci-lint:
+      enabled: true
+      
+    clippy:
+      enabled: true
+    ruff:
+      enabled: true
+    pylint:
+      enabled: true
+    sqlfluff:
+      enabled: true
+    shellcheck:
+      enabled: true
+    buf:
+      enabled: true
+
+    # Additional language security/static checks.
+    brakeman:
+      enabled: true
+    phpstan:
+      enabled: true
+      level: "max"
+    rubocop:
+      enabled: true
+    pmd:
+      enabled: true
+    cppcheck:
+      enabled: true
+    clang:
+      enabled: true
+    prismaLint:
+      enabled: true
+    psscriptanalyzer:
+      enabled: true
+    regal:
+      enabled: true
+    ast-grep:
+      enabled: true
+
+chat:
+  # Restrict CodeRabbit chat interactions on GitHub organization repos.
+  allow_non_org_members: false
+
+  # Require explicit mentions rather than automatic replies.
+  auto_reply: false
+
+  # No nonessential output.
+  art: false
+
+  integrations:
+    jira:
+      usage: "disabled"
+    linear:
+      usage: "disabled"
+
+knowledge_base:
+  # Strict privacy setting. This disables retained CodeRabbit knowledge features.
+  opt_out: true
+
+  web_search:
+    enabled: false
+
+  code_guidelines:
+    enabled: false
+
+  learnings:
+    scope: "local"
+
+  issues:
+    scope: "local"
+
+  jira:
+    usage: "disabled"
+
+  linear:
+    usage: "disabled"
