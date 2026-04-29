@@ -410,8 +410,6 @@ bun run ...
 
 Known risks, rollout notes, follow-up work, or unrelated failing checks.
 
-```
-
 ## Definition of done
 
 A change is done when all of these are true:
@@ -550,4 +548,3 @@ Do not submit AI-generated code that you cannot explain, validate, maintain, or 
 Maintainers may edit this guide as the repository evolves. When `AGENTS.md`, package scripts, architecture docs, or security procedures change, update this file in the same PR when contributor expectations change.
 
 The goal is simple: every accepted contribution should be understandable, testable, secure, observable, aligned with the repository architecture, and kind to the next maintainer.
-```
