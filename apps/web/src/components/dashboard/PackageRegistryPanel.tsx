@@ -18,7 +18,11 @@ import {
 } from '@heroui/react';
 import { DropZone, EmptyState, PressableFeedback, Sheet } from '@heroui-pro/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { resolveYucpAliasIdFromCatalogProduct } from '@yucp/shared';
+import {
+  resolveComparableYucpAliasIdsFromCatalogProduct,
+  resolveSharedYucpAliasIdFromCatalogProducts,
+  resolveYucpAliasIdFromCatalogProduct,
+} from '@yucp/shared';
 import {
   Archive,
   ArrowUpFromLine,
@@ -295,7 +299,13 @@ function buildUniqueMatchKeys(values: Array<string | undefined>, prefix: string)
 
 function buildProductLaneMatchKeys(product: CreatorBackstageProductSummary): ProductLaneMatchKeys {
   return {
-    aliasKeys: buildUniqueMatchKeys([resolveYucpAliasIdFromCatalogProduct(product)], 'alias'),
+    aliasKeys: buildUniqueMatchKeys(
+      [
+        resolveYucpAliasIdFromCatalogProduct(product),
+        ...resolveComparableYucpAliasIdsFromCatalogProduct(product),
+      ],
+      'alias'
+    ),
     fallbackKey: `product:${String(product.catalogProductId)}`,
     packageKeys: buildUniqueMatchKeys(
       (product.backstagePackages ?? []).map((backstagePackage) => backstagePackage.packageId),
@@ -374,10 +384,17 @@ function resolveUniqueAliasIdsForCatalogProducts(
   const selectedCatalogProductIds = new Set(
     catalogProductIds.map((catalogProductId) => String(catalogProductId))
   );
+  const selectedProducts = products.filter((product) =>
+    selectedCatalogProductIds.has(String(product.catalogProductId))
+  );
+  const sharedAliasId = resolveSharedYucpAliasIdFromCatalogProducts(selectedProducts);
+  if (sharedAliasId) {
+    return [sharedAliasId];
+  }
+
   return Array.from(
     new Set(
-      products
-        .filter((product) => selectedCatalogProductIds.has(String(product.catalogProductId)))
+      selectedProducts
         .map((product) => resolveYucpAliasIdFromCatalogProduct(product))
         .filter((aliasId): aliasId is string => Boolean(aliasId?.trim()))
     )

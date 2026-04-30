@@ -1,6 +1,6 @@
 import {
   mergeYucpAliasPackageMetadata,
-  resolveYucpAliasIdFromCatalogProduct,
+  resolveSharedYucpAliasIdFromCatalogProducts,
 } from '@yucp/shared';
 import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
 import { v } from 'convex/values';
@@ -88,22 +88,28 @@ export const resolveAliasContractMetadataForAccessSelectors = internalQuery({
     catalogProductIds: v.array(v.string()),
   }),
   handler: async (ctx, args): Promise<{ aliasId: string; catalogProductIds: string[] }> => {
-    const products = new Map<string, { _id: Id<'product_catalog'>; aliasId: string }>();
+    const products = new Map<
+      string,
+      {
+        _id: Id<'product_catalog'>;
+        aliases?: string[];
+        canonicalSlug?: string;
+        displayName?: string;
+        providerProductRef?: string;
+      }
+    >();
     for (const selector of args.accessSelectors) {
       if (selector.kind === 'catalogProduct') {
         const product = await ctx.db.get(selector.catalogProductId);
         if (!product || product.authUserId !== args.authUserId) {
           throw new Error(`Catalog product not found: ${String(selector.catalogProductId)}`);
         }
-        const aliasId = resolveYucpAliasIdFromCatalogProduct(product);
-        if (!aliasId) {
-          throw new Error(
-            `Catalog product '${String(product._id)}' is missing a canonical slug or provider product reference.`
-          );
-        }
         products.set(String(product._id), {
           _id: product._id,
-          aliasId,
+          aliases: product.aliases,
+          canonicalSlug: product.canonicalSlug,
+          displayName: product.displayName,
+          providerProductRef: product.providerProductRef,
         });
         continue;
       }
@@ -116,31 +122,28 @@ export const resolveAliasContractMetadataForAccessSelectors = internalQuery({
       if (!product || product.authUserId !== args.authUserId) {
         throw new Error(`Catalog product not found for tier: ${String(selector.catalogTierId)}`);
       }
-      const aliasId = resolveYucpAliasIdFromCatalogProduct(product);
-      if (!aliasId) {
-        throw new Error(
-          `Catalog product '${String(product._id)}' is missing a canonical slug or provider product reference.`
-        );
-      }
       products.set(String(product._id), {
         _id: product._id,
-        aliasId,
+        aliases: product.aliases,
+        canonicalSlug: product.canonicalSlug,
+        displayName: product.displayName,
+        providerProductRef: product.providerProductRef,
       });
     }
 
     const uniqueProducts = Array.from(products.values());
-    const aliasIds = Array.from(new Set(uniqueProducts.map((product) => product.aliasId)));
-    if (aliasIds.length === 0) {
+    if (uniqueProducts.length === 0) {
       throw new Error('At least one catalog product is required to build alias metadata.');
     }
-    if (aliasIds.length > 1) {
+    const aliasId = resolveSharedYucpAliasIdFromCatalogProducts(uniqueProducts);
+    if (!aliasId) {
       throw new Error(
         'Cannot synthesize alias metadata across multiple catalog products with different alias ids.'
       );
     }
 
     return {
-      aliasId: aliasIds[0],
+      aliasId,
       catalogProductIds: uniqueProducts.map((product) => String(product._id)),
     };
   },

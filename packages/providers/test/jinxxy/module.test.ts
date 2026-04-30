@@ -82,6 +82,54 @@ describe('createJinxxyProviderModule', () => {
     ]);
   });
 
+  it('hydrates Jinxxy product URLs and canonical slugs from the product detail endpoint', async () => {
+    const module = createJinxxyProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-owner';
+      },
+      async decryptCredential() {
+        return 'owner-key';
+      },
+      async listCollaboratorConnections() {
+        return [];
+      },
+      createClient() {
+        return {
+          async getProducts() {
+            return {
+              products: [{ id: 'song-1', name: 'Song Thing' }],
+              pagination: { has_next: false },
+            };
+          },
+          async getProduct(productId) {
+            expect(productId).toBe('song-1');
+            return {
+              id: 'song-1',
+              name: 'Song Thing',
+              url: 'https://jinxxy.com/song-thing',
+              thumbnail_url: 'https://jinxxy-cdn.com/song-thing.png',
+            };
+          },
+          async verifyLicenseByKey() {
+            return { valid: false };
+          },
+        };
+      },
+    });
+
+    const products = await module.fetchProducts('owner-key', makeCtx());
+    expect(products).toEqual([
+      {
+        id: 'song-1',
+        name: 'Song Thing',
+        canonicalSlug: 'song-thing',
+        productUrl: 'https://jinxxy.com/song-thing',
+        thumbnailUrl: 'https://jinxxy-cdn.com/song-thing.png',
+      },
+    ]);
+  });
+
   it('treats Jinxxy version prices as already-scaled cents', async () => {
     const module = createJinxxyProviderModule({
       logger,

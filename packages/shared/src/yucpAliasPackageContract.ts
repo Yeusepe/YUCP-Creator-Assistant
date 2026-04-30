@@ -37,7 +37,9 @@ export type YucpAliasPackageContract = {
 };
 
 export type YucpAliasCatalogProductRef = {
+  aliases?: ReadonlyArray<string | null | undefined> | null;
   canonicalSlug?: string | null;
+  displayName?: string | null;
   providerProductRef?: string | null;
 };
 
@@ -169,6 +171,72 @@ export function resolveYucpAliasIdFromCatalogProduct(
 
   const providerProductRef = input.providerProductRef?.trim();
   return providerProductRef || undefined;
+}
+
+function normalizeComparableAliasIdSeed(value?: string | null): string | undefined {
+  const normalized = (value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || undefined;
+}
+
+export function resolveComparableYucpAliasIdsFromCatalogProduct(
+  input: YucpAliasCatalogProductRef
+): string[] {
+  const displayAliasId = normalizeComparableAliasIdSeed(input.displayName);
+  if (displayAliasId) {
+    return [displayAliasId];
+  }
+
+  const aliasIds = (input.aliases ?? [])
+    .map((alias) => normalizeComparableAliasIdSeed(alias))
+    .filter((aliasId): aliasId is string => Boolean(aliasId));
+  return Array.from(new Set(aliasIds));
+}
+
+export function resolveSharedYucpAliasIdFromCatalogProducts(
+  products: ReadonlyArray<YucpAliasCatalogProductRef>
+): string | undefined {
+  const directAliasIds = Array.from(
+    new Set(
+      products
+        .map((product) => resolveYucpAliasIdFromCatalogProduct(product))
+        .filter((aliasId): aliasId is string => Boolean(aliasId))
+    )
+  );
+  if (directAliasIds.length === 1) {
+    return directAliasIds[0];
+  }
+
+  let comparableAliasIds: Set<string> | undefined;
+  for (const product of products) {
+    const productComparableAliasIds = new Set(
+      resolveComparableYucpAliasIdsFromCatalogProduct(product)
+    );
+    if (productComparableAliasIds.size === 0) {
+      return undefined;
+    }
+    if (!comparableAliasIds) {
+      comparableAliasIds = productComparableAliasIds;
+      continue;
+    }
+    comparableAliasIds = new Set(
+      Array.from(comparableAliasIds).filter((aliasId) => productComparableAliasIds.has(aliasId))
+    );
+    if (comparableAliasIds.size === 0) {
+      return undefined;
+    }
+  }
+
+  if (!comparableAliasIds || comparableAliasIds.size !== 1) {
+    return undefined;
+  }
+
+  return Array.from(comparableAliasIds)[0];
 }
 
 export function mergeYucpAliasPackageMetadata(input: {

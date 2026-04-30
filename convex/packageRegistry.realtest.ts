@@ -112,6 +112,7 @@ async function seedCatalogProduct(
   t: ReturnType<typeof makeTestConvex>,
   overrides: {
     authUserId?: string;
+    canonicalSlug?: string;
     productId?: string;
     provider?: Doc<'product_catalog'>['provider'];
     providerProductRef?: string;
@@ -122,6 +123,7 @@ async function seedCatalogProduct(
   return await t.run(async (ctx) => {
     return await ctx.db.insert('product_catalog', {
       authUserId: overrides.authUserId ?? 'auth-user-1',
+      canonicalSlug: overrides.canonicalSlug,
       productId: overrides.productId ?? 'product-1',
       provider: overrides.provider ?? 'gumroad',
       providerProductRef: overrides.providerProductRef ?? 'gumroad-product-1',
@@ -1421,6 +1423,77 @@ describe('packageRegistry', () => {
     ).rejects.toThrow(
       'Cannot synthesize alias metadata across multiple catalog products with different alias ids.'
     );
+  });
+
+  it('publishes metadata-less uploads across products that share the same display identity', async () => {
+    const t = makeTestConvex();
+    const firstCatalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      canonicalSlug: 'gumroad-songthing',
+      productId: 'product-display-a',
+      provider: 'gumroad',
+      providerProductRef: 'gumroad-songthing',
+      displayName: 'Song Thing',
+    });
+    const secondCatalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      canonicalSlug: 'jinxxy-song-thing',
+      productId: 'product-display-b',
+      provider: 'jinxxy',
+      providerProductRef: 'jinxxy-song-thing',
+      displayName: 'Song Thing',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.backstage.shared-display-alias',
+      packageName: 'Shared Display Alias Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    const uploadBytes = zipSync(
+      {
+        'Packages/com.yucp.backstage.shared-display-alias/package.json': [
+          new TextEncoder().encode('{"name":"com.yucp.backstage.shared-display-alias"}'),
+          { mtime: new Date() },
+        ],
+      },
+      { level: 9 }
+    );
+    const storageId = await t.run(async (ctx) => {
+      return await ctx.storage.store(
+        new Blob([toArrayBuffer(uploadBytes)], { type: 'application/zip' })
+      );
+    });
+
+    const published = await t.action(api.backstageRepos.publishUploadedReleaseForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
+      authUserId: 'auth-user-1',
+      accessSelectors: [
+        { kind: 'catalogProduct', catalogProductId: firstCatalogProductId },
+        { kind: 'catalogProduct', catalogProductId: secondCatalogProductId },
+      ],
+      packageId: 'com.yucp.backstage.shared-display-alias',
+      storageId,
+      version: '1.0.0',
+      deliveryName: 'shared-display-alias.zip',
+    });
+
+    const release = await t.run(async (ctx) => {
+      return await ctx.db.get(
+        published.deliveryPackageReleaseId as Id<'delivery_package_releases'>
+      );
+    });
+
+    expect(release?.metadata).toMatchObject({
+      yucp: {
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        catalogProductIds: [String(firstCatalogProductId), String(secondCatalogProductId)],
+        channel: 'stable',
+      },
+    });
   });
 
   it('repairs legacy persisted releases without alias metadata at repo read time', async () => {

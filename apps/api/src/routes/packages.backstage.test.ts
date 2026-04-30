@@ -11,6 +11,24 @@ let listProviderTiersViaApiImpl: (...args: unknown[]) => Promise<unknown> = asyn
 });
 let lastActionArgs: unknown;
 
+type SyncedCatalogRow = {
+  _id: string;
+  aliases: string[];
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  displayName: string;
+  thumbnailUrl?: string;
+  canonicalSlug?: string;
+  status: string;
+  supportsAutoDiscovery: boolean;
+  updatedAt: number;
+  canArchive: boolean;
+  canDelete: boolean;
+  canRestore: boolean;
+  backstagePackages: unknown[];
+};
+
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
     authViewer: {
@@ -822,7 +840,7 @@ describe('package Backstage publishing routes', () => {
 
   it('syncs connected provider products into the Backstage picker with canonical identity metadata', async () => {
     const catalogUpserts: Array<Record<string, unknown>> = [];
-    const syncedCatalogRows = [
+    const syncedCatalogRows: SyncedCatalogRow[] = [
       {
         _id: 'product_song_gumroad',
         aliases: [],
@@ -992,7 +1010,7 @@ describe('package Backstage publishing routes', () => {
 
   it('backfills canonical identity metadata for existing synced products during live sync', async () => {
     const catalogUpserts: Array<Record<string, unknown>> = [];
-    const syncedCatalogRows = [
+    const syncedCatalogRows: SyncedCatalogRow[] = [
       {
         _id: 'product_song_jinxxy',
         aliases: [],

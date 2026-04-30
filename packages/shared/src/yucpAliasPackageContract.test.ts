@@ -5,6 +5,7 @@ import {
   getYucpAliasPackageContract,
   mergeYucpAliasPackageMetadata,
   normalizeYucpAliasPackageContract,
+  resolveSharedYucpAliasIdFromCatalogProducts,
   resolveYucpAliasIdFromCatalogProduct,
   YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES,
@@ -88,6 +89,42 @@ describe('resolveYucpAliasIdFromCatalogProduct', () => {
         providerProductRef: ' gumroad-song-thing ',
       })
     ).toBe('gumroad-song-thing');
+  });
+});
+
+describe('resolveSharedYucpAliasIdFromCatalogProducts', () => {
+  it('synthesizes a shared alias id from matching display names when provider slugs differ', () => {
+    expect(
+      resolveSharedYucpAliasIdFromCatalogProducts([
+        {
+          canonicalSlug: 'gumroad-songthing',
+          displayName: 'Song Thing',
+          providerProductRef: 'gumroad-songthing',
+        },
+        {
+          canonicalSlug: 'jinxxy-song-thing',
+          displayName: 'Song Thing',
+          providerProductRef: 'jinxxy-song-thing',
+        },
+      ])
+    ).toBe('song-thing');
+  });
+
+  it('does not synthesize a shared alias id when the display names disagree', () => {
+    expect(
+      resolveSharedYucpAliasIdFromCatalogProducts([
+        {
+          canonicalSlug: 'gumroad-song-release',
+          displayName: 'Song Release',
+          providerProductRef: 'gumroad-song-release',
+        },
+        {
+          canonicalSlug: 'patreon-song-membership',
+          displayName: 'Song Members Tier',
+          providerProductRef: 'patreon-song-membership',
+        },
+      ])
+    ).toBeUndefined();
   });
 });
 

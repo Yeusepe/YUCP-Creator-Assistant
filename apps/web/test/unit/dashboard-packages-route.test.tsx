@@ -1497,6 +1497,46 @@ describe('dashboard packages route', () => {
     expect(lanes[1]?.products).toHaveLength(1);
   });
 
+  it('merges storefront rows when the shared display identity matches after provider-specific slugs diverge', () => {
+    const lanes = buildProductLanes([
+      {
+        aliases: [],
+        backstagePackages: [],
+        canonicalSlug: 'gumroad-songthing',
+        catalogProductId: 'song_display_gumroad',
+        displayName: 'Song Thing',
+        productId: 'gumroad-song-display',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-songthing',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1_710_000_100_000,
+        canArchive: true,
+        canRestore: false,
+        canDelete: true,
+      },
+      {
+        aliases: [],
+        backstagePackages: [],
+        canonicalSlug: 'jinxxy-song-thing',
+        catalogProductId: 'song_display_jinxxy',
+        displayName: 'Song Thing',
+        productId: 'jinxxy-song-display',
+        provider: 'jinxxy',
+        providerProductRef: 'jinxxy-song-thing',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1_710_000_100_000,
+        canArchive: true,
+        canRestore: false,
+        canDelete: true,
+      },
+    ]);
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.products).toHaveLength(2);
+  });
+
   it('shows the Polar upgrade gate when the custom VPM repo entitlement is missing', async () => {
     listCreatorCertificatesMock.mockResolvedValue({
       workspaceKey: 'creator-profile:profile-1',
