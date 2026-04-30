@@ -205,6 +205,8 @@ function normalizeProductsResponse(
       collaboratorName: product?.collaboratorName,
       productUrl: product?.productUrl,
       thumbnailUrl: product?.thumbnailUrl,
+      canonicalSlug: product?.canonicalSlug,
+      aliases: product?.aliases,
     })),
     error: payload?.error,
   };

@@ -156,9 +156,10 @@ export async function listCreatorPackages(input?: { includeArchived?: boolean })
   return await apiClient.get<CreatorPackageListResponse>(`/api/packages${search}`);
 }
 
-export async function listCreatorBackstageProducts() {
+export async function listCreatorBackstageProducts(input?: { liveSync?: boolean }) {
+  const search = input?.liveSync ? '?liveSync=true' : '';
   return await apiClient.get<CreatorBackstageProductListResponse>(
-    '/api/packages/backstage/products'
+    `/api/packages/backstage/products${search}`
   );
 }
 

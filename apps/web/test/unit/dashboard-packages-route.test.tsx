@@ -1,6 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
+import {
+  Children,
+  type ComponentPropsWithoutRef,
+  createContext,
+  isValidElement,
+  type PropsWithChildren,
+  type ReactNode,
+  useContext,
+  useState,
+} from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 
@@ -48,6 +57,55 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('@heroui/react', () => {
+  const HOLD_CONFIRM_MARKER = Symbol.for('hold-confirm');
+  const AutocompleteContext = createContext<{
+    placeholder?: string;
+    searchValue: string;
+    selectedText: string | null;
+    setSearchValue: (value: string) => void;
+    selectItem: (key: string, text: string) => void;
+    clear: () => void;
+  } | null>(null);
+
+  function findHoldConfirmCallback(children: ReactNode): (() => void) | undefined {
+    let callback: (() => void) | undefined;
+    Children.forEach(children, (child) => {
+      if (callback || !isValidElement(child)) {
+        return;
+      }
+
+      const elementType = child.type as { [HOLD_CONFIRM_MARKER]?: boolean } | string;
+      if (typeof elementType !== 'string' && elementType[HOLD_CONFIRM_MARKER]) {
+        const onComplete = (child.props as { onComplete?: () => void }).onComplete;
+        if (typeof onComplete === 'function') {
+          callback = onComplete;
+        }
+        return;
+      }
+
+      callback = findHoldConfirmCallback((child.props as { children?: ReactNode }).children);
+    });
+    return callback;
+  }
+
+  function getNodeText(children: ReactNode): string {
+    return Children.toArray(children)
+      .map((child) => {
+        if (typeof child === 'string' || typeof child === 'number') {
+          return String(child);
+        }
+
+        if (!isValidElement(child)) {
+          return '';
+        }
+
+        return getNodeText((child.props as { children?: ReactNode }).children);
+      })
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   const Div = ({
     children,
     isDisabled: _isDisabled,
@@ -71,7 +129,17 @@ vi.mock('@heroui/react', () => {
     <button
       type={typeof type === 'string' ? type : 'button'}
       disabled={Boolean(isDisabled)}
-      onClick={typeof onPress === 'function' ? () => onPress() : undefined}
+      onClick={() => {
+        if (typeof onPress === 'function') {
+          onPress();
+        }
+
+        if (isDisabled) {
+          return;
+        }
+
+        findHoldConfirmCallback(children)?.();
+      }}
       {...props}
     >
       {children}
@@ -118,11 +186,144 @@ vi.mock('@heroui/react', () => {
     Footer: Div,
   });
 
-  const ListBox = Object.assign(Div, {
-    Item: Div,
-    ItemIndicator: Div,
-    Section: Div,
-  });
+  const ListBox = Object.assign(
+    ({
+      children,
+      renderEmptyState,
+      ...props
+    }: PropsWithChildren<Record<string, unknown> & { renderEmptyState?: () => ReactNode }>) => {
+      const autocomplete = useContext(AutocompleteContext);
+      const items = Children.toArray(children).filter((child) => child !== null);
+      const visibleItems = autocomplete
+        ? items.filter((child) => {
+            if (!isValidElement(child)) {
+              return true;
+            }
+
+            const textValue = String(
+              (child.props as { textValue?: string }).textValue ??
+                getNodeText((child.props as { children?: ReactNode }).children)
+            ).toLowerCase();
+
+            return textValue.includes(autocomplete.searchValue.toLowerCase());
+          })
+        : items;
+
+      if (visibleItems.length === 0 && typeof renderEmptyState === 'function') {
+        return <div {...props}>{renderEmptyState()}</div>;
+      }
+
+      return <div {...props}>{visibleItems}</div>;
+    },
+    {
+      Item: ({
+        children,
+        id,
+        textValue: _textValue,
+        ...props
+      }: PropsWithChildren<Record<string, unknown> & { id?: string; textValue?: string }>) => {
+        const autocomplete = useContext(AutocompleteContext);
+
+        if (!autocomplete) {
+          return <div {...props}>{children}</div>;
+        }
+
+        const label = getNodeText(children);
+        return (
+          <button
+            type="button"
+            onClick={() => autocomplete.selectItem(String(id ?? label), label)}
+            {...props}
+          >
+            {children}
+          </button>
+        );
+      },
+      ItemIndicator: Div,
+      Section: Div,
+    }
+  );
+
+  const Autocomplete = Object.assign(
+    ({
+      children,
+      onChange,
+      onClear,
+      placeholder,
+      selectionMode: _selectionMode,
+      value,
+      ...props
+    }: PropsWithChildren<Record<string, unknown>>) => {
+      const [searchValue, setSearchValue] = useState('');
+      const [selectedText, setSelectedText] = useState<string | null>(null);
+
+      return (
+        <AutocompleteContext.Provider
+          value={{
+            placeholder: typeof placeholder === 'string' ? placeholder : undefined,
+            searchValue,
+            selectedText,
+            setSearchValue,
+            selectItem: (key, text) => {
+              setSelectedText(text);
+              setSearchValue('');
+              if (typeof onChange === 'function') {
+                onChange(key);
+              }
+            },
+            clear: () => {
+              setSelectedText(null);
+              setSearchValue('');
+              if (typeof onClear === 'function') {
+                onClear();
+              }
+              if (typeof onChange === 'function') {
+                onChange(null);
+              }
+            },
+          }}
+        >
+          <div data-selected-key={typeof value === 'string' ? value : undefined} {...props}>
+            {children}
+          </div>
+        </AutocompleteContext.Provider>
+      );
+    },
+    {
+      Trigger: Div,
+      Value: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const autocomplete = useContext(AutocompleteContext);
+
+        return (
+          <div {...props}>
+            {typeof children === 'function'
+              ? children({
+                  defaultChildren: autocomplete?.placeholder ?? null,
+                  isPlaceholder: !autocomplete?.selectedText,
+                  state: { selectedItems: [] },
+                })
+              : (autocomplete?.selectedText ?? autocomplete?.placeholder ?? null)}
+          </div>
+        );
+      },
+      ClearButton: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const autocomplete = useContext(AutocompleteContext);
+
+        return (
+          <button type="button" onClick={() => autocomplete?.clear()} {...props}>
+            {children}
+          </button>
+        );
+      },
+      Indicator: Div,
+      Popover: Div,
+      Filter: ({
+        children,
+        filter: _filter,
+        ...props
+      }: PropsWithChildren<Record<string, unknown>>) => <div {...props}>{children}</div>,
+    }
+  );
 
   const Select = Object.assign(Div, {
     Trigger: Div,
@@ -151,6 +352,41 @@ vi.mock('@heroui/react', () => {
     <div {...props}>{children}</div>
   );
 
+  const SearchField = Object.assign(
+    ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+      <div {...props}>{children}</div>
+    ),
+    {
+      Group: Div,
+      SearchIcon: Div,
+      ClearButton: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const autocomplete = useContext(AutocompleteContext);
+
+        return (
+          <button type="button" onClick={() => autocomplete?.setSearchValue('')} {...props}>
+            {children}
+          </button>
+        );
+      },
+      Input: ({ onChange, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const autocomplete = useContext(AutocompleteContext);
+
+        return (
+          <input
+            value={autocomplete?.searchValue ?? ''}
+            onChange={(event) => {
+              autocomplete?.setSearchValue(event.target.value);
+              if (typeof onChange === 'function') {
+                onChange(event);
+              }
+            }}
+            {...props}
+          />
+        );
+      },
+    }
+  );
+
   const Spinner = ({ ...props }: Record<string, unknown>) => <div {...props} />;
 
   const Tooltip = Object.assign(({ children }: PropsWithChildren) => <>{children}</>, {
@@ -158,6 +394,7 @@ vi.mock('@heroui/react', () => {
   });
 
   return {
+    Autocomplete,
     Button,
     Card,
     Checkbox,
@@ -168,12 +405,17 @@ vi.mock('@heroui/react', () => {
     ListBox,
     Radio,
     RadioGroup,
+    SearchField,
     Select,
     Skeleton,
     Spinner,
     TextArea,
     Tooltip,
     Input,
+    useFilter: () => ({
+      contains: (text: string, inputValue: string) =>
+        text.toLowerCase().includes(inputValue.toLowerCase()),
+    }),
   };
 });
 
@@ -205,6 +447,7 @@ vi.mock('@/hooks/useDashboardSession', () => ({
 }));
 
 vi.mock('@heroui-pro/react', () => {
+  const HOLD_CONFIRM_MARKER = Symbol.for('hold-confirm');
   const Div = ({
     children,
     isDisabled: _isDisabled,
@@ -279,10 +522,27 @@ vi.mock('@heroui-pro/react', () => {
     Heading: Div,
   });
 
+  const HoldConfirm = Object.assign(
+    ({
+      children,
+      isDisabled: _isDisabled,
+      onComplete: _onComplete,
+      duration: _duration,
+      releaseDuration: _releaseDuration,
+      sweep: _sweep,
+      resetOnComplete: _resetOnComplete,
+      ...props
+    }: PropsWithChildren<Record<string, unknown>>) => <div {...props}>{children}</div>,
+    { [HOLD_CONFIRM_MARKER]: true }
+  );
+
   return {
     DropZone,
     EmptyState,
     ItemCard,
+    PressableFeedback: {
+      HoldConfirm,
+    },
     Sheet,
   };
 });
@@ -746,6 +1006,44 @@ describe('dashboard packages route', () => {
     ]);
   });
 
+  it('treats a package with no uploads as needing first setup again', () => {
+    const lanes = buildProductLanes([
+      {
+        aliases: ['Creator Bundle Product'],
+        backstagePackages: [
+          {
+            packageId: 'pkg.creator.bundle',
+            packageName: 'Creator Bundle',
+            displayName: 'Creator Bundle',
+            status: 'active',
+            repositoryVisibility: 'listed',
+            defaultChannel: 'stable',
+            latestPublishedVersion: undefined,
+            latestRelease: null,
+            releases: [],
+          },
+        ],
+        canArchive: true,
+        canDelete: false,
+        canRestore: false,
+        catalogProductId: 'product_1',
+        catalogTiers: [],
+        canonicalSlug: 'creator-bundle',
+        displayName: 'Creator Bundle Product',
+        productId: 'gumroad-product-1',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-product-1',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1,
+      },
+    ]);
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.packageLinks).toHaveLength(0);
+    expect(lanes[0]?.primaryPackage).toBeNull();
+  });
+
   it('does not show tier access controls when the selected product has no synced subscription tiers', async () => {
     listCreatorBackstageProductsMock.mockResolvedValue({
       products: [
@@ -784,6 +1082,93 @@ describe('dashboard packages route', () => {
 
     expect(screen.queryByText('Whole subscription product')).not.toBeInTheDocument();
     expect(screen.queryByText('Specific subscription tiers')).not.toBeInTheDocument();
+  });
+
+  it('filters upload products by typed search in the picker', async () => {
+    listCreatorBackstageProductsMock.mockResolvedValue({
+      products: [
+        {
+          aliases: ['HeroUI MCP'],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          catalogProductId: 'product_hero_ui_mcp',
+          catalogTiers: [],
+          canonicalSlug: 'heroui-mcp',
+          displayName: 'HeroUI MCP',
+          productId: 'gumroad-heroui-mcp',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-heroui-mcp',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_000_000,
+        },
+        {
+          aliases: ['HeroUI MCP Pro'],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          catalogProductId: 'product_hero_ui_mcp_pro',
+          catalogTiers: [],
+          canonicalSlug: 'heroui-mcp-pro',
+          displayName: 'HeroUI MCP Pro',
+          productId: 'jinxxy-heroui-mcp-pro',
+          provider: 'jinxxy',
+          providerProductRef: 'jinxxy-heroui-mcp-pro',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_100_000,
+        },
+        {
+          aliases: ['Starter Bundle'],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          catalogProductId: 'product_starter_bundle',
+          catalogTiers: [],
+          canonicalSlug: 'starter-bundle',
+          displayName: 'Starter Bundle',
+          productId: 'patreon-starter-bundle',
+          provider: 'patreon',
+          providerProductRef: 'patreon-starter-bundle',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_200_000,
+        },
+      ],
+    });
+
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /upload a package/i })).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
+
+    const searchInput = screen.getByPlaceholderText(/search products/i);
+
+    expect(screen.getByText(/^HeroUI MCP$/)).toBeInTheDocument();
+    expect(screen.getByText(/^HeroUI MCP Pro$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Starter Bundle$/)).toBeInTheDocument();
+
+    fireEvent.change(searchInput, { target: { value: 'pro' } });
+
+    expect(screen.queryByText(/^HeroUI MCP$/)).toBeNull();
+    expect(screen.getByText(/^HeroUI MCP Pro$/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Starter Bundle$/)).toBeNull();
+
+    fireEvent.click(screen.getByText(/^HeroUI MCP Pro$/));
+
+    expect(screen.getByText(/This product needs its first install ID\./i)).toBeInTheDocument();
   });
 
   it('shows package metadata fields and dependency validation in the publish sheet', async () => {
@@ -856,7 +1241,24 @@ describe('dashboard packages route', () => {
                 updatedAt: 1_710_000_100_000,
                 zipSha256: 'a'.repeat(64),
               },
-              releases: [],
+              releases: [
+                {
+                  deliveryPackageReleaseId: 'song_release_current',
+                  version: '2.4.0',
+                  channel: 'stable',
+                  releaseStatus: 'published',
+                  repositoryVisibility: 'listed',
+                  artifactKey: 'artifact:song-bundle',
+                  contentType: 'application/zip',
+                  createdAt: 1_710_000_000_000,
+                  deliveryName: 'song-bundle-2.4.0.zip',
+                  metadata: { source: 'unitypackage' },
+                  publishedAt: 1_710_000_100_000,
+                  unityVersion: '2022.3',
+                  updatedAt: 1_710_000_100_000,
+                  zipSha256: 'c'.repeat(64),
+                },
+              ],
             },
           ],
           canonicalSlug: 'creator-bundle',
@@ -954,7 +1356,24 @@ describe('dashboard packages route', () => {
                 updatedAt: 1_710_000_100_000,
                 zipSha256: 'c'.repeat(64),
               },
-              releases: [],
+              releases: [
+                {
+                  deliveryPackageReleaseId: 'song_release_current',
+                  version: '2.4.0',
+                  channel: 'stable',
+                  releaseStatus: 'published',
+                  repositoryVisibility: 'listed',
+                  artifactKey: 'artifact:song-bundle',
+                  contentType: 'application/zip',
+                  createdAt: 1_710_000_000_000,
+                  deliveryName: 'song-bundle-2.4.0.zip',
+                  metadata: { source: 'unitypackage' },
+                  publishedAt: 1_710_000_100_000,
+                  unityVersion: '2022.3',
+                  updatedAt: 1_710_000_100_000,
+                  zipSha256: 'c'.repeat(64),
+                },
+              ],
             },
           ],
           canonicalSlug: 'song-deluxe-gumroad',
@@ -1037,7 +1456,7 @@ describe('dashboard packages route', () => {
     ).not.toBeNull();
   });
 
-  it('merges storefront rows through shared aliases even when canonical slugs differ', async () => {
+  it('does not merge storefront rows through shared aliases when alias ids differ', async () => {
     const lanes = buildProductLanes([
       {
         aliases: ['Song'],
@@ -1073,9 +1492,9 @@ describe('dashboard packages route', () => {
       },
     ]);
 
-    expect(lanes).toHaveLength(1);
-    expect(lanes[0]?.products).toHaveLength(2);
-    expect(lanes[0]?.providerLabels).toEqual(['Gumroad', 'Patreon']);
+    expect(lanes).toHaveLength(2);
+    expect(lanes[0]?.products).toHaveLength(1);
+    expect(lanes[1]?.products).toHaveLength(1);
   });
 
   it('shows the Polar upgrade gate when the custom VPM repo entitlement is missing', async () => {
@@ -1178,8 +1597,12 @@ describe('dashboard packages route', () => {
       screen.getByRole('button', { name: /open past uploads for creator bundle product/i })
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /delete upload/i }));
-    fireEvent.click(screen.getByRole('button', { name: /confirm delete/i }));
+    const deleteButtons = screen.getAllByRole('button', { name: /hold to delete upload/i });
+    const oldUploadDeleteButton = deleteButtons[deleteButtons.length - 1];
+    if (!oldUploadDeleteButton) {
+      throw new Error('Old upload delete button not found');
+    }
+    fireEvent.click(oldUploadDeleteButton);
 
     await waitFor(() =>
       expect(deleteCreatorBackstageReleaseMock).toHaveBeenCalledWith({
@@ -1187,6 +1610,155 @@ describe('dashboard packages route', () => {
         deliveryPackageReleaseId: 'release_old',
       })
     );
+  });
+
+  it('lets creators delete the last upload and returns the lane to first-upload setup', async () => {
+    let currentProductState: Awaited<ReturnType<typeof listCreatorBackstageProductsMock>> = {
+      products: [
+        {
+          aliases: ['Creator Bundle Product'],
+          catalogTiers: [],
+          backstagePackages: [
+            {
+              packageId: 'pkg.creator.bundle',
+              packageName: 'Creator Bundle',
+              displayName: 'Creator Bundle',
+              status: 'active',
+              repositoryVisibility: 'listed',
+              defaultChannel: 'stable',
+              latestPublishedVersion: '1.2.3',
+              latestRelease: {
+                deliveryPackageReleaseId: 'release_current',
+                version: '1.2.3',
+                channel: 'stable',
+                releaseStatus: 'published',
+                repositoryVisibility: 'listed',
+                artifactKey: 'artifact:creator-bundle',
+                contentType: 'application/zip',
+                createdAt: 1_710_000_000_000,
+                deliveryName: 'creator-bundle-1.2.3.zip',
+                metadata: { source: 'unitypackage' },
+                publishedAt: 1_710_000_100_000,
+                unityVersion: '2022.3',
+                updatedAt: 1_710_000_100_000,
+                zipSha256: 'a'.repeat(64),
+              },
+              releases: [
+                {
+                  deliveryPackageReleaseId: 'release_current',
+                  version: '1.2.3',
+                  channel: 'stable',
+                  releaseStatus: 'published',
+                  repositoryVisibility: 'listed',
+                  artifactKey: 'artifact:creator-bundle',
+                  contentType: 'application/zip',
+                  createdAt: 1_710_000_000_000,
+                  deliveryName: 'creator-bundle-1.2.3.zip',
+                  metadata: { source: 'unitypackage' },
+                  publishedAt: 1_710_000_100_000,
+                  unityVersion: '2022.3',
+                  updatedAt: 1_710_000_100_000,
+                  zipSha256: 'a'.repeat(64),
+                },
+              ],
+            },
+          ],
+          canonicalSlug: 'creator-bundle',
+          catalogProductId: 'product_1',
+          displayName: 'Creator Bundle Product',
+          productId: 'gumroad-product-1',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-product-1',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_100_000,
+          canArchive: true,
+          canRestore: false,
+          canDelete: false,
+          deleteBlockedReason: 'Product has package, role, entitlement, or tier history.',
+        },
+      ],
+    };
+    listCreatorBackstageProductsMock.mockImplementation(async () => currentProductState);
+    deleteCreatorBackstageReleaseMock.mockImplementation(async ({ deliveryPackageReleaseId }) => {
+      if (deliveryPackageReleaseId === 'release_current') {
+        currentProductState = {
+          products: [
+            {
+              aliases: ['Creator Bundle Product'],
+              catalogTiers: [],
+              backstagePackages: [
+                {
+                  packageId: 'pkg.creator.bundle',
+                  packageName: 'Creator Bundle',
+                  displayName: 'Creator Bundle',
+                  status: 'active',
+                  repositoryVisibility: 'hidden',
+                  defaultChannel: 'stable',
+                  latestPublishedVersion: undefined,
+                  latestRelease: null,
+                  releases: [],
+                },
+              ],
+              canonicalSlug: 'creator-bundle',
+              catalogProductId: 'product_1',
+              displayName: 'Creator Bundle Product',
+              productId: 'gumroad-product-1',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-product-1',
+              status: 'active',
+              supportsAutoDiscovery: true,
+              updatedAt: 1_710_000_200_000,
+              canArchive: true,
+              canRestore: false,
+              canDelete: false,
+              deleteBlockedReason: 'Product has package, role, entitlement, or tier history.',
+            },
+          ],
+        };
+      }
+
+      return {
+        deleted: true,
+        deliveryPackageReleaseId,
+      };
+    });
+
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /open past uploads for creator bundle product/i })
+    );
+
+    expect(screen.getAllByRole('button', { name: /hold to delete upload/i })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /hold to delete upload/i }));
+
+    await waitFor(() =>
+      expect(deleteCreatorBackstageReleaseMock).toHaveBeenCalledWith({
+        packageId: 'pkg.creator.bundle',
+        deliveryPackageReleaseId: 'release_current',
+      })
+    );
+    await waitFor(() => expect(screen.getByText('No package uploads yet')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Nothing is ready yet\. Use Upload a package to add the first product\./i)
+      ).toBeInTheDocument()
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Needs first install ID · 1 storefront · Gumroad/i)).toBeNull()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
+    expect(screen.getByText(/Needs first upload/i)).toBeInTheDocument();
   });
 
   it('renames a package from the dashboard manager', async () => {
@@ -1239,6 +1811,31 @@ describe('dashboard packages route', () => {
       expect(listCreatorPackagesMock).toHaveBeenCalledWith({ includeArchived: true })
     );
     await findExactTextNode('Hidden install IDs');
+  });
+
+  it('loads stored Backstage products first and then starts a live sync refresh', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(listCreatorBackstageProductsMock).toHaveBeenCalled());
+    expect(listCreatorBackstageProductsMock.mock.calls[0]?.[0]).not.toMatchObject({
+      liveSync: true,
+    });
+    await waitFor(() =>
+      expect(
+        listCreatorBackstageProductsMock.mock.calls.some(
+          ([input]) =>
+            typeof input === 'object' &&
+            input !== null &&
+            'liveSync' in input &&
+            (input as { liveSync?: boolean }).liveSync === true
+        )
+      ).toBe(true)
+    );
   });
 
   it('keeps hidden product links collapsed by default and lets visible links be hidden', async () => {

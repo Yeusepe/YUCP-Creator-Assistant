@@ -185,7 +185,31 @@ async function listGumroadProducts(
     name: product.name,
     ...(product.short_url ? { productUrl: product.short_url } : {}),
     ...(product.thumbnail_url ? { thumbnailUrl: product.thumbnail_url } : {}),
+    ...(resolveGumroadCanonicalSlug(product)
+      ? { canonicalSlug: resolveGumroadCanonicalSlug(product) }
+      : {}),
   }));
+}
+
+function resolveGumroadCanonicalSlug(product: GumroadProduct): string | undefined {
+  const customPermalink = product.custom_permalink?.trim();
+  if (customPermalink) {
+    return customPermalink;
+  }
+
+  const shortUrl = product.short_url?.trim();
+  if (!shortUrl) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(shortUrl);
+    const [, maybeSlug] = parsed.pathname.split('/l/');
+    const normalized = maybeSlug?.split('/')[0]?.trim();
+    return normalized || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeGumroadCurrency(currency: string | undefined): string | undefined {

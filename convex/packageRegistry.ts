@@ -58,8 +58,6 @@ const PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before signing or changing it.';
 const CURRENT_RELEASE_ARCHIVE_BLOCKED_REASON =
   'Current uploads cannot be archived. Upload a new version first.';
-const CURRENT_RELEASE_DELETE_BLOCKED_REASON =
-  'Current uploads cannot be deleted. Upload a new version first.';
 const DeliveryPackageVisibilityV = v.union(v.literal('hidden'), v.literal('listed'));
 const DeliveryRepoTokenStatusV = v.union(
   v.literal('active'),
@@ -747,6 +745,31 @@ function getLatestOwnedDeliveryPackageRelease(
     (current, candidate) => (shouldReplaceLatestRelease(candidate, current) ? candidate : current),
     undefined
   );
+}
+
+function buildDeliveryPackagePublicationPatch(
+  siblingReleases: Doc<'delivery_package_releases'>[]
+): Pick<
+  Doc<'delivery_packages'>,
+  'repositoryVisibility' | 'latestPublishedAt' | 'latestPublishedVersion'
+> {
+  const latestPublishedRelease = getLatestOwnedDeliveryPackageRelease(
+    siblingReleases.filter((candidate) => candidate.releaseStatus === 'published')
+  );
+
+  if (!latestPublishedRelease) {
+    return {
+      repositoryVisibility: 'hidden',
+      latestPublishedAt: undefined,
+      latestPublishedVersion: undefined,
+    };
+  }
+
+  return {
+    repositoryVisibility: latestPublishedRelease.repositoryVisibility,
+    latestPublishedAt: latestPublishedRelease.publishedAt ?? latestPublishedRelease.updatedAt,
+    latestPublishedVersion: latestPublishedRelease.version,
+  };
 }
 
 async function deleteOwnedDeliveryPackageRelease(
@@ -1883,17 +1906,14 @@ export const deleteReleaseForAuthUser = mutation({
     }
 
     const { deliveryPackage, release, siblingReleases } = ownedRelease;
-    const latestRelease = getLatestOwnedDeliveryPackageRelease(siblingReleases);
-    if (latestRelease && String(latestRelease._id) === String(release._id)) {
-      return {
-        deleted: false as const,
-        reason: CURRENT_RELEASE_DELETE_BLOCKED_REASON,
-      };
-    }
-
+    const remainingReleases = siblingReleases.filter(
+      (candidate) => String(candidate._id) !== String(release._id)
+    );
+    const now = Date.now();
     await deleteOwnedDeliveryPackageRelease(ctx, { release, siblingReleases });
     await ctx.db.patch(deliveryPackage._id, {
-      updatedAt: Date.now(),
+      ...buildDeliveryPackagePublicationPatch(remainingReleases),
+      updatedAt: now,
     });
 
     return {

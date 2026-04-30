@@ -607,6 +607,7 @@ export const addProductFromGumroad = mutation({
     productId: v.string(),
     providerProductRef: v.string(),
     canonicalSlug: v.optional(v.string()),
+    aliases: v.optional(v.array(v.string())),
     displayName: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
   },
@@ -614,76 +615,13 @@ export const addProductFromGumroad = mutation({
     productId: v.string(),
     catalogProductId: v.id('product_catalog'),
   }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const now = Date.now();
-    const existing = await ctx.db
-      .query('product_catalog')
-      .withIndex('by_provider_ref', (q) =>
-        q.eq('provider', 'gumroad').eq('providerProductRef', args.providerProductRef)
-      )
-      .first();
-
-    if (existing) {
-      const patch: Partial<Doc<'product_catalog'>> = {};
-      if (args.displayName && !existing.displayName) {
-        patch.displayName = args.displayName;
-      }
-      if (args.thumbnailUrl && existing.thumbnailUrl !== args.thumbnailUrl) {
-        patch.thumbnailUrl = args.thumbnailUrl;
-      }
-      if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
-      }
-      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-        authUserId: args.authUserId,
-        productId: args.productId,
-        provider: 'gumroad',
-        providerProductRef: args.providerProductRef,
-      });
-      return { productId: existing.productId, catalogProductId: existing._id };
-    }
-
-    const catalogId = await ctx.db.insert('product_catalog', {
-      authUserId: args.authUserId,
-      productId: args.productId,
+  handler: (ctx, args) =>
+    addCatalogProductImpl(ctx, {
+      ...args,
       provider: 'gumroad',
-      providerProductRef: args.providerProductRef,
-      canonicalSlug: args.canonicalSlug,
-      displayName: args.displayName,
-      thumbnailUrl: args.thumbnailUrl,
-      status: 'active',
+      canonicalUrl: `https://gumroad.com/l/${args.providerProductRef}`,
       supportsAutoDiscovery: true,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const url = `https://gumroad.com/l/${args.providerProductRef}`;
-    const normalized = url.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: 'gumroad',
-      originalUrl: url,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-      authUserId: args.authUserId,
-      productId: args.productId,
-      provider: 'gumroad',
-      providerProductRef: args.providerProductRef,
-    });
-
-    return { productId: args.productId, catalogProductId: catalogId };
-  },
+    }),
 });
 
 /**
@@ -856,6 +794,8 @@ export const addProductForProvider = mutation({
     displayName: v.optional(v.string()),
     /** Canonical product URL. Caller derives this from PROVIDER_REGISTRY.catalogProductUrlTemplate. */
     productUrl: v.optional(v.string()),
+    canonicalSlug: v.optional(v.string()),
+    aliases: v.optional(v.array(v.string())),
     thumbnailUrl: v.optional(v.string()),
     /** Whether this product supports auto-discovery. Caller reads from PROVIDER_REGISTRY. */
     supportsAutoDiscovery: v.optional(v.boolean()),
@@ -864,78 +804,21 @@ export const addProductForProvider = mutation({
     productId: v.string(),
     catalogProductId: v.id('product_catalog'),
   }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const now = Date.now();
-
-    const existing = await ctx.db
-      .query('product_catalog')
-      .withIndex('by_provider_ref', (q) =>
-        q.eq('provider', args.provider).eq('providerProductRef', args.providerProductRef)
-      )
-      .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
-      .first();
-
-    if (existing) {
-      const patch: Partial<Doc<'product_catalog'>> = {};
-      if (args.displayName && existing.displayName !== args.displayName) {
-        patch.displayName = args.displayName;
-      }
-      if (args.thumbnailUrl && existing.thumbnailUrl !== args.thumbnailUrl) {
-        patch.thumbnailUrl = args.thumbnailUrl;
-      }
-      if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(existing._id, { ...patch, updatedAt: now });
-      }
-      await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-        authUserId: args.authUserId,
-        productId: args.productId,
-        provider: args.provider,
-        providerProductRef: args.providerProductRef,
-      });
-      return { productId: existing.productId, catalogProductId: existing._id };
-    }
-
-    const url =
-      args.productUrl ?? `https://example.invalid/${args.provider}/${args.providerProductRef}`;
-    const normalized = url.toLowerCase().trim();
-    const urlHash = await sha256Hex(normalized);
-
-    const catalogId = await ctx.db.insert('product_catalog', {
+  handler: (ctx, args) =>
+    addCatalogProductImpl(ctx, {
+      apiSecret: args.apiSecret,
       authUserId: args.authUserId,
       productId: args.productId,
-      provider: args.provider,
       providerProductRef: args.providerProductRef,
+      provider: args.provider,
+      canonicalUrl:
+        args.productUrl ?? `https://example.invalid/${args.provider}/${args.providerProductRef}`,
+      supportsAutoDiscovery: args.supportsAutoDiscovery ?? false,
       displayName: args.displayName,
       thumbnailUrl: args.thumbnailUrl,
-      status: 'active',
-      supportsAutoDiscovery: args.supportsAutoDiscovery ?? false,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.db.insert('catalog_product_links', {
-      catalogProductId: catalogId,
-      provider: args.provider,
-      originalUrl: url,
-      normalizedUrl: normalized,
-      urlHash,
-      linkKind: 'direct_product',
-      status: 'active',
-      submittedByAuthUserId: args.authUserId,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    await ctx.scheduler.runAfter(0, internal.backgroundSync.backfillProductPurchases, {
-      authUserId: args.authUserId,
-      productId: args.productId,
-      provider: args.provider,
-      providerProductRef: args.providerProductRef,
-    });
-
-    return { productId: args.productId, catalogProductId: catalogId };
-  },
+      canonicalSlug: args.canonicalSlug,
+      aliases: args.aliases,
+    }),
 });
 
 /**
@@ -966,6 +849,8 @@ export const addCatalogProduct = mutation({
     supportsAutoDiscovery: v.boolean(),
     displayName: v.optional(v.string()),
     thumbnailUrl: v.optional(v.string()),
+    canonicalSlug: v.optional(v.string()),
+    aliases: v.optional(v.array(v.string())),
   },
   returns: v.object({
     productId: v.string(),

@@ -118,6 +118,10 @@ type BackstageProductMetadataOverride = {
   displayName?: string;
   thumbnailUrl?: string;
 };
+type BackstageProductIdentityPayload = BackstageProductMetadataOverride & {
+  canonicalSlug?: string;
+  aliases?: string[];
+};
 type BackstageCatalogTierRow = NonNullable<BackstageProductQueryRow['catalogTiers']>[number];
 type BackstagePackageReleaseRow = NonNullable<
   BackstageProductQueryRow['backstagePackages']
@@ -217,6 +221,78 @@ function buildLiveProductMetadataOverride(
     ...(displayName ? { displayName } : {}),
     ...(thumbnailUrl ? { thumbnailUrl } : {}),
   };
+}
+
+function normalizeLiveProductIdentityString(value?: string | null): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeLiveProductAliases(aliases?: readonly string[] | null): string[] | undefined {
+  if (!aliases?.length) {
+    return undefined;
+  }
+
+  const normalizedAliases: string[] = [];
+  const seen = new Set<string>();
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeLiveProductIdentityString(alias);
+    if (!normalizedAlias || seen.has(normalizedAlias)) {
+      continue;
+    }
+    seen.add(normalizedAlias);
+    normalizedAliases.push(normalizedAlias);
+  }
+
+  return normalizedAliases.length > 0 ? normalizedAliases : undefined;
+}
+
+function buildLiveProductIdentityPayload(
+  product: LiveProviderProductRecord
+): BackstageProductIdentityPayload {
+  return {
+    ...(buildLiveProductMetadataOverride(product) ?? {}),
+    ...(normalizeLiveProductIdentityString(product.canonicalSlug)
+      ? { canonicalSlug: normalizeLiveProductIdentityString(product.canonicalSlug) }
+      : {}),
+    ...(normalizeLiveProductAliases(product.aliases)
+      ? { aliases: normalizeLiveProductAliases(product.aliases) }
+      : {}),
+  };
+}
+
+function areLiveProductAliasesEqual(left?: readonly string[], right?: readonly string[]): boolean {
+  const normalizedLeft = normalizeLiveProductAliases(left);
+  const normalizedRight = normalizeLiveProductAliases(right);
+  if (!normalizedLeft && !normalizedRight) {
+    return true;
+  }
+  if (!normalizedLeft || !normalizedRight || normalizedLeft.length !== normalizedRight.length) {
+    return false;
+  }
+
+  return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+}
+
+function shouldUpsertLiveProduct(args: {
+  existingProduct?: BackstageProductQueryRow;
+  livePayload: BackstageProductIdentityPayload;
+}): boolean {
+  const { existingProduct, livePayload } = args;
+  if (!existingProduct) {
+    return true;
+  }
+
+  return (
+    (livePayload.displayName !== undefined &&
+      existingProduct.displayName !== livePayload.displayName) ||
+    (livePayload.thumbnailUrl !== undefined &&
+      existingProduct.thumbnailUrl !== livePayload.thumbnailUrl) ||
+    (livePayload.canonicalSlug !== undefined &&
+      existingProduct.canonicalSlug !== livePayload.canonicalSlug) ||
+    (livePayload.aliases !== undefined &&
+      !areLiveProductAliasesEqual(existingProduct.aliases, livePayload.aliases))
+  );
 }
 
 function decodeHtmlEntity(entity: string): string {
@@ -392,11 +468,15 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
 
   const providerResults = await Promise.all(
     args.connectedCatalogProviders.map(async (provider) => {
-      const knownProducts = new Set(
+      const existingProductsByKey = new Map(
         args.existingProducts
           .filter((product) => product.provider === provider)
-          .map((product) =>
-            buildBackstageProductRecordKey(product.provider, product.providerProductRef)
+          .map(
+            (product) =>
+              [
+                buildBackstageProductRecordKey(product.provider, product.providerProductRef),
+                product,
+              ] as const
           )
       );
       const providerOverrides = new Map<string, BackstageProductMetadataOverride>();
@@ -424,12 +504,20 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
           }
 
           const productKey = buildBackstageProductRecordKey(provider, providerProductRef);
-          const override = buildLiveProductMetadataOverride(liveProduct);
-          if (override) {
-            providerOverrides.set(productKey, override);
+          const livePayload = buildLiveProductIdentityPayload(liveProduct);
+          if (livePayload.displayName || livePayload.thumbnailUrl) {
+            providerOverrides.set(productKey, {
+              ...(livePayload.displayName ? { displayName: livePayload.displayName } : {}),
+              ...(livePayload.thumbnailUrl ? { thumbnailUrl: livePayload.thumbnailUrl } : {}),
+            });
           }
 
-          if (knownProducts.has(productKey)) {
+          if (
+            !shouldUpsertLiveProduct({
+              existingProduct: existingProductsByKey.get(productKey),
+              livePayload,
+            })
+          ) {
             continue;
           }
 
@@ -452,12 +540,11 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
             provider,
             canonicalUrl,
             supportsAutoDiscovery: getProviderDescriptor(provider)?.supportsAutoDiscovery ?? false,
-            ...(liveProduct.name?.trim() ? { displayName: liveProduct.name.trim() } : {}),
-            ...(liveProduct.thumbnailUrl?.trim()
-              ? { thumbnailUrl: liveProduct.thumbnailUrl.trim() }
-              : {}),
+            ...(livePayload.displayName ? { displayName: livePayload.displayName } : {}),
+            ...(livePayload.thumbnailUrl ? { thumbnailUrl: livePayload.thumbnailUrl } : {}),
+            ...(livePayload.canonicalSlug ? { canonicalSlug: livePayload.canonicalSlug } : {}),
+            ...(livePayload.aliases ? { aliases: livePayload.aliases } : {}),
           });
-          knownProducts.add(productKey);
           refreshCatalog = true;
         }
       } catch (error) {
@@ -693,46 +780,51 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
 
     try {
+      const liveSync = new URL(request.url).searchParams.get('liveSync') === 'true';
       let result = (await convex.query(api.packageRegistry.listByAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
       })) as BackstageProductQueryResult;
+      let overrides = new Map<string, BackstageProductMetadataOverride>();
 
-      const connectedCatalogProviders = await getConnectedCatalogProviders({
-        convex,
-        config,
-        authUserId: viewer.authUserId,
-      });
-
-      const { refreshCatalog, overrides } = await reconcileBackstageCatalogFromConnectedProviders({
-        connectedCatalogProviders,
-        convex,
-        config,
-        authUserId: viewer.authUserId,
-        existingProducts: result.data,
-      });
-      if (refreshCatalog) {
-        result = (await convex.query(api.packageRegistry.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          actor: viewer.actorBinding,
+      if (liveSync) {
+        const connectedCatalogProviders = await getConnectedCatalogProviders({
+          convex,
+          config,
           authUserId: viewer.authUserId,
-        })) as BackstageProductQueryResult;
-      }
+        });
 
-      const refreshTiers = await reconcileBackstageTiersFromConnectedProviders({
-        connectedCatalogProviders,
-        convex,
-        config,
-        authUserId: viewer.authUserId,
-        existingProducts: result.data,
-      });
-      if (refreshTiers) {
-        result = (await convex.query(api.packageRegistry.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          actor: viewer.actorBinding,
+        const reconciliationResult = await reconcileBackstageCatalogFromConnectedProviders({
+          connectedCatalogProviders,
+          convex,
+          config,
           authUserId: viewer.authUserId,
-        })) as BackstageProductQueryResult;
+          existingProducts: result.data,
+        });
+        overrides = reconciliationResult.overrides;
+        if (reconciliationResult.refreshCatalog) {
+          result = (await convex.query(api.packageRegistry.listByAuthUser, {
+            apiSecret: config.convexApiSecret,
+            actor: viewer.actorBinding,
+            authUserId: viewer.authUserId,
+          })) as BackstageProductQueryResult;
+        }
+
+        const refreshTiers = await reconcileBackstageTiersFromConnectedProviders({
+          connectedCatalogProviders,
+          convex,
+          config,
+          authUserId: viewer.authUserId,
+          existingProducts: result.data,
+        });
+        if (refreshTiers) {
+          result = (await convex.query(api.packageRegistry.listByAuthUser, {
+            apiSecret: config.convexApiSecret,
+            actor: viewer.actorBinding,
+            authUserId: viewer.authUserId,
+          })) as BackstageProductQueryResult;
+        }
       }
 
       return jsonResponse({

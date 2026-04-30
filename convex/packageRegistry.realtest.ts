@@ -1821,9 +1821,9 @@ describe('packageRegistry', () => {
     expect(deletedState.deliverableBlob).toBeNull();
   });
 
-  it('blocks deleting the current Backstage upload', async () => {
+  it('deletes the current Backstage upload and resets the package when it was the last file', async () => {
     const t = makeTestConvex();
-    const deliveryPackageReleaseId = await t.run(async (ctx) => {
+    const seeded = await t.run(async (ctx) => {
       const now = Date.now();
       const deliveryPackageId = await ctx.db.insert('delivery_packages', {
         authUserId: 'auth-user-1',
@@ -1838,7 +1838,7 @@ describe('packageRegistry', () => {
         createdAt: now,
         updatedAt: now,
       });
-      return await ctx.db.insert('delivery_package_releases', {
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
         authUserId: 'auth-user-1',
         deliveryPackageId,
         packageId: 'com.yucp.backstage.current-delete',
@@ -1851,6 +1851,11 @@ describe('packageRegistry', () => {
         createdAt: now,
         updatedAt: now,
       } as never);
+
+      return {
+        deliveryPackageId,
+        deliveryPackageReleaseId,
+      };
     });
 
     const result = await t.mutation(api.packageRegistry.deleteReleaseForAuthUser, {
@@ -1858,18 +1863,25 @@ describe('packageRegistry', () => {
       actor: await createAuthUserActorBinding('auth-user-1'),
       authUserId: 'auth-user-1',
       packageId: 'com.yucp.backstage.current-delete',
-      deliveryPackageReleaseId,
+      deliveryPackageReleaseId: seeded.deliveryPackageReleaseId,
     });
 
     expect(result).toEqual({
-      deleted: false,
-      reason: 'Current uploads cannot be deleted. Upload a new version first.',
+      deleted: true,
+      deliveryPackageReleaseId: seeded.deliveryPackageReleaseId,
     });
 
-    const release = await t.run(async (ctx) => {
-      return await ctx.db.get(deliveryPackageReleaseId);
+    const deletedState = await t.run(async (ctx) => {
+      return {
+        deliveryPackage: await ctx.db.get(seeded.deliveryPackageId),
+        release: await ctx.db.get(seeded.deliveryPackageReleaseId),
+      };
     });
-    expect(release).not.toBeNull();
+    expect(deletedState.release).toBeNull();
+    expect(deletedState.deliveryPackage?.packageId).toBe('com.yucp.backstage.current-delete');
+    expect(deletedState.deliveryPackage?.latestPublishedAt).toBeUndefined();
+    expect(deletedState.deliveryPackage?.latestPublishedVersion).toBeUndefined();
+    expect(deletedState.deliveryPackage?.repositoryVisibility).toBe('hidden');
   });
 
   it('resolves legacy signed releases through the centralized release artifact resolver', async () => {

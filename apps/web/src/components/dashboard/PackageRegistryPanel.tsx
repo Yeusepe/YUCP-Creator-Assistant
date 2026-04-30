@@ -1,4 +1,5 @@
 import {
+  Autocomplete,
   Button,
   Card,
   Checkbox,
@@ -9,12 +10,15 @@ import {
   ListBox,
   Radio,
   RadioGroup,
+  SearchField,
   Select,
   TextArea,
   Tooltip,
+  useFilter,
 } from '@heroui/react';
-import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
+import { DropZone, EmptyState, PressableFeedback, Sheet } from '@heroui-pro/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { resolveYucpAliasIdFromCatalogProduct } from '@yucp/shared';
 import {
   Archive,
   ArrowUpFromLine,
@@ -111,6 +115,10 @@ type ProductLane = {
 
 const creatorPackagesQueryKey = ['creator-packages'] as const;
 const creatorBackstageProductsQueryKey = ['creator-backstage-products'] as const;
+const creatorBackstageProductsLiveSyncQueryKey = [
+  'creator-backstage-products',
+  'live-sync',
+] as const;
 const creatorBackstageRepoAccessQueryKey = ['creator-backstage-repo-access'] as const;
 const UNITYPACKAGE_ACCEPT_VALUE = '.unitypackage,.zip,application/octet-stream,application/zip';
 
@@ -264,16 +272,16 @@ function normalizeComparableText(value?: string): string {
 }
 
 type ProductLaneMatchKeys = {
+  aliasKeys: string[];
   fallbackKey: string;
   packageKeys: string[];
-  slugKeys: string[];
   softKeys: string[];
 };
 
 type ProductLaneGroup = {
+  aliasKeys: Set<string>;
   packageKeys: Set<string>;
   products: CreatorBackstageProductSummary[];
-  slugKeys: Set<string>;
   softKeys: Set<string>;
 };
 
@@ -287,12 +295,12 @@ function buildUniqueMatchKeys(values: Array<string | undefined>, prefix: string)
 
 function buildProductLaneMatchKeys(product: CreatorBackstageProductSummary): ProductLaneMatchKeys {
   return {
+    aliasKeys: buildUniqueMatchKeys([resolveYucpAliasIdFromCatalogProduct(product)], 'alias'),
     fallbackKey: `product:${String(product.catalogProductId)}`,
     packageKeys: buildUniqueMatchKeys(
       (product.backstagePackages ?? []).map((backstagePackage) => backstagePackage.packageId),
       'package'
     ),
-    slugKeys: buildUniqueMatchKeys([product.canonicalSlug], 'slug'),
     softKeys: buildUniqueMatchKeys(
       [...(product.aliases ?? []), product.displayName, product.providerProductRef],
       'soft'
@@ -317,16 +325,20 @@ function collectMatchingProductLaneGroupIndexes(
     }
   }
 
-  if (matchKeys.slugKeys.length > 0) {
-    const slugMatches = groups.flatMap((group, index) =>
-      groupHasMatch(group.slugKeys, matchKeys.slugKeys) ? [index] : []
+  if (matchKeys.aliasKeys.length > 0) {
+    const aliasMatches = groups.flatMap((group, index) =>
+      groupHasMatch(group.aliasKeys, matchKeys.aliasKeys) ? [index] : []
     );
-    if (slugMatches.length > 0) {
-      return slugMatches;
+    if (aliasMatches.length > 0) {
+      return aliasMatches;
     }
   }
 
-  if (matchKeys.packageKeys.length === 0 && matchKeys.softKeys.length > 0) {
+  if (
+    matchKeys.packageKeys.length === 0 &&
+    matchKeys.aliasKeys.length === 0 &&
+    matchKeys.softKeys.length > 0
+  ) {
     const softMatches = groups.flatMap((group, index) =>
       groupHasMatch(group.softKeys, matchKeys.softKeys) ? [index] : []
     );
@@ -347,12 +359,29 @@ function appendProductLaneGroup(
   for (const key of matchKeys.packageKeys) {
     group.packageKeys.add(key);
   }
-  for (const key of matchKeys.slugKeys) {
-    group.slugKeys.add(key);
+  for (const key of matchKeys.aliasKeys) {
+    group.aliasKeys.add(key);
   }
   for (const key of matchKeys.softKeys) {
     group.softKeys.add(key);
   }
+}
+
+function resolveUniqueAliasIdsForCatalogProducts(
+  products: CreatorBackstageProductSummary[],
+  catalogProductIds: string[]
+): string[] {
+  const selectedCatalogProductIds = new Set(
+    catalogProductIds.map((catalogProductId) => String(catalogProductId))
+  );
+  return Array.from(
+    new Set(
+      products
+        .filter((product) => selectedCatalogProductIds.has(String(product.catalogProductId)))
+        .map((product) => resolveYucpAliasIdFromCatalogProduct(product))
+        .filter((aliasId): aliasId is string => Boolean(aliasId?.trim()))
+    )
+  );
 }
 
 function compareBackstagePackageLinks(
@@ -362,6 +391,10 @@ function compareBackstagePackageLinks(
   const leftLabel = (left.displayName ?? left.packageName ?? left.packageId).toLowerCase();
   const rightLabel = (right.displayName ?? right.packageName ?? right.packageId).toLowerCase();
   return leftLabel.localeCompare(rightLabel) || left.packageId.localeCompare(right.packageId);
+}
+
+function hasPackageUploads(backstagePackage: CreatorBackstageProductPackageSummary): boolean {
+  return backstagePackage.releases.length > 0;
 }
 
 export function buildProductLanes(products: CreatorBackstageProductSummary[]): ProductLane[] {
@@ -378,9 +411,9 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
 
     if (matchingIndexes.length === 0) {
       const newGroup: ProductLaneGroup = {
+        aliasKeys: new Set<string>(),
         packageKeys: new Set<string>(),
         products: [],
-        slugKeys: new Set<string>(),
         softKeys: new Set<string>([matchKeys.fallbackKey]),
       };
       appendProductLaneGroup(newGroup, product, matchKeys);
@@ -407,8 +440,8 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
       for (const key of mergeGroup.packageKeys) {
         targetGroup.packageKeys.add(key);
       }
-      for (const key of mergeGroup.slugKeys) {
-        targetGroup.slugKeys.add(key);
+      for (const key of mergeGroup.aliasKeys) {
+        targetGroup.aliasKeys.add(key);
       }
       for (const key of mergeGroup.softKeys) {
         targetGroup.softKeys.add(key);
@@ -422,7 +455,7 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
       const laneProducts = group.products;
       const laneKey =
         Array.from(group.packageKeys)[0] ??
-        Array.from(group.slugKeys)[0] ??
+        Array.from(group.aliasKeys)[0] ??
         Array.from(group.softKeys)[0];
       const primaryTitle =
         laneProducts.find((product) => product.displayName?.trim())?.displayName?.trim() ??
@@ -432,6 +465,7 @@ export function buildProductLanes(products: CreatorBackstageProductSummary[]): P
         new Map(
           laneProducts
             .flatMap((product) => product.backstagePackages)
+            .filter(hasPackageUploads)
             .map((backstagePackage) => [backstagePackage.packageId, backstagePackage])
         ).values()
       ).sort(compareBackstagePackageLinks);
@@ -499,6 +533,26 @@ function buildDraftFromLane(lane?: ProductLane | null): PublishDraft {
 function formatLaneStorefrontSummary(lane: ProductLane): string {
   const storefrontLabel = `${lane.products.length} storefront${lane.products.length === 1 ? '' : 's'}`;
   return `${storefrontLabel} · ${lane.providerLabels.join(', ')}`;
+}
+
+function getLaneSearchText(lane: ProductLane): string {
+  return [
+    lane.title,
+    ...lane.providerLabels,
+    ...lane.products.flatMap((product) => [
+      product.displayName,
+      product.canonicalSlug ?? '',
+      product.providerProductRef,
+      ...(product.aliases ?? []),
+    ]),
+    ...lane.packageLinks.flatMap((packageLink) => [
+      packageLink.packageId,
+      packageLink.packageName ?? '',
+      packageLink.displayName ?? '',
+    ]),
+  ]
+    .join(' ')
+    .trim();
 }
 
 function formatTierPrice(tier: CreatorBackstageCatalogTierSummary): string | null {
@@ -766,6 +820,43 @@ function ProductLaneCard({
   );
 }
 
+function HoldToDeleteReleaseButton({
+  isDeleting,
+  isDisabled,
+  onDelete,
+}: {
+  isDeleting: boolean;
+  isDisabled: boolean;
+  onDelete: () => void;
+}) {
+  return (
+    <Button
+      aria-label="Hold to delete upload"
+      size="sm"
+      variant="ghost"
+      className="text-danger"
+      isDisabled={isDisabled}
+    >
+      {!isDeleting ? (
+        <PressableFeedback.HoldConfirm
+          className="bg-danger text-danger-foreground"
+          isDisabled={isDisabled}
+          onComplete={onDelete}
+        >
+          <Trash2 className="size-4" />
+          Hold to delete
+        </PressableFeedback.HoldConfirm>
+      ) : null}
+      {isDeleting ? (
+        <span className="btn-loading-spinner" aria-hidden="true" />
+      ) : (
+        <Trash2 className="size-4" />
+      )}
+      {isDeleting ? 'Deleting...' : 'Hold to delete'}
+    </Button>
+  );
+}
+
 function ProductLaneDetailsSheet({
   buyerAccessUrl,
   isArchiving,
@@ -799,14 +890,6 @@ function ProductLaneDetailsSheet({
   onPublish: (lane: ProductLane) => void;
   onRestore: (lane: ProductLane) => void;
 }) {
-  const [confirmDeleteReleaseId, setConfirmDeleteReleaseId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setConfirmDeleteReleaseId(null);
-    }
-  }, [isOpen]);
-
   return (
     <Sheet isOpen={isOpen} onOpenChange={onOpenChange}>
       <Sheet.Backdrop variant="blur">
@@ -945,8 +1028,6 @@ function ProductLaneDetailsSheet({
                                   archivingReleaseId === release.deliveryPackageReleaseId;
                                 const isDeletingRelease =
                                   deletingReleaseId === release.deliveryPackageReleaseId;
-                                const isConfirmingDelete =
-                                  confirmDeleteReleaseId === release.deliveryPackageReleaseId;
 
                                 return (
                                   <div key={release.deliveryPackageReleaseId}>
@@ -969,9 +1050,18 @@ function ProductLaneDetailsSheet({
                                             label={releaseBadge.label}
                                           />
                                           {isCurrentRelease ? (
-                                            <Chip size="sm" variant="soft">
-                                              Current
-                                            </Chip>
+                                            <>
+                                              <Chip size="sm" variant="soft">
+                                                Current
+                                              </Chip>
+                                              <HoldToDeleteReleaseButton
+                                                isDeleting={isDeletingRelease}
+                                                isDisabled={isArchivingRelease || isDeletingRelease}
+                                                onDelete={() =>
+                                                  onDeleteRelease(packageLink.packageId, release)
+                                                }
+                                              />
+                                            </>
                                           ) : (
                                             <>
                                               <Button
@@ -983,7 +1073,6 @@ function ProductLaneDetailsSheet({
                                                   lane.status === 'archived'
                                                 }
                                                 onPress={() => {
-                                                  setConfirmDeleteReleaseId(null);
                                                   onArchiveRelease(packageLink.packageId, release);
                                                 }}
                                               >
@@ -999,35 +1088,13 @@ function ProductLaneDetailsSheet({
                                                   ? 'Archiving...'
                                                   : 'Archive upload'}
                                               </Button>
-                                              <Button
-                                                size="sm"
-                                                variant="ghost"
-                                                className="text-danger"
+                                              <HoldToDeleteReleaseButton
+                                                isDeleting={isDeletingRelease}
                                                 isDisabled={isArchivingRelease || isDeletingRelease}
-                                                onPress={() => {
-                                                  if (isConfirmingDelete) {
-                                                    onDeleteRelease(packageLink.packageId, release);
-                                                    return;
-                                                  }
-                                                  setConfirmDeleteReleaseId(
-                                                    release.deliveryPackageReleaseId
-                                                  );
-                                                }}
-                                              >
-                                                {isDeletingRelease ? (
-                                                  <span
-                                                    className="btn-loading-spinner"
-                                                    aria-hidden="true"
-                                                  />
-                                                ) : (
-                                                  <Trash2 className="size-4" />
-                                                )}
-                                                {isDeletingRelease
-                                                  ? 'Deleting...'
-                                                  : isConfirmingDelete
-                                                    ? 'Confirm delete'
-                                                    : 'Delete upload'}
-                                              </Button>
+                                                onDelete={() =>
+                                                  onDeleteRelease(packageLink.packageId, release)
+                                                }
+                                              />
                                             </>
                                           )}
                                         </div>
@@ -1058,12 +1125,6 @@ function ProductLaneDetailsSheet({
                                       {release.zipSha256 ? (
                                         <p className="text-muted break-all font-mono text-[11px]">
                                           SHA-256 {release.zipSha256}
-                                        </p>
-                                      ) : null}
-                                      {isConfirmingDelete && !isDeletingRelease ? (
-                                        <p className="text-danger text-xs">
-                                          Delete removes this upload and its stored artifacts. This
-                                          cannot be undone.
                                         </p>
                                       ) : null}
                                     </div>
@@ -1112,44 +1173,19 @@ function ProductLaneDetailsSheet({
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2">
                                           <StatusChip status="revoked" label="Archived" />
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-danger"
+                                          <HoldToDeleteReleaseButton
+                                            isDeleting={
+                                              deletingReleaseId === release.deliveryPackageReleaseId
+                                            }
                                             isDisabled={
                                               archivingReleaseId ===
                                                 release.deliveryPackageReleaseId ||
                                               deletingReleaseId === release.deliveryPackageReleaseId
                                             }
-                                            onPress={() => {
-                                              if (
-                                                confirmDeleteReleaseId ===
-                                                release.deliveryPackageReleaseId
-                                              ) {
-                                                onDeleteRelease(packageLink.packageId, release);
-                                                return;
-                                              }
-                                              setConfirmDeleteReleaseId(
-                                                release.deliveryPackageReleaseId
-                                              );
-                                            }}
-                                          >
-                                            {deletingReleaseId ===
-                                            release.deliveryPackageReleaseId ? (
-                                              <span
-                                                className="btn-loading-spinner"
-                                                aria-hidden="true"
-                                              />
-                                            ) : (
-                                              <Trash2 className="size-4" />
-                                            )}
-                                            {deletingReleaseId === release.deliveryPackageReleaseId
-                                              ? 'Deleting...'
-                                              : confirmDeleteReleaseId ===
-                                                  release.deliveryPackageReleaseId
-                                                ? 'Confirm delete'
-                                                : 'Delete upload'}
-                                          </Button>
+                                            onDelete={() =>
+                                              onDeleteRelease(packageLink.packageId, release)
+                                            }
+                                          />
                                         </div>
                                       </div>
                                       <div className="flex flex-wrap gap-2">
@@ -1160,14 +1196,6 @@ function ProductLaneDetailsSheet({
                                           {release.channel}
                                         </Chip>
                                       </div>
-                                      {confirmDeleteReleaseId ===
-                                        release.deliveryPackageReleaseId &&
-                                      deletingReleaseId !== release.deliveryPackageReleaseId ? (
-                                        <p className="text-danger text-xs">
-                                          Delete removes this upload and its stored artifacts. This
-                                          cannot be undone.
-                                        </p>
-                                      ) : null}
                                     </div>
                                   ))}
                               </div>
@@ -1365,6 +1393,7 @@ export function PackageRegistryPanel({
   const [selectedProductLaneKey, setSelectedProductLaneKey] = useState<string | null>(null);
   const [selectedUpload, setSelectedUpload] = useState<SelectedUpload | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const { contains } = useFilter({ sensitivity: 'base' });
 
   const packagesQuery = useQuery({
     queryKey: creatorPackagesQueryKey,
@@ -1375,7 +1404,7 @@ export function PackageRegistryPanel({
 
   const productsQuery = useQuery({
     queryKey: creatorBackstageProductsQueryKey,
-    queryFn: listCreatorBackstageProducts,
+    queryFn: () => listCreatorBackstageProducts(),
     enabled: canRunPanelQueries,
     retry: false,
   });
@@ -1387,12 +1416,38 @@ export function PackageRegistryPanel({
     retry: false,
   });
 
+  const productsLiveSyncQuery = useQuery({
+    queryKey: creatorBackstageProductsLiveSyncQueryKey,
+    queryFn: () => listCreatorBackstageProducts({ liveSync: true }),
+    enabled: canRunPanelQueries && productsQuery.status === 'success',
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+
   useEffect(() => {
-    const candidateError = packagesQuery.error ?? productsQuery.error ?? repoAccessQuery.error;
+    if (!productsLiveSyncQuery.data) {
+      return;
+    }
+
+    queryClient.setQueryData(creatorBackstageProductsQueryKey, productsLiveSyncQuery.data);
+  }, [productsLiveSyncQuery.data, queryClient]);
+
+  useEffect(() => {
+    const candidateError =
+      packagesQuery.error ??
+      productsQuery.error ??
+      productsLiveSyncQuery.error ??
+      repoAccessQuery.error;
     if (isDashboardAuthError(candidateError)) {
       markSessionExpired();
     }
-  }, [markSessionExpired, packagesQuery.error, productsQuery.error, repoAccessQuery.error]);
+  }, [
+    markSessionExpired,
+    packagesQuery.error,
+    productsQuery.error,
+    productsLiveSyncQuery.error,
+    repoAccessQuery.error,
+  ]);
 
   const renameMutation = useMutation({
     mutationFn: renameCreatorPackage,
@@ -1624,6 +1679,24 @@ export function PackageRegistryPanel({
       if (dependencyVersions.errorMessage) {
         throw new Error(dependencyVersions.errorMessage);
       }
+      const selectedCatalogProductIds =
+        draft.accessMode === 'tiers' && draft.catalogTierIds.length > 0
+          ? Array.from(
+              new Set(
+                (selectedLane?.catalogTiers ?? [])
+                  .filter((tier) => draft.catalogTierIds.includes(tier.catalogTierId))
+                  .map((tier) => String(tier.catalogProductId))
+              )
+            )
+          : draft.catalogProductIds.map((catalogProductId) => String(catalogProductId));
+      const aliasIds = selectedLane
+        ? resolveUniqueAliasIdsForCatalogProducts(selectedLane.products, selectedCatalogProductIds)
+        : [];
+      if (aliasIds.length > 1) {
+        throw new Error(
+          'This package is linked to storefront products with different install aliases. Review the product links before publishing another upload.'
+        );
+      }
       const upload = await uploadBackstageReleaseFile({
         uploadUrl: uploadResult.uploadUrl,
         file: selectedUpload.file,
@@ -1765,6 +1838,10 @@ export function PackageRegistryPanel({
   );
   const selectedLaneActiveTiers = selectedLane?.catalogTiers ?? [];
   const selectedLaneSupportsTierAccess = selectedLaneActiveTiers.length > 0;
+  const selectedLaneAliasIds = selectedLane
+    ? resolveUniqueAliasIdsForCatalogProducts(selectedLane.products, selectedLane.catalogProductIds)
+    : [];
+  const selectedLaneHasAliasConflict = selectedLaneAliasIds.length > 1;
   const installIdSuggestions = selectedLane
     ? selectedLane.packageLinks.length > 1
       ? selectedLane.packageLinks.slice(0, 4).map((packageLink) => ({
@@ -2284,48 +2361,80 @@ export function PackageRegistryPanel({
                       Choose what this file belongs to. If it is new here, this upload adds it.
                     </p>
                   </div>
-                  <Select
+                  <Autocomplete
                     aria-label="Product"
                     className="w-full"
                     placeholder="Choose a product"
-                    selectedKey={publishDraft.laneKey || null}
-                    onSelectionChange={handleLaneSelection}
+                    selectionMode="single"
+                    value={publishDraft.laneKey || null}
+                    onChange={handleLaneSelection}
+                    onClear={() => handleLaneSelection(null)}
                   >
-                    <Select.Trigger>
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover>
-                      <ListBox>
-                        {activeProductLanes.map((lane) => (
-                          <ListBox.Item key={lane.laneKey} id={lane.laneKey} textValue={lane.title}>
-                            <div className="flex flex-col">
-                              <span>{lane.title}</span>
-                              <span className="pm-subtle-copy text-xs">
-                                {lane.products.length} storefront
-                                {lane.products.length === 1 ? '' : 's'} ·{' '}
-                                {lane.providerLabels.join(', ')}
-                                {' · '}
-                                {lane.packageLinks.length > 0
-                                  ? 'Ready for updates'
-                                  : 'Needs first upload'}
-                              </span>
+                    <Autocomplete.Trigger>
+                      <Autocomplete.Value />
+                      <Autocomplete.ClearButton />
+                      <Autocomplete.Indicator />
+                    </Autocomplete.Trigger>
+                    <Autocomplete.Popover>
+                      <Autocomplete.Filter filter={contains}>
+                        <SearchField autoFocus name="product-search" variant="secondary">
+                          <SearchField.Group>
+                            <SearchField.SearchIcon />
+                            <SearchField.Input
+                              aria-label="Search products"
+                              placeholder="Search products..."
+                            />
+                            <SearchField.ClearButton />
+                          </SearchField.Group>
+                        </SearchField>
+                        <ListBox
+                          renderEmptyState={() => (
+                            <div className="pm-subtle-copy px-3 py-2 text-sm">
+                              No products match that search.
                             </div>
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
+                          )}
+                        >
+                          {activeProductLanes.map((lane) => (
+                            <ListBox.Item
+                              key={lane.laneKey}
+                              id={lane.laneKey}
+                              textValue={getLaneSearchText(lane)}
+                            >
+                              <div className="flex flex-col">
+                                <span>{lane.title}</span>
+                                <span className="pm-subtle-copy text-xs">
+                                  {lane.products.length} storefront
+                                  {lane.products.length === 1 ? '' : 's'} ·{' '}
+                                  {lane.providerLabels.join(', ')}
+                                  {' · '}
+                                  {lane.packageLinks.length > 0
+                                    ? 'Ready for updates'
+                                    : 'Needs first upload'}
+                                </span>
+                              </div>
+                              <ListBox.ItemIndicator />
+                            </ListBox.Item>
+                          ))}
+                        </ListBox>
+                      </Autocomplete.Filter>
+                    </Autocomplete.Popover>
+                  </Autocomplete>
                   {selectedLane ? (
                     <div className="pm-inline-note rounded-[18px] p-3">
-                      <p className="pm-subtle-copy text-sm leading-6">
-                        {selectedLaneHasSinglePackage
-                          ? 'This keeps the same install ID buyers already use.'
-                          : selectedLane.packageLinks.length > 1
-                            ? 'This product has more than one install ID. Pick the one you want below.'
-                            : 'This product needs its first install ID.'}
-                      </p>
+                      {selectedLaneHasAliasConflict ? (
+                        <p className="text-danger text-sm leading-6">
+                          This package lane spans storefront products with different install
+                          aliases. Review the linked products before publishing another upload.
+                        </p>
+                      ) : (
+                        <p className="pm-subtle-copy text-sm leading-6">
+                          {selectedLaneHasSinglePackage
+                            ? 'This keeps the same install ID buyers already use.'
+                            : selectedLane.packageLinks.length > 1
+                              ? 'This product has more than one install ID. Pick the one you want below.'
+                              : 'This product needs its first install ID.'}
+                        </p>
+                      )}
                     </div>
                   ) : null}
                 </div>
@@ -2760,6 +2869,7 @@ export function PackageRegistryPanel({
                   isLoading={publishMutation.isPending}
                   isDisabled={
                     publishMutation.isPending ||
+                    selectedLaneHasAliasConflict ||
                     publishDraft.catalogProductIds.length === 0 ||
                     (publishDraft.accessMode === 'tiers' &&
                       publishDraft.catalogTierIds.length === 0) ||

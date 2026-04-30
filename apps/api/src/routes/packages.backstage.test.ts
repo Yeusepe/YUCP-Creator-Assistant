@@ -355,7 +355,7 @@ describe('package Backstage publishing routes', () => {
 
   it('lists creator product links for the Backstage release picker', async () => {
     const response = await routes.listBackstageProducts(
-      new Request('https://api.test/api/packages/backstage/products', {
+      new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
         method: 'GET',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -463,6 +463,91 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('returns stored products by default without triggering live provider sync', async () => {
+    let liveProductSyncCalls = 0;
+    let liveTierSyncCalls = 0;
+
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'providerConnections.getConnectionStatus':
+          return { gumroad: true };
+        case 'packageRegistry.listByAuthUser':
+          return {
+            data: [
+              {
+                _id: 'product_1',
+                aliases: ['Backstage Bundle'],
+                productId: 'gumroad-product-1',
+                provider: 'gumroad',
+                providerProductRef: 'gumroad-product-1',
+                displayName: 'Backstage Bundle',
+                thumbnailUrl: 'https://public-files.gumroad.com/backstage-bundle.png',
+                canonicalSlug: 'backstage-bundle',
+                status: 'active',
+                supportsAutoDiscovery: true,
+                updatedAt: 1_710_000_000_000,
+                canArchive: true,
+                canDelete: false,
+                canRestore: false,
+                deleteBlockedReason: 'Product has package history.',
+                catalogTiers: [],
+                backstagePackages: [],
+              },
+            ],
+            hasMore: false,
+            nextCursor: null,
+          };
+        default:
+          return [];
+      }
+    };
+
+    listProviderProductsViaApiImpl = async () => {
+      liveProductSyncCalls += 1;
+      return { products: [] };
+    };
+    listProviderTiersViaApiImpl = async () => {
+      liveTierSyncCalls += 1;
+      return { tiers: [] };
+    };
+
+    const response = await routes.listBackstageProducts(
+      new Request('https://api.test/api/packages/backstage/products', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(liveProductSyncCalls).toBe(0);
+    expect(liveTierSyncCalls).toBe(0);
+    await expect(response.json()).resolves.toEqual({
+      products: [
+        {
+          aliases: ['Backstage Bundle'],
+          catalogTiers: [],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: false,
+          canRestore: false,
+          canonicalSlug: 'backstage-bundle',
+          catalogProductId: 'product_1',
+          displayName: 'Backstage Bundle',
+          thumbnailUrl: 'https://public-files.gumroad.com/backstage-bundle.png',
+          productId: 'gumroad-product-1',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-product-1',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          updatedAt: 1_710_000_000_000,
+          deleteBlockedReason: 'Product has package history.',
+        },
+      ],
+    });
+  });
+
   it('surfaces alias package delivery semantics for importer-aware releases', async () => {
     const baseQueryImpl = queryImpl;
     queryImpl = async (ref: unknown, ...args: unknown[]) => {
@@ -544,7 +629,7 @@ describe('package Backstage publishing routes', () => {
     };
 
     const response = await routes.listBackstageProducts(
-      new Request('https://api.test/api/packages/backstage/products', {
+      new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
         method: 'GET',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -703,7 +788,7 @@ describe('package Backstage publishing routes', () => {
     });
 
     const response = await routes.listBackstageProducts(
-      new Request('https://api.test/api/packages/backstage/products', {
+      new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
         method: 'GET',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -735,9 +820,27 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
-  it('syncs connected provider products into the Backstage picker before listing products', async () => {
-    let syncedCatalog = false;
+  it('syncs connected provider products into the Backstage picker with canonical identity metadata', async () => {
     const catalogUpserts: Array<Record<string, unknown>> = [];
+    const syncedCatalogRows = [
+      {
+        _id: 'product_song_gumroad',
+        aliases: [],
+        productId: 'QAJc7ErxdAC815P5P8R89g==',
+        provider: 'gumroad',
+        providerProductRef: 'QAJc7ErxdAC815P5P8R89g==',
+        displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+        thumbnailUrl: 'https://public-files.gumroad.com/song-thing.png',
+        canonicalSlug: 'song-thing',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        updatedAt: 1_710_000_000_000,
+        canArchive: true,
+        canDelete: true,
+        canRestore: false,
+        backstagePackages: [],
+      },
+    ];
 
     queryImpl = async (ref: unknown) => {
       switch (ref) {
@@ -749,59 +852,7 @@ describe('package Backstage publishing routes', () => {
           };
         case 'packageRegistry.listByAuthUser':
           return {
-            data: syncedCatalog
-              ? [
-                  {
-                    _id: 'product_song_gumroad',
-                    aliases: [],
-                    productId: 'QAJc7ErxdAC815P5P8R89g==',
-                    provider: 'gumroad',
-                    providerProductRef: 'QAJc7ErxdAC815P5P8R89g==',
-                    displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
-                    canonicalSlug: 'song-thing',
-                    status: 'active',
-                    supportsAutoDiscovery: true,
-                    updatedAt: 1_710_000_000_000,
-                    canArchive: true,
-                    canDelete: true,
-                    canRestore: false,
-                    backstagePackages: [],
-                  },
-                  {
-                    _id: 'product_song_jinxxy',
-                    aliases: [],
-                    productId: '3788600424102102387',
-                    provider: 'jinxxy',
-                    providerProductRef: '3788600424102102387',
-                    displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
-                    canonicalSlug: 'song-thing',
-                    status: 'active',
-                    supportsAutoDiscovery: false,
-                    updatedAt: 1_710_000_000_001,
-                    canArchive: true,
-                    canDelete: true,
-                    canRestore: false,
-                    backstagePackages: [],
-                  },
-                ]
-              : [
-                  {
-                    _id: 'product_song_gumroad',
-                    aliases: [],
-                    productId: 'QAJc7ErxdAC815P5P8R89g==',
-                    provider: 'gumroad',
-                    providerProductRef: 'QAJc7ErxdAC815P5P8R89g==',
-                    displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
-                    canonicalSlug: 'song-thing',
-                    status: 'active',
-                    supportsAutoDiscovery: true,
-                    updatedAt: 1_710_000_000_000,
-                    canArchive: true,
-                    canDelete: true,
-                    canRestore: false,
-                    backstagePackages: [],
-                  },
-                ],
+            data: syncedCatalogRows,
             hasMore: false,
             nextCursor: null,
           };
@@ -830,6 +881,8 @@ describe('package Backstage publishing routes', () => {
             {
               id: '3788600424102102387',
               name: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+              aliases: ['Song Thing Deluxe'],
+              canonicalSlug: 'song-thing',
             },
           ],
         };
@@ -840,7 +893,26 @@ describe('package Backstage publishing routes', () => {
     mutationImpl = async (ref: unknown, args: unknown) => {
       if (ref === 'role_rules.addCatalogProduct') {
         catalogUpserts.push(args as Record<string, unknown>);
-        syncedCatalog = true;
+        syncedCatalogRows.push({
+          _id: 'product_song_jinxxy',
+          aliases: Array.isArray((args as { aliases?: unknown }).aliases)
+            ? ([...(args as { aliases: string[] }).aliases] as string[])
+            : [],
+          productId: (args as { productId: string }).productId,
+          provider: (args as { provider: string }).provider,
+          providerProductRef: (args as { providerProductRef: string }).providerProductRef,
+          displayName:
+            (args as { displayName?: string }).displayName ??
+            'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+          canonicalSlug: (args as { canonicalSlug?: string }).canonicalSlug,
+          status: 'active',
+          supportsAutoDiscovery: false,
+          updatedAt: 1_710_000_000_001,
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          backstagePackages: [],
+        });
         return {
           productId: (args as { productId: string }).productId,
           catalogProductId:
@@ -853,7 +925,7 @@ describe('package Backstage publishing routes', () => {
     };
 
     const response = await routes.listBackstageProducts(
-      new Request('https://api.test/api/packages/backstage/products', {
+      new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
         method: 'GET',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -872,6 +944,8 @@ describe('package Backstage publishing routes', () => {
         provider: 'jinxxy',
         canonicalUrl: 'https://jinxxy.app/products/3788600424102102387',
         supportsAutoDiscovery: false,
+        aliases: ['Song Thing Deluxe'],
+        canonicalSlug: 'song-thing',
         displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
       },
     ]);
@@ -896,7 +970,7 @@ describe('package Backstage publishing routes', () => {
           updatedAt: 1_710_000_000_000,
         },
         {
-          aliases: [],
+          aliases: ['Song Thing Deluxe'],
           backstagePackages: [],
           canArchive: true,
           canDelete: true,
@@ -905,6 +979,120 @@ describe('package Backstage publishing routes', () => {
           catalogProductId: 'product_song_jinxxy',
           catalogTiers: [],
           displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+          productId: '3788600424102102387',
+          provider: 'jinxxy',
+          providerProductRef: '3788600424102102387',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          updatedAt: 1_710_000_000_001,
+        },
+      ],
+    });
+  });
+
+  it('backfills canonical identity metadata for existing synced products during live sync', async () => {
+    const catalogUpserts: Array<Record<string, unknown>> = [];
+    const syncedCatalogRows = [
+      {
+        _id: 'product_song_jinxxy',
+        aliases: [],
+        productId: '3788600424102102387',
+        provider: 'jinxxy',
+        providerProductRef: '3788600424102102387',
+        displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+        canonicalSlug: undefined,
+        status: 'active',
+        supportsAutoDiscovery: false,
+        updatedAt: 1_710_000_000_001,
+        canArchive: true,
+        canDelete: true,
+        canRestore: false,
+        backstagePackages: [],
+      },
+    ];
+
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'providerConnections.getConnectionStatus':
+          return {
+            gumroad: false,
+            jinxxy: true,
+            patreon: false,
+          };
+        case 'packageRegistry.listByAuthUser':
+          return {
+            data: syncedCatalogRows,
+            hasMore: false,
+            nextCursor: null,
+          };
+        default:
+          return [];
+      }
+    };
+
+    listProviderProductsViaApiImpl = async (_config: unknown, request: unknown) => {
+      const provider = (request as { provider?: string }).provider;
+      if (provider === 'jinxxy') {
+        return {
+          products: [
+            {
+              id: '3788600424102102387',
+              name: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+              aliases: ['Song Thing Deluxe'],
+              canonicalSlug: 'song-thing',
+            },
+          ],
+        };
+      }
+      return { products: [] };
+    };
+
+    mutationImpl = async (ref: unknown, args: unknown) => {
+      if (ref === 'role_rules.addCatalogProduct') {
+        catalogUpserts.push(args as Record<string, unknown>);
+        syncedCatalogRows[0] = {
+          ...syncedCatalogRows[0],
+          aliases: [...((args as { aliases?: string[] }).aliases ?? [])] as string[],
+          canonicalSlug: (args as { canonicalSlug?: string }).canonicalSlug,
+        };
+        return {
+          productId: (args as { productId: string }).productId,
+          catalogProductId: 'product_song_jinxxy',
+        };
+      }
+      return null;
+    };
+
+    const response = await routes.listBackstageProducts(
+      new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(catalogUpserts).toHaveLength(1);
+    expect(catalogUpserts[0]).toMatchObject({
+      provider: 'jinxxy',
+      providerProductRef: '3788600424102102387',
+      canonicalSlug: 'song-thing',
+      aliases: ['Song Thing Deluxe'],
+    });
+    await expect(response.json()).resolves.toEqual({
+      products: [
+        {
+          aliases: ['Song Thing Deluxe'],
+          backstagePackages: [],
+          canArchive: true,
+          canDelete: true,
+          canRestore: false,
+          canonicalSlug: 'song-thing',
+          catalogProductId: 'product_song_jinxxy',
+          catalogTiers: [],
+          displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
+          thumbnailUrl: undefined,
           productId: '3788600424102102387',
           provider: 'jinxxy',
           providerProductRef: '3788600424102102387',
@@ -957,7 +1145,7 @@ describe('package Backstage publishing routes', () => {
     const outcome = (await Promise.race([
       routes
         .listBackstageProducts(
-          new Request('https://api.test/api/packages/backstage/products', {
+          new Request('https://api.test/api/packages/backstage/products?liveSync=true', {
             method: 'GET',
             headers: {
               authorization: 'Bearer oauth-token',

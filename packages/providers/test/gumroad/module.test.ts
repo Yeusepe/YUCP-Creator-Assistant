@@ -300,16 +300,19 @@ describe('createGumroadProviderModule', () => {
         id: 'product-catalog',
         name: 'Catalog Product',
         productUrl: 'https://gumroad.com/l/catalog-product',
+        canonicalSlug: 'catalog-product',
       },
       {
         id: 'product-storefront',
         name: 'Storefront Product',
         productUrl: 'https://creator.gumroad.com/l/storefront-product?layout=profile',
+        canonicalSlug: 'storefront-product',
       },
       {
         id: 'product-external',
         name: 'External Product',
         productUrl: 'https://store.example.com/l/external-product?recommended_by=library',
+        canonicalSlug: 'external-product',
       },
     ]);
   });
@@ -347,6 +350,44 @@ describe('createGumroadProviderModule', () => {
         name: 'Creator Pack',
         productUrl: 'https://gumroad.com/l/creator-pack',
         thumbnailUrl: 'https://public-files.gumroad.com/creator-pack.png',
+        canonicalSlug: 'creator-pack',
+      },
+    ]);
+  });
+
+  it('exposes Gumroad custom permalinks as canonical slugs for catalog identity', async () => {
+    const module = createGumroadProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'encrypted-token';
+      },
+      async decryptCredential() {
+        return 'access-token';
+      },
+      async fetchImpl() {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            products: [
+              {
+                id: 'product-with-slug',
+                name: 'Creator Pack',
+                short_url: 'https://gumroad.com/l/creator-pack',
+                custom_permalink: 'creator-pack',
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      },
+    });
+
+    await expect(module.fetchProducts('access-token', makeCtx())).resolves.toEqual([
+      {
+        id: 'product-with-slug',
+        name: 'Creator Pack',
+        productUrl: 'https://gumroad.com/l/creator-pack',
+        canonicalSlug: 'creator-pack',
       },
     ]);
   });
