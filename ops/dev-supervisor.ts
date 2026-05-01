@@ -9,6 +9,8 @@ import { parse as parseDotenv } from 'dotenv';
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
 const DEV_FRONTEND_URL = 'http://localhost:3000';
+const DEV_CDNGINE_API_BASE_URL = 'http://localhost:4000';
+const DEV_CDNGINE_ACCESS_TOKEN = 'local-public-runtime-token';
 const DEV_HYPERDX_APP_URL = 'http://localhost:8080';
 const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const DEV_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
@@ -102,7 +104,7 @@ function buildCdngineCommand(startMode: CdngineStartMode): string {
         'npm run build -w @cdngine/auth',
         'npm run build -w @cdngine/api',
         'npm run build -w @cdngine/workflows',
-        'node ./apps/demo/scripts/start-demo-api.mjs',
+        'node ./apps/demo/scripts/start-public-runtime.mjs',
       ].join(' && ');
     case 'demo':
       return 'npm start && npm run demo:start';
@@ -426,8 +428,21 @@ async function runCommandStep(step: DevCommandSpec, env: NodeJS.ProcessEnv): Pro
 
 export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const preferRemoteHyperdx = baseEnv[DEV_HYPERDX_USE_REMOTE_FLAG] === 'true';
+  const hasCdngineDir = Boolean(baseEnv.CDNGINE_DIR?.trim());
+  const hasCdngineBaseUrl = Boolean(
+    baseEnv.CDNGINE_API_BASE_URL?.trim() || baseEnv.CDNGINE_PUBLIC_API_BASE_URL?.trim()
+  );
+  const hasCdngineAccessToken = Boolean(
+    baseEnv.CDNGINE_ACCESS_TOKEN?.trim() || baseEnv.CDNGINE_API_TOKEN?.trim()
+  );
   return {
     ...baseEnv,
+    ...(hasCdngineDir && !hasCdngineBaseUrl
+      ? { CDNGINE_API_BASE_URL: DEV_CDNGINE_API_BASE_URL }
+      : {}),
+    ...(hasCdngineDir && !hasCdngineAccessToken
+      ? { CDNGINE_ACCESS_TOKEN: DEV_CDNGINE_ACCESS_TOKEN }
+      : {}),
     FRONTEND_URL: baseEnv.FRONTEND_URL ?? DEV_FRONTEND_URL,
     HYPERDX_APP_URL: preferRemoteHyperdx
       ? (baseEnv.HYPERDX_APP_URL ?? DEV_HYPERDX_APP_URL)
@@ -456,13 +471,25 @@ async function loadInfisicalEnv(): Promise<NodeJS.ProcessEnv> {
   });
 }
 
+async function loadLocalEnv(): Promise<NodeJS.ProcessEnv> {
+  const envFilePath = path.join(ROOT_DIR, '.env.local');
+  const envFile = existsSync(envFilePath) ? await readFile(envFilePath, 'utf8') : '';
+  process.stderr.write(
+    `${buildPrefix('dev', 'yellow')}Infisical is not enabled for this dev run; using process.env and .env.local fallback values only.\n`
+  );
+  return applyLocalDevDefaults({
+    ...process.env,
+    ...parseDotenv(envFile),
+  });
+}
+
 function signalExitCode(signal: NodeJS.Signals): number {
   return signal === 'SIGINT' ? 130 : 143;
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const infisical = argv.includes('--infisical');
-  const env = infisical ? await loadInfisicalEnv() : applyLocalDevDefaults(process.env);
+  const env = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
   process.stdout.write(`${buildPrefix('dev', 'magenta')}${describeCdngineStartup(env)}\n`);
   const supervisor = new DevSupervisor(buildDevCommands(env, infisical), env, {
     prefixOutput: true,

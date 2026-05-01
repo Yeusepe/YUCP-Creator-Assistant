@@ -1,12 +1,93 @@
 import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { gzipSync, strToU8, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
 process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+
+const CDNGINE_ENV_KEYS = [
+  'CDNGINE_ACCESS_TOKEN',
+  'CDNGINE_API_BASE_URL',
+  'CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID',
+  'CDNGINE_BACKSTAGE_REQUIRED',
+  'CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID',
+  'CDNGINE_BACKSTAGE_VARIANT',
+  'YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS',
+] as const;
+const originalFetch = globalThis.fetch;
+const originalEnv = Object.fromEntries(
+  CDNGINE_ENV_KEYS.map((key) => [key, process.env[key]])
+) as Record<(typeof CDNGINE_ENV_KEYS)[number], string | undefined>;
+let cdngineUploadCounter = 0;
+
+beforeEach(() => {
+  cdngineUploadCounter = 0;
+  process.env.CDNGINE_API_BASE_URL = 'https://cdngine.test';
+  process.env.CDNGINE_ACCESS_TOKEN = 'cdngine-token';
+  process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
+  process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
+  process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
+  process.env.CDNGINE_BACKSTAGE_VARIANT = 'vpm-package';
+  process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS = 'true';
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url === 'https://cdngine.test/v1/upload-sessions') {
+      cdngineUploadCounter += 1;
+      return new Response(
+        JSON.stringify({
+          uploadSessionId: `upl_backstage_${cdngineUploadCounter}`,
+          assetId: `ast_backstage_${cdngineUploadCounter}`,
+          versionId: `ver_backstage_pending_${cdngineUploadCounter}`,
+          uploadTarget: {
+            protocol: 'tus',
+            method: 'PATCH',
+            url: `https://uploads.cdngine.test/files/upl_backstage_${cdngineUploadCounter}`,
+          },
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+    if (url.startsWith('https://uploads.cdngine.test/files/')) {
+      expect(init?.method).toBe('PATCH');
+      return new Response(null, { status: 204 });
+    }
+    const completeMatch = url.match(
+      /^https:\/\/cdngine\.test\/v1\/upload-sessions\/(upl_backstage_\d+)\/complete$/
+    );
+    if (completeMatch) {
+      const index = completeMatch[1].replace('upl_backstage_', '');
+      return new Response(
+        JSON.stringify({
+          assetId: `ast_backstage_${index}`,
+          versionId: `ver_backstage_${index}`,
+        }),
+        {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+    return new Response(`unexpected url: ${url}`, { status: 500 });
+  }) as typeof fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  for (const key of CDNGINE_ENV_KEYS) {
+    const value = originalEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -155,6 +236,19 @@ async function seedSubject(
 }
 
 describe('packageRegistry', () => {
+  it('blocks legacy Convex upload URLs for new Backstage packages unless the migration flag is explicit', async () => {
+    const t = makeTestConvex();
+    delete process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS;
+
+    await expect(
+      t.mutation(api.backstageRepos.generateReleaseUploadUrlForAuthUser, {
+        apiSecret: 'test-secret',
+        actor: await createAuthUserActorBinding('auth-user-1'),
+        authUserId: 'auth-user-1',
+      })
+    ).rejects.toThrow('Legacy Convex Backstage package uploads are disabled');
+  });
+
   it('stores package names and lists owned packages with human metadata', async () => {
     const t = makeTestConvex();
 
@@ -1243,7 +1337,12 @@ describe('packageRegistry', () => {
     expect(publishedVersion?.url).toBe(
       `https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.raw&version=1.0.0&channel=stable&zipSHA256=${activeDeliverable?.sha256}`
     );
-    expect(entitledResolved?.downloadUrl).toContain('/storage/');
+    expect(entitledResolved?.downloadUrl).toBe('');
+    expect(entitledResolved?.cdngineDelivery).toMatchObject({
+      assetOwner: 'creator:auth-user-1',
+      deliveryScopeId: 'paid-downloads',
+      serviceNamespaceId: 'yucp-backstage',
+    });
 
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
@@ -2111,7 +2210,12 @@ describe('packageRegistry', () => {
     });
     expect(resolved?.artifactId).toBeUndefined();
     expect(resolved?.artifactKey).toBeUndefined();
-    expect(resolved?.downloadUrl).toContain('/storage/');
+    expect(resolved?.downloadUrl).toBe('');
+    expect(resolved?.cdngineDelivery).toMatchObject({
+      assetOwner: 'creator:auth-user-1',
+      deliveryScopeId: 'paid-downloads',
+      serviceNamespaceId: 'yucp-backstage',
+    });
   });
 
   it('carries CDNgine coordinates with server-owned deliverable downloads', async () => {

@@ -802,7 +802,17 @@ async function servePackageDownload(
     return errorResponse('Package not found', 404);
   }
   const cdngine = getConfiguredCdngine(config);
-  if (cdngine && isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
+  if (isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
+    if (!cdngine) {
+      logger.error('CDNgine Backstage delivery is configured on the release but not on the API', {
+        authUserId: access.authUserId,
+        deliveryArtifactId: resolved.deliveryArtifactId,
+        packageId,
+        version,
+        channel,
+      });
+      return errorResponse('Package delivery is temporarily unavailable', 502);
+    }
     try {
       const cdngineUrl = await resolveCdngineDownloadUrl({
         access,
@@ -827,6 +837,9 @@ async function servePackageDownload(
         return errorResponse('Package delivery is temporarily unavailable', 502);
       }
     }
+  }
+  if (!resolved.downloadUrl) {
+    return errorResponse('Package delivery is temporarily unavailable', 502);
   }
   return Response.redirect(resolved.downloadUrl, 302);
 }

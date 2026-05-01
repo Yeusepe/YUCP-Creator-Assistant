@@ -1,3 +1,5 @@
+import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { apiClient } from '@/api/client';
 
 export interface CreatorPackageSummary {
@@ -109,13 +111,45 @@ export interface BackstageReleaseUploadUrlResponse {
   uploadUrl: string;
 }
 
+export interface BackstageDirectUploadTarget {
+  expiresAt?: string;
+  method: string;
+  protocol: 'tus';
+  url: string;
+}
+
+export interface BackstageReleaseUploadSessionResponse {
+  completeUrl: string;
+  packageId: string;
+  uploadSessionId: string;
+  uploadTarget: BackstageDirectUploadTarget;
+}
+
 export interface BackstageStorageUploadResponse {
-  storageId?: string;
+  cdngineSource?: CdngineBackstageSourceReference;
+  deliveryName?: string;
+  sourceContentType?: string;
 }
 
 export interface BackstageReleaseUploadResult {
-  storageId: string;
+  cdngineSource: CdngineBackstageSourceReference;
+  deliveryName?: string;
+  sourceContentType?: string;
 }
+
+export type BackstageReleaseUploadProgress =
+  | {
+      progress: number;
+      stage: 'hashing';
+    }
+  | {
+      progress: number;
+      stage: 'uploading';
+    }
+  | {
+      progress: 100;
+      stage: 'complete';
+    };
 
 export interface BackstagePackageDependencyVersion {
   packageId: string;
@@ -126,7 +160,7 @@ export interface PublishBackstageReleaseInput {
   catalogProductId?: string;
   catalogProductIds?: string[];
   accessSelectors?: BackstageAccessSelector[];
-  storageId: string;
+  cdngineSource: CdngineBackstageSourceReference;
   version: string;
   channel?: string;
   packageName?: string;
@@ -249,6 +283,148 @@ export async function createBackstageReleaseUploadUrl(input: { packageId: string
   );
 }
 
+export async function createBackstageReleaseUploadSession(input: {
+  byteSize: number;
+  deliveryName: string;
+  packageId: string;
+  sha256: string;
+  sourceContentType: string;
+}) {
+  return await apiClient.post<BackstageReleaseUploadSessionResponse>(
+    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-session`,
+    {
+      byteSize: input.byteSize,
+      deliveryName: input.deliveryName,
+      sha256: input.sha256,
+      sourceContentType: input.sourceContentType,
+    }
+  );
+}
+
+export async function completeBackstageReleaseUploadSession(input: { completeUrl: string }) {
+  const response = await fetch(input.completeUrl, {
+    method: 'POST',
+  });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as BackstageStorageUploadResponse | null;
+  if (!response.ok) {
+    throw new Error(
+      `Failed to complete Backstage upload (${response.status} ${response.statusText})`
+    );
+  }
+  if (!payload?.cdngineSource) {
+    throw new Error('Backstage upload completion did not return CDNgine source coordinates');
+  }
+  return {
+    cdngineSource: payload.cdngineSource,
+    deliveryName: payload.deliveryName,
+    sourceContentType: payload.sourceContentType,
+  };
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256File(file: File, onProgress?: (progress: BackstageReleaseUploadProgress) => void) {
+  const hasher = sha256.create();
+  const chunkSize = 16 * 1024 * 1024;
+  for (let offset = 0; offset < file.size; offset += chunkSize) {
+    const chunk = new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
+    hasher.update(chunk);
+    onProgress?.({
+      progress: Math.min(99, Math.round(((offset + chunk.byteLength) / file.size) * 100)),
+      stage: 'hashing',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  return bytesToHex(hasher.digest());
+}
+
+async function uploadBackstageFileToTarget(input: {
+  file: File;
+  onProgress?: (progress: BackstageReleaseUploadProgress) => void;
+  uploadTarget: BackstageDirectUploadTarget;
+}) {
+  if (input.uploadTarget.protocol !== 'tus') {
+    throw new Error(`Unsupported Backstage upload protocol "${input.uploadTarget.protocol}".`);
+  }
+  const xhrConstructor = globalThis.XMLHttpRequest;
+  if (xhrConstructor) {
+    await new Promise<void>((resolve, reject) => {
+      const request = new xhrConstructor();
+      request.open(input.uploadTarget.method, input.uploadTarget.url);
+      request.setRequestHeader('Content-Type', 'application/offset+octet-stream');
+      request.setRequestHeader('Tus-Resumable', '1.0.0');
+      request.setRequestHeader('Upload-Offset', '0');
+      request.upload.onprogress = (event) => {
+        if (!event.lengthComputable) {
+          return;
+        }
+        input.onProgress?.({
+          progress: Math.min(99, Math.round((event.loaded / event.total) * 100)),
+          stage: 'uploading',
+        });
+      };
+      request.onload = () => {
+        if (request.status >= 200 && request.status < 300) {
+          input.onProgress?.({ progress: 100, stage: 'uploading' });
+          resolve();
+          return;
+        }
+        reject(
+          new Error(`CDNgine upload target rejected the file with status ${request.status}.`)
+        );
+      };
+      request.onerror = () => reject(new Error('CDNgine upload target request failed.'));
+      request.send(input.file);
+    });
+    return;
+  }
+
+  input.onProgress?.({ progress: 0, stage: 'uploading' });
+  const response = await fetch(input.uploadTarget.url, {
+    method: input.uploadTarget.method,
+    headers: {
+      'Content-Type': 'application/offset+octet-stream',
+      'Tus-Resumable': '1.0.0',
+      'Upload-Offset': '0',
+    },
+    body: input.file,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `CDNgine upload target rejected the file (${response.status} ${response.statusText})`
+    );
+  }
+  input.onProgress?.({ progress: 100, stage: 'uploading' });
+}
+
+export async function uploadBackstageReleaseFileDirect(input: {
+  file: File;
+  onProgress?: (progress: BackstageReleaseUploadProgress) => void;
+  packageId: string;
+}): Promise<BackstageReleaseUploadResult> {
+  const sourceContentType = input.file.type || 'application/octet-stream';
+  const digest = await sha256File(input.file, input.onProgress);
+  const session = await createBackstageReleaseUploadSession({
+    byteSize: input.file.size,
+    deliveryName: input.file.name,
+    packageId: input.packageId,
+    sha256: digest,
+    sourceContentType,
+  });
+  await uploadBackstageFileToTarget({
+    file: input.file,
+    onProgress: input.onProgress,
+    uploadTarget: session.uploadTarget,
+  });
+  const result = await completeBackstageReleaseUploadSession({ completeUrl: session.completeUrl });
+  input.onProgress?.({ progress: 100, stage: 'complete' });
+  return result;
+}
+
 export async function uploadBackstageReleaseFile(input: {
   uploadUrl: string;
   file: File;
@@ -257,6 +433,7 @@ export async function uploadBackstageReleaseFile(input: {
     method: 'POST',
     headers: {
       'Content-Type': input.file.type || 'application/octet-stream',
+      'X-YUCP-File-Name': encodeURIComponent(input.file.name),
     },
     body: input.file,
   });
@@ -270,12 +447,14 @@ export async function uploadBackstageReleaseFile(input: {
     );
   }
 
-  if (!payload?.storageId) {
-    throw new Error('Backstage upload did not return storageId');
+  if (!payload?.cdngineSource) {
+    throw new Error('Backstage upload did not return CDNgine source coordinates');
   }
 
   return {
-    storageId: payload.storageId,
+    cdngineSource: payload.cdngineSource,
+    deliveryName: payload.deliveryName,
+    sourceContentType: payload.sourceContentType,
   };
 }
 

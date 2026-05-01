@@ -3,7 +3,6 @@
  *
  * Usage:
  *   bun run publish:backstage-package -- --packageId com.yucp.example --catalogProductId product_123 --version 1.2.3 --sourcePath E:\exports\example.unitypackage
- *   bun run publish:backstage-package -- --packageId com.yucp.example --catalogProductId product_123 --version 1.2.3 --storageId kg2abc123...
  *
  * Authentication:
  *   Provide a Better Auth access token with the public API audience and at least the `profile:read`
@@ -11,9 +10,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
+import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
 
 type FetchLike = typeof fetch;
 
@@ -23,9 +22,7 @@ export type PublishBackstagePackageConfig = {
   packageId: string;
   catalogProductId: string;
   version: string;
-  sourcePath?: string;
-  storageId?: string;
-  zipSha256?: string;
+  sourcePath: string;
   channel?: string;
   packageName?: string;
   displayName?: string;
@@ -44,8 +41,27 @@ type UploadUrlResponse = {
   uploadUrl: string;
 };
 
+type UploadSessionResponse = {
+  completeUrl: string;
+  packageId: string;
+  uploadSessionId: string;
+  uploadTarget: {
+    method: string;
+    protocol: 'tus';
+    url: string;
+  };
+};
+
 type UploadStorageResponse = {
-  storageId?: string;
+  cdngineSource?: CdngineBackstageSourceReference;
+  deliveryName?: string;
+  sourceContentType?: string;
+};
+
+type UploadedBackstageSource = {
+  cdngineSource: CdngineBackstageSourceReference;
+  deliveryName?: string;
+  sourceContentType?: string;
 };
 
 export type PublishBackstagePackageResult = {
@@ -62,8 +78,6 @@ function inferBackstageArtifactContentType(sourcePath: string): string {
     ? 'application/octet-stream'
     : 'application/zip';
 }
-
-const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 
 function trimOptional(value: string | undefined): string | undefined {
   const normalized = value?.trim();
@@ -91,7 +105,6 @@ export function printUsage(): void {
 
 Usage:
   bun run publish:backstage-package -- --packageId com.yucp.example --catalogProductId product_123 --version 1.2.3 --sourcePath E:\\exports\\example.unitypackage
-  bun run publish:backstage-package -- --packageId com.yucp.example --catalogProductId product_123 --version 1.2.3 --storageId kg2abc123...
 
 Options:
   --apiBaseUrl <url>                Public API base URL. Defaults to YUCP_API_BASE_URL or http://localhost:3001.
@@ -99,9 +112,7 @@ Options:
   --packageId <id>                  Backstage package id to publish.
   --catalogProductId <id>           Catalog product id that grants entitlement access.
   --version <value>                 Version string to publish.
-  --sourcePath <path>               Package artifact to upload before publishing.
-  --storageId <id>                  Reuse an existing Convex Storage upload instead of uploading a file.
-  --zipSha256 <hex>                 SHA-256 digest for the artifact. Auto-computed when sourcePath is provided.
+  --sourcePath <path>               Package source artifact to upload to CDNgine before publishing.
   --channel <value>                 Release channel. Defaults to stable.
   --packageName <value>             Optional package name metadata.
   --displayName <value>             Optional display name metadata.
@@ -134,8 +145,6 @@ export function resolvePublishBackstagePackageConfig(
       catalogProductId: { type: 'string' },
       version: { type: 'string' },
       sourcePath: { type: 'string' },
-      storageId: { type: 'string' },
-      zipSha256: { type: 'string' },
       channel: { type: 'string' },
       packageName: { type: 'string' },
       displayName: { type: 'string' },
@@ -159,19 +168,11 @@ export function resolvePublishBackstagePackageConfig(
   }
 
   const sourcePath = trimOptional(values.sourcePath);
-  const storageId = trimOptional(values.storageId);
-  const zipSha256 = trimOptional(values.zipSha256)?.toLowerCase();
-  if (!sourcePath && !storageId) {
-    throw new Error('Either sourcePath or storageId is required');
+  if (!sourcePath) {
+    throw new Error('sourcePath is required');
   }
   if (sourcePath && !existsSync(sourcePath)) {
     throw new Error(`Backstage package artifact not found: ${sourcePath}`);
-  }
-  if (zipSha256 && !SHA256_HEX_RE.test(zipSha256)) {
-    throw new Error('zipSha256 must be a lowercase 64-character SHA-256 hex digest');
-  }
-  if (storageId && !sourcePath && !zipSha256) {
-    throw new Error('zipSha256 is required when publishing an existing storageId');
   }
 
   const repositoryVisibility = trimOptional(values.repositoryVisibility);
@@ -201,8 +202,6 @@ export function resolvePublishBackstagePackageConfig(
     catalogProductId: trimRequired(values.catalogProductId, 'catalogProductId'),
     version: trimRequired(values.version, 'version'),
     sourcePath,
-    storageId,
-    zipSha256,
     channel: trimOptional(values.channel),
     packageName: trimOptional(values.packageName),
     displayName: trimOptional(values.displayName),
@@ -233,15 +232,6 @@ async function assertApiResponse<T>(response: Response, fallback: string): Promi
     throw new Error(payload?.error || `${fallback} (${response.status} ${response.statusText})`);
   }
   return payload as T;
-}
-
-export async function computeFileSha256(sourcePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  const stream = createReadStream(sourcePath);
-  for await (const chunk of stream) {
-    hash.update(chunk);
-  }
-  return hash.digest('hex');
 }
 
 function buildApiUrl(apiBaseUrl: string, path: string): string {
@@ -279,12 +269,14 @@ export async function uploadBackstagePackageArtifact(
   uploadUrl: string,
   artifactBody: BodyInit,
   contentType: string,
+  deliveryName: string,
   fetchImpl: FetchLike = fetch
-): Promise<string> {
+): Promise<UploadedBackstageSource> {
   const response = await fetchImpl(uploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': contentType,
+      'X-YUCP-File-Name': encodeURIComponent(deliveryName),
     },
     body: artifactBody,
   });
@@ -292,17 +284,128 @@ export async function uploadBackstagePackageArtifact(
     response,
     'Failed to upload Backstage package artifact'
   );
-  const storageId = trimOptional(payload.storageId);
-  if (!storageId) {
-    throw new Error('Backstage artifact upload did not return storageId');
+  if (!payload?.cdngineSource) {
+    throw new Error('Backstage artifact upload did not return CDNgine source coordinates');
   }
-  return storageId;
+  return {
+    cdngineSource: payload.cdngineSource,
+    deliveryName: payload.deliveryName,
+    sourceContentType: payload.sourceContentType,
+  };
+}
+
+async function sha256FilePath(sourcePath: string): Promise<{ byteSize: number; sha256: string }> {
+  const hash = createHash('sha256');
+  let byteSize = 0;
+  const reader = Bun.file(sourcePath).stream().getReader();
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      hash.update(chunk.value);
+      byteSize += chunk.value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return {
+    byteSize,
+    sha256: hash.digest('hex'),
+  };
+}
+
+export async function requestBackstageUploadSession(
+  config: Pick<PublishBackstagePackageConfig, 'apiBaseUrl' | 'accessToken' | 'packageId'> & {
+    byteSize: number;
+    contentType: string;
+    deliveryName: string;
+    sha256: string;
+  },
+  fetchImpl: FetchLike = fetch
+): Promise<UploadSessionResponse> {
+  const response = await fetchImpl(
+    buildApiUrl(
+      config.apiBaseUrl,
+      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload-session`
+    ),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        byteSize: config.byteSize,
+        deliveryName: config.deliveryName,
+        sha256: config.sha256,
+        sourceContentType: config.contentType,
+      }),
+    }
+  );
+  return await assertApiResponse<UploadSessionResponse>(
+    response,
+    'Failed to create Backstage upload session'
+  );
+}
+
+export async function uploadBackstagePackageArtifactDirect(
+  config: PublishBackstagePackageConfig,
+  fetchImpl: FetchLike = fetch
+): Promise<UploadedBackstageSource> {
+  const sourcePath = config.sourcePath;
+  const deliveryName = config.deliveryName ?? sourcePath.split(/[\\/]/).pop() ?? sourcePath;
+  const contentType = config.contentType ?? inferBackstageArtifactContentType(sourcePath);
+  const digest = await sha256FilePath(sourcePath);
+  const session = await requestBackstageUploadSession(
+    {
+      ...config,
+      byteSize: digest.byteSize,
+      contentType,
+      deliveryName,
+      sha256: digest.sha256,
+    },
+    fetchImpl
+  );
+  if (session.uploadTarget.protocol !== 'tus') {
+    throw new Error(`Unsupported Backstage upload protocol "${session.uploadTarget.protocol}".`);
+  }
+  const uploadResponse = await fetchImpl(session.uploadTarget.url, {
+    method: session.uploadTarget.method,
+    headers: {
+      'Content-Type': 'application/offset+octet-stream',
+      'Tus-Resumable': '1.0.0',
+      'Upload-Offset': '0',
+    },
+    body: Bun.file(sourcePath),
+  });
+  if (!uploadResponse.ok) {
+    throw new Error(
+      `Failed to upload Backstage package artifact to CDNgine (${uploadResponse.status} ${uploadResponse.statusText})`
+    );
+  }
+
+  const completionResponse = await fetchImpl(session.completeUrl, {
+    method: 'POST',
+  });
+  const payload = await assertApiResponse<UploadStorageResponse>(
+    completionResponse,
+    'Failed to complete Backstage package artifact upload'
+  );
+  if (!payload?.cdngineSource) {
+    throw new Error('Backstage artifact upload did not return CDNgine source coordinates');
+  }
+  return {
+    cdngineSource: payload.cdngineSource,
+    deliveryName: payload.deliveryName,
+    sourceContentType: payload.sourceContentType,
+  };
 }
 
 export async function publishBackstageRelease(
   config: PublishBackstagePackageConfig,
-  storageId: string,
-  zipSha256: string,
+  uploadedSource: UploadedBackstageSource,
   fetchImpl: FetchLike = fetch
 ): Promise<PublishBackstagePackageResult> {
   const response = await fetchImpl(
@@ -318,9 +421,8 @@ export async function publishBackstageRelease(
       },
       body: JSON.stringify({
         catalogProductId: config.catalogProductId,
-        storageId,
+        cdngineSource: uploadedSource.cdngineSource,
         version: config.version,
-        zipSha256,
         ...(config.channel ? { channel: config.channel } : {}),
         ...(config.packageName ? { packageName: config.packageName } : {}),
         ...(config.displayName ? { displayName: config.displayName } : {}),
@@ -331,8 +433,12 @@ export async function publishBackstageRelease(
         ...(config.defaultChannel ? { defaultChannel: config.defaultChannel } : {}),
         ...(config.unityVersion ? { unityVersion: config.unityVersion } : {}),
         ...(config.metadata !== undefined ? { metadata: config.metadata } : {}),
-        ...(config.deliveryName ? { deliveryName: config.deliveryName } : {}),
-        ...(config.contentType ? { contentType: config.contentType } : {}),
+        ...(uploadedSource.deliveryName || config.deliveryName
+          ? { deliveryName: uploadedSource.deliveryName ?? config.deliveryName }
+          : {}),
+        ...(uploadedSource.sourceContentType || config.contentType
+          ? { sourceContentType: uploadedSource.sourceContentType ?? config.contentType }
+          : {}),
         ...(config.releaseStatus ? { releaseStatus: config.releaseStatus } : {}),
       }),
     }
@@ -348,51 +454,8 @@ export async function publishBackstagePackage(
   fetchImpl: FetchLike = fetch
 ): Promise<PublishBackstagePackageResult> {
   const sourcePath = config.sourcePath;
-  const preparedArtifact = sourcePath
-    ? await prepareBackstageArtifactForPublish({
-        packageId: config.packageId,
-        version: config.version,
-        displayName: config.displayName,
-        description: config.description,
-        unityVersion: config.unityVersion,
-        metadata: config.metadata,
-        deliveryName: config.deliveryName,
-        sourceBytes: new Uint8Array(await Bun.file(sourcePath).arrayBuffer()),
-        sourceFileName: sourcePath.split(/[\\/]/).pop() ?? sourcePath,
-      })
-    : null;
-  const zipSha256 =
-    preparedArtifact?.zipSha256 ||
-    config.zipSha256 ||
-    (sourcePath ? await computeFileSha256(sourcePath) : undefined);
-  if (!zipSha256) {
-    throw new Error('zipSha256 is required before publishing a Backstage artifact');
-  }
-  const storageId =
-    config.storageId ||
-    (await uploadBackstagePackageArtifact(
-      await requestBackstageUploadUrl(config, fetchImpl),
-      preparedArtifact ? preparedArtifact.bytes : Bun.file(sourcePath as string),
-      preparedArtifact?.contentType ??
-        config.contentType ??
-        inferBackstageArtifactContentType(sourcePath as string),
-      fetchImpl
-    ));
-  return await publishBackstageRelease(
-    {
-      ...config,
-      ...(preparedArtifact
-        ? {
-            contentType: preparedArtifact.contentType,
-            deliveryName: preparedArtifact.deliveryName,
-            metadata: preparedArtifact.metadata,
-          }
-        : {}),
-    },
-    storageId,
-    zipSha256,
-    fetchImpl
-  );
+  const uploadedSource = await uploadBackstagePackageArtifactDirect(config, fetchImpl);
+  return await publishBackstageRelease(config, uploadedSource, fetchImpl);
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {

@@ -197,6 +197,11 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
     printUsage();
     return;
   }
+  if (values.apply && process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS !== 'true') {
+    throw new Error(
+      'Applying legacy Backstage Convex storage remediation is disabled. Leave package artifacts in CDNgine.'
+    );
+  }
 
   const releases = await runConvexFunction<ReleaseRecord[]>(
     'packageRegistry:listDeliveryPackageReleasesByPackage',

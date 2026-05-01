@@ -99,6 +99,14 @@ Each service has its own machine identity with least-privilege access:
 | `INTERNAL_RPC_SHARED_SECRET` | Shared bearer secret for web, API, and bot internal RPC/authenticated proxy calls. Required in production, optional in local dev because services share a built-in dev secret. | On compromise / 90 days |
 | `WEBHOOK_SIGNING_SECRET` | Webhook signature key | On compromise / 90 days |
 
+### CDNgine Backstage Delivery (`/api/integrations/cdngine/`)
+
+| Secret Key | Description | Rotation |
+|------------|-------------|----------|
+| `CDNGINE_API_BASE_URL` | CDNgine API origin used for Backstage package source uploads, materialization reads, and delivery authorization | On topology change |
+| `CDNGINE_ACCESS_TOKEN` | Bearer token for the Gumroad API to call CDNgine | On compromise / 90 days |
+| `CDNGINE_BACKSTAGE_TIMEOUT_MS` | CDNgine API timeout budget for Backstage upload/materialization/authorization calls | On SLO change |
+
 ## Environment Variable Mapping
 
 ### API Service
@@ -119,6 +127,9 @@ GUMROAD_CLIENT_SECRET=/api/integrations/gumroad/GUMROAD_CLIENT_SECRET
 JINXXY_API_KEY=/api/integrations/jinxxy/JINXXY_API_KEY
 RESEND_API_KEY=/api/integrations/email/RESEND_API_KEY
 EMAIL_FROM=/api/integrations/email/EMAIL_FROM
+CDNGINE_API_BASE_URL=/api/integrations/cdngine/CDNGINE_API_BASE_URL
+CDNGINE_ACCESS_TOKEN=/api/integrations/cdngine/CDNGINE_ACCESS_TOKEN
+CDNGINE_BACKSTAGE_TIMEOUT_MS=/api/integrations/cdngine/CDNGINE_BACKSTAGE_TIMEOUT_MS
 
 # Infrastructure
 CONVEX_URL=/infra/convex/CONVEX_URL

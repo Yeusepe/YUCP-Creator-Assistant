@@ -566,7 +566,6 @@ vi.mock('@/lib/packages', () => ({
   archiveCreatorPackage: vi.fn(),
   archiveCreatorBackstageRelease: vi.fn(),
   archiveCreatorBackstageProduct: vi.fn(),
-  createBackstageReleaseUploadUrl: vi.fn(),
   deleteCreatorBackstageRelease: vi.fn(),
   listCreatorBackstageProducts: vi.fn(),
   listCreatorPackages: vi.fn(),
@@ -575,7 +574,7 @@ vi.mock('@/lib/packages', () => ({
   requestBackstageRepoAccess: vi.fn(),
   restoreCreatorBackstageProduct: vi.fn(),
   restoreCreatorPackage: vi.fn(),
-  uploadBackstageReleaseFile: vi.fn(),
+  uploadBackstageReleaseFileDirect: vi.fn(),
 }));
 
 import { buildProductLanes } from '@/components/dashboard/PackageRegistryPanel';
@@ -600,13 +599,11 @@ const deleteCreatorBackstageReleaseMock = packagesApi.deleteCreatorBackstageRele
 const archiveCreatorBackstageProductMock = packagesApi.archiveCreatorBackstageProduct as ReturnType<
   typeof vi.fn
 >;
-const createBackstageReleaseUploadUrlMock =
-  packagesApi.createBackstageReleaseUploadUrl as ReturnType<typeof vi.fn>;
 const publishBackstageReleaseMock = packagesApi.publishBackstageRelease as ReturnType<typeof vi.fn>;
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
-const uploadBackstageReleaseFileMock = packagesApi.uploadBackstageReleaseFile as ReturnType<
+const uploadBackstageReleaseFileDirectMock = packagesApi.uploadBackstageReleaseFileDirect as ReturnType<
   typeof vi.fn
 >;
 
@@ -839,12 +836,19 @@ describe('dashboard packages route', () => {
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
       expiresAt: 1_710_000_100_000,
     });
-    createBackstageReleaseUploadUrlMock.mockResolvedValue({
-      packageId: 'pkg.creator.bundle',
-      uploadUrl: 'https://uploads.test/backstage',
-    });
-    uploadBackstageReleaseFileMock.mockResolvedValue({
-      storageId: 'storage_uploaded_1',
+    uploadBackstageReleaseFileDirectMock.mockResolvedValue({
+      cdngineSource: {
+        assetId: 'ast_uploaded_1',
+        assetOwner: 'creator:auth-user-1',
+        byteSize: 128,
+        serviceNamespaceId: 'yucp-backstage',
+        sha256: 'f'.repeat(64),
+        tenantId: 'auth-user-1',
+        uploadedAt: 1_710_000_000_000,
+        versionId: 'ver_uploaded_1',
+      },
+      deliveryName: 'bundle.unitypackage',
+      sourceContentType: 'application/octet-stream',
     });
     publishBackstageReleaseMock.mockResolvedValue({
       deliveryPackageReleaseId: 'release_new',

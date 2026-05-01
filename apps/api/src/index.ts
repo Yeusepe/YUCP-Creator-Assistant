@@ -4,11 +4,11 @@
 
 import path from 'node:path';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
-import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
+import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './lib/cors';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
@@ -24,6 +24,7 @@ import {
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import { MAX_BACKSTAGE_UPLOAD_BYTES } from './lib/requestBodyLimits';
 import { detectTunnelUrl } from './lib/tunnel';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
@@ -184,13 +185,12 @@ function initializeAuth(webhookBaseUrl?: string) {
 
   resolvedApiBaseUrl = publicBaseUrl;
   resolvedFrontendOrigin = new URL(frontendUrl).origin;
-  allowedCorsOrigins = new Set(
-    buildAllowedBrowserOrigins({
-      siteUrl,
-      frontendUrl,
-      additionalOrigins: [publicBaseUrl],
-    })
-  );
+  allowedCorsOrigins = buildApiAllowedCorsOrigins({
+    siteUrl,
+    frontendUrl,
+    publicBaseUrl,
+    nodeEnv: env.NODE_ENV,
+  });
 
   const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
   if (!convexSiteUrl) {
@@ -300,6 +300,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
+    cdngine: getCdngineBackstageApiConfig(env),
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
@@ -1008,6 +1009,39 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  const backstageUploadSessionMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-session$/
+  );
+  if (backstageUploadSessionMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.createBackstageReleaseUploadSession(
+        request,
+        backstageUploadSessionMatch[1]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageUploadSessionCompleteMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-session\/complete$/
+  );
+  if (backstageUploadSessionCompleteMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.completeBackstageReleaseUploadSession(
+        request,
+        backstageUploadSessionCompleteMatch[1]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageUploadSourceMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-source$/
+  );
+  if (backstageUploadSourceMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.uploadBackstageReleaseSource(request, backstageUploadSourceMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   const backstageReleaseMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/releases$/);
   if (backstageReleaseMatch && packageRoutes) {
     if (request.method === 'POST') {
@@ -1244,17 +1278,7 @@ async function handleRequest(request: Request): Promise<Response> {
 
   return withApiRequestSpan(request, requestId, async () => {
     // Build CORS headers for approved browser origins used by the app UI.
-    const corsHeaders: Record<string, string> = {};
-    if (origin && allowedCorsOrigins.has(origin)) {
-      corsHeaders['Access-Control-Allow-Origin'] = origin;
-      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
-      corsHeaders['Access-Control-Allow-Headers'] =
-        'Authorization, Content-Type, Traceparent, traceparent, Tracestate, tracestate, Baggage, baggage';
-      corsHeaders['Access-Control-Expose-Headers'] = 'X-Request-Id, X-Trace-Id';
-      corsHeaders['Timing-Allow-Origin'] = origin;
-      corsHeaders.Vary = 'Origin';
-    }
+    const corsHeaders = buildApiCorsHeaders({ allowedOrigins: allowedCorsOrigins, origin });
 
     annotateApiSpan({
       requestId,
@@ -1313,6 +1337,7 @@ async function main() {
   // Start HTTP server
   Bun.serve({
     hostname,
+    maxRequestBodySize: MAX_BACKSTAGE_UPLOAD_BYTES,
     port,
     fetch: handleRequest,
   });

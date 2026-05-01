@@ -109,6 +109,32 @@ describe('DevSupervisor', () => {
     });
   });
 
+  test('applyLocalDevDefaults wires Gumroad to the local CDNgine public runtime when CDNGINE_DIR is configured', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-defaults-'));
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_DIR: tempDir,
+      })
+    ).toMatchObject({
+      CDNGINE_API_BASE_URL: 'http://localhost:4000',
+      CDNGINE_ACCESS_TOKEN: 'local-public-runtime-token',
+    });
+  });
+
+  test('applyLocalDevDefaults preserves explicit CDNgine API config', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-explicit-'));
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_ACCESS_TOKEN: 'explicit-token',
+        CDNGINE_API_BASE_URL: 'https://cdngine.example',
+        CDNGINE_DIR: tempDir,
+      })
+    ).toMatchObject({
+      CDNGINE_ACCESS_TOKEN: 'explicit-token',
+      CDNGINE_API_BASE_URL: 'https://cdngine.example',
+    });
+  });
+
   test('buildHyperdxDockerArgs exposes the supported local HyperDX ports', () => {
     expect(
       buildHyperdxDockerArgs({
@@ -253,7 +279,7 @@ describe('DevSupervisor', () => {
       cwd: tempDir,
       required: false,
       command:
-        'npm start && npm run build -w @cdngine/auth && npm run build -w @cdngine/api && npm run build -w @cdngine/workflows && node ./apps/demo/scripts/start-demo-api.mjs',
+        'npm start && npm run build -w @cdngine/auth && npm run build -w @cdngine/api && npm run build -w @cdngine/workflows && node ./apps/demo/scripts/start-public-runtime.mjs',
     });
     expect(commands.find((command) => command.name === 'tunnel')).toMatchObject({
       required: false,

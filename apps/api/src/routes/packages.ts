@@ -1,10 +1,16 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
   buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
   getProviderDescriptor,
 } from '@yucp/providers/providerMetadata';
-import type { YucpAliasPackageContract } from '@yucp/shared';
+import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
+import {
+  type CdngineBackstageSourceReference,
+  isCdngineBackstageSourceReference,
+} from '@yucp/shared/cdngineBackstageDelivery';
 import { legacyProductIdsToSelectors, normalizeProductSelectorList } from '@yucp/shared/product';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -13,10 +19,21 @@ import { listProviderProductsViaApi, listProviderTiersViaApi } from '../internal
 import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
+import {
+  authorizeCdngineBackstageSource,
+  type CdngineBackstageConfig,
+  completeBackstageUploadSessionInCdngine,
+  createBackstageUploadSessionInCdngine,
+  sanitizeCdngineObjectKeySegment,
+  sha256ArrayBuffer,
+  uploadBackstageBytesToCdngine,
+  uploadBackstageDeliverableToCdngine,
+} from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
@@ -30,6 +47,23 @@ export type PackagesConfig = {
   convexApiSecret: string;
   convexSiteUrl: string;
   convexUrl: string;
+  cdngine?: CdngineBackstageConfig;
+};
+
+type BackstageUploadTokenPayload = {
+  authUserId: string;
+  exp: number;
+  packageId: string;
+};
+
+type BackstageUploadCompletionTokenPayload = BackstageUploadTokenPayload & {
+  byteSize: number;
+  deliveryName: string;
+  kind: 'backstage-upload-complete';
+  objectKey: string;
+  sha256: string;
+  sourceContentType: string;
+  uploadSessionId: string;
 };
 
 type BackstageProductQueryResult = {
@@ -151,6 +185,75 @@ function jsonResponse(body: object, status = 200): Response {
       'Cache-Control': 'no-store',
     },
   });
+}
+
+function base64UrlEncode(input: string): string {
+  return Buffer.from(input, 'utf8').toString('base64url');
+}
+
+function base64UrlDecode(input: string): string {
+  return Buffer.from(input, 'base64url').toString('utf8');
+}
+
+function signBackstageUploadToken(payload: BackstageUploadTokenPayload, secret: string): string {
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
+  return `${encodedPayload}.${signature}`;
+}
+
+function verifyBackstageUploadToken(
+  token: string,
+  secret: string
+): BackstageUploadTokenPayload | null {
+  const [encodedPayload, signature] = token.split('.');
+  if (!encodedPayload || !signature) {
+    return null;
+  }
+  const expected = createHmac('sha256', secret).update(encodedPayload).digest();
+  const actual = Buffer.from(signature, 'base64url');
+  if (expected.byteLength !== actual.byteLength || !timingSafeEqual(expected, actual)) {
+    return null;
+  }
+  const payload = JSON.parse(base64UrlDecode(encodedPayload)) as BackstageUploadTokenPayload;
+  if (
+    typeof payload.authUserId !== 'string' ||
+    typeof payload.packageId !== 'string' ||
+    typeof payload.exp !== 'number' ||
+    payload.exp < Date.now()
+  ) {
+    return null;
+  }
+  return payload;
+}
+
+function signBackstageUploadCompletionToken(
+  payload: BackstageUploadCompletionTokenPayload,
+  secret: string
+): string {
+  return signBackstageUploadToken(payload, secret);
+}
+
+function verifyBackstageUploadCompletionToken(
+  token: string,
+  secret: string
+): BackstageUploadCompletionTokenPayload | null {
+  const payload = verifyBackstageUploadToken(token, secret);
+  if (
+    !payload ||
+    (payload as Partial<BackstageUploadCompletionTokenPayload>).kind !==
+      'backstage-upload-complete' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).uploadSessionId !==
+      'string' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).objectKey !== 'string' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).deliveryName !== 'string' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).sourceContentType !==
+      'string' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).sha256 !== 'string' ||
+    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).byteSize !== 'number'
+  ) {
+    return null;
+  }
+  return payload as BackstageUploadCompletionTokenPayload;
 }
 
 function getBackstageLiveSyncTimeoutMs(): number {
@@ -326,6 +429,35 @@ function normalizeRichTextToPlainText(value?: string | null): string | undefined
     .trim();
 
   return plainText || undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function normalizeBackstageMetadataInput(input: {
+  metadata?: unknown;
+  dependencyVersions?: Array<{ packageId: string; version: string }>;
+}): Record<string, unknown> | undefined {
+  if (input.metadata != null && !isRecord(input.metadata)) {
+    throw new Error('metadata must be an object when provided.');
+  }
+  const baseMetadata: Record<string, unknown> = input.metadata ? { ...input.metadata } : {};
+  if (!input.dependencyVersions?.length) {
+    return Object.keys(baseMetadata).length > 0 ? baseMetadata : undefined;
+  }
+
+  const mergedDependencies = {
+    ...(isRecord(baseMetadata.dependencies) ? baseMetadata.dependencies : {}),
+    ...Object.fromEntries(
+      input.dependencyVersions.map((dependency) => [dependency.packageId, dependency.version])
+    ),
+  };
+
+  return {
+    ...baseMetadata,
+    dependencies: mergedDependencies,
+  };
 }
 
 function normalizeAmountCents(value: bigint | number | null | undefined): number | undefined {
@@ -1259,8 +1391,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (viewer instanceof Response) {
       return viewer;
     }
-    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-
     let packageId: string;
     try {
       packageId = assertPackageId(packageIdParam);
@@ -1271,23 +1401,275 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       );
     }
 
+    const token = signBackstageUploadToken(
+      {
+        authUserId: viewer.authUserId,
+        exp: Date.now() + 15 * 60 * 1000,
+        packageId,
+      },
+      config.convexApiSecret
+    );
+    const uploadUrl = `${config.apiBaseUrl.replace(/\/+$/, '')}/api/packages/${encodeURIComponent(
+      packageId
+    )}/backstage/upload-source?uploadToken=${encodeURIComponent(token)}`;
+    return jsonResponse({ packageId, uploadUrl });
+  }
+
+  function parseBackstageDirectUploadRequest(body: unknown):
+    | {
+        byteSize: number;
+        deliveryName: string;
+        sha256: string;
+        sourceContentType: string;
+      }
+    | Response {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+    const record = body as Record<string, unknown>;
+    const byteSize = record.byteSize;
+    const deliveryName =
+      typeof record.deliveryName === 'string'
+        ? record.deliveryName.trim()
+        : typeof record.fileName === 'string'
+          ? record.fileName.trim()
+          : '';
+    const sha256 = typeof record.sha256 === 'string' ? record.sha256.trim().toLowerCase() : '';
+    const sourceContentType =
+      typeof record.sourceContentType === 'string' && record.sourceContentType.trim()
+        ? record.sourceContentType.trim()
+        : 'application/octet-stream';
+
+    if (!Number.isSafeInteger(byteSize) || byteSize < 0) {
+      return jsonResponse({ error: 'byteSize must be a non-negative safe integer' }, 400);
+    }
+    if (byteSize > MAX_BACKSTAGE_PACKAGE_BYTES) {
+      return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
+    }
+    if (!/^[a-f0-9]{64}$/u.test(sha256)) {
+      return jsonResponse({ error: 'sha256 must be a lowercase hex SHA-256 digest' }, 400);
+    }
+    if (!deliveryName) {
+      return jsonResponse({ error: 'deliveryName is required' }, 400);
+    }
+
+    return {
+      byteSize,
+      deliveryName,
+      sha256,
+      sourceContentType,
+    };
+  }
+
+  async function createBackstageReleaseUploadSession(
+    request: Request,
+    packageIdParam: string
+  ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+
+    let packageId: string;
     try {
-      const uploadUrl = await convex.mutation(
-        api.backstageRepos.generateReleaseUploadUrlForAuthUser,
-        {
-          apiSecret: config.convexApiSecret,
-          actor: viewer.actorBinding,
-          authUserId: viewer.authUserId,
-        }
-      );
-      return jsonResponse({ packageId, uploadUrl });
+      packageId = assertPackageId(packageIdParam);
     } catch (error) {
-      logger.error('Failed to generate Backstage release upload URL', {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : 'Invalid packageId' },
+        400
+      );
+    }
+    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
+      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+    const parsed = parseBackstageDirectUploadRequest(body);
+    if (parsed instanceof Response) {
+      return parsed;
+    }
+
+    try {
+      const assetOwner = `creator:${viewer.authUserId}`;
+      const objectKey = [
+        'staging',
+        sanitizeCdngineObjectKeySegment(config.cdngine?.serviceNamespaceId ?? 'yucp-backstage'),
+        sanitizeCdngineObjectKeySegment(viewer.authUserId),
+        'backstage-source',
+        sanitizeCdngineObjectKeySegment(packageId),
+        parsed.sha256,
+        sanitizeCdngineObjectKeySegment(parsed.deliveryName),
+      ].join('/');
+      const idempotencyBase = `backstage-source:${viewer.authUserId}:${packageId}:${parsed.sha256}`;
+      const session = await createBackstageUploadSessionInCdngine({
+        byteSize: parsed.byteSize,
+        config: config.cdngine,
+        contentType: parsed.sourceContentType,
+        deliveryName: parsed.deliveryName,
+        idempotencyBase,
+        objectKey,
+        assetOwner,
+        tenantId: viewer.authUserId,
+        sha256: parsed.sha256,
+      });
+      const completionToken = signBackstageUploadCompletionToken(
+        {
+          authUserId: viewer.authUserId,
+          byteSize: parsed.byteSize,
+          deliveryName: parsed.deliveryName,
+          exp: Date.now() + 60 * 60 * 1000,
+          kind: 'backstage-upload-complete',
+          objectKey,
+          packageId,
+          sha256: parsed.sha256,
+          sourceContentType: parsed.sourceContentType,
+          uploadSessionId: session.uploadSessionId,
+        },
+        config.convexApiSecret
+      );
+      const completeUrl = `${config.apiBaseUrl.replace(/\/+$/, '')}/api/packages/${encodeURIComponent(
+        packageId
+      )}/backstage/upload-session/complete?completionToken=${encodeURIComponent(completionToken)}`;
+
+      return jsonResponse({
+        completeUrl,
+        packageId,
+        uploadSessionId: session.uploadSessionId,
+        uploadTarget: session.uploadTarget,
+      });
+    } catch (error) {
+      logger.error('Failed to create Backstage CDNgine upload session', {
         authUserId: viewer.authUserId,
         packageId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return jsonResponse({ error: 'Failed to create upload URL' }, 500);
+      return jsonResponse({ error: 'Failed to create Backstage upload session' }, 500);
+    }
+  }
+
+  async function completeBackstageReleaseUploadSession(
+    request: Request,
+    packageIdParam: string
+  ): Promise<Response> {
+    let packageId: string;
+    try {
+      packageId = assertPackageId(packageIdParam);
+    } catch (error) {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : 'Invalid packageId' },
+        400
+      );
+    }
+    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
+      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
+    }
+
+    const completionToken = new URL(request.url).searchParams.get('completionToken') ?? '';
+    const tokenPayload = verifyBackstageUploadCompletionToken(
+      completionToken,
+      config.convexApiSecret
+    );
+    if (!tokenPayload || tokenPayload.packageId !== packageId) {
+      return jsonResponse({ error: 'Invalid upload completion token' }, 401);
+    }
+
+    try {
+      const assetOwner = `creator:${tokenPayload.authUserId}`;
+      const cdngineSource = await completeBackstageUploadSessionInCdngine({
+        assetOwner,
+        byteSize: tokenPayload.byteSize,
+        config: config.cdngine,
+        idempotencyBase: `backstage-source:${tokenPayload.authUserId}:${packageId}:${tokenPayload.sha256}`,
+        objectKey: tokenPayload.objectKey,
+        sha256: tokenPayload.sha256,
+        tenantId: tokenPayload.authUserId,
+        uploadSessionId: tokenPayload.uploadSessionId,
+      });
+      return jsonResponse({
+        cdngineSource,
+        deliveryName: tokenPayload.deliveryName,
+        sourceContentType: tokenPayload.sourceContentType,
+      });
+    } catch (error) {
+      logger.error('Failed to complete Backstage CDNgine upload session', {
+        authUserId: tokenPayload.authUserId,
+        packageId,
+        uploadSessionId: tokenPayload.uploadSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to complete Backstage upload session' }, 500);
+    }
+  }
+
+  async function uploadBackstageReleaseSource(
+    request: Request,
+    packageIdParam: string
+  ): Promise<Response> {
+    let packageId: string;
+    try {
+      packageId = assertPackageId(packageIdParam);
+    } catch (error) {
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : 'Invalid packageId' },
+        400
+      );
+    }
+
+    const uploadToken = new URL(request.url).searchParams.get('uploadToken') ?? '';
+    const tokenPayload = verifyBackstageUploadToken(uploadToken, config.convexApiSecret);
+    if (!tokenPayload || tokenPayload.packageId !== packageId) {
+      return jsonResponse({ error: 'Invalid upload token' }, 401);
+    }
+    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
+      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
+    }
+
+    try {
+      const bytes = await request.arrayBuffer();
+      const deliveryName =
+        decodeURIComponent(request.headers.get('x-yucp-file-name') ?? '').trim() ||
+        `${packageId}.zip`;
+      const contentType = request.headers.get('content-type')?.trim() || 'application/octet-stream';
+      const sha256 = await sha256ArrayBuffer(bytes);
+      const assetOwner = `creator:${tokenPayload.authUserId}`;
+      const objectKey = [
+        'staging',
+        sanitizeCdngineObjectKeySegment(config.cdngine?.serviceNamespaceId ?? 'yucp-backstage'),
+        sanitizeCdngineObjectKeySegment(tokenPayload.authUserId),
+        'backstage-source',
+        sanitizeCdngineObjectKeySegment(packageId),
+        sha256,
+        sanitizeCdngineObjectKeySegment(deliveryName),
+      ].join('/');
+      const cdngineSource = await uploadBackstageBytesToCdngine({
+        bytes,
+        byteSize: bytes.byteLength,
+        config: config.cdngine,
+        contentType,
+        deliveryName,
+        idempotencyBase: `backstage-source:${tokenPayload.authUserId}:${packageId}:${sha256}`,
+        objectKey,
+        assetOwner,
+        tenantId: tokenPayload.authUserId,
+        sha256,
+      });
+      return jsonResponse({
+        cdngineSource,
+        deliveryName,
+        sourceContentType: contentType,
+      });
+    } catch (error) {
+      logger.error('Failed to upload Backstage release source to CDNgine', {
+        authUserId: tokenPayload.authUserId,
+        packageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to upload Backstage release' }, 500);
     }
   }
 
@@ -1315,7 +1697,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       catalogProductId?: string;
       catalogProductIds?: string[];
       accessSelectors?: unknown[];
-      storageId?: string;
+      cdngineSource?: CdngineBackstageSourceReference;
       version?: string;
       channel?: string;
       packageName?: string;
@@ -1389,12 +1771,94 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         400
       );
     }
-    if (accessSelectors.length === 0 || !body.storageId || !body.version) {
-      return jsonResponse({ error: 'accessSelectors, storageId, and version are required' }, 400);
+    if (
+      accessSelectors.length === 0 ||
+      !isCdngineBackstageSourceReference(body.cdngineSource) ||
+      !body.version
+    ) {
+      return jsonResponse(
+        { error: 'accessSelectors, cdngineSource, and version are required' },
+        400
+      );
     }
 
     try {
-      const result = await convex.action(api.backstageRepos.publishUploadedReleaseForAuthUser, {
+      const aliasMetadata = await convex.query(
+        api.backstageRepos.resolveAliasContractMetadataForApi,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: viewer.actorBinding,
+          authUserId: viewer.authUserId,
+          accessSelectors: accessSelectors.map((selector) =>
+            selector.kind === 'catalogTier'
+              ? {
+                  kind: 'catalogTier' as const,
+                  catalogTierId: selector.catalogTierId as Id<'catalog_tiers'>,
+                }
+              : {
+                  kind: 'catalogProduct' as const,
+                  catalogProductId: selector.catalogProductId as Id<'product_catalog'>,
+                }
+          ),
+        }
+      );
+      const channel = body.channel?.trim() || 'stable';
+      const sourceUrl = await authorizeCdngineBackstageSource({
+        config: config.cdngine,
+        source: body.cdngineSource,
+        idempotencyKey: `backstage-source-read:${viewer.authUserId}:${packageId}:${body.version}:${body.cdngineSource.sha256}`,
+      });
+      const sourceResponse = await fetch(sourceUrl);
+      if (!sourceResponse.ok) {
+        throw new Error(
+          `CDNgine source download failed with ${sourceResponse.status} ${sourceResponse.statusText}.`
+        );
+      }
+      const sourceBytes = new Uint8Array(await sourceResponse.arrayBuffer());
+      const metadata = normalizeBackstageMetadataInput({
+        metadata: mergeYucpAliasPackageMetadata({
+          metadata: body.metadata,
+          aliasId: aliasMetadata.aliasId,
+          catalogProductIds: aliasMetadata.catalogProductIds,
+          channel,
+        }),
+        dependencyVersions,
+      });
+      const preparedArtifact = await prepareBackstageArtifactForPublish({
+        packageId,
+        version: body.version,
+        displayName: body.displayName,
+        description: body.description,
+        unityVersion: body.unityVersion,
+        metadata,
+        sourceBytes,
+        sourceContentType:
+          body.sourceContentType?.trim() ||
+          sourceResponse.headers.get('content-type')?.trim() ||
+          'application/octet-stream',
+        sourceFileName: body.deliveryName,
+      });
+      const deliverableBytes = preparedArtifact.bytes.buffer.slice(
+        preparedArtifact.bytes.byteOffset,
+        preparedArtifact.bytes.byteOffset + preparedArtifact.bytes.byteLength
+      ) as ArrayBuffer;
+      const assetOwner = `creator:${viewer.authUserId}`;
+      const releaseSeed = [viewer.authUserId, packageId, channel, body.version].join(':');
+      const releaseStableId = (
+        await sha256ArrayBuffer(new TextEncoder().encode(releaseSeed).buffer)
+      ).slice(0, 32);
+      const cdngineDelivery = await uploadBackstageDeliverableToCdngine({
+        bytes: deliverableBytes,
+        byteSize: preparedArtifact.bytes.byteLength,
+        config: config.cdngine,
+        contentType: preparedArtifact.contentType,
+        deliveryName: preparedArtifact.deliveryName,
+        releaseId: releaseStableId,
+        assetOwner,
+        tenantId: viewer.authUserId,
+        sha256: preparedArtifact.zipSha256,
+      });
+      const result = await convex.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
@@ -1410,19 +1874,25 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
               }
         ),
         packageId,
-        storageId: body.storageId as Id<'_storage'>,
         version: body.version,
-        channel: body.channel,
+        channel,
         packageName: body.packageName,
         displayName: body.displayName,
         description: body.description,
         repositoryVisibility: body.repositoryVisibility,
         defaultChannel: body.defaultChannel,
         unityVersion: body.unityVersion,
-        dependencyVersions,
-        metadata: body.metadata,
-        deliveryName: body.deliveryName,
-        sourceContentType: body.sourceContentType,
+        metadata: preparedArtifact.metadata,
+        rawDeliveryName: body.deliveryName,
+        rawContentType: body.sourceContentType,
+        rawSha256: body.cdngineSource.sha256,
+        rawByteSize: body.cdngineSource.byteSize,
+        cdngineSource: body.cdngineSource,
+        deliverableDeliveryName: preparedArtifact.deliveryName,
+        deliverableContentType: preparedArtifact.contentType,
+        deliverableSha256: preparedArtifact.zipSha256,
+        deliverableByteSize: preparedArtifact.bytes.byteLength,
+        cdngineDelivery,
         releaseStatus: body.releaseStatus,
       });
       return jsonResponse(result, 201);
@@ -1450,6 +1920,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     archiveBackstageRelease,
     deleteBackstageRelease,
     createBackstageReleaseUploadUrl,
+    createBackstageReleaseUploadSession,
+    completeBackstageReleaseUploadSession,
+    uploadBackstageReleaseSource,
     publishBackstageRelease,
   };
 }

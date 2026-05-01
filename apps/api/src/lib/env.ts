@@ -240,7 +240,19 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
   }
 
   const infisicalSecrets = await fetchFromInfisical();
-  if (Object.keys(infisicalSecrets).length > 0 && !infisicalLoaded) {
+  const infisicalSecretCount = Object.keys(infisicalSecrets).length;
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
+  if (infisicalSecretCount === 0) {
+    const message =
+      'Infisical secrets did not load; environment is using process.env and local fallback files only.';
+    if (nodeEnv === 'production') {
+      throw new Error(`${message} Refusing production startup.`);
+    }
+    logger.warn(message, {
+      infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
+    });
+  }
+  if (infisicalSecretCount > 0 && !infisicalLoaded) {
     infisicalLoaded = true;
     for (const [key, value] of Object.entries(infisicalSecrets)) {
       if (
@@ -255,7 +267,7 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
       process.env.CONVEX_URL = process.env.CONVEX_DEPLOYMENT_URL;
     }
     logger.info('Loaded secrets from Infisical', {
-      count: Object.keys(infisicalSecrets).length,
+      count: infisicalSecretCount,
       infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
     });
   }

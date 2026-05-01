@@ -516,7 +516,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('falls back to Convex storage when optional CDNgine delivery is not ready', async () => {
+  it('does not fall back to Convex storage for CDNgine-only package artifacts', async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (String(input).startsWith('https://cdngine.test/')) {
         return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
@@ -539,7 +539,7 @@ describe('backstage repo routes', () => {
           return {
             deliveryArtifactId: 'artifact_1',
             deliveryArtifactMode: 'server_materialized',
-            downloadUrl: 'https://downloads.example/package.zip',
+            downloadUrl: '',
             deliveryName: 'example-1.2.3.zip',
             contentType: 'application/zip',
             version: '1.2.3',
@@ -595,8 +595,10 @@ describe('backstage repo routes', () => {
       )
     );
 
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package delivery is temporarily unavailable',
+    });
   });
 
   it('returns public buyer access details for a creator product link', async () => {

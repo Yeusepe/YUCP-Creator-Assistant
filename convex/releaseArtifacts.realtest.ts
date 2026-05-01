@@ -1,9 +1,93 @@
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import { BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY } from '@yucp/shared/backstageVpmDelivery';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { internal } from './_generated/api';
 import { makeTestConvex } from './testHelpers';
+
+const CDNGINE_ENV_KEYS = [
+  'CDNGINE_ACCESS_TOKEN',
+  'CDNGINE_API_BASE_URL',
+  'CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID',
+  'CDNGINE_BACKSTAGE_REQUIRED',
+  'CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID',
+  'CDNGINE_BACKSTAGE_VARIANT',
+] as const;
+const originalFetch = globalThis.fetch;
+const originalEnv = Object.fromEntries(
+  CDNGINE_ENV_KEYS.map((key) => [key, process.env[key]])
+) as Record<(typeof CDNGINE_ENV_KEYS)[number], string | undefined>;
+let cdngineUploadCounter = 0;
+let cdngineUploadBodies: Array<ArrayBuffer> = [];
+
+beforeEach(() => {
+  cdngineUploadCounter = 0;
+  cdngineUploadBodies = [];
+  process.env.CDNGINE_API_BASE_URL = 'https://cdngine.test';
+  process.env.CDNGINE_ACCESS_TOKEN = 'cdngine-token';
+  process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
+  process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
+  process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
+  process.env.CDNGINE_BACKSTAGE_VARIANT = 'vpm-package';
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url === 'https://cdngine.test/v1/upload-sessions') {
+      cdngineUploadCounter += 1;
+      return new Response(
+        JSON.stringify({
+          uploadSessionId: `upl_backstage_${cdngineUploadCounter}`,
+          assetId: `ast_backstage_${cdngineUploadCounter}`,
+          versionId: `ver_backstage_pending_${cdngineUploadCounter}`,
+          uploadTarget: {
+            protocol: 'tus',
+            method: 'PATCH',
+            url: `https://uploads.cdngine.test/files/upl_backstage_${cdngineUploadCounter}`,
+          },
+        }),
+        {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+    if (url.startsWith('https://uploads.cdngine.test/files/')) {
+      expect(init?.method).toBe('PATCH');
+      if (init?.body instanceof ArrayBuffer) {
+        cdngineUploadBodies.push(init.body);
+      }
+      return new Response(null, { status: 204 });
+    }
+    const completeMatch = url.match(
+      /^https:\/\/cdngine\.test\/v1\/upload-sessions\/(upl_backstage_\d+)\/complete$/
+    );
+    if (completeMatch) {
+      const index = completeMatch[1].replace('upl_backstage_', '');
+      return new Response(
+        JSON.stringify({
+          assetId: `ast_backstage_${index}`,
+          versionId: `ver_backstage_${index}`,
+        }),
+        {
+          status: 202,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    }
+    return new Response(`unexpected url: ${url}`, { status: 500 });
+  }) as typeof fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  for (const key of CDNGINE_ENV_KEYS) {
+    const value = originalEnv[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+});
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -428,6 +512,7 @@ describe('releaseArtifacts.getActiveArtifact', () => {
         artifactId: materialized.deliverableArtifactId,
       });
 
+      expect(deliverableArtifact?.storageId).toBeUndefined();
       expect(deliverableArtifact?.cdngineDelivery).toMatchObject({
         assetId: 'ast_backstage_1',
         versionId: 'ver_backstage_1',
@@ -462,6 +547,8 @@ describe('releaseArtifacts.getActiveArtifact', () => {
           },
         },
       });
+      const deletedUpload = await t.run(async (ctx) => await ctx.storage.get(storageId));
+      expect(deletedUpload).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
       for (const [key, value] of Object.entries(originalEnv)) {
@@ -538,12 +625,11 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       materializationStrategy: 'normalized_repack',
     });
 
-    const deliverableBytes = await t.run(async (ctx) => {
-      const blob = deliverableArtifact
-        ? await ctx.storage.get(deliverableArtifact.storageId)
-        : null;
-      return blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : null;
-    });
+    expect(deliverableArtifact?.storageId).toBeUndefined();
+    const cdngineUploadBody = cdngineUploadBodies.at(-1);
+    const deliverableBytes = cdngineUploadBody
+      ? Array.from(new Uint8Array(cdngineUploadBody))
+      : null;
     expect(deliverableBytes).not.toBeNull();
     if (!deliverableBytes) {
       throw new Error('Expected a materialized deliverable archive.');
@@ -654,11 +740,12 @@ describe('releaseArtifacts.getActiveArtifact', () => {
         .first();
     });
     expect(activeDeliverable?.sha256).toBe(repaired.nextSha256);
+    expect(activeDeliverable?.storageId).toBeUndefined();
 
-    const deliverableBytes = await t.run(async (ctx) => {
-      const blob = activeDeliverable ? await ctx.storage.get(activeDeliverable.storageId) : null;
-      return blob ? Array.from(new Uint8Array(await blob.arrayBuffer())) : null;
-    });
+    const cdngineUploadBody = cdngineUploadBodies.at(-1);
+    const deliverableBytes = cdngineUploadBody
+      ? Array.from(new Uint8Array(cdngineUploadBody))
+      : null;
     expect(deliverableBytes).not.toBeNull();
     if (!deliverableBytes) {
       throw new Error('Expected a repaired deliverable archive.');

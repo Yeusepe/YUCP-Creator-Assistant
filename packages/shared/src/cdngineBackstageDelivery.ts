@@ -19,6 +19,17 @@ export type CdngineBackstageDeliveryReference = {
   tenantId?: string;
 };
 
+export type CdngineBackstageSourceReference = {
+  assetId: string;
+  assetOwner: string;
+  byteSize: number;
+  serviceNamespaceId: string;
+  sha256: string;
+  uploadedAt: number;
+  versionId: string;
+  tenantId?: string;
+};
+
 export function isCdngineBackstageDeliveryReference(
   value: unknown
 ): value is CdngineBackstageDeliveryReference {
@@ -35,6 +46,25 @@ export function isCdngineBackstageDeliveryReference(
     typeof candidate.sha256 === 'string' &&
     typeof candidate.uploadedAt === 'number' &&
     typeof candidate.variant === 'string' &&
+    typeof candidate.versionId === 'string' &&
+    (candidate.tenantId === undefined || typeof candidate.tenantId === 'string')
+  );
+}
+
+export function isCdngineBackstageSourceReference(
+  value: unknown
+): value is CdngineBackstageSourceReference {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.assetId === 'string' &&
+    typeof candidate.assetOwner === 'string' &&
+    typeof candidate.byteSize === 'number' &&
+    typeof candidate.serviceNamespaceId === 'string' &&
+    typeof candidate.sha256 === 'string' &&
+    typeof candidate.uploadedAt === 'number' &&
     typeof candidate.versionId === 'string' &&
     (candidate.tenantId === undefined || typeof candidate.tenantId === 'string')
   );

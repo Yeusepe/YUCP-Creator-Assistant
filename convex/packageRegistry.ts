@@ -416,15 +416,17 @@ async function resolveDownloadableArtifactForReleaseRecord(
     )
     .first();
   if (deliverable) {
-    const downloadUrl = await ctx.storage.getUrl(deliverable.storageId);
-    if (!downloadUrl) {
+    const downloadUrl = deliverable.storageId
+      ? await ctx.storage.getUrl(deliverable.storageId)
+      : null;
+    if (!downloadUrl && !deliverable.cdngineDelivery) {
       return null;
     }
 
     return {
       deliveryArtifactId: deliverable._id,
       deliveryArtifactMode: 'server_materialized',
-      downloadUrl,
+      downloadUrl: downloadUrl ?? '',
       contentType: deliverable.contentType,
       deliveryName: deliverable.deliveryName,
       zipSha256: release.zipSha256,
@@ -818,7 +820,9 @@ async function deleteOwnedDeliveryPackageRelease(
 
   const storageIdsToDelete = new Set<string>();
   for (const artifact of deliveryArtifacts) {
-    storageIdsToDelete.add(String(artifact.storageId));
+    if (artifact.storageId) {
+      storageIdsToDelete.add(String(artifact.storageId));
+    }
   }
   if (signedArtifact) {
     storageIdsToDelete.add(String(signedArtifact.storageId));

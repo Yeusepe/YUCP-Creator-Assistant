@@ -58,7 +58,6 @@ import {
   type CreatorBackstageProductSummary,
   type CreatorPackageListResponse,
   type CreatorPackageSummary,
-  createBackstageReleaseUploadUrl,
   deleteCreatorBackstageRelease,
   listCreatorBackstageProducts,
   listCreatorPackages,
@@ -67,7 +66,7 @@ import {
   requestBackstageRepoAccess,
   restoreCreatorBackstageProduct,
   restoreCreatorPackage,
-  uploadBackstageReleaseFile,
+  uploadBackstageReleaseFileDirect,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { copyToClipboard } from '@/lib/utils';
@@ -97,6 +96,8 @@ type SelectedUpload = {
   artifactKind: 'unitypackage' | 'zip';
   contentType: string;
   file: File;
+  progressLabel?: string;
+  progressValue?: number;
   status: 'ready' | 'uploading' | 'complete' | 'failed';
   errorMessage?: string;
 };
@@ -1682,6 +1683,8 @@ export function PackageRegistryPanel({
               ...current,
               status: 'uploading',
               errorMessage: undefined,
+              progressLabel: 'Hashing',
+              progressValue: 0,
             }
           : current
       );
@@ -1690,7 +1693,6 @@ export function PackageRegistryPanel({
       const productLanes = buildProductLanes(productsQuery.data?.products ?? []);
       const selectedLane = productLanes.find((lane) => lane.laneKey === draft.laneKey);
       const linkedPackage = selectedLane?.primaryPackage ?? null;
-      const uploadResult = await createBackstageReleaseUploadUrl({ packageId });
       const resolvedDisplayName = draft.displayName.trim() || selectedLane?.title || packageId;
       const dependencyVersions = parseBackstageDependencyVersions(draft.dependenciesText);
       if (dependencyVersions.errorMessage) {
@@ -1714,9 +1716,25 @@ export function PackageRegistryPanel({
           'This package is linked to storefront products with different install aliases. Review the product links before publishing another upload.'
         );
       }
-      const upload = await uploadBackstageReleaseFile({
-        uploadUrl: uploadResult.uploadUrl,
+      const upload = await uploadBackstageReleaseFileDirect({
+        packageId,
         file: selectedUpload.file,
+        onProgress: (progress) => {
+          setSelectedUpload((current) =>
+            current
+              ? {
+                  ...current,
+                  progressLabel:
+                    progress.stage === 'hashing'
+                      ? 'Hashing'
+                      : progress.stage === 'uploading'
+                        ? 'Uploading'
+                        : 'Finishing',
+                  progressValue: progress.progress,
+                }
+              : current
+          );
+        },
       });
       const accessSelectors =
         draft.accessMode === 'tiers' && draft.catalogTierIds.length > 0
@@ -1733,7 +1751,7 @@ export function PackageRegistryPanel({
         packageId,
         body: {
           accessSelectors,
-          storageId: upload.storageId,
+          cdngineSource: upload.cdngineSource,
           version: draft.version.trim(),
           channel: draft.channel.trim() || 'stable',
           packageName: packageId,
@@ -1746,8 +1764,9 @@ export function PackageRegistryPanel({
             dependencyVersions.dependencies.length > 0
               ? dependencyVersions.dependencies
               : undefined,
-          deliveryName: selectedUpload.file.name,
-          sourceContentType: selectedUpload.file.type || 'application/octet-stream',
+          deliveryName: upload.deliveryName ?? selectedUpload.file.name,
+          sourceContentType:
+            upload.sourceContentType ?? selectedUpload.file.type ?? 'application/octet-stream',
         },
       });
 
@@ -1763,6 +1782,8 @@ export function PackageRegistryPanel({
               ...current,
               status: 'complete',
               errorMessage: undefined,
+              progressLabel: undefined,
+              progressValue: 100,
             }
           : current
       );
@@ -1786,6 +1807,7 @@ export function PackageRegistryPanel({
               ...current,
               status: 'failed',
               errorMessage: message,
+              progressLabel: undefined,
             }
           : current
       );
@@ -1955,6 +1977,8 @@ export function PackageRegistryPanel({
       contentType: getBackstageArtifactContentType(file, artifactKind),
       file,
       status: 'ready',
+      progressLabel: undefined,
+      progressValue: undefined,
     });
   }
 
@@ -2702,12 +2726,14 @@ export function PackageRegistryPanel({
                                     {selectedUpload.status === 'ready'
                                       ? ' | Ready to publish'
                                       : null}
-                                    {selectedUpload.status === 'uploading' ? ' | Uploading…' : null}
+                                    {selectedUpload.status === 'uploading'
+                                      ? ` | ${selectedUpload.progressLabel ?? 'Uploading'}…`
+                                      : null}
                                     {selectedUpload.status === 'complete' ? ' | Uploaded' : null}
                                     {selectedUpload.status === 'failed' ? ' | Upload failed' : null}
                                   </DropZone.FileMeta>
                                   {selectedUpload.status === 'uploading' ? (
-                                    <DropZone.FileProgress value={66}>
+                                    <DropZone.FileProgress value={selectedUpload.progressValue ?? 0}>
                                       <DropZone.FileProgressTrack>
                                         <DropZone.FileProgressFill />
                                       </DropZone.FileProgressTrack>
