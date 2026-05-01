@@ -187,3 +187,7 @@ This repository is provided **for reference and educational use only**. The auth
 Permitted use is limited to reading, learning, and reference. Any other use requires explicit permission from the author.
 
 See the **LICENSE** file in the repository root for full terms.
+
+---
+
+![Made by YUCP Studio](https://github.com/user-attachments/assets/ccdb5856-8a0a-481c-9bda-9da795462c96)
