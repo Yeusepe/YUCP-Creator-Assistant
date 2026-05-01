@@ -31,6 +31,7 @@ import {
   YUCP_ALIAS_PACKAGE_KIND,
   type YucpAliasPackageContract,
 } from '@yucp/shared';
+import type { CdngineBackstageDeliveryReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { api, internal } from './_generated/api';
@@ -113,7 +114,13 @@ type BackstageReleaseSummary = {
 
 type DeliveryArtifactSummary = Pick<
   Doc<'delivery_release_artifacts'>,
-  '_id' | 'artifactRole' | 'status' | 'storageId' | 'contentType' | 'deliveryName'
+  | '_id'
+  | 'artifactRole'
+  | 'status'
+  | 'storageId'
+  | 'contentType'
+  | 'deliveryName'
+  | 'cdngineDelivery'
 >;
 
 type DownloadablePackageReleaseRecord = {
@@ -136,6 +143,7 @@ type BackstagePackageDownloadRecord = {
   zipSha256?: string;
   version: string;
   channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
 };
 
 type AuthorizedAliasInstallPlanPackageRecord = {
@@ -164,6 +172,20 @@ const DownloadablePackageReleaseRecordV = v.object({
   zipSha256: v.optional(v.string()),
   version: v.string(),
   channel: v.string(),
+  cdngineDelivery: v.optional(
+    v.object({
+      assetId: v.string(),
+      assetOwner: v.string(),
+      byteSize: v.number(),
+      deliveryScopeId: v.string(),
+      serviceNamespaceId: v.string(),
+      sha256: v.string(),
+      tenantId: v.optional(v.string()),
+      uploadedAt: v.number(),
+      variant: v.string(),
+      versionId: v.string(),
+    })
+  ),
 });
 
 const BackstagePackageDownloadRecordV = v.object({
@@ -408,6 +430,7 @@ async function resolveDownloadableArtifactForReleaseRecord(
       zipSha256: release.zipSha256,
       version: release.version,
       channel: release.channel,
+      cdngineDelivery: deliverable.cdngineDelivery,
     };
   }
 
@@ -1709,9 +1732,11 @@ export const getDeliveryPackageReleaseById = internalQuery({
     v.null(),
     v.object({
       _id: v.id('delivery_package_releases'),
+      authUserId: v.string(),
       deliveryPackageId: v.id('delivery_packages'),
       packageId: v.string(),
       version: v.string(),
+      channel: v.string(),
       zipSha256: v.optional(v.string()),
       signedArtifactId: v.optional(v.id('signed_release_artifacts')),
       artifactKey: v.optional(v.string()),
@@ -1725,9 +1750,11 @@ export const getDeliveryPackageReleaseById = internalQuery({
     }
     return {
       _id: release._id,
+      authUserId: release.authUserId,
       deliveryPackageId: release.deliveryPackageId,
       packageId: release.packageId,
       version: release.version,
+      channel: release.channel,
       zipSha256: release.zipSha256,
       signedArtifactId: release.signedArtifactId,
       artifactKey: release.artifactKey,

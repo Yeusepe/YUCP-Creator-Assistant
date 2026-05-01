@@ -1,5 +1,9 @@
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import { YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS, type YucpAliasPackageContract } from '@yucp/shared';
+import {
+  type CdngineBackstageDeliveryReference,
+  isCdngineBackstageDeliveryReference,
+} from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -63,6 +67,27 @@ type AuthorizedAliasInstallPlanRecord = {
   }>;
 };
 
+type BackstagePackageDownloadRecord = {
+  deliveryArtifactId?: Id<'delivery_release_artifacts'>;
+  deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
+  artifactId?: Id<'signed_release_artifacts'>;
+  artifactKey?: string;
+  downloadUrl: string;
+  contentType: string;
+  deliveryName: string;
+  zipSha256?: string;
+  version: string;
+  channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
+};
+
+type ConfiguredCdngineBackstageDelivery = {
+  accessToken: string;
+  apiBaseUrl: string;
+  required?: boolean;
+  timeoutMs?: number;
+};
+
 export type BackstageRepoConfig = {
   auth?: Auth;
   apiBaseUrl: string;
@@ -71,6 +96,12 @@ export type BackstageRepoConfig = {
   convexApiSecret: string;
   convexSiteUrl: string;
   convexUrl: string;
+  cdngine?: {
+    accessToken?: string;
+    apiBaseUrl: string;
+    required?: boolean;
+    timeoutMs?: number;
+  };
 };
 
 function jsonResponse(body: object, status = 200): Response {
@@ -141,6 +172,95 @@ function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): str
   addRepoUrl.searchParams.set('url', repositoryUrl);
   addRepoUrl.searchParams.append('headers[]', `${BACKSTAGE_REPO_TOKEN_HEADER}:${repoToken}`);
   return addRepoUrl.toString();
+}
+
+function getConfiguredCdngine(
+  config: BackstageRepoConfig
+): ConfiguredCdngineBackstageDelivery | null {
+  if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
+    return null;
+  }
+  return {
+    ...config.cdngine,
+    accessToken: config.cdngine.accessToken,
+    apiBaseUrl: config.cdngine.apiBaseUrl.replace(/\/+$/, ''),
+  };
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveCdngineDownloadUrl(input: {
+  access: { authUserId: string; subjectId: string; tokenId: string };
+  cdngine: ConfiguredCdngineBackstageDelivery;
+  delivery: CdngineBackstageDeliveryReference;
+  packageId: string;
+  request: Request;
+  resolved: BackstagePackageDownloadRecord;
+}): Promise<string> {
+  const idempotencyHash = await sha256Hex(
+    [
+      'backstage-package-download-v1',
+      input.access.authUserId,
+      input.access.subjectId,
+      input.access.tokenId,
+      input.packageId,
+      input.resolved.version,
+      input.resolved.channel,
+      input.resolved.deliveryArtifactId ??
+        input.resolved.artifactId ??
+        input.resolved.artifactKey ??
+        '',
+      input.delivery.assetId,
+      input.delivery.versionId,
+      input.delivery.deliveryScopeId,
+      input.delivery.variant,
+    ].join('|')
+  );
+  const response = await fetchWithTimeout(
+    `${input.cdngine.apiBaseUrl.replace(/\/+$/, '')}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
+    {
+      body: JSON.stringify({
+        responseFormat: 'url',
+        variant: input.delivery.variant,
+      }),
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${input.cdngine.accessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': `backstage-download-${idempotencyHash}`,
+        ...(input.request.headers.get('traceparent')
+          ? { traceparent: input.request.headers.get('traceparent') as string }
+          : {}),
+      },
+      method: 'POST',
+    },
+    input.cdngine.timeoutMs ?? 5000
+  );
+  const text = await response.text();
+  const payload = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {};
+  if (!response.ok) {
+    const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
+    throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
+  }
+  if (typeof payload.url !== 'string' || payload.url.length === 0) {
+    throw new Error('CDNgine delivery authorization did not return a URL.');
+  }
+  return payload.url;
 }
 
 function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
@@ -670,16 +790,43 @@ async function servePackageDownload(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const resolved = await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
+  const resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
     apiSecret: config.convexApiSecret,
     authUserId: access.authUserId,
     subjectId: access.subjectId,
     packageId,
     version,
     channel,
-  });
+  })) as BackstagePackageDownloadRecord | null;
   if (!resolved) {
     return errorResponse('Package not found', 404);
+  }
+  const cdngine = getConfiguredCdngine(config);
+  if (cdngine && isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
+    try {
+      const cdngineUrl = await resolveCdngineDownloadUrl({
+        access,
+        cdngine,
+        delivery: resolved.cdngineDelivery,
+        packageId,
+        request,
+        resolved,
+      });
+      return Response.redirect(cdngineUrl, 302);
+    } catch (error) {
+      logger.warn('CDNgine Backstage delivery authorization failed', {
+        authUserId: access.authUserId,
+        deliveryArtifactId: resolved.deliveryArtifactId,
+        packageId,
+        version,
+        channel,
+        required: cdngine.required === true,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (cdngine.required === true) {
+        return errorResponse('Package delivery is temporarily unavailable', 502);
+      }
+    }
   }
   return Response.redirect(resolved.downloadUrl, 302);
 }

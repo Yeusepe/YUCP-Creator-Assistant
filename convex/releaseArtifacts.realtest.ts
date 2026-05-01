@@ -304,6 +304,176 @@ describe('releaseArtifacts.getActiveArtifact', () => {
     expect(release?.zipSha256).toBe(materialized.deliverableSha256);
   });
 
+  it('uploads materialized Backstage deliverables to CDNgine when configured', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalEnv = {
+      CDNGINE_ACCESS_TOKEN: process.env.CDNGINE_ACCESS_TOKEN,
+      CDNGINE_API_BASE_URL: process.env.CDNGINE_API_BASE_URL,
+      CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID: process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID,
+      CDNGINE_BACKSTAGE_REQUIRED: process.env.CDNGINE_BACKSTAGE_REQUIRED,
+      CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID: process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID,
+      CDNGINE_BACKSTAGE_VARIANT: process.env.CDNGINE_BACKSTAGE_VARIANT,
+    };
+    const calls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+    process.env.CDNGINE_API_BASE_URL = 'https://cdngine.test';
+    process.env.CDNGINE_ACCESS_TOKEN = 'cdngine-token';
+    process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
+    process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
+    process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
+    process.env.CDNGINE_BACKSTAGE_VARIANT = 'vpm-package';
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ input, init });
+      const url = String(input);
+      if (url === 'https://cdngine.test/v1/upload-sessions') {
+        return new Response(
+          JSON.stringify({
+            uploadSessionId: 'upl_backstage_1',
+            assetId: 'ast_backstage_1',
+            versionId: 'ver_backstage_pending',
+            uploadTarget: {
+              protocol: 'tus',
+              method: 'PATCH',
+              url: 'https://uploads.cdngine.test/files/upl_backstage_1',
+            },
+          }),
+          {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      if (url === 'https://uploads.cdngine.test/files/upl_backstage_1') {
+        expect(init?.method).toBe('PATCH');
+        expect((init?.headers as Record<string, string>)['tus-resumable']).toBe('1.0.0');
+        expect(init?.body).toBeInstanceOf(ArrayBuffer);
+        return new Response(null, { status: 204 });
+      }
+      if (url === 'https://cdngine.test/v1/upload-sessions/upl_backstage_1/complete') {
+        return new Response(
+          JSON.stringify({
+            assetId: 'ast_backstage_1',
+            versionId: 'ver_backstage_1',
+          }),
+          {
+            status: 202,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      return new Response('unexpected url', { status: 500 });
+    }) as typeof fetch;
+
+    try {
+      const t = makeTestConvex();
+      const uploadBytes = zipSync(
+        {
+          'Packages/com.yucp.cdngine/package.json': [
+            new TextEncoder().encode('{"name":"com.yucp.cdngine"}'),
+            { mtime: new Date() },
+          ],
+          'Packages/com.yucp.cdngine/README.md': [
+            new TextEncoder().encode('hello'),
+            { mtime: new Date() },
+          ],
+        },
+        { level: 9 }
+      );
+      const uploadSha256 = await sha256Hex(uploadBytes);
+      const storageId = await t.run(async (ctx) => {
+        return await ctx.storage.store(
+          new Blob([toArrayBuffer(uploadBytes)], { type: 'application/zip' })
+        );
+      });
+
+      const { deliveryPackageReleaseId } = await t.run(async (ctx) => {
+        const now = Date.now();
+        const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+          authUserId: 'auth-user-1',
+          packageId: 'com.yucp.cdngine',
+          packageName: 'CDNgine Release',
+          displayName: 'CDNgine Release',
+          status: 'active',
+          repositoryVisibility: 'listed',
+          defaultChannel: 'stable',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+          authUserId: 'auth-user-1',
+          deliveryPackageId,
+          packageId: 'com.yucp.cdngine',
+          version: '1.0.0',
+          channel: 'stable',
+          releaseStatus: 'published',
+          repositoryVisibility: 'listed',
+          zipSha256: uploadSha256,
+          publishedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        } as never);
+        return { deliveryPackageReleaseId };
+      });
+
+      const materialized = await t.action(
+        internal.releaseArtifacts.materializeUploadedReleaseDeliverable,
+        {
+          deliveryPackageReleaseId,
+          storageId,
+          contentType: 'application/zip',
+          deliveryName: 'cdngine.zip',
+          sha256: uploadSha256,
+        }
+      );
+      const deliverableArtifact = await t.query(internal.releaseArtifacts.getDeliveryArtifactById, {
+        artifactId: materialized.deliverableArtifactId,
+      });
+
+      expect(deliverableArtifact?.cdngineDelivery).toMatchObject({
+        assetId: 'ast_backstage_1',
+        versionId: 'ver_backstage_1',
+        deliveryScopeId: 'paid-downloads',
+        variant: 'vpm-package',
+        serviceNamespaceId: 'yucp-backstage',
+        tenantId: 'auth-user-1',
+        assetOwner: 'creator:auth-user-1',
+        sha256: materialized.deliverableSha256,
+        byteSize: expect.any(Number),
+      });
+      const createCall = calls.find((call) => String(call.input).endsWith('/v1/upload-sessions'));
+      expect((createCall?.init?.headers as Record<string, string>).authorization).toBe(
+        'Bearer cdngine-token'
+      );
+      expect((createCall?.init?.headers as Record<string, string>)['idempotency-key']).toBe(
+        `backstage-deliverable:${String(deliveryPackageReleaseId)}:${materialized.deliverableSha256}:create`
+      );
+      expect(JSON.parse(String(createCall?.init?.body))).toMatchObject({
+        assetOwner: 'creator:auth-user-1',
+        serviceNamespaceId: 'yucp-backstage',
+        tenantId: 'auth-user-1',
+        source: {
+          contentType: 'application/zip',
+          filename: 'cdngine.zip',
+        },
+        upload: {
+          byteLength: deliverableArtifact?.byteSize,
+          checksum: {
+            algorithm: 'sha256',
+            value: materialized.deliverableSha256,
+          },
+        },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
   it('wraps unitypackage uploads in a compile-safe backstage installer zip', async () => {
     const t = makeTestConvex();
     const uploadBytes = buildUnitypackage([

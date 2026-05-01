@@ -395,6 +395,210 @@ describe('backstage repo routes', () => {
     expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
   });
 
+  it('redirects entitled package downloads through CDNgine when a deliverable reference exists', async () => {
+    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ input, init });
+      const url = String(input);
+      if (url.startsWith('https://cdngine.test/')) {
+        return new Response(
+          JSON.stringify({
+            assetId: 'ast_backstage_1',
+            versionId: 'ver_backstage_1',
+            deliveryScopeId: 'paid-downloads',
+            authorizationMode: 'signed-url',
+            resolvedOrigin: 'cdn-derived',
+            expiresAt: '2026-05-01T12:00:00Z',
+            url: 'https://cdn.yucp.test/backstage/example-1.2.3.zip',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: 'https://downloads.example/package.zip',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
+            version: '1.2.3',
+            channel: 'stable',
+            cdngineDelivery: {
+              assetId: 'ast_backstage_1',
+              versionId: 'ver_backstage_1',
+              deliveryScopeId: 'paid-downloads',
+              variant: 'vpm-package',
+              serviceNamespaceId: 'yucp-backstage',
+              tenantId: 'auth-user-1',
+              assetOwner: 'creator:auth-user-1',
+              sha256: 'a'.repeat(64),
+              byteSize: 1234,
+              uploadedAt: 1_700_000_000_000,
+            },
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      auth: {
+        getSession: (...args: unknown[]) =>
+          sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
+      } as never,
+      apiBaseUrl: 'https://api.test',
+      enableSessionAccess: true,
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: true,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get('location')).toBe(
+      'https://cdn.yucp.test/backstage/example-1.2.3.zip'
+    );
+    const cdngineCall = fetchCalls.find((call) =>
+      String(call.input).startsWith('https://cdngine.test/')
+    );
+    expect(cdngineCall?.input.toString()).toBe(
+      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize'
+    );
+    expect((cdngineCall?.init?.headers as Record<string, string>).authorization).toBe(
+      'Bearer cdngine-token'
+    );
+    expect((cdngineCall?.init?.headers as Record<string, string>)['idempotency-key']).toMatch(
+      /^backstage-download-[0-9a-f]{64}$/
+    );
+    expect(JSON.parse(String(cdngineCall?.init?.body))).toEqual({
+      responseFormat: 'url',
+      variant: 'vpm-package',
+    });
+  });
+
+  it('falls back to Convex storage when optional CDNgine delivery is not ready', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith('https://cdngine.test/')) {
+        return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: 'https://downloads.example/package.zip',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
+            version: '1.2.3',
+            channel: 'stable',
+            cdngineDelivery: {
+              assetId: 'ast_backstage_1',
+              versionId: 'ver_backstage_1',
+              deliveryScopeId: 'paid-downloads',
+              variant: 'vpm-package',
+              serviceNamespaceId: 'yucp-backstage',
+              assetOwner: 'creator:auth-user-1',
+              sha256: 'a'.repeat(64),
+              byteSize: 1234,
+              uploadedAt: 1_700_000_000_000,
+            },
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: false,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
+  });
+
   it('returns public buyer access details for a creator product link', async () => {
     const response = await routes.handleRequest(
       new Request('https://api.test/api/backstage/access/mapache/song-thing')

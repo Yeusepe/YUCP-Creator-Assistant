@@ -2114,6 +2114,92 @@ describe('packageRegistry', () => {
     expect(resolved?.downloadUrl).toContain('/storage/');
   });
 
+  it('carries CDNgine coordinates with server-owned deliverable downloads', async () => {
+    const t = makeTestConvex();
+    const { deliveryPackageReleaseId, deliverableArtifactId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const deliveryPackageId = await ctx.db.insert('delivery_packages', {
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.backstage.cdngine',
+        packageName: 'CDNgine Package',
+        displayName: 'CDNgine Package',
+        status: 'active',
+        repositoryVisibility: 'listed',
+        defaultChannel: 'stable',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
+        authUserId: 'auth-user-1',
+        deliveryPackageId,
+        packageId: 'com.yucp.backstage.cdngine',
+        version: '1.0.0',
+        channel: 'stable',
+        releaseStatus: 'published',
+        repositoryVisibility: 'listed',
+        zipSha256: 'c'.repeat(64),
+        publishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      const storageId = await ctx.storage.store(
+        new Blob([new Uint8Array([1, 2, 3])], { type: 'application/zip' })
+      );
+      const deliverableArtifactId = await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId,
+        artifactRole: 'server_deliverable',
+        ownership: 'server_materialized',
+        materializationStrategy: 'normalized_repack',
+        storageId,
+        contentType: 'application/zip',
+        deliveryName: 'cdngine-package-1.0.0.zip',
+        sha256: 'c'.repeat(64),
+        byteSize: 3,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        cdngineDelivery: {
+          assetId: 'ast_backstage_cdngine',
+          versionId: 'ver_backstage_cdngine',
+          deliveryScopeId: 'paid-downloads',
+          variant: 'vpm-package',
+          serviceNamespaceId: 'yucp-backstage',
+          tenantId: 'auth-user-1',
+          assetOwner: 'creator:auth-user-1',
+          sha256: 'c'.repeat(64),
+          byteSize: 3,
+          uploadedAt: now,
+        },
+      } as never);
+      return { deliveryPackageReleaseId, deliverableArtifactId };
+    });
+
+    const resolved = await t.query(internal.packageRegistry.resolveDownloadableArtifactForRelease, {
+      deliveryPackageReleaseId,
+      version: '1.0.0',
+      channel: 'stable',
+      zipSha256: 'c'.repeat(64),
+    });
+
+    expect(resolved).toMatchObject({
+      deliveryArtifactId: deliverableArtifactId,
+      deliveryArtifactMode: 'server_materialized',
+      cdngineDelivery: {
+        assetId: 'ast_backstage_cdngine',
+        versionId: 'ver_backstage_cdngine',
+        deliveryScopeId: 'paid-downloads',
+        variant: 'vpm-package',
+        serviceNamespaceId: 'yucp-backstage',
+        tenantId: 'auth-user-1',
+        assetOwner: 'creator:auth-user-1',
+        sha256: 'c'.repeat(64),
+        byteSize: 3,
+      },
+    });
+    expect(resolved?.downloadUrl).toContain('/storage/');
+  });
+
   it('resolves unitypackage uploads through the centralized zip deliverable resolver', async () => {
     const t = makeTestConvex();
     const uploadBytes = buildUnitypackage([

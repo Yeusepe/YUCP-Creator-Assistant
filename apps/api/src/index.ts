@@ -91,6 +91,21 @@ function getEncryptionSecret(env: ReturnType<typeof loadEnv>): string {
   return env.BETTER_AUTH_SECRET ?? '';
 }
 
+function getCdngineBackstageApiConfig(env: ReturnType<typeof loadEnv>) {
+  const apiBaseUrl = (env.CDNGINE_API_BASE_URL ?? env.CDNGINE_PUBLIC_API_BASE_URL)?.trim();
+  const accessToken = (env.CDNGINE_ACCESS_TOKEN ?? env.CDNGINE_API_TOKEN)?.trim();
+  if (!apiBaseUrl || !accessToken) {
+    return undefined;
+  }
+  const timeoutMs = Number.parseInt(env.CDNGINE_BACKSTAGE_TIMEOUT_MS ?? '5000', 10);
+  return {
+    accessToken,
+    apiBaseUrl,
+    required: env.CDNGINE_BACKSTAGE_REQUIRED === 'true',
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000,
+  };
+}
+
 function redirectToFrontendRoute(
   requestUrl: URL,
   frontendUrl: string,
@@ -261,6 +276,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
+    cdngine: getCdngineBackstageApiConfig(env),
   });
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {

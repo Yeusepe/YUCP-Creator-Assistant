@@ -8,4 +8,4 @@ if (startedPath) {
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
-process.stdin.resume();
+setInterval(() => undefined, 60_000);

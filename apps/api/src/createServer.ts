@@ -71,6 +71,12 @@ export interface TestServerConfig {
   /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
+  cdngine?: {
+    accessToken?: string;
+    apiBaseUrl: string;
+    required?: boolean;
+    timeoutMs?: number;
+  };
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
@@ -144,6 +150,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     convexApiSecret: config.convexApiSecret,
     convexSiteUrl: config.convexSiteUrl,
     convexUrl: config.convexUrl,
+    cdngine: config.cdngine,
   });
   const accountSecurityRoutes = createAccountSecurityRoutes(stubAuth, {
     convexUrl: config.convexUrl,

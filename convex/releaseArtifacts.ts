@@ -1,5 +1,6 @@
 import { normalizeBackstageRawPayload } from '@yucp/shared/backstageRawPayload';
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
+import type { CdngineBackstageDeliveryReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
@@ -37,6 +38,18 @@ const deliveryMaterializationStrategyValidator = v.union(
   v.literal('passthrough'),
   v.literal('normalized_repack')
 );
+const cdngineDeliveryReferenceValidator = v.object({
+  assetId: v.string(),
+  assetOwner: v.string(),
+  byteSize: v.number(),
+  deliveryScopeId: v.string(),
+  serviceNamespaceId: v.string(),
+  sha256: v.string(),
+  tenantId: v.optional(v.string()),
+  uploadedAt: v.number(),
+  variant: v.string(),
+  versionId: v.string(),
+});
 
 const deliveryReleaseArtifactValidator = v.object({
   deliveryPackageReleaseId: v.id('delivery_package_releases'),
@@ -44,11 +57,12 @@ const deliveryReleaseArtifactValidator = v.object({
   ownership: v.union(v.literal('creator_upload'), v.literal('server_materialized')),
   materializationStrategy: v.optional(deliveryMaterializationStrategyValidator),
   sourceArtifactId: v.optional(v.id('delivery_release_artifacts')),
-  storageId: v.id('_storage'),
+  storageId: v.optional(v.id('_storage')),
   contentType: v.string(),
   deliveryName: v.string(),
   sha256: v.string(),
   byteSize: v.number(),
+  cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
   status: v.union(v.literal('active'), v.literal('inactive')),
   activatedAt: v.optional(v.number()),
   createdAt: v.number(),
@@ -100,6 +114,236 @@ type RepairMaterializedReleaseDeliverableResult =
       deliverableArtifactId: Id<'delivery_release_artifacts'>;
     };
 
+type CdngineBackstagePublishConfig = {
+  accessToken: string;
+  apiBaseUrl: string;
+  deliveryScopeId: string;
+  required: boolean;
+  serviceNamespaceId: string;
+  timeoutMs: number;
+  variant: string;
+};
+
+function trimOptionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value && value.length > 0 ? value : undefined;
+}
+
+function getCdngineBackstagePublishConfig(): CdngineBackstagePublishConfig | null {
+  const apiBaseUrl =
+    trimOptionalEnv('CDNGINE_API_BASE_URL') ?? trimOptionalEnv('CDNGINE_PUBLIC_API_BASE_URL');
+  const accessToken =
+    trimOptionalEnv('CDNGINE_ACCESS_TOKEN') ?? trimOptionalEnv('CDNGINE_API_TOKEN');
+  if (!apiBaseUrl || !accessToken) {
+    return null;
+  }
+
+  const configuredTimeout = Number.parseInt(
+    trimOptionalEnv('CDNGINE_BACKSTAGE_TIMEOUT_MS') ?? '15000',
+    10
+  );
+  return {
+    accessToken,
+    apiBaseUrl: apiBaseUrl.replace(/\/+$/, ''),
+    deliveryScopeId: trimOptionalEnv('CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID') ?? 'paid-downloads',
+    required: trimOptionalEnv('CDNGINE_BACKSTAGE_REQUIRED') === 'true',
+    serviceNamespaceId:
+      trimOptionalEnv('CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID') ?? 'yucp-backstage',
+    timeoutMs:
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 15000,
+    variant: trimOptionalEnv('CDNGINE_BACKSTAGE_VARIANT') ?? 'vpm-package',
+  };
+}
+
+function sanitizeObjectKeySegment(value: string): string {
+  return value
+    .trim()
+    .replace(/[\\/]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/[^a-zA-Z0-9._:-]+/g, '-')
+    .slice(0, 160);
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function requestCdngineJson<T>(
+  config: CdngineBackstagePublishConfig,
+  input: {
+    body: unknown;
+    idempotencyKey: string;
+    pathname: string;
+  }
+): Promise<T> {
+  const response = await fetchWithTimeout(
+    `${config.apiBaseUrl}${input.pathname}`,
+    {
+      body: JSON.stringify(input.body),
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${config.accessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': input.idempotencyKey,
+      },
+      method: 'POST',
+    },
+    config.timeoutMs
+  );
+  const text = await response.text();
+  const payload = text.length > 0 ? JSON.parse(text) : null;
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload === 'object' && 'detail' in payload
+        ? String((payload as { detail?: unknown }).detail)
+        : `${response.status} ${response.statusText}`;
+    throw new Error(`CDNgine request failed: ${detail}`);
+  }
+  return payload as T;
+}
+
+function getStringField(value: unknown, fieldName: string): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error(`CDNgine response missing ${fieldName}.`);
+  }
+  const fieldValue = (value as Record<string, unknown>)[fieldName];
+  if (typeof fieldValue !== 'string' || fieldValue.length === 0) {
+    throw new Error(`CDNgine response missing ${fieldName}.`);
+  }
+  return fieldValue;
+}
+
+async function publishBackstageDeliverableToCdngine(input: {
+  bytes: ArrayBuffer;
+  byteSize: number;
+  contentType: string;
+  deliveryName: string;
+  release: Pick<Doc<'delivery_package_releases'>, '_id' | 'authUserId' | 'packageId' | 'channel'>;
+  sha256: string;
+}): Promise<CdngineBackstageDeliveryReference> {
+  const config = getCdngineBackstagePublishConfig();
+  if (!config) {
+    throw new Error(
+      'CDNgine Backstage delivery is required; configure CDNGINE_API_BASE_URL and CDNGINE_ACCESS_TOKEN.'
+    );
+  }
+
+  const tenantId = input.release.authUserId;
+  const assetOwner = `creator:${input.release.authUserId}`;
+  const assetSeed = [
+    input.release.authUserId,
+    input.release.packageId,
+    input.release.channel,
+    String(input.release._id),
+  ].join(':');
+  const assetId = `backstage-${(await sha256Hex(assetSeed)).slice(0, 32)}`;
+  const objectKey = [
+    'staging',
+    sanitizeObjectKeySegment(config.serviceNamespaceId),
+    sanitizeObjectKeySegment(tenantId),
+    'backstage',
+    sanitizeObjectKeySegment(String(input.release._id)),
+    input.sha256,
+    sanitizeObjectKeySegment(input.deliveryName),
+  ].join('/');
+  const idempotencyBase = `backstage-deliverable:${String(input.release._id)}:${input.sha256}`;
+
+  try {
+    const session = await requestCdngineJson<unknown>(config, {
+      body: {
+        assetId,
+        assetOwner,
+        serviceNamespaceId: config.serviceNamespaceId,
+        tenantId,
+        source: {
+          contentType: input.contentType,
+          filename: input.deliveryName,
+        },
+        upload: {
+          byteLength: input.byteSize,
+          checksum: {
+            algorithm: 'sha256',
+            value: input.sha256,
+          },
+          objectKey,
+        },
+      },
+      idempotencyKey: `${idempotencyBase}:create`,
+      pathname: '/v1/upload-sessions',
+    });
+    const uploadSessionId = getStringField(session, 'uploadSessionId');
+    const uploadTarget = (session as { uploadTarget?: unknown }).uploadTarget;
+    const uploadTargetUrl = getStringField(uploadTarget, 'url');
+    const uploadTargetMethod = getStringField(uploadTarget, 'method');
+
+    const uploadResponse = await fetchWithTimeout(
+      uploadTargetUrl,
+      {
+        body: input.bytes,
+        headers: {
+          'content-type': 'application/offset+octet-stream',
+          'tus-resumable': '1.0.0',
+          'upload-offset': '0',
+        },
+        method: uploadTargetMethod,
+      },
+      config.timeoutMs
+    );
+    if (!uploadResponse.ok) {
+      throw new Error(
+        `CDNgine upload target rejected the deliverable with ${uploadResponse.status} ${uploadResponse.statusText}.`
+      );
+    }
+
+    const completion = await requestCdngineJson<unknown>(config, {
+      body: {
+        stagedObject: {
+          byteLength: input.byteSize,
+          checksum: {
+            algorithm: 'sha256',
+            value: input.sha256,
+          },
+          objectKey,
+        },
+      },
+      idempotencyKey: `${idempotencyBase}:complete`,
+      pathname: `/v1/upload-sessions/${encodeURIComponent(uploadSessionId)}/complete`,
+    });
+
+    return {
+      assetId: getStringField(completion, 'assetId'),
+      assetOwner,
+      byteSize: input.byteSize,
+      deliveryScopeId: config.deliveryScopeId,
+      serviceNamespaceId: config.serviceNamespaceId,
+      sha256: input.sha256,
+      tenantId,
+      uploadedAt: Date.now(),
+      variant: config.variant,
+      versionId: getStringField(completion, 'versionId'),
+    };
+  } catch (error) {
+    throw new Error(
+      `CDNgine Backstage publish failed for ${String(input.release._id)}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
 export const getActiveArtifact = internalQuery({
   args: {
     artifactKey: v.string(),
@@ -144,7 +388,7 @@ export const getArtifactDownloadById = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      storageId: v.id('_storage'),
+      storageId: v.optional(v.id('_storage')),
       downloadUrl: v.string(),
       contentType: v.string(),
       deliveryName: v.string(),
@@ -196,7 +440,7 @@ export const getLatestActiveArtifactDownloadByKey = internalQuery({
   returns: v.union(
     v.null(),
     v.object({
-      storageId: v.id('_storage'),
+      storageId: v.optional(v.id('_storage')),
       downloadUrl: v.string(),
       contentType: v.string(),
       deliveryName: v.string(),
@@ -352,11 +596,12 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
       ownership: v.union(v.literal('creator_upload'), v.literal('server_materialized')),
       materializationStrategy: v.optional(deliveryMaterializationStrategyValidator),
       sourceArtifactId: v.optional(v.id('delivery_release_artifacts')),
-      storageId: v.id('_storage'),
+      storageId: v.optional(v.id('_storage')),
       contentType: v.string(),
       deliveryName: v.string(),
       sha256: v.string(),
       byteSize: v.number(),
+      cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
       status: v.union(v.literal('active'), v.literal('inactive')),
       activatedAt: v.optional(v.number()),
       createdAt: v.number(),
@@ -386,6 +631,7 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
           deliveryName: row.deliveryName,
           sha256: row.sha256,
           byteSize: row.byteSize,
+          cdngineDelivery: row.cdngineDelivery,
           status: row.status,
           activatedAt: row.activatedAt,
           createdAt: row.createdAt,
@@ -411,7 +657,7 @@ export const getDeliveryArtifactDownloadById = internalQuery({
   ),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.artifactId);
-    if (!row) {
+    if (!row?.storageId) {
       return null;
     }
     const downloadUrl = await ctx.storage.getUrl(row.storageId);
@@ -435,11 +681,12 @@ export const publishDeliveryArtifact = internalMutation({
     ownership: v.union(v.literal('creator_upload'), v.literal('server_materialized')),
     materializationStrategy: v.optional(deliveryMaterializationStrategyValidator),
     sourceArtifactId: v.optional(v.id('delivery_release_artifacts')),
-    storageId: v.id('_storage'),
+    storageId: v.optional(v.id('_storage')),
     contentType: v.string(),
     deliveryName: v.string(),
     sha256: v.string(),
     byteSize: v.number(),
+    cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
   },
   returns: v.id('delivery_release_artifacts'),
   handler: async (ctx, args) => {
@@ -541,11 +788,14 @@ export const materializeUploadedReleaseDeliverable = internalAction({
       materialized.bytes.byteOffset,
       materialized.bytes.byteOffset + materialized.bytes.byteLength
     ) as ArrayBuffer;
-    const deliverableStorageId: Id<'_storage'> = await ctx.storage.store(
-      new Blob([deliverableBytes], {
-        type: materialized.contentType,
-      })
-    );
+    const cdngineDelivery = await publishBackstageDeliverableToCdngine({
+      bytes: deliverableBytes,
+      byteSize: materialized.byteSize,
+      contentType: materialized.contentType,
+      deliveryName: materialized.deliveryName,
+      release,
+      sha256: materialized.sha256,
+    });
     const deliverableArtifactId: Id<'delivery_release_artifacts'> = await ctx.runMutation(
       internal.releaseArtifacts.publishDeliveryArtifact,
       {
@@ -554,13 +804,14 @@ export const materializeUploadedReleaseDeliverable = internalAction({
         ownership: 'server_materialized',
         materializationStrategy: materialized.materializationStrategy,
         sourceArtifactId: rawArtifactId,
-        storageId: deliverableStorageId,
         contentType: materialized.contentType,
         deliveryName: materialized.deliveryName,
         sha256: materialized.sha256,
         byteSize: materialized.byteSize,
+        cdngineDelivery,
       }
     );
+    await ctx.storage.delete(args.storageId);
     await ctx.runMutation(internal.packageRegistry.updateMaterializedReleaseDigest, {
       deliveryPackageReleaseId: args.deliveryPackageReleaseId,
       zipSha256: materialized.sha256,
@@ -670,6 +921,11 @@ export const repairMaterializedReleaseDeliverable = internalAction({
       rawSourceSha256 = await sha256Hex(recoveredRawPayload.bytes);
       rawArtifactNeedsReplace = true;
     } else {
+      if (!rawArtifact.storageId) {
+        throw new Error(
+          `Raw upload storage is unavailable for ${args.deliveryPackageReleaseId}; republish the release to CDNgine.`
+        );
+      }
       const uploaded = await ctx.storage.get(rawArtifact.storageId);
       if (!uploaded) {
         throw new Error(`Uploaded release storage not found: ${rawArtifact.storageId}`);
@@ -772,11 +1028,14 @@ export const repairMaterializedReleaseDeliverable = internalAction({
       materialized.bytes.byteOffset,
       materialized.bytes.byteOffset + materialized.bytes.byteLength
     ) as ArrayBuffer;
-    const deliverableStorageId: Id<'_storage'> = await ctx.storage.store(
-      new Blob([deliverableBytes], {
-        type: materialized.contentType,
-      })
-    );
+    const cdngineDelivery = await publishBackstageDeliverableToCdngine({
+      bytes: deliverableBytes,
+      byteSize: materialized.byteSize,
+      contentType: materialized.contentType,
+      deliveryName: materialized.deliveryName,
+      release,
+      sha256: materialized.sha256,
+    });
     const deliverableArtifactId: Id<'delivery_release_artifacts'> = await ctx.runMutation(
       internal.releaseArtifacts.publishDeliveryArtifact,
       {
@@ -785,11 +1044,11 @@ export const repairMaterializedReleaseDeliverable = internalAction({
         ownership: 'server_materialized',
         materializationStrategy: materialized.materializationStrategy,
         sourceArtifactId: rawArtifact?._id,
-        storageId: deliverableStorageId,
         contentType: materialized.contentType,
         deliveryName: materialized.deliveryName,
         sha256: materialized.sha256,
         byteSize: materialized.byteSize,
+        cdngineDelivery,
       }
     );
     await ctx.runMutation(internal.packageRegistry.updateMaterializedReleaseDigest, {

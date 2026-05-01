@@ -42,6 +42,7 @@ export * from './authRedirects';
 export * from './backstageVpmDelivery';
 // Binding module exports
 export * from './binding';
+export * from './cdngineBackstageDelivery';
 export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';

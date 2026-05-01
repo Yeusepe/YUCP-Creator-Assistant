@@ -3,6 +3,7 @@ import {
   resolveSharedYucpAliasIdFromCatalogProducts,
 } from '@yucp/shared';
 import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
+import type { CdngineBackstageDeliveryReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -40,6 +41,7 @@ type BackstagePackageDownloadRecord = {
   zipSha256?: string;
   version: string;
   channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
 };
 
 type BackstagePublishedReleaseRecord = {
@@ -276,6 +278,20 @@ export const resolvePackageDownloadForApi = query({
       zipSha256: v.optional(v.string()),
       version: v.string(),
       channel: v.string(),
+      cdngineDelivery: v.optional(
+        v.object({
+          assetId: v.string(),
+          assetOwner: v.string(),
+          byteSize: v.number(),
+          deliveryScopeId: v.string(),
+          serviceNamespaceId: v.string(),
+          sha256: v.string(),
+          tenantId: v.optional(v.string()),
+          uploadedAt: v.number(),
+          variant: v.string(),
+          versionId: v.string(),
+        })
+      ),
     })
   ),
   handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
