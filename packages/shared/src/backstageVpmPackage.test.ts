@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 
-import { prepareBackstageArtifactForPublish } from './backstageVpmPackage';
+import {
+  prepareBackstageArtifactDescriptorForPublish,
+  prepareBackstageArtifactForPublish,
+} from './backstageVpmPackage';
 
 describe('prepareBackstageArtifactForPublish', () => {
   it('keeps unitypackage uploads raw while stripping reserved delivery metadata', async () => {
@@ -127,6 +130,31 @@ describe('prepareBackstageArtifactForPublish', () => {
     expect(artifact.metadata).toEqual({
       yucpDeliverySourceKind: 'zip',
       yucpDeliverySourceKindTrust: 'server-derived-v1',
+    });
+  });
+
+  it('prepares large package descriptors from CDNgine source metadata without requiring bytes', () => {
+    const artifact = prepareBackstageArtifactDescriptorForPublish({
+      packageId: 'com.yucp.example',
+      version: '1.2.3',
+      description: 'Large package',
+      sourceFileName: 'large.unitypackage',
+      sourceSha256: 'f'.repeat(64),
+      metadata: {
+        yucpDeliverySourceKind: 'zip',
+      },
+    });
+
+    expect(artifact).toEqual({
+      contentType: 'application/octet-stream',
+      deliveryName: 'large.unitypackage',
+      metadata: {
+        description: 'Large package',
+        yucpDeliverySourceKind: 'unitypackage',
+        yucpDeliverySourceKindTrust: 'server-derived-v1',
+      },
+      sourceKind: 'unitypackage',
+      zipSha256: 'f'.repeat(64),
     });
   });
 });

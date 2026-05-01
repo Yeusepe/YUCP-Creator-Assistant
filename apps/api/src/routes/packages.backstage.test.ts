@@ -1578,6 +1578,7 @@ describe('package Backstage publishing routes', () => {
     expect(payload).not.toHaveProperty('deliverableArtifactId');
     expect(payload).not.toHaveProperty('deliveryArtifactMode');
     expect(payload).not.toHaveProperty('materializationStrategy');
+    expect(cdngineCreateUploadBodies).toHaveLength(0);
   });
 
   it('preserves alias package metadata when publishing Backstage releases', async () => {

@@ -2733,7 +2733,9 @@ export function PackageRegistryPanel({
                                     {selectedUpload.status === 'failed' ? ' | Upload failed' : null}
                                   </DropZone.FileMeta>
                                   {selectedUpload.status === 'uploading' ? (
-                                    <DropZone.FileProgress value={selectedUpload.progressValue ?? 0}>
+                                    <DropZone.FileProgress
+                                      value={selectedUpload.progressValue ?? 0}
+                                    >
                                       <DropZone.FileProgressTrack>
                                         <DropZone.FileProgressFill />
                                       </DropZone.FileProgressTrack>

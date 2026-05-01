@@ -165,6 +165,19 @@ type AuthorizedAliasInstallPlanRecord = {
   packages: AuthorizedAliasInstallPlanPackageRecord[];
 };
 
+const CdngineBackstageDeliveryReferenceV = v.object({
+  assetId: v.string(),
+  assetOwner: v.string(),
+  byteSize: v.number(),
+  deliveryScopeId: v.string(),
+  serviceNamespaceId: v.string(),
+  sha256: v.string(),
+  tenantId: v.optional(v.string()),
+  uploadedAt: v.number(),
+  variant: v.string(),
+  versionId: v.string(),
+});
+
 const DownloadablePackageReleaseRecordV = v.object({
   deliveryPackageReleaseId: v.id('delivery_package_releases'),
   artifactKey: v.optional(v.string()),
@@ -172,20 +185,7 @@ const DownloadablePackageReleaseRecordV = v.object({
   zipSha256: v.optional(v.string()),
   version: v.string(),
   channel: v.string(),
-  cdngineDelivery: v.optional(
-    v.object({
-      assetId: v.string(),
-      assetOwner: v.string(),
-      byteSize: v.number(),
-      deliveryScopeId: v.string(),
-      serviceNamespaceId: v.string(),
-      sha256: v.string(),
-      tenantId: v.optional(v.string()),
-      uploadedAt: v.number(),
-      variant: v.string(),
-      versionId: v.string(),
-    })
-  ),
+  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
 });
 
 const BackstagePackageDownloadRecordV = v.object({
@@ -199,6 +199,7 @@ const BackstagePackageDownloadRecordV = v.object({
   zipSha256: v.optional(v.string()),
   version: v.string(),
   channel: v.string(),
+  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
 });
 
 const YucpAliasPackageContractV = v.object({

@@ -44,7 +44,8 @@ describe('publish-backstage-package', () => {
             protocol: 'tus',
             url: 'https://upload.test/backstage',
           },
-          completeUrl: 'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
+          completeUrl:
+            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
         });
       }
       if (url === 'https://upload.test/backstage') {
@@ -184,7 +185,8 @@ describe('publish-backstage-package', () => {
             protocol: 'tus',
             url: 'https://upload.test/backstage',
           },
-          completeUrl: 'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
+          completeUrl:
+            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
         });
       }
       if (url === 'https://upload.test/backstage') {

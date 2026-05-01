@@ -6,7 +6,7 @@ import {
 } from '@yucp/providers/providerMetadata';
 import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
-import { prepareBackstageArtifactForPublish } from '@yucp/shared/backstageVpmPackage';
+import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
   type CdngineBackstageSourceReference,
   isCdngineBackstageSourceReference,
@@ -20,14 +20,13 @@ import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import {
-  authorizeCdngineBackstageSource,
   type CdngineBackstageConfig,
   completeBackstageUploadSessionInCdngine,
   createBackstageUploadSessionInCdngine,
+  requireCdngineBackstageConfig,
   sanitizeCdngineObjectKeySegment,
   sha256ArrayBuffer,
   uploadBackstageBytesToCdngine,
-  uploadBackstageDeliverableToCdngine,
 } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
@@ -1427,7 +1426,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
     const record = body as Record<string, unknown>;
-    const byteSize = record.byteSize;
+    const byteSizeRaw = record.byteSize;
     const deliveryName =
       typeof record.deliveryName === 'string'
         ? record.deliveryName.trim()
@@ -1440,9 +1439,10 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         ? record.sourceContentType.trim()
         : 'application/octet-stream';
 
-    if (!Number.isSafeInteger(byteSize) || byteSize < 0) {
+    if (typeof byteSizeRaw !== 'number' || !Number.isSafeInteger(byteSizeRaw) || byteSizeRaw < 0) {
       return jsonResponse({ error: 'byteSize must be a non-negative safe integer' }, 400);
     }
+    const byteSize = byteSizeRaw;
     if (byteSize > MAX_BACKSTAGE_PACKAGE_BYTES) {
       return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
     }
@@ -1803,18 +1803,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }
       );
       const channel = body.channel?.trim() || 'stable';
-      const sourceUrl = await authorizeCdngineBackstageSource({
-        config: config.cdngine,
-        source: body.cdngineSource,
-        idempotencyKey: `backstage-source-read:${viewer.authUserId}:${packageId}:${body.version}:${body.cdngineSource.sha256}`,
-      });
-      const sourceResponse = await fetch(sourceUrl);
-      if (!sourceResponse.ok) {
-        throw new Error(
-          `CDNgine source download failed with ${sourceResponse.status} ${sourceResponse.statusText}.`
-        );
-      }
-      const sourceBytes = new Uint8Array(await sourceResponse.arrayBuffer());
       const metadata = normalizeBackstageMetadataInput({
         metadata: mergeYucpAliasPackageMetadata({
           metadata: body.metadata,
@@ -1824,40 +1812,23 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }),
         dependencyVersions,
       });
-      const preparedArtifact = await prepareBackstageArtifactForPublish({
+      const preparedArtifact = prepareBackstageArtifactDescriptorForPublish({
         packageId,
         version: body.version,
         displayName: body.displayName,
         description: body.description,
         unityVersion: body.unityVersion,
         metadata,
-        sourceBytes,
-        sourceContentType:
-          body.sourceContentType?.trim() ||
-          sourceResponse.headers.get('content-type')?.trim() ||
-          'application/octet-stream',
+        sourceContentType: body.sourceContentType?.trim() || 'application/octet-stream',
         sourceFileName: body.deliveryName,
+        sourceSha256: body.cdngineSource.sha256,
       });
-      const deliverableBytes = preparedArtifact.bytes.buffer.slice(
-        preparedArtifact.bytes.byteOffset,
-        preparedArtifact.bytes.byteOffset + preparedArtifact.bytes.byteLength
-      ) as ArrayBuffer;
-      const assetOwner = `creator:${viewer.authUserId}`;
-      const releaseSeed = [viewer.authUserId, packageId, channel, body.version].join(':');
-      const releaseStableId = (
-        await sha256ArrayBuffer(new TextEncoder().encode(releaseSeed).buffer)
-      ).slice(0, 32);
-      const cdngineDelivery = await uploadBackstageDeliverableToCdngine({
-        bytes: deliverableBytes,
-        byteSize: preparedArtifact.bytes.byteLength,
-        config: config.cdngine,
-        contentType: preparedArtifact.contentType,
-        deliveryName: preparedArtifact.deliveryName,
-        releaseId: releaseStableId,
-        assetOwner,
-        tenantId: viewer.authUserId,
-        sha256: preparedArtifact.zipSha256,
-      });
+      const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
+      const cdngineDelivery = {
+        ...body.cdngineSource,
+        deliveryScopeId: cdngineConfig.deliveryScopeId,
+        variant: cdngineConfig.variant,
+      };
       const result = await convex.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
@@ -1884,14 +1855,14 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         unityVersion: body.unityVersion,
         metadata: preparedArtifact.metadata,
         rawDeliveryName: body.deliveryName,
-        rawContentType: body.sourceContentType,
+        rawContentType: body.sourceContentType?.trim() || preparedArtifact.contentType,
         rawSha256: body.cdngineSource.sha256,
         rawByteSize: body.cdngineSource.byteSize,
         cdngineSource: body.cdngineSource,
         deliverableDeliveryName: preparedArtifact.deliveryName,
         deliverableContentType: preparedArtifact.contentType,
         deliverableSha256: preparedArtifact.zipSha256,
-        deliverableByteSize: preparedArtifact.bytes.byteLength,
+        deliverableByteSize: body.cdngineSource.byteSize,
         cdngineDelivery,
         releaseStatus: body.releaseStatus,
       });

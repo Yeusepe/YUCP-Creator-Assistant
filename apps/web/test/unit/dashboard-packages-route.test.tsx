@@ -603,9 +603,8 @@ const publishBackstageReleaseMock = packagesApi.publishBackstageRelease as Retur
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
-const uploadBackstageReleaseFileDirectMock = packagesApi.uploadBackstageReleaseFileDirect as ReturnType<
-  typeof vi.fn
->;
+const uploadBackstageReleaseFileDirectMock =
+  packagesApi.uploadBackstageReleaseFileDirect as ReturnType<typeof vi.fn>;
 
 function createWrapper() {
   const queryClient = new QueryClient({

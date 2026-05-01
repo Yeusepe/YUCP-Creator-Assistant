@@ -453,7 +453,6 @@ export async function publishBackstagePackage(
   config: PublishBackstagePackageConfig,
   fetchImpl: FetchLike = fetch
 ): Promise<PublishBackstagePackageResult> {
-  const sourcePath = config.sourcePath;
   const uploadedSource = await uploadBackstagePackageArtifactDirect(config, fetchImpl);
   return await publishBackstageRelease(config, uploadedSource, fetchImpl);
 }

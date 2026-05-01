@@ -516,6 +516,127 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('authorizes the CDNgine source when an indexed upload is canonical but not delivery-published', async () => {
+    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ input, init });
+      const url = String(input);
+      if (url.endsWith('/deliveries/paid-downloads/authorize')) {
+        return new Response(
+          JSON.stringify({
+            type: 'about:blank',
+            detail:
+              'Version "ver_backstage_1" for asset "ast_backstage_1" is not ready for this operation from state "canonical".',
+          }),
+          {
+            status: 409,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      if (url.endsWith('/source/authorize')) {
+        return new Response(
+          JSON.stringify({
+            url: '/download/source/example-1.2.3.unitypackage',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: '',
+            deliveryName: 'example-1.2.3.unitypackage',
+            contentType: 'application/octet-stream',
+            version: '1.2.3',
+            channel: 'stable',
+            cdngineDelivery: {
+              assetId: 'ast_backstage_1',
+              versionId: 'ver_backstage_1',
+              deliveryScopeId: 'paid-downloads',
+              variant: 'vpm-package',
+              serviceNamespaceId: 'yucp-backstage',
+              tenantId: 'auth-user-1',
+              assetOwner: 'creator:auth-user-1',
+              sha256: 'a'.repeat(64),
+              byteSize: 1234,
+              uploadedAt: 1_700_000_000_000,
+            },
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: true,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get('location')).toBe(
+      'https://cdngine.test/download/source/example-1.2.3.unitypackage'
+    );
+    const cdngineCalls = fetchCalls.filter((call) =>
+      String(call.input).startsWith('https://cdngine.test/')
+    );
+    expect(cdngineCalls.map((call) => call.input.toString())).toEqual([
+      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize',
+      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/source/authorize',
+    ]);
+    expect((cdngineCalls[1]?.init?.headers as Record<string, string>)['idempotency-key']).toMatch(
+      /^backstage-source-download-[0-9a-f]{64}$/
+    );
+    expect(JSON.parse(String(cdngineCalls[1]?.init?.body))).toEqual({
+      oneTime: true,
+      preferredDisposition: 'attachment',
+    });
+  });
+
   it('does not fall back to Convex storage for CDNgine-only package artifacts', async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (String(input).startsWith('https://cdngine.test/')) {

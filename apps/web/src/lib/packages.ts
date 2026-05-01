@@ -1,5 +1,5 @@
-import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256 } from '@noble/hashes/sha2.js';
+import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { apiClient } from '@/api/client';
 
 export interface CreatorPackageSummary {
@@ -302,7 +302,16 @@ export async function createBackstageReleaseUploadSession(input: {
 }
 
 export async function completeBackstageReleaseUploadSession(input: { completeUrl: string }) {
-  const response = await fetch(input.completeUrl, {
+  const completeUrl =
+    typeof window === 'undefined'
+      ? input.completeUrl
+      : (() => {
+          const url = new URL(input.completeUrl, window.location.href);
+          return url.origin === window.location.origin
+            ? url.toString()
+            : `${url.pathname}${url.search}`;
+        })();
+  const response = await fetch(completeUrl, {
     method: 'POST',
   });
   const payload = (await response
@@ -327,7 +336,10 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function sha256File(file: File, onProgress?: (progress: BackstageReleaseUploadProgress) => void) {
+async function sha256File(
+  file: File,
+  onProgress?: (progress: BackstageReleaseUploadProgress) => void
+) {
   const hasher = sha256.create();
   const chunkSize = 16 * 1024 * 1024;
   for (let offset = 0; offset < file.size; offset += chunkSize) {
@@ -373,9 +385,7 @@ async function uploadBackstageFileToTarget(input: {
           resolve();
           return;
         }
-        reject(
-          new Error(`CDNgine upload target rejected the file with status ${request.status}.`)
-        );
+        reject(new Error(`CDNgine upload target rejected the file with status ${request.status}.`));
       };
       request.onerror = () => reject(new Error('CDNgine upload target request failed.'));
       request.send(input.file);

@@ -28,13 +28,24 @@ export type PrepareBackstageArtifactInput = {
   sourceFileName?: string;
 };
 
-export type PreparedBackstageArtifact = {
-  bytes: Uint8Array;
+export type PrepareBackstageArtifactDescriptorInput = Omit<
+  PrepareBackstageArtifactInput,
+  'sourceBytes'
+> & {
+  sourceBytes?: Uint8Array;
+  sourceSha256: string;
+};
+
+export type PreparedBackstageArtifactDescriptor = {
   contentType: 'application/zip' | 'application/octet-stream';
   deliveryName: string;
   metadata: Record<string, unknown>;
   sourceKind: 'unitypackage' | 'zip';
   zipSha256: string;
+};
+
+export type PreparedBackstageArtifact = PreparedBackstageArtifactDescriptor & {
+  bytes: Uint8Array;
 };
 
 function trimOptional(value: string | undefined): string | undefined {
@@ -129,6 +140,20 @@ function inferContentType(
 export async function prepareBackstageArtifactForPublish(
   input: PrepareBackstageArtifactInput
 ): Promise<PreparedBackstageArtifact> {
+  const descriptor = prepareBackstageArtifactDescriptorForPublish({
+    ...input,
+    sourceSha256: await sha256Hex(input.sourceBytes),
+  });
+
+  return {
+    ...descriptor,
+    bytes: input.sourceBytes,
+  };
+}
+
+export function prepareBackstageArtifactDescriptorForPublish(
+  input: PrepareBackstageArtifactDescriptorInput
+): PreparedBackstageArtifactDescriptor {
   const sourceFileName = trimOptional(input.sourceFileName);
   const sourceKind = detectBackstageVpmDeliverySourceKind({
     deliveryName: sourceFileName ?? input.deliveryName,
@@ -142,7 +167,6 @@ export async function prepareBackstageArtifactForPublish(
   });
 
   return {
-    bytes: input.sourceBytes,
     contentType: inferContentType(sourceKind),
     deliveryName: resolveDeliveryName({
       deliveryName: input.deliveryName,
@@ -158,6 +182,6 @@ export async function prepareBackstageArtifactForPublish(
         BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS.serverDerived,
     },
     sourceKind,
-    zipSha256: await sha256Hex(input.sourceBytes),
+    zipSha256: input.sourceSha256,
   };
 }

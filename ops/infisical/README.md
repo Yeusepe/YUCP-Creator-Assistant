@@ -103,7 +103,7 @@ Each service has its own machine identity with least-privilege access:
 
 | Secret Key | Description | Rotation |
 |------------|-------------|----------|
-| `CDNGINE_API_BASE_URL` | CDNgine API origin used for Backstage package source uploads, materialization reads, and delivery authorization | On topology change |
+| `CDNGINE_API_BASE_URL` | CDNgine API origin used for Backstage direct upload-session creation, completion, and delivery authorization | On topology change |
 | `CDNGINE_ACCESS_TOKEN` | Bearer token for the Gumroad API to call CDNgine | On compromise / 90 days |
 | `CDNGINE_BACKSTAGE_TIMEOUT_MS` | CDNgine API timeout budget for Backstage upload/materialization/authorization calls | On SLO change |
 
