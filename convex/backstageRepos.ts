@@ -100,15 +100,17 @@ function normalizeBackstageMetadataInput(input: {
   }
 
   const mergedDependencies = {
+    ...(isPlainRecord(baseMetadata.vpmDependencies) ? baseMetadata.vpmDependencies : {}),
     ...(isPlainRecord(baseMetadata.dependencies) ? baseMetadata.dependencies : {}),
     ...Object.fromEntries(
       input.dependencyVersions.map((dependency) => [dependency.packageId, dependency.version])
     ),
   };
 
+  const { dependencies: _legacyDependencies, ...metadataWithoutLegacyDependencies } = baseMetadata;
   return {
-    ...baseMetadata,
-    dependencies: mergedDependencies,
+    ...metadataWithoutLegacyDependencies,
+    vpmDependencies: mergedDependencies,
   };
 }
 

@@ -12,7 +12,6 @@ import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
-import { authorizeCdngineBackstageSource } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -261,34 +260,7 @@ async function resolveCdngineDownloadUrl(input: {
   if (typeof payload.url !== 'string' || payload.url.length === 0) {
     throw new Error('CDNgine delivery authorization did not return a URL.');
   }
-  return payload.url;
-}
-
-async function resolveCdngineSourceDownloadUrl(input: {
-  access: { authUserId: string; subjectId: string; tokenId: string };
-  cdngine: ConfiguredCdngineBackstageDelivery;
-  delivery: CdngineBackstageDeliveryReference;
-  packageId: string;
-  resolved: BackstagePackageDownloadRecord;
-}): Promise<string> {
-  const idempotencyHash = await sha256Hex(
-    [
-      'backstage-package-source-download-v1',
-      input.access.authUserId,
-      input.access.subjectId,
-      input.access.tokenId,
-      input.packageId,
-      input.resolved.version,
-      input.resolved.channel,
-      input.delivery.assetId,
-      input.delivery.versionId,
-    ].join('|')
-  );
-  return await authorizeCdngineBackstageSource({
-    config: input.cdngine,
-    source: input.delivery,
-    idempotencyKey: `backstage-source-download-${idempotencyHash}`,
-  });
+  return new URL(payload.url, `${input.cdngine.apiBaseUrl.replace(/\/+$/, '')}/`).toString();
 }
 
 function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
@@ -862,27 +834,7 @@ async function servePackageDownload(
         error: error instanceof Error ? error.message : String(error),
       });
       if (!resolved.downloadUrl) {
-        try {
-          const cdngineSourceUrl = await resolveCdngineSourceDownloadUrl({
-            access,
-            cdngine,
-            delivery: resolved.cdngineDelivery,
-            packageId,
-            resolved,
-          });
-          return Response.redirect(cdngineSourceUrl, 302);
-        } catch (sourceError) {
-          logger.warn('CDNgine Backstage source authorization failed', {
-            authUserId: access.authUserId,
-            deliveryArtifactId: resolved.deliveryArtifactId,
-            packageId,
-            version,
-            channel,
-            required: cdngine.required === true,
-            error: sourceError instanceof Error ? sourceError.message : String(sourceError),
-          });
-          return errorResponse('Package delivery is temporarily unavailable', 502);
-        }
+        return errorResponse('Package delivery is temporarily unavailable', 502);
       }
       if (cdngine.required === true) {
         return errorResponse('Package delivery is temporarily unavailable', 502);

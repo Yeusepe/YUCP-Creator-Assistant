@@ -29,6 +29,7 @@ describe('normalizeBackstageRawPayload', () => {
       bytes: payloadBytes,
       contentType: 'application/octet-stream',
       deliveryName: 'payload.unitypackage',
+      payloadSourceKind: 'legacy-wrapper',
     });
   });
 });

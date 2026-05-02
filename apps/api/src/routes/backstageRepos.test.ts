@@ -409,7 +409,7 @@ describe('backstage repo routes', () => {
             authorizationMode: 'signed-url',
             resolvedOrigin: 'cdn-derived',
             expiresAt: '2026-05-01T12:00:00Z',
-            url: 'https://cdn.yucp.test/backstage/example-1.2.3.zip',
+            url: '/uploads/backstage/example-1.2.3.zip',
           }),
           {
             status: 200,
@@ -496,7 +496,7 @@ describe('backstage repo routes', () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get('location')).toBe(
-      'https://cdn.yucp.test/backstage/example-1.2.3.zip'
+      'https://cdngine.test/uploads/backstage/example-1.2.3.zip'
     );
     const cdngineCall = fetchCalls.find((call) =>
       String(call.input).startsWith('https://cdngine.test/')
@@ -516,7 +516,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('authorizes the CDNgine source when an indexed upload is canonical but not delivery-published', async () => {
+  it('does not redirect VPM clients to raw CDNgine source when delivery publication is missing', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ input, init });
@@ -535,15 +535,7 @@ describe('backstage repo routes', () => {
         );
       }
       if (url.endsWith('/source/authorize')) {
-        return new Response(
-          JSON.stringify({
-            url: '/download/source/example-1.2.3.unitypackage',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
+        throw new Error('VPM package downloads must not authorize raw source fallbacks.');
       }
       return fetchImpl(input, init);
     }) as typeof fetch;
@@ -561,8 +553,8 @@ describe('backstage repo routes', () => {
             deliveryArtifactId: 'artifact_1',
             deliveryArtifactMode: 'server_materialized',
             downloadUrl: '',
-            deliveryName: 'example-1.2.3.unitypackage',
-            contentType: 'application/octet-stream',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
             version: '1.2.3',
             channel: 'stable',
             cdngineDelivery: {
@@ -617,24 +609,16 @@ describe('backstage repo routes', () => {
       )
     );
 
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get('location')).toBe(
-      'https://cdngine.test/download/source/example-1.2.3.unitypackage'
-    );
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package delivery is temporarily unavailable',
+    });
     const cdngineCalls = fetchCalls.filter((call) =>
       String(call.input).startsWith('https://cdngine.test/')
     );
     expect(cdngineCalls.map((call) => call.input.toString())).toEqual([
       'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize',
-      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/source/authorize',
     ]);
-    expect((cdngineCalls[1]?.init?.headers as Record<string, string>)['idempotency-key']).toMatch(
-      /^backstage-source-download-[0-9a-f]{64}$/
-    );
-    expect(JSON.parse(String(cdngineCalls[1]?.init?.body))).toEqual({
-      oneTime: true,
-      preferredDisposition: 'attachment',
-    });
   });
 
   it('does not fall back to Convex storage for CDNgine-only package artifacts', async () => {

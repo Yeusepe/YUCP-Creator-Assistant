@@ -5,6 +5,7 @@ export type BackstageRawPayload = {
   bytes: Uint8Array;
   contentType: 'application/octet-stream' | 'application/zip';
   deliveryName: string;
+  payloadSourceKind: 'direct' | 'legacy-wrapper';
 };
 
 export function normalizeBackstageRawPayload(input: {
@@ -24,6 +25,7 @@ export function normalizeBackstageRawPayload(input: {
       bytes: input.sourceBytes,
       contentType: 'application/octet-stream',
       deliveryName: input.deliveryName,
+      payloadSourceKind: 'direct',
     };
   }
 
@@ -34,6 +36,7 @@ export function normalizeBackstageRawPayload(input: {
       bytes: input.sourceBytes,
       contentType: 'application/zip',
       deliveryName: input.deliveryName,
+      payloadSourceKind: 'direct',
     };
   }
 
@@ -46,5 +49,6 @@ export function normalizeBackstageRawPayload(input: {
     contentType: 'application/octet-stream',
     deliveryName:
       manifest?.payloadFileName?.trim() || `${input.packageId}-${input.version}.unitypackage`,
+    payloadSourceKind: 'legacy-wrapper',
   };
 }

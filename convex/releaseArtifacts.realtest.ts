@@ -561,7 +561,7 @@ describe('releaseArtifacts.getActiveArtifact', () => {
     }
   });
 
-  it('wraps unitypackage uploads in a compile-safe backstage installer zip', async () => {
+  it('materializes unitypackage uploads as shim-only VPM package zips', async () => {
     const t = makeTestConvex();
     const uploadBytes = buildUnitypackage([
       { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
@@ -635,20 +635,17 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       throw new Error('Expected a materialized deliverable archive.');
     }
     const archive = unzipSync(new Uint8Array(deliverableBytes));
-    expect(Object.keys(archive).sort()).toEqual([
-      'BackstagePayload~/backstage-payload.json',
-      'BackstagePayload~/payload.unitypackage',
-      'Editor/Yucp.Backstage.PackageInstaller.asmdef',
-      'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs',
-      'package.json',
-    ]);
-
-    const installerSource = new TextDecoder().decode(
-      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
+    expect(Object.keys(archive).sort()).toEqual(['package.json']);
+    expect(Object.keys(archive).some((entry) => entry.startsWith('BackstagePayload~/'))).toBe(
+      false
     );
-    expect(installerSource).toContain('using UnityEngine;');
-    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
-    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+    expect(Object.keys(archive).some((entry) => entry.endsWith('.cs'))).toBe(false);
+    expect(JSON.parse(new TextDecoder().decode(archive['package.json']))).toMatchObject({
+      name: 'com.yucp.jammr',
+      version: '2.1.5',
+      displayName:
+        'JAMMR | NEW UPDATE: Song recognition | Create/Join Spotify® Jams from within VRChat | VRCFury Ready',
+    });
   });
 
   it('repairs stale unitypackage deliverables and updates the published digest', async () => {
@@ -751,12 +748,16 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       throw new Error('Expected a repaired deliverable archive.');
     }
     const archive = unzipSync(new Uint8Array(deliverableBytes));
-    const installerSource = new TextDecoder().decode(
-      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
+    expect(Object.keys(archive).sort()).toEqual(['package.json']);
+    expect(Object.keys(archive).some((entry) => entry.startsWith('BackstagePayload~/'))).toBe(
+      false
     );
-    expect(installerSource).toContain('using UnityEngine;');
-    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
-    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+    expect(Object.keys(archive).some((entry) => entry.endsWith('.cs'))).toBe(false);
+    expect(JSON.parse(new TextDecoder().decode(archive['package.json']))).toMatchObject({
+      name: 'com.yucp.jammr',
+      version: '2.1.5',
+      displayName: 'JAMMR',
+    });
 
     const release = await t.run(async (ctx) => {
       return await ctx.db.get(deliveryPackageReleaseId);
@@ -956,7 +957,7 @@ describe('releaseArtifacts.getActiveArtifact', () => {
     });
   });
 
-  it('relinks current deliverables to recovered raw uploads when only the raw artifact is stale', async () => {
+  it('does not recover raw uploads from shim-only current deliverables', async () => {
     const t = makeTestConvex();
     const uploadBytes = buildUnitypackage([
       { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
@@ -1023,23 +1024,7 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       }
     );
 
-    expect(repaired.status).toBe('repaired');
-    if (repaired.status !== 'repaired') {
-      throw new Error(`Expected raw-link repair, got ${repaired.status}`);
-    }
-    expect(repaired.nextSha256).toBe(materialized.sha256);
-
-    const activeRawArtifact = await t.run(async (ctx) => {
-      return await ctx.db
-        .query('delivery_release_artifacts')
-        .withIndex('by_release_role_status', (q) =>
-          q
-            .eq('deliveryPackageReleaseId', deliveryPackageReleaseId)
-            .eq('artifactRole', 'raw_upload')
-            .eq('status', 'active')
-        )
-        .first();
-    });
+    expect(repaired.status).toBe('missing_raw_upload');
     const activeDeliverable = await t.run(async (ctx) => {
       return await ctx.db
         .query('delivery_release_artifacts')
@@ -1052,12 +1037,8 @@ describe('releaseArtifacts.getActiveArtifact', () => {
         .first();
     });
 
-    expect(activeRawArtifact).toMatchObject({
-      contentType: 'application/octet-stream',
-      deliveryName: 'JAMMR_2.1.5.unitypackage',
-    });
     expect(activeDeliverable?.sha256).toBe(materialized.sha256);
-    expect(String(activeDeliverable?.sourceArtifactId)).toBe(String(activeRawArtifact?._id));
+    expect(activeDeliverable?.sourceArtifactId).toBeUndefined();
   });
 
   it('normalizes stale wrapped raw artifacts before repairing the active deliverable link', async () => {

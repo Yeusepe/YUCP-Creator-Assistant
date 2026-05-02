@@ -1107,7 +1107,7 @@ describe('packageRegistry', () => {
               version: '3.1.0',
               displayName: 'VPM Package',
               description: 'Private VPM package',
-              dependencies: {
+              vpmDependencies: {
                 'com.vrchat.base': '3.7.0',
                 'com.yucp.importer': '>=1.4.0',
               },
@@ -1226,7 +1226,7 @@ describe('packageRegistry', () => {
     });
     expect(release?.zipSha256).toBe(published.zipSha256);
     expect(release?.metadata).toMatchObject({
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': '>=0.1.0',
       },
       yucp: {
@@ -1271,7 +1271,7 @@ describe('packageRegistry', () => {
         'com.yucp.backstage.raw': {
           versions: {
             '1.0.0': {
-              dependencies: {
+              vpmDependencies: {
                 'com.yucp.importer': '>=0.1.0',
               },
               yucpDeliveryMode: 'repo-token-vpm-v1',
@@ -1678,7 +1678,7 @@ describe('packageRegistry', () => {
           versions: {
             '2.0.0': {
               description: 'Persisted before alias metadata synthesis.',
-              dependencies: {
+              vpmDependencies: {
                 'com.yucp.importer': '>=0.1.0',
               },
               yucp: {

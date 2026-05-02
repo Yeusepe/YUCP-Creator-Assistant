@@ -6,8 +6,11 @@ import {
 } from '@yucp/providers/providerMetadata';
 import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
+import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmDelivery';
 import {
+  type CdngineBackstageDeliveryReference,
   type CdngineBackstageSourceReference,
   isCdngineBackstageSourceReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
@@ -21,6 +24,7 @@ import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import {
   type CdngineBackstageConfig,
+  authorizeCdngineBackstageSource,
   completeBackstageUploadSessionInCdngine,
   createBackstageUploadSessionInCdngine,
   requireCdngineBackstageConfig,
@@ -447,15 +451,17 @@ function normalizeBackstageMetadataInput(input: {
   }
 
   const mergedDependencies = {
+    ...(isRecord(baseMetadata.vpmDependencies) ? baseMetadata.vpmDependencies : {}),
     ...(isRecord(baseMetadata.dependencies) ? baseMetadata.dependencies : {}),
     ...Object.fromEntries(
       input.dependencyVersions.map((dependency) => [dependency.packageId, dependency.version])
     ),
   };
 
+  const { dependencies: _legacyDependencies, ...metadataWithoutLegacyDependencies } = baseMetadata;
   return {
-    ...baseMetadata,
-    dependencies: mergedDependencies,
+    ...metadataWithoutLegacyDependencies,
+    vpmDependencies: mergedDependencies,
   };
 }
 
@@ -1673,6 +1679,122 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
+  function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    return copy.buffer;
+  }
+
+  async function materializeCdngineSourceDeliverableForPublish(input: {
+    authUserId: string;
+    cdngineSource: CdngineBackstageSourceReference;
+    contentType?: string;
+    deliveryName?: string;
+    displayName?: string;
+    metadata?: Record<string, unknown>;
+    packageId: string;
+    version: string;
+  }): Promise<{
+    cdngineDelivery: CdngineBackstageDeliveryReference;
+    contentType: 'application/zip' | 'application/octet-stream';
+    deliveryName: string;
+    byteSize: number;
+    sha256: string;
+    sourceContentType: string;
+    sourceDeliveryName: string;
+  }> {
+    const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
+    const declaredSourceKind = detectBackstageVpmDeliverySourceKind({
+      deliveryName: input.deliveryName,
+      contentType: input.contentType,
+    });
+    let sourceBytes: Uint8Array;
+    let sourceContentType: string;
+    let sourceDeliveryName: string;
+    if (declaredSourceKind === 'unitypackage') {
+      sourceBytes = new Uint8Array();
+      sourceContentType = input.contentType || 'application/octet-stream';
+      sourceDeliveryName = input.deliveryName?.trim() || `${input.packageId}.unitypackage`;
+    } else {
+      const sourceUrl = await authorizeCdngineBackstageSource({
+        config: cdngineConfig,
+        source: input.cdngineSource,
+        idempotencyKey: [
+          'backstage-publish-source',
+          input.authUserId,
+          input.packageId,
+          input.version,
+          input.cdngineSource.assetId,
+          input.cdngineSource.versionId,
+        ].join(':'),
+      });
+      const sourceResponse = await fetch(sourceUrl, {
+        headers: {
+          accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
+        },
+      });
+      if (!sourceResponse.ok) {
+        throw new Error(
+          `CDNgine source download failed while materializing Backstage deliverable: ${sourceResponse.status} ${sourceResponse.statusText}`
+        );
+      }
+      sourceDeliveryName =
+        input.deliveryName?.trim() ||
+        decodeURIComponent(new URL(sourceUrl).pathname.split('/').pop() ?? '').trim() ||
+        `${input.packageId}.zip`;
+      sourceContentType =
+        sourceResponse.headers.get('content-type')?.trim() ||
+        input.contentType ||
+        'application/octet-stream';
+      sourceBytes = new Uint8Array(await sourceResponse.arrayBuffer());
+    }
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes,
+      deliveryName: sourceDeliveryName,
+      contentType: sourceContentType,
+      packageId: input.packageId,
+      version: input.version,
+      displayName: input.displayName,
+      metadata: input.metadata,
+    });
+    const objectKey = [
+      'staging',
+      sanitizeCdngineObjectKeySegment(cdngineConfig.serviceNamespaceId),
+      sanitizeCdngineObjectKeySegment(input.authUserId),
+      'backstage-deliverable',
+      sanitizeCdngineObjectKeySegment(input.packageId),
+      sanitizeCdngineObjectKeySegment(input.version),
+      materialized.sha256,
+      sanitizeCdngineObjectKeySegment(materialized.deliveryName),
+    ].join('/');
+    const uploadedDeliverable = await uploadBackstageBytesToCdngine({
+      bytes: toOwnedArrayBuffer(materialized.bytes),
+      byteSize: materialized.byteSize,
+      config: cdngineConfig,
+      contentType: materialized.contentType,
+      deliveryName: materialized.deliveryName,
+      idempotencyBase: `backstage-deliverable:${input.authUserId}:${input.packageId}:${input.version}:${materialized.sha256}`,
+      objectKey,
+      assetOwner: `creator:${input.authUserId}`,
+      tenantId: input.authUserId,
+      sha256: materialized.sha256,
+    });
+
+    return {
+      byteSize: materialized.byteSize,
+      cdngineDelivery: {
+        ...uploadedDeliverable,
+        deliveryScopeId: cdngineConfig.deliveryScopeId,
+        variant: cdngineConfig.variant,
+      },
+      contentType: materialized.contentType,
+      deliveryName: materialized.deliveryName,
+      sha256: materialized.sha256,
+      sourceContentType,
+      sourceDeliveryName,
+    };
+  }
+
   async function publishBackstageRelease(
     request: Request,
     packageIdParam: string
@@ -1812,6 +1934,16 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }),
         dependencyVersions,
       });
+      const deliverable = await materializeCdngineSourceDeliverableForPublish({
+        authUserId: viewer.authUserId,
+        cdngineSource: body.cdngineSource,
+        contentType: body.sourceContentType?.trim(),
+        deliveryName: body.deliveryName,
+        displayName: body.displayName,
+        metadata,
+        packageId,
+        version: body.version,
+      });
       const preparedArtifact = prepareBackstageArtifactDescriptorForPublish({
         packageId,
         version: body.version,
@@ -1819,16 +1951,10 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         description: body.description,
         unityVersion: body.unityVersion,
         metadata,
-        sourceContentType: body.sourceContentType?.trim() || 'application/octet-stream',
-        sourceFileName: body.deliveryName,
+        sourceContentType: deliverable.sourceContentType,
+        sourceFileName: deliverable.sourceDeliveryName,
         sourceSha256: body.cdngineSource.sha256,
       });
-      const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
-      const cdngineDelivery = {
-        ...body.cdngineSource,
-        deliveryScopeId: cdngineConfig.deliveryScopeId,
-        variant: cdngineConfig.variant,
-      };
       const result = await convex.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
@@ -1854,16 +1980,16 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         defaultChannel: body.defaultChannel,
         unityVersion: body.unityVersion,
         metadata: preparedArtifact.metadata,
-        rawDeliveryName: body.deliveryName,
-        rawContentType: body.sourceContentType?.trim() || preparedArtifact.contentType,
+        rawDeliveryName: deliverable.sourceDeliveryName,
+        rawContentType: deliverable.sourceContentType,
         rawSha256: body.cdngineSource.sha256,
         rawByteSize: body.cdngineSource.byteSize,
         cdngineSource: body.cdngineSource,
-        deliverableDeliveryName: preparedArtifact.deliveryName,
-        deliverableContentType: preparedArtifact.contentType,
-        deliverableSha256: preparedArtifact.zipSha256,
-        deliverableByteSize: body.cdngineSource.byteSize,
-        cdngineDelivery,
+        deliverableDeliveryName: deliverable.deliveryName,
+        deliverableContentType: deliverable.contentType,
+        deliverableSha256: deliverable.sha256,
+        deliverableByteSize: deliverable.byteSize,
+        cdngineDelivery: deliverable.cdngineDelivery,
         releaseStatus: body.releaseStatus,
       });
       return jsonResponse(result, 201);

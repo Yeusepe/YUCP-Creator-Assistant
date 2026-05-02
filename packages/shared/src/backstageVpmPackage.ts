@@ -67,9 +67,12 @@ function normalizeManifestMetadata(input: {
     delete metadata[reservedKey];
   }
 
-  const normalizedDependencies = isRecord(metadata.dependencies)
+  const rawVpmDependencies = isRecord(metadata.vpmDependencies)
+    ? metadata.vpmDependencies
+    : metadata.dependencies;
+  const normalizedVpmDependencies = isRecord(rawVpmDependencies)
     ? Object.fromEntries(
-        Object.entries(metadata.dependencies)
+        Object.entries(rawVpmDependencies)
           .map(([key, value]) => [key.trim(), typeof value === 'string' ? value.trim() : value])
           .filter(
             (entry): entry is [string, string] =>
@@ -77,10 +80,11 @@ function normalizeManifestMetadata(input: {
           )
       )
     : undefined;
-  if (normalizedDependencies && Object.keys(normalizedDependencies).length > 0) {
-    metadata.dependencies = normalizedDependencies;
+  delete metadata.dependencies;
+  if (normalizedVpmDependencies && Object.keys(normalizedVpmDependencies).length > 0) {
+    metadata.vpmDependencies = normalizedVpmDependencies;
   } else {
-    delete metadata.dependencies;
+    delete metadata.vpmDependencies;
   }
 
   const normalizedYucpMetadata = normalizeYucpAliasPackageContract(

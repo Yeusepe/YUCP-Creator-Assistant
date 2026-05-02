@@ -284,15 +284,20 @@ export function applyYucpAliasPackageManifestDefaults(
     return metadata;
   }
 
-  const dependencies = isRecord(metadata.dependencies) ? { ...metadata.dependencies } : {};
-  const existingImporterDependency = dependencies[aliasContract.importerPackage];
+  const vpmDependencies = isRecord(metadata.vpmDependencies)
+    ? { ...metadata.vpmDependencies }
+    : isRecord(metadata.dependencies)
+      ? { ...metadata.dependencies }
+      : {};
+  const existingImporterDependency = vpmDependencies[aliasContract.importerPackage];
   if (typeof existingImporterDependency !== 'string' || !existingImporterDependency.trim()) {
-    dependencies[aliasContract.importerPackage] =
+    vpmDependencies[aliasContract.importerPackage] =
       resolveImporterDependencyRequirement(aliasContract);
   }
 
+  const { dependencies: _legacyDependencies, ...restMetadata } = metadata;
   return {
-    ...metadata,
-    dependencies,
+    ...restMetadata,
+    vpmDependencies,
   };
 }

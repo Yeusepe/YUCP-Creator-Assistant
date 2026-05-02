@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
+import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { materializeBackstageReleaseArtifact } from './backstageReleaseMaterialization';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
@@ -70,28 +70,6 @@ function buildUnitypackage(
     offset += block.byteLength;
   }
   return gzipSync(tarBytes, { level: 9, mtime: mtimeSeconds });
-}
-
-function listUnitypackageFiles(input: Uint8Array): Record<string, string> {
-  const tarBytes = gunzipSync(input);
-  const files: Record<string, string> = {};
-  let offset = 0;
-  while (offset + 512 <= tarBytes.byteLength) {
-    const header = tarBytes.subarray(offset, offset + 512);
-    offset += 512;
-    if (header.every((value) => value === 0)) {
-      break;
-    }
-    const rawPath = new TextDecoder().decode(header.subarray(0, 100)).replace(/\0.*$/, '').trim();
-    const size = Number.parseInt(
-      new TextDecoder().decode(header.subarray(124, 136)).replace(/\0.*$/, '').trim() || '0',
-      8
-    );
-    const fileBytes = tarBytes.slice(offset, offset + size);
-    files[rawPath] = new TextDecoder().decode(fileBytes);
-    offset += Math.ceil(size / 512) * 512;
-  }
-  return files;
 }
 
 async function sha256Hex(input: Uint8Array): Promise<string> {
@@ -195,7 +173,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       version: '1.2.3',
       displayName: 'Example Package',
       description: 'Generated on the server',
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': '1.4.0',
       },
       yucp: {
@@ -263,7 +241,7 @@ describe('materializeBackstageReleaseArtifact', () => {
     });
   });
 
-  it('wraps unitypackage uploads in deterministic compile-safe package zips', async () => {
+  it('materializes unitypackage uploads as importer-driven shim package zips', async () => {
     const firstInput = buildUnitypackage(
       [
         { path: 'b-guid/asset', content: strToU8('readme-bytes') },
@@ -325,20 +303,7 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(first.sourceKind).toBe('zip');
 
     const archive = unzipSync(first.bytes);
-    expect(Object.keys(archive).sort()).toEqual([
-      'BackstagePayload~/backstage-payload.json',
-      'BackstagePayload~/payload.unitypackage',
-      'Editor/Yucp.Backstage.PackageInstaller.asmdef',
-      'Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs',
-      'package.json',
-    ]);
-
-    const installerSource = new TextDecoder().decode(
-      archive['Editor/YucpBackstageEmbeddedUnitypackageInstaller.cs']
-    );
-    expect(installerSource).toContain('using UnityEngine;');
-    expect(installerSource).toContain('UnityEditor.PackageManager.PackageInfo.FindForAssembly');
-    expect(installerSource).not.toContain('using UnityEditor.PackageManager;');
+    expect(Object.keys(archive).sort()).toEqual(['package.json']);
 
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
     expect(packageJson).toEqual({
@@ -347,29 +312,15 @@ describe('materializeBackstageReleaseArtifact', () => {
       displayName: 'Example Package',
       description: 'Generated on the server',
       unity: '2022.3',
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': '1.4.0',
       },
     });
     expect(packageJson).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY);
     expect(packageJson).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY);
 
-    const payloadManifest = JSON.parse(
-      new TextDecoder().decode(archive['BackstagePayload~/backstage-payload.json'])
-    );
-    expect(payloadManifest).toEqual({
-      packageId: 'com.yucp.example',
-      version: '1.2.3',
-      displayName: 'Example Package',
-      payloadFileName: 'example.unitypackage',
-      payloadSha256: await sha256Hex(archive['BackstagePayload~/payload.unitypackage']),
-    });
-    expect(listUnitypackageFiles(archive['BackstagePayload~/payload.unitypackage'])).toEqual({
-      'a-guid/asset': 'png-bytes',
-      'a-guid/pathname': 'Assets/Avatar/body.png',
-      'b-guid/asset': 'readme-bytes',
-      'b-guid/pathname': 'Assets/Avatar/readme.txt',
-    });
+    expect(Object.keys(archive).some((entry) => entry.startsWith('BackstagePayload~/'))).toBe(false);
+    expect(Object.keys(archive).some((entry) => entry.endsWith('.cs'))).toBe(false);
   });
 
   it('rejects unsafe archive paths during materialization', async () => {
@@ -412,8 +363,6 @@ describe('materializeBackstageReleaseArtifact', () => {
     });
 
     expect(materialized.deliveryName).toBe('vrc-get-com.yucp.example-1.2.3.zip');
-    expect(Object.keys(unzipSync(materialized.bytes))).toContain(
-      'BackstagePayload~/payload.unitypackage'
-    );
+    expect(Object.keys(unzipSync(materialized.bytes)).sort()).toEqual(['package.json']);
   });
 });

@@ -895,6 +895,9 @@ export const repairMaterializedReleaseDeliverable = internalAction({
             })
           : null;
       const legacyWrapperStorageId = currentDeliverable?.storageId ?? signedArtifact?.storageId;
+      const recoveringFromCurrentDeliverable =
+        Boolean(currentDeliverable?.storageId) &&
+        legacyWrapperStorageId === currentDeliverable?.storageId;
       if (!legacyWrapperStorageId) {
         return {
           status: 'missing_raw_upload',
@@ -915,6 +918,15 @@ export const repairMaterializedReleaseDeliverable = internalAction({
         packageId: release.packageId,
         version: release.version,
       });
+      if (
+        recoveringFromCurrentDeliverable &&
+        recoveredRawPayload.payloadSourceKind !== 'legacy-wrapper'
+      ) {
+        return {
+          status: 'missing_raw_upload',
+          deliveryPackageReleaseId: args.deliveryPackageReleaseId,
+        };
+      }
       rawSourceBytes = recoveredRawPayload.bytes;
       rawSourceContentType = recoveredRawPayload.contentType;
       rawSourceDeliveryName = recoveredRawPayload.deliveryName;

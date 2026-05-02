@@ -33,7 +33,7 @@ describe('prepareBackstageArtifactForPublish', () => {
     expect(artifact.metadata).toEqual({
       description: 'Example description',
       unity: '2022.3',
-      dependencies: {
+      vpmDependencies: {
         'com.vrchat.base': '3.7.0',
       },
       yucpDeliverySourceKind: 'unitypackage',
@@ -80,7 +80,7 @@ describe('prepareBackstageArtifactForPublish', () => {
     });
 
     expect(artifact.metadata).toEqual({
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': '>=1.4.0',
       },
       yucpDeliverySourceKind: 'zip',

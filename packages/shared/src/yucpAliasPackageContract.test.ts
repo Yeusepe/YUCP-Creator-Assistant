@@ -174,7 +174,7 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
         importerPackage: 'com.yucp.importer',
         minImporterVersion: '1.4.0',
       },
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': '>=1.4.0',
       },
     });
@@ -197,7 +197,7 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
       },
-      dependencies: {
+      vpmDependencies: {
         'com.yucp.importer': YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
       },
     });
