@@ -24,6 +24,11 @@ import {
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import {
+  buildPublicApiRateLimitKey,
+  checkPublicApiRateLimit,
+  getPublicApiRateLimitStore,
+} from './lib/publicApiRateLimit';
 import { MAX_BACKSTAGE_UPLOAD_BYTES } from './lib/requestBodyLimits';
 import { detectTunnelUrl } from './lib/tunnel';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
@@ -73,6 +78,42 @@ let resolvedApiBaseUrl = 'http://localhost:3001';
 let resolvedFrontendOrigin: string | null = null;
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
 const PUBLIC_BASE_DIR = path.resolve(import.meta.dir, '..', 'public');
+
+function withExtraHeaders(
+  response: Response,
+  headers: Record<string, string> | undefined
+): Response {
+  if (!headers) return response;
+  const next = new Response(response.body, response);
+  for (const [key, value] of Object.entries(headers)) {
+    next.headers.set(key, value);
+  }
+  return next;
+}
+
+function getPublicApiRouteFamily(pathname: string): string {
+  if (pathname.startsWith('/api/public/v2/downloads')) return 'public-v2-downloads';
+  if (pathname.startsWith('/api/public/v2/products')) return 'public-v2-products';
+  if (pathname.startsWith('/api/public/v2/verification')) return 'public-v2-verification';
+  if (pathname.startsWith('/api/public/v2/webhooks')) return 'public-v2-webhooks';
+  if (pathname.startsWith('/api/public/v2/')) return 'public-v2-general';
+  return 'public-v1-general';
+}
+
+function getPublicApiRateLimitPolicy(routeFamily: string): { limit: number; windowMs: number } {
+  switch (routeFamily) {
+    case 'public-v2-downloads':
+      return { limit: 30, windowMs: 60_000 };
+    case 'public-v2-products':
+      return { limit: 120, windowMs: 60_000 };
+    case 'public-v2-verification':
+      return { limit: 120, windowMs: 60_000 };
+    case 'public-v2-webhooks':
+      return { limit: 60, windowMs: 60_000 };
+    default:
+      return { limit: 240, windowMs: 60_000 };
+  }
+}
 
 function getConfiguredConvexUrl(env: ReturnType<typeof loadEnv>): string {
   const convexUrl = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT;
@@ -161,6 +202,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('VRCHAT_PENDING_STATE_SECRET');
     getRequired('ENCRYPTION_SECRET');
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
+    getPublicApiRateLimitStore();
     if (!env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim()) {
       throw new Error(
         'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
@@ -390,6 +432,7 @@ async function routeRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const clientAddress = getClientAddress(request);
+  let publicApiRateLimitHeaders: Record<string, string> | undefined;
 
   // Basic in-memory guardrails for abuse-prone routes.
   if (pathname === INTERNAL_RPC_PATH && internalRpcRouter) {
@@ -453,10 +496,26 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/public/')) {
-    if (isRateLimited(`public:${clientAddress}`, 120, 60_000)) {
+    const routeFamily = getPublicApiRouteFamily(pathname);
+    const policy = getPublicApiRateLimitPolicy(routeFamily);
+    const authHeader = request.headers.get('authorization')?.trim() ?? null;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const rateLimit = await checkPublicApiRateLimit({
+      store: getPublicApiRateLimitStore(),
+      key: buildPublicApiRateLimitKey({
+        routeFamily,
+        clientAddress,
+        apiKey: request.headers.get('x-api-key')?.trim() ?? null,
+        bearerToken,
+        userAgent: request.headers.get('user-agent'),
+      }),
+      ...policy,
+    });
+    publicApiRateLimitHeaders = rateLimit.headers;
+    if (!rateLimit.allowed) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...rateLimit.headers },
       });
     }
   }
@@ -1179,13 +1238,13 @@ async function routeRequest(request: Request): Promise<Response> {
   // Public API v2, must be checked before v1 since both share /api/public/ prefix
   if (pathname.startsWith('/api/public/v2/') && publicV2Routes) {
     const response = await publicV2Routes.handleRequest(request, pathname);
-    if (response) return response;
+    if (response) return withExtraHeaders(response, publicApiRateLimitHeaders);
   }
 
   // Public verification API
   if (pathname.startsWith('/api/public/') && publicRoutes) {
     const response = await publicRoutes.handleRequest(request, pathname);
-    if (response) return response;
+    if (response) return withExtraHeaders(response, publicApiRateLimitHeaders);
   }
 
   // Suite verification API (OAuth 2.1 protected)

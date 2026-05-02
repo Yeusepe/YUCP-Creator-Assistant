@@ -38,6 +38,7 @@ function renderOAuthAppsSection() {
     const dateStr = app._creationTime ? 'Created ' + new Date(app._creationTime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     const editScopeVr = (app.scopes || []).includes('verification:read') ? 'checked' : '';
     const editScopeSr = (app.scopes || []).includes('subjects:read') ? 'checked' : '';
+    const editScopePr = (app.scopes || []).includes('products:read') ? 'checked' : '';
     const editUris = escHtml((app.redirectUris || []).join('\n'));
 
     const card = document.createElement('div');
@@ -80,6 +81,7 @@ function renderOAuthAppsSection() {
               <div class="scope-toggles">
                 <label class="scope-toggle"><input type="checkbox" id="oauth-edit-scope-vr-${id}" ${editScopeVr}><div class="scope-toggle-card"><div class="scope-toggle-check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></div><div class="scope-toggle-text"><div class="scope-toggle-name">verification:read</div><div class="scope-toggle-desc">Check if a user is verified on your server</div></div></div></label>
                 <label class="scope-toggle"><input type="checkbox" id="oauth-edit-scope-sr-${id}" ${editScopeSr}><div class="scope-toggle-card"><div class="scope-toggle-check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></div><div class="scope-toggle-text"><div class="scope-toggle-name">subjects:read</div><div class="scope-toggle-desc">Read verified users and purchase records</div></div></div></label>
+                <label class="scope-toggle"><input type="checkbox" id="oauth-edit-scope-pr-${id}" ${editScopePr}><div class="scope-toggle-card"><div class="scope-toggle-check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></div><div class="scope-toggle-text"><div class="scope-toggle-name">products:read</div><div class="scope-toggle-desc">Read product catalog for package imports</div></div></div></label>
               </div>
             </div>
             <div class="inline-btn-row">
@@ -160,10 +162,12 @@ function openCreateOAuthAppPanel() {
   const urisEl = document.getElementById('oauth-app-redirect-uris');
   const vrEl = document.getElementById('create-oauth-scope-vr');
   const srEl = document.getElementById('create-oauth-scope-sr');
+  const prEl = document.getElementById('create-oauth-scope-pr');
   if (nameEl) nameEl.value = '';
   if (urisEl) urisEl.value = '';
   if (vrEl) vrEl.checked = true;
   if (srEl) srEl.checked = false;
+  if (prEl) prEl.checked = false;
   document.getElementById('create-oauth-app-panel')?.classList.add('open');
   setTimeout(() => document.getElementById('oauth-app-name')?.focus(), 420);
 }
@@ -195,6 +199,7 @@ async function submitCreateOAuthApp() {
   const scopes = [];
   if (document.getElementById('create-oauth-scope-vr')?.checked) scopes.push('verification:read');
   if (document.getElementById('create-oauth-scope-sr')?.checked) scopes.push('subjects:read');
+  if (document.getElementById('create-oauth-scope-pr')?.checked) scopes.push('products:read');
   if (scopes.length === 0) {
     alert('Please select at least one scope.');
     return;
@@ -257,6 +262,7 @@ async function submitEditOAuthApp(appId) {
   const scopes = [];
   if (document.getElementById(`oauth-edit-scope-vr-${appId}`)?.checked) scopes.push('verification:read');
   if (document.getElementById(`oauth-edit-scope-sr-${appId}`)?.checked) scopes.push('subjects:read');
+  if (document.getElementById(`oauth-edit-scope-pr-${appId}`)?.checked) scopes.push('products:read');
   if (scopes.length === 0) {
     alert('Please select at least one scope.');
     return;

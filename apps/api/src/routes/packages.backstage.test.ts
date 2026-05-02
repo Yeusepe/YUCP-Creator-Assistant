@@ -1758,7 +1758,7 @@ describe('package Backstage publishing routes', () => {
           channel: 'stable',
           deliveryName: 'Song Thing_1.0.6.unitypackage',
           sourceContentType: 'application/octet-stream',
-          displayName: 'Song Thing',
+          displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
         }),
       }),
       'com.yucp.songthing'
@@ -1787,12 +1787,14 @@ describe('package Backstage publishing routes', () => {
     expect(JSON.parse(new TextDecoder().decode(shimArchive['package.json']))).toMatchObject({
       name: 'com.yucp.songthing',
       version: '1.0.6',
+      displayName: 'Song Thing - Your Spotify® library within VRChat - VRCFury Ready',
       vpmDependencies: {
         'com.yucp.importer': '>=0.1.0',
       },
       yucp: {
         kind: 'alias-v1',
         importerPackage: 'com.yucp.importer',
+        packageDisplayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
       },
     });
     expect(lastActionArgs).toMatchObject({

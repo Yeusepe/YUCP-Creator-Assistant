@@ -66,6 +66,7 @@ export * from './logging/redaction';
 export * from './observability';
 export * from './product';
 export * from './productParsers';
+export * from './publicApiScopes';
 export * from './publicAuthority';
 export * from './verificationSupport';
 export * from './yucpAliasPackageContract';

@@ -155,9 +155,11 @@ function openCreateApiKeyPanel() {
   const nameEl = document.getElementById('api-key-name');
   const vrEl = document.getElementById('scope-verification-read');
   const srEl = document.getElementById('scope-subjects-read');
+  const prEl = document.getElementById('scope-products-read');
   if (nameEl) nameEl.value = '';
   if (vrEl) vrEl.checked = true;
   if (srEl) srEl.checked = true;
+  if (prEl) prEl.checked = false;
   document.getElementById('create-api-key-panel')?.classList.add('open');
   setTimeout(() => document.getElementById('api-key-name')?.focus(), 420);
 }
@@ -175,6 +177,7 @@ async function submitCreateApiKey() {
   const scopes = [];
   if (document.getElementById('scope-verification-read')?.checked) scopes.push('verification:read');
   if (document.getElementById('scope-subjects-read')?.checked) scopes.push('subjects:read');
+  if (document.getElementById('scope-products-read')?.checked) scopes.push('products:read');
   if (scopes.length === 0) {
     alert('Please select at least one scope.');
     return;

@@ -38,6 +38,7 @@
     "holographic-sticker": "^1.0.4",
     "ioredis": "^5.4.1",
     "lucide": "^0.577.0",
+    "rate-limiter-flexible": "^11.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "resend": "^4.0.0",

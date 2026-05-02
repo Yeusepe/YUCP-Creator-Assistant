@@ -65,6 +65,7 @@ describe('production server contract', () => {
     expect(viteConfigSource).toContain('@cloudflare/vite-plugin');
     expect(viteConfigSource).toContain('.dev.vars');
     expect(viteConfigSource).toContain('.env.local');
+    expect(viteConfigSource).toContain("dedupe: ['react', 'react-dom']");
     expect(viteConfigSource).not.toContain('import.meta.env.CONVEX_URL');
     expect(viteConfigSource).not.toContain('import.meta.env.HYPERDX_API_KEY');
     expect(viteConfigSource).not.toContain('fetchInfisicalSecrets');

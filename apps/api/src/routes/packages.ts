@@ -7,8 +7,8 @@ import {
 import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
-import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmDelivery';
+import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
   type CdngineBackstageDeliveryReference,
   type CdngineBackstageSourceReference,
@@ -23,8 +23,8 @@ import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import {
-  type CdngineBackstageConfig,
   authorizeCdngineBackstageSource,
+  type CdngineBackstageConfig,
   completeBackstageUploadSessionInCdngine,
   createBackstageUploadSessionInCdngine,
   requireCdngineBackstageConfig,

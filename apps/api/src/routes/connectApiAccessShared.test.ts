@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { normalizeRedirectUris } from './connectApiAccessShared';
+import {
+  normalizeOAuthScopes,
+  normalizePublicApiScopes,
+  normalizeRedirectUris,
+} from './connectApiAccessShared';
 
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -45,6 +49,28 @@ describe('normalizeRedirectUris', () => {
 
     expect(() => normalizeRedirectUris(['http://localhost:3000/callback'])).toThrow(
       'Redirect URI must use HTTPS in production: http://localhost:3000/callback'
+    );
+  });
+});
+
+describe('public API scope normalization', () => {
+  it('accepts product read scope for Unity package delivery', () => {
+    expect(normalizePublicApiScopes(['verification:read', 'products:read'])).toEqual([
+      'verification:read',
+      'products:read',
+    ]);
+    expect(normalizeOAuthScopes(['verification:read', 'products:read'])).toEqual([
+      'verification:read',
+      'products:read',
+    ]);
+  });
+
+  it('rejects unknown scopes instead of passing them into Better Auth', () => {
+    expect(() => normalizePublicApiScopes(['verification:read', 'unknown:scope'])).toThrow(
+      'Invalid API key scopes'
+    );
+    expect(() => normalizeOAuthScopes(['verification:read', 'unknown:scope'])).toThrow(
+      'Invalid OAuth scopes'
     );
   });
 });

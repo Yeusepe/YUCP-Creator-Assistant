@@ -70,6 +70,9 @@ export default defineConfig(async () => {
       port: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
       host: '0.0.0.0',
     },
+    resolve: {
+      dedupe: ['react', 'react-dom'],
+    },
     ssr: {
       noExternal: ['@convex-dev/better-auth'],
     },

@@ -73,6 +73,12 @@
       "sourceType": "github",
       "computedHash": "0220fcf48f835a80a7cd17b0cf975510e8f83a8fbb814189d20cea7159b454b0"
     },
+    "orca-cli": {
+      "source": "stablyai/orca",
+      "sourceType": "github",
+      "skillPath": "skills/orca-cli/SKILL.md",
+      "computedHash": "cc587f1505418942ff8e1cbe507fa94f22460eb6d84f7ccc85836062bfc64bef"
+    },
     "overdrive": {
       "source": "pbakaus/impeccable",
       "sourceType": "github",

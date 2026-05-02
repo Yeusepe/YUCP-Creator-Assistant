@@ -3,7 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { buildSetupAuthQuery } from '@/lib/setupAuth';
-import { resolveSetupApiBase } from '../../setup/lemonsqueezySetupSupport';
+import { resolveSetupApiBase } from '../../setup/-lemonsqueezySetupSupport';
 
 export const Route = createLazyFileRoute('/oauth/callback/itchio')({
   component: ItchioSetupPage,

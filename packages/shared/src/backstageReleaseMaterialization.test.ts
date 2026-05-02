@@ -319,8 +319,57 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(packageJson).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY);
     expect(packageJson).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY);
 
-    expect(Object.keys(archive).some((entry) => entry.startsWith('BackstagePayload~/'))).toBe(false);
+    expect(Object.keys(archive).some((entry) => entry.startsWith('BackstagePayload~/'))).toBe(
+      false
+    );
     expect(Object.keys(archive).some((entry) => entry.endsWith('.cs'))).toBe(false);
+  });
+
+  it('sanitizes server-generated shim display names and preserves protected package titles', async () => {
+    const input = buildUnitypackage(
+      [
+        { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+        { path: 'asset-guid/pathname', content: strToU8('Assets/Avatar/readme.txt') },
+      ],
+      TAR_MTIME_A
+    );
+    const protectedTitle = 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready';
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'song-thing.unitypackage',
+      contentType: 'application/octet-stream',
+      packageId: 'com.yucp.songthing',
+      version: '1.0.6',
+      displayName: protectedTitle,
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing-your-spotify-library-within-vrchat-vrcfury-ready',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '0.1.0',
+          catalogProductIds: ['product_1'],
+          channel: 'stable',
+        },
+      },
+    });
+
+    const archive = unzipSync(materialized.bytes);
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    expect(packageJson).toMatchObject({
+      name: 'com.yucp.songthing',
+      version: '1.0.6',
+      displayName: 'Song Thing - Your Spotify® library within VRChat - VRCFury Ready',
+      yucp: {
+        kind: 'alias-v1',
+        aliasId: 'song-thing-your-spotify-library-within-vrchat-vrcfury-ready',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        packageDisplayName: protectedTitle,
+      },
+    });
+    expect(packageJson.displayName).not.toContain('|');
   });
 
   it('rejects unsafe archive paths during materialization', async () => {

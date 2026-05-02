@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveSetupApiBase } from '../../src/routes/setup/lemonsqueezySetupSupport';
+import { resolveSetupApiBase } from '../../src/routes/setup/-lemonsqueezySetupSupport';
 
 describe('resolveSetupApiBase', () => {
   it('rejects same-host URLs with a different origin', () => {

@@ -79,6 +79,34 @@ function sanitizePackageManifestMetadata(
   );
 }
 
+function sanitizeUnityPackageDisplayName(displayName: string): string {
+  const invalidCharacters = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
+  return Array.from(displayName)
+    .map((character) =>
+      invalidCharacters.has(character) || character.charCodeAt(0) < 32 ? '-' : character
+    )
+    .join('')
+    .trim();
+}
+
+function preserveAliasPackageDisplayName(
+  metadata: Record<string, unknown>,
+  displayName?: string
+): Record<string, unknown> {
+  const packageDisplayName = displayName?.trim();
+  if (!packageDisplayName || !isRecord(metadata.yucp)) {
+    return metadata;
+  }
+
+  return {
+    ...metadata,
+    yucp: {
+      ...metadata.yucp,
+      packageDisplayName,
+    },
+  };
+}
+
 function resolveZipPackageJsonPath(input: {
   archivePaths: string[];
   packageId?: string;
@@ -180,12 +208,16 @@ async function buildImporterShimZip(input: {
   displayName?: string;
   metadata?: Record<string, unknown>;
 }): Promise<MaterializedBackstageReleaseArtifact> {
-  const sanitizedMetadata = sanitizePackageManifestMetadata(input.metadata);
+  const sanitizedMetadata = preserveAliasPackageDisplayName(
+    sanitizePackageManifestMetadata(input.metadata),
+    input.displayName
+  );
+  const displayName = input.displayName?.trim() || input.packageId;
   const packageJsonMetadata = {
     ...sanitizedMetadata,
     name: input.packageId,
     version: input.version,
-    displayName: input.displayName?.trim() || input.packageId,
+    displayName: sanitizeUnityPackageDisplayName(displayName),
   };
   const packageJson = JSON.stringify(packageJsonMetadata, null, 2);
   const zippable: Zippable = {

@@ -644,7 +644,7 @@ describe('releaseArtifacts.getActiveArtifact', () => {
       name: 'com.yucp.jammr',
       version: '2.1.5',
       displayName:
-        'JAMMR | NEW UPDATE: Song recognition | Create/Join Spotify® Jams from within VRChat | VRCFury Ready',
+        'JAMMR - NEW UPDATE- Song recognition - Create-Join Spotify® Jams from within VRChat - VRCFury Ready',
     });
   });
 

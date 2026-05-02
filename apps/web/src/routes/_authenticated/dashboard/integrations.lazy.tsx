@@ -62,6 +62,11 @@ const OAUTH_SCOPE_OPTIONS = [
     name: 'subjects:read',
     description: 'Read verified users and purchase records',
   },
+  {
+    key: 'products:read',
+    name: 'products:read',
+    description: 'Read product catalog for package imports',
+  },
 ] as const;
 
 function DashboardIntegrations() {

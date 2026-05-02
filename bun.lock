@@ -71,6 +71,7 @@
         "holographic-sticker": "^1.0.4",
         "ioredis": "^5.4.1",
         "lucide": "^0.577.0",
+        "rate-limiter-flexible": "^11.0.2",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
         "resend": "^4.0.0",
@@ -2155,6 +2156,8 @@
     "randombytes": ["randombytes@2.1.0", "", { "dependencies": { "safe-buffer": "^5.1.0" } }, "sha512-vYl3iOX+4CKUWuxGi9Ukhie6fsqXqS9FE2Zaic4tNFD2N2QQaXOMFbuKK4QmDHC0JO6B1Zp41J0LpT0oR68amQ=="],
 
     "randomfill": ["randomfill@1.0.4", "", { "dependencies": { "randombytes": "^2.0.5", "safe-buffer": "^5.1.0" } }, "sha512-87lcbR8+MhcWcUiQ+9e+Rwx8MyR2P7qnt15ynUlbm3TU/fjbgz4GsvfSUDTemtCCtVCqb4ZcEFlyPNTh9bBTLw=="],
+
+    "rate-limiter-flexible": ["rate-limiter-flexible@11.0.2", "", {}, "sha512-KF/g/GrzzL8bm5K9ZZ8MM0ascA+8dUwv5xA6+/k/3TpT/5cfz3ab36sRUTZsWMd0zmkOOZBu5oXURsRvztjBhw=="],
 
     "react": ["react@19.2.4", "", {}, "sha512-9nfp2hYpCwOjAN+8TZFGhtWEwgvWHXqESH8qT89AT/lWklpLON22Lc8pEtnpsZz7VmawabSU0gCjnj8aC0euHQ=="],
 
