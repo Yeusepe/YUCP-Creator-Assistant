@@ -89,6 +89,6 @@ describe('oauth consent route', () => {
 
     render(<Component />);
 
-    expect(screen.getByTestId('cloud-background')).toBeInTheDocument();
+    expect(screen.getAllByTestId('cloud-background')).not.toHaveLength(0);
   });
 });

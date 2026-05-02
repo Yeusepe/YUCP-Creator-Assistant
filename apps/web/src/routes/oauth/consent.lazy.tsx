@@ -1,6 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { PUBLIC_API_SCOPE_DEFINITIONS } from '@yucp/shared';
 import { useCallback, useEffect, useState } from 'react';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { authClient } from '@/lib/auth-client';
 import '@/styles/oauth-consent.css';
 
@@ -78,6 +79,15 @@ const SCOPE_INFO: Record<string, ScopeInfo> = Object.fromEntries(
 );
 
 function OAuthConsentPage() {
+  return (
+    <>
+      <CloudBackground variant="default" />
+      <OAuthConsentPageContent />
+    </>
+  );
+}
+
+function OAuthConsentPageContent() {
   const [clientId, setClientId] = useState('');
   const [rawScopes, setRawScopes] = useState<string[]>([]);
 
