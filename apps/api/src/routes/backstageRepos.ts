@@ -1,5 +1,6 @@
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import { YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS, type YucpAliasPackageContract } from '@yucp/shared';
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
   type CdngineBackstageDeliveryReference,
   isCdngineBackstageDeliveryReference,
@@ -28,6 +29,11 @@ const BACKSTAGE_FORWARDED_UPSTREAM_REPOSITORY_URL = 'https://vpm.yucp.club/index
 
 type BackstageRepositoryPackageEntry = Record<string, unknown>;
 type BackstageRepositoryPackages = Record<string, BackstageRepositoryPackageEntry>;
+
+type BackstageAccessViewer = {
+  authUserId: string;
+  actorBinding: ApiActorBinding;
+};
 
 type PublicBackstageAccessRecord = {
   creatorAuthUserId: string;
@@ -65,6 +71,16 @@ type AuthorizedAliasInstallPlanRecord = {
     zipSha256?: string;
     aliasContract: YucpAliasPackageContract;
   }>;
+};
+
+type BuyerAccessCatalogProduct = {
+  catalogProductId: string;
+  creatorAuthUserId: string;
+  providerProductRef: string;
+  canonicalSlug?: string;
+  displayName?: string;
+  thumbnailUrl?: string;
+  status: 'active';
 };
 
 type BackstagePackageDownloadRecord = {
@@ -403,7 +419,7 @@ async function authenticateBackstageAccess(
   request: Request,
   config: BackstageRepoConfig,
   auth?: Auth
-): Promise<{ authUserId: string } | Response> {
+): Promise<BackstageAccessViewer | Response> {
   const authHeader = request.headers.get('authorization')?.trim() ?? '';
   if (authHeader.startsWith('Bearer ')) {
     const verified = await verifyBetterAuthAccessToken(authHeader.slice('Bearer '.length).trim(), {
@@ -420,7 +436,14 @@ async function authenticateBackstageAccess(
       return errorResponse('Invalid or expired token', 401);
     }
 
-    return { authUserId: verified.token.sub };
+    return {
+      authUserId: verified.token.sub,
+      actorBinding: await createAuthUserActorBinding({
+        authUserId: verified.token.sub,
+        source: 'oauth',
+        scopes: ['products:read'],
+      }),
+    };
   }
 
   if (!auth) {
@@ -437,7 +460,13 @@ async function authenticateBackstageAccess(
     return errorResponse('Authentication required', 401);
   }
 
-  return { authUserId: session.user.id };
+  return {
+    authUserId: session.user.id,
+    actorBinding: await createAuthUserActorBinding({
+      authUserId: session.user.id,
+      source: 'session',
+    }),
+  };
 }
 
 async function resolveRepoAccess(
@@ -503,7 +532,7 @@ async function issueRepoAccess(
     return viewer;
   }
 
-  const convex = getConvexClientFromUrl(config.convexUrl);
+  const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
   const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
   if (!subjectId) {
     return errorResponse('No active subject found for this account', 404);
@@ -555,7 +584,7 @@ async function issueAuthorizedAliasInstallPlan(
   }
 
   try {
-    const convex = getConvexClientFromUrl(config.convexUrl);
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
     const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
     if (!subjectId) {
       return errorResponse('No active subject found for this account', 404);
@@ -572,41 +601,7 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
-    const creatorRepoIdentity = await getCreatorRepoIdentity({
-      convex,
-      convexApiSecret: config.convexApiSecret,
-      authUserId: plan.creatorAuthUserId,
-    });
-    const repositoryUrl = buildBackstageRepositoryUrls(
-      config.apiBaseUrl,
-      creatorRepoIdentity.creatorRepoRef
-    ).repositoryUrl;
-
-    return jsonResponse({
-      kind: 'alias-install-plan-v1',
-      expiresAt: Date.now() + BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS,
-      creatorName: creatorRepoIdentity.creatorName,
-      creatorRepoRef: creatorRepoIdentity.creatorRepoRef,
-      productRef: plan.canonicalSlug ?? plan.providerProductRef,
-      title: plan.displayName ?? plan.packages[0]?.displayName ?? plan.providerProductRef,
-      thumbnailUrl: plan.thumbnailUrl,
-      repositoryUrl,
-      packages: plan.packages.map((pkg) => {
-        const importerDelivery = buildBackstageImporterDelivery(pkg.aliasContract);
-        if (!importerDelivery) {
-          throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
-        }
-        return {
-          packageId: pkg.packageId,
-          displayName: pkg.displayName,
-          version: pkg.version,
-          channel: pkg.channel,
-          zipSha256: pkg.zipSha256,
-          aliasContract: pkg.aliasContract,
-          importerDelivery,
-        };
-      }),
-    });
+    return await buildAuthorizedAliasInstallPlanResponse(config, convex, plan);
   } catch (error) {
     logger.error('Failed to issue alias install plan', {
       authUserId: viewer.authUserId,
@@ -616,6 +611,104 @@ async function issueAuthorizedAliasInstallPlan(
     });
     return errorResponse('Failed to issue alias install plan', 500);
   }
+}
+
+async function issueAuthorizedAliasInstallPlanForCatalogProduct(
+  request: Request,
+  config: BackstageRepoConfig,
+  catalogProductId: string
+): Promise<Response> {
+  const viewer = await authenticateBackstageAccess(request, config, config.auth);
+  if (viewer instanceof Response) {
+    return viewer;
+  }
+
+  try {
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    if (!subjectId) {
+      return errorResponse('No active subject found for this account', 404);
+    }
+
+    const product = (await convex.query(
+      api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: config.convexApiSecret,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      }
+    )) as BuyerAccessCatalogProduct | null;
+    if (!product) {
+      return errorResponse('Alias product access not found', 404);
+    }
+
+    const creatorRef = product.creatorAuthUserId?.trim();
+    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    if (!creatorRef || !productRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+
+    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+      apiSecret: config.convexApiSecret,
+      authUserId: viewer.authUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    })) as AuthorizedAliasInstallPlanRecord | null;
+    if (!plan) {
+      return errorResponse('Alias install plan not found', 404);
+    }
+
+    return await buildAuthorizedAliasInstallPlanResponse(config, convex, plan);
+  } catch (error) {
+    logger.error('Failed to issue catalog-product alias install plan', {
+      authUserId: viewer.authUserId,
+      catalogProductId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Failed to issue alias install plan', 500);
+  }
+}
+
+async function buildAuthorizedAliasInstallPlanResponse(
+  config: BackstageRepoConfig,
+  convex: ReturnType<typeof getConvexClientFromUrl>,
+  plan: AuthorizedAliasInstallPlanRecord
+): Promise<Response> {
+  const creatorRepoIdentity = await getCreatorRepoIdentity({
+    convex,
+    convexApiSecret: config.convexApiSecret,
+    authUserId: plan.creatorAuthUserId,
+  });
+  const repositoryUrl = buildBackstageRepositoryUrls(
+    config.apiBaseUrl,
+    creatorRepoIdentity.creatorRepoRef
+  ).repositoryUrl;
+
+  return jsonResponse({
+    kind: 'alias-install-plan-v1',
+    expiresAt: Date.now() + BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS,
+    creatorName: creatorRepoIdentity.creatorName,
+    creatorRepoRef: creatorRepoIdentity.creatorRepoRef,
+    productRef: plan.canonicalSlug ?? plan.providerProductRef,
+    title: plan.displayName ?? plan.packages[0]?.displayName ?? plan.providerProductRef,
+    thumbnailUrl: plan.thumbnailUrl,
+    repositoryUrl,
+    packages: plan.packages.map((pkg) => {
+      const importerDelivery = buildBackstageImporterDelivery(pkg.aliasContract);
+      if (!importerDelivery) {
+        throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
+      }
+      return {
+        packageId: pkg.packageId,
+        displayName: pkg.displayName,
+        version: pkg.version,
+        channel: pkg.channel,
+        zipSha256: pkg.zipSha256,
+        aliasContract: pkg.aliasContract,
+        importerDelivery,
+      };
+    }),
+  });
 }
 
 async function getBuyerAccessInfo(
@@ -856,6 +949,9 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       const buyerInstallPlanMatch = url.pathname.match(
         /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/install-plan$/
       );
+      const buyerCatalogInstallPlanMatch = url.pathname.match(
+        /^\/api\/backstage\/access\/products\/([^/]+)\/install-plan$/
+      );
       const buyerIntentMatch = url.pathname.match(
         /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/verification-intent$/
       );
@@ -880,6 +976,13 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
           config,
           decodeURIComponent(buyerAccessMatch[1] ?? ''),
           decodeURIComponent(buyerAccessMatch[2] ?? '')
+        );
+      }
+      if (request.method === 'POST' && buyerCatalogInstallPlanMatch) {
+        return await issueAuthorizedAliasInstallPlanForCatalogProduct(
+          request,
+          config,
+          decodeURIComponent(buyerCatalogInstallPlanMatch[1] ?? '')
         );
       }
       if (request.method === 'POST' && buyerInstallPlanMatch) {

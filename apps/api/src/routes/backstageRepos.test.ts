@@ -51,6 +51,8 @@ mock.module('../../../../convex/_generated/api', () => ({
     packageRegistry: {
       getPublicBackstageProductAccessByRef: 'packageRegistry.getPublicBackstageProductAccessByRef',
       getAuthorizedAliasInstallPlanByRef: 'packageRegistry.getAuthorizedAliasInstallPlanByRef',
+      getBuyerAccessContextByCatalogProductId:
+        'packageRegistry.getBuyerAccessContextByCatalogProductId',
     },
     verificationIntents: {
       createVerificationIntent: 'verificationIntents.createVerificationIntent',
@@ -64,9 +66,14 @@ mock.module('../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({
-    query: (...args: unknown[]) => queryImpl(...args),
-    mutation: (...args: unknown[]) => mutationImpl(...args),
+  getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
+    query: (reference: unknown, args?: unknown) =>
+      queryImpl(reference, actor && args && typeof args === 'object' ? { ...args, actor } : args),
+    mutation: (reference: unknown, args?: unknown) =>
+      mutationImpl(
+        reference,
+        actor && args && typeof args === 'object' ? { ...args, actor } : args
+      ),
   }),
 }));
 
@@ -74,6 +81,13 @@ mock.module('../lib/oauthAccessToken', () => ({
   verifyBetterAuthAccessToken: async () => ({
     ok: true,
     token: { sub: 'auth-user-1' },
+  }),
+}));
+
+mock.module('../lib/apiActor', () => ({
+  createAuthUserActorBinding: async (input: unknown) => ({
+    payload: JSON.stringify(input),
+    signature: 'test-signature',
   }),
 }));
 
@@ -170,6 +184,26 @@ describe('backstage repo routes', () => {
                   catalogProductIds: ['catalog_1'],
                   channel: 'stable',
                 },
+              },
+            ],
+          };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'auth-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            thumbnailUrl: 'https://cdn.test/song.png',
+            status: 'active',
+            backstagePackages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                latestPublishedVersion: '1.2.3',
+                repositoryVisibility: 'hidden',
               },
             ],
           };
@@ -840,6 +874,131 @@ describe('backstage repo routes', () => {
     expect(typeof payload.expiresAt).toBe('number');
     expect(payload).not.toHaveProperty('repoToken');
     expect(payload).not.toHaveProperty('addRepoUrl');
+  });
+
+  it('issues a catalog-product alias install plan without using the creator-owned product API', async () => {
+    const seenQueryRefs: unknown[] = [];
+    queryImpl = async (ref: unknown, args?: unknown) => {
+      seenQueryRefs.push(ref);
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          expect(args).toEqual({
+            apiSecret: 'convex-secret',
+            catalogProductId: 'catalog_1',
+            actor: {
+              payload: JSON.stringify({
+                authUserId: 'auth-user-1',
+                source: 'oauth',
+                scopes: ['products:read'],
+              }),
+              signature: 'test-signature',
+            },
+          });
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'auth-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            thumbnailUrl: 'https://cdn.test/song.png',
+            status: 'active',
+            backstagePackages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                latestPublishedVersion: '1.2.3',
+                repositoryVisibility: 'hidden',
+              },
+            ],
+          };
+        case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          expect(args).toMatchObject({
+            apiSecret: 'convex-secret',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            creatorRef: 'auth-user-1',
+            productRef: 'song-thing',
+            actor: {
+              payload: JSON.stringify({
+                authUserId: 'auth-user-1',
+                source: 'oauth',
+                scopes: ['products:read'],
+              }),
+              signature: 'test-signature',
+            },
+          });
+          return {
+            creatorAuthUserId: 'auth-user-1',
+            creatorSlug: 'mapache',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            thumbnailUrl: 'https://cdn.test/song.png',
+            packages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                version: '1.2.3',
+                channel: 'stable',
+                zipSha256: 'a'.repeat(64),
+                aliasContract: {
+                  kind: 'alias-v1',
+                  aliasId: 'song-thing',
+                  installStrategy: 'server-authorized',
+                  importerPackage: 'com.yucp.importer',
+                  minImporterVersion: '1.4.0',
+                  catalogProductIds: ['catalog_1'],
+                  channel: 'stable',
+                },
+              },
+            ],
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          throw new Error(`Unexpected query reference: ${String(ref)}`);
+      }
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/products/catalog_1/install-plan', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
+      kind: 'alias-install-plan-v1',
+      creatorRepoRef: 'mapache',
+      productRef: 'song-thing',
+      packages: [
+        {
+          packageId: 'com.yucp.song',
+          importerDelivery: {
+            packageInstallStrategy: 'server-authorized',
+            repoCatalogDeliveryMode: 'repo-token-vpm-v1',
+            repoCatalogReadOnly: true,
+          },
+        },
+      ],
+    });
+    expect(seenQueryRefs).toContain('packageRegistry.getBuyerAccessContextByCatalogProductId');
   });
 
   it('issues an alias install plan from the session-backed auth flow', async () => {

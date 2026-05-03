@@ -4,53 +4,73 @@
 [![status](https://status.yucp.club/badge/_/status)
 ](https://status.yucp.club/)
 
-**YUCP Creator Assistant** gives creators who sell on Gumroad, Jinxxy, VRChat, or other storefronts a simple way to gate Discord access (or other benefits) for paying customers. Customers sign in once with Gumroad, Discord, or a single license verification for Gumroad or Jinxxy; the system then verifies all past and future purchases automatically. No repeated license entry. Discord-based verification can also confirm that a user is already verified in another server, so you can reuse that trust for avatar edits, distribution, or cross-server perks.
+**YUCP Creator Assistant** gives creators who sell on Gumroad, Jinxxy, Patreon, Payhip, Lemon Squeezy, itch.io, VRChat, or manual-license workflows a simple way to gate Discord access (or other benefits) for paying customers. Customers sign in once with a supported account-link flow, Discord, or a supported license verification flow; the system then verifies all past and future purchases automatically. No repeated license entry. Discord-based verification can also confirm that a user is already verified in another server, so you can reuse that trust for avatar edits, distribution, or cross-server perks.
 
 **What problem it solves**
 
-- Creators sell products (courses, assets, access) on storefronts like Gumroad, Jinxxy, or VRChat.
+- Creators sell products (courses, assets, access) on supported storefronts and community platforms.
 - They run a Discord server and want **only buyers** to get certain roles (e.g. “Customer”, “Pro”, or product-specific roles).
 - Doing this by hand does not scale; building custom webhooks and role logic per store is repetitive and error-prone.
 
 **What this system does**
 
-1. **Connects stores to Discord**: A creator links their Gumroad (or Jinxxy, or manual licenses) to their Discord server via a Discord bot and a small API.
+1. **Connects stores to Discord**: A creator links their supported provider or manual-license flow to their Discord server via a Discord bot and a small API.
 2. **Receives purchase events**: When someone buys, the store sends a webhook to this API. The system records the purchase and links it to a “product” that you define.
 3. **Maps products to Discord roles**: You configure which product (or product ID) gives which Discord role. One product can grant one role; you can have many product–role mappings.
 4. **Verifies customers and assigns roles**: Customers use a verification flow (e.g. “Link your Gumroad” or “I bought product X”). The system checks their purchase against your rules, then grants or denies the corresponding Discord role. A background sync keeps roles in line with current entitlements (including revocations/refunds if you support that).
 5. **Supports multiple creators**: The backend is multi-tenant: many Discord guilds (creators) can use the same deployment, each with their own products, role mappings, and policies.
 
-**In short:** buy on Gumroad, Jinxxy, or VRChat (or another supported store) → verify in Discord → get the right role. The bot, API, Convex backend, and policy engine handle webhooks, entitlements, and role assignment so creators don’t have to build this themselves.
+**In short:** buy on a supported provider → verify in Discord → get the right role. The bot, API, Convex backend, and policy engine handle webhooks, entitlements, and role assignment so creators don’t have to build this themselves.
 
 ## Summary
 
-This repository contains the implementation of that platform: a **Discord bot** for setup and user commands (`/creator`), an **API** that handles Better Auth, webhook ingestion from Gumroad/Jinxxy, and connect/onboarding flows, **provider adapters** for those marketplaces (and manual licenses), a **Convex backend** for persistent state and server-side logic, and a **policy engine** that decides whether a user gets a role and what to do on deny (e.g. remediation steps).
+This repository contains the implementation of that platform: a **Discord bot** with separate user (`/creator`) and admin (`/creator-admin`) command surfaces, an **API** that handles Better Auth, provider callbacks, webhook ingestion, and connect/onboarding flows, **provider adapters** for the current marketplace and community-provider registry, a **Convex backend** for persistent state and server-side logic, and a **policy engine** that decides whether a user gets a role and what to do on deny (e.g. remediation steps).
 
 Use this repo as a reference for architecture, integration patterns, and implementation details, not as a base for your own commercial or monetized product.
 
 ## Feature highlights
 
-- **Discord bot**: Slash commands under `/creator` for onboarding, product–role mapping, verification, and analytics.
+- **Discord bot**: `/creator` for user self-service and `/creator-admin` for setup, moderation, downloads, and diagnostics.
 - **API service**: Better Auth, bot installation flows, verification callbacks, webhook ingestion, and connect/onboarding routes.
-- **Provider adapters**: Gumroad, Jinxxy, VRChat, Discord, and manual license management (token storage, webhooks, purchase verification).
+- **Provider adapters**: Active descriptors for Discord, Gumroad, itch.io, Jinxxy, Lemon Squeezy, manual, Patreon, Payhip, and VRChat, with Fourthwall currently planned.
 - **Convex backend**: Persistent state, tenant and guild links, webhook ingestion, provider connection storage.
 - **Role sync**: Timed service that keeps Discord roles in sync with verification state.
 - **Policy engine**: Evaluates entitlement requests and returns deny decisions with remediation instructions.
 - **Liened Downloads**: Role-gated file delivery in Discord. Files posted in configured channels are secured and replaced with a Download button; only members with the required roles can access them. Supports FBX, Unity packages, archives, and Substance files. Includes backfill for existing messages and Autofix for forum posts.
-- **Collaborators**: Invite other creators to share their Jinxxy API key for cross-store license verification. Buyers from both stores get verified in your Discord. Invite flow uses Discord OAuth for identity verification; collaborators can link via account (with webhook) or API key.
+- **Collaborators**: Invite other creators to share a supported provider connection for cross-store verification. Current collaborator coverage includes Jinxxy, itch.io, Lemon Squeezy, and Payhip. Invite flow uses Discord OAuth for identity verification, then lets collaborators connect with the provider's supported account or API key flow.
 
 ## Architecture overview
 
 
-| Component     | Location             | Notes                                                                                                                      |
-| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Bot**       | `apps/bot`           | Entry: `apps/bot/src/index.ts`. Slash commands: `apps/bot/src/commands/index.ts`. RoleSyncService, LienedDownloadsService. |
-| **API**       | `apps/api`           | Entry: `apps/api/src/index.ts`. Install, webhooks, connect, Better Auth, collaborator invite flow (`/api/collab/`*).       |
-| **Providers** | `packages/providers` | Adapters: Gumroad, Jinxxy, VRChat, Discord (placeholder), manual.                                                          |
-| **Policy**    | `packages/policy`    | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification and revocation timing.                 |
-| **Convex**    | `convex/`            | Schema, entitlements, downloads, collaboratorInvites, webhooks.                                                            |
-| **Secrets**   | `ops/infisical`      | Secret layout and rotation; see `ops/infisical/README.md`.                                                                 |
+| Component         | Location               | Notes                                                                                                                            |
+| ----------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **Bot**           | `apps/bot`             | Entry: `apps/bot/src/index.ts`. Slash command registry lives in `apps/bot/src/commands/index.ts`.                               |
+| **API**           | `apps/api`             | Entry: `apps/api/src/index.ts`. Better Auth, provider callbacks, webhooks, connect flows, collaborator routes, and public APIs. |
+| **Web app**       | `apps/web`             | Cloudflare Worker + Vite frontend for creator dashboard, identity, and account flows.                                           |
+| **Application**   | `packages/application` | Shared application services and ports used by the API and other runtime surfaces.                                                |
+| **Private RPC**   | `packages/private-rpc` | Bebop contract generation and shared private-RPC types.                                                                          |
+| **Providers**     | `packages/providers`   | Provider registry currently includes Discord, Gumroad, itch.io, Jinxxy, Lemon Squeezy, manual, Patreon, Payhip, and VRChat.    |
+| **Policy**        | `packages/policy`      | Engine: `packages/policy/src/engine.ts`. Allow/deny, remediation, auto-verification, and revocation timing.                     |
+| **Shared**        | `packages/shared`      | Shared utilities, test helpers, Infisical helpers, and common runtime contracts.                                                |
+| **Convex**        | `convex/`              | Schema, entitlements, downloads, collaborator invites, auth, and webhooks.                                                      |
+| **Ops / secrets** | `ops/infisical`        | Secret layout, Infisical flows, and rotation guidance; see `ops/infisical/README.md`.                                           |
 
+## Provider coverage
+
+| Provider      | Status  |
+| ------------- | ------- |
+| Discord       | active  |
+| Gumroad       | active  |
+| itch.io       | active  |
+| Jinxxy        | active  |
+| Lemon Squeezy | active  |
+| Manual        | active  |
+| Patreon       | active  |
+| Payhip        | active  |
+| VRChat        | active  |
+| Fourthwall    | planned |
+
+These statuses come from the live provider descriptor registry in `packages/providers/src/descriptors`.
 
 **Tech stack:** Node / discord.js (bot), Bun HTTP server (API), Convex (data and server-side functions), Better Auth, TypeScript.
 
@@ -66,13 +86,13 @@ Use `/creator-admin downloads setup` to create a route (source channel, archive 
 
 ### Collaborators
 
-Cross-store license verification. A server owner can invite another creator (who sells on Jinxxy) to share their store’s licenses. Buyers from either store then get verified in the owner’s Discord.
+Cross-store verification. A server owner can invite another creator to share a supported collaborator provider connection. Buyers from either linked storefront then get verified in the owner's Discord.
 
 1. Owner runs `/creator-admin collab invite` and shares the generated link.
-2. Collaborator opens the link, signs in with Discord OAuth, and submits their Jinxxy API key.
+2. Collaborator opens the link, signs in with Discord OAuth, chooses the invited provider, and completes the requested account-link or API key step.
 3. The system links the collaborator’s store for verification. Owner can list and remove connections with `/creator-admin collab list`.
 
-Supports **account linking** (with webhook for real-time purchases) or **API key linking** (periodic sync).
+Supports **account linking** where the provider supports webhook-backed sync, or **API key linking** where the provider uses periodic sync. Current collaborator-ready providers include Jinxxy, itch.io, Lemon Squeezy, and Payhip.
 
 ## Prerequisites
 
@@ -80,24 +100,29 @@ Supports **account linking** (with webhook for real-time purchases) or **API key
 - Convex deployment and API secret
 - Infisical for environment variables and secrets
 - Discord application (bot token, OAuth client credentials). **Enable "Server Members Intent"** in [Discord Developer Portal](https://discord.com/developers/applications) → Your App → Bot → Privileged Gateway Intents. **Role sync requires**: bot has "Manage Roles" permission and its role is above the verified role in Server Settings → Roles.
-- Gumroad / Jinxxy / VRChat credentials if using those providers
+- Provider-specific credentials for whichever supported integrations you enable
 
 ## Quick start (reference)
 
-1. Load secrets through Infisical (see `ops/infisical/README.md`). `.env.local` is only a gitignored local bootstrap fallback for non-secret values such as `CDNGINE_DIR`; local runs warn when Infisical is not active, and production API startup refuses to run if Infisical secrets do not load.
-2. Install and build: `bun install` then `bun run build`.
-3. Run API: `bun run dev --cwd apps/api`.
-4. Run bot: `node ./apps/bot/dist/index.js` (after building).
-5. Invite the bot via the URL logged on startup or the Discord Developer Portal.
-6. For local Worker-based frontend development, run `bun run --filter @yucp/web worker:env:dev` once, then `bun run --filter @yucp/web worker:dev`. If `apps/web/.dev.vars` is absent, `worker:dev` falls back to the repo root `.env.local` and writes `apps/web/.dev.vars` for the local Worker runtime.
+1. Install dependencies: `bun install`.
+2. Prefer the Infisical-backed supervisor when secrets are configured: `bun run dev:infisical`.
+3. Use `bun run dev` only as the local fallback when you are intentionally working without Infisical.
+4. Run individual services as needed:
+   - `bun run dev:api` or `bun run dev:api:infisical`
+   - `bun run dev:bot` or `bun run dev:bot:infisical`
+   - `bun run dev:web` or `bun run dev:web:infisical`
+   - `bun run convex:dev`
+5. For production-like local starts, use `bun run start:api:infisical`, `bun run start:bot:infisical`, `bun run start:web`, or `bun run start:all`.
+6. Invite the bot via the URL logged on startup or the Discord Developer Portal.
 
 ## Project layout
 
 ```
-apps/          bot (Discord), api (Bun HTTP API)
-packages/      providers, policy, shared
-convex/        schema and backend functions
-ops/           infisical (secret docs and templates)
+apps/          api, bot, web
+packages/      application, policy, private-rpc, providers, shared
+convex/        schema, auth, and backend functions
+ops/           dev supervisor, Infisical flows, smoke tests, and support tooling
+docs/          product docs and engineering playbooks
 ```
 
 ## Environment variables (reference)
@@ -135,23 +160,38 @@ Do not commit real values. Infisical is the source of truth for deploy and produ
 - OAuth clients that use your provider must register their own `redirect_uri` values on the client side. Those are separate from the Discord callback above.
 - `FRONTEND_URL` remains a legacy alias for `SITE_URL`, and `BETTER_AUTH_URL` remains a legacy alias for the auth host. New config should use `SITE_URL` and `CONVEX_SITE_URL`.
 
-## Discord `/creator` commands (reference)
+## Discord command surfaces (reference)
 
+### `/creator`
 
-| Group      | Subcommand                    | Notes                                                                                           |
-| ---------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| setup      | start                         | Get links to connect Gumroad/Jinxxy and configure (opens in browser)                            |
-| autosetup  | -                             | Legacy path behind a feature flag. Use `setup start` to open the setup dashboard instead.        |
-| product    | add, list, remove             | Product–role mapping; sources: cross_server, discord_role, gumroad, jinxxy, vrchat              |
-| downloads  | setup, manage                 | **Liened Downloads**: liened file routes; setup creates routes, manage toggles/edits/removes |
-| collab     | invite, list                  | **Collaborators**: invite creators to share Jinxxy store; list active connections               |
-| stats      | -                             | Verification statistics                                                                         |
-| (root)     | spawn-verify                  | Spawn verify button (admin)                                                                     |
-| settings   | cross-server                  | Cross-server role verification                                                                  |
-| analytics  | -                             | Dashboard and metrics                                                                           |
-| moderation | mark, list, clear, unverify   | Suspicious account handling; unverify removes product from user                                 |
-| (root)     | status, verify, refresh, docs | User verification status, license verification, role refresh, documentation link                 |
+User-facing self-service command.
 
+| Subcommand | Notes |
+| ---------- | ----- |
+| `status`   | View verification status and connect accounts. |
+| `identity` | Open Creator Identity and manage linked accounts. |
+| `verify`   | Verify a purchase with a license key for a selected product. |
+| `refresh`  | Refresh Discord roles from current purchases and linked accounts. |
+| `docs`     | Get a link to the Creator Assistant documentation. |
+
+### `/creator-admin`
+
+Admin-only command surface. `setup start` and `dashboard` are conditional based on whether the guild is already configured.
+
+| Group / subcommand | Notes |
+| ------------------ | ----- |
+| `setup start` | Open the setup dashboard before the guild is configured. |
+| `dashboard` | Open the creator dashboard after the guild is configured. |
+| `product add/list/remove` | Manage product-role mappings. |
+| `downloads setup/manage` | Configure and manage liened download routes. |
+| `forensics lookup` | Upload a `.unitypackage` or `.zip` and inspect coupling matches for a creator-owned package. |
+| `stats` | View verification statistics. |
+| `spawn-verify` | Post a customizable verify button in a channel. |
+| `settings cross-server` | Manage cross-server role verification. |
+| `settings disconnect` | Disconnect the guild from its Creator Identity. |
+| `analytics` | View analytics and key metrics. |
+| `moderation mark/list/clear/unverify` | Manage suspicious accounts and remove product verification when needed. |
+| `collab invite/add/list` | Manage collaborator connections. |
 
 Full options and catalog: `apps/bot/src/commands/index.ts`.
 
@@ -160,7 +200,8 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 - Playbooks:
   - `docs/review-playbook.md`: multi-pass review, regression placement, and risky-change validation.
   - `docs/fleet-bugfix-playbook.md`: bug-fix workflow, GPT-5.4 fleet decomposition, SQL lane coordination, and combined-branch validation.
-- Lint: `bun run lint`. Typecheck: `bun run typecheck`. Tests: `bun run test` (or `bun run test:ci`).
+- Security audit: run `bun audit` locally. GitHub CI currently uses `bun audit --ignore GHSA-4hxc-9384-m385 --ignore GHSA-2j6q-whv2-gh6w` until the temporary h3 ignores can be removed.
+- Validation commands: `bun run lint`, `bun run typecheck`, `bun run test:external-integrations`, and `bun run test:ci`. Use `bun run test` when you want the broader local umbrella, but keep the explicit CI commands in finish-line checklists.
 - External integration contract gate: `bun run test:external-integrations`. This is the fast PR-facing slice for provider/runtime/API/consumer hardening. It now explicitly covers the production-incident surfaces in `ops/production-regression-loop.ts`: provider contracts, identity boundaries, verification flows, account surfaces, and backfill paths.
 - Production issue -> invariant -> regression loop: when a prod bug lands in any of those surfaces, update `ops/production-regression-loop.ts`, write the invariant it broke, add the primary regression in the listed contract home, add the nearest consumer regression, and run `bun run test:external-integrations`. If bad state may already exist, add the listed remediation or Convex regression too. The loop is enforced by `ops/production-regression-loop.test.ts`, so missing homes or uncovered surfaces fail in `bun run test:ops`.
 - Manual live-smoke drift checks stay out of normal CI. Use `bun run smoke:providers -- --provider gumroad --strict` for low-impact read/verify probes, then `bun run smoke:providers:refresh-fixtures -- --provider gumroad --case gumroad-products,gumroad-license-verify` to write sanitized fixture payloads into `packages/providers/test/fixtures/live-smoke/` for review. Current Gumroad coverage targets the post-connect `/v2/user` readback, catalog `/v2/products`, and manual verification `/v2/licenses/verify` boundaries. Provide smoke-only secrets via env (`GUMROAD_SMOKE_ACCESS_TOKEN`, `GUMROAD_SMOKE_LICENSE_PRODUCT_ID`, `GUMROAD_SMOKE_LICENSE_KEY`) and review fixture diffs before feeding them back into deterministic tests.
@@ -183,7 +224,7 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 - Never commit secrets; use Infisical or gitignored env files.
 - Webhook handlers validate payloads and signatures (e.g. Jinxxy HMAC). Gumroad webhooks are deduplicated.
 - Protect `BETTER_AUTH_SECRET` and Convex API secrets.
-- Third-party credentials (VRChat sessions, Gumroad/Jinxxy API keys) are encrypted at rest with HKDF using provider-specific, domain-separated purpose strings. Credentials are never logged and are decrypted only within the request that needs them.
+- Third-party credentials (for example OAuth tokens, API keys, webhook secrets, and VRChat sessions) are encrypted at rest with HKDF using provider-specific, domain-separated purpose strings. Credentials are never logged and are decrypted only within the request that needs them.
 - Session/credential expiry is handled explicitly: a 401 from an external API marks the connection as `'degraded'` in Convex and surfaces a reconnect prompt to the creator. Silent swallowing is never acceptable.
 
 ---
