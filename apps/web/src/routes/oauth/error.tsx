@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
+import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/oauth/error')({
@@ -22,6 +23,7 @@ function OAuthErrorPage() {
 
   return (
     <div className="oauth-error-page">
+      <BackgroundCanvasRoot position="fixed" />
       <div className="error-card">
         {/* icon */}
         <div className="icon-ring">
