@@ -99,6 +99,63 @@ function assertProviderSubjectOwnership(
   }
 }
 
+function canReassignProviderSubjectOwnership(
+  subject: {
+    _id: Id<'subjects'>;
+    authUserId?: string;
+    primaryDiscordUserId: string;
+  },
+  args: {
+    authUserId?: string;
+    provider: string;
+    providerUserId: string;
+    discordUserId?: string;
+  }
+): boolean {
+  if (!subject.authUserId || !args.authUserId || !args.discordUserId) {
+    return false;
+  }
+  if (subject.authUserId === args.authUserId) {
+    return false;
+  }
+
+  const providerFallbackId =
+    args.provider === 'discord' ? args.providerUserId : `${args.provider}:${args.providerUserId}`;
+  return (
+    subject.primaryDiscordUserId === args.discordUserId ||
+    subject.primaryDiscordUserId === providerFallbackId
+  );
+}
+
+async function reassignProviderSubjectOwnership(
+  ctx: Pick<MutationCtx, 'db'>,
+  {
+    subject,
+    requestedAuthUserId,
+    now,
+  }: {
+    subject: { _id: Id<'subjects'>; authUserId?: string };
+    requestedAuthUserId: string;
+    now: number;
+  }
+) {
+  const previousAuthUserId = subject.authUserId;
+  if (!previousAuthUserId || previousAuthUserId === requestedAuthUserId) {
+    return;
+  }
+
+  await ctx.db.patch(subject._id, {
+    authUserId: requestedAuthUserId,
+    updatedAt: now,
+  });
+  await migrateBuyerScopedRecords(ctx, {
+    fromAuthUserId: previousAuthUserId,
+    toAuthUserId: requestedAuthUserId,
+    subjectId: subject._id,
+    now,
+  });
+}
+
 async function migrateBuyerScopedRecords(
   ctx: Pick<MutationCtx, 'db'>,
   {
@@ -638,7 +695,15 @@ export const syncUserFromProvider = mutation({
         .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', providerFallbackId))
         .first();
       if (existingSubject) {
-        assertProviderSubjectOwnership(existingSubject.authUserId, args.authUserId);
+        if (canReassignProviderSubjectOwnership(existingSubject, args)) {
+          await reassignProviderSubjectOwnership(ctx, {
+            subject: existingSubject,
+            requestedAuthUserId: args.authUserId as string,
+            now,
+          });
+        } else {
+          assertProviderSubjectOwnership(existingSubject.authUserId, args.authUserId);
+        }
         await ctx.db.patch(existingSubject._id, {
           primaryDiscordUserId: args.discordUserId,
           displayName: username ?? existingSubject.displayName,
@@ -649,7 +714,15 @@ export const syncUserFromProvider = mutation({
     }
 
     if (existingSubject) {
-      assertProviderSubjectOwnership(existingSubject.authUserId, args.authUserId);
+      if (canReassignProviderSubjectOwnership(existingSubject, args)) {
+        await reassignProviderSubjectOwnership(ctx, {
+          subject: existingSubject,
+          requestedAuthUserId: args.authUserId as string,
+          now,
+        });
+      } else {
+        assertProviderSubjectOwnership(existingSubject.authUserId, args.authUserId);
+      }
       subjectId = existingSubject._id;
       await ctx.db.patch(subjectId, {
         ...(args.authUserId ? { authUserId: args.authUserId } : {}),

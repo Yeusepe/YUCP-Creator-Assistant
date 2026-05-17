@@ -53,7 +53,7 @@ export {
  * Verification session creation input
  */
 export interface CreateSessionInput {
-  /** Auth user ID */
+  /** Session-scoped auth user ID. For Discord verify panels this is the creator auth user. */
   authUserId: string;
   /** Verification mode */
   mode: string;
@@ -360,10 +360,23 @@ export function createVerificationSessionManager(
       encryptionSecret: config.encryptionSecret ?? '',
     });
 
+    const actor = { kind: 'service' as const, service: 'subjects:service' as const };
+    const resolvedAuthUserId =
+      session.verificationMethod === 'account_link' && session.discordUserId
+        ? (
+            await convex.mutation(api.subjects.ensureCanonicalAuthContextForDiscordUser, {
+              apiSecret,
+              actor,
+              discordUserId: session.discordUserId,
+              displayName: identity.username ?? undefined,
+              avatarUrl: identity.avatarUrl ?? undefined,
+            })
+          ).authUserId
+        : authUserId;
     const resolvedExpiresAt = identity.expiresAt ?? expiresAt;
     const syncResult = await convex.mutation(api.identitySync.syncUserFromProvider, {
       apiSecret,
-      authUserId,
+      authUserId: resolvedAuthUserId,
       provider: providerId,
       providerUserId: identity.providerUserId,
       username: identity.username,
@@ -375,7 +388,7 @@ export function createVerificationSessionManager(
 
     await convex.mutation(api.bindings.activateBinding, {
       apiSecret,
-      authUserId,
+      authUserId: resolvedAuthUserId,
       subjectId: syncResult.subjectId,
       externalAccountId: syncResult.externalAccountId,
       bindingType: 'verification',
@@ -411,7 +424,7 @@ export function createVerificationSessionManager(
     if (buyerLinkHook.afterLink) {
       await buyerLinkHook.afterLink(
         {
-          authUserId,
+          authUserId: resolvedAuthUserId,
           sessionId: session._id,
           sessionMode: session.mode,
           verificationMethod: session.verificationMethod,
@@ -764,7 +777,8 @@ export function createVerificationRoutes(config: VerificationConfig) {
       if (request.method === 'GET') {
         const url = new URL(request.url);
         body = {
-          authUserId: url.searchParams.get('authUserId') ?? '',
+          authUserId:
+            url.searchParams.get('creatorAuthUserId') ?? url.searchParams.get('authUserId') ?? '',
           mode: (url.searchParams.get('mode') ?? 'gumroad') as CreateSessionInput['mode'],
           verificationMethod: url.searchParams.get('verificationMethod') ?? undefined,
           redirectUri: url.searchParams.get('redirectUri') ?? `${config.baseUrl}/verify-success`,

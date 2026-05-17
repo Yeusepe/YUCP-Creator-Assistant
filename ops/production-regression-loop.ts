@@ -71,7 +71,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, write entitlements for the correct auth user, and preserve degraded or failure signals all the way to the public surface.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and preserve degraded or failure signals all the way to the public surface.',
     primaryRegressionHomes: [
       'apps/api/src/verification/completeLicense.test.ts',
       'apps/api/src/verification/sessionManager.accountLink.test.ts',

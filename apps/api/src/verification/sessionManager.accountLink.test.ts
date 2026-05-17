@@ -31,6 +31,8 @@ const apiMock = {
     activateBinding: 'bindings.activateBinding',
   },
   subjects: {
+    ensureCanonicalAuthContextForDiscordUser:
+      'subjects.ensureCanonicalAuthContextForDiscordUser',
     upsertBuyerProviderLink: 'subjects.upsertBuyerProviderLink',
   },
 } as const;
@@ -163,6 +165,20 @@ describe('VerificationSessionManager account-link callback', () => {
     });
 
     convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.subjects.ensureCanonicalAuthContextForDiscordUser) {
+        expect(args).toMatchObject({
+          apiSecret: 'convex-api-secret',
+          discordUserId: 'discord-user-123',
+          displayName: 'itch-buyer',
+          avatarUrl: 'https://cdn.example.com/avatar.png',
+        });
+        return {
+          authUserId: 'buyer_auth_user_B',
+          resolution: 'better_auth',
+          subjectId: 'discord-subject-1',
+        };
+      }
+
       if (reference === apiMock.identitySync.syncUserFromProvider) {
         expect(args).toMatchObject({
           apiSecret: 'convex-api-secret',
@@ -256,7 +272,7 @@ describe('VerificationSessionManager account-link callback', () => {
     const result = await manager.handleCallback(
       'itchio',
       'authorization-code-1',
-      'verify:itchio:buyer_auth_user_B:state-suffix'
+      'verify:itchio:creator_auth_user_A:state-suffix'
     );
 
     expect(result).toEqual({
@@ -264,10 +280,10 @@ describe('VerificationSessionManager account-link callback', () => {
       redirectUri: 'https://app.example.com/account/connections',
     });
     expect(stateStoreGetMock).toHaveBeenCalledWith(
-      'pkce_verifier:verify:itchio:buyer_auth_user_B:state-suffix'
+      'pkce_verifier:verify:itchio:creator_auth_user_A:state-suffix'
     );
     expect(stateStoreDeleteMock).toHaveBeenCalledWith(
-      'pkce_verifier:verify:itchio:buyer_auth_user_B:state-suffix'
+      'pkce_verifier:verify:itchio:creator_auth_user_A:state-suffix'
     );
     expect(fetchIdentityMock).toHaveBeenCalledWith(
       'access-token-123',
@@ -284,7 +300,7 @@ describe('VerificationSessionManager account-link callback', () => {
     const result = await manager.handleImplicitCallback(
       'itchio',
       'fragment-access-token-123',
-      'verify:itchio:buyer_auth_user_B:state-suffix'
+      'verify:itchio:creator_auth_user_A:state-suffix'
     );
 
     expect(result).toEqual({
@@ -303,7 +319,19 @@ describe('VerificationSessionManager account-link callback', () => {
 
   it('surfaces a conflict when the linked provider account already belongs to a different YUCP user', async () => {
     buyerLinkPlugin.oauth.responseType = 'token';
-    convexMutationMock.mockImplementation(async (reference: unknown) => {
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.subjects.ensureCanonicalAuthContextForDiscordUser) {
+        expect(args).toMatchObject({
+          apiSecret: 'convex-api-secret',
+          discordUserId: 'discord-user-123',
+        });
+        return {
+          authUserId: 'buyer_auth_user_B',
+          resolution: 'better_auth',
+          subjectId: 'discord-subject-1',
+        };
+      }
+
       if (reference === apiMock.identitySync.syncUserFromProvider) {
         throw new Error('This provider account is already linked to a different YUCP account.');
       }
@@ -315,7 +343,7 @@ describe('VerificationSessionManager account-link callback', () => {
     const result = await manager.handleImplicitCallback(
       'itchio',
       'fragment-access-token-123',
-      'verify:itchio:buyer_auth_user_B:state-suffix'
+      'verify:itchio:creator_auth_user_A:state-suffix'
     );
 
     expect(result).toEqual({
