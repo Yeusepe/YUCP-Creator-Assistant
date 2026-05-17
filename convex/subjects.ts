@@ -10,6 +10,7 @@ import { components } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { revokeBindingRecord } from './bindings';
 import {
   ApiActorBindingV,
   assertServiceActor,
@@ -25,7 +26,6 @@ import {
 } from './lib/externalAccountIdentity';
 import { hasActiveBindingForSubject } from './lib/ownership';
 import { ProviderV } from './lib/providers';
-import { revokeBindingRecord } from './bindings';
 
 export const PublicSubjectSelector = v.union(
   v.object({
@@ -223,7 +223,9 @@ export async function ensureCanonicalAuthUserIdForSubject(
 
   const authUserId = await findBetterAuthUserIdByLightMarker(ctx, resolution.marker);
   if (!authUserId) {
-    throw new Error(`Failed to materialize auth user for Discord subject ${subject.primaryDiscordUserId}`);
+    throw new Error(
+      `Failed to materialize auth user for Discord subject ${subject.primaryDiscordUserId}`
+    );
   }
 
   return {
@@ -933,7 +935,7 @@ export const ensureCanonicalAuthContextForDiscordUser = mutation({
     if (!subject) {
       throw new Error(
         `Subject not found after ensuring Discord subject ${args.discordUserId}. ` +
-        `subjectId=${subjectId}, existingSubject=${existingSubject?._id}`
+          `subjectId=${subjectId}, existingSubject=${existingSubject?._id}`
       );
     }
     const resolved = await ensureCanonicalAuthUserIdForSubject(ctx, subject);

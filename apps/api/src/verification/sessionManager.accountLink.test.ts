@@ -31,8 +31,7 @@ const apiMock = {
     activateBinding: 'bindings.activateBinding',
   },
   subjects: {
-    ensureCanonicalAuthContextForDiscordUser:
-      'subjects.ensureCanonicalAuthContextForDiscordUser',
+    ensureCanonicalAuthContextForDiscordUser: 'subjects.ensureCanonicalAuthContextForDiscordUser',
     upsertBuyerProviderLink: 'subjects.upsertBuyerProviderLink',
   },
 } as const;

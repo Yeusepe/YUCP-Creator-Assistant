@@ -117,7 +117,14 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     id: 'convex-identity-ownership-realtests',
     description: 'Convex identity ownership regressions for provider-linked account incidents',
     cwdRelativeToRepoRoot: '.',
-    args: ['x', 'vitest', 'run', '--config', 'convex/vitest.config.ts', './convex/identitySync.realtest.ts'],
+    args: [
+      'x',
+      'vitest',
+      'run',
+      '--config',
+      'convex/vitest.config.ts',
+      './convex/identitySync.realtest.ts',
+    ],
     covers: ['identity'],
   },
   {

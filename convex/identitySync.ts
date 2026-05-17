@@ -90,11 +90,7 @@ function assertProviderSubjectOwnership(
   existingAuthUserId: string | undefined,
   requestedAuthUserId: string | undefined
 ) {
-  if (
-    existingAuthUserId &&
-    requestedAuthUserId &&
-    existingAuthUserId !== requestedAuthUserId
-  ) {
+  if (existingAuthUserId && requestedAuthUserId && existingAuthUserId !== requestedAuthUserId) {
     throw new Error('This provider account is already linked to a different YUCP account.');
   }
 }
