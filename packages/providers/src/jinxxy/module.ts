@@ -378,31 +378,6 @@ async function getProductForTiers(
 export function createJinxxyLicenseVerification<
   TClient extends ProviderRuntimeClient = ProviderRuntimeClient,
 >(ports: JinxxyRuntimePorts<TClient>): LicenseVerificationPlugin<TClient> {
-  async function verifyWithApiKey(
-    apiKey: string,
-    licenseKey: string
-  ): Promise<{
-    valid: boolean;
-    externalOrderId?: string;
-    providerUserId?: string;
-    providerProductId?: string;
-    error?: string;
-  }> {
-    const client = getClient(ports, apiKey);
-    const result = client.verifyLicenseWithBuyerByKey
-      ? await client.verifyLicenseWithBuyerByKey(licenseKey)
-      : await client.verifyLicenseByKey(licenseKey);
-
-    return {
-      valid: result.valid,
-      externalOrderId:
-        result.externalOrderId ?? result.license?.order_id ?? result.license?.id ?? undefined,
-      providerUserId: result.providerUserId ?? result.license?.customer_id ?? undefined,
-      providerProductId: result.providerProductId ?? result.license?.product_id ?? undefined,
-      error: result.error ?? undefined,
-    };
-  }
-
   return {
     async verifyLicense(licenseKey, _productId, authUserId, ctx) {
       const encryptedApiKey = await ports.getEncryptedCredential(authUserId, ctx);

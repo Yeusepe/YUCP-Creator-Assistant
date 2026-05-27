@@ -72,13 +72,6 @@ function buildUnitypackage(
   return gzipSync(tarBytes, { level: 9, mtime: mtimeSeconds });
 }
 
-async function sha256Hex(input: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', Uint8Array.from(input));
-  return Array.from(new Uint8Array(digest))
-    .map((value) => value.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 describe('materializeBackstageReleaseArtifact', () => {
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
     const firstInput = zipSync(

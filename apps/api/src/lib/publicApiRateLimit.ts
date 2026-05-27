@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import type Redis from 'ioredis';
 import { RateLimiterMemory, RateLimiterRedis } from 'rate-limiter-flexible';
 import { logger } from './logger';
+import { getPublicApiKeyPepper } from './publicApiKeys';
 
 export interface PublicApiRateLimitStore {
   consume(args: {
@@ -227,7 +228,7 @@ export function buildPublicApiRateLimitKey(args: {
 }): string {
   const authMaterial = args.apiKey ?? args.bearerToken;
   if (authMaterial) {
-    return `${args.routeFamily}:auth:${sha256(authMaterial)}`;
+    return `${args.routeFamily}:auth:${hmacSha256(authMaterial, getPublicApiKeyPepper())}`;
   }
 
   const userAgent = args.userAgent?.trim() || 'unknown';
@@ -236,4 +237,8 @@ export function buildPublicApiRateLimitKey(args: {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function hmacSha256(value: string, secret: string): string {
+  return createHmac('sha256', secret).update(value).digest('hex');
 }

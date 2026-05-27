@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test';
-import { checkPublicApiRateLimit, InMemoryPublicApiRateLimitStore } from './publicApiRateLimit';
+import { createHash, createHmac } from 'node:crypto';
+import {
+  buildPublicApiRateLimitKey,
+  checkPublicApiRateLimit,
+  InMemoryPublicApiRateLimitStore,
+} from './publicApiRateLimit';
 
 describe('checkPublicApiRateLimit', () => {
   it('allows requests inside the configured budget and emits standard rate limit headers', async () => {
@@ -37,5 +42,22 @@ describe('checkPublicApiRateLimit', () => {
     expect(blocked.status).toBe(429);
     expect(blocked.headers['RateLimit-Remaining']).toBe('0');
     expect(blocked.headers['Retry-After']).toBe('59');
+  });
+
+  it('derives authenticated keys with a keyed digest instead of raw token hashing', () => {
+    process.env.PUBLIC_API_KEY_PEPPER = 'rate-limit-pepper';
+    const apiKey = 'ypsk_test_secret';
+
+    const key = buildPublicApiRateLimitKey({
+      routeFamily: 'manual-licenses',
+      clientAddress: '203.0.113.10',
+      apiKey,
+      userAgent: 'test-agent',
+    });
+
+    const rawHash = createHash('sha256').update(apiKey).digest('hex');
+    const keyedDigest = createHmac('sha256', 'rate-limit-pepper').update(apiKey).digest('hex');
+    expect(key).toBe(`manual-licenses:auth:${keyedDigest}`);
+    expect(key).not.toBe(`manual-licenses:auth:${rawHash}`);
   });
 });

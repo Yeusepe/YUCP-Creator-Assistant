@@ -7,15 +7,22 @@
     "packages/*"
   ],
   "overrides": {
-    "axios": ">=1.15.0",
+    "@opentelemetry/auto-instrumentations-node": ">=0.75.0",
+    "@opentelemetry/exporter-prometheus": ">=0.217.0",
+    "@opentelemetry/sdk-node": ">=0.217.0",
+    "@protobufjs/utf8": ">=1.1.1",
+    "@tanstack/start-server-core": ">=1.167.30",
+    "axios": ">=1.15.2",
     "bebop": "3.0.4",
     "fast-xml-parser": "5.7.0",
+    "fast-xml-builder": ">=1.2.0",
     "h3": "2.0.1-rc.19",
     "happy-dom": ">=20.8.8",
-    "kysely": ">=0.28.12",
+    "kysely": ">=0.28.17",
     "lodash": ">=4.18.1",
     "picomatch": "2.3.2",
     "prismjs": ">=1.30.0",
+    "protobufjs": "7.6.1",
     "defu": ">=6.1.6",
     "undici": ">=6.23.0",
     "vite": ">=7.3.2",
@@ -23,9 +30,9 @@
     "@smithy/config-resolver": ">=4.4.0",
     "srvx": ">=0.11.13",
     "@babel/runtime": ">=7.26.10",
-    "protobufjs": ">=7.5.5",
     "postcss": ">=8.5.10",
-    "uuid": ">=14.0.0"
+    "uuid": ">=14.0.0",
+    "ws": ">=8.20.1"
   },
   "scripts": {
     "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",

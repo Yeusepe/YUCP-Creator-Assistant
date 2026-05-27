@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createHmac } from 'node:crypto';
 import { gzipSync, unzipSync, zipSync } from 'fflate';
 
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -100,13 +101,12 @@ function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>
   return gzipSync(bytes, { level: 9, mtime: 315619200 });
 }
 
-function responseFromBytes(bytes: Uint8Array, contentType: string): Response {
-  const body = new Uint8Array(bytes.byteLength);
-  body.set(bytes);
-  return new Response(new Blob([body], { type: contentType }), {
-    status: 200,
-    headers: { 'Content-Type': contentType },
-  });
+function signMalformedBackstageToken(payload: string): string {
+  const encodedPayload = Buffer.from(payload, 'utf8').toString('base64url');
+  const signature = createHmac('sha256', 'convex-secret')
+    .update(encodedPayload)
+    .digest('base64url');
+  return `${encodedPayload}.${signature}`;
 }
 
 function bodyToUint8Array(body: BodyInit | null | undefined): Uint8Array {
@@ -570,6 +570,44 @@ describe('package Backstage publishing routes', () => {
       },
       deliveryName: 'example.unitypackage',
       sourceContentType: 'application/octet-stream',
+    });
+  });
+
+  it('rejects malformed upload completion tokens without throwing', async () => {
+    const response = await routes.completeBackstageReleaseUploadSession(
+      new Request(
+        `https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=${encodeURIComponent(signMalformedBackstageToken('not-json'))}`,
+        {
+          method: 'POST',
+        }
+      ),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid upload completion token',
+    });
+  });
+
+  it('rejects malformed upload tokens without throwing', async () => {
+    const response = await routes.uploadBackstageReleaseSource(
+      new Request(
+        `https://api.test/api/packages/com.yucp.example/backstage/upload-source?uploadToken=${encodeURIComponent(signMalformedBackstageToken('not-json'))}`,
+        {
+          body: new Uint8Array([1, 2, 3]),
+          headers: {
+            'content-type': 'application/octet-stream',
+          },
+          method: 'POST',
+        }
+      ),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid upload token',
     });
   });
 
@@ -1856,12 +1894,6 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes server-generated metadata inputs for unitypackage sources', async () => {
-    const sourceBytes = buildUnitypackage([
-      {
-        path: 'asset',
-        content: new TextEncoder().encode('avatar installer payload'),
-      },
-    ]);
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {

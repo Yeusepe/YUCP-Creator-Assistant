@@ -213,12 +213,24 @@ function verifyBackstageUploadToken(
     return null;
   }
   const expected = createHmac('sha256', secret).update(encodedPayload).digest();
-  const actual = Buffer.from(signature, 'base64url');
+  let actual: Buffer;
+  try {
+    actual = Buffer.from(signature, 'base64url');
+  } catch {
+    return null;
+  }
   if (expected.byteLength !== actual.byteLength || !timingSafeEqual(expected, actual)) {
     return null;
   }
-  const payload = JSON.parse(base64UrlDecode(encodedPayload)) as BackstageUploadTokenPayload;
+  let payload: BackstageUploadTokenPayload;
+  try {
+    payload = JSON.parse(base64UrlDecode(encodedPayload)) as BackstageUploadTokenPayload;
+  } catch {
+    return null;
+  }
   if (
+    !payload ||
+    typeof payload !== 'object' ||
     typeof payload.authUserId !== 'string' ||
     typeof payload.packageId !== 'string' ||
     typeof payload.exp !== 'number' ||
