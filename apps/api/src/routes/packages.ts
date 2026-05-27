@@ -36,13 +36,12 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
-import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
+import { MAX_BACKSTAGE_PACKAGE_BYTES, MAX_BACKSTAGE_UPLOAD_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
-const BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = getBackstageLiveSyncTimeoutMs();
 
 export type PackagesConfig = {
   apiBaseUrl: string;
@@ -174,9 +173,12 @@ const HTML_ENTITY_REPLACEMENTS: Readonly<Record<string, string>> = {
 };
 
 class BackstageLiveSyncTimeoutError extends Error {
+  readonly timeoutMs: number;
+
   constructor(operation: string, timeoutMs: number) {
     super(`${operation} timed out after ${timeoutMs}ms`);
     this.name = 'BackstageLiveSyncTimeoutError';
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -285,22 +287,70 @@ function getBackstageLiveSyncTimeoutMs(): number {
   return parsed;
 }
 
-async function withBackstageLiveSyncTimeout<T>(promise: Promise<T>, operation: string): Promise<T> {
+async function withBackstageLiveSyncTimeout<T>(
+  operation: string,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const timeoutMs = getBackstageLiveSyncTimeoutMs();
+  const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
-      promise,
+      run(controller.signal),
       new Promise<never>((_, reject) => {
         timeoutHandle = setTimeout(() => {
-          reject(new BackstageLiveSyncTimeoutError(operation, BACKSTAGE_LIVE_SYNC_TIMEOUT_MS));
-        }, BACKSTAGE_LIVE_SYNC_TIMEOUT_MS);
+          controller.abort();
+          reject(new BackstageLiveSyncTimeoutError(operation, timeoutMs));
+        }, timeoutMs);
       }),
     ]);
   } finally {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readContentLength(headers: Headers): number | null {
+  const parsed = Number.parseInt(headers.get('content-length') ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function readBoundedArrayBuffer(response: Response, maxBytes: number): Promise<ArrayBuffer> {
+  const contentLength = readContentLength(response.headers);
+  if (contentLength !== null && contentLength > maxBytes) {
+    throw new Error(`Response body exceeds the ${maxBytes} byte limit.`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`Response body exceeds the ${maxBytes} byte limit.`);
+  }
+  return bytes;
+}
+
+function decodeOptionalHeaderValue(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(value).trim() || null;
+  } catch {
+    return null;
   }
 }
 
@@ -633,17 +683,20 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
 
       try {
         const liveProducts = await withBackstageLiveSyncTimeout(
-          listProviderProductsViaApi(
-            {
-              apiBaseUrl: args.config.apiBaseUrl,
-              convexApiSecret: args.config.convexApiSecret,
-            },
-            {
-              authUserId: args.authUserId,
-              provider,
-            }
-          ),
-          `Backstage ${provider} product sync`
+          `Backstage ${provider} product sync`,
+          (signal) =>
+            listProviderProductsViaApi(
+              {
+                apiBaseUrl: args.config.apiBaseUrl,
+                convexApiSecret: args.config.convexApiSecret,
+              },
+              {
+                authUserId: args.authUserId,
+                provider,
+              },
+              undefined,
+              { signal }
+            )
         );
 
         for (const liveProduct of liveProducts.products ?? []) {
@@ -700,10 +753,7 @@ async function reconcileBackstageCatalogFromConnectedProviders(args: {
         logger.warn('Failed to reconcile Backstage provider products from live catalog', {
           authUserId: args.authUserId,
           provider,
-          timeoutMs:
-            error instanceof BackstageLiveSyncTimeoutError
-              ? BACKSTAGE_LIVE_SYNC_TIMEOUT_MS
-              : undefined,
+          timeoutMs: error instanceof BackstageLiveSyncTimeoutError ? error.timeoutMs : undefined,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -757,18 +807,21 @@ async function reconcileBackstageTiersFromConnectedProviders(args: {
 
       try {
         const liveTiers = await withBackstageLiveSyncTimeout(
-          listProviderTiersViaApi(
-            {
-              apiBaseUrl: args.config.apiBaseUrl,
-              convexApiSecret: args.config.convexApiSecret,
-            },
-            {
-              authUserId: args.authUserId,
-              provider: product.provider,
-              productId: liveProductId,
-            }
-          ),
-          `Backstage ${product.provider} tier sync for ${liveProductId}`
+          `Backstage ${product.provider} tier sync for ${liveProductId}`,
+          (signal) =>
+            listProviderTiersViaApi(
+              {
+                apiBaseUrl: args.config.apiBaseUrl,
+                convexApiSecret: args.config.convexApiSecret,
+              },
+              {
+                authUserId: args.authUserId,
+                provider: product.provider,
+                productId: liveProductId,
+              },
+              undefined,
+              { signal }
+            )
         );
 
         const existingTierMap = new Map(
@@ -807,10 +860,7 @@ async function reconcileBackstageTiersFromConnectedProviders(args: {
           authUserId: args.authUserId,
           provider: product.provider,
           productId: product.productId,
-          timeoutMs:
-            error instanceof BackstageLiveSyncTimeoutError
-              ? BACKSTAGE_LIVE_SYNC_TIMEOUT_MS
-              : undefined,
+          timeoutMs: error instanceof BackstageLiveSyncTimeoutError ? error.timeoutMs : undefined,
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -1646,12 +1696,22 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
       return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
     }
+    const contentLength = readContentLength(request.headers);
+    if (contentLength !== null && contentLength > MAX_BACKSTAGE_UPLOAD_BYTES) {
+      return jsonResponse({ error: 'Backstage upload exceeds the maximum allowed size' }, 413);
+    }
 
     try {
       const bytes = await request.arrayBuffer();
-      const deliveryName =
-        decodeURIComponent(request.headers.get('x-yucp-file-name') ?? '').trim() ||
-        `${packageId}.zip`;
+      if (bytes.byteLength > MAX_BACKSTAGE_UPLOAD_BYTES) {
+        return jsonResponse({ error: 'Backstage upload exceeds the maximum allowed size' }, 413);
+      }
+      const encodedDeliveryName = request.headers.get('x-yucp-file-name');
+      const decodedDeliveryName = decodeOptionalHeaderValue(encodedDeliveryName);
+      if (encodedDeliveryName && decodedDeliveryName === null) {
+        return jsonResponse({ error: 'Invalid x-yucp-file-name header encoding' }, 400);
+      }
+      const deliveryName = decodedDeliveryName ?? `${packageId}.zip`;
       const contentType = request.headers.get('content-type')?.trim() || 'application/octet-stream';
       const sha256 = await sha256ArrayBuffer(bytes);
       const assetOwner = `creator:${tokenPayload.authUserId}`;
@@ -1740,25 +1800,32 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
           input.cdngineSource.versionId,
         ].join(':'),
       });
-      const sourceResponse = await fetch(sourceUrl, {
-        headers: {
-          accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
+      const sourceResponse = await fetchWithTimeout(
+        sourceUrl,
+        {
+          headers: {
+            accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
+          },
         },
-      });
+        cdngineConfig.timeoutMs
+      );
       if (!sourceResponse.ok) {
         throw new Error(
           `CDNgine source download failed while materializing Backstage deliverable: ${sourceResponse.status} ${sourceResponse.statusText}`
         );
       }
+      const decodedSourceName = decodeOptionalHeaderValue(
+        new URL(sourceUrl).pathname.split('/').pop() ?? null
+      );
       sourceDeliveryName =
-        input.deliveryName?.trim() ||
-        decodeURIComponent(new URL(sourceUrl).pathname.split('/').pop() ?? '').trim() ||
-        `${input.packageId}.zip`;
+        input.deliveryName?.trim() || decodedSourceName || `${input.packageId}.zip`;
       sourceContentType =
         sourceResponse.headers.get('content-type')?.trim() ||
         input.contentType ||
         'application/octet-stream';
-      sourceBytes = new Uint8Array(await sourceResponse.arrayBuffer());
+      sourceBytes = new Uint8Array(
+        await readBoundedArrayBuffer(sourceResponse, MAX_BACKSTAGE_PACKAGE_BYTES)
+      );
     }
     const materialized = await materializeBackstageReleaseArtifact({
       sourceBytes,

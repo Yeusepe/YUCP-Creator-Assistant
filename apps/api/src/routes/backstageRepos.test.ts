@@ -84,6 +84,14 @@ mock.module('../lib/oauthAccessToken', () => ({
   }),
 }));
 
+mock.module('../lib/logger', () => ({
+  logger: {
+    error: mock(() => undefined),
+    info: mock(() => undefined),
+    warn: mock(() => undefined),
+  },
+}));
+
 mock.module('../lib/apiActor', () => ({
   createAuthUserActorBinding: async (input: unknown) => ({
     payload: JSON.stringify(input),
@@ -825,6 +833,41 @@ describe('backstage repo routes', () => {
       intentId: 'intent_1',
       verificationUrl: 'https://app.test/verify/purchase?intent=intent_1',
     });
+  });
+
+  it('rejects untrusted buyer verification return URLs before creating an intent', async () => {
+    const mutationCalls: Array<{ ref: unknown; args: unknown }> = [];
+    const defaultMutationImpl = mutationImpl;
+    mutationImpl = async (ref: unknown, args?: unknown) => {
+      mutationCalls.push({ ref, args });
+      return defaultMutationImpl(ref, args);
+    };
+    sessionImpl = async () => ({
+      user: {
+        id: 'auth-user-1',
+      },
+    });
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing/verification-intent', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnUrl: 'https://attacker.test/get-in-unity/mapache/song-thing',
+          machineFingerprint: 'machine_1',
+          codeChallenge: 'challenge_1',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(400);
+    await expect(response?.json()).resolves.toEqual({ error: 'Invalid returnUrl' });
+    expect(
+      mutationCalls.some((call) => call.ref === 'verificationIntents.createVerificationIntent')
+    ).toBe(false);
   });
 
   it('issues a bearer-authenticated alias install plan without exposing repo credentials', async () => {

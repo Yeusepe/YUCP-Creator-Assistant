@@ -354,6 +354,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
+    if (pathname === '/api/connect/user/accounts/refresh') {
+      if (request.method === 'POST') return connectRoutes.refreshUserAccounts(request);
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
     if (pathname === '/api/account-recovery/start') {
       return accountSecurityRoutes.startRecovery(request);
     }

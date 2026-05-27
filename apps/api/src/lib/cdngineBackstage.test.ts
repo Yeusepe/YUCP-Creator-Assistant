@@ -4,8 +4,7 @@
  * - README.md
  * - agents.md
  * External references:
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/docs/api-surface.md
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml
+ * - CDNgine public API surface and OpenAPI contract in the companion service docs.
  * Tests:
  * - apps/api/src/lib/cdngineBackstage.test.ts
  */

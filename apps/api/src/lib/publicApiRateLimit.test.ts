@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { createHash, createHmac } from 'node:crypto';
-import {
-  buildPublicApiRateLimitKey,
-  checkPublicApiRateLimit,
-  InMemoryPublicApiRateLimitStore,
-} from './publicApiRateLimit';
+
+mock.module('rate-limiter-flexible', () => ({
+  RateLimiterMemory: class {},
+  RateLimiterRedis: class {},
+}));
+
+const { buildPublicApiRateLimitKey, checkPublicApiRateLimit, InMemoryPublicApiRateLimitStore } =
+  await import('./publicApiRateLimit');
 
 describe('checkPublicApiRateLimit', () => {
   it('allows requests inside the configured budget and emits standard rate limit headers', async () => {
@@ -45,19 +48,28 @@ describe('checkPublicApiRateLimit', () => {
   });
 
   it('derives authenticated keys with a keyed digest instead of raw token hashing', () => {
+    const originalPepper = process.env.PUBLIC_API_KEY_PEPPER;
     process.env.PUBLIC_API_KEY_PEPPER = 'rate-limit-pepper';
-    const apiKey = 'ypsk_test_secret';
+    try {
+      const apiKey = 'ypsk_test_secret';
 
-    const key = buildPublicApiRateLimitKey({
-      routeFamily: 'manual-licenses',
-      clientAddress: '203.0.113.10',
-      apiKey,
-      userAgent: 'test-agent',
-    });
+      const key = buildPublicApiRateLimitKey({
+        routeFamily: 'manual-licenses',
+        clientAddress: '203.0.113.10',
+        apiKey,
+        userAgent: 'test-agent',
+      });
 
-    const rawHash = createHash('sha256').update(apiKey).digest('hex');
-    const keyedDigest = createHmac('sha256', 'rate-limit-pepper').update(apiKey).digest('hex');
-    expect(key).toBe(`manual-licenses:auth:${keyedDigest}`);
-    expect(key).not.toBe(`manual-licenses:auth:${rawHash}`);
+      const rawHash = createHash('sha256').update(apiKey).digest('hex');
+      const keyedDigest = createHmac('sha256', 'rate-limit-pepper').update(apiKey).digest('hex');
+      expect(key).toBe(`manual-licenses:auth:${keyedDigest}`);
+      expect(key).not.toBe(`manual-licenses:auth:${rawHash}`);
+    } finally {
+      if (originalPepper === undefined) {
+        delete process.env.PUBLIC_API_KEY_PEPPER;
+      } else {
+        process.env.PUBLIC_API_KEY_PEPPER = originalPepper;
+      }
+    }
   });
 });

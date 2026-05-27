@@ -123,7 +123,7 @@ function ProviderCard({
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectUserAccount(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-accounts'] });
+      queryClient.invalidateQueries({ queryKey: getUserAccountsQueryKey() });
       setConfirmingId(null);
       toast.success('Account disconnected', {
         description: `${provider.label} will no longer be used for account verification.`,

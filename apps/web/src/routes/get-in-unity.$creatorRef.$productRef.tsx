@@ -41,7 +41,7 @@ function buildReturnUrl(href: string): string {
 function BuyerUnityAccessPage() {
   const { creatorRef, productRef } = Route.useParams();
   const { grant } = Route.useSearch();
-  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   const accessQuery = useQuery({
@@ -51,9 +51,9 @@ function BuyerUnityAccessPage() {
   });
 
   const repoAccessQuery = useQuery({
-    queryKey: ['buyer-backstage-repo-access', grant],
+    queryKey: ['buyer-backstage-repo-access', authUserId, grant],
     queryFn: requestUserBackstageRepoAccess,
-    enabled: isAuthenticated && Boolean(grant),
+    enabled: Boolean(authUserId) && Boolean(grant),
     retry: false,
   });
 
@@ -128,7 +128,7 @@ function BuyerUnityAccessPage() {
                   Ask the creator for a fresh Unity access link for this product.
                 </p>
               </div>
-            ) : grant ? (
+            ) : grant && isAuthenticated ? (
               <div className="space-y-6">
                 <div className="space-y-3 text-center">
                   <div className="mx-auto flex size-14 items-center justify-center rounded-full border border-emerald-400/35 bg-emerald-400/12 text-emerald-200">

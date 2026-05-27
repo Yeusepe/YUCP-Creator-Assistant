@@ -4,8 +4,7 @@
  * - README.md
  * - agents.md
  * External references:
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/docs/api-surface.md
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml
+ * - CDNgine public API surface and OpenAPI contract in the companion service docs.
  * Tests:
  * - apps/api/src/routes/packages.backstage.test.ts
  * - apps/api/src/routes/backstageRepos.test.ts
@@ -121,7 +120,19 @@ async function requestCdngineJson<T>(
     config.timeoutMs
   );
   const text = await response.text();
-  const payload = text.length > 0 ? JSON.parse(text) : null;
+  let payload: unknown = null;
+  if (text.length > 0) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      if (!response.ok) {
+        throw new Error(
+          `CDNgine request failed: ${response.status} ${response.statusText || 'invalid JSON response'}`
+        );
+      }
+      throw new Error('CDNgine response was not valid JSON.');
+    }
+  }
   if (!response.ok) {
     const detail =
       payload && typeof payload === 'object' && 'detail' in payload

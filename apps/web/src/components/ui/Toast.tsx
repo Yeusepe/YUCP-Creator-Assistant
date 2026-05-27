@@ -156,8 +156,11 @@ function ToastItemComponent({
     .filter(Boolean)
     .join(' ');
 
+  const role = toast.type === 'error' ? 'alert' : 'status';
+  const ariaLive = toast.type === 'error' ? 'assertive' : 'polite';
+
   return (
-    <div className={className} role="alert">
+    <div className={className} role={role} aria-live={ariaLive}>
       <span className="toast-icon" aria-hidden="true">
         <ToastIcon type={toast.type} />
       </span>

@@ -7,7 +7,12 @@ export function usePublicAuth() {
     queryKey: ['public-auth-session'],
     queryFn: async () => {
       const result = await authClient.getSession();
-      return Boolean(result.data?.session);
+      return {
+        isAuthenticated: Boolean(result.data?.session),
+        authUserId:
+          result.data?.user?.id ??
+          (result.data?.session as { userId?: string } | undefined)?.userId,
+      };
     },
     retry: false,
     staleTime: 30_000,
@@ -32,7 +37,8 @@ export function usePublicAuth() {
 
   return {
     isPending: sessionQuery.isPending,
-    isAuthenticated: sessionQuery.data === true,
+    isAuthenticated: sessionQuery.data?.isAuthenticated === true,
+    authUserId: sessionQuery.data?.authUserId,
     signIn,
     signOut,
   };

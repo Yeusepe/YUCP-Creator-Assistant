@@ -243,14 +243,19 @@ function normalizeTiersResponse(payload: Partial<TiersResponse> | null | undefin
 export async function listProviderProductsViaApi(
   config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
   request: ListProviderProductsRequest,
-  handleProducts: typeof handleProviderProducts = handleProviderProducts
+  handleProducts: typeof handleProviderProducts = handleProviderProducts,
+  options?: { signal?: AbortSignal }
 ): Promise<ProductsResponse> {
   const provider = request.provider ?? '';
   const response = await handleProducts(
-    createJsonRequest(`${config.apiBaseUrl}/api/${provider}/products`, {
-      apiSecret: config.convexApiSecret,
-      authUserId: request.authUserId ?? '',
-    }),
+    createJsonRequest(
+      `${config.apiBaseUrl}/api/${provider}/products`,
+      {
+        apiSecret: config.convexApiSecret,
+        authUserId: request.authUserId ?? '',
+      },
+      { signal: options?.signal }
+    ),
     provider
   );
   return normalizeProductsResponse(
@@ -263,15 +268,20 @@ export async function listProviderProductsViaApi(
 export async function listProviderTiersViaApi(
   config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
   request: ListProviderTiersRequest,
-  handleTiers: typeof handleProviderTiers = handleProviderTiers
+  handleTiers: typeof handleProviderTiers = handleProviderTiers,
+  options?: { signal?: AbortSignal }
 ): Promise<TiersResponse> {
   const provider = request.provider ?? '';
   const response = await handleTiers(
-    createJsonRequest(`${config.apiBaseUrl}/api/${provider}/tiers`, {
-      apiSecret: config.convexApiSecret,
-      authUserId: request.authUserId ?? '',
-      productId: request.productId ?? '',
-    }),
+    createJsonRequest(
+      `${config.apiBaseUrl}/api/${provider}/tiers`,
+      {
+        apiSecret: config.convexApiSecret,
+        authUserId: request.authUserId ?? '',
+        productId: request.productId ?? '',
+      },
+      { signal: options?.signal }
+    ),
     provider
   );
   return normalizeTiersResponse(

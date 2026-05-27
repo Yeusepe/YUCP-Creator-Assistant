@@ -164,14 +164,10 @@ export function createConnectUserVerificationRoutes({
     }
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      const url = new URL(request.url);
-      const shouldRefresh = url.searchParams.get('refresh') === '1';
-      const links = shouldRefresh
-        ? await reconcileBuyerVerificationAccounts(convex, session.user.id)
-        : await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
-            apiSecret: config.convexApiSecret,
-            authUserId: session.user.id,
-          });
+      const links = await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+      });
       return Response.json({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
@@ -198,6 +194,50 @@ export function createConnectUserVerificationRoutes({
         error: err instanceof Error ? err.message : String(err),
       });
       return Response.json({ error: 'Failed to fetch accounts' }, { status: 500 });
+    }
+  }
+
+  async function refreshUserAccounts(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    try {
+      const convex = getConvexClientFromUrl(config.convexUrl);
+      await reconcileBuyerVerificationAccounts(convex, session.user.id);
+      const links = await convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId: session.user.id,
+      });
+      return Response.json({
+        connections: links.map((link: (typeof links)[number]) => ({
+          id: String(link.id),
+          provider: link.provider,
+          label: link.label,
+          connectionType: 'verification',
+          status: link.status,
+          webhookConfigured: false,
+          hasApiKey: false,
+          hasAccessToken: false,
+          providerUserId: link.providerUserId,
+          providerUsername: link.providerUsername ?? null,
+          verificationMethod: link.verificationMethod ?? null,
+          providerDisplay: getConnectedAccountProviderDisplay(link.provider),
+          linkedAt: link.linkedAt,
+          lastValidatedAt: link.lastValidatedAt ?? null,
+          expiresAt: link.expiresAt ?? null,
+          createdAt: link.createdAt,
+          updatedAt: link.updatedAt,
+        })),
+      });
+    } catch (err) {
+      logger.error('Failed to refresh user accounts', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to refresh accounts' }, { status: 500 });
     }
   }
 
@@ -600,6 +640,7 @@ export function createConnectUserVerificationRoutes({
   return {
     getUserConnections,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserProviders,
     postUserVerifyStart,

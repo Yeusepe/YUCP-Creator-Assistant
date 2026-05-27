@@ -79,6 +79,27 @@ let resolvedFrontendOrigin: string | null = null;
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
 const PUBLIC_BASE_DIR = path.resolve(import.meta.dir, '..', 'public');
 
+function parseBearerToken(authHeader: string | null): string | null {
+  return (
+    authHeader
+      ?.trim()
+      .match(/^Bearer\s+(.+)$/i)?.[1]
+      ?.trim() ?? null
+  );
+}
+
+function safeDecodeURIComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function badPathEncodingResponse(): Response {
+  return Response.json({ error: 'Malformed path parameter encoding' }, { status: 400 });
+}
+
 function withExtraHeaders(
   response: Response,
   headers: Record<string, string> | undefined
@@ -499,7 +520,7 @@ async function routeRequest(request: Request): Promise<Response> {
     const routeFamily = getPublicApiRouteFamily(pathname);
     const policy = getPublicApiRateLimitPolicy(routeFamily);
     const authHeader = request.headers.get('authorization')?.trim() ?? null;
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    const bearerToken = parseBearerToken(authHeader);
     const rateLimit = await checkPublicApiRateLimit({
       store: getPublicApiRateLimitStore(),
       key: buildPublicApiRateLimitKey({
@@ -842,17 +863,15 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
   if (buyerProductAccessMatch && connectRoutes) {
+    const catalogProductId = safeDecodeURIComponent(buyerProductAccessMatch[1]);
+    if (catalogProductId === null) {
+      return badPathEncodingResponse();
+    }
     if (request.method === 'GET') {
-      return connectRoutes.getBuyerProductAccess(
-        request,
-        decodeURIComponent(buyerProductAccessMatch[1])
-      );
+      return connectRoutes.getBuyerProductAccess(request, catalogProductId);
     }
     if (request.method === 'POST') {
-      return connectRoutes.postBuyerProductAccessVerificationIntent(
-        request,
-        decodeURIComponent(buyerProductAccessMatch[1])
-      );
+      return connectRoutes.postBuyerProductAccessVerificationIntent(request, catalogProductId);
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
@@ -860,39 +879,43 @@ async function routeRequest(request: Request): Promise<Response> {
     /^\/api\/connect\/user\/verification-intents\/([^/]+)$/
   );
   if (userVerificationIntentMatch && connectRoutes) {
+    const intentId = safeDecodeURIComponent(userVerificationIntentMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
     if (request.method === 'GET') {
-      return connectRoutes.getUserVerificationIntent(
-        request,
-        decodeURIComponent(userVerificationIntentMatch[1])
-      );
+      return connectRoutes.getUserVerificationIntent(request, intentId);
     }
   }
   const userVerificationEntitlementMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/verify-entitlement$/
   );
   if (userVerificationEntitlementMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationEntitlement(
-      request,
-      decodeURIComponent(userVerificationEntitlementMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationEntitlementMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationEntitlement(request, intentId);
   }
   const userVerificationProviderLinkMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/verify-provider-link$/
   );
   if (userVerificationProviderLinkMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationProviderLink(
-      request,
-      decodeURIComponent(userVerificationProviderLinkMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationProviderLinkMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationProviderLink(request, intentId);
   }
   const userVerificationManualMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/manual-license$/
   );
   if (userVerificationManualMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationManualLicense(
-      request,
-      decodeURIComponent(userVerificationManualMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationManualMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationManualLicense(request, intentId);
   }
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
@@ -910,6 +933,10 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/user/accounts' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/accounts/refresh' && connectRoutes) {
+    if (request.method === 'POST') return connectRoutes.refreshUserAccounts(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   if (pathname === '/api/connect/user/certificates' && connectRoutes) {
@@ -1200,11 +1227,15 @@ async function routeRequest(request: Request): Promise<Response> {
     request.method === 'POST'
   ) {
     const keyId = pathname.replace(/^\/api\/connect\/public-api\/keys\//, '').split('/')[0];
+    const decodedKeyId = safeDecodeURIComponent(keyId);
+    if (decodedKeyId === null) {
+      return badPathEncodingResponse();
+    }
     if (pathname.endsWith('/revoke')) {
-      return connectRoutes.revokePublicApiKey(request, decodeURIComponent(keyId));
+      return connectRoutes.revokePublicApiKey(request, decodedKeyId);
     }
     if (pathname.endsWith('/rotate')) {
-      return connectRoutes.rotatePublicApiKey(request, decodeURIComponent(keyId));
+      return connectRoutes.rotatePublicApiKey(request, decodedKeyId);
     }
   }
   if (pathname === '/api/connect/oauth-apps' && connectRoutes) {
@@ -1222,10 +1253,17 @@ async function routeRequest(request: Request): Promise<Response> {
     const appId = pathname
       .replace(/^\/api\/connect\/oauth-apps\//, '')
       .replace(/\/regenerate-secret$/, '');
-    return connectRoutes.regenerateOAuthAppSecret(request, decodeURIComponent(appId));
+    const decodedAppId = safeDecodeURIComponent(appId);
+    if (decodedAppId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.regenerateOAuthAppSecret(request, decodedAppId);
   }
   if (pathname.startsWith('/api/connect/oauth-apps/') && connectRoutes) {
-    const appId = decodeURIComponent(pathname.replace(/^\/api\/connect\/oauth-apps\//, ''));
+    const appId = safeDecodeURIComponent(pathname.replace(/^\/api\/connect\/oauth-apps\//, ''));
+    if (appId === null) {
+      return badPathEncodingResponse();
+    }
     if (request.method === 'PUT') return connectRoutes.updateOAuthApp(request, appId);
     if (request.method === 'DELETE') return connectRoutes.deleteOAuthApp(request, appId);
   }

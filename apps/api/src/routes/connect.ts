@@ -1271,6 +1271,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   const {
     getUserConnections,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserProviders,
     postUserVerifyStart,
@@ -1752,6 +1753,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     postUserVerificationProviderLink,
     postUserVerificationManualLicense,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserCertificates,
     getCreatorCertificates: getUserCertificates,

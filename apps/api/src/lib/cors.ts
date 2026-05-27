@@ -25,6 +25,15 @@ const API_CORS_ALLOWED_HEADERS = [
   'x-yucp-file-name',
 ];
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 export type ApiCorsHeaderInput = {
   allowedOrigins: ReadonlySet<string>;
   origin: string | null;
@@ -38,15 +47,16 @@ export type ApiAllowedCorsOriginInput = {
 };
 
 export function buildApiAllowedCorsOrigins(input: ApiAllowedCorsOriginInput): Set<string> {
+  const isProduction = (input.nodeEnv ?? 'development') === 'production';
   const origins = new Set(
     buildAllowedBrowserOrigins({
       siteUrl: input.siteUrl,
       frontendUrl: input.frontendUrl,
       additionalOrigins: [input.publicBaseUrl],
-    })
+    }).filter((origin) => !isProduction || !isLoopbackOrigin(origin))
   );
 
-  if ((input.nodeEnv ?? 'development') !== 'production') {
+  if (!isProduction) {
     for (const origin of LOCAL_DEVELOPMENT_BROWSER_ORIGINS) {
       origins.add(origin);
     }

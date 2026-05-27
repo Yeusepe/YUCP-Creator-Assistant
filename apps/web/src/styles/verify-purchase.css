@@ -16,7 +16,7 @@
   position: relative;
   overflow: hidden;
   color: var(--text-primary);
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
 }
 
 .dark .vp-page {
@@ -25,7 +25,7 @@
 
 .vp-wrapper {
   color: var(--text-primary);
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
   height: 100dvh;
   display: flex;
   align-items: center;
@@ -1280,7 +1280,7 @@
   border: 1px solid var(--brand, rgba(255, 255, 255, 0.25));
   background: color-mix(in srgb, var(--brand, rgba(255, 255, 255, 0.1)) 20%, transparent);
   color: #ffffff;
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
@@ -1873,7 +1873,7 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: #ffffff;
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
   font-size: 0.875rem;
   font-weight: 600;
   cursor: pointer;
@@ -1963,7 +1963,7 @@
 
 .vp-license-input::placeholder {
   color: rgba(255, 255, 255, 0.3);
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
   letter-spacing: 0;
 }
 
@@ -2073,7 +2073,7 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: #ffffff;
-  font-family: "AirbnbCereal", sans-serif;
+  font-family: AirbnbCereal, sans-serif;
   font-size: 1rem;
   font-weight: 600;
   text-decoration: none;

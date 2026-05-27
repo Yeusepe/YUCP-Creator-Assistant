@@ -11,6 +11,7 @@ import type { Auth } from '../auth';
 import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildCookie, getCookieValue } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import type { ConnectConfig } from '../providers/types';
 import {
@@ -48,6 +49,10 @@ type BuyerAccessCatalogProduct = {
 
 function buildBuyerProductAccessPath(catalogProductId: string): string {
   return `/access/${encodeURIComponent(catalogProductId)}`;
+}
+
+function getAllowedOrigins(config: ConnectConfig): Set<string> {
+  return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
 }
 
 const BUYER_ACCESS_MACHINE_COOKIE = 'yucp_buyer_access_machine';
@@ -164,6 +169,18 @@ export function createConnectUserProductAccessRoutes({
             String(entitlement.catalogProductId) === String(product.catalogProductId)
         ) ?? null;
 
+      const packagePreview = session
+        ? product.backstagePackages.map((packageLink) => ({
+            packageId: packageLink.packageId,
+            packageName: packageLink.packageName ?? null,
+            displayName: packageLink.displayName ?? null,
+            defaultChannel: packageLink.defaultChannel ?? null,
+            latestPublishedVersion: packageLink.latestPublishedVersion ?? null,
+            latestPublishedAt: packageLink.latestPublishedAt ?? null,
+            repositoryVisibility: packageLink.repositoryVisibility,
+          }))
+        : [];
+
       return Response.json({
         product: {
           catalogProductId: String(product.catalogProductId),
@@ -174,15 +191,7 @@ export function createConnectUserProductAccessRoutes({
           providerLabel: providerLabel(product.provider),
           storefrontUrl: buildCatalogProductUrl(product.provider, product.providerProductRef),
           accessPagePath: buildBuyerProductAccessPath(String(product.catalogProductId)),
-          packagePreview: product.backstagePackages.map((packageLink) => ({
-            packageId: packageLink.packageId,
-            packageName: packageLink.packageName ?? null,
-            displayName: packageLink.displayName ?? null,
-            defaultChannel: packageLink.defaultChannel ?? null,
-            latestPublishedVersion: packageLink.latestPublishedVersion ?? null,
-            latestPublishedAt: packageLink.latestPublishedAt ?? null,
-            repositoryVisibility: packageLink.repositoryVisibility,
-          })),
+          packagePreview,
         },
         accessState: {
           hasActiveEntitlement: Boolean(activeEntitlement),
@@ -205,6 +214,11 @@ export function createConnectUserProductAccessRoutes({
   ): Promise<Response> {
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
+    if (csrfBlock) {
+      return csrfBlock;
     }
 
     const session = await auth.getSession(request);

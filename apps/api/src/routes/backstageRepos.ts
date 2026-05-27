@@ -1,11 +1,14 @@
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
-import { YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
   type CdngineBackstageDeliveryReference,
   isCdngineBackstageDeliveryReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
+import {
+  YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS,
+  type YucpAliasPackageContract,
+} from '@yucp/shared/yucpAliasPackageContract';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -23,6 +26,8 @@ import { getVerificationConfig } from '../verification/verificationConfig';
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
+const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
+const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
 const BACKSTAGE_FORWARDED_UPSTREAM_REPOSITORY_URL = 'https://vpm.yucp.club/index.json';
@@ -134,6 +139,14 @@ function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
 }
 
+function safeDecodeURIComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -156,17 +169,36 @@ function extractForwardedToolchainPackages(repository: unknown): BackstageReposi
 }
 
 async function fetchForwardedToolchainPackages(): Promise<BackstageRepositoryPackages> {
-  const response = await fetch(BACKSTAGE_FORWARDED_UPSTREAM_REPOSITORY_URL, {
-    headers: {
-      accept: 'application/json',
-    },
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Forwarded toolchain repository request failed with ${response.status} ${response.statusText}.`
+  try {
+    const response = await fetchWithTimeout(
+      BACKSTAGE_FORWARDED_UPSTREAM_REPOSITORY_URL,
+      {
+        headers: {
+          accept: 'application/json',
+        },
+      },
+      BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS
     );
+    if (!response.ok) {
+      throw new Error(
+        `Forwarded toolchain repository request failed with ${response.status} ${response.statusText}.`
+      );
+    }
+    const contentLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+    if (Number.isFinite(contentLength) && contentLength > BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES) {
+      throw new Error('Forwarded toolchain repository response exceeded the byte limit.');
+    }
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES) {
+      throw new Error('Forwarded toolchain repository response exceeded the byte limit.');
+    }
+    return extractForwardedToolchainPackages(JSON.parse(text));
+  } catch (error) {
+    logger.warn('Forwarded toolchain repository unavailable; serving creator packages only', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
   }
-  return extractForwardedToolchainPackages(await response.json());
 }
 
 function mergeRepositoryPackages(
@@ -291,7 +323,7 @@ function parseCreatorRepoRoute(
     return null;
   }
 
-  const creatorRepoRef = decodeURIComponent(parts[3] ?? '').trim();
+  const creatorRepoRef = safeDecodeURIComponent(parts[3] ?? '')?.trim();
   if (!creatorRepoRef) {
     return null;
   }
@@ -307,6 +339,19 @@ function parseCreatorRepoRoute(
 
 function getAllowedOrigins(config: BackstageRepoConfig): Set<string> {
   return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
+}
+
+function normalizeFrontendReturnUrl(config: BackstageRepoConfig, value: string): string | null {
+  try {
+    const frontendBase = new URL(config.frontendBaseUrl);
+    const returnUrl = new URL(value, frontendBase);
+    if (returnUrl.origin !== frontendBase.origin) {
+      return null;
+    }
+    return returnUrl.toString();
+  } catch {
+    return null;
+  }
 }
 
 function buildBuyerAccessRequirements(product: PublicBackstageAccessRecord) {
@@ -778,6 +823,10 @@ async function bootstrapBuyerVerificationIntent(
   if (!body.returnUrl || !body.machineFingerprint || !body.codeChallenge) {
     return errorResponse('returnUrl, machineFingerprint, and codeChallenge are required', 400);
   }
+  const returnUrl = normalizeFrontendReturnUrl(config, body.returnUrl);
+  if (!returnUrl) {
+    return errorResponse('Invalid returnUrl', 400);
+  }
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl);
@@ -797,7 +846,7 @@ async function bootstrapBuyerVerificationIntent(
         resolved.access.providerProductRef,
       machineFingerprint: body.machineFingerprint,
       codeChallenge: body.codeChallenge,
-      returnUrl: body.returnUrl,
+      returnUrl,
       idempotencyKey: body.idempotencyKey,
       requirements,
     });
@@ -972,34 +1021,39 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
         return await servePackageDownload(request, config, creatorRepoRoute.creatorRepoRef);
       }
       if (request.method === 'GET' && buyerAccessMatch) {
-        return await getBuyerAccessInfo(
-          config,
-          decodeURIComponent(buyerAccessMatch[1] ?? ''),
-          decodeURIComponent(buyerAccessMatch[2] ?? '')
-        );
+        const creatorRef = safeDecodeURIComponent(buyerAccessMatch[1] ?? '');
+        const productRef = safeDecodeURIComponent(buyerAccessMatch[2] ?? '');
+        if (creatorRef === null || productRef === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await getBuyerAccessInfo(config, creatorRef, productRef);
       }
       if (request.method === 'POST' && buyerCatalogInstallPlanMatch) {
+        const catalogProductId = safeDecodeURIComponent(buyerCatalogInstallPlanMatch[1] ?? '');
+        if (catalogProductId === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
         return await issueAuthorizedAliasInstallPlanForCatalogProduct(
           request,
           config,
-          decodeURIComponent(buyerCatalogInstallPlanMatch[1] ?? '')
+          catalogProductId
         );
       }
       if (request.method === 'POST' && buyerInstallPlanMatch) {
-        return await issueAuthorizedAliasInstallPlan(
-          request,
-          config,
-          decodeURIComponent(buyerInstallPlanMatch[1] ?? ''),
-          decodeURIComponent(buyerInstallPlanMatch[2] ?? '')
-        );
+        const creatorRef = safeDecodeURIComponent(buyerInstallPlanMatch[1] ?? '');
+        const productRef = safeDecodeURIComponent(buyerInstallPlanMatch[2] ?? '');
+        if (creatorRef === null || productRef === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await issueAuthorizedAliasInstallPlan(request, config, creatorRef, productRef);
       }
       if (request.method === 'POST' && buyerIntentMatch) {
-        return await bootstrapBuyerVerificationIntent(
-          request,
-          config,
-          decodeURIComponent(buyerIntentMatch[1] ?? ''),
-          decodeURIComponent(buyerIntentMatch[2] ?? '')
-        );
+        const creatorRef = safeDecodeURIComponent(buyerIntentMatch[1] ?? '');
+        const productRef = safeDecodeURIComponent(buyerIntentMatch[2] ?? '');
+        if (creatorRef === null || productRef === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await bootstrapBuyerVerificationIntent(request, config, creatorRef, productRef);
       }
       if (request.method === 'GET' && url.pathname === '/v1/backstage/repos/index.json') {
         return await serveRepositoryIndex(request, config);

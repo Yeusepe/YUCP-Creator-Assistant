@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { createHmac } from 'node:crypto';
 import { gzipSync, unzipSync, zipSync } from 'fflate';
 
@@ -439,6 +439,10 @@ describe('package Backstage publishing routes', () => {
           return null;
       }
     };
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   it('creates upload URLs for Backstage package release uploads', async () => {
@@ -1514,6 +1518,8 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('returns stored products when live provider sync stalls', async () => {
+    const previousTimeout = process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+    process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = '25';
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'providerConnections.getConnectionStatus':
@@ -1569,7 +1575,13 @@ describe('package Backstage publishing routes', () => {
       new Promise<{ type: 'timeout' }>((resolve) =>
         setTimeout(() => resolve({ type: 'timeout' }), 250)
       ),
-    ])) as
+    ]).finally(() => {
+      if (previousTimeout === undefined) {
+        delete process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
+      } else {
+        process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = previousTimeout;
+      }
+    })) as
       | { type: 'response'; status: number; payload: { products: Array<Record<string, unknown>> } }
       | { type: 'timeout' };
 

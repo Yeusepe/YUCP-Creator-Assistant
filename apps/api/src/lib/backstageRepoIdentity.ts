@@ -68,7 +68,11 @@ function isFriendlyCreatorName(value: string | undefined): value is string {
 }
 
 export function buildCreatorRepoRef(input: { authUserId: string; creatorSlug?: string }): string {
-  return input.creatorSlug?.trim() || input.authUserId.trim();
+  const authUserId = input.authUserId.trim();
+  if (!authUserId) {
+    throw new Error('authUserId is required to derive a creator repository reference.');
+  }
+  return input.creatorSlug?.trim() || authUserId;
 }
 
 export function buildBackstageRepositoryUrls(apiBaseUrl: string, creatorRepoRef: string) {

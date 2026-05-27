@@ -351,7 +351,7 @@ describe('GET /api/connect/user/accounts', () => {
     });
   });
 
-  it('reconciles buyer provider links only when refresh=1 is requested', async () => {
+  it('reconciles buyer provider links only through the explicit refresh endpoint', async () => {
     const store = createBuyerProviderLinkStore([
       createBuyerProviderLinkRecord({
         ownerAuthUserId: 'buyer_auth_user_B',
@@ -373,8 +373,17 @@ describe('GET /api/connect/user/accounts', () => {
     });
 
     const routes = createRoutes('buyer_auth_user_B');
-    const response = await routes.getUserAccounts(
+    const getResponse = await routes.getUserAccounts(
       new Request('http://localhost:3001/api/connect/user/accounts?refresh=1')
+    );
+
+    expect(getResponse.status).toBe(200);
+    expect(convexMutationMock).not.toHaveBeenCalled();
+
+    const response = await routes.refreshUserAccounts(
+      new Request('http://localhost:3001/api/connect/user/accounts/refresh', {
+        method: 'POST',
+      })
     );
 
     expect(response.status).toBe(200);

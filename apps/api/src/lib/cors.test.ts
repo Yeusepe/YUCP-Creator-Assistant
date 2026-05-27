@@ -16,13 +16,13 @@ describe('API CORS headers', () => {
 
   it('keeps localhost UI origins allowed in development when the public API URL is a tunnel', () => {
     const origins = buildApiAllowedCorsOrigins({
-      frontendUrl: 'https://dsktp.tailc472f7.ts.net',
+      frontendUrl: 'https://dev-tunnel.test',
       nodeEnv: 'development',
-      publicBaseUrl: 'https://dsktp.tailc472f7.ts.net',
-      siteUrl: 'https://dsktp.tailc472f7.ts.net',
+      publicBaseUrl: 'https://dev-tunnel.test',
+      siteUrl: 'https://dev-tunnel.test',
     });
 
-    expect(origins.has('https://dsktp.tailc472f7.ts.net')).toBe(true);
+    expect(origins.has('https://dev-tunnel.test')).toBe(true);
     expect(origins.has('http://localhost:3000')).toBe(true);
   });
 
@@ -36,6 +36,18 @@ describe('API CORS headers', () => {
 
     expect(origins.has('https://api.creators.yucp.club')).toBe(true);
     expect(origins.has('https://creators.yucp.club')).toBe(true);
+    expect(origins.has('http://localhost:3000')).toBe(false);
+  });
+
+  it('does not trust loopback origins in production even when a URL is misconfigured locally', () => {
+    const origins = buildApiAllowedCorsOrigins({
+      frontendUrl: 'http://localhost:3000',
+      nodeEnv: 'production',
+      publicBaseUrl: 'https://api.creators.yucp.club',
+      siteUrl: 'https://api.creators.yucp.club',
+    });
+
+    expect(origins.has('https://api.creators.yucp.club')).toBe(true);
     expect(origins.has('http://localhost:3000')).toBe(false);
   });
 });

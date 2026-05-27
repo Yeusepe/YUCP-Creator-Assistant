@@ -67,6 +67,11 @@ describe('API server, route mounting', () => {
         }),
       ])
     );
+    for (const key of body.keys ?? []) {
+      expect(key).not.toHaveProperty('d');
+      expect(key).not.toHaveProperty('seed');
+      expect(key).not.toHaveProperty('privateKey');
+    }
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
 

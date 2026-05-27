@@ -8,8 +8,23 @@ interface BuyerProductAccessRequest {
   catalogProductId: string;
 }
 
+function validateBuyerProductAccessRequest(data: unknown): BuyerProductAccessRequest {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+    throw new Error('catalogProductId is required');
+  }
+  const catalogProductId = (data as Partial<BuyerProductAccessRequest>).catalogProductId;
+  if (typeof catalogProductId !== 'string') {
+    throw new Error('catalogProductId is required');
+  }
+  const normalized = catalogProductId.trim();
+  if (normalized.length === 0 || normalized.length > 256 || normalized.includes('/')) {
+    throw new Error('catalogProductId is invalid');
+  }
+  return { catalogProductId: normalized };
+}
+
 export const fetchBuyerProductAccess = createServerFn({ method: 'GET' })
-  .inputValidator((data: BuyerProductAccessRequest) => data)
+  .inputValidator(validateBuyerProductAccessRequest)
   .handler(
     async ({ data }: { data: BuyerProductAccessRequest }): Promise<BuyerProductAccessResponse> => {
       return withWebServerRequestSpan(

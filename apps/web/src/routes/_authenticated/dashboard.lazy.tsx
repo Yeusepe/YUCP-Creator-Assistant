@@ -477,7 +477,7 @@ function Sidebar({
   const certificatesQuery = useQuery({
     queryKey: ['creator-certificates'],
     queryFn: listCreatorCertificates,
-    enabled: privateVpmEnabled && canRunPanelQueries && _isPersonalDashboard,
+    enabled: canRunPanelQueries && _isPersonalDashboard,
   });
 
   const hasForensicsCapability = hasActiveCreatorBillingCapability(

@@ -104,6 +104,15 @@ function createRoutes() {
   });
 }
 
+function createSignedOutRoutes() {
+  return createConnectUserProductAccessRoutes({
+    auth: {
+      getSession: async () => null,
+    } as never,
+    config: testConfig,
+  });
+}
+
 describe('connect user product access routes', () => {
   beforeEach(() => {
     convexQueryMock.mockReset();
@@ -190,6 +199,74 @@ describe('connect user product access routes', () => {
         hasPublishedPackages: true,
       },
     });
+  });
+
+  it('does not expose Backstage package metadata to signed-out product access callers', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          canonicalSlug: 'avatar-bundle',
+          thumbnailUrl: 'https://cdn.test/avatar.png',
+          status: 'active',
+          backstagePackages: [
+            {
+              packageId: 'com.yucp.avatar.bundle',
+              displayName: 'Avatar Bundle',
+              latestPublishedVersion: '1.2.0',
+              repositoryVisibility: 'hidden',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createSignedOutRoutes();
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      product: {
+        packagePreview: [],
+      },
+      accessState: {
+        hasActiveEntitlement: false,
+        requiresVerification: true,
+        hasPublishedPackages: true,
+      },
+    });
+    expect(convexQueryMock).not.toHaveBeenCalledWith(
+      apiMock.entitlements.listByAuthUser,
+      expect.anything()
+    );
+  });
+
+  it('blocks cross-site buyer verification intent creation before mutating state', async () => {
+    const routes = createRoutes();
+    const response = await routes.postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        method: 'POST',
+        headers: {
+          origin: 'https://attacker.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ returnTo: '/access/catalog_123' }),
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(403);
+    expect(convexMutationMock).not.toHaveBeenCalled();
   });
 
   it('creates a hosted verification intent with a flow-scoped machine fingerprint when the caller sends an unsafe return path', async () => {

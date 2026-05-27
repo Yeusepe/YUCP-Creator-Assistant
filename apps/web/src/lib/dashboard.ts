@@ -250,10 +250,11 @@ export async function listUserAccounts(
 ) {
   const refresh =
     input && 'queryKey' in input ? Boolean(input.queryKey[1]?.refresh) : Boolean(input?.refresh);
-  const data = await apiClient.get<{ connections?: UserAccountConnection[] }>(
-    '/api/connect/user/accounts',
-    refresh ? { params: { refresh: '1' } } : undefined
-  );
+  const data = refresh
+    ? await apiClient.post<{ connections?: UserAccountConnection[] }>(
+        '/api/connect/user/accounts/refresh'
+      )
+    : await apiClient.get<{ connections?: UserAccountConnection[] }>('/api/connect/user/accounts');
   return data.connections ?? [];
 }
 
