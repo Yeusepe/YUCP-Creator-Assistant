@@ -51,6 +51,8 @@ const apiMock = {
 type BuyerLinkPluginMock = {
   oauth: {
     providerId: string;
+    mode?: string;
+    aliases?: readonly string[];
     authUrl: string;
     tokenUrl: string;
     callbackPath: string;
@@ -520,10 +522,15 @@ describe('VerificationSessionManager account-link callback', () => {
         apiSecret: string;
         convex: { query: (reference: unknown, args: unknown) => Promise<unknown> };
       };
-      const { authUserId } = input as { authUserId: string };
+      const { authUserId, creatorAuthUserId } = input as {
+        authUserId: string;
+        creatorAuthUserId?: string;
+      };
+      expect(authUserId).toBe('buyer_auth_user_B');
+      expect(creatorAuthUserId).toBe('creator_auth_user_A');
       const tenant = await convex.query(apiMock.creatorProfiles.getCreatorProfile, {
         apiSecret,
-        authUserId,
+        authUserId: creatorAuthUserId ?? authUserId,
       });
       if (!tenant) {
         throw new Error('Tenant not found');
@@ -537,7 +544,9 @@ describe('VerificationSessionManager account-link callback', () => {
       const params = new URLSearchParams(String(init?.body ?? ''));
       expect(params.get('grant_type')).toBe('authorization_code');
       expect(params.get('code')).toBe('authorization-code-1');
-      expect(params.get('redirect_uri')).toBe('https://api.example.com/api/verification/callback/discord');
+      expect(params.get('redirect_uri')).toBe(
+        'https://api.example.com/api/verification/callback/discord'
+      );
       expect(params.get('code_verifier')).toBe('pkce-code-verifier');
 
       return new Response(

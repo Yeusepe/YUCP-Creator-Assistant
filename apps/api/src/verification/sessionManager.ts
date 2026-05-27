@@ -425,6 +425,7 @@ export function createVerificationSessionManager(
       await buyerLinkHook.afterLink(
         {
           authUserId: resolvedAuthUserId,
+          creatorAuthUserId: authUserId,
           sessionId: session._id,
           sessionMode: session.mode,
           verificationMethod: session.verificationMethod,
