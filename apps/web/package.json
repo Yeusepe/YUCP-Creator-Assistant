@@ -46,7 +46,7 @@
     "@tempojs/common": "^0.0.12",
     "@yucp/private-rpc": "workspace:*",
     "@yucp/shared": "workspace:*",
-    "better-auth": "1.6.5",
+    "better-auth": "1.6.11",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "framer-motion": "^12.38.0",

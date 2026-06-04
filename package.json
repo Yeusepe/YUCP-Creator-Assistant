@@ -111,7 +111,7 @@
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/server": "^0.0.12",
     "bebop": "3.0.4",
-    "better-auth": "1.6.5",
+    "better-auth": "1.6.11",
     "buffer": "^6.0.3",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1",
