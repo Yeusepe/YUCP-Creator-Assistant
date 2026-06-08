@@ -18,7 +18,7 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
-import { requestBackstageRepoAccess } from '@/lib/packages';
+import { requestUserBackstageRepoAccess } from '@/lib/backstageAccess';
 import { createBuyerProductAccessVerificationIntent } from '@/lib/productAccess';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
@@ -126,7 +126,7 @@ function BuyerProductAccessPage() {
 
   const repoAccessQuery = useQuery({
     queryKey: ['buyer-backstage-repo-access', catalogProductId],
-    queryFn: requestBackstageRepoAccess,
+    queryFn: () => requestUserBackstageRepoAccess({ catalogProductId }),
     enabled:
       isAuthenticated &&
       accessData.accessState.hasActiveEntitlement === true &&

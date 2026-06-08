@@ -31,7 +31,7 @@
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",
     "bebop": "3.0.4",
-    "better-auth": "1.6.5",
+    "better-auth": "1.6.11",
     "canvas-confetti": "^1.9.3",
     "convex": "^1.32.0",
     "facehash": "^0.1.0",

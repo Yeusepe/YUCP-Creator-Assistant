@@ -1,4 +1,9 @@
 import { createApiActorBinding } from '@yucp/shared/apiActor';
+import {
+  BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
+  BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
+  BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS,
+} from '@yucp/shared/backstageVpmDelivery';
 import { gzipSync, strToU8, zipSync } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
@@ -648,6 +653,7 @@ describe('packageRegistry', () => {
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',
@@ -736,6 +742,7 @@ describe('packageRegistry', () => {
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',
@@ -1143,6 +1150,7 @@ describe('packageRegistry', () => {
     const publicAccess = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getPublicBackstageProductAccessByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         creatorRef: 'auth-user-1',
         productRef: 'gumroad-product-vpm',
       });
@@ -1227,14 +1235,14 @@ describe('packageRegistry', () => {
     expect(release?.zipSha256).toBe(published.zipSha256);
     expect(release?.metadata).toMatchObject({
       vpmDependencies: {
-        'com.yucp.importer': '>=0.1.0',
+        'com.yucp.importer': '>=0.1.9',
       },
       yucp: {
         kind: 'alias-v1',
         aliasId: 'gumroad-product-raw-upload',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.0',
+        minImporterVersion: '0.1.9',
         catalogProductIds: [String(catalogProductId)],
         channel: 'stable',
       },
@@ -1272,7 +1280,7 @@ describe('packageRegistry', () => {
           versions: {
             '1.0.0': {
               vpmDependencies: {
-                'com.yucp.importer': '>=0.1.0',
+                'com.yucp.importer': '>=0.1.9',
               },
               yucpDeliveryMode: 'repo-token-vpm-v1',
               yucpDeliverySourceKind: 'zip',
@@ -1281,7 +1289,7 @@ describe('packageRegistry', () => {
                 aliasId: 'gumroad-product-raw-upload',
                 installStrategy: 'server-authorized',
                 importerPackage: 'com.yucp.importer',
-                minImporterVersion: '0.1.0',
+                minImporterVersion: '0.1.9',
                 catalogProductIds: [String(catalogProductId)],
                 channel: 'stable',
               },
@@ -1347,6 +1355,7 @@ describe('packageRegistry', () => {
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',
@@ -1364,12 +1373,215 @@ describe('packageRegistry', () => {
             aliasId: 'gumroad-product-raw-upload',
             installStrategy: 'server-authorized',
             importerPackage: 'com.yucp.importer',
-            minImporterVersion: '0.1.0',
+            minImporterVersion: '0.1.9',
             catalogProductIds: [String(catalogProductId)],
             channel: 'stable',
           },
         },
       ],
+    });
+  });
+
+  it('publishes a CDNgine-backed release and resolves the buyer-authorized raw artifact', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-cdngine-auth-flow',
+      providerProductRef: 'gumroad-product-cdngine-auth-flow',
+      displayName: 'CDNgine Auth Flow Product',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.backstage.cdngineflow',
+      packageName: 'CDNgine Auth Flow Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    const rawSha256 = '1'.repeat(64);
+    const deliverableSha256 = '2'.repeat(64);
+    const published = await t.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
+      authUserId: 'auth-user-1',
+      accessSelectors: [{ kind: 'catalogProduct', catalogProductId }],
+      packageId: 'com.yucp.backstage.cdngineflow',
+      packageName: 'CDNgine Auth Flow Package',
+      displayName: 'CDNgine Auth Flow Package',
+      version: '1.0.0',
+      metadata: {
+        [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'unitypackage',
+        [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY]:
+          BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS.serverDerived,
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'gumroad-product-cdngine-auth-flow',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '0.1.9',
+          catalogProductIds: [String(catalogProductId)],
+          channel: 'stable',
+        },
+      },
+      rawDeliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      rawContentType: 'application/octet-stream',
+      rawSha256,
+      rawByteSize: 456,
+      cdngineSource: {
+        assetId: 'ast_raw_auth_flow',
+        assetOwner: 'creator:auth-user-1',
+        byteSize: 456,
+        serviceNamespaceId: 'yucp-backstage',
+        sha256: rawSha256,
+        uploadedAt: 1_714_000_000_000,
+        versionId: 'ver_raw_auth_flow',
+      },
+      deliverableDeliveryName: 'vrc-get-com.yucp.backstage.cdngineflow-1.0.0.zip',
+      deliverableContentType: 'application/zip',
+      deliverableSha256,
+      deliverableByteSize: 789,
+      cdngineDelivery: {
+        assetId: 'ast_deliverable_auth_flow',
+        assetOwner: 'creator:auth-user-1',
+        byteSize: 789,
+        deliveryScopeId: 'paid-downloads',
+        serviceNamespaceId: 'yucp-backstage',
+        sha256: deliverableSha256,
+        uploadedAt: 1_714_000_000_000,
+        variant: 'vpm-package',
+        versionId: 'ver_deliverable_auth_flow',
+      },
+    });
+
+    const subjectId = await seedSubject(t, {
+      authUserId: 'buyer-auth-flow',
+      primaryDiscordUserId: 'discord-buyer-auth-flow',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('entitlements', {
+        authUserId: 'auth-user-1',
+        subjectId,
+        productId: 'product-cdngine-auth-flow',
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-cdngine-auth-flow',
+        catalogProductId,
+        status: 'active',
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const issued = await t.mutation(api.backstageRepos.issueRepoTokenForApi, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-user-1',
+      subjectAuthUserId: 'buyer-auth-flow',
+      subjectId,
+      label: 'VCC Backstage Repos: auth flow',
+      expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
+    });
+
+    const repository = await t.query(internal.packageRegistry.buildBackstageRepositoryForSubject, {
+      authUserId: 'auth-user-1',
+      subjectId,
+      repositoryUrl: 'https://api.yucp.test/v1/backstage/repos/index.json',
+      packageBaseUrl: 'https://api.yucp.test/v1/backstage/package',
+      packageHeaders: {
+        'X-YUCP-Repo-Token': issued.token,
+      },
+    });
+
+    const publishedVersion = repository.packages['com.yucp.backstage.cdngineflow']?.versions?.[
+      '1.0.0'
+    ] as Record<string, unknown> | undefined;
+    expect(publishedVersion).toMatchObject({
+      name: 'com.yucp.backstage.cdngineflow',
+      version: '1.0.0',
+      headers: {
+        'X-YUCP-Repo-Token': issued.token,
+      },
+      zipSHA256: deliverableSha256,
+      yucpDeliveryMode: 'repo-token-vpm-v1',
+      yucpDeliverySourceKind: 'unitypackage',
+    });
+
+    const rawDownload = await t.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-user-1',
+      subjectId,
+      packageId: 'com.yucp.backstage.cdngineflow',
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    expect(rawDownload).toMatchObject({
+      downloadUrl: '',
+      contentType: 'application/octet-stream',
+      deliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      packageSha256: rawSha256,
+      sourceKind: 'unitypackage',
+      version: '1.0.0',
+      channel: 'stable',
+      cdngineDelivery: {
+        assetId: 'ast_raw_auth_flow',
+        versionId: 'ver_raw_auth_flow',
+        deliveryScopeId: 'paid-downloads',
+        variant: 'raw-upload',
+      },
+    });
+
+    const installPlan = await t.run(async (ctx) => {
+      return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+        apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
+        authUserId: 'auth-user-1',
+        subjectId,
+        creatorRef: 'auth-user-1',
+        productRef: 'gumroad-product-cdngine-auth-flow',
+      });
+    });
+    expect(installPlan).toMatchObject({
+      packages: [
+        {
+          packageId: 'com.yucp.backstage.cdngineflow',
+          version: '1.0.0',
+          channel: 'stable',
+          zipSha256: deliverableSha256,
+        },
+      ],
+    });
+
+    const artifacts = await t.run(async (ctx) => {
+      return await ctx.db
+        .query('delivery_release_artifacts')
+        .withIndex('by_release', (q) =>
+          q.eq(
+            'deliveryPackageReleaseId',
+            published.deliveryPackageReleaseId as Id<'delivery_package_releases'>
+          )
+        )
+        .collect();
+    });
+    const rawArtifact = artifacts.find((artifact) => artifact.artifactRole === 'raw_upload');
+    const deliverableArtifact = artifacts.find(
+      (artifact) => artifact.artifactRole === 'server_deliverable'
+    );
+    expect(rawArtifact).toMatchObject({
+      ownership: 'creator_upload',
+      contentType: 'application/octet-stream',
+      deliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      sha256: rawSha256,
+      cdngineDelivery: {
+        variant: 'raw-upload',
+      },
+    });
+    expect(deliverableArtifact).toMatchObject({
+      ownership: 'server_materialized',
+      sourceArtifactId: rawArtifact?._id,
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.backstage.cdngineflow-1.0.0.zip',
+      sha256: deliverableSha256,
+      cdngineDelivery: {
+        variant: 'vpm-package',
+      },
     });
   });
 
@@ -1679,14 +1891,14 @@ describe('packageRegistry', () => {
             '2.0.0': {
               description: 'Persisted before alias metadata synthesis.',
               vpmDependencies: {
-                'com.yucp.importer': '>=0.1.0',
+                'com.yucp.importer': '>=0.1.9',
               },
               yucp: {
                 kind: 'alias-v1',
                 aliasId: 'gumroad-product-legacy-upload',
                 installStrategy: 'server-authorized',
                 importerPackage: 'com.yucp.importer',
-                minImporterVersion: '0.1.0',
+                minImporterVersion: '0.1.9',
                 catalogProductIds: [String(catalogProductId)],
                 channel: 'stable',
               },
@@ -1699,6 +1911,7 @@ describe('packageRegistry', () => {
     const publicAccess = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getPublicBackstageProductAccessByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         creatorRef: 'auth-user-1',
         productRef: 'gumroad-product-legacy-upload',
       });
@@ -1713,7 +1926,7 @@ describe('packageRegistry', () => {
           aliasId: 'gumroad-product-legacy-upload',
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
-          minImporterVersion: '0.1.0',
+          minImporterVersion: '0.1.9',
           catalogProductIds: [String(catalogProductId)],
           channel: 'stable',
         },
@@ -1723,6 +1936,7 @@ describe('packageRegistry', () => {
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',
@@ -1740,7 +1954,7 @@ describe('packageRegistry', () => {
             aliasId: 'gumroad-product-legacy-upload',
             installStrategy: 'server-authorized',
             importerPackage: 'com.yucp.importer',
-            minImporterVersion: '0.1.0',
+            minImporterVersion: '0.1.9',
             catalogProductIds: [String(catalogProductId)],
             channel: 'stable',
           },
@@ -1828,6 +2042,7 @@ describe('packageRegistry', () => {
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
         apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['creator:delegate']),
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',

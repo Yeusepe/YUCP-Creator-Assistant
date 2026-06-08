@@ -70,6 +70,31 @@ function isBuyerAccessReturnUrl(value: string | null): boolean {
   }
 }
 
+function parseBuyerRepoAccessTarget(
+  value: string | null
+): { catalogProductId: string } | { creatorRef: string; productRef: string } | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const segments = new URL(value).pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const catalogProductId = segments[1]?.trim();
+    const creatorRef = segments[1]?.trim();
+    const productRef = segments[2]?.trim();
+    if (segments[0] === 'access' && catalogProductId) {
+      return { catalogProductId };
+    }
+    if (segments[0] === 'get-in-unity' && creatorRef && productRef) {
+      return { creatorRef, productRef };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 // ---- Branded OAuth button -------------------------------------------------
 
 interface OAuthButtonProps {
@@ -801,11 +826,15 @@ function VerifyPurchasePage() {
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
   const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
+  const buyerRepoAccessTarget = useMemo(
+    () => parseBuyerRepoAccessTarget(returnToUrl),
+    [returnToUrl]
+  );
   const shouldPrepareBuyerRepoAccess = intent?.status === 'verified' && returnsToBuyerAccess;
   const repoAccessQuery = useQuery({
-    queryKey: ['vp-backstage-repo-access'],
-    queryFn: requestUserBackstageRepoAccess,
-    enabled: shouldPrepareBuyerRepoAccess,
+    queryKey: ['vp-backstage-repo-access', buyerRepoAccessTarget],
+    queryFn: () => requestUserBackstageRepoAccess(buyerRepoAccessTarget ?? undefined),
+    enabled: shouldPrepareBuyerRepoAccess && buyerRepoAccessTarget !== null,
     retry: false,
     staleTime: 60_000,
   });

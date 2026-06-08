@@ -2061,6 +2061,8 @@ const webhook_events = defineTable({
   verificationMethod: v.optional(
     v.union(v.literal('hmac'), v.literal('static-key'), v.literal('route-token'))
   ),
+  // Derived authentication gate for queue reads. Older rows may not have this field.
+  authenticated: v.optional(v.boolean()),
   // Processing status
   status: WebhookEventStatus,
   // Error message if processing failed
@@ -2079,6 +2081,7 @@ const webhook_events = defineTable({
   .index('by_provider_event', ['provider', 'providerEventId'])
   .index('by_provider', ['provider'])
   .index('by_status', ['status'])
+  .index('by_status_authenticated_received', ['status', 'authenticated', 'receivedAt'])
   .index('by_auth_user', ['authUserId'])
   .index('by_connection_event', ['providerConnectionId', 'providerEventId'])
   .index('by_auth_user_provider_event', ['authUserId', 'provider', 'providerEventId'])

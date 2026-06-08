@@ -12,7 +12,7 @@ import {
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
-import { createAuthUserActorBinding } from '../lib/apiActor';
+import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
@@ -28,6 +28,8 @@ const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
 const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
 const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
+const BACKSTAGE_RAW_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
 const BACKSTAGE_FORWARDED_UPSTREAM_REPOSITORY_URL = 'https://vpm.yucp.club/index.json';
@@ -102,12 +104,45 @@ type BackstagePackageDownloadRecord = {
   cdngineDelivery?: CdngineBackstageDeliveryReference;
 };
 
+type BackstageRawPackageDownloadRecord = {
+  deliveryArtifactId: Id<'delivery_release_artifacts'>;
+  downloadUrl: string;
+  contentType: string;
+  deliveryName: string;
+  packageSha256: string;
+  sourceKind: 'zip' | 'unitypackage';
+  version: string;
+  channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
+};
+
 type ConfiguredCdngineBackstageDelivery = {
   accessToken: string;
   apiBaseUrl: string;
   required?: boolean;
   timeoutMs?: number;
 };
+
+class RequestBodyError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+function requireInstallableBackstageRawPackageDownload(
+  resolved: BackstageRawPackageDownloadRecord,
+  packageId: string
+): { packageSha256: string; sourceKind: 'zip' | 'unitypackage' } {
+  const packageSha256 = resolved.packageSha256.trim().toLowerCase();
+  if (!SHA256_HEX_RE.test(packageSha256)) {
+    throw new Error(`Alias package '${packageId}' has an invalid raw artifact digest`);
+  }
+
+  return { packageSha256, sourceKind: resolved.sourceKind };
+}
 
 export type BackstageRepoConfig = {
   auth?: Auth;
@@ -235,6 +270,20 @@ function getConfiguredCdngine(
   };
 }
 
+function isCdngineVersionNotReady(status: number, payload: Record<string, unknown>): boolean {
+  if (status !== 409) {
+    return false;
+  }
+  const type = typeof payload.type === 'string' ? payload.type : '';
+  const title = typeof payload.title === 'string' ? payload.title : '';
+  const detail = typeof payload.detail === 'string' ? payload.detail : '';
+  return (
+    type.includes('version-not-ready') ||
+    title.toLowerCase() === 'version not ready' ||
+    detail.toLowerCase().includes('not ready')
+  );
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -253,47 +302,53 @@ async function fetchWithTimeout(
 }
 
 async function resolveCdngineDownloadUrl(input: {
-  access: { authUserId: string; subjectId: string; tokenId: string };
+  access: { authUserId: string; subjectId: string; tokenId?: string; accessScopeId?: string };
   cdngine: ConfiguredCdngineBackstageDelivery;
   delivery: CdngineBackstageDeliveryReference;
   packageId: string;
   request: Request;
-  resolved: BackstagePackageDownloadRecord;
+  resolved: BackstagePackageDownloadRecord | BackstageRawPackageDownloadRecord;
 }): Promise<string> {
   const idempotencyHash = await sha256Hex(
     [
       'backstage-package-download-v1',
       input.access.authUserId,
       input.access.subjectId,
-      input.access.tokenId,
+      input.access.tokenId ?? input.access.accessScopeId ?? '',
       input.packageId,
       input.resolved.version,
       input.resolved.channel,
-      input.resolved.deliveryArtifactId ??
-        input.resolved.artifactId ??
-        input.resolved.artifactKey ??
-        '',
+      'artifactId' in input.resolved
+        ? (input.resolved.deliveryArtifactId ??
+          input.resolved.artifactId ??
+          input.resolved.artifactKey ??
+          '')
+        : input.resolved.deliveryArtifactId,
       input.delivery.assetId,
       input.delivery.versionId,
       input.delivery.deliveryScopeId,
       input.delivery.variant,
     ].join('|')
   );
+  const cdngineBaseUrl = input.cdngine.apiBaseUrl.replace(/\/+$/, '');
+  const authorizeHeaders = {
+    accept: 'application/json',
+    authorization: `Bearer ${input.cdngine.accessToken}`,
+    'content-type': 'application/json',
+    ...(input.request.headers.get('traceparent')
+      ? { traceparent: input.request.headers.get('traceparent') as string }
+      : {}),
+  };
   const response = await fetchWithTimeout(
-    `${input.cdngine.apiBaseUrl.replace(/\/+$/, '')}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
+    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
     {
       body: JSON.stringify({
         responseFormat: 'url',
         variant: input.delivery.variant,
       }),
       headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${input.cdngine.accessToken}`,
-        'content-type': 'application/json',
+        ...authorizeHeaders,
         'idempotency-key': `backstage-download-${idempotencyHash}`,
-        ...(input.request.headers.get('traceparent')
-          ? { traceparent: input.request.headers.get('traceparent') as string }
-          : {}),
       },
       method: 'POST',
     },
@@ -301,14 +356,44 @@ async function resolveCdngineDownloadUrl(input: {
   );
   const text = await response.text();
   const payload = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (!response.ok) {
+  if (response.ok) {
+    if (typeof payload.url !== 'string' || payload.url.length === 0) {
+      throw new Error('CDNgine delivery authorization did not return a URL.');
+    }
+    return new URL(payload.url, `${cdngineBaseUrl}/`).toString();
+  }
+
+  if (response.status !== 404 && !isCdngineVersionNotReady(response.status, payload)) {
     const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
     throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
   }
-  if (typeof payload.url !== 'string' || payload.url.length === 0) {
-    throw new Error('CDNgine delivery authorization did not return a URL.');
+
+  const sourceResponse = await fetchWithTimeout(
+    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/source/authorize`,
+    {
+      body: JSON.stringify({
+        responseFormat: 'url',
+      }),
+      headers: {
+        ...authorizeHeaders,
+        'idempotency-key': `backstage-source-download-${idempotencyHash}`,
+      },
+      method: 'POST',
+    },
+    input.cdngine.timeoutMs ?? 5000
+  );
+  const sourceText = await sourceResponse.text();
+  const sourcePayload =
+    sourceText.length > 0 ? (JSON.parse(sourceText) as Record<string, unknown>) : {};
+  if (!sourceResponse.ok) {
+    const detail =
+      typeof sourcePayload.detail === 'string' ? sourcePayload.detail : sourceResponse.statusText;
+    throw new Error(`CDNgine source authorization failed: ${sourceResponse.status} ${detail}`);
   }
-  return new URL(payload.url, `${input.cdngine.apiBaseUrl.replace(/\/+$/, '')}/`).toString();
+  if (typeof sourcePayload.url !== 'string' || sourcePayload.url.length === 0) {
+    throw new Error('CDNgine source authorization did not return a URL.');
+  }
+  return new URL(sourcePayload.url, `${cdngineBaseUrl}/`).toString();
 }
 
 function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
@@ -424,12 +509,19 @@ async function requireSessionAuthUserId(
 async function getPublicProductAccess(
   config: BackstageRepoConfig,
   creatorRef: string,
-  productRef: string
+  productRef: string,
+  actorBinding?: ApiActorBinding
 ): Promise<{
   access: PublicBackstageAccessRecord;
   creatorRepoIdentity: CreatorRepoIdentity;
 } | null> {
-  const convex = getConvexClientFromUrl(config.convexUrl);
+  const actor =
+    actorBinding ??
+    (await createApiServiceActorBinding({
+      service: 'backstage-access',
+      scopes: ['creator:delegate'],
+    }));
+  const convex = getConvexClientFromUrl(config.convexUrl, actor);
   const access = (await convex.query(api.packageRegistry.getPublicBackstageProductAccessByRef, {
     apiSecret: config.convexApiSecret,
     creatorRef,
@@ -583,26 +675,88 @@ async function issueRepoAccess(
     return errorResponse('No active subject found for this account', 404);
   }
 
+  const requestUrl = new URL(request.url);
+  let repoAuthUserId = viewer.authUserId;
+  let repoLabel = 'VCC Backstage Repos';
+
+  const requestedCatalogProductId = requestUrl.searchParams.get('catalogProductId')?.trim() ?? '';
+  const requestedCreatorRef = requestUrl.searchParams.get('creatorRef')?.trim() ?? '';
+  const requestedProductRef = requestUrl.searchParams.get('productRef')?.trim() ?? '';
+  if (requestedCatalogProductId) {
+    const product = (await convex.query(
+      api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: config.convexApiSecret,
+        catalogProductId: requestedCatalogProductId as Id<'product_catalog'>,
+      }
+    )) as BuyerAccessCatalogProduct | null;
+    if (!product) {
+      return errorResponse('Alias product access not found', 404);
+    }
+    const creatorRef = product.creatorAuthUserId?.trim();
+    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    if (!creatorRef || !productRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+      apiSecret: config.convexApiSecret,
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    })) as AuthorizedAliasInstallPlanRecord | null;
+    if (!plan) {
+      return errorResponse('Alias install plan not found', 404);
+    }
+    repoAuthUserId = product.creatorAuthUserId;
+    repoLabel = `VCC Backstage Repos: ${productRef}`;
+  } else if (requestedCreatorRef || requestedProductRef) {
+    if (!requestedCreatorRef || !requestedProductRef) {
+      return errorResponse('creatorRef and productRef are both required', 400);
+    }
+    const resolved = await getPublicProductAccess(
+      config,
+      requestedCreatorRef,
+      requestedProductRef,
+      viewer.actorBinding
+    );
+    if (!resolved) {
+      return errorResponse('Product not found', 404);
+    }
+    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+      apiSecret: config.convexApiSecret,
+      authUserId: resolved.access.creatorAuthUserId,
+      subjectId,
+      creatorRef: requestedCreatorRef,
+      productRef: requestedProductRef,
+    })) as AuthorizedAliasInstallPlanRecord | null;
+    if (!plan) {
+      return errorResponse('Alias install plan not found', 404);
+    }
+    repoAuthUserId = resolved.access.creatorAuthUserId;
+    repoLabel = `VCC Backstage Repos: ${requestedCreatorRef}/${requestedProductRef}`;
+  }
+
   const now = Date.now();
   const issued = await convex.mutation(api.backstageRepos.issueRepoTokenForApi, {
     apiSecret: config.convexApiSecret,
-    authUserId: viewer.authUserId,
+    authUserId: repoAuthUserId,
+    subjectAuthUserId: viewer.authUserId,
     subjectId,
-    label: 'VCC Backstage Repos',
+    label: repoLabel,
     expiresAt: now + BACKSTAGE_REPO_TOKEN_TTL_MS,
   });
 
   const creatorRepoIdentity = await getCreatorRepoIdentity({
     convex,
     convexApiSecret: config.convexApiSecret,
-    authUserId: viewer.authUserId,
+    authUserId: repoAuthUserId,
   });
   const repositoryUrl = buildBackstageRepositoryUrls(
     config.apiBaseUrl,
     creatorRepoIdentity.creatorRepoRef
   ).repositoryUrl;
   const addRepoUrl = buildBackstageAddRepoUrl(repositoryUrl, issued.token);
-  const requestUrl = new URL(request.url);
   if (requestUrl.searchParams.get('mode') === 'redirect') {
     return Response.redirect(addRepoUrl, 302);
   }
@@ -635,9 +789,19 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('No active subject found for this account', 404);
     }
 
+    const resolved = await getPublicProductAccess(
+      config,
+      creatorRef,
+      productRef,
+      viewer.actorBinding
+    );
+    if (!resolved) {
+      return errorResponse('Alias install plan not found', 404);
+    }
+
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
-      authUserId: viewer.authUserId,
+      authUserId: resolved.access.creatorAuthUserId,
       subjectId,
       creatorRef,
       productRef,
@@ -646,7 +810,13 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
-    return await buildAuthorizedAliasInstallPlanResponse(config, convex, plan);
+    return await buildAuthorizedAliasInstallPlanResponse(
+      config,
+      convex,
+      plan,
+      subjectId,
+      String(resolved.access.catalogProductId)
+    );
   } catch (error) {
     logger.error('Failed to issue alias install plan', {
       authUserId: viewer.authUserId,
@@ -694,7 +864,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
-      authUserId: viewer.authUserId,
+      authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
       productRef,
@@ -703,7 +873,13 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       return errorResponse('Alias install plan not found', 404);
     }
 
-    return await buildAuthorizedAliasInstallPlanResponse(config, convex, plan);
+    return await buildAuthorizedAliasInstallPlanResponse(
+      config,
+      convex,
+      plan,
+      subjectId,
+      catalogProductId
+    );
   } catch (error) {
     logger.error('Failed to issue catalog-product alias install plan', {
       authUserId: viewer.authUserId,
@@ -717,7 +893,9 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 async function buildAuthorizedAliasInstallPlanResponse(
   config: BackstageRepoConfig,
   convex: ReturnType<typeof getConvexClientFromUrl>,
-  plan: AuthorizedAliasInstallPlanRecord
+  plan: AuthorizedAliasInstallPlanRecord,
+  subjectId: string,
+  catalogProductId: string
 ): Promise<Response> {
   const creatorRepoIdentity = await getCreatorRepoIdentity({
     convex,
@@ -738,22 +916,233 @@ async function buildAuthorizedAliasInstallPlanResponse(
     title: plan.displayName ?? plan.packages[0]?.displayName ?? plan.providerProductRef,
     thumbnailUrl: plan.thumbnailUrl,
     repositoryUrl,
-    packages: plan.packages.map((pkg) => {
-      const importerDelivery = buildBackstageImporterDelivery(pkg.aliasContract);
-      if (!importerDelivery) {
-        throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
-      }
-      return {
-        packageId: pkg.packageId,
-        displayName: pkg.displayName,
-        version: pkg.version,
-        channel: pkg.channel,
-        zipSha256: pkg.zipSha256,
-        aliasContract: pkg.aliasContract,
-        importerDelivery,
-      };
-    }),
+    packages: await Promise.all(
+      plan.packages.map(async (pkg) => {
+        const importerDelivery = buildBackstageImporterDelivery(pkg.aliasContract);
+        if (!importerDelivery) {
+          throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
+        }
+        const resolvedDownload = (await convex.query(
+          api.backstageRepos.resolveRawPackageDownloadForApi,
+          {
+            apiSecret: config.convexApiSecret,
+            authUserId: plan.creatorAuthUserId,
+            subjectId: subjectId as Id<'subjects'>,
+            packageId: pkg.packageId,
+            version: pkg.version,
+            channel: pkg.channel,
+          }
+        )) as BackstageRawPackageDownloadRecord | null;
+        if (!resolvedDownload) {
+          throw new Error(
+            `Alias package '${pkg.packageId}' is missing a package delivery artifact`
+          );
+        }
+        const installableDownload = requireInstallableBackstageRawPackageDownload(
+          resolvedDownload,
+          pkg.packageId
+        );
+        return {
+          packageId: pkg.packageId,
+          displayName: pkg.displayName,
+          version: pkg.version,
+          channel: pkg.channel,
+          zipSha256: pkg.zipSha256,
+          packageSha256: installableDownload.packageSha256,
+          sourceKind: installableDownload.sourceKind,
+          downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(catalogProductId)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
+          aliasContract: pkg.aliasContract,
+          importerDelivery,
+        };
+      })
+    ),
   });
+}
+
+async function readRequestTextWithLimit(request: Request, maxBytes: number): Promise<string> {
+  const contentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new RequestBodyError('Request body too large', 413);
+  }
+  if (!request.body) {
+    return '';
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      byteLength += chunk.value.byteLength;
+      if (byteLength > maxBytes) {
+        throw new RequestBodyError('Request body too large', 413);
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bodyBytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bodyBytes);
+}
+
+async function parseJsonObjectBody(request: Request): Promise<Record<string, unknown>> {
+  const text = await readRequestTextWithLimit(request, BACKSTAGE_RAW_DOWNLOAD_BODY_MAX_BYTES);
+  if (!text.trim()) {
+    return {};
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    throw new RequestBodyError('Invalid JSON body', 400);
+  }
+  if (!isRecord(parsed)) {
+    throw new RequestBodyError('Request body must be a JSON object.', 400);
+  }
+  return parsed;
+}
+
+function readOptionalBodyString(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+async function issueAuthorizedRawPackageDownloadForCatalogProduct(
+  request: Request,
+  config: BackstageRepoConfig,
+  catalogProductId: string,
+  packageId: string
+): Promise<Response> {
+  const viewer = await authenticateBackstageAccess(request, config, config.auth);
+  if (viewer instanceof Response) {
+    return viewer;
+  }
+
+  try {
+    const body = await parseJsonObjectBody(request);
+    const requestedVersion = readOptionalBodyString(body, 'version');
+    const requestedChannel = readOptionalBodyString(body, 'channel');
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    if (!subjectId) {
+      return errorResponse('No active subject found for this account', 404);
+    }
+
+    const product = (await convex.query(
+      api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: config.convexApiSecret,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      }
+    )) as BuyerAccessCatalogProduct | null;
+    if (!product) {
+      return errorResponse('Alias product access not found', 404);
+    }
+
+    const creatorRef = product.creatorAuthUserId?.trim();
+    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    if (!creatorRef || !productRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+
+    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+      apiSecret: config.convexApiSecret,
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    })) as AuthorizedAliasInstallPlanRecord | null;
+    const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
+    if (!planPackage) {
+      return errorResponse('Package not found', 404);
+    }
+
+    const version = requestedVersion ?? planPackage.version;
+    const channel = requestedChannel ?? planPackage.channel;
+    if (version !== planPackage.version || channel !== planPackage.channel) {
+      return errorResponse('Package not found', 404);
+    }
+
+    const resolved = (await convex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+      apiSecret: config.convexApiSecret,
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      packageId,
+      version,
+      channel,
+    })) as BackstageRawPackageDownloadRecord | null;
+    if (!resolved) {
+      return errorResponse('Package not found', 404);
+    }
+    const installableDownload = requireInstallableBackstageRawPackageDownload(resolved, packageId);
+
+    let downloadUrl = resolved.downloadUrl;
+    if (isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
+      const cdngine = getConfiguredCdngine(config);
+      if (!cdngine) {
+        logger.error('CDNgine raw Backstage delivery is configured but not available', {
+          authUserId: product.creatorAuthUserId,
+          deliveryArtifactId: resolved.deliveryArtifactId,
+          packageId,
+          version,
+          channel,
+        });
+        return errorResponse('Package delivery is temporarily unavailable', 502);
+      }
+      downloadUrl = await resolveCdngineDownloadUrl({
+        access: {
+          authUserId: product.creatorAuthUserId,
+          subjectId,
+          accessScopeId: `catalog-product:${catalogProductId}`,
+        },
+        cdngine,
+        delivery: resolved.cdngineDelivery,
+        packageId,
+        request,
+        resolved,
+      });
+    }
+
+    if (!downloadUrl) {
+      return errorResponse('Package delivery is temporarily unavailable', 502);
+    }
+
+    return jsonResponse({
+      downloadUrl,
+      packageSha256: installableDownload.packageSha256,
+      sourceKind: installableDownload.sourceKind,
+      version: resolved.version,
+      channel: resolved.channel,
+      contentType: resolved.contentType,
+      deliveryName: resolved.deliveryName,
+    });
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return errorResponse(error.message, error.status);
+    }
+    logger.error('Failed to authorize raw package download', {
+      authUserId: viewer.authUserId,
+      catalogProductId,
+      packageId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Failed to authorize package download', 500);
+  }
 }
 
 async function getBuyerAccessInfo(
@@ -800,7 +1189,11 @@ async function bootstrapBuyerVerificationIntent(
     return authUserId;
   }
 
-  const resolved = await getPublicProductAccess(config, creatorRef, productRef);
+  const actor = await createAuthUserActorBinding({
+    authUserId,
+    source: 'session',
+  });
+  const resolved = await getPublicProductAccess(config, creatorRef, productRef, actor);
   if (!resolved) {
     return errorResponse('Product not found', 404);
   }
@@ -830,10 +1223,6 @@ async function bootstrapBuyerVerificationIntent(
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl);
-    const actor = await createAuthUserActorBinding({
-      authUserId,
-      source: 'session',
-    });
     const requirements = buildBuyerAccessRequirements(resolved.access);
     const result = await convex.mutation(api.verificationIntents.createVerificationIntent, {
       apiSecret: config.convexApiSecret,
@@ -1001,6 +1390,9 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       const buyerCatalogInstallPlanMatch = url.pathname.match(
         /^\/api\/backstage\/access\/products\/([^/]+)\/install-plan$/
       );
+      const buyerCatalogPackageDownloadMatch = url.pathname.match(
+        /^\/api\/backstage\/access\/products\/([^/]+)\/packages\/([^/]+)\/download$/
+      );
       const buyerIntentMatch = url.pathname.match(
         /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/verification-intent$/
       );
@@ -1019,6 +1411,19 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       }
       if (request.method === 'GET' && creatorRepoRoute?.routeType === 'package') {
         return await servePackageDownload(request, config, creatorRepoRoute.creatorRepoRef);
+      }
+      if (request.method === 'POST' && buyerCatalogPackageDownloadMatch) {
+        const catalogProductId = safeDecodeURIComponent(buyerCatalogPackageDownloadMatch[1] ?? '');
+        const packageId = safeDecodeURIComponent(buyerCatalogPackageDownloadMatch[2] ?? '');
+        if (catalogProductId === null || packageId === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await issueAuthorizedRawPackageDownloadForCatalogProduct(
+          request,
+          config,
+          catalogProductId,
+          packageId
+        );
       }
       if (request.method === 'GET' && buyerAccessMatch) {
         const creatorRef = safeDecodeURIComponent(buyerAccessMatch[1] ?? '');

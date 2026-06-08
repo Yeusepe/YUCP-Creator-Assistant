@@ -15,6 +15,7 @@ const DEV_HYPERDX_APP_URL = 'http://localhost:8080';
 const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const DEV_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
 const DEV_HYPERDX_USE_REMOTE_FLAG = 'HYPERDX_DEV_USE_REMOTE';
+const DEFAULT_CDNGINE_REPOSITORY_URL = 'https://github.com/Yeusepe/cdngine';
 const PREFIX_RESET = '\u001B[0m';
 const PREFIX_COLORS = {
   blue: '\u001B[34m',
@@ -67,6 +68,8 @@ const TUNNEL_COMMAND: DevCommandSpec = {
   command: 'tailscale funnel 3001',
   required: false,
 };
+const WINDOWS_TASKKILL_TIMEOUT_MS = 2_000;
+const WINDOWS_POWERSHELL_KILL_TIMEOUT_MS = 5_000;
 
 export function getCdngineDir(baseEnv: NodeJS.ProcessEnv = process.env): string | null {
   const configured = baseEnv.CDNGINE_DIR?.trim();
@@ -79,6 +82,10 @@ export function getCdngineDir(baseEnv: NodeJS.ProcessEnv = process.env): string 
   }
 
   return configured;
+}
+
+function getManagedCdngineRef(baseEnv: NodeJS.ProcessEnv = process.env): string | null {
+  return baseEnv.CDNGINE_DOCKER_REF?.trim() || null;
 }
 
 export function getCdngineStartMode(baseEnv: NodeJS.ProcessEnv = process.env): CdngineStartMode {
@@ -101,9 +108,7 @@ function buildCdngineCommand(startMode: CdngineStartMode): string {
     case 'server':
       return [
         'npm start',
-        'npm run build -w @cdngine/auth',
-        'npm run build -w @cdngine/api',
-        'npm run build -w @cdngine/workflows',
+        'npm run build',
         'node ./apps/demo/scripts/start-public-runtime.mjs',
       ].join(' && ');
     case 'demo':
@@ -114,7 +119,13 @@ function buildCdngineCommand(startMode: CdngineStartMode): string {
 export function describeCdngineStartup(baseEnv: NodeJS.ProcessEnv = process.env): string {
   const cdngineDir = getCdngineDir(baseEnv);
   if (!cdngineDir) {
-    return 'cdngine disabled. Set CDNGINE_DIR in .env.local or .env.infisical to launch it.';
+    const managedRef = getManagedCdngineRef(baseEnv);
+    if (!managedRef) {
+      return 'cdngine disabled. Set CDNGINE_DIR or CDNGINE_DOCKER_REF in .env.local or .env.infisical to launch it.';
+    }
+    const repositoryUrl = baseEnv.CDNGINE_REPOSITORY_URL?.trim() || DEFAULT_CDNGINE_REPOSITORY_URL;
+    const startMode = getCdngineStartMode(baseEnv);
+    return `cdngine enabled via Docker Compose ${repositoryUrl} @ ${managedRef} (mode: ${startMode})`;
   }
 
   const startMode = getCdngineStartMode(baseEnv);
@@ -134,6 +145,13 @@ export function buildDevCommands(
       color: 'cyan',
       command: buildCdngineCommand(cdngineStartMode),
       cwd: cdngineDir,
+      required: false,
+    });
+  } else if (getManagedCdngineRef(baseEnv)) {
+    commands.push({
+      name: 'cdngine',
+      color: 'cyan',
+      command: 'bun run ops/cdngine-dev.ts',
       required: false,
     });
   }
@@ -250,6 +268,30 @@ function isMissingProcessError(error: unknown): boolean {
   );
 }
 
+async function killWindowsProcessTreeWithPowershell(pid: number): Promise<void> {
+  const script = `
+$ErrorActionPreference = 'SilentlyContinue'
+$rootPid = ${pid}
+$processes = Get-Process
+function Stop-ProcessTree([int]$currentPid) {
+  foreach ($child in $processes) {
+    try {
+      if ($null -ne $child.Parent -and $child.Parent.Id -eq $currentPid) {
+        Stop-ProcessTree $child.Id
+      }
+    } catch {
+    }
+  }
+  Stop-Process -Id $currentPid -Force -ErrorAction SilentlyContinue
+}
+Stop-ProcessTree $rootPid
+`;
+  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    timeout: WINDOWS_POWERSHELL_KILL_TIMEOUT_MS,
+    windowsHide: true,
+  });
+}
+
 export async function killProcessTree(
   pid: number,
   signal: NodeJS.Signals = 'SIGINT'
@@ -259,17 +301,32 @@ export async function killProcessTree(
   }
 
   if (process.platform === 'win32') {
+    let taskkillError: unknown;
     try {
       await execFileAsync('taskkill', ['/pid', `${pid}`, '/t', '/f'], {
+        timeout: WINDOWS_TASKKILL_TIMEOUT_MS,
         windowsHide: true,
       });
     } catch (error) {
       if (!isProcessAlive(pid) || isMissingProcessError(error)) {
         return;
       }
-      throw error;
+      taskkillError = error;
+      try {
+        await killWindowsProcessTreeWithPowershell(pid);
+      } catch (fallbackError) {
+        if (!isProcessAlive(pid) || isMissingProcessError(fallbackError)) {
+          return;
+        }
+        throw fallbackError;
+      }
     }
-    await waitForProcessExit(pid, 5_000);
+    if (await waitForProcessExit(pid, 5_000)) {
+      return;
+    }
+    if (taskkillError) {
+      throw taskkillError;
+    }
     return;
   }
 
@@ -428,7 +485,7 @@ async function runCommandStep(step: DevCommandSpec, env: NodeJS.ProcessEnv): Pro
 
 export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const preferRemoteHyperdx = baseEnv[DEV_HYPERDX_USE_REMOTE_FLAG] === 'true';
-  const hasCdngineDir = Boolean(baseEnv.CDNGINE_DIR?.trim());
+  const hasCdngineRuntime = Boolean(baseEnv.CDNGINE_DIR?.trim() || getManagedCdngineRef(baseEnv));
   const hasCdngineBaseUrl = Boolean(
     baseEnv.CDNGINE_API_BASE_URL?.trim() || baseEnv.CDNGINE_PUBLIC_API_BASE_URL?.trim()
   );
@@ -437,10 +494,10 @@ export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.Proces
   );
   return {
     ...baseEnv,
-    ...(hasCdngineDir && !hasCdngineBaseUrl
+    ...(hasCdngineRuntime && !hasCdngineBaseUrl
       ? { CDNGINE_API_BASE_URL: DEV_CDNGINE_API_BASE_URL }
       : {}),
-    ...(hasCdngineDir && !hasCdngineAccessToken
+    ...(hasCdngineRuntime && !hasCdngineAccessToken
       ? { CDNGINE_ACCESS_TOKEN: DEV_CDNGINE_ACCESS_TOKEN }
       : {}),
     FRONTEND_URL: baseEnv.FRONTEND_URL ?? DEV_FRONTEND_URL,
@@ -463,10 +520,13 @@ export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.Proces
 }
 
 async function loadInfisicalEnv(): Promise<NodeJS.ProcessEnv> {
+  const localEnvFilePath = path.join(ROOT_DIR, '.env.local');
+  const localEnvFile = existsSync(localEnvFilePath) ? await readFile(localEnvFilePath, 'utf8') : '';
   const envFilePath = path.join(ROOT_DIR, '.env.infisical');
   const envFile = existsSync(envFilePath) ? await readFile(envFilePath, 'utf8') : '';
   return applyLocalDevDefaults({
     ...process.env,
+    ...parseDotenv(localEnvFile),
     ...parseDotenv(envFile),
   });
 }

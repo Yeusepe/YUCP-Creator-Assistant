@@ -17,7 +17,7 @@ export const YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS = [
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
   YUCP_MOTION_TOOLKIT_PACKAGE_ID,
 ] as const;
-export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.0';
+export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.9';
 export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION = `>=${YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION}`;
 
 export type YucpAliasPackageInstallStrategy =
@@ -239,6 +239,46 @@ export function resolveSharedYucpAliasIdFromCatalogProducts(
   return Array.from(comparableAliasIds)[0];
 }
 
+function parseVersionFloorCandidate(value: string): number[] | undefined {
+  const normalized = value.trim().replace(/^>=\s*/, '');
+  if (!/^\d+(?:\.\d+){0,2}$/.test(normalized)) {
+    return undefined;
+  }
+
+  return normalized.split('.').map((segment) => Number.parseInt(segment, 10));
+}
+
+function compareVersionParts(left: number[], right: number[]): number {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index++) {
+    const leftPart = left[index] ?? 0;
+    const rightPart = right[index] ?? 0;
+    if (leftPart !== rightPart) {
+      return leftPart > rightPart ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+function resolveAliasImporterMinimumVersion(existingMinimum?: string): string {
+  const defaultMinimum = YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION;
+  const normalizedExisting = existingMinimum?.trim();
+  if (!normalizedExisting) {
+    return defaultMinimum;
+  }
+
+  const existingParts = parseVersionFloorCandidate(normalizedExisting);
+  const defaultParts = parseVersionFloorCandidate(defaultMinimum);
+  if (!defaultParts) {
+    return normalizedExisting;
+  }
+  if (!existingParts) {
+    return defaultMinimum;
+  }
+
+  return compareVersionParts(existingParts, defaultParts) < 0 ? defaultMinimum : normalizedExisting;
+}
+
 export function mergeYucpAliasPackageMetadata(input: {
   metadata?: unknown;
   aliasId: string;
@@ -259,9 +299,9 @@ export function mergeYucpAliasPackageMetadata(input: {
       aliasId: input.aliasId,
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
-      minImporterVersion:
-        existingAliasContract?.minImporterVersion ??
-        YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
+      minImporterVersion: resolveAliasImporterMinimumVersion(
+        existingAliasContract?.minImporterVersion
+      ),
       catalogProductIds: Array.from(new Set(input.catalogProductIds.map((value) => value.trim()))),
       channel: input.channel.trim(),
     },

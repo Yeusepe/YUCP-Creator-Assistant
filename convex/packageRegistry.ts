@@ -146,6 +146,18 @@ type BackstagePackageDownloadRecord = {
   cdngineDelivery?: CdngineBackstageDeliveryReference;
 };
 
+type BackstageRawPackageDownloadRecord = {
+  deliveryArtifactId: Id<'delivery_release_artifacts'>;
+  downloadUrl: string;
+  contentType: string;
+  deliveryName: string;
+  packageSha256: string;
+  sourceKind: 'zip' | 'unitypackage';
+  version: string;
+  channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
+};
+
 type AuthorizedAliasInstallPlanPackageRecord = {
   packageId: string;
   displayName?: string;
@@ -197,6 +209,18 @@ const BackstagePackageDownloadRecordV = v.object({
   contentType: v.string(),
   deliveryName: v.string(),
   zipSha256: v.optional(v.string()),
+  version: v.string(),
+  channel: v.string(),
+  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+});
+
+const BackstageRawPackageDownloadRecordV = v.object({
+  deliveryArtifactId: v.id('delivery_release_artifacts'),
+  downloadUrl: v.string(),
+  contentType: v.string(),
+  deliveryName: v.string(),
+  packageSha256: v.string(),
+  sourceKind: v.union(v.literal('zip'), v.literal('unitypackage')),
   version: v.string(),
   channel: v.string(),
   cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
@@ -472,6 +496,50 @@ async function resolveDownloadableArtifactForReleaseRecord(
     zipSha256: release.zipSha256,
     version: release.version,
     channel: release.channel,
+  };
+}
+
+async function resolveRawDownloadableArtifactForReleaseRecord(
+  ctx: QueryCtx,
+  release: DownloadablePackageReleaseRecord | null
+): Promise<BackstageRawPackageDownloadRecord | null> {
+  if (!release) {
+    return null;
+  }
+
+  const rawArtifact = await ctx.db
+    .query('delivery_release_artifacts')
+    .withIndex('by_release_role_status', (q) =>
+      q
+        .eq('deliveryPackageReleaseId', release.deliveryPackageReleaseId)
+        .eq('artifactRole', 'raw_upload')
+        .eq('status', 'active')
+    )
+    .first();
+  if (!rawArtifact) {
+    return null;
+  }
+
+  const downloadUrl = rawArtifact.storageId
+    ? await ctx.storage.getUrl(rawArtifact.storageId)
+    : null;
+  if (!downloadUrl && !rawArtifact.cdngineDelivery) {
+    return null;
+  }
+
+  return {
+    deliveryArtifactId: rawArtifact._id,
+    downloadUrl: downloadUrl ?? '',
+    contentType: rawArtifact.contentType,
+    deliveryName: rawArtifact.deliveryName,
+    packageSha256: rawArtifact.sha256,
+    sourceKind: inferBackstageVpmDeliverySourceKind({
+      deliveryName: rawArtifact.deliveryName,
+      contentType: rawArtifact.contentType,
+    }),
+    version: release.version,
+    channel: release.channel,
+    cdngineDelivery: rawArtifact.cdngineDelivery,
   };
 }
 
@@ -1384,6 +1452,7 @@ export const getRegistrationsByYucpUser = internalQuery({
 export const issueBackstageRepoToken = internalMutation({
   args: {
     authUserId: v.string(),
+    subjectAuthUserId: v.optional(v.string()),
     subjectId: v.id('subjects'),
     label: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
@@ -1395,7 +1464,12 @@ export const issueBackstageRepoToken = internalMutation({
   }),
   handler: async (ctx, args) => {
     const subject = await ctx.db.get(args.subjectId);
-    if (!subject || subject.status !== 'active' || subject.authUserId !== args.authUserId) {
+    const expectedSubjectAuthUserId = args.subjectAuthUserId ?? args.authUserId;
+    if (
+      !subject ||
+      subject.status !== 'active' ||
+      subject.authUserId !== expectedSubjectAuthUserId
+    ) {
       throw new ConvexError('Subject not found.');
     }
 
@@ -2182,6 +2256,7 @@ export const listByAuthUser = query({
 export const getPublicBackstageProductAccessByRef = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     creatorRef: v.string(),
     productRef: v.string(),
   },
@@ -2212,6 +2287,7 @@ export const getPublicBackstageProductAccessByRef = query({
   ),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
     const resolved = await resolveBackstageProductByRef(ctx, args.creatorRef, args.productRef);
     if (!resolved) {
       return null;
@@ -2255,6 +2331,7 @@ export const getPublicBackstageProductAccessByRef = query({
 export const getAuthorizedAliasInstallPlanByRef = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     creatorRef: v.string(),
@@ -2263,6 +2340,7 @@ export const getAuthorizedAliasInstallPlanByRef = query({
   returns: v.union(v.null(), AuthorizedAliasInstallPlanRecordV),
   handler: async (ctx, args): Promise<AuthorizedAliasInstallPlanRecord | null> => {
     requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
     const resolved = await resolveBackstageProductByRef(ctx, args.creatorRef, args.productRef);
     if (!resolved) {
       return null;
@@ -2945,6 +3023,34 @@ export const getResolvedEntitledPackageDownloadForSubject = internalQuery({
     );
 
     return await resolveDownloadableArtifactForReleaseRecord(
+      ctx,
+      release as DownloadablePackageReleaseRecord | null
+    );
+  },
+});
+
+export const getResolvedEntitledRawPackageDownloadForSubject = internalQuery({
+  args: {
+    authUserId: v.string(),
+    subjectId: v.id('subjects'),
+    packageId: v.string(),
+    version: v.optional(v.string()),
+    channel: v.optional(v.string()),
+  },
+  returns: v.union(v.null(), BackstageRawPackageDownloadRecordV),
+  handler: async (ctx, args): Promise<BackstageRawPackageDownloadRecord | null> => {
+    const release = await ctx.runQuery(
+      internal.packageRegistry.getEntitledPackageReleaseForSubject,
+      {
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        packageId: args.packageId,
+        version: args.version,
+        channel: args.channel,
+      }
+    );
+
+    return await resolveRawDownloadableArtifactForReleaseRecord(
       ctx,
       release as DownloadablePackageReleaseRecord | null
     );

@@ -121,6 +121,17 @@ describe('DevSupervisor', () => {
     });
   });
 
+  test('applyLocalDevDefaults wires Gumroad to the local CDNgine public runtime when a managed CDNgine ref is configured', () => {
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596',
+      })
+    ).toMatchObject({
+      CDNGINE_API_BASE_URL: 'http://localhost:4000',
+      CDNGINE_ACCESS_TOKEN: 'local-public-runtime-token',
+    });
+  });
+
   test('applyLocalDevDefaults preserves explicit CDNgine API config', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-explicit-'));
     expect(
@@ -254,7 +265,17 @@ describe('DevSupervisor', () => {
 
   test('describeCdngineStartup explains how to enable cdngine when CDNGINE_DIR is unset', () => {
     expect(describeCdngineStartup({})).toBe(
-      'cdngine disabled. Set CDNGINE_DIR in .env.local or .env.infisical to launch it.'
+      'cdngine disabled. Set CDNGINE_DIR or CDNGINE_DOCKER_REF in .env.local or .env.infisical to launch it.'
+    );
+  });
+
+  test('describeCdngineStartup reports the managed cdngine Docker ref', () => {
+    expect(
+      describeCdngineStartup({
+        CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596',
+      })
+    ).toBe(
+      'cdngine enabled via Docker Compose https://github.com/Yeusepe/cdngine @ ef5813602b76c996e907261ee9afc4f45722c596 (mode: server)'
     );
   });
 
@@ -278,11 +299,21 @@ describe('DevSupervisor', () => {
     expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
       cwd: tempDir,
       required: false,
-      command:
-        'npm start && npm run build -w @cdngine/auth && npm run build -w @cdngine/api && npm run build -w @cdngine/workflows && node ./apps/demo/scripts/start-public-runtime.mjs',
+      command: 'npm start && npm run build && node ./apps/demo/scripts/start-public-runtime.mjs',
     });
     expect(commands.find((command) => command.name === 'tunnel')).toMatchObject({
       required: false,
+    });
+  });
+
+  test('buildDevCommands starts a managed cdngine Docker runtime when a Docker ref is configured', () => {
+    const commands = buildDevCommands(
+      { CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596' },
+      true
+    );
+    expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
+      required: false,
+      command: 'bun run ops/cdngine-dev.ts',
     });
   });
 

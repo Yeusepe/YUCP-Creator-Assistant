@@ -266,6 +266,71 @@ describe('license verification account linking', () => {
     expect(creatorIdentity).toBeNull();
   });
 
+  it('grants each product separately when provider licenses share an order source reference', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-shared-order-creator';
+    const buyerAuthUserId = 'auth-license-verification-shared-order-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-shared-order-buyer',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-shared-order-creator',
+    });
+
+    const firstResult = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-shared-order',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-shared-order-a',
+          sourceReference: 'jinxxy-order-shared-by-multiple-licenses',
+        },
+      ],
+    } as never);
+
+    const secondResult = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-shared-order',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-shared-order-b',
+          sourceReference: 'jinxxy-order-shared-by-multiple-licenses',
+        },
+      ],
+    } as never);
+
+    expect(firstResult.success).toBe(true);
+    expect(secondResult.success).toBe(true);
+    expect(firstResult.outboxJobIds).toHaveLength(1);
+    expect(secondResult.outboxJobIds).toHaveLength(1);
+    expect(secondResult.entitlementIds).not.toEqual(firstResult.entitlementIds);
+
+    const entitlements = await t.run((ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect()
+    );
+
+    expect(entitlements.map((e) => e.productId).sort()).toEqual([
+      'product-license-verification-shared-order-a',
+      'product-license-verification-shared-order-b',
+    ]);
+  });
+
   it('rejects explicit buyer attribution when the subject belongs to a different auth user', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-license-verification-creator-mismatch';

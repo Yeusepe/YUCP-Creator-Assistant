@@ -76,6 +76,18 @@ type BackstagePackageDownloadRecord = {
   cdngineDelivery?: CdngineBackstageDeliveryReference;
 };
 
+type BackstageRawPackageDownloadRecord = {
+  deliveryArtifactId: Id<'delivery_release_artifacts'>;
+  downloadUrl: string;
+  contentType: string;
+  deliveryName: string;
+  packageSha256: string;
+  sourceKind: 'zip' | 'unitypackage';
+  version: string;
+  channel: string;
+  cdngineDelivery?: CdngineBackstageDeliveryReference;
+};
+
 type BackstagePublishedReleaseRecord = {
   deliveryPackageReleaseId: Id<'delivery_package_releases'>;
   zipSha256: string;
@@ -227,6 +239,7 @@ export const issueRepoTokenForApi = mutation({
   args: {
     apiSecret: v.string(),
     authUserId: v.string(),
+    subjectAuthUserId: v.optional(v.string()),
     subjectId: v.id('subjects'),
     label: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
@@ -243,6 +256,7 @@ export const issueRepoTokenForApi = mutation({
     requireApiSecret(args.apiSecret);
     return await ctx.runMutation(internal.packageRegistry.issueBackstageRepoToken, {
       authUserId: args.authUserId,
+      subjectAuthUserId: args.subjectAuthUserId,
       subjectId: args.subjectId,
       label: args.label,
       expiresAt: args.expiresAt,
@@ -343,6 +357,44 @@ export const resolvePackageDownloadForApi = query({
     requireApiSecret(args.apiSecret);
     return await ctx.runQuery(
       internal.packageRegistry.getResolvedEntitledPackageDownloadForSubject,
+      {
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        packageId: args.packageId,
+        version: args.version,
+        channel: args.channel,
+      }
+    );
+  },
+});
+
+export const resolveRawPackageDownloadForApi = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    subjectId: v.id('subjects'),
+    packageId: v.string(),
+    version: v.optional(v.string()),
+    channel: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      deliveryArtifactId: v.id('delivery_release_artifacts'),
+      downloadUrl: v.string(),
+      contentType: v.string(),
+      deliveryName: v.string(),
+      packageSha256: v.string(),
+      sourceKind: v.union(v.literal('zip'), v.literal('unitypackage')),
+      version: v.string(),
+      channel: v.string(),
+      cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+    })
+  ),
+  handler: async (ctx, args): Promise<BackstageRawPackageDownloadRecord | null> => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.runQuery(
+      internal.packageRegistry.getResolvedEntitledRawPackageDownloadForSubject,
       {
         authUserId: args.authUserId,
         subjectId: args.subjectId,

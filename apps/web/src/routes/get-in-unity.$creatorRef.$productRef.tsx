@@ -52,7 +52,7 @@ function BuyerUnityAccessPage() {
 
   const repoAccessQuery = useQuery({
     queryKey: ['buyer-backstage-repo-access', authUserId, grant],
-    queryFn: requestUserBackstageRepoAccess,
+    queryFn: () => requestUserBackstageRepoAccess({ creatorRef, productRef }),
     enabled: Boolean(authUserId) && Boolean(grant),
     retry: false,
   });

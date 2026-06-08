@@ -12,6 +12,43 @@ function readSortedPartials(partialsDir: string): string {
     .join('\n');
 }
 
+function readCssDeclaration(css: string, selector: string, property: string): string {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const blockMatch = css.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, 's'));
+  if (!blockMatch?.groups?.body) {
+    throw new Error(`Missing CSS block for ${selector}`);
+  }
+
+  const declarationMatch = blockMatch.groups.body.match(
+    new RegExp(`${property}\\s*:\\s*(?<value>[^;]+);`)
+  );
+  if (!declarationMatch?.groups?.value) {
+    throw new Error(`Missing ${property} declaration for ${selector}`);
+  }
+
+  return declarationMatch.groups.value.trim();
+}
+
+function expectOpaqueLightBackground(selector: string, minimumAlpha = 0.84): void {
+  const background = readCssDeclaration(dashboardComponentsCss, selector, 'background');
+  const rgbaMatch = background.match(/^rgba\(255,\s*255,\s*255,\s*(?<alpha>0?\.\d+|1(?:\.0+)?)\)$/);
+  if (!rgbaMatch?.groups?.alpha) {
+    const hexMatch = background.match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!hexMatch?.groups?.hex) {
+      throw new Error(`${selector} must use an opaque light hex or white rgba() background`);
+    }
+    const hex =
+      hexMatch.groups.hex.length === 3
+        ? Array.from(hexMatch.groups.hex, (digit) => `${digit}${digit}`).join('')
+        : hexMatch.groups.hex;
+    const channels = hex.match(/[0-9a-f]{2}/gi)?.map((channel) => Number.parseInt(channel, 16));
+    expect(channels?.every((channel) => channel >= 220)).toBe(true);
+    return;
+  }
+
+  expect(Number(rgbaMatch.groups.alpha)).toBeGreaterThanOrEqual(minimumAlpha);
+}
+
 /** Concatenates dashboard token + partials (matches @import resolution in dashboard.css). */
 const dashboardCss = [
   readFileSync(join(stylesDir, 'dashboard-tokens.css'), 'utf8'),
@@ -167,6 +204,32 @@ describe('dashboard UI contracts', () => {
     expect(dashboardComponentsCss).toContain('max-width: 280px;');
     expect(dashboardComponentsCss).toContain('margin: 8px auto 0;');
     expect(dashboardComponentsCss).toContain('text-align: center;');
+  });
+
+  it('keeps package manager light-mode surfaces opaque enough for light mode', () => {
+    for (const selector of [
+      '.pm-card',
+      '.pm-primary-panel',
+      '.pm-muted-card',
+      '.pm-muted-panel',
+      '.pm-empty-state',
+      '.pm-package-row',
+      '.pm-product-row',
+      '.pm-icon-shell',
+      '.pm-sheet-content',
+      '.pm-summary-strip',
+      '.pm-management-details',
+      '.pm-upload-button',
+      '.pm-sheet-section',
+      '.pm-inline-note',
+      '.pm-static-field',
+      '.pm-upload-dropzone .drop-zone__area',
+      '.pm-upload-dropzone .drop-zone__trigger',
+      '.pm-upload-dropzone .drop-zone__file-item',
+    ]) {
+      expectOpaqueLightBackground(selector);
+      expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
+    }
   });
 
   it('reveals the cloud background from a real first frame instead of fading it in later', () => {

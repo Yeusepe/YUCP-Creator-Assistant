@@ -62,6 +62,21 @@ export async function createBuyerBackstageVerificationIntent(input: {
   );
 }
 
-export async function requestUserBackstageRepoAccess() {
-  return await apiClient.get<BuyerBackstageRepoAccess>('/api/backstage/repos/access');
+export async function requestUserBackstageRepoAccess(input?: {
+  creatorRef?: string;
+  productRef?: string;
+  catalogProductId?: string;
+}) {
+  const search = new URLSearchParams();
+  if (input?.creatorRef) {
+    search.set('creatorRef', input.creatorRef);
+  }
+  if (input?.productRef) {
+    search.set('productRef', input.productRef);
+  }
+  if (input?.catalogProductId) {
+    search.set('catalogProductId', input.catalogProductId);
+  }
+  const suffix = search.size > 0 ? `?${search.toString()}` : '';
+  return await apiClient.get<BuyerBackstageRepoAccess>(`/api/backstage/repos/access${suffix}`);
 }

@@ -379,6 +379,7 @@ export const completeLicenseVerification = mutation({
         .withIndex('by_auth_user_subject', (q) =>
           q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
         )
+        .filter((q) => q.eq(q.field('productId'), product.productId))
         .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
         .first();
 

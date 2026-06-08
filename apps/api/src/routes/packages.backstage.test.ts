@@ -1839,7 +1839,7 @@ describe('package Backstage publishing routes', () => {
       version: '1.0.6',
       displayName: 'Song Thing - Your Spotify® library within VRChat - VRCFury Ready',
       vpmDependencies: {
-        'com.yucp.importer': '>=0.1.0',
+        'com.yucp.importer': '>=0.1.9',
       },
       yucp: {
         kind: 'alias-v1',

@@ -146,10 +146,52 @@ describe('mergeYucpAliasPackageMetadata', () => {
         aliasId: 'song-thing',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.0',
+        minImporterVersion: '0.1.9',
         catalogProductIds: ['product-a', 'product-b'],
         channel: 'stable',
       },
+    });
+  });
+
+  it('raises stale alias importer minimums to the shared floor', () => {
+    expect(
+      mergeYucpAliasPackageMetadata({
+        metadata: {
+          yucp: {
+            kind: 'alias-v1',
+            aliasId: 'song-thing',
+            installStrategy: 'server-authorized',
+            importerPackage: 'com.yucp.importer',
+            minImporterVersion: '0.1.0',
+          },
+        },
+        aliasId: 'song-thing',
+        catalogProductIds: ['product-a'],
+        channel: 'stable',
+      }).yucp
+    ).toMatchObject({
+      minImporterVersion: '0.1.9',
+    });
+  });
+
+  it('raises unparseable alias importer minimum ranges to the shared floor', () => {
+    expect(
+      mergeYucpAliasPackageMetadata({
+        metadata: {
+          yucp: {
+            kind: 'alias-v1',
+            aliasId: 'song-thing',
+            installStrategy: 'server-authorized',
+            importerPackage: 'com.yucp.importer',
+            minImporterVersion: '<0.1.9',
+          },
+        },
+        aliasId: 'song-thing',
+        catalogProductIds: ['product-a'],
+        channel: 'stable',
+      }).yucp
+    ).toMatchObject({
+      minImporterVersion: '0.1.9',
     });
   });
 });

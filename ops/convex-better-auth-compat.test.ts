@@ -9,6 +9,14 @@ async function readRepoFile(relativePath: string) {
 }
 
 describe('@convex-dev/better-auth compatibility patch', () => {
+  it('pins Kysely to the Better Auth 1.6 compatible migration API', async () => {
+    const rootPackageJson = JSON.parse(await readRepoFile('package.json')) as {
+      overrides?: Record<string, string>;
+    };
+
+    expect(rootPackageJson.overrides?.kysely).toMatch(/^0\.28\.\d+$/);
+  });
+
   it('accepts Better Auth 1.6 where.mode fields in the adapter validator', async () => {
     const [patchSource, installedAdapterSource, installedAdapterDist, installedCreateApiSource] =
       await Promise.all([

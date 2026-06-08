@@ -235,7 +235,7 @@ describe('backstage alias metadata remediation', () => {
         aliasId: 'gumroad-product-legacy-repair',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.0',
+        minImporterVersion: '0.1.9',
         catalogProductIds: [String(catalogProductId)],
         channel: 'stable',
       },

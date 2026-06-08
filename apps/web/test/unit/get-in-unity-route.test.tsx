@@ -66,6 +66,7 @@ describe('get in unity route', () => {
     });
 
     vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: undefined,
       isAuthenticated: false,
       isPending: false,
       signIn: signInMock,
@@ -112,6 +113,7 @@ describe('get in unity route', () => {
       intent_id: 'intent_1',
     });
     vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer-user-1',
       isAuthenticated: true,
       isPending: false,
       signIn: signInMock,
@@ -136,5 +138,9 @@ describe('get in unity route', () => {
 
     expect(await screen.findByRole('button', { name: /add to vcc/i })).toBeInTheDocument();
     expect(await screen.findByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
+    expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
+      creatorRef: 'mapache',
+      productRef: 'song-thing',
+    });
   });
 });

@@ -14,6 +14,19 @@ const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT_DIR = join(APP_DIR, '..', '..');
 const LOCAL_WORKER_ENV_FILES = [join(APP_DIR, '.dev.vars'), join(REPO_ROOT_DIR, '.env.local')];
 
+function parsePort(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) {
+    throw new Error(`Invalid web dev port: ${value}`);
+  }
+
+  return parsed;
+}
+
 function loadLocalWorkerEnvFiles(): void {
   let loaded = 0;
   const loadedFiles: string[] = [];
@@ -63,7 +76,8 @@ export default defineConfig(async () => {
   return {
     server: {
       allowedHosts,
-      port: 3000,
+      host: process.env.WEB_DEV_HOST,
+      port: parsePort(process.env.WEB_DEV_PORT, 3000),
     },
     preview: {
       allowedHosts,

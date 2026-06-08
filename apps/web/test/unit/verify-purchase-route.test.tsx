@@ -675,7 +675,52 @@ describe('verify purchase route', () => {
       'href',
       'https://app.test/access/catalog_123?intent_id=intent_verified_buyer_access&grant=grant-token-3'
     );
+    expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
+      catalogProductId: 'catalog_123',
+    });
     expect(screen.queryByRole('link', { name: /return to unity/i })).not.toBeInTheDocument();
+  });
+
+  it('ignores whitespace-only buyer access route segments after verification succeeds', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_blank_buyer_access',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_blank_buyer_access',
+      packageId: 'pkg-verified-blank',
+      packageName: 'Buyer Access Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_blank_buyer_access',
+      returnUrl: 'https://app.test/access/%20',
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: 'grant-token-blank',
+      grantAvailable: true,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('link', { name: /^continue$/i })).toHaveAttribute(
+      'href',
+      'https://app.test/access/%20?intent_id=intent_verified_blank_buyer_access&grant=grant-token-blank'
+    );
+    await waitFor(() =>
+      expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
+    );
+    expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
   });
 
   it('falls back to buyer access when the VCC handoff cannot be prepared', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveWebEnvValues } from './cloudflare-web-config';
+import { getWebLocalEnvValues, resolveWebEnvValues } from './cloudflare-web-config';
 
 describe('cloudflare-web-config', () => {
   test('defaults local worker NODE_ENV to development without ambient shell leakage', () => {
@@ -19,5 +19,17 @@ describe('cloudflare-web-config', () => {
 
   test('sets production NODE_ENV when prod is true', () => {
     expect(resolveWebEnvValues({}, { prod: true }).NODE_ENV).toBe('production');
+  });
+
+  test('carries public feature flags into the local Worker runtime env file', () => {
+    expect(
+      getWebLocalEnvValues({
+        YUCP_ENABLE_AUTOMATIC_SETUP: 'true',
+        YUCP_ENABLE_PRIVATE_VPM: 'true',
+      })
+    ).toEqual({
+      YUCP_ENABLE_AUTOMATIC_SETUP: 'true',
+      YUCP_ENABLE_PRIVATE_VPM: 'true',
+    });
   });
 });

@@ -341,7 +341,7 @@ describe('materializeBackstageReleaseArtifact', () => {
           aliasId: 'song-thing-your-spotify-library-within-vrchat-vrcfury-ready',
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
-          minImporterVersion: '0.1.0',
+          minImporterVersion: '0.1.9',
           catalogProductIds: ['product_1'],
           channel: 'stable',
         },

@@ -25,8 +25,10 @@ describe('production server contract', () => {
     const rootPackageJson = JSON.parse(
       readFileSync(join(REPO_ROOT_DIR, 'package.json'), 'utf8')
     ) as {
+      overrides?: Record<string, string>;
       scripts?: Record<string, string>;
     };
+    const lockfileSource = readFileSync(join(REPO_ROOT_DIR, 'bun.lock'), 'utf8');
     const prepareScriptSource = readFileSync(
       join(REPO_ROOT_DIR, 'ops', 'prepare-web-worker-env.ts'),
       'utf8'
@@ -38,6 +40,11 @@ describe('production server contract', () => {
 
     expect(rootPackageJson.scripts?.['dev:web']).toContain('worker:dev');
     expect(rootPackageJson.scripts?.['dev:web:infisical']).toContain('run-web-worker-infisical.ts');
+    expect(rootPackageJson.overrides?.['@tanstack/start-server-core']).toBe('1.169.8');
+    expect(lockfileSource).toContain(
+      '"@tanstack/start-server-core": ["@tanstack/start-server-core@1.169.8"'
+    );
+    expect(lockfileSource).not.toContain('@tanstack/start-server-core@1.167.1');
     expect(prepareScriptSource).toContain('process.env');
     expect(prepareScriptSource).toContain('hasProcessWorkerBindings');
     expect(prepareScriptSource).toContain('PROCESS_ENV_REFRESH_KEYS');

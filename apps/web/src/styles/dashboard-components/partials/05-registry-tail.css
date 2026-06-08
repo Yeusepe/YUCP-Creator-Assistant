@@ -85,9 +85,9 @@
    =================================================== */
 
 .pm-card {
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(15, 23, 42, 0.14);
-  box-shadow: 0 20px 46px -36px rgba(15, 23, 42, 0.26);
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 20px 46px -34px rgba(15, 23, 42, 0.28);
 }
 
 .dark .pm-card {
@@ -97,9 +97,9 @@
 }
 
 .pm-primary-panel {
-  background: rgba(255, 255, 255, 0.3);
+  background: #f8fbff;
   border-color: rgba(15, 23, 42, 0.08);
-  box-shadow: 0 18px 40px -36px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 18px 40px -34px rgba(15, 23, 42, 0.2);
 }
 
 .dark .pm-primary-panel {
@@ -109,8 +109,8 @@
 }
 
 .pm-muted-card {
-  background: rgba(255, 255, 255, 0.56);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.09);
 }
 
 .dark .pm-muted-card {
@@ -119,7 +119,7 @@
 }
 
 .pm-muted-panel {
-  background: rgba(255, 255, 255, 0.42);
+  background: #f8fafc;
   border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -129,7 +129,7 @@
 }
 
 .pm-empty-state {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.9);
   border-color: rgba(15, 23, 42, 0.14);
 }
 
@@ -139,7 +139,7 @@
 }
 
 .pm-package-row {
-  background: rgba(255, 255, 255, 0.78);
+  background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.09);
 }
 
@@ -149,7 +149,7 @@
 }
 
 .pm-product-row {
-  background: rgba(255, 255, 255, 0.58);
+  background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.09);
 }
 
@@ -159,8 +159,8 @@
 }
 
 .pm-icon-shell {
-  background: rgba(226, 232, 240, 0.72);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #e8eef5;
+  border: 1px solid rgba(15, 23, 42, 0.09);
 }
 
 .dark .pm-icon-shell {
@@ -171,8 +171,8 @@
 .pm-sheet-content {
   border-radius: 24px;
   border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(255, 255, 255, 0.68);
-  box-shadow: 0 28px 74px -42px rgba(15, 23, 42, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 28px 74px -38px rgba(15, 23, 42, 0.34);
   -webkit-backdrop-filter: blur(30px) saturate(155%);
   backdrop-filter: blur(30px) saturate(155%);
 }
@@ -209,7 +209,7 @@
 }
 
 .pm-summary-strip {
-  background: rgba(255, 255, 255, 0.34);
+  background: #f8fafc;
   border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -219,7 +219,7 @@
 }
 
 .pm-management-details {
-  background: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(15, 23, 42, 0.08);
 }
 
@@ -230,7 +230,7 @@
 
 .pm-upload-button {
   border-color: rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.94);
   color: rgba(15, 23, 42, 0.9);
   box-shadow: 0 16px 34px -26px rgba(15, 23, 42, 0.3);
 }
@@ -293,7 +293,7 @@
 
 .pm-sheet-section {
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.26);
+  background: #f8fafc;
 }
 
 .dark .pm-sheet-section {
@@ -302,7 +302,7 @@
 }
 
 .pm-inline-note {
-  background: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(14, 165, 233, 0.14);
 }
 
@@ -347,7 +347,7 @@
   gap: 4px;
   border-radius: 14px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.72);
+  background: #ffffff;
   padding: 10px 12px;
 }
 
@@ -362,7 +362,7 @@
 
 .pm-upload-dropzone .drop-zone__area {
   border-color: rgba(14, 165, 233, 0.18);
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.9);
   border-radius: 20px;
   min-height: 156px;
 }
@@ -385,7 +385,7 @@
 
 .pm-upload-dropzone .drop-zone__trigger {
   border-color: rgba(15, 23, 42, 0.14);
-  background: rgba(255, 255, 255, 0.48);
+  background: #ffffff;
 }
 
 .dark .pm-upload-dropzone .drop-zone__trigger {
@@ -396,7 +396,7 @@
 .pm-upload-dropzone .drop-zone__file-item {
   border-radius: 18px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.62);
+  background: #ffffff;
 }
 
 .dark .pm-upload-dropzone .drop-zone__file-item {

@@ -17,6 +17,11 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, search: _search, to: _to, ...props }: MockLinkProps) => (
     <a {...props}>{children}</a>
   ),
+  getRouteApi: () => ({
+    useParams: () => mockUseParams(),
+    useSearch: () => mockUseSearch(),
+    useLoaderData: () => mockUseLoaderData(),
+  }),
   createFileRoute: () => (options: unknown) => ({
     options,
     useParams: () => mockUseParams(),
@@ -73,15 +78,15 @@ vi.mock('@/components/ui/YucpButton', () => ({
   ),
 }));
 
-vi.mock('@/lib/packages', () => ({
-  requestBackstageRepoAccess: vi.fn(),
+vi.mock('@/lib/backstageAccess', () => ({
+  requestUserBackstageRepoAccess: vi.fn(),
 }));
 
 vi.mock('@/lib/productAccess', () => ({
   createBuyerProductAccessVerificationIntent: vi.fn(),
 }));
 
-import * as packagesApi from '@/lib/packages';
+import * as backstageAccessApi from '@/lib/backstageAccess';
 import * as productAccessApi from '@/lib/productAccess';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
 import { Route as BuyerProductAccessRoute } from '../../src/routes/access.$catalogProductId';
@@ -160,7 +165,8 @@ describe('buyer product access route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
-    expect(await screen.findByText('Bought on Gumroad')).toBeInTheDocument();
+    expect(await screen.findByText(/Purchase source:/)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Gumroad/)).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('1 Unity package')).length).toBeGreaterThan(0);
     const verifyButton = await screen.findByRole('button', { name: 'Verify purchase' });
     fireEvent.click(verifyButton);
@@ -171,12 +177,10 @@ describe('buyer product access route', () => {
         { returnTo: '/access/catalog_123' }
       )
     );
-    expect(await screen.findByText(/verify the store account or license/i)).toBeInTheDocument();
     expect(
-      await screen.findByText(
-        /manual repo setup stays hidden until this account has verified access/i
-      )
+      await screen.findByText(/Use the Gumroad account or license details/i)
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add to VCC' })).not.toBeInTheDocument();
   });
 
   it('asks the buyer to sign in before starting verification when the route is opened anonymously', async () => {
@@ -205,10 +209,10 @@ describe('buyer product access route', () => {
         hasPublishedPackages: true,
       },
     });
-    vi.mocked(packagesApi.requestBackstageRepoAccess).mockResolvedValue({
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
       addRepoUrl: 'vcc://addRepo',
       repositoryUrl: 'https://repo.test/private.json',
-    } as Awaited<ReturnType<typeof packagesApi.requestBackstageRepoAccess>>);
+    } as Awaited<ReturnType<typeof backstageAccessApi.requestUserBackstageRepoAccess>>);
     Object.defineProperty(window.navigator, 'clipboard', {
       configurable: true,
       value: {
@@ -224,14 +228,18 @@ describe('buyer product access route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('button', { name: 'Add to VCC' })).toBeInTheDocument();
-    expect(await screen.findByText('Need the repo URL instead?')).toBeInTheDocument();
-    expect(screen.queryByText('https://repo.test/private.json')).not.toBeInTheDocument();
+    expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
+      catalogProductId: 'catalog_123',
+    });
+    expect(await screen.findByText('Need help adding to VCC?')).toBeInTheDocument();
+    const repoUrl = screen.getByText('https://repo.test/private.json');
+    expect(repoUrl.closest('.vp-manual-setup-panel')).toHaveAttribute('aria-hidden', 'true');
 
-    fireEvent.click(await screen.findByRole('button', { name: /show manual setup/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /manual setup/i }));
 
-    expect(await screen.findByText('https://repo.test/private.json')).toBeInTheDocument();
+    expect(repoUrl.closest('.vp-manual-setup-panel')).toHaveAttribute('aria-hidden', 'false');
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Copy repo URL' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
 
     await waitFor(() =>
       expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
