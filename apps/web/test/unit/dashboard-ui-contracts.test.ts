@@ -13,20 +13,34 @@ function readSortedPartials(partialsDir: string): string {
 }
 
 function readCssDeclaration(css: string, selector: string, property: string): string {
-  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const blockMatch = css.match(new RegExp(`${escapedSelector}\\s*\\{(?<body>[^}]*)\\}`, 's'));
-  if (!blockMatch?.groups?.body) {
+  const selectorIndex = css.indexOf(selector);
+  if (selectorIndex < 0) {
     throw new Error(`Missing CSS block for ${selector}`);
   }
 
-  const declarationMatch = blockMatch.groups.body.match(
-    new RegExp(`${property}\\s*:\\s*(?<value>[^;]+);`)
-  );
-  if (!declarationMatch?.groups?.value) {
+  const blockStart = css.indexOf('{', selectorIndex + selector.length);
+  const blockEnd = blockStart >= 0 ? css.indexOf('}', blockStart + 1) : -1;
+  if (blockStart < 0 || blockEnd < 0) {
+    throw new Error(`Missing CSS block for ${selector}`);
+  }
+
+  const body = css.slice(blockStart + 1, blockEnd);
+  for (const declaration of body.split(';')) {
+    const colonIndex = declaration.indexOf(':');
+    if (colonIndex < 0) {
+      continue;
+    }
+    const name = declaration.slice(0, colonIndex).trim();
+    if (name === property) {
+      return declaration.slice(colonIndex + 1).trim();
+    }
+  }
+
+  if (!body.includes(property)) {
     throw new Error(`Missing ${property} declaration for ${selector}`);
   }
 
-  return declarationMatch.groups.value.trim();
+  throw new Error(`Could not parse ${property} declaration for ${selector}`);
 }
 
 function expectOpaqueLightBackground(selector: string, minimumAlpha = 0.84): void {
@@ -85,6 +99,10 @@ const backgroundAppSource = readFileSync(
 );
 const brandingAssetsSource = readFileSync(
   resolve(__dirname, '../../src/lib/brandingAssets.ts'),
+  'utf8'
+);
+const packageRegistryPanelSource = readFileSync(
+  resolve(__dirname, '../../src/components/dashboard/PackageRegistryPanel.tsx'),
   'utf8'
 );
 
@@ -230,6 +248,62 @@ describe('dashboard UI contracts', () => {
       expectOpaqueLightBackground(selector);
       expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
     }
+  });
+
+  it('keeps package picker and details surfaces readable in light mode', () => {
+    expect(packageRegistryPanelSource).toContain(
+      'className="pm-sheet-content mx-auto max-h-[94vh] max-w-[860px]"'
+    );
+    expect(packageRegistryPanelSource).toContain('className="pm-package-picker w-full"');
+    expect(packageRegistryPanelSource).toContain('className="pm-package-picker-popover"');
+    expect(readCssDeclaration(dashboardComponentsCss, '.pm-sheet-content', 'color')).toMatch(
+      /#0f172a|rgba\(15,\s*23,\s*42/
+    );
+    expect(readCssDeclaration(dashboardComponentsCss, '.dark .pm-sheet-content', 'color')).toMatch(
+      /#f8fafc|rgba\(248,\s*250,\s*252/
+    );
+
+    for (const selector of [
+      '.pm-package-picker .autocomplete__trigger',
+      '.pm-package-picker-popover.autocomplete__popover',
+      '.pm-package-picker .select__trigger',
+      '.pm-package-picker-popover.select__popover',
+      '.pm-package-picker-popover .search-field__group',
+      '.pm-package-picker-popover .list-box-item',
+    ]) {
+      expectOpaqueLightBackground(selector);
+      expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
+    }
+
+    for (const selector of [
+      '.pm-package-picker .autocomplete__trigger',
+      '.pm-package-picker .select__trigger',
+      '.pm-package-picker-popover .list-box-item',
+    ]) {
+      expect(readCssDeclaration(dashboardComponentsCss, selector, 'color')).toMatch(
+        /#0f172a|rgba\(15,\s*23,\s*42/
+      );
+    }
+  });
+
+  it('keeps the upload package drawer clear of the sticky footer and viewport bottom', () => {
+    expect(packageRegistryPanelSource).toContain(
+      'className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]"'
+    );
+    expect(packageRegistryPanelSource).toContain(
+      '<Sheet.Body className="pm-publish-sheet-body space-y-5">'
+    );
+
+    expect(
+      readCssDeclaration(
+        dashboardComponentsCss,
+        '.pm-publish-sheet-content[data-sheet-detached].sheet__content--bottom',
+        'bottom'
+      )
+    ).toContain('env(safe-area-inset-bottom)');
+    expect(
+      readCssDeclaration(dashboardComponentsCss, '.pm-publish-sheet-body', 'padding-bottom')
+    ).toContain('24px');
   });
 
   it('reveals the cloud background from a real first frame instead of fading it in later', () => {

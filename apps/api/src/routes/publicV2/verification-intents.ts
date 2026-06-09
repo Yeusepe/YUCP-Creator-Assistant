@@ -18,7 +18,6 @@ export async function handleVerificationIntentsRoutes(
   config: PublicV2Config
 ): Promise<Response> {
   const reqId = generateRequestId();
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/verification-intents') {
     if (request.method !== 'POST') {
@@ -27,6 +26,7 @@ export async function handleVerificationIntentsRoutes(
 
     const auth = await resolveAuth(request, config, ['verification:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     let body: {
       packageId?: string;
@@ -105,6 +105,7 @@ export async function handleVerificationIntentsRoutes(
     }
     const auth = await resolveAuth(request, config, ['verification:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     let body: {
       codeVerifier?: string;
@@ -161,6 +162,7 @@ export async function handleVerificationIntentsRoutes(
     }
     const auth = await resolveAuth(request, config, ['verification:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const intent = await convex.action(api.verificationIntents.getVerificationIntent, {
       apiSecret: config.convexApiSecret,

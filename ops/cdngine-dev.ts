@@ -158,7 +158,25 @@ export async function isCdnginePublicRuntimeReady(
       service?: unknown;
       status?: unknown;
     };
-    return payload.service === '@cdngine/api' && payload.status === 'ok';
+    if (payload.service !== '@cdngine/api' || payload.status !== 'ok') {
+      return false;
+    }
+
+    const uploadProbeUrl = new URL('/uploads/yucp-readiness-probe', baseUrl).toString();
+    const uploadResponse = await fetchImpl(uploadProbeUrl, {
+      cache: 'no-store',
+      headers: {
+        Origin: 'http://localhost:3000',
+        'Tus-Resumable': '1.0.0',
+      },
+      method: 'HEAD',
+      signal: AbortSignal.timeout(CDNGINE_HEALTH_CHECK_TIMEOUT_MS),
+    });
+    const uploadCorsOrigin = uploadResponse.headers.get('access-control-allow-origin');
+    return (
+      (uploadResponse.status === 404 || uploadResponse.status === 204) &&
+      Boolean(uploadCorsOrigin)
+    );
   } catch {
     return false;
   }

@@ -47,16 +47,16 @@ export type ApiAllowedCorsOriginInput = {
 };
 
 export function buildApiAllowedCorsOrigins(input: ApiAllowedCorsOriginInput): Set<string> {
-  const isProduction = (input.nodeEnv ?? 'development') === 'production';
+  const allowLocalOrigins = input.nodeEnv === 'development' || input.nodeEnv === 'test';
   const origins = new Set(
     buildAllowedBrowserOrigins({
       siteUrl: input.siteUrl,
       frontendUrl: input.frontendUrl,
       additionalOrigins: [input.publicBaseUrl],
-    }).filter((origin) => !isProduction || !isLoopbackOrigin(origin))
+    }).filter((origin) => allowLocalOrigins || !isLoopbackOrigin(origin))
   );
 
-  if (!isProduction) {
+  if (allowLocalOrigins) {
     for (const origin of LOCAL_DEVELOPMENT_BROWSER_ORIGINS) {
       origins.add(origin);
     }

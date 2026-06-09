@@ -28,14 +28,25 @@ describe('API CORS headers', () => {
 
   it('does not add localhost UI origins to production tunnel CORS by default', () => {
     const origins = buildApiAllowedCorsOrigins({
-      frontendUrl: 'https://creators.yucp.club',
+      frontendUrl: 'https://creators.example.test',
       nodeEnv: 'production',
-      publicBaseUrl: 'https://api.creators.yucp.club',
-      siteUrl: 'https://api.creators.yucp.club',
+      publicBaseUrl: 'https://api.creators.example.test',
+      siteUrl: 'https://api.creators.example.test',
     });
 
-    expect(origins.has('https://api.creators.yucp.club')).toBe(true);
-    expect(origins.has('https://creators.yucp.club')).toBe(true);
+    expect(origins.has('https://api.creators.example.test')).toBe(true);
+    expect(origins.has('https://creators.example.test')).toBe(true);
+    expect(origins.has('http://localhost:3000')).toBe(false);
+  });
+
+  it('defaults missing NODE_ENV to production-safe CORS behavior', () => {
+    const origins = buildApiAllowedCorsOrigins({
+      frontendUrl: 'http://localhost:3000',
+      publicBaseUrl: 'https://api.creators.example.test',
+      siteUrl: 'https://api.creators.example.test',
+    });
+
+    expect(origins.has('https://api.creators.example.test')).toBe(true);
     expect(origins.has('http://localhost:3000')).toBe(false);
   });
 
@@ -43,11 +54,11 @@ describe('API CORS headers', () => {
     const origins = buildApiAllowedCorsOrigins({
       frontendUrl: 'http://localhost:3000',
       nodeEnv: 'production',
-      publicBaseUrl: 'https://api.creators.yucp.club',
-      siteUrl: 'https://api.creators.yucp.club',
+      publicBaseUrl: 'https://api.creators.example.test',
+      siteUrl: 'https://api.creators.example.test',
     });
 
-    expect(origins.has('https://api.creators.yucp.club')).toBe(true);
+    expect(origins.has('https://api.creators.example.test')).toBe(true);
     expect(origins.has('http://localhost:3000')).toBe(false);
   });
 });

@@ -526,7 +526,7 @@ async function routeRequest(request: Request): Promise<Response> {
       key: buildPublicApiRateLimitKey({
         routeFamily,
         clientAddress,
-        apiKey: request.headers.get('x-api-key')?.trim() ?? null,
+        publicApiKey: request.headers.get('x-api-key')?.trim() ?? null,
         bearerToken,
         userAgent: request.headers.get('user-agent'),
       }),

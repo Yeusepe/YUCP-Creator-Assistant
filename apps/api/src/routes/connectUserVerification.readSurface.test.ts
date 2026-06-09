@@ -11,6 +11,15 @@ const convexMutationMock = mock(
   async (_reference?: unknown, _args?: unknown): Promise<unknown> => undefined
 );
 const loggerErrorMock = mock(() => undefined);
+let csrfBlockImpl: (request: Request) => Response | null = () => null;
+
+const testActorBinding = {
+  payload: JSON.stringify({
+    authUserId: 'buyer_auth_user_B',
+    source: 'session',
+  }),
+  signature: 'test-signature',
+};
 
 const apiMock = {
   subjects: {
@@ -27,10 +36,26 @@ mock.module('../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({
-    query: convexQueryMock,
-    mutation: convexMutationMock,
+  getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
+    query: (reference: unknown, args?: unknown) =>
+      convexQueryMock(
+        reference,
+        actor && args && typeof args === 'object' ? { ...args, actor } : args
+      ),
+    mutation: (reference: unknown, args?: unknown) =>
+      convexMutationMock(
+        reference,
+        actor && args && typeof args === 'object' ? { ...args, actor } : args
+      ),
   }),
+}));
+
+mock.module('../lib/apiActor', () => ({
+  createAuthUserActorBinding: async () => testActorBinding,
+}));
+
+mock.module('../lib/csrf', () => ({
+  rejectCrossSiteRequest: (request: Request) => csrfBlockImpl(request),
 }));
 
 mock.module('../lib/logger', () => ({
@@ -247,6 +272,7 @@ describe('GET /api/connect/user/accounts', () => {
     convexQueryMock.mockReset();
     convexMutationMock.mockReset();
     loggerErrorMock.mockReset();
+    csrfBlockImpl = () => null;
   });
 
   it('isolates account-link reads and revokes to the signed-in owner', async () => {
@@ -391,9 +417,47 @@ describe('GET /api/connect/user/accounts', () => {
       apiMock.subjects.reconcileBuyerProviderLinksForAuthUser,
       {
         apiSecret: 'test-convex-secret',
+        actor: testActorBinding,
         authUserId: 'buyer_auth_user_B',
       }
     );
+  });
+
+  it('uses the signed-in user actor for account-link reads', async () => {
+    convexQueryMock.mockResolvedValue([]);
+
+    const routes = createRoutes('buyer_auth_user_B');
+    const response = await routes.getUserAccounts(
+      new Request('http://localhost:3001/api/connect/user/accounts')
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.subjects.listBuyerProviderLinksForAuthUser,
+      {
+        apiSecret: 'test-convex-secret',
+        actor: testActorBinding,
+        authUserId: 'buyer_auth_user_B',
+      }
+    );
+  });
+
+  it('blocks cross-site account refresh requests before reconciliation', async () => {
+    csrfBlockImpl = () =>
+      Response.json({ error: 'Cross-site requests are not allowed' }, { status: 403 });
+
+    const routes = createRoutes('buyer_auth_user_B');
+    const response = await routes.refreshUserAccounts(
+      new Request('http://localhost:3001/api/connect/user/accounts/refresh', {
+        method: 'POST',
+        headers: {
+          origin: 'https://attacker.example.test',
+        },
+      })
+    );
+
+    expect(response.status).toBe(403);
+    expect(convexMutationMock).not.toHaveBeenCalled();
   });
 
   for (const matrixCase of BUYER_PROVIDER_LINK_SURFACE_MATRIX) {
@@ -543,6 +607,7 @@ describe('DELETE /api/connect/user/accounts', () => {
     convexQueryMock.mockReset();
     convexMutationMock.mockReset();
     loggerErrorMock.mockReset();
+    csrfBlockImpl = () => null;
     convexMutationMock.mockResolvedValue({ success: true });
   });
 
@@ -559,6 +624,7 @@ describe('DELETE /api/connect/user/accounts', () => {
     await expect(response.json()).resolves.toEqual({ success: true });
     expect(convexMutationMock).toHaveBeenCalledWith(apiMock.subjects.revokeBuyerProviderLink, {
       apiSecret: 'test-convex-secret',
+      actor: testActorBinding,
       authUserId: 'buyer_auth_user_B',
       linkId: 'buyer-link-active-1',
     });

@@ -1,9 +1,21 @@
 {
   "rules": {
-    "scss/at-rule-no-unknown": [
+    "at-rule-no-unknown": [
       true,
       {
-        "ignoreAtRules": ["source", "theme", "utility", "variant", "custom-variant", "plugin"]
+        "ignoreAtRules": [
+          "apply",
+          "config",
+          "custom-variant",
+          "layer",
+          "plugin",
+          "reference",
+          "source",
+          "tailwind",
+          "theme",
+          "utility",
+          "variant"
+        ]
       }
     ]
   }

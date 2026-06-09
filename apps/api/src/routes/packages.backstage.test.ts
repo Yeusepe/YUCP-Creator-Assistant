@@ -15,6 +15,7 @@ let lastActionArgs: unknown;
 const originalFetch = globalThis.fetch;
 let cdngineUploadCounter = 0;
 let cdngineCreateUploadBodies: unknown[] = [];
+let cdngineCreateUploadIdempotencyKeys: Array<string | null> = [];
 let cdngineUploadTargetBodies: Array<{ url: string; bytes: Uint8Array }> = [];
 
 type SyncedCatalogRow = {
@@ -217,6 +218,7 @@ describe('package Backstage publishing routes', () => {
   beforeEach(() => {
     cdngineUploadCounter = 0;
     cdngineCreateUploadBodies = [];
+    cdngineCreateUploadIdempotencyKeys = [];
     cdngineUploadTargetBodies = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
@@ -245,6 +247,7 @@ describe('package Backstage publishing routes', () => {
       if (url === 'https://cdngine.test/v1/upload-sessions') {
         cdngineUploadCounter += 1;
         cdngineCreateUploadBodies.push(JSON.parse(String(init?.body)));
+        cdngineCreateUploadIdempotencyKeys.push(new Headers(init?.headers).get('idempotency-key'));
         return new Response(
           JSON.stringify({
             uploadSessionId: `upl_${cdngineUploadCounter}`,
@@ -511,6 +514,49 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('creates a fresh CDNgine upload session attempt when the same Backstage file is retried', async () => {
+    const requestBody = {
+      byteSize: 1024,
+      deliveryName: 'example.unitypackage',
+      sha256: 'e'.repeat(64),
+      sourceContentType: 'application/octet-stream',
+    };
+
+    const firstResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify(requestBody),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+    const secondResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify(requestBody),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    expect(cdngineCreateUploadIdempotencyKeys).toHaveLength(2);
+    expect(cdngineCreateUploadIdempotencyKeys[0]).toStartWith(
+      `backstage-source:auth-user-1:com.yucp.example:${requestBody.sha256}:`
+    );
+    expect(cdngineCreateUploadIdempotencyKeys[1]).toStartWith(
+      `backstage-source:auth-user-1:com.yucp.example:${requestBody.sha256}:`
+    );
+    expect(cdngineCreateUploadIdempotencyKeys[0]).not.toBe(cdngineCreateUploadIdempotencyKeys[1]);
+  });
+
   it('rejects Backstage package upload sessions larger than the Unity package limit', async () => {
     const response = await routes.createBackstageReleaseUploadSession(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
@@ -574,6 +620,57 @@ describe('package Backstage publishing routes', () => {
       },
       deliveryName: 'example.unitypackage',
       sourceContentType: 'application/octet-stream',
+    });
+  });
+
+  it('surfaces expired direct CDNgine upload sessions as a restartable upload error', async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (/^https:\/\/cdngine\.test\/v1\/upload-sessions\/upl_\d+\/complete$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            type: 'https://docs.cdngine.dev/problems/upload-session-expired',
+            title: 'Upload session expired',
+            status: 410,
+            detail: 'Upload session expired before valid completion.',
+            retryable: false,
+          }),
+          { status: 410, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return defaultFetch(input, init);
+    }) as typeof fetch;
+
+    const sessionResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify({
+          byteSize: 1024,
+          deliveryName: 'example.unitypackage',
+          sha256: 'e'.repeat(64),
+          sourceContentType: 'application/octet-stream',
+        }),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+    const { completeUrl } = (await sessionResponse.json()) as { completeUrl: string };
+
+    const completeResponse = await routes.completeBackstageReleaseUploadSession(
+      new Request(completeUrl, {
+        method: 'POST',
+      }),
+      'com.yucp.example'
+    );
+
+    expect(completeResponse.status).toBe(410);
+    await expect(completeResponse.json()).resolves.toEqual({
+      code: 'BACKSTAGE_UPLOAD_SESSION_EXPIRED',
+      error: 'Backstage upload session expired. Start a new upload session and try again.',
     });
   });
 

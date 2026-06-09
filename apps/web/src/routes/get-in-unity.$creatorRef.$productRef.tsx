@@ -8,6 +8,7 @@ import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
   createBuyerBackstageVerificationIntent,
   getBuyerBackstageAccessInfo,
+  redeemBuyerBackstageVerificationIntent,
   requestUserBackstageRepoAccess,
 } from '@/lib/backstageAccess';
 
@@ -38,9 +39,83 @@ function buildReturnUrl(href: string): string {
   return url.toString();
 }
 
+interface PendingBuyerBackstageVerification {
+  creatorRef: string;
+  productRef: string;
+  codeVerifier: string;
+  machineFingerprint: string;
+}
+
+const BUYER_BACKSTAGE_VERIFICATION_STORAGE_PREFIX = 'yucp:buyer-backstage-verification:';
+
+function getPendingVerificationStorageKey(intentId: string): string {
+  return `${BUYER_BACKSTAGE_VERIFICATION_STORAGE_PREFIX}${intentId}`;
+}
+
+function storePendingBuyerBackstageVerification(
+  intentId: string,
+  pending: PendingBuyerBackstageVerification
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(
+      getPendingVerificationStorageKey(intentId),
+      JSON.stringify(pending)
+    );
+  } catch {
+    // Session storage can be blocked; the return page will ask the buyer to restart verification.
+  }
+}
+
+function readPendingBuyerBackstageVerification(
+  intentId: string,
+  creatorRef: string,
+  productRef: string
+): PendingBuyerBackstageVerification | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(getPendingVerificationStorageKey(intentId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingBuyerBackstageVerification>;
+    if (
+      parsed.creatorRef !== creatorRef ||
+      parsed.productRef !== productRef ||
+      typeof parsed.codeVerifier !== 'string' ||
+      typeof parsed.machineFingerprint !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      creatorRef,
+      productRef,
+      codeVerifier: parsed.codeVerifier,
+      machineFingerprint: parsed.machineFingerprint,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function removePendingBuyerBackstageVerification(intentId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(getPendingVerificationStorageKey(intentId));
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function removeVerificationReturnParams(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('grant');
+  url.searchParams.delete('intent_id');
+  window.history.replaceState({}, '', url.toString());
+}
+
 function BuyerUnityAccessPage() {
   const { creatorRef, productRef } = Route.useParams();
-  const { grant } = Route.useSearch();
+  const { grant, intent_id: intentId } = Route.useSearch();
   const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
@@ -51,10 +126,29 @@ function BuyerUnityAccessPage() {
   });
 
   const repoAccessQuery = useQuery({
-    queryKey: ['buyer-backstage-repo-access', authUserId, grant],
-    queryFn: () => requestUserBackstageRepoAccess({ creatorRef, productRef }),
-    enabled: Boolean(authUserId) && Boolean(grant),
+    queryKey: ['buyer-backstage-repo-access', authUserId, creatorRef, productRef, intentId, grant],
+    queryFn: async () => {
+      if (!grant || !intentId) {
+        throw new Error('Verification grant and intent are required.');
+      }
+      const pending = readPendingBuyerBackstageVerification(intentId, creatorRef, productRef);
+      if (!pending) {
+        throw new Error('Verification session was not found. Restart verification from this page.');
+      }
+      await redeemBuyerBackstageVerificationIntent({
+        intentId,
+        grantToken: grant,
+        codeVerifier: pending.codeVerifier,
+        machineFingerprint: pending.machineFingerprint,
+      });
+      const repoAccess = await requestUserBackstageRepoAccess({ creatorRef, productRef });
+      removePendingBuyerBackstageVerification(intentId);
+      removeVerificationReturnParams();
+      return repoAccess;
+    },
+    enabled: Boolean(authUserId) && Boolean(grant) && Boolean(intentId),
     retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const bootstrapMutation = useMutation({
@@ -62,7 +156,7 @@ function BuyerUnityAccessPage() {
       const machineFingerprint = `buyer-web-${randomHex(16)}`;
       const codeVerifier = `${randomHex(32)}${randomHex(32)}`;
       const codeChallenge = await sha256Base64Url(codeVerifier);
-      return await createBuyerBackstageVerificationIntent({
+      const intent = await createBuyerBackstageVerificationIntent({
         creatorRef,
         productRef,
         returnUrl: buildReturnUrl(window.location.href),
@@ -70,6 +164,13 @@ function BuyerUnityAccessPage() {
         codeChallenge,
         idempotencyKey: `buyer-access:${creatorRef}:${productRef}`,
       });
+      storePendingBuyerBackstageVerification(intent.intentId, {
+        creatorRef,
+        productRef,
+        codeVerifier,
+        machineFingerprint,
+      });
+      return intent;
     },
     onSuccess: ({ verificationUrl }) => {
       window.location.assign(verificationUrl);

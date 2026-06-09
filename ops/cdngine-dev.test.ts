@@ -168,6 +168,15 @@ describe('cdngine docker dev runner', () => {
     const fetchImpl = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
       requests.push(String(url));
       expect(init?.signal).toBeInstanceOf(AbortSignal);
+      if (String(url) === 'http://localhost:4000/uploads/yucp-readiness-probe') {
+        expect(init?.method).toBe('HEAD');
+        return new Response(null, {
+          status: 404,
+          headers: {
+            'access-control-allow-origin': 'http://localhost:3000',
+          },
+        });
+      }
       return jsonResponse({
         service: '@cdngine/api',
         status: 'ok',
@@ -177,7 +186,10 @@ describe('cdngine docker dev runner', () => {
     await expect(isCdnginePublicRuntimeReady('http://localhost:4000', fetchImpl)).resolves.toBe(
       true
     );
-    expect(requests).toEqual(['http://localhost:4000/healthz']);
+    expect(requests).toEqual([
+      'http://localhost:4000/healthz',
+      'http://localhost:4000/uploads/yucp-readiness-probe',
+    ]);
   });
 
   test('isCdnginePublicRuntimeReady rejects a generic successful response', async () => {
@@ -192,11 +204,45 @@ describe('cdngine docker dev runner', () => {
     );
   });
 
+  test('isCdnginePublicRuntimeReady requires the upload target dependencies to respond', async () => {
+    const requests: string[] = [];
+    const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
+      requests.push(String(url));
+      if (String(url) === 'http://localhost:4000/healthz') {
+        return jsonResponse({
+          service: '@cdngine/api',
+          status: 'ok',
+        });
+      }
+
+      return new Response(null, {
+        status: 503,
+        headers: {
+          'access-control-allow-origin': 'http://localhost:3000',
+        },
+      });
+    };
+
+    await expect(isCdnginePublicRuntimeReady('http://localhost:4000', fetchImpl)).resolves.toBe(
+      false
+    );
+    expect(requests).toContain('http://localhost:4000/uploads/yucp-readiness-probe');
+  });
+
   test('monitorExistingCdnginePublicRuntime fails when the reused runtime stops responding', async () => {
-    let attempt = 0;
-    const fetchImpl = async (): Promise<Response> => {
-      attempt += 1;
-      return attempt === 1
+    let healthAttempt = 0;
+    const fetchImpl = async (url: string | URL | Request): Promise<Response> => {
+      if (String(url) === 'http://localhost:4000/uploads/yucp-readiness-probe') {
+        return new Response(null, {
+          status: 404,
+          headers: {
+            'access-control-allow-origin': 'http://localhost:3000',
+          },
+        });
+      }
+
+      healthAttempt += 1;
+      return healthAttempt === 1
         ? jsonResponse({
             service: '@cdngine/api',
             status: 'ok',

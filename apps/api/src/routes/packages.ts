@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
@@ -24,6 +24,7 @@ import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import {
   authorizeCdngineBackstageSource,
+  CdngineApiRequestError,
   type CdngineBackstageConfig,
   completeBackstageUploadSessionInCdngine,
   createBackstageUploadSessionInCdngine,
@@ -59,6 +60,7 @@ type BackstageUploadTokenPayload = {
 };
 
 type BackstageUploadCompletionTokenPayload = BackstageUploadTokenPayload & {
+  uploadAttemptId?: string;
   byteSize: number;
   deliveryName: string;
   kind: 'backstage-upload-complete';
@@ -271,6 +273,15 @@ function verifyBackstageUploadCompletionToken(
     return null;
   }
   return payload as BackstageUploadCompletionTokenPayload;
+}
+
+function buildBackstageSourceUploadIdempotencyBase(input: {
+  authUserId: string;
+  packageId: string;
+  sha256: string;
+  uploadAttemptId: string;
+}): string {
+  return `backstage-source:${input.authUserId}:${input.packageId}:${input.sha256}:${input.uploadAttemptId}`;
 }
 
 function getBackstageLiveSyncTimeoutMs(): number {
@@ -1573,7 +1584,13 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         parsed.sha256,
         sanitizeCdngineObjectKeySegment(parsed.deliveryName),
       ].join('/');
-      const idempotencyBase = `backstage-source:${viewer.authUserId}:${packageId}:${parsed.sha256}`;
+      const uploadAttemptId = randomUUID();
+      const idempotencyBase = buildBackstageSourceUploadIdempotencyBase({
+        authUserId: viewer.authUserId,
+        packageId,
+        sha256: parsed.sha256,
+        uploadAttemptId,
+      });
       const session = await createBackstageUploadSessionInCdngine({
         byteSize: parsed.byteSize,
         config: config.cdngine,
@@ -1596,6 +1613,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
           packageId,
           sha256: parsed.sha256,
           sourceContentType: parsed.sourceContentType,
+          uploadAttemptId,
           uploadSessionId: session.uploadSessionId,
         },
         config.convexApiSecret
@@ -1648,11 +1666,17 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
 
     try {
       const assetOwner = `creator:${tokenPayload.authUserId}`;
+      const idempotencyBase = buildBackstageSourceUploadIdempotencyBase({
+        authUserId: tokenPayload.authUserId,
+        packageId,
+        sha256: tokenPayload.sha256,
+        uploadAttemptId: tokenPayload.uploadAttemptId ?? tokenPayload.uploadSessionId,
+      });
       const cdngineSource = await completeBackstageUploadSessionInCdngine({
         assetOwner,
         byteSize: tokenPayload.byteSize,
         config: config.cdngine,
-        idempotencyBase: `backstage-source:${tokenPayload.authUserId}:${packageId}:${tokenPayload.sha256}`,
+        idempotencyBase,
         objectKey: tokenPayload.objectKey,
         sha256: tokenPayload.sha256,
         tenantId: tokenPayload.authUserId,
@@ -1664,6 +1688,19 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         sourceContentType: tokenPayload.sourceContentType,
       });
     } catch (error) {
+      if (
+        error instanceof CdngineApiRequestError &&
+        error.status === 410 &&
+        error.problemType === 'https://docs.cdngine.dev/problems/upload-session-expired'
+      ) {
+        return jsonResponse(
+          {
+            code: 'BACKSTAGE_UPLOAD_SESSION_EXPIRED',
+            error: 'Backstage upload session expired. Start a new upload session and try again.',
+          },
+          410
+        );
+      }
       logger.error('Failed to complete Backstage CDNgine upload session', {
         authUserId: tokenPayload.authUserId,
         packageId,

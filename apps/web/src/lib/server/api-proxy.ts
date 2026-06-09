@@ -1,5 +1,4 @@
 import { getInternalRpcSharedSecret } from '@yucp/shared';
-import { getToken } from '../auth-server';
 import { filterForwardedAuthCookieHeader } from './forwardedAuthCookies';
 import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
 
@@ -36,11 +35,6 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   const forwardedCookies = filterForwardedAuthCookieHeader(request.headers.get('cookie'));
   if (forwardedCookies) {
     headers.set('Cookie', forwardedCookies);
-  }
-
-  const authToken = await getToken();
-  if (authToken) {
-    headers.set('X-Auth-Token', authToken);
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';

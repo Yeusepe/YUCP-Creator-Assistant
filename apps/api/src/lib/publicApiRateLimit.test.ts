@@ -1,5 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { createHash, createHmac } from 'node:crypto';
 
 mock.module('rate-limiter-flexible', () => ({
   RateLimiterMemory: class {},
@@ -47,23 +46,21 @@ describe('checkPublicApiRateLimit', () => {
     expect(blocked.headers['Retry-After']).toBe('59');
   });
 
-  it('derives authenticated keys with a keyed digest instead of raw token hashing', () => {
+  it('derives public API key buckets from the non-secret key prefix', () => {
     const originalPepper = process.env.PUBLIC_API_KEY_PEPPER;
     process.env.PUBLIC_API_KEY_PEPPER = 'rate-limit-pepper';
     try {
-      const apiKey = 'ypsk_test_secret';
+      const publicApiKey = `ypsk_${'0123456789abcdef'.repeat(3)}`;
 
       const key = buildPublicApiRateLimitKey({
         routeFamily: 'manual-licenses',
         clientAddress: '203.0.113.10',
-        apiKey,
+        publicApiKey,
         userAgent: 'test-agent',
       });
 
-      const rawHash = createHash('sha256').update(apiKey).digest('hex');
-      const keyedDigest = createHmac('sha256', 'rate-limit-pepper').update(apiKey).digest('hex');
-      expect(key).toBe(`manual-licenses:auth:${keyedDigest}`);
-      expect(key).not.toBe(`manual-licenses:auth:${rawHash}`);
+      expect(key).toBe('manual-licenses:auth:public-api-key:ypsk_01234567');
+      expect(key).not.toContain(publicApiKey);
     } finally {
       if (originalPepper === undefined) {
         delete process.env.PUBLIC_API_KEY_PEPPER;

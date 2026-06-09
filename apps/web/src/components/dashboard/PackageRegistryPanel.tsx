@@ -911,8 +911,8 @@ function ProductLaneDetailsSheet({
   return (
     <Sheet isOpen={isOpen} onOpenChange={onOpenChange}>
       <Sheet.Backdrop variant="blur">
-        <Sheet.Content className="mx-auto max-h-[94vh] max-w-[860px]">
-          <Sheet.Dialog>
+        <Sheet.Content className="pm-sheet-content mx-auto max-h-[94vh] max-w-[860px]">
+          <Sheet.Dialog className="pm-sheet-dialog">
             <Sheet.Handle />
             <Sheet.CloseTrigger />
             <Sheet.Header>
@@ -2382,9 +2382,9 @@ export function PackageRegistryPanel({
         onRestore={(lane) => restoreProductMutation.mutate(lane)}
       />
 
-      <Sheet isOpen={isPublishOpen} onOpenChange={setIsPublishOpen}>
+      <Sheet isDetached isOpen={isPublishOpen} onOpenChange={setIsPublishOpen}>
         <Sheet.Backdrop variant="blur">
-          <Sheet.Content className="pm-sheet-content mx-auto max-h-[94vh] max-w-[680px]">
+          <Sheet.Content className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]">
             <Sheet.Dialog className="pm-sheet-dialog">
               <Sheet.Handle />
               <Sheet.CloseTrigger />
@@ -2394,7 +2394,7 @@ export function PackageRegistryPanel({
                   Pick the product, add the file, and publish it.
                 </p>
               </Sheet.Header>
-              <Sheet.Body className="space-y-5">
+              <Sheet.Body className="pm-publish-sheet-body space-y-5">
                 <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
                   <div className="space-y-1">
                     <p className="text-foreground text-sm font-semibold">Product</p>
@@ -2404,7 +2404,7 @@ export function PackageRegistryPanel({
                   </div>
                   <Autocomplete
                     aria-label="Product"
-                    className="w-full"
+                    className="pm-package-picker w-full"
                     placeholder="Choose a product"
                     selectionMode="single"
                     value={publishDraft.laneKey || null}
@@ -2416,7 +2416,7 @@ export function PackageRegistryPanel({
                       <Autocomplete.ClearButton />
                       <Autocomplete.Indicator />
                     </Autocomplete.Trigger>
-                    <Autocomplete.Popover>
+                    <Autocomplete.Popover className="pm-package-picker-popover">
                       <Autocomplete.Filter filter={contains}>
                         <SearchField autoFocus name="product-search" variant="secondary">
                           <SearchField.Group>
@@ -2847,7 +2847,7 @@ export function PackageRegistryPanel({
                               <p className="pm-field-label">Visibility</p>
                               <Select
                                 aria-label="Repository visibility"
-                                className="w-full"
+                                className="pm-package-picker w-full"
                                 selectedKey={publishDraft.repositoryVisibility}
                                 onSelectionChange={(key) =>
                                   setPublishDraft((current) => ({
@@ -2862,7 +2862,7 @@ export function PackageRegistryPanel({
                                   <Select.Value />
                                   <Select.Indicator />
                                 </Select.Trigger>
-                                <Select.Popover>
+                                <Select.Popover className="pm-package-picker-popover">
                                   <ListBox>
                                     <ListBox.Item id="listed" textValue="Listed">
                                       Visible in VCC now

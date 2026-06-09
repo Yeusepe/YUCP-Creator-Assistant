@@ -49,7 +49,9 @@ describe('proxyApiRequest', () => {
       'yucp.session_token=session-cookie; yucp.session_data=cached-session; yucp_setup_session=setup-cookie'
     );
     expect(headers.get('Authorization')).toBeNull();
+    expect(headers.get('X-Auth-Token')).toBeNull();
     expect(headers.get('X-Internal-Service-Secret')).toBe('test-secret-value');
+    expect(mockGetToken).not.toHaveBeenCalled();
   });
 
   it('forwards the VRChat connect pending cookie on 2FA submissions', async () => {
@@ -84,6 +86,8 @@ describe('proxyApiRequest', () => {
     expect(cookieHeader).toContain('yucp_vrchat_connect_pending=some-pending-uuid');
     // Unrelated cookies must be stripped
     expect(cookieHeader).not.toContain('other_cookie');
+    expect(headers.get('X-Auth-Token')).toBeNull();
+    expect(mockGetToken).not.toHaveBeenCalled();
   });
 
   it('converts upstream fetch resets into a controlled 502 response instead of throwing', async () => {
@@ -108,6 +112,37 @@ describe('proxyApiRequest', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'Upstream API request failed',
       code: 'ECONNRESET',
+    });
+  });
+
+  it('does not mint SSR auth tokens for browser API proxy requests', async () => {
+    mockGetToken.mockResolvedValueOnce('viewer-token-that-should-not-be-used');
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    const response = await proxyApiRequest({
+      url: 'http://localhost:3000/api/packages?includeArchived=true',
+      method: 'GET',
+      headers: new Headers({
+        cookie: 'yucp.session_token=session-cookie',
+      }),
+    } as Request);
+
+    expect(response.status).toBe(401);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    expect(mockGetToken).not.toHaveBeenCalled();
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const headers = new Headers(init.headers);
+    expect(headers.get('Cookie')).toBe('yucp.session_token=session-cookie');
+    expect(headers.get('X-Auth-Token')).toBeNull();
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Authentication required',
     });
   });
 });

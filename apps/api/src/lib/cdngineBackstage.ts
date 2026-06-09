@@ -35,6 +35,30 @@ type ConfiguredCdngineBackstageConfig = {
   variant: string;
 };
 
+export class CdngineApiRequestError extends Error {
+  readonly detail: string;
+  readonly problemType?: string;
+  readonly retryable?: boolean;
+  readonly status: number;
+  readonly statusText: string;
+
+  constructor(input: {
+    detail: string;
+    problemType?: string;
+    retryable?: boolean;
+    status: number;
+    statusText: string;
+  }) {
+    super(`CDNgine request failed: ${input.detail}`);
+    this.name = 'CdngineApiRequestError';
+    this.detail = input.detail;
+    this.problemType = input.problemType;
+    this.retryable = input.retryable;
+    this.status = input.status;
+    this.statusText = input.statusText;
+  }
+}
+
 type CdngineUploadTarget = {
   expiresAt?: string;
   method: string;
@@ -138,7 +162,25 @@ async function requestCdngineJson<T>(
       payload && typeof payload === 'object' && 'detail' in payload
         ? String((payload as { detail?: unknown }).detail)
         : `${response.status} ${response.statusText}`;
-    throw new Error(`CDNgine request failed: ${detail}`);
+    const problemType =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { type?: unknown }).type === 'string'
+        ? (payload as { type: string }).type
+        : undefined;
+    const retryable =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { retryable?: unknown }).retryable === 'boolean'
+        ? (payload as { retryable: boolean }).retryable
+        : undefined;
+    throw new CdngineApiRequestError({
+      detail,
+      problemType,
+      retryable,
+      status: response.status,
+      statusText: response.statusText,
+    });
   }
   return payload as T;
 }

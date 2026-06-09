@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { getWebLocalEnvValues, resolveWebEnvValues } from './cloudflare-web-config';
+import {
+  getWebLocalEnvValues,
+  resolveWebEnvValues,
+  resolveWebLocalEnvPath,
+} from './cloudflare-web-config';
 
 describe('cloudflare-web-config', () => {
   test('defaults local worker NODE_ENV to development without ambient shell leakage', () => {
@@ -31,5 +35,11 @@ describe('cloudflare-web-config', () => {
       YUCP_ENABLE_AUTOMATIC_SETUP: 'true',
       YUCP_ENABLE_PRIVATE_VPM: 'true',
     });
+  });
+
+  test('allows tests to redirect the generated local Worker env file', () => {
+    expect(resolveWebLocalEnvPath({ WEB_LOCAL_ENV_PATH: 'E:\\tmp\\web-worker-test.vars' })).toBe(
+      'E:\\tmp\\web-worker-test.vars'
+    );
   });
 });

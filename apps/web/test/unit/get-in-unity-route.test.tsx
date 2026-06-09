@@ -29,6 +29,7 @@ vi.mock('@/lib/backstageAccess', () => ({
   createBuyerBackstageVerificationIntent: vi.fn(),
   getBuyerBackstageAccessInfo: vi.fn(),
   requestUserBackstageRepoAccess: vi.fn(),
+  redeemBuyerBackstageVerificationIntent: vi.fn(),
 }));
 
 import { usePublicAuth } from '@/hooks/usePublicAuth';
@@ -56,6 +57,7 @@ describe('get in unity route', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    window.sessionStorage.clear();
     mockUseParams.mockReturnValue({
       creatorRef: 'mapache',
       productRef: 'song-thing',
@@ -128,6 +130,20 @@ describe('get in unity route', () => {
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
       expiresAt: Date.now() + 60_000,
     });
+    vi.mocked(backstageAccessApi.redeemBuyerBackstageVerificationIntent).mockResolvedValue({
+      success: true,
+      token: 'license.jwt',
+      expiresAt: Date.now() + 60_000,
+    });
+    window.sessionStorage.setItem(
+      'yucp:buyer-backstage-verification:intent_1',
+      JSON.stringify({
+        creatorRef: 'mapache',
+        productRef: 'song-thing',
+        codeVerifier: 'stored-verifier',
+        machineFingerprint: 'buyer-web-machine',
+      })
+    );
 
     const Component = GetInUnityRoute.options.component;
     if (!Component) {
@@ -138,9 +154,21 @@ describe('get in unity route', () => {
 
     expect(await screen.findByRole('button', { name: /add to vcc/i })).toBeInTheDocument();
     expect(await screen.findByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
+    expect(backstageAccessApi.redeemBuyerBackstageVerificationIntent).toHaveBeenCalledWith({
+      intentId: 'intent_1',
+      grantToken: 'grant-token',
+      codeVerifier: 'stored-verifier',
+      machineFingerprint: 'buyer-web-machine',
+    });
     expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
       creatorRef: 'mapache',
       productRef: 'song-thing',
     });
+    expect(
+      vi.mocked(backstageAccessApi.redeemBuyerBackstageVerificationIntent).mock
+        .invocationCallOrder[0]
+    ).toBeLessThan(
+      vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mock.invocationCallOrder[0]
+    );
   });
 });

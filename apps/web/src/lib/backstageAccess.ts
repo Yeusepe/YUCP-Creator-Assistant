@@ -21,6 +21,12 @@ export interface BuyerBackstageVerificationIntent {
   verificationUrl: string;
 }
 
+export interface BuyerBackstageVerificationRedemption {
+  success: boolean;
+  token: string;
+  expiresAt: number;
+}
+
 export interface BuyerBackstageRepoAccess {
   creatorName?: string;
   creatorRepoRef: string;
@@ -58,6 +64,22 @@ export async function createBuyerBackstageVerificationIntent(input: {
       machineFingerprint: input.machineFingerprint,
       codeChallenge: input.codeChallenge,
       idempotencyKey: input.idempotencyKey,
+    }
+  );
+}
+
+export async function redeemBuyerBackstageVerificationIntent(input: {
+  intentId: string;
+  grantToken: string;
+  codeVerifier: string;
+  machineFingerprint: string;
+}) {
+  return await apiClient.post<BuyerBackstageVerificationRedemption>(
+    `/api/backstage/access/verification-intents/${encodeURIComponent(input.intentId)}/redeem`,
+    {
+      codeVerifier: input.codeVerifier,
+      machineFingerprint: input.machineFingerprint,
+      grantToken: input.grantToken,
     }
   );
 }

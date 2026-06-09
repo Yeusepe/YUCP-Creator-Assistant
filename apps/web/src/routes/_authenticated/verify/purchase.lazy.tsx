@@ -832,7 +832,7 @@ function VerifyPurchasePage() {
   );
   const shouldPrepareBuyerRepoAccess = intent?.status === 'verified' && returnsToBuyerAccess;
   const repoAccessQuery = useQuery({
-    queryKey: ['vp-backstage-repo-access', buyerRepoAccessTarget],
+    queryKey: ['vp-backstage-repo-access', intentId, buyerRepoAccessTarget],
     queryFn: () => requestUserBackstageRepoAccess(buyerRepoAccessTarget ?? undefined),
     enabled: shouldPrepareBuyerRepoAccess && buyerRepoAccessTarget !== null,
     retry: false,

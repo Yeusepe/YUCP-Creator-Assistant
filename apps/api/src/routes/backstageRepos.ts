@@ -1104,18 +1104,33 @@ async function issueAuthorizedRawPackageDownloadForCatalogProduct(
         });
         return errorResponse('Package delivery is temporarily unavailable', 502);
       }
-      downloadUrl = await resolveCdngineDownloadUrl({
-        access: {
+      try {
+        downloadUrl = await resolveCdngineDownloadUrl({
+          access: {
+            authUserId: product.creatorAuthUserId,
+            subjectId,
+            accessScopeId: `catalog-product:${catalogProductId}`,
+          },
+          cdngine,
+          delivery: resolved.cdngineDelivery,
+          packageId,
+          request,
+          resolved,
+        });
+      } catch (error) {
+        logger.warn('CDNgine raw Backstage delivery authorization failed', {
           authUserId: product.creatorAuthUserId,
-          subjectId,
-          accessScopeId: `catalog-product:${catalogProductId}`,
-        },
-        cdngine,
-        delivery: resolved.cdngineDelivery,
-        packageId,
-        request,
-        resolved,
-      });
+          deliveryArtifactId: resolved.deliveryArtifactId,
+          packageId,
+          version,
+          channel,
+          required: cdngine.required === true,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (!resolved.downloadUrl || cdngine.required === true) {
+          return errorResponse('Package delivery is temporarily unavailable', 502);
+        }
+      }
     }
 
     if (!downloadUrl) {
@@ -1255,6 +1270,67 @@ async function bootstrapBuyerVerificationIntent(
   }
 }
 
+async function redeemBuyerVerificationIntent(
+  request: Request,
+  config: BackstageRepoConfig,
+  intentId: string
+): Promise<Response> {
+  const authUserId = await requireSessionAuthUserId(request, config);
+  if (authUserId instanceof Response) {
+    return authUserId;
+  }
+
+  let body: {
+    codeVerifier?: string;
+    machineFingerprint?: string;
+    grantToken?: string;
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return errorResponse('Invalid JSON body', 400);
+  }
+
+  if (!body.codeVerifier || !body.machineFingerprint || !body.grantToken) {
+    return errorResponse('codeVerifier, machineFingerprint, and grantToken are required', 400);
+  }
+
+  const actor = await createAuthUserActorBinding({
+    authUserId,
+    source: 'session',
+  });
+  const convex = getConvexClientFromUrl(config.convexUrl, actor);
+
+  try {
+    const result = await convex.action(api.verificationIntents.redeemVerificationIntent, {
+      apiSecret: config.convexApiSecret,
+      authUserId,
+      intentId: intentId as Id<'verification_intents'>,
+      codeVerifier: body.codeVerifier,
+      machineFingerprint: body.machineFingerprint,
+      grantToken: body.grantToken,
+      issuerBaseUrl: config.apiBaseUrl,
+    });
+
+    if (!result.success) {
+      return errorResponse(result.error ?? 'Could not redeem verification intent', 422);
+    }
+
+    return jsonResponse({
+      success: true,
+      token: result.token,
+      expiresAt: result.expiresAt,
+    });
+  } catch (error) {
+    logger.error('Failed to redeem buyer verification intent', {
+      authUserId,
+      intentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Failed to redeem verification intent', 500);
+  }
+}
+
 async function serveRepositoryIndex(
   request: Request,
   config: BackstageRepoConfig,
@@ -1271,26 +1347,24 @@ async function serveRepositoryIndex(
     access.creatorRepoIdentity.creatorRepoRef
   );
   try {
-    const [repository, forwardedPackages] = await Promise.all([
-      convex.query(api.backstageRepos.buildRepositoryForApi, {
-        apiSecret: config.convexApiSecret,
-        authUserId: access.authUserId,
-        subjectId: access.subjectId,
-        repositoryId: access.creatorRepoIdentity.repositoryId,
-        repositoryName: access.creatorRepoIdentity.repositoryName,
-        repositoryUrl: repositoryUrls.repositoryUrl,
-        packageBaseUrl: repositoryUrls.packageBaseUrl,
-        packageHeaders: {
-          [BACKSTAGE_REPO_TOKEN_HEADER]: access.rawToken,
-        },
-      }),
-      fetchForwardedToolchainPackages(),
-    ]);
+    const repository = await convex.query(api.backstageRepos.buildRepositoryForApi, {
+      apiSecret: config.convexApiSecret,
+      authUserId: access.authUserId,
+      subjectId: access.subjectId,
+      repositoryId: access.creatorRepoIdentity.repositoryId,
+      repositoryName: access.creatorRepoIdentity.repositoryName,
+      repositoryUrl: repositoryUrls.repositoryUrl,
+      packageBaseUrl: repositoryUrls.packageBaseUrl,
+      packageHeaders: {
+        [BACKSTAGE_REPO_TOKEN_HEADER]: access.rawToken,
+      },
+    });
 
     if (!isRecord(repository)) {
       throw new Error('Backstage repository response was not an object.');
     }
 
+    const forwardedPackages = await fetchForwardedToolchainPackages();
     return jsonResponse(mergeRepositoryPackages(repository, forwardedPackages));
   } catch (error) {
     logger.error('Failed to build creator repository index', {
@@ -1396,6 +1470,9 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       const buyerIntentMatch = url.pathname.match(
         /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/verification-intent$/
       );
+      const buyerIntentRedeemMatch = url.pathname.match(
+        /^\/api\/backstage\/access\/verification-intents\/([^/]+)\/redeem$/
+      );
       if (request.method === 'GET' && url.pathname === '/v1/backstage/repos/access') {
         return await issueRepoAccess(request, config);
       }
@@ -1459,6 +1536,13 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
           return errorResponse('Malformed path parameter encoding', 400);
         }
         return await bootstrapBuyerVerificationIntent(request, config, creatorRef, productRef);
+      }
+      if (request.method === 'POST' && buyerIntentRedeemMatch) {
+        const intentId = safeDecodeURIComponent(buyerIntentRedeemMatch[1] ?? '');
+        if (intentId === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await redeemBuyerVerificationIntent(request, config, intentId);
       }
       if (request.method === 'GET' && url.pathname === '/v1/backstage/repos/index.json') {
         return await serveRepositoryIndex(request, config);

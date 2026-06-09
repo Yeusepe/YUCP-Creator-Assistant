@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 let sessionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 const fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> =
   async () =>
     new Response(
@@ -57,6 +58,7 @@ mock.module('../../../../convex/_generated/api', () => ({
     },
     verificationIntents: {
       createVerificationIntent: 'verificationIntents.createVerificationIntent',
+      redeemVerificationIntent: 'verificationIntents.redeemVerificationIntent',
     },
     creatorProfiles: {
       getCreatorByAuthUser: 'creatorProfiles.getCreatorByAuthUser',
@@ -75,6 +77,8 @@ mock.module('../lib/convex', () => ({
         reference,
         actor && args && typeof args === 'object' ? { ...args, actor } : args
       ),
+    action: (reference: unknown, args?: unknown) =>
+      actionImpl(reference, actor && args && typeof args === 'object' ? { ...args, actor } : args),
   }),
 }));
 
@@ -123,6 +127,7 @@ describe('backstage repo routes', () => {
   beforeEach(() => {
     globalThis.fetch = ((...args) => fetchImpl(...args)) as typeof fetch;
     sessionImpl = async () => null;
+    actionImpl = async () => null;
     queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -555,6 +560,40 @@ describe('backstage repo routes', () => {
             '0.1.1': {
               name: 'com.yucp.motion',
               version: '0.1.1',
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it('serves creator repository packages when forwarded toolchain packages are unavailable', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith('https://vpm.yucp.club/')) {
+        return new Response('upstream unavailable', { status: 503 });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/v1/backstage/repos/mapache/index.json', {
+        headers: {
+          'X-YUCP-Repo-Token': 'ybt_example',
+        },
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toEqual({
+      name: 'Backstage Repos',
+      packages: {
+        'com.yucp.example': {
+          versions: {
+            '1.2.3': {
+              name: 'com.yucp.example',
+              version: '1.2.3',
+              yucpDeliveryMode: 'repo-token-vpm-v1',
+              yucpDeliverySourceKind: 'zip',
             },
           },
         },
@@ -1322,6 +1361,172 @@ describe('backstage repo routes', () => {
     );
     expect(cdngineCall?.init?.headers).toMatchObject({
       authorization: 'Bearer cdngine-token',
+    });
+  });
+
+  it('falls back to the raw package download URL when optional CDNgine authorization fails', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith('https://cdngine.test/')) {
+        return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'creator-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            status: 'active',
+          };
+        case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          return {
+            creatorAuthUserId: 'creator-user-1',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            packages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                version: '1.2.3',
+                channel: 'stable',
+                aliasContract: {
+                  kind: 'alias-v1',
+                  aliasId: 'song-thing',
+                  installStrategy: 'server-authorized',
+                  importerPackage: 'com.yucp.importer',
+                  catalogProductIds: ['catalog_1'],
+                },
+              },
+            ],
+          };
+        case 'backstageRepos.resolveRawPackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'raw_artifact_1',
+            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
+            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
+            contentType: 'application/vnd.unity',
+            packageSha256: 'c'.repeat(64),
+            sourceKind: 'unitypackage',
+            version: '1.2.3',
+            channel: 'stable',
+            cdngineDelivery: {
+              assetId: 'ast_backstage_1',
+              versionId: 'ver_backstage_1',
+              deliveryScopeId: 'paid-downloads',
+              variant: 'raw-upload',
+              serviceNamespaceId: 'yucp-backstage',
+              tenantId: 'creator-user-1',
+              assetOwner: 'creator:creator-user-1',
+              sha256: 'c'.repeat(64),
+              byteSize: 4567,
+              uploadedAt: 1_700_000_000_000,
+            },
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      auth: {
+        getSession: (...args: unknown[]) =>
+          sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
+      } as never,
+      apiBaseUrl: 'https://api.test',
+      enableSessionAccess: true,
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        accessToken: 'cdngine-token',
+        apiBaseUrl: 'https://cdngine.test',
+        required: false,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
+        {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ version: '1.2.3', channel: 'stable' }),
+        }
+      )
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
+      packageSha256: 'c'.repeat(64),
+      sourceKind: 'unitypackage',
+    });
+  });
+
+  it('redeems buyer verification grants with the session actor before VCC repo access', async () => {
+    sessionImpl = async () => ({ user: { id: 'auth-user-1' } });
+    const observedCalls: unknown[][] = [];
+    actionImpl = async (...args: unknown[]) => {
+      observedCalls.push(args);
+      return {
+        success: true,
+        token: 'license.jwt',
+        expiresAt: 123,
+      };
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          codeVerifier: 'verifier',
+          machineFingerprint: 'buyer-web-machine',
+          grantToken: 'grant-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(200);
+    expect(observedCalls[0]?.[0]).toBe('verificationIntents.redeemVerificationIntent');
+    expect(observedCalls[0]?.[1]).toMatchObject({
+      apiSecret: 'convex-secret',
+      actor: {
+        payload: JSON.stringify({
+          authUserId: 'auth-user-1',
+          source: 'session',
+        }),
+        signature: 'test-signature',
+      },
+      authUserId: 'auth-user-1',
+      intentId: 'intent_123',
+      codeVerifier: 'verifier',
+      machineFingerprint: 'buyer-web-machine',
+      grantToken: 'grant-token',
+      issuerBaseUrl: 'https://api.test',
+    });
+    await expect(response?.json()).resolves.toEqual({
+      success: true,
+      token: 'license.jwt',
+      expiresAt: 123,
     });
   });
 
