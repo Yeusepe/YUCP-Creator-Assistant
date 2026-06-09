@@ -1,4 +1,8 @@
 import { sha256 } from '@noble/hashes/sha2.js';
+import type {
+  BackstagePackageMediaKind,
+  BackstagePackageMediaReference,
+} from '@yucp/shared/backstagePackageMedia';
 import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
 import { apiClient } from '@/api/client';
 
@@ -106,11 +110,6 @@ export interface BackstageRepoAccessResponse {
   expiresAt: number;
 }
 
-export interface BackstageReleaseUploadUrlResponse {
-  packageId: string;
-  uploadUrl: string;
-}
-
 export interface BackstageDirectUploadTarget {
   expiresAt?: string;
   method: string;
@@ -135,6 +134,15 @@ export interface BackstageReleaseUploadResult {
   cdngineSource: CdngineBackstageSourceReference;
   deliveryName?: string;
   sourceContentType?: string;
+}
+
+export interface BackstageReleaseMediaUploadInput {
+  bytes: Uint8Array;
+  contentType: string;
+  deliveryName: string;
+  kind: BackstagePackageMediaKind;
+  packageId: string;
+  sourcePath?: string;
 }
 
 export type BackstageReleaseUploadProgress =
@@ -274,12 +282,6 @@ export async function deleteCreatorBackstageRelease(input: {
     deliveryPackageReleaseId: string;
   }>(
     `/api/packages/${encodeURIComponent(input.packageId)}/backstage/releases/${encodeURIComponent(input.deliveryPackageReleaseId)}`
-  );
-}
-
-export async function createBackstageReleaseUploadUrl(input: { packageId: string }) {
-  return await apiClient.post<BackstageReleaseUploadUrlResponse>(
-    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-url`
   );
 }
 
@@ -435,37 +437,42 @@ export async function uploadBackstageReleaseFileDirect(input: {
   return result;
 }
 
-export async function uploadBackstageReleaseFile(input: {
-  uploadUrl: string;
-  file: File;
-}): Promise<BackstageReleaseUploadResult> {
-  const response = await fetch(input.uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': input.file.type || 'application/octet-stream',
-      'X-YUCP-File-Name': encodeURIComponent(input.file.name),
-    },
-    body: input.file,
-  });
+export async function uploadBackstageReleaseMedia(
+  input: BackstageReleaseMediaUploadInput
+): Promise<BackstagePackageMediaReference> {
+  const requestBody = new ArrayBuffer(input.bytes.byteLength);
+  new Uint8Array(requestBody).set(input.bytes);
+  const response = await fetch(
+    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/media?kind=${encodeURIComponent(input.kind)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': input.contentType,
+        'X-YUCP-File-Name': encodeURIComponent(input.deliveryName),
+        'X-YUCP-Media-Kind': input.kind,
+        ...(input.sourcePath ? { 'X-YUCP-Source-Path': input.sourcePath } : {}),
+      },
+      body: requestBody,
+    }
+  );
 
-  const payload = (await response
-    .json()
-    .catch(() => null)) as BackstageStorageUploadResponse | null;
+  const payload = (await response.json().catch(() => null)) as
+    | BackstagePackageMediaReference
+    | { error?: string }
+    | null;
   if (!response.ok) {
     throw new Error(
-      `Failed to upload Backstage release (${response.status} ${response.statusText})`
+      payload && 'error' in payload && payload.error
+        ? payload.error
+        : `Failed to upload Backstage package media (${response.status} ${response.statusText})`
     );
   }
 
-  if (!payload?.cdngineSource) {
-    throw new Error('Backstage upload did not return CDNgine source coordinates');
+  if (!payload || !('kind' in payload)) {
+    throw new Error('Backstage media upload did not return a media reference');
   }
 
-  return {
-    cdngineSource: payload.cdngineSource,
-    deliveryName: payload.deliveryName,
-    sourceContentType: payload.sourceContentType,
-  };
+  return payload;
 }
 
 export async function publishBackstageRelease(input: {

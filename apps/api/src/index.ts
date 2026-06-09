@@ -161,9 +161,25 @@ function getCdngineBackstageApiConfig(env: ReturnType<typeof loadEnv>) {
     return undefined;
   }
   const timeoutMs = Number.parseInt(env.CDNGINE_BACKSTAGE_TIMEOUT_MS ?? '5000', 10);
+  const publicationPollIntervalMs = Number.parseInt(
+    env.CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS ?? '500',
+    10
+  );
+  const publicationTimeoutMs = Number.parseInt(
+    env.CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS ?? '120000',
+    10
+  );
   return {
     accessToken,
     apiBaseUrl,
+    publicationPollIntervalMs:
+      Number.isFinite(publicationPollIntervalMs) && publicationPollIntervalMs >= 0
+        ? publicationPollIntervalMs
+        : 500,
+    publicationTimeoutMs:
+      Number.isFinite(publicationTimeoutMs) && publicationTimeoutMs > 0
+        ? publicationTimeoutMs
+        : 120000,
     required: env.CDNGINE_BACKSTAGE_REQUIRED === 'true',
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000,
   };
@@ -1088,13 +1104,6 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
-  const backstageUploadMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/upload-url$/);
-  if (backstageUploadMatch && packageRoutes) {
-    if (request.method === 'POST') {
-      return packageRoutes.createBackstageReleaseUploadUrl(request, backstageUploadMatch[1]);
-    }
-    return Response.json({ error: 'Method not allowed' }, { status: 405 });
-  }
   const backstageUploadSessionMatch = pathname.match(
     /^\/api\/packages\/([^/]+)\/backstage\/upload-session$/
   );
@@ -1119,12 +1128,10 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
-  const backstageUploadSourceMatch = pathname.match(
-    /^\/api\/packages\/([^/]+)\/backstage\/upload-source$/
-  );
-  if (backstageUploadSourceMatch && packageRoutes) {
+  const backstageMediaUploadMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/media$/);
+  if (backstageMediaUploadMatch && packageRoutes) {
     if (request.method === 'POST') {
-      return packageRoutes.uploadBackstageReleaseSource(request, backstageUploadSourceMatch[1]);
+      return packageRoutes.uploadBackstageReleaseMedia(request, backstageMediaUploadMatch[1]);
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }

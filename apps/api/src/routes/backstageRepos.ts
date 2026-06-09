@@ -1,8 +1,16 @@
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
+  BACKSTAGE_PACKAGE_MEDIA_KINDS,
+  type BackstagePackageMediaKind,
+  type BackstagePackageMediaMap,
+  type BackstagePackageMediaReference,
+} from '@yucp/shared/backstagePackageMedia';
+import {
   type CdngineBackstageDeliveryReference,
+  type CdngineBackstageSourceReference,
   isCdngineBackstageDeliveryReference,
+  isCdngineBackstageSourceReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import {
@@ -16,6 +24,7 @@ import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
+import { authorizeCdngineBackstageSource } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -76,6 +85,7 @@ type AuthorizedAliasInstallPlanRecord = {
     version: string;
     channel: string;
     zipSha256?: string;
+    media?: BackstagePackageMediaMap;
     aliasContract: YucpAliasPackageContract;
   }>;
 };
@@ -113,7 +123,7 @@ type BackstageRawPackageDownloadRecord = {
   sourceKind: 'zip' | 'unitypackage';
   version: string;
   channel: string;
-  cdngineDelivery?: CdngineBackstageDeliveryReference;
+  cdngineSource?: CdngineBackstageSourceReference;
 };
 
 type ConfiguredCdngineBackstageDelivery = {
@@ -132,16 +142,27 @@ class RequestBodyError extends Error {
   }
 }
 
-function requireInstallableBackstagePackageDownload(
-  resolved: BackstagePackageDownloadRecord,
+function requireRawBackstagePackageDownload(
+  resolved: BackstageRawPackageDownloadRecord,
   packageId: string
-): { packageSha256: string; sourceKind: 'zip' } {
-  const packageSha256 = resolved.zipSha256?.trim().toLowerCase() ?? '';
+): {
+  packageSha256: string;
+  sourceKind: 'zip' | 'unitypackage';
+  cdngineSource: CdngineBackstageSourceReference;
+} {
+  const packageSha256 = resolved.packageSha256?.trim().toLowerCase() ?? '';
   if (!SHA256_HEX_RE.test(packageSha256)) {
-    throw new Error(`Alias package '${packageId}' has an invalid VPM deliverable digest`);
+    throw new Error(`Alias package '${packageId}' has an invalid raw package digest`);
+  }
+  if (!isCdngineBackstageSourceReference(resolved.cdngineSource)) {
+    throw new Error(`Alias package '${packageId}' is missing CDNgine source coordinates`);
   }
 
-  return { packageSha256, sourceKind: 'zip' };
+  return {
+    packageSha256,
+    sourceKind: resolved.sourceKind,
+    cdngineSource: resolved.cdngineSource,
+  };
 }
 
 export type BackstageRepoConfig = {
@@ -270,20 +291,6 @@ function getConfiguredCdngine(
   };
 }
 
-function isCdngineVersionNotReady(status: number, payload: Record<string, unknown>): boolean {
-  if (status !== 409) {
-    return false;
-  }
-  const type = typeof payload.type === 'string' ? payload.type : '';
-  const title = typeof payload.title === 'string' ? payload.title : '';
-  const detail = typeof payload.detail === 'string' ? payload.detail : '';
-  return (
-    type.includes('version-not-ready') ||
-    title.toLowerCase() === 'version not ready' ||
-    detail.toLowerCase().includes('not ready')
-  );
-}
-
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -301,14 +308,88 @@ async function fetchWithTimeout(
   }
 }
 
+type CdngineDeliveryAuthorizationResult =
+  | {
+      ok: true;
+      url: string;
+    }
+  | {
+      ok: false;
+      payload: Record<string, unknown>;
+      status: number;
+      statusText: string;
+    };
+
+function parseCdngineJsonObject(text: string): Record<string, unknown> {
+  if (text.length === 0) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return isRecord(parsed) ? parsed : { detail: text };
+  } catch {
+    return { detail: text };
+  }
+}
+
+function isCdngineBackstageDependencyError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('CDNgine');
+}
+
+async function authorizeCdngineBackstageDeliveryUrl(input: {
+  cdngine: ConfiguredCdngineBackstageDelivery;
+  delivery: CdngineBackstageDeliveryReference;
+  idempotencyKey: string;
+  request: Request;
+  variant?: string;
+}): Promise<CdngineDeliveryAuthorizationResult> {
+  const cdngineBaseUrl = input.cdngine.apiBaseUrl.replace(/\/+$/, '');
+  const response = await fetchWithTimeout(
+    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
+    {
+      body: JSON.stringify({
+        responseFormat: 'url',
+        variant: input.variant ?? input.delivery.variant,
+      }),
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${input.cdngine.accessToken}`,
+        'content-type': 'application/json',
+        'idempotency-key': input.idempotencyKey,
+        ...(input.request.headers.get('traceparent')
+          ? { traceparent: input.request.headers.get('traceparent') as string }
+          : {}),
+      },
+      method: 'POST',
+    },
+    input.cdngine.timeoutMs ?? 5000
+  );
+  const text = await response.text();
+  const payload = parseCdngineJsonObject(text);
+  if (!response.ok) {
+    return {
+      ok: false,
+      payload,
+      status: response.status,
+      statusText: response.statusText,
+    };
+  }
+  if (typeof payload.url !== 'string' || payload.url.length === 0) {
+    throw new Error('CDNgine delivery authorization did not return a URL.');
+  }
+  return {
+    ok: true,
+    url: new URL(payload.url, `${cdngineBaseUrl}/`).toString(),
+  };
+}
+
 async function resolveCdngineDownloadUrl(input: {
   access: { authUserId: string; subjectId: string; tokenId?: string; accessScopeId?: string };
   cdngine: ConfiguredCdngineBackstageDelivery;
   delivery: CdngineBackstageDeliveryReference;
   packageId: string;
   request: Request;
-  resolved: BackstagePackageDownloadRecord | BackstageRawPackageDownloadRecord;
-  allowSourceFallback?: boolean;
+  resolved: BackstagePackageDownloadRecord;
 }): Promise<string> {
   const idempotencyHash = await sha256Hex(
     [
@@ -331,75 +412,51 @@ async function resolveCdngineDownloadUrl(input: {
       input.delivery.variant,
     ].join('|')
   );
-  const cdngineBaseUrl = input.cdngine.apiBaseUrl.replace(/\/+$/, '');
-  const authorizeHeaders = {
-    accept: 'application/json',
-    authorization: `Bearer ${input.cdngine.accessToken}`,
-    'content-type': 'application/json',
-    ...(input.request.headers.get('traceparent')
-      ? { traceparent: input.request.headers.get('traceparent') as string }
-      : {}),
-  };
-  const response = await fetchWithTimeout(
-    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
-    {
-      body: JSON.stringify({
-        responseFormat: 'url',
-        variant: input.delivery.variant,
-      }),
-      headers: {
-        ...authorizeHeaders,
-        'idempotency-key': `backstage-download-${idempotencyHash}`,
-      },
-      method: 'POST',
-    },
-    input.cdngine.timeoutMs ?? 5000
+  const deliveryAuthorization = await authorizeCdngineBackstageDeliveryUrl({
+    cdngine: input.cdngine,
+    delivery: input.delivery,
+    idempotencyKey: `backstage-download-${idempotencyHash}`,
+    request: input.request,
+  });
+  if (deliveryAuthorization.ok) {
+    return deliveryAuthorization.url;
+  }
+
+  const detail =
+    typeof deliveryAuthorization.payload.detail === 'string'
+      ? deliveryAuthorization.payload.detail
+      : deliveryAuthorization.statusText;
+  throw new Error(
+    `CDNgine delivery authorization failed: ${deliveryAuthorization.status} ${detail}`
   );
-  const text = await response.text();
-  const payload = text.length > 0 ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (response.ok) {
-    if (typeof payload.url !== 'string' || payload.url.length === 0) {
-      throw new Error('CDNgine delivery authorization did not return a URL.');
-    }
-    return new URL(payload.url, `${cdngineBaseUrl}/`).toString();
-  }
+}
 
-  if (response.status !== 404 && !isCdngineVersionNotReady(response.status, payload)) {
-    const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
-    throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
-  }
-
-  if (input.allowSourceFallback !== true) {
-    const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
-    throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
-  }
-
-  const sourceResponse = await fetchWithTimeout(
-    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/source/authorize`,
-    {
-      body: JSON.stringify({
-        responseFormat: 'url',
-      }),
-      headers: {
-        ...authorizeHeaders,
-        'idempotency-key': `backstage-source-download-${idempotencyHash}`,
-      },
-      method: 'POST',
-    },
-    input.cdngine.timeoutMs ?? 5000
+async function resolveCdngineSourceDownloadUrl(input: {
+  access: { authUserId: string; subjectId: string; tokenId?: string; accessScopeId?: string };
+  cdngine: ConfiguredCdngineBackstageDelivery;
+  packageId: string;
+  resolved: BackstageRawPackageDownloadRecord;
+  source: CdngineBackstageSourceReference;
+}): Promise<string> {
+  const idempotencyHash = await sha256Hex(
+    [
+      'backstage-package-source-download-v1',
+      input.access.authUserId,
+      input.access.subjectId,
+      input.access.tokenId ?? input.access.accessScopeId ?? '',
+      input.packageId,
+      input.resolved.version,
+      input.resolved.channel,
+      input.resolved.deliveryArtifactId,
+      input.source.assetId,
+      input.source.versionId,
+    ].join('|')
   );
-  const sourceText = await sourceResponse.text();
-  const sourcePayload =
-    sourceText.length > 0 ? (JSON.parse(sourceText) as Record<string, unknown>) : {};
-  if (!sourceResponse.ok) {
-    const detail =
-      typeof sourcePayload.detail === 'string' ? sourcePayload.detail : sourceResponse.statusText;
-    throw new Error(`CDNgine source authorization failed: ${sourceResponse.status} ${detail}`);
-  }
-  if (typeof sourcePayload.url !== 'string' || sourcePayload.url.length === 0) {
-    throw new Error('CDNgine source authorization did not return a URL.');
-  }
-  return new URL(sourcePayload.url, `${cdngineBaseUrl}/`).toString();
+  return await authorizeCdngineBackstageSource({
+    config: input.cdngine,
+    source: input.source,
+    idempotencyKey: `backstage-source-download-${idempotencyHash}`,
+  });
 }
 
 function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
@@ -929,7 +986,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
           throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
         }
         const resolvedDownload = (await convex.query(
-          api.backstageRepos.resolvePackageDownloadForApi,
+          api.backstageRepos.resolveRawPackageDownloadForApi,
           {
             apiSecret: config.convexApiSecret,
             authUserId: plan.creatorAuthUserId,
@@ -941,22 +998,25 @@ async function buildAuthorizedAliasInstallPlanResponse(
         )) as BackstageRawPackageDownloadRecord | null;
         if (!resolvedDownload) {
           throw new Error(
-            `Alias package '${pkg.packageId}' is missing a package delivery artifact`
+            `Alias package '${pkg.packageId}' is missing a raw package source artifact`
           );
         }
-        const installableDownload = requireInstallableBackstagePackageDownload(
-          resolvedDownload,
-          pkg.packageId
-        );
+        const sourceDownload = requireRawBackstagePackageDownload(resolvedDownload, pkg.packageId);
         return {
           packageId: pkg.packageId,
           displayName: pkg.displayName,
           version: pkg.version,
           channel: pkg.channel,
           zipSha256: pkg.zipSha256,
-          packageSha256: installableDownload.packageSha256,
-          sourceKind: installableDownload.sourceKind,
+          packageSha256: sourceDownload.packageSha256,
+          sourceKind: sourceDownload.sourceKind,
           downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(catalogProductId)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
+          media: buildPackageMediaInstallPlanDescriptors({
+            apiBaseUrl: config.apiBaseUrl,
+            catalogProductId,
+            media: pkg.media,
+            packageId: pkg.packageId,
+          }),
           aliasContract: pkg.aliasContract,
           importerDelivery,
         };
@@ -1028,6 +1088,60 @@ function readOptionalBodyString(body: Record<string, unknown>, key: string): str
   return normalized || undefined;
 }
 
+function buildPackageMediaDownloadUrl(input: {
+  apiBaseUrl: string;
+  catalogProductId: string;
+  kind: BackstagePackageMediaKind;
+  packageId: string;
+}): string {
+  return `${input.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(input.catalogProductId)}/packages/${encodeURIComponent(input.packageId)}/media/${encodeURIComponent(input.kind)}`;
+}
+
+function buildPackageMediaInstallPlanDescriptors(input: {
+  apiBaseUrl: string;
+  catalogProductId: string;
+  media?: BackstagePackageMediaMap;
+  packageId: string;
+}):
+  | Partial<
+      Record<
+        BackstagePackageMediaKind,
+        Omit<BackstagePackageMediaReference, 'cdngineDelivery' | 'deliveryName'> & {
+          downloadUrl: string;
+        }
+      >
+    >
+  | undefined {
+  const result: Partial<
+    Record<
+      BackstagePackageMediaKind,
+      Omit<BackstagePackageMediaReference, 'cdngineDelivery' | 'deliveryName'> & {
+        downloadUrl: string;
+      }
+    >
+  > = {};
+  for (const kind of Object.values(BACKSTAGE_PACKAGE_MEDIA_KINDS)) {
+    const media = input.media?.[kind];
+    if (!media) {
+      continue;
+    }
+    result[kind] = {
+      byteSize: media.byteSize,
+      contentType: media.contentType,
+      downloadUrl: buildPackageMediaDownloadUrl({
+        apiBaseUrl: input.apiBaseUrl,
+        catalogProductId: input.catalogProductId,
+        kind,
+        packageId: input.packageId,
+      }),
+      kind,
+      sha256: media.sha256,
+      ...(media.sourcePath ? { sourcePath: media.sourcePath } : {}),
+    };
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 async function issueAuthorizedPackageDownloadForCatalogProduct(
   request: Request,
   config: BackstageRepoConfig,
@@ -1084,72 +1198,59 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       return errorResponse('Package not found', 404);
     }
 
-    const resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
+    const resolved = (await convex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
       apiSecret: config.convexApiSecret,
       authUserId: product.creatorAuthUserId,
       subjectId,
       packageId,
       version,
       channel,
-    })) as BackstagePackageDownloadRecord | null;
+    })) as BackstageRawPackageDownloadRecord | null;
     if (!resolved) {
       return errorResponse('Package not found', 404);
     }
-    const installableDownload = requireInstallableBackstagePackageDownload(resolved, packageId);
-
-    let downloadUrl = resolved.downloadUrl;
-    if (isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
-      const cdngine = getConfiguredCdngine(config);
-      if (!cdngine) {
-        logger.error('CDNgine Backstage package delivery is configured but not available', {
-          authUserId: product.creatorAuthUserId,
-          deliveryArtifactId:
-            resolved.deliveryArtifactId ?? resolved.artifactId ?? resolved.artifactKey,
-          packageId,
-          version,
-          channel,
-        });
-        return errorResponse('Package delivery is temporarily unavailable', 502);
-      }
-      try {
-        downloadUrl = await resolveCdngineDownloadUrl({
-          access: {
-            authUserId: product.creatorAuthUserId,
-            subjectId,
-            accessScopeId: `catalog-product:${catalogProductId}`,
-          },
-          cdngine,
-          delivery: resolved.cdngineDelivery,
-          packageId,
-          request,
-          resolved,
-          allowSourceFallback: false,
-        });
-      } catch (error) {
-        logger.warn('CDNgine Backstage package delivery authorization failed', {
-          authUserId: product.creatorAuthUserId,
-          deliveryArtifactId:
-            resolved.deliveryArtifactId ?? resolved.artifactId ?? resolved.artifactKey,
-          packageId,
-          version,
-          channel,
-          required: cdngine.required === true,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        if (!resolved.downloadUrl || cdngine.required === true) {
-          return errorResponse('Package delivery is temporarily unavailable', 502);
-        }
-      }
+    const sourceDownload = requireRawBackstagePackageDownload(resolved, packageId);
+    const cdngine = getConfiguredCdngine(config);
+    if (!cdngine) {
+      logger.error('CDNgine Backstage package source delivery is configured but not available', {
+        authUserId: product.creatorAuthUserId,
+        deliveryArtifactId: resolved.deliveryArtifactId,
+        packageId,
+        version,
+        channel,
+      });
+      return errorResponse('Package delivery is temporarily unavailable', 502);
     }
-
-    if (!downloadUrl) {
+    let downloadUrl: string;
+    try {
+      downloadUrl = await resolveCdngineSourceDownloadUrl({
+        access: {
+          authUserId: product.creatorAuthUserId,
+          subjectId,
+          accessScopeId: `catalog-product:${catalogProductId}`,
+        },
+        cdngine,
+        packageId,
+        resolved,
+        source: sourceDownload.cdngineSource,
+      });
+    } catch (error) {
+      logger.warn('CDNgine Backstage package source authorization failed', {
+        authUserId: product.creatorAuthUserId,
+        deliveryArtifactId: resolved.deliveryArtifactId,
+        packageId,
+        version,
+        channel,
+        required: cdngine.required === true,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return errorResponse('Package delivery is temporarily unavailable', 502);
     }
 
     return jsonResponse({
       downloadUrl,
-      packageSha256: installableDownload.packageSha256,
-      sourceKind: installableDownload.sourceKind,
+      packageSha256: sourceDownload.packageSha256,
+      sourceKind: sourceDownload.sourceKind,
       version: resolved.version,
       channel: resolved.channel,
       contentType: resolved.contentType,
@@ -1166,6 +1267,141 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       error: error instanceof Error ? error.message : String(error),
     });
     return errorResponse('Failed to authorize package download', 500);
+  }
+}
+
+async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
+  request: Request,
+  config: BackstageRepoConfig,
+  catalogProductId: string,
+  packageId: string,
+  kind: string
+): Promise<Response> {
+  const mediaKind =
+    kind === BACKSTAGE_PACKAGE_MEDIA_KINDS.banner || kind === BACKSTAGE_PACKAGE_MEDIA_KINDS.icon
+      ? kind
+      : null;
+  if (!mediaKind) {
+    return errorResponse('Package media not found', 404);
+  }
+
+  const viewer = await authenticateBackstageAccess(request, config, config.auth);
+  if (viewer instanceof Response) {
+    return viewer;
+  }
+
+  try {
+    const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
+    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    if (!subjectId) {
+      return errorResponse('No active subject found for this account', 404);
+    }
+
+    const product = (await convex.query(
+      api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: config.convexApiSecret,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+      }
+    )) as BuyerAccessCatalogProduct | null;
+    if (!product) {
+      return errorResponse('Alias product access not found', 404);
+    }
+
+    const creatorRef = product.creatorAuthUserId?.trim();
+    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    if (!creatorRef || !productRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+
+    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+      apiSecret: config.convexApiSecret,
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    })) as AuthorizedAliasInstallPlanRecord | null;
+    const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
+    const media = planPackage?.media?.[mediaKind];
+    if (!planPackage || !media) {
+      return errorResponse('Package media not found', 404);
+    }
+    if (!isCdngineBackstageDeliveryReference(media.cdngineDelivery)) {
+      return errorResponse('Package media is temporarily unavailable', 502);
+    }
+
+    const cdngine = getConfiguredCdngine(config);
+    if (!cdngine) {
+      logger.error('CDNgine Backstage package media delivery is configured but not available', {
+        authUserId: product.creatorAuthUserId,
+        catalogProductId,
+        packageId,
+        version: planPackage.version,
+        channel: planPackage.channel,
+        mediaKind,
+      });
+      return errorResponse('Package media is temporarily unavailable', 502);
+    }
+
+    const idempotencyHash = await sha256Hex(
+      [
+        'backstage-package-media-download-v1',
+        product.creatorAuthUserId,
+        viewer.authUserId,
+        subjectId,
+        catalogProductId,
+        packageId,
+        planPackage.version,
+        planPackage.channel,
+        mediaKind,
+        media.sha256,
+        media.cdngineDelivery.assetId,
+        media.cdngineDelivery.versionId,
+      ].join('|')
+    );
+    const authorization = await authorizeCdngineBackstageDeliveryUrl({
+      cdngine,
+      delivery: media.cdngineDelivery,
+      idempotencyKey: `backstage-media-download-${idempotencyHash}`,
+      request,
+    });
+    if (!authorization.ok) {
+      const detail =
+        typeof authorization.payload.detail === 'string'
+          ? authorization.payload.detail
+          : authorization.statusText;
+      logger.warn('CDNgine Backstage package media delivery authorization failed', {
+        authUserId: product.creatorAuthUserId,
+        catalogProductId,
+        packageId,
+        version: planPackage.version,
+        channel: planPackage.channel,
+        mediaKind,
+        required: cdngine.required === true,
+        error: `CDNgine delivery authorization failed: ${authorization.status} ${detail}`,
+      });
+      return errorResponse('Package media is temporarily unavailable', 502);
+    }
+    return Response.redirect(authorization.url, 302);
+  } catch (error) {
+    if (isCdngineBackstageDependencyError(error)) {
+      logger.warn('CDNgine Backstage package media delivery authorization failed', {
+        authUserId: viewer.authUserId,
+        catalogProductId,
+        packageId,
+        mediaKind,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return errorResponse('Package media is temporarily unavailable', 502);
+    }
+    logger.error('Failed to authorize package media download', {
+      authUserId: viewer.authUserId,
+      catalogProductId,
+      packageId,
+      mediaKind,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return errorResponse('Failed to authorize package media download', 500);
   }
 }
 
@@ -1435,7 +1671,6 @@ async function servePackageDownload(
         packageId,
         request,
         resolved,
-        allowSourceFallback: false,
       });
       return Response.redirect(cdngineUrl, 302);
     } catch (error) {
@@ -1477,6 +1712,9 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
       const buyerCatalogPackageDownloadMatch = url.pathname.match(
         /^\/api\/backstage\/access\/products\/([^/]+)\/packages\/([^/]+)\/download$/
       );
+      const buyerCatalogPackageMediaDownloadMatch = url.pathname.match(
+        /^\/api\/backstage\/access\/products\/([^/]+)\/packages\/([^/]+)\/media\/([^/]+)$/
+      );
       const buyerIntentMatch = url.pathname.match(
         /^\/api\/backstage\/access\/([^/]+)\/([^/]+)\/verification-intent$/
       );
@@ -1510,6 +1748,23 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
           config,
           catalogProductId,
           packageId
+        );
+      }
+      if (request.method === 'GET' && buyerCatalogPackageMediaDownloadMatch) {
+        const catalogProductId = safeDecodeURIComponent(
+          buyerCatalogPackageMediaDownloadMatch[1] ?? ''
+        );
+        const packageId = safeDecodeURIComponent(buyerCatalogPackageMediaDownloadMatch[2] ?? '');
+        const mediaKind = safeDecodeURIComponent(buyerCatalogPackageMediaDownloadMatch[3] ?? '');
+        if (catalogProductId === null || packageId === null || mediaKind === null) {
+          return errorResponse('Malformed path parameter encoding', 400);
+        }
+        return await issueAuthorizedPackageMediaDownloadForCatalogProduct(
+          request,
+          config,
+          catalogProductId,
+          packageId,
+          mediaKind
         );
       }
       if (request.method === 'GET' && buyerAccessMatch) {

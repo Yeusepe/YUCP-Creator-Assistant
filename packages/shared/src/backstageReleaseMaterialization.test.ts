@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
+import { extractBackstagePackageMediaAssetsFromSource } from './backstagePackageMedia';
 import { materializeBackstageReleaseArtifact } from './backstageReleaseMaterialization';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
@@ -316,6 +317,160 @@ describe('materializeBackstageReleaseArtifact', () => {
       false
     );
     expect(Object.keys(archive).some((entry) => entry.endsWith('.cs'))).toBe(false);
+  });
+
+  it('extracts package-local banner and icon assets from upload metadata', async () => {
+    const source = buildUnitypackage(
+      [
+        {
+          path: 'metadata-guid/pathname',
+          content: strToU8('Assets/YUCP_PackageInfo.json'),
+        },
+        {
+          path: 'metadata-guid/asset',
+          content: strToU8(
+            JSON.stringify({
+              packageName: 'Song Thing',
+              icon: 'Assets/YUCP/icon.png',
+              banner: 'Assets/YUCP/banner.webp',
+            })
+          ),
+        },
+        { path: 'icon-guid/pathname', content: strToU8('Assets/YUCP/icon.png') },
+        { path: 'icon-guid/asset', content: strToU8('icon-bytes') },
+        { path: 'banner-guid/pathname', content: strToU8('Assets/YUCP/banner.webp') },
+        { path: 'banner-guid/asset', content: strToU8('banner-bytes') },
+      ],
+      TAR_MTIME_A
+    );
+
+    const media = await extractBackstagePackageMediaAssetsFromSource({
+      sourceBytes: source,
+      deliveryName: 'song-thing.unitypackage',
+      contentType: 'application/octet-stream',
+    });
+
+    expect(
+      media.map((asset) => ({
+        kind: asset.kind,
+        contentType: asset.contentType,
+        sourcePath: asset.sourcePath,
+        bytes: new TextDecoder().decode(asset.bytes),
+      }))
+    ).toEqual([
+      {
+        kind: 'banner',
+        contentType: 'image/webp',
+        sourcePath: 'Assets/YUCP/banner.webp',
+        bytes: 'banner-bytes',
+      },
+      {
+        kind: 'icon',
+        contentType: 'image/png',
+        sourcePath: 'Assets/YUCP/icon.png',
+        bytes: 'icon-bytes',
+      },
+    ]);
+  });
+
+  it('extracts package-local media from zip uploads with generic browser content type', async () => {
+    const source = zipSync(
+      {
+        'Packages/com.yucp.songthing/package.json': [
+          strToU8(
+            JSON.stringify({
+              name: 'com.yucp.songthing',
+              version: '1.0.12',
+              icon: 'icon.png',
+              banner: 'Images/banner.jpg',
+            })
+          ),
+          { mtime: ZIP_DATE_A },
+        ],
+        'Packages/com.yucp.songthing/icon.png': [strToU8('icon-bytes'), { mtime: ZIP_DATE_A }],
+        'Packages/com.yucp.songthing/Images/banner.jpg': [
+          strToU8('banner-bytes'),
+          { mtime: ZIP_DATE_A },
+        ],
+      },
+      { level: 9 }
+    );
+
+    const media = await extractBackstagePackageMediaAssetsFromSource({
+      sourceBytes: source,
+      deliveryName: 'song-thing.zip',
+      contentType: 'application/octet-stream',
+      packageId: 'com.yucp.songthing',
+    });
+
+    expect(
+      media.map((asset) => ({
+        kind: asset.kind,
+        contentType: asset.contentType,
+        sourcePath: asset.sourcePath,
+        bytes: new TextDecoder().decode(asset.bytes),
+      }))
+    ).toEqual([
+      {
+        kind: 'banner',
+        contentType: 'image/jpeg',
+        sourcePath: 'Images/banner.jpg',
+        bytes: 'banner-bytes',
+      },
+      {
+        kind: 'icon',
+        contentType: 'image/png',
+        sourcePath: 'icon.png',
+        bytes: 'icon-bytes',
+      },
+    ]);
+  });
+
+  it('omits package visual metadata from importer shim package manifests', async () => {
+    const input = buildUnitypackage(
+      [
+        { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+        { path: 'asset-guid/pathname', content: strToU8('Assets/Avatar/readme.txt') },
+      ],
+      TAR_MTIME_A
+    );
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'song-thing.unitypackage',
+      contentType: 'application/octet-stream',
+      packageId: 'com.yucp.songthing',
+      version: '1.0.12',
+      displayName: 'Song Thing',
+      metadata: {
+        icon: 'Assets/YUCP/icon.png',
+        banner: 'Assets/YUCP/banner.png',
+        iconUrl: 'https://cdn.test/icon.png',
+        bannerUrl: 'https://cdn.test/banner.png',
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          packageMetadata: {
+            packageName: 'Song Thing',
+            icon: 'Assets/YUCP/icon.png',
+            banner: 'Assets/YUCP/banner.png',
+          },
+        },
+      },
+    });
+
+    const archive = unzipSync(materialized.bytes);
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+
+    expect(packageJson).not.toHaveProperty('icon');
+    expect(packageJson).not.toHaveProperty('banner');
+    expect(packageJson).not.toHaveProperty('iconUrl');
+    expect(packageJson).not.toHaveProperty('bannerUrl');
+    expect(packageJson.yucp.packageMetadata).toEqual({
+      packageName: 'Song Thing',
+    });
   });
 
   it('sanitizes server-generated shim display names and preserves protected package titles', async () => {

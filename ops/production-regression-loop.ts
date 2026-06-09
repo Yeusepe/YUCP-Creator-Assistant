@@ -33,7 +33,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, violating transport contracts such as int64 serialization, or publishing Backstage repo manifests that drop synthesized alias metadata and importer requirements for metadata-less or previously persisted releases.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, violating transport contracts such as int64 serialization, publishing Backstage repo manifests that drop synthesized alias metadata and importer requirements for metadata-less or previously persisted releases, storing canonical CDNgine source coordinates as delivery references, or persisting Backstage CDNgine delivery references before CDNgine publication is visible.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
@@ -122,7 +122,14 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     id: 'convex-identity-ownership-realtests',
     description: 'Convex identity ownership regressions for provider-linked account incidents',
     cwdRelativeToRepoRoot: '.',
-    args: ['x', 'vitest', 'run', '--config', 'convex/vitest.config.ts', './convex/identitySync.realtest.ts'],
+    args: [
+      'x',
+      'vitest',
+      'run',
+      '--config',
+      'convex/vitest.config.ts',
+      './convex/identitySync.realtest.ts',
+    ],
     covers: ['identity'],
   },
   {

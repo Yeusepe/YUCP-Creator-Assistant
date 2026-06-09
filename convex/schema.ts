@@ -2527,6 +2527,18 @@ const delivery_release_artifacts = defineTable({
       versionId: v.string(),
     })
   ),
+  cdngineSource: v.optional(
+    v.object({
+      assetId: v.string(),
+      assetOwner: v.string(),
+      byteSize: v.number(),
+      serviceNamespaceId: v.string(),
+      sha256: v.string(),
+      tenantId: v.optional(v.string()),
+      uploadedAt: v.number(),
+      versionId: v.string(),
+    })
+  ),
   status: DeliveryReleaseArtifactStatus,
   activatedAt: v.optional(v.number()),
   createdAt: v.number(),

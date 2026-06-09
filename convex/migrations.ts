@@ -1072,10 +1072,6 @@ export const repairBackstageAliasMetadataCandidates = internalMutation({
         }),
         updatedAt: Date.now(),
       });
-      await ctx.scheduler.runAfter(0, internal.releaseArtifacts.repairMaterializedReleaseDeliverable, {
-        deliveryPackageReleaseId: releaseId,
-        apply: true,
-      });
       repairedReleases += 1;
     }
 

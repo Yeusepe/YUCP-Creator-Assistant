@@ -1,4 +1,5 @@
 import { unzipSync, type Zippable, zipSync } from 'fflate';
+import { stripBackstagePackageMediaManifestMetadata } from './backstagePackageMedia';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
@@ -75,7 +76,11 @@ function sanitizePackageManifestMetadata(
   metadata: Record<string, unknown> | undefined
 ): Record<string, unknown> {
   return applyYucpAliasPackageManifestDefaults(
-    normalizeVpmDependencies(metadata ? stripBackstageVpmReservedMetadata(metadata) : {})
+    normalizeVpmDependencies(
+      metadata
+        ? stripBackstagePackageMediaManifestMetadata(stripBackstageVpmReservedMetadata(metadata))
+        : {}
+    )
   );
 }
 

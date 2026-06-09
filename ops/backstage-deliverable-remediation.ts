@@ -68,13 +68,13 @@ function printUsage() {
       '',
       'Usage:',
       '  bun ops/backstage-deliverable-remediation.ts --packageId=com.yucp.jammr --version=2.1.5',
-      '  bun ops/backstage-deliverable-remediation.ts --packageId=com.yucp.jammr --version=2.1.5 --channel=stable --apply',
+      '  bun ops/backstage-deliverable-remediation.ts --packageId=com.yucp.jammr --version=2.1.5 --channel=stable',
       '',
       'Options:',
       '  --packageId <id>    Required package id to inspect.',
       '  --version <ver>     Optional release version filter.',
       '  --channel <name>    Optional channel filter.',
-      '  --apply             Upload repaired raw/deliverable artifacts and update zipSha256.',
+      '  --apply             Removed. Backstage package bytes must stay in CDNgine.',
       '  --help              Show this message.',
     ].join('\n')
   );
@@ -119,31 +119,6 @@ async function runConvexFunction<T>(functionName: string, args: unknown): Promis
   } catch {
     return Function(`"use strict"; return (${trimmed});`)() as T;
   }
-}
-
-async function uploadBytes(bytes: Uint8Array, contentType: string): Promise<string> {
-  const uploadUrl = await runConvexFunction<string>(
-    'releaseArtifacts:generateDeliveryArtifactUploadUrl',
-    {}
-  );
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': contentType,
-    },
-    body: new Blob(
-      [bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer],
-      { type: contentType }
-    ),
-  });
-  if (!response.ok) {
-    throw new Error(`Upload failed: ${response.status} ${await response.text()}`);
-  }
-  const payload = (await response.json()) as { storageId?: string };
-  if (!payload.storageId) {
-    throw new Error('Upload response did not include storageId');
-  }
-  return payload.storageId;
 }
 
 export function computeArtifactRemediationPlan(input: {
@@ -197,9 +172,9 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
     printUsage();
     return;
   }
-  if (values.apply && process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS !== 'true') {
+  if (values.apply) {
     throw new Error(
-      'Applying legacy Backstage Convex storage remediation is disabled. Leave package artifacts in CDNgine.'
+      'Applying legacy Backstage Convex storage remediation has been removed. Republish through the CDNgine Backstage upload flow.'
     );
   }
 
@@ -342,63 +317,11 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
       rawPayloadDeliveryName: rawPayload.deliveryName,
     });
 
-    if (values.apply && remediationPlan.requiresRepair) {
-      if (remediationPlan.rawArtifactNeedsReplace) {
-        const rawStorageId = await uploadBytes(rawPayload.bytes, rawPayload.contentType);
-        rawArtifactId = await runConvexFunction<string>(
-          'releaseArtifacts:publishDeliveryArtifact',
-          {
-            deliveryPackageReleaseId: releaseRecord.deliveryPackageReleaseId,
-            artifactRole: 'raw_upload',
-            ownership: 'creator_upload',
-            storageId: rawStorageId,
-            contentType: rawPayload.contentType,
-            deliveryName: rawPayload.deliveryName,
-            sha256: rawPayloadSha256,
-            byteSize: rawPayload.bytes.byteLength,
-          }
-        );
-      }
-
-      const deliverableNeedsRepublish =
-        remediationPlan.deliverableChanged ||
-        remediationPlan.rawArtifactNeedsReplace ||
-        deliverableArtifact?.sourceArtifactId !== rawArtifactId;
-      if (deliverableNeedsRepublish) {
-        const deliverableStorageId = await uploadBytes(
-          materialized.bytes,
-          materialized.contentType
-        );
-        await runConvexFunction<string>('releaseArtifacts:publishDeliveryArtifact', {
-          deliveryPackageReleaseId: releaseRecord.deliveryPackageReleaseId,
-          artifactRole: 'server_deliverable',
-          ownership: 'server_materialized',
-          materializationStrategy: materialized.materializationStrategy,
-          sourceArtifactId: rawArtifactId,
-          storageId: deliverableStorageId,
-          contentType: materialized.contentType,
-          deliveryName: materialized.deliveryName,
-          sha256: materialized.sha256,
-          byteSize: materialized.byteSize,
-        });
-        await runConvexFunction<null>('packageRegistry:updateMaterializedReleaseDigest', {
-          deliveryPackageReleaseId: releaseRecord.deliveryPackageReleaseId,
-          zipSha256: materialized.sha256,
-          sourceKind: materialized.originalSourceKind,
-        });
-      }
-    }
-
     results.push({
       deliveryPackageReleaseId: releaseRecord.deliveryPackageReleaseId,
       version: releaseRecord.version,
       channel: releaseRecord.channel,
-      status:
-        values.apply && remediationPlan.requiresRepair
-          ? 'repaired'
-          : remediationPlan.requiresRepair
-            ? 'stale'
-            : 'current',
+      status: remediationPlan.requiresRepair ? 'stale' : 'current',
       previousZipSha256: release.zipSha256,
       nextZipSha256: materialized.sha256,
       rawDeliveryName: rawPayload.deliveryName,

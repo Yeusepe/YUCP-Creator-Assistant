@@ -6,8 +6,12 @@ import {
 } from '@yucp/providers/providerMetadata';
 import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import {
+  BACKSTAGE_PACKAGE_MEDIA_KINDS,
+  type BackstagePackageMediaKind,
+  type BackstagePackageMediaReference,
+} from '@yucp/shared/backstagePackageMedia';
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
-import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmDelivery';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
   type CdngineBackstageDeliveryReference,
@@ -32,17 +36,25 @@ import {
   sanitizeCdngineObjectKeySegment,
   sha256ArrayBuffer,
   uploadBackstageBytesToCdngine,
+  waitForCdngineBackstageDeliveryPublication,
 } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
-import { MAX_BACKSTAGE_PACKAGE_BYTES, MAX_BACKSTAGE_UPLOAD_BYTES } from '../lib/requestBodyLimits';
+import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
+const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
+const BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES = new Set([
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 
 export type PackagesConfig = {
   apiBaseUrl: string;
@@ -192,6 +204,17 @@ function jsonResponse(body: object, status = 200): Response {
       'Cache-Control': 'no-store',
     },
   });
+}
+
+function isCdngineBackstageDependencyError(error: unknown): boolean {
+  return (
+    error instanceof CdngineApiRequestError ||
+    (error instanceof Error && error.message.includes('CDNgine'))
+  );
+}
+
+function cdngineBackstageUnavailableResponse(error: string): Response {
+  return jsonResponse({ error }, 502);
 }
 
 function base64UrlEncode(input: string): string {
@@ -363,6 +386,27 @@ function decodeOptionalHeaderValue(value: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeBackstagePackageMediaKind(
+  value: string | null
+): BackstagePackageMediaKind | null {
+  const normalized = value?.trim();
+  if (normalized === BACKSTAGE_PACKAGE_MEDIA_KINDS.banner) {
+    return BACKSTAGE_PACKAGE_MEDIA_KINDS.banner;
+  }
+  if (normalized === BACKSTAGE_PACKAGE_MEDIA_KINDS.icon) {
+    return BACKSTAGE_PACKAGE_MEDIA_KINDS.icon;
+  }
+  return null;
+}
+
+function normalizePackageMediaContentType(contentType: string | null): string | null {
+  const normalized = contentType?.split(';')[0]?.trim().toLowerCase();
+  if (!normalized || !BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES.has(normalized)) {
+    return null;
+  }
+  return normalized;
 }
 
 function getAllowedOrigins(config: PackagesConfig): Set<string> {
@@ -1461,38 +1505,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  async function createBackstageReleaseUploadUrl(
-    request: Request,
-    packageIdParam: string
-  ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
-    if (viewer instanceof Response) {
-      return viewer;
-    }
-    let packageId: string;
-    try {
-      packageId = assertPackageId(packageIdParam);
-    } catch (error) {
-      return jsonResponse(
-        { error: error instanceof Error ? error.message : 'Invalid packageId' },
-        400
-      );
-    }
-
-    const token = signBackstageUploadToken(
-      {
-        authUserId: viewer.authUserId,
-        exp: Date.now() + 15 * 60 * 1000,
-        packageId,
-      },
-      config.convexApiSecret
-    );
-    const uploadUrl = `${config.apiBaseUrl.replace(/\/+$/, '')}/api/packages/${encodeURIComponent(
-      packageId
-    )}/backstage/upload-source?uploadToken=${encodeURIComponent(token)}`;
-    return jsonResponse({ packageId, uploadUrl });
-  }
-
   function parseBackstageDirectUploadRequest(body: unknown):
     | {
         byteSize: number;
@@ -1629,6 +1641,16 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         uploadTarget: session.uploadTarget,
       });
     } catch (error) {
+      if (isCdngineBackstageDependencyError(error)) {
+        logger.warn('Backstage CDNgine upload session creation is temporarily unavailable', {
+          authUserId: viewer.authUserId,
+          packageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return cdngineBackstageUnavailableResponse(
+          'Backstage upload service is temporarily unavailable'
+        );
+      }
       logger.error('Failed to create Backstage CDNgine upload session', {
         authUserId: viewer.authUserId,
         packageId,
@@ -1701,6 +1723,17 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
           410
         );
       }
+      if (isCdngineBackstageDependencyError(error)) {
+        logger.warn('Backstage CDNgine upload session completion is temporarily unavailable', {
+          authUserId: tokenPayload.authUserId,
+          packageId,
+          uploadSessionId: tokenPayload.uploadSessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return cdngineBackstageUnavailableResponse(
+          'Backstage upload service is temporarily unavailable'
+        );
+      }
       logger.error('Failed to complete Backstage CDNgine upload session', {
         authUserId: tokenPayload.authUserId,
         packageId,
@@ -1711,10 +1744,15 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  async function uploadBackstageReleaseSource(
+  async function uploadBackstageReleaseMedia(
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+
     let packageId: string;
     try {
       packageId = assertPackageId(packageIdParam);
@@ -1725,66 +1763,112 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       );
     }
 
-    const uploadToken = new URL(request.url).searchParams.get('uploadToken') ?? '';
-    const tokenPayload = verifyBackstageUploadToken(uploadToken, config.convexApiSecret);
-    if (!tokenPayload || tokenPayload.packageId !== packageId) {
-      return jsonResponse({ error: 'Invalid upload token' }, 401);
+    const requestUrl = new URL(request.url);
+    const mediaKind = normalizeBackstagePackageMediaKind(
+      request.headers.get('x-yucp-media-kind') ?? requestUrl.searchParams.get('kind')
+    );
+    if (!mediaKind) {
+      return jsonResponse({ error: 'media kind must be either icon or banner' }, 400);
     }
+
+    const contentType = normalizePackageMediaContentType(request.headers.get('content-type'));
+    if (!contentType) {
+      return jsonResponse({ error: 'Backstage package media must be a supported image type' }, 415);
+    }
+
     if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
       return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
     }
+
     const contentLength = readContentLength(request.headers);
-    if (contentLength !== null && contentLength > MAX_BACKSTAGE_UPLOAD_BYTES) {
-      return jsonResponse({ error: 'Backstage upload exceeds the maximum allowed size' }, 413);
+    if (contentLength !== null && contentLength > MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES) {
+      return jsonResponse(
+        { error: 'Backstage package media exceeds the maximum allowed size' },
+        413
+      );
     }
 
     try {
+      const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
       const bytes = await request.arrayBuffer();
-      if (bytes.byteLength > MAX_BACKSTAGE_UPLOAD_BYTES) {
-        return jsonResponse({ error: 'Backstage upload exceeds the maximum allowed size' }, 413);
+      if (bytes.byteLength > MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES) {
+        return jsonResponse(
+          { error: 'Backstage package media exceeds the maximum allowed size' },
+          413
+        );
       }
+      if (bytes.byteLength === 0) {
+        return jsonResponse({ error: 'Backstage package media cannot be empty' }, 400);
+      }
+
       const encodedDeliveryName = request.headers.get('x-yucp-file-name');
       const decodedDeliveryName = decodeOptionalHeaderValue(encodedDeliveryName);
       if (encodedDeliveryName && decodedDeliveryName === null) {
         return jsonResponse({ error: 'Invalid x-yucp-file-name header encoding' }, 400);
       }
-      const deliveryName = decodedDeliveryName ?? `${packageId}.zip`;
-      const contentType = request.headers.get('content-type')?.trim() || 'application/octet-stream';
+      const deliveryName = decodedDeliveryName ?? `${packageId}-${mediaKind}`;
+      const sourcePath = request.headers.get('x-yucp-source-path')?.trim();
       const sha256 = await sha256ArrayBuffer(bytes);
-      const assetOwner = `creator:${tokenPayload.authUserId}`;
-      const objectKey = [
-        'staging',
-        sanitizeCdngineObjectKeySegment(config.cdngine?.serviceNamespaceId ?? 'yucp-backstage'),
-        sanitizeCdngineObjectKeySegment(tokenPayload.authUserId),
-        'backstage-source',
-        sanitizeCdngineObjectKeySegment(packageId),
-        sha256,
-        sanitizeCdngineObjectKeySegment(deliveryName),
-      ].join('/');
-      const cdngineSource = await uploadBackstageBytesToCdngine({
+      const cdngineUpload = await uploadBackstageBytesToCdngine({
         bytes,
         byteSize: bytes.byteLength,
-        config: config.cdngine,
+        config: cdngineConfig,
         contentType,
         deliveryName,
-        idempotencyBase: `backstage-source:${tokenPayload.authUserId}:${packageId}:${sha256}`,
-        objectKey,
-        assetOwner,
-        tenantId: tokenPayload.authUserId,
+        idempotencyBase: `backstage-media:${viewer.authUserId}:${packageId}:${mediaKind}:${sha256}`,
+        objectKey: [
+          'staging',
+          sanitizeCdngineObjectKeySegment(cdngineConfig.serviceNamespaceId),
+          sanitizeCdngineObjectKeySegment(viewer.authUserId),
+          'backstage-media',
+          sanitizeCdngineObjectKeySegment(packageId),
+          mediaKind,
+          sha256,
+          sanitizeCdngineObjectKeySegment(deliveryName),
+        ].join('/'),
+        assetOwner: `creator:${viewer.authUserId}`,
+        tenantId: viewer.authUserId,
         sha256,
       });
-      return jsonResponse({
-        cdngineSource,
-        deliveryName,
-        sourceContentType: contentType,
+      const cdngineDelivery = {
+        ...cdngineUpload,
+        deliveryScopeId: cdngineConfig.deliveryScopeId,
+        variant: cdngineConfig.variant,
+      };
+      await waitForCdngineBackstageDeliveryPublication({
+        config: cdngineConfig,
+        delivery: cdngineDelivery,
       });
+
+      const reference: BackstagePackageMediaReference = {
+        byteSize: bytes.byteLength,
+        cdngineDelivery,
+        contentType,
+        deliveryName,
+        kind: mediaKind,
+        sha256,
+        ...(sourcePath ? { sourcePath } : {}),
+      };
+      return jsonResponse(reference, 201);
     } catch (error) {
-      logger.error('Failed to upload Backstage release source to CDNgine', {
-        authUserId: tokenPayload.authUserId,
+      if (isCdngineBackstageDependencyError(error)) {
+        logger.warn('Backstage package media upload is temporarily unavailable', {
+          authUserId: viewer.authUserId,
+          packageId,
+          mediaKind,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return cdngineBackstageUnavailableResponse(
+          'Backstage package media upload is temporarily unavailable'
+        );
+      }
+      logger.error('Failed to upload Backstage package media', {
+        authUserId: viewer.authUserId,
         packageId,
+        mediaKind,
         error: error instanceof Error ? error.message : String(error),
       });
-      return jsonResponse({ error: 'Failed to upload Backstage release' }, 500);
+      return jsonResponse({ error: 'Failed to upload Backstage package media' }, 500);
     }
   }
 
@@ -1813,57 +1897,47 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     sourceDeliveryName: string;
   }> {
     const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
-    const declaredSourceKind = detectBackstageVpmDeliverySourceKind({
-      deliveryName: input.deliveryName,
-      contentType: input.contentType,
+    const sourceUrl = await authorizeCdngineBackstageSource({
+      config: cdngineConfig,
+      source: input.cdngineSource,
+      idempotencyKey: [
+        'backstage-publish-source',
+        input.authUserId,
+        input.packageId,
+        input.version,
+        input.cdngineSource.assetId,
+        input.cdngineSource.versionId,
+      ].join(':'),
     });
-    let sourceBytes: Uint8Array;
-    let sourceContentType: string;
-    let sourceDeliveryName: string;
-    if (declaredSourceKind === 'unitypackage') {
-      sourceBytes = new Uint8Array();
-      sourceContentType = input.contentType || 'application/octet-stream';
-      sourceDeliveryName = input.deliveryName?.trim() || `${input.packageId}.unitypackage`;
-    } else {
-      const sourceUrl = await authorizeCdngineBackstageSource({
-        config: cdngineConfig,
-        source: input.cdngineSource,
-        idempotencyKey: [
-          'backstage-publish-source',
-          input.authUserId,
-          input.packageId,
-          input.version,
-          input.cdngineSource.assetId,
-          input.cdngineSource.versionId,
-        ].join(':'),
-      });
-      const sourceResponse = await fetchWithTimeout(
-        sourceUrl,
-        {
-          headers: {
-            accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
-          },
+    const sourceResponse = await fetchWithTimeout(
+      sourceUrl,
+      {
+        headers: {
+          accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
         },
-        cdngineConfig.timeoutMs
-      );
-      if (!sourceResponse.ok) {
-        throw new Error(
-          `CDNgine source download failed while materializing Backstage deliverable: ${sourceResponse.status} ${sourceResponse.statusText}`
-        );
-      }
-      const decodedSourceName = decodeOptionalHeaderValue(
-        new URL(sourceUrl).pathname.split('/').pop() ?? null
-      );
-      sourceDeliveryName =
-        input.deliveryName?.trim() || decodedSourceName || `${input.packageId}.zip`;
-      sourceContentType =
-        sourceResponse.headers.get('content-type')?.trim() ||
-        input.contentType ||
-        'application/octet-stream';
-      sourceBytes = new Uint8Array(
-        await readBoundedArrayBuffer(sourceResponse, MAX_BACKSTAGE_PACKAGE_BYTES)
+      },
+      cdngineConfig.timeoutMs
+    );
+    if (!sourceResponse.ok) {
+      throw new Error(
+        `CDNgine source download failed while materializing Backstage deliverable: ${sourceResponse.status} ${sourceResponse.statusText}`
       );
     }
+    const decodedSourceName = decodeOptionalHeaderValue(
+      new URL(sourceUrl).pathname.split('/').pop() ?? null
+    );
+    const sourceDeliveryName =
+      input.deliveryName?.trim() || decodedSourceName || `${input.packageId}.zip`;
+    const sourceContentType =
+      sourceResponse.headers.get('content-type')?.trim() ||
+      input.contentType ||
+      'application/octet-stream';
+    const sourceBuffer = await readBoundedArrayBuffer(sourceResponse, MAX_BACKSTAGE_PACKAGE_BYTES);
+    const sourceSha256 = await sha256ArrayBuffer(sourceBuffer);
+    if (sourceSha256 !== input.cdngineSource.sha256.trim().toLowerCase()) {
+      throw new Error('CDNgine source download digest did not match the upload completion record.');
+    }
+    const sourceBytes = new Uint8Array(sourceBuffer);
     const materialized = await materializeBackstageReleaseArtifact({
       sourceBytes,
       deliveryName: sourceDeliveryName,
@@ -1895,14 +1969,19 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       tenantId: input.authUserId,
       sha256: materialized.sha256,
     });
+    const cdngineDelivery = {
+      ...uploadedDeliverable,
+      deliveryScopeId: cdngineConfig.deliveryScopeId,
+      variant: cdngineConfig.variant,
+    };
+    await waitForCdngineBackstageDeliveryPublication({
+      config: cdngineConfig,
+      delivery: cdngineDelivery,
+    });
 
     return {
       byteSize: materialized.byteSize,
-      cdngineDelivery: {
-        ...uploadedDeliverable,
-        deliveryScopeId: cdngineConfig.deliveryScopeId,
-        variant: cdngineConfig.variant,
-      },
+      cdngineDelivery,
       contentType: materialized.contentType,
       deliveryName: materialized.deliveryName,
       sha256: materialized.sha256,
@@ -2110,6 +2189,16 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       });
       return jsonResponse(result, 201);
     } catch (error) {
+      if (isCdngineBackstageDependencyError(error)) {
+        logger.warn('Backstage package delivery publication is temporarily unavailable', {
+          authUserId: viewer.authUserId,
+          packageId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return cdngineBackstageUnavailableResponse(
+          'Backstage package delivery is temporarily unavailable'
+        );
+      }
       logger.error('Failed to publish Backstage release', {
         authUserId: viewer.authUserId,
         packageId,
@@ -2132,10 +2221,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     deleteBackstageProduct,
     archiveBackstageRelease,
     deleteBackstageRelease,
-    createBackstageReleaseUploadUrl,
     createBackstageReleaseUploadSession,
     completeBackstageReleaseUploadSession,
-    uploadBackstageReleaseSource,
+    uploadBackstageReleaseMedia,
     publishBackstageRelease,
   };
 }

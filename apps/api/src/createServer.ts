@@ -74,6 +74,8 @@ export interface TestServerConfig {
   cdngine?: {
     accessToken?: string;
     apiBaseUrl: string;
+    publicationPollIntervalMs?: number;
+    publicationTimeoutMs?: number;
     required?: boolean;
     timeoutMs?: number;
   };

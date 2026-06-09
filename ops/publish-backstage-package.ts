@@ -36,11 +36,6 @@ export type PublishBackstagePackageConfig = {
   releaseStatus?: 'draft' | 'published' | 'revoked' | 'superseded';
 };
 
-type UploadUrlResponse = {
-  packageId: string;
-  uploadUrl: string;
-};
-
 type UploadSessionResponse = {
   completeUrl: string;
   packageId: string;
@@ -236,62 +231,6 @@ async function assertApiResponse<T>(response: Response, fallback: string): Promi
 
 function buildApiUrl(apiBaseUrl: string, path: string): string {
   return new URL(path, apiBaseUrl.endsWith('/') ? apiBaseUrl : `${apiBaseUrl}/`).toString();
-}
-
-export async function requestBackstageUploadUrl(
-  config: Pick<PublishBackstagePackageConfig, 'apiBaseUrl' | 'accessToken' | 'packageId'>,
-  fetchImpl: FetchLike = fetch
-): Promise<string> {
-  const response = await fetchImpl(
-    buildApiUrl(
-      config.apiBaseUrl,
-      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload-url`
-    ),
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.accessToken}`,
-      },
-    }
-  );
-  const payload = await assertApiResponse<UploadUrlResponse>(
-    response,
-    'Failed to create Backstage upload URL'
-  );
-  const uploadUrl = trimOptional(payload.uploadUrl);
-  if (!uploadUrl) {
-    throw new Error('Backstage upload URL response did not include uploadUrl');
-  }
-  return uploadUrl;
-}
-
-export async function uploadBackstagePackageArtifact(
-  uploadUrl: string,
-  artifactBody: BodyInit,
-  contentType: string,
-  deliveryName: string,
-  fetchImpl: FetchLike = fetch
-): Promise<UploadedBackstageSource> {
-  const response = await fetchImpl(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': contentType,
-      'X-YUCP-File-Name': encodeURIComponent(deliveryName),
-    },
-    body: artifactBody,
-  });
-  const payload = await assertApiResponse<UploadStorageResponse>(
-    response,
-    'Failed to upload Backstage package artifact'
-  );
-  if (!payload?.cdngineSource) {
-    throw new Error('Backstage artifact upload did not return CDNgine source coordinates');
-  }
-  return {
-    cdngineSource: payload.cdngineSource,
-    deliveryName: payload.deliveryName,
-    sourceContentType: payload.sourceContentType,
-  };
 }
 
 async function sha256FilePath(sourcePath: string): Promise<{ byteSize: number; sha256: string }> {

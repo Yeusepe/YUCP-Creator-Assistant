@@ -20,6 +20,8 @@ export type CdngineBackstageConfig = {
   accessToken: string;
   apiBaseUrl: string;
   deliveryScopeId?: string;
+  publicationPollIntervalMs?: number;
+  publicationTimeoutMs?: number;
   required?: boolean;
   serviceNamespaceId?: string;
   timeoutMs?: number;
@@ -30,6 +32,8 @@ type ConfiguredCdngineBackstageConfig = {
   accessToken: string;
   apiBaseUrl: string;
   deliveryScopeId: string;
+  publicationPollIntervalMs: number;
+  publicationTimeoutMs: number;
   serviceNamespaceId: string;
   timeoutMs: number;
   variant: string;
@@ -73,6 +77,32 @@ export type CdngineBackstageUploadSession = {
   versionId?: string;
 };
 
+const DEFAULT_PUBLICATION_POLL_INTERVAL_MS = 500;
+const DEFAULT_PUBLICATION_TIMEOUT_MS = 120_000;
+
+const PENDING_PUBLICATION_STATES = new Set([
+  'awaiting-upload',
+  'canonicalizing',
+  'canonical',
+  'processing',
+  'session_created',
+  'uploaded',
+]);
+
+function getFiniteNumberOrDefault(value: number | undefined, fallback: number): number {
+  return Number.isFinite(value) && value !== undefined ? value : fallback;
+}
+
+function getPositiveNumberOrDefault(value: number | undefined, fallback: number): number {
+  const resolved = getFiniteNumberOrDefault(value, fallback);
+  return resolved > 0 ? resolved : fallback;
+}
+
+function getNonNegativeNumberOrDefault(value: number | undefined, fallback: number): number {
+  const resolved = getFiniteNumberOrDefault(value, fallback);
+  return resolved >= 0 ? resolved : fallback;
+}
+
 export function requireCdngineBackstageConfig(
   config: CdngineBackstageConfig | undefined
 ): ConfiguredCdngineBackstageConfig {
@@ -85,6 +115,14 @@ export function requireCdngineBackstageConfig(
     accessToken: config.accessToken,
     apiBaseUrl: config.apiBaseUrl.replace(/\/+$/, ''),
     deliveryScopeId: config.deliveryScopeId ?? 'paid-downloads',
+    publicationPollIntervalMs: getNonNegativeNumberOrDefault(
+      config.publicationPollIntervalMs,
+      DEFAULT_PUBLICATION_POLL_INTERVAL_MS
+    ),
+    publicationTimeoutMs: getPositiveNumberOrDefault(
+      config.publicationTimeoutMs,
+      DEFAULT_PUBLICATION_TIMEOUT_MS
+    ),
     serviceNamespaceId: config.serviceNamespaceId ?? 'yucp-backstage',
     timeoutMs: config.timeoutMs ?? 15_000,
     variant: config.variant ?? 'vpm-package',
@@ -185,6 +223,65 @@ async function requestCdngineJson<T>(
   return payload as T;
 }
 
+async function requestCdngineGetJson<T>(
+  config: ConfiguredCdngineBackstageConfig,
+  input: {
+    pathname: string;
+  }
+): Promise<T> {
+  const response = await fetchWithTimeout(
+    `${config.apiBaseUrl}${input.pathname}`,
+    {
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${config.accessToken}`,
+      },
+      method: 'GET',
+    },
+    config.timeoutMs
+  );
+  const text = await response.text();
+  let payload: unknown = null;
+  if (text.length > 0) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      if (!response.ok) {
+        throw new Error(
+          `CDNgine request failed: ${response.status} ${response.statusText || 'invalid JSON response'}`
+        );
+      }
+      throw new Error('CDNgine response was not valid JSON.');
+    }
+  }
+  if (!response.ok) {
+    const detail =
+      payload && typeof payload === 'object' && 'detail' in payload
+        ? String((payload as { detail?: unknown }).detail)
+        : `${response.status} ${response.statusText}`;
+    const problemType =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { type?: unknown }).type === 'string'
+        ? (payload as { type: string }).type
+        : undefined;
+    const retryable =
+      payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { retryable?: unknown }).retryable === 'boolean'
+        ? (payload as { retryable: boolean }).retryable
+        : undefined;
+    throw new CdngineApiRequestError({
+      detail,
+      problemType,
+      retryable,
+      status: response.status,
+      statusText: response.statusText,
+    });
+  }
+  return payload as T;
+}
+
 function getStringField(value: unknown, fieldName: string): string {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error(`CDNgine response missing ${fieldName}.`);
@@ -206,6 +303,22 @@ function getOptionalStringField(value: unknown, fieldName: string): string | und
   }
   const fieldValue = (value as Record<string, unknown>)[fieldName];
   return typeof fieldValue === 'string' && fieldValue.length > 0 ? fieldValue : undefined;
+}
+
+function getCdngineLifecycleState(value: unknown): string {
+  return getStringField(value, 'lifecycleState');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTerminalPublicationFailureState(lifecycleState: string): boolean {
+  return (
+    lifecycleState === 'quarantined' ||
+    lifecycleState === 'purged' ||
+    lifecycleState.startsWith('failed_')
+  );
 }
 
 export async function createBackstageUploadSessionInCdngine(input: {
@@ -356,6 +469,49 @@ export async function uploadBackstageBytesToCdngine(input: {
   });
 }
 
+/**
+ * CDNgine upstream contract:
+ * - E:/GitDevelopment/Development/antiwork/cdngine/contracts/arazzo/public-upload.arazzo.yaml
+ * - E:/GitDevelopment/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml#getAssetVersion
+ */
+export async function waitForCdngineBackstageDeliveryPublication(input: {
+  config: CdngineBackstageConfig | undefined;
+  delivery: CdngineBackstageDeliveryReference;
+}): Promise<void> {
+  const config = requireCdngineBackstageConfig(input.config);
+  const deadline = Date.now() + config.publicationTimeoutMs;
+  let lastLifecycleState = 'unknown';
+
+  while (true) {
+    const version = await requestCdngineGetJson<unknown>(config, {
+      pathname: `/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(
+        input.delivery.versionId
+      )}`,
+    });
+    lastLifecycleState = getCdngineLifecycleState(version);
+    if (lastLifecycleState === 'published') {
+      return;
+    }
+    if (isTerminalPublicationFailureState(lastLifecycleState)) {
+      throw new Error(
+        `CDNgine Backstage deliverable ${input.delivery.assetId}/${input.delivery.versionId} cannot be delivered from lifecycle state "${lastLifecycleState}".`
+      );
+    }
+    if (!PENDING_PUBLICATION_STATES.has(lastLifecycleState)) {
+      throw new Error(
+        `CDNgine Backstage deliverable ${input.delivery.assetId}/${input.delivery.versionId} returned unexpected lifecycle state "${lastLifecycleState}".`
+      );
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `CDNgine Backstage deliverable ${input.delivery.assetId}/${input.delivery.versionId} was not published within ${config.publicationTimeoutMs}ms; last lifecycle state was "${lastLifecycleState}".`
+      );
+    }
+    await sleep(Math.min(config.publicationPollIntervalMs, remainingMs));
+  }
+}
+
 export async function uploadBackstageDeliverableToCdngine(input: {
   bytes: ArrayBuffer;
   byteSize: number;
@@ -391,12 +547,16 @@ export async function uploadBackstageDeliverableToCdngine(input: {
     tenantId: input.tenantId,
     sha256: input.sha256,
   });
-
-  return {
+  const delivery = {
     ...source,
     deliveryScopeId: config.deliveryScopeId,
     variant: config.variant,
   };
+  await waitForCdngineBackstageDeliveryPublication({
+    config,
+    delivery,
+  });
+  return delivery;
 }
 
 export async function authorizeCdngineBackstageSource(input: {

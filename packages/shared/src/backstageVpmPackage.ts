@@ -1,3 +1,4 @@
+import { stripBackstagePackageMediaSourceMetadata } from './backstagePackageMedia';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
@@ -66,6 +67,11 @@ function normalizeManifestMetadata(input: {
   for (const reservedKey of BACKSTAGE_VPM_RESERVED_METADATA_KEYS) {
     delete metadata[reservedKey];
   }
+  const metadataWithoutMediaSourceFields = stripBackstagePackageMediaSourceMetadata(metadata);
+  for (const key of Object.keys(metadata)) {
+    delete metadata[key];
+  }
+  Object.assign(metadata, metadataWithoutMediaSourceFields);
 
   const rawVpmDependencies = isRecord(metadata.vpmDependencies)
     ? metadata.vpmDependencies

@@ -3,8 +3,8 @@
  *
  * References:
  * - docs/backstage-cdngine-delivery.md
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/docs/api-surface.md
- * - C:/Users/svalp/OneDrive/Documents/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml
+ * - E:/GitDevelopment/Development/antiwork/cdngine/docs/api-surface.md
+ * - E:/GitDevelopment/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml
  */
 export type CdngineBackstageDeliveryReference = {
   assetId: string;

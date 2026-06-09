@@ -11,7 +11,11 @@
 
 import { afterEach, expect, it } from 'bun:test';
 
-import { authorizeCdngineBackstageSource, uploadBackstageBytesToCdngine } from './cdngineBackstage';
+import {
+  authorizeCdngineBackstageSource,
+  uploadBackstageBytesToCdngine,
+  uploadBackstageDeliverableToCdngine,
+} from './cdngineBackstage';
 
 const originalFetch = globalThis.fetch;
 
@@ -118,4 +122,88 @@ it('resolves relative CDNgine authorized source URLs against the configured API 
   ).resolves.toBe(
     'https://cdngine.test/downloads/assets/ast_1/versions/ver_1/source?token=source-token'
   );
+});
+
+it('waits until CDNgine publishes Backstage deliverables before returning delivery references', async () => {
+  const requestedUrls: string[] = [];
+  let versionReadCount = 0;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    requestedUrls.push(`${init?.method ?? 'GET'} ${url}`);
+
+    if (url === 'https://cdngine.test/v1/upload-sessions') {
+      return new Response(
+        JSON.stringify({
+          uploadSessionId: 'upl_1',
+          assetId: 'ast_1',
+          versionId: 'ver_pending_1',
+          uploadTarget: {
+            method: 'PATCH',
+            protocol: 'tus',
+            url: '/uploads/staging/backstage/source.zip',
+          },
+        }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url === 'https://cdngine.test/uploads/staging/backstage/source.zip') {
+      return new Response(null, { status: 204 });
+    }
+
+    if (url === 'https://cdngine.test/v1/upload-sessions/upl_1/complete') {
+      return new Response(
+        JSON.stringify({
+          assetId: 'ast_1',
+          versionId: 'ver_1',
+        }),
+        { status: 202, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url === 'https://cdngine.test/v1/assets/ast_1/versions/ver_1') {
+      versionReadCount += 1;
+      return new Response(
+        JSON.stringify({
+          assetId: 'ast_1',
+          versionId: 'ver_1',
+          lifecycleState: versionReadCount === 1 ? 'canonical' : 'published',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    return new Response('unexpected URL', { status: 500 });
+  }) as typeof fetch;
+
+  const bytes = new Uint8Array([80, 75, 3, 4]);
+  const delivery = await uploadBackstageDeliverableToCdngine({
+    bytes: bytes.buffer,
+    byteSize: bytes.byteLength,
+    config: {
+      accessToken: 'cdngine-token',
+      apiBaseUrl: 'https://cdngine.test',
+      publicationPollIntervalMs: 0,
+      publicationTimeoutMs: 100,
+    },
+    contentType: 'application/zip',
+    deliveryName: 'source.zip',
+    releaseId: 'release_1',
+    assetOwner: 'creator:test',
+    tenantId: 'test',
+    sha256: 'b'.repeat(64),
+  });
+
+  expect(delivery).toMatchObject({
+    assetId: 'ast_1',
+    deliveryScopeId: 'paid-downloads',
+    variant: 'vpm-package',
+    versionId: 'ver_1',
+  });
+  expect(
+    requestedUrls.filter((url) => url === 'GET https://cdngine.test/v1/assets/ast_1/versions/ver_1')
+  ).toEqual([
+    'GET https://cdngine.test/v1/assets/ast_1/versions/ver_1',
+    'GET https://cdngine.test/v1/assets/ast_1/versions/ver_1',
+  ]);
 });

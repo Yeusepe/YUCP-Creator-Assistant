@@ -17,6 +17,7 @@ let cdngineUploadCounter = 0;
 let cdngineCreateUploadBodies: unknown[] = [];
 let cdngineCreateUploadIdempotencyKeys: Array<string | null> = [];
 let cdngineUploadTargetBodies: Array<{ url: string; bytes: Uint8Array }> = [];
+let cdngineVersionReadStates: string[] = [];
 
 type SyncedCatalogRow = {
   _id: string;
@@ -36,12 +37,30 @@ type SyncedCatalogRow = {
   backstagePackages: unknown[];
 };
 
+async function sha256HexForTest(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+const defaultCdngineSourceZip = zipSync({
+  'Packages/com.yucp.example/package.json': [
+    new TextEncoder().encode('{"name":"com.yucp.example"}'),
+    { mtime: new Date(315619200000) },
+  ],
+});
+const defaultCdngineSourceSha256 = await sha256HexForTest(defaultCdngineSourceZip);
+
 const cdngineSourceFixture = {
   assetId: 'ast_source_1',
   assetOwner: 'creator:auth-user-1',
-  byteSize: 128,
+  byteSize: defaultCdngineSourceZip.byteLength,
   serviceNamespaceId: 'yucp-backstage',
-  sha256: 'c'.repeat(64),
+  sha256: defaultCdngineSourceSha256,
   tenantId: 'auth-user-1',
   uploadedAt: 1_710_000_000_000,
   versionId: 'ver_source_1',
@@ -211,6 +230,8 @@ describe('package Backstage publishing routes', () => {
       cdngine: {
         apiBaseUrl: 'https://cdngine.test',
         accessToken: 'cdngine-token',
+        publicationPollIntervalMs: 0,
+        publicationTimeoutMs: 100,
       },
     }
   );
@@ -220,6 +241,7 @@ describe('package Backstage publishing routes', () => {
     cdngineCreateUploadBodies = [];
     cdngineCreateUploadIdempotencyKeys = [];
     cdngineUploadTargetBodies = [];
+    cdngineVersionReadStates = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {
@@ -229,15 +251,9 @@ describe('package Backstage publishing routes', () => {
         });
       }
       if (url === 'https://cdn.test/source.zip') {
-        const sourceZip = zipSync({
-          'Packages/com.yucp.example/package.json': [
-            new TextEncoder().encode('{"name":"com.yucp.example"}'),
-            { mtime: new Date() },
-          ],
-        });
-        const sourceZipBuffer = sourceZip.buffer.slice(
-          sourceZip.byteOffset,
-          sourceZip.byteOffset + sourceZip.byteLength
+        const sourceZipBuffer = defaultCdngineSourceZip.buffer.slice(
+          defaultCdngineSourceZip.byteOffset,
+          defaultCdngineSourceZip.byteOffset + defaultCdngineSourceZip.byteLength
         ) as ArrayBuffer;
         return new Response(new Blob([sourceZipBuffer], { type: 'application/zip' }), {
           status: 200,
@@ -279,6 +295,20 @@ describe('package Backstage publishing routes', () => {
             versionId: `ver_${completeMatch[1]}`,
           }),
           { status: 202, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      const versionMatch = url.match(
+        /^https:\/\/cdngine\.test\/v1\/assets\/ast_(\d+)\/versions\/ver_(\d+)$/
+      );
+      if (versionMatch) {
+        cdngineVersionReadStates.push('published');
+        return new Response(
+          JSON.stringify({
+            assetId: `ast_${versionMatch[1]}`,
+            versionId: `ver_${versionMatch[2]}`,
+            lifecycleState: 'published',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
       return originalFetch(input, init);
@@ -448,23 +478,11 @@ describe('package Backstage publishing routes', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('creates upload URLs for Backstage package release uploads', async () => {
-    const response = await routes.createBackstageReleaseUploadUrl(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-url', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer oauth-token',
-        },
-      }),
-      'com.yucp.example'
-    );
+  it('does not expose API-mediated Backstage package byte upload routes', () => {
+    const routeSurface = routes as unknown as Record<string, unknown>;
 
-    expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload.packageId).toBe('com.yucp.example');
-    expect(payload.uploadUrl).toStartWith(
-      'https://api.test/api/packages/com.yucp.example/backstage/upload-source?uploadToken='
-    );
+    expect(routeSurface.createBackstageReleaseUploadUrl).toBeUndefined();
+    expect(routeSurface.uploadBackstageReleaseSource).toBeUndefined();
   });
 
   it('creates direct CDNgine upload sessions for 5 GiB Backstage packages without accepting bytes', async () => {
@@ -674,6 +692,56 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('reports non-expired CDNgine upload completion failures as temporary upstream outages', async () => {
+    const defaultFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (/^https:\/\/cdngine\.test\/v1\/upload-sessions\/upl_\d+\/complete$/.test(url)) {
+        return new Response(
+          JSON.stringify({
+            type: 'https://docs.cdngine.dev/problems/upload-not-ready',
+            title: 'Upload not ready',
+            status: 409,
+            detail: 'Upload target has not committed the package bytes yet.',
+            retryable: true,
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return defaultFetch(input, init);
+    }) as typeof fetch;
+
+    const sessionResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify({
+          byteSize: 1024,
+          deliveryName: 'example.unitypackage',
+          sha256: 'e'.repeat(64),
+          sourceContentType: 'application/octet-stream',
+        }),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+    const { completeUrl } = (await sessionResponse.json()) as { completeUrl: string };
+
+    const completeResponse = await routes.completeBackstageReleaseUploadSession(
+      new Request(completeUrl, {
+        method: 'POST',
+      }),
+      'com.yucp.example'
+    );
+
+    expect(completeResponse.status).toBe(502);
+    await expect(completeResponse.json()).resolves.toEqual({
+      error: 'Backstage upload service is temporarily unavailable',
+    });
+  });
+
   it('rejects malformed upload completion tokens without throwing', async () => {
     const response = await routes.completeBackstageReleaseUploadSession(
       new Request(
@@ -691,100 +759,62 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
-  it('rejects malformed upload tokens without throwing', async () => {
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload-source?uploadToken=${encodeURIComponent(signMalformedBackstageToken('not-json'))}`,
-        {
-          body: new Uint8Array([1, 2, 3]),
-          headers: {
-            'content-type': 'application/octet-stream',
-          },
-          method: 'POST',
-        }
-      ),
-      'com.yucp.example'
-    );
+  it('uploads Backstage package media as separate CDNgine delivery references', async () => {
+    const bytes = new TextEncoder().encode('icon-bytes');
 
-    expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Invalid upload token',
-    });
-  });
-
-  it('reports missing CDNgine configuration before accepting Backstage package bytes', async () => {
-    const unconfiguredRoutes = createPackageRoutes(
-      {
-        getSession: async () => null,
-      } as never,
-      {
-        apiBaseUrl: 'https://api.test',
-        frontendBaseUrl: 'https://creators.test',
-        convexApiSecret: 'convex-secret',
-        convexSiteUrl: 'https://convex.test',
-        convexUrl: 'https://convex.cloud',
-      }
-    );
-    const uploadUrlResponse = await unconfiguredRoutes.createBackstageReleaseUploadUrl(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-url', {
-        method: 'POST',
+    const response = await routes.uploadBackstageReleaseMedia(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/media?kind=icon', {
+        body: bytes,
         headers: {
           authorization: 'Bearer oauth-token',
-        },
-      }),
-      'com.yucp.example'
-    );
-    const { uploadUrl } = (await uploadUrlResponse.json()) as { uploadUrl: string };
-
-    const uploadResponse = await unconfiguredRoutes.uploadBackstageReleaseSource(
-      new Request(uploadUrl, {
-        body: new Uint8Array([1, 2, 3]),
-        headers: {
-          'content-type': 'application/octet-stream',
-          'x-yucp-file-name': 'example.unitypackage',
+          'content-type': 'image/png',
+          'x-yucp-file-name': encodeURIComponent('icon.png'),
+          'x-yucp-source-path': 'Assets/YUCP/icon.png',
         },
         method: 'POST',
       }),
       'com.yucp.example'
     );
 
-    expect(uploadResponse.status).toBe(503);
-    await expect(uploadResponse.json()).resolves.toEqual({
-      error: 'CDNgine Backstage delivery is not configured',
+    expect(response.status).toBe(201);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      byteSize: bytes.byteLength,
+      cdngineDelivery: {
+        assetId: 'ast_1',
+        assetOwner: 'creator:auth-user-1',
+        byteSize: bytes.byteLength,
+        deliveryScopeId: 'paid-downloads',
+        serviceNamespaceId: 'yucp-backstage',
+        tenantId: 'auth-user-1',
+        variant: 'vpm-package',
+        versionId: 'ver_1',
+      },
+      contentType: 'image/png',
+      deliveryName: 'icon.png',
+      kind: 'icon',
+      sourcePath: 'Assets/YUCP/icon.png',
     });
-  });
-
-  it('uploads Backstage source bytes as a new CDNgine asset instead of claiming a missing assetId', async () => {
-    const uploadUrlResponse = await routes.createBackstageReleaseUploadUrl(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-url', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer oauth-token',
-        },
-      }),
-      'com.yucp.example'
-    );
-    const { uploadUrl } = (await uploadUrlResponse.json()) as { uploadUrl: string };
-
-    const uploadResponse = await routes.uploadBackstageReleaseSource(
-      new Request(uploadUrl, {
-        body: new TextEncoder().encode('unity package bytes'),
-        headers: {
-          'content-type': 'application/octet-stream',
-          'x-yucp-file-name': 'example.unitypackage',
-        },
-        method: 'POST',
-      }),
-      'com.yucp.example'
-    );
-
-    expect(uploadResponse.status).toBe(200);
-    expect(cdngineCreateUploadBodies).toHaveLength(1);
-    expect(cdngineCreateUploadBodies[0]).not.toHaveProperty('assetId');
+    expect(payload.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(cdngineVersionReadStates).toEqual(['published']);
     expect(cdngineCreateUploadBodies[0]).toMatchObject({
       assetOwner: 'creator:auth-user-1',
       serviceNamespaceId: 'yucp-backstage',
+      source: {
+        contentType: 'image/png',
+        filename: 'icon.png',
+      },
       tenantId: 'auth-user-1',
+      upload: {
+        byteLength: bytes.byteLength,
+        checksum: {
+          algorithm: 'sha256',
+          value: payload.sha256,
+        },
+        objectKey: expect.stringContaining(
+          'staging/yucp-backstage/auth-user-1/backstage-media/com.yucp.example/icon/'
+        ),
+      },
     });
   });
 
@@ -1843,13 +1873,28 @@ describe('package Backstage publishing routes', () => {
         content: new TextEncoder().encode('fileFormatVersion: 2'),
       },
     ]);
+    const sourceSha256 = await sha256HexForTest(sourceBytes);
+    let sourceAuthorizeCount = 0;
+    let sourceDownloadCount = 0;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {
-        throw new Error('Unitypackage shim materialization must not download the CDNgine source');
+        sourceAuthorizeCount += 1;
+        return new Response(JSON.stringify({ url: 'https://cdn.test/source.unitypackage' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
       if (url === 'https://cdn.test/source.unitypackage') {
-        throw new Error('Unitypackage shim materialization must not fetch source bytes');
+        sourceDownloadCount += 1;
+        const sourceBuffer = sourceBytes.buffer.slice(
+          sourceBytes.byteOffset,
+          sourceBytes.byteOffset + sourceBytes.byteLength
+        ) as ArrayBuffer;
+        return new Response(new Blob([sourceBuffer], { type: 'application/octet-stream' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
       }
       if (url === 'https://cdngine.test/v1/upload-sessions') {
         cdngineUploadCounter += 1;
@@ -1884,6 +1929,21 @@ describe('package Backstage publishing routes', () => {
           { status: 202, headers: { 'Content-Type': 'application/json' } }
         );
       }
+      const versionMatch = url.match(
+        /^https:\/\/cdngine\.test\/v1\/assets\/ast_(\d+)\/versions\/ver_(\d+)$/
+      );
+      if (versionMatch) {
+        const lifecycleState = cdngineVersionReadStates.length === 0 ? 'canonical' : 'published';
+        cdngineVersionReadStates.push(lifecycleState);
+        return new Response(
+          JSON.stringify({
+            assetId: `ast_${versionMatch[1]}`,
+            versionId: `ver_${versionMatch[2]}`,
+            lifecycleState,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
       return originalFetch(input, init);
     }) as typeof fetch;
 
@@ -1899,7 +1959,7 @@ describe('package Backstage publishing routes', () => {
           cdngineSource: {
             ...cdngineSourceFixture,
             byteSize: sourceBytes.byteLength,
-            sha256: 'e'.repeat(64),
+            sha256: sourceSha256,
           },
           version: '1.0.6',
           channel: 'stable',
@@ -1912,6 +1972,8 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(201);
+    expect(sourceAuthorizeCount).toBe(1);
+    expect(sourceDownloadCount).toBe(1);
     expect(cdngineCreateUploadBodies).toHaveLength(1);
     expect(cdngineCreateUploadBodies[0]).toMatchObject({
       source: {
@@ -1927,7 +1989,7 @@ describe('package Backstage publishing routes', () => {
     expect(
       (cdngineCreateUploadBodies[0] as { upload: { checksum: { value: string } } }).upload.checksum
         .value
-    ).not.toBe('e'.repeat(64));
+    ).not.toBe(sourceSha256);
     expect(Array.from(cdngineUploadTargetBodies[0].bytes.slice(0, 4))).toEqual([80, 75, 3, 4]);
     const shimArchive = unzipSync(cdngineUploadTargetBodies[0].bytes);
     expect(Object.keys(shimArchive).sort()).toEqual(['package.json']);
@@ -1955,6 +2017,7 @@ describe('package Backstage publishing routes', () => {
       deliverableDeliveryName: 'vrc-get-com.yucp.songthing-1.0.6.zip',
       rawDeliveryName: 'Song Thing_1.0.6.unitypackage',
     });
+    expect(cdngineVersionReadStates).toEqual(['canonical', 'published']);
   });
 
   it('preserves alias package metadata when publishing Backstage releases', async () => {
@@ -2003,13 +2066,35 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes server-generated metadata inputs for unitypackage sources', async () => {
+    const sourceBytes = buildUnitypackage([
+      { path: 'asset-guid/asset', content: new TextEncoder().encode('avatar payload') },
+      { path: 'asset-guid/pathname', content: new TextEncoder().encode('Assets/Avatar.prefab') },
+    ]);
+    const sourceSha256 = await sha256HexForTest(sourceBytes);
+    let sourceAuthorizeCount = 0;
+    let sourceDownloadCount = 0;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {
-        throw new Error('Unitypackage shim materialization must not download the CDNgine source');
+        sourceAuthorizeCount += 1;
+        return new Response(
+          JSON.stringify({ url: 'https://cdn.test/avatar-installer.unitypackage' }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
       }
       if (url === 'https://cdn.test/avatar-installer.unitypackage') {
-        throw new Error('Unitypackage shim materialization must not fetch source bytes');
+        sourceDownloadCount += 1;
+        const sourceBuffer = sourceBytes.buffer.slice(
+          sourceBytes.byteOffset,
+          sourceBytes.byteOffset + sourceBytes.byteLength
+        ) as ArrayBuffer;
+        return new Response(new Blob([sourceBuffer], { type: 'application/octet-stream' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/octet-stream' },
+        });
       }
       if (url === 'https://cdngine.test/v1/upload-sessions') {
         cdngineUploadCounter += 1;
@@ -2044,6 +2129,20 @@ describe('package Backstage publishing routes', () => {
           { status: 202, headers: { 'Content-Type': 'application/json' } }
         );
       }
+      const versionMatch = url.match(
+        /^https:\/\/cdngine\.test\/v1\/assets\/ast_(\d+)\/versions\/ver_(\d+)$/
+      );
+      if (versionMatch) {
+        cdngineVersionReadStates.push('published');
+        return new Response(
+          JSON.stringify({
+            assetId: `ast_${versionMatch[1]}`,
+            versionId: `ver_${versionMatch[2]}`,
+            lifecycleState: 'published',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
       return originalFetch(input, init);
     }) as typeof fetch;
 
@@ -2056,7 +2155,11 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          cdngineSource: cdngineSourceFixture,
+          cdngineSource: {
+            ...cdngineSourceFixture,
+            byteSize: sourceBytes.byteLength,
+            sha256: sourceSha256,
+          },
           version: '4.0.0',
           deliveryName: 'avatar-installer.unitypackage',
           sourceContentType: 'application/octet-stream',
@@ -2070,6 +2173,8 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(201);
+    expect(sourceAuthorizeCount).toBe(1);
+    expect(sourceDownloadCount).toBe(1);
     expect(lastActionArgs).toMatchObject({
       rawDeliveryName: 'avatar-installer.unitypackage',
       rawContentType: 'application/octet-stream',

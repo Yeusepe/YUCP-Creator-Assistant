@@ -21,17 +21,23 @@ import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS,
   BACKSTAGE_VPM_SOURCE_KINDS,
+  type BackstagePackageMediaMap,
   buildRepoTokenVpmDeliveryMetadata,
+  getBackstagePackageMediaReferencesFromMetadata,
   getYucpAliasPackageContract,
   inferBackstageVpmDeliverySourceKind,
   mergeYucpAliasPackageMetadata,
+  stripBackstagePackageMediaManifestMetadata,
   stripBackstageVpmReservedMetadata,
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES,
   YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES,
   YUCP_ALIAS_PACKAGE_KIND,
   type YucpAliasPackageContract,
 } from '@yucp/shared';
-import type { CdngineBackstageDeliveryReference } from '@yucp/shared/cdngineBackstageDelivery';
+import type {
+  CdngineBackstageDeliveryReference,
+  CdngineBackstageSourceReference,
+} from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { api, internal } from './_generated/api';
@@ -103,6 +109,7 @@ type BackstageReleaseSummary = {
   signedArtifactId?: Id<'signed_release_artifacts'>;
   zipSha256?: string;
   metadata?: unknown;
+  media?: BackstagePackageMediaMap;
   publishedAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -121,6 +128,7 @@ type DeliveryArtifactSummary = Pick<
   | 'contentType'
   | 'deliveryName'
   | 'cdngineDelivery'
+  | 'cdngineSource'
 >;
 
 type DownloadablePackageReleaseRecord = {
@@ -155,7 +163,7 @@ type BackstageRawPackageDownloadRecord = {
   sourceKind: 'zip' | 'unitypackage';
   version: string;
   channel: string;
-  cdngineDelivery?: CdngineBackstageDeliveryReference;
+  cdngineSource?: CdngineBackstageSourceReference;
 };
 
 type AuthorizedAliasInstallPlanPackageRecord = {
@@ -164,6 +172,7 @@ type AuthorizedAliasInstallPlanPackageRecord = {
   version: string;
   channel: string;
   zipSha256?: string;
+  media?: BackstagePackageMediaMap;
   aliasContract: YucpAliasPackageContract;
 };
 
@@ -189,6 +198,33 @@ const CdngineBackstageDeliveryReferenceV = v.object({
   variant: v.string(),
   versionId: v.string(),
 });
+const CdngineBackstageSourceReferenceV = v.object({
+  assetId: v.string(),
+  assetOwner: v.string(),
+  byteSize: v.number(),
+  serviceNamespaceId: v.string(),
+  sha256: v.string(),
+  tenantId: v.optional(v.string()),
+  uploadedAt: v.number(),
+  versionId: v.string(),
+});
+
+const BackstagePackageMediaKindV = v.union(v.literal('banner'), v.literal('icon'));
+
+const BackstagePackageMediaReferenceV = v.object({
+  byteSize: v.number(),
+  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+  contentType: v.string(),
+  deliveryName: v.string(),
+  kind: BackstagePackageMediaKindV,
+  sha256: v.string(),
+  sourcePath: v.optional(v.string()),
+});
+
+const BackstagePackageMediaMapV = v.object({
+  banner: v.optional(BackstagePackageMediaReferenceV),
+  icon: v.optional(BackstagePackageMediaReferenceV),
+});
 
 const DownloadablePackageReleaseRecordV = v.object({
   deliveryPackageReleaseId: v.id('delivery_package_releases'),
@@ -197,7 +233,6 @@ const DownloadablePackageReleaseRecordV = v.object({
   zipSha256: v.optional(v.string()),
   version: v.string(),
   channel: v.string(),
-  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
 });
 
 const BackstagePackageDownloadRecordV = v.object({
@@ -223,7 +258,7 @@ const BackstageRawPackageDownloadRecordV = v.object({
   sourceKind: v.union(v.literal('zip'), v.literal('unitypackage')),
   version: v.string(),
   channel: v.string(),
-  cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+  cdngineSource: v.optional(CdngineBackstageSourceReferenceV),
 });
 
 const YucpAliasPackageContractV = v.object({
@@ -242,6 +277,7 @@ const AuthorizedAliasInstallPlanPackageRecordV = v.object({
   version: v.string(),
   channel: v.string(),
   zipSha256: v.optional(v.string()),
+  media: v.optional(BackstagePackageMediaMapV),
   aliasContract: YucpAliasPackageContractV,
 });
 
@@ -413,6 +449,7 @@ function toBackstageReleaseSummary(
     signedArtifactId: release.signedArtifactId,
     zipSha256: release.zipSha256,
     metadata: resolvedMetadata,
+    media: getBackstagePackageMediaReferencesFromMetadata(resolvedMetadata),
     publishedAt: release.publishedAt,
     createdAt: release.createdAt,
     updatedAt: release.updatedAt,
@@ -438,20 +475,17 @@ async function resolveDownloadableArtifactForReleaseRecord(
         .eq('deliveryPackageReleaseId', release.deliveryPackageReleaseId)
         .eq('artifactRole', 'server_deliverable')
         .eq('status', 'active')
-    )
+  )
     .first();
   if (deliverable) {
-    const downloadUrl = deliverable.storageId
-      ? await ctx.storage.getUrl(deliverable.storageId)
-      : null;
-    if (!downloadUrl && !deliverable.cdngineDelivery) {
+    if (!deliverable.cdngineDelivery) {
       return null;
     }
 
     return {
       deliveryArtifactId: deliverable._id,
       deliveryArtifactMode: 'server_materialized',
-      downloadUrl: downloadUrl ?? '',
+      downloadUrl: '',
       contentType: deliverable.contentType,
       deliveryName: deliverable.deliveryName,
       zipSha256: release.zipSha256,
@@ -461,42 +495,7 @@ async function resolveDownloadableArtifactForReleaseRecord(
     };
   }
 
-  const artifact = (
-    release.signedArtifactId
-      ? await ctx.runQuery(internal.releaseArtifacts.getArtifactById, {
-          artifactId: release.signedArtifactId,
-        })
-      : release.artifactKey
-        ? await ctx.runQuery(internal.releaseArtifacts.getLatestActiveArtifactByKey, {
-            artifactKey: release.artifactKey,
-          })
-        : null
-  ) as {
-    artifactKey: string;
-    storageId: Id<'_storage'>;
-    contentType: string;
-    deliveryName: string;
-  } | null;
-  if (!artifact) {
-    return null;
-  }
-
-  const downloadUrl = await ctx.storage.getUrl(artifact.storageId);
-  if (!downloadUrl) {
-    return null;
-  }
-
-  return {
-    deliveryArtifactMode: 'legacy_signed',
-    artifactId: release.signedArtifactId,
-    artifactKey: artifact.artifactKey,
-    downloadUrl,
-    contentType: artifact.contentType,
-    deliveryName: artifact.deliveryName,
-    zipSha256: release.zipSha256,
-    version: release.version,
-    channel: release.channel,
-  };
+  return null;
 }
 
 async function resolveRawDownloadableArtifactForReleaseRecord(
@@ -520,16 +519,13 @@ async function resolveRawDownloadableArtifactForReleaseRecord(
     return null;
   }
 
-  const downloadUrl = rawArtifact.storageId
-    ? await ctx.storage.getUrl(rawArtifact.storageId)
-    : null;
-  if (!downloadUrl && !rawArtifact.cdngineDelivery) {
+  if (!rawArtifact.cdngineSource) {
     return null;
   }
 
   return {
     deliveryArtifactId: rawArtifact._id,
-    downloadUrl: downloadUrl ?? '',
+    downloadUrl: '',
     contentType: rawArtifact.contentType,
     deliveryName: rawArtifact.deliveryName,
     packageSha256: rawArtifact.sha256,
@@ -539,7 +535,7 @@ async function resolveRawDownloadableArtifactForReleaseRecord(
     }),
     version: release.version,
     channel: release.channel,
-    cdngineDelivery: rawArtifact.cdngineDelivery,
+    cdngineSource: rawArtifact.cdngineSource,
   };
 }
 
@@ -577,7 +573,9 @@ function toBackstageReleaseManifestMetadata(
   release: Pick<BackstageReleaseSummary, 'metadata' | 'deliveryName' | 'contentType'>
 ): Record<string, unknown> {
   const releaseMetadata = isRecord(release.metadata) ? release.metadata : {};
-  const normalizedMetadata = stripBackstageVpmReservedMetadata(releaseMetadata);
+  const normalizedMetadata = stripBackstagePackageMediaManifestMetadata(
+    stripBackstageVpmReservedMetadata(releaseMetadata)
+  );
   const manifestMetadata = applyYucpAliasPackageManifestDefaults(normalizedMetadata);
   const sourceKind = inferBackstageVpmDeliverySourceKind({
     deliveryName: release.deliveryName,
@@ -2360,6 +2358,7 @@ export const getAuthorizedAliasInstallPlanByRef = query({
           version: latestRelease.version,
           channel: latestRelease.channel,
           zipSha256: latestRelease.zipSha256,
+          media: latestRelease.media,
           aliasContract: latestRelease.aliasContract,
         });
         return acc;

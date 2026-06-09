@@ -19,6 +19,8 @@ import {
 import { DropZone, EmptyState, PressableFeedback, Sheet } from '@heroui-pro/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY,
+  extractBackstagePackageMediaAssetsFromSource,
   resolveComparableYucpAliasIdsFromCatalogProduct,
   resolveSharedYucpAliasIdFromCatalogProducts,
   resolveYucpAliasIdFromCatalogProduct,
@@ -67,6 +69,7 @@ import {
   restoreCreatorBackstageProduct,
   restoreCreatorPackage,
   uploadBackstageReleaseFileDirect,
+  uploadBackstageReleaseMedia,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { copyToClipboard } from '@/lib/utils';
@@ -1716,6 +1719,24 @@ export function PackageRegistryPanel({
           'This package is linked to storefront products with different install aliases. Review the product links before publishing another upload.'
         );
       }
+
+      setSelectedUpload((current) =>
+        current
+          ? {
+              ...current,
+              progressLabel: 'Reading media',
+              progressValue: 0,
+            }
+          : current
+      );
+      const sourceBytes = new Uint8Array(await selectedUpload.file.arrayBuffer());
+      const extractedMedia = await extractBackstagePackageMediaAssetsFromSource({
+        sourceBytes,
+        deliveryName: selectedUpload.file.name,
+        contentType: selectedUpload.contentType,
+        packageId,
+      });
+
       const upload = await uploadBackstageReleaseFileDirect({
         packageId,
         file: selectedUpload.file,
@@ -1736,6 +1757,41 @@ export function PackageRegistryPanel({
           );
         },
       });
+      const uploadedMedia =
+        extractedMedia.length > 0
+          ? await Promise.all(
+              extractedMedia.map(async (asset, index) => {
+                setSelectedUpload((current) =>
+                  current
+                    ? {
+                        ...current,
+                        progressLabel: 'Uploading media',
+                        progressValue: Math.round((index / extractedMedia.length) * 100),
+                      }
+                    : current
+                );
+                return await uploadBackstageReleaseMedia({
+                  bytes: asset.bytes,
+                  contentType: asset.contentType,
+                  deliveryName: asset.deliveryName,
+                  kind: asset.kind,
+                  packageId,
+                  sourcePath: asset.sourcePath,
+                });
+              })
+            )
+          : [];
+      if (uploadedMedia.length > 0) {
+        setSelectedUpload((current) =>
+          current
+            ? {
+                ...current,
+                progressLabel: 'Publishing',
+                progressValue: 100,
+              }
+            : current
+        );
+      }
       const accessSelectors =
         draft.accessMode === 'tiers' && draft.catalogTierIds.length > 0
           ? draft.catalogTierIds.map((catalogTierId) => ({
@@ -1763,6 +1819,14 @@ export function PackageRegistryPanel({
           dependencyVersions:
             dependencyVersions.dependencies.length > 0
               ? dependencyVersions.dependencies
+              : undefined,
+          metadata:
+            uploadedMedia.length > 0
+              ? {
+                  [BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY]: Object.fromEntries(
+                    uploadedMedia.map((media) => [media.kind, media])
+                  ),
+                }
               : undefined,
           deliveryName: upload.deliveryName ?? selectedUpload.file.name,
           sourceContentType:
