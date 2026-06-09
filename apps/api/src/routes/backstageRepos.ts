@@ -28,7 +28,7 @@ const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
 const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
 const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
-const BACKSTAGE_RAW_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
+const BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
@@ -132,16 +132,16 @@ class RequestBodyError extends Error {
   }
 }
 
-function requireInstallableBackstageRawPackageDownload(
-  resolved: BackstageRawPackageDownloadRecord,
+function requireInstallableBackstagePackageDownload(
+  resolved: BackstagePackageDownloadRecord,
   packageId: string
-): { packageSha256: string; sourceKind: 'zip' | 'unitypackage' } {
-  const packageSha256 = resolved.packageSha256.trim().toLowerCase();
+): { packageSha256: string; sourceKind: 'zip' } {
+  const packageSha256 = resolved.zipSha256?.trim().toLowerCase() ?? '';
   if (!SHA256_HEX_RE.test(packageSha256)) {
-    throw new Error(`Alias package '${packageId}' has an invalid raw artifact digest`);
+    throw new Error(`Alias package '${packageId}' has an invalid VPM deliverable digest`);
   }
 
-  return { packageSha256, sourceKind: resolved.sourceKind };
+  return { packageSha256, sourceKind: 'zip' };
 }
 
 export type BackstageRepoConfig = {
@@ -929,7 +929,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
           throw new Error(`Alias package '${pkg.packageId}' is missing importer delivery metadata`);
         }
         const resolvedDownload = (await convex.query(
-          api.backstageRepos.resolveRawPackageDownloadForApi,
+          api.backstageRepos.resolvePackageDownloadForApi,
           {
             apiSecret: config.convexApiSecret,
             authUserId: plan.creatorAuthUserId,
@@ -944,7 +944,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
             `Alias package '${pkg.packageId}' is missing a package delivery artifact`
           );
         }
-        const installableDownload = requireInstallableBackstageRawPackageDownload(
+        const installableDownload = requireInstallableBackstagePackageDownload(
           resolvedDownload,
           pkg.packageId
         );
@@ -1003,7 +1003,7 @@ async function readRequestTextWithLimit(request: Request, maxBytes: number): Pro
 }
 
 async function parseJsonObjectBody(request: Request): Promise<Record<string, unknown>> {
-  const text = await readRequestTextWithLimit(request, BACKSTAGE_RAW_DOWNLOAD_BODY_MAX_BYTES);
+  const text = await readRequestTextWithLimit(request, BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES);
   if (!text.trim()) {
     return {};
   }
@@ -1028,7 +1028,7 @@ function readOptionalBodyString(body: Record<string, unknown>, key: string): str
   return normalized || undefined;
 }
 
-async function issueAuthorizedRawPackageDownloadForCatalogProduct(
+async function issueAuthorizedPackageDownloadForCatalogProduct(
   request: Request,
   config: BackstageRepoConfig,
   catalogProductId: string,
@@ -1084,26 +1084,27 @@ async function issueAuthorizedRawPackageDownloadForCatalogProduct(
       return errorResponse('Package not found', 404);
     }
 
-    const resolved = (await convex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+    const resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
       apiSecret: config.convexApiSecret,
       authUserId: product.creatorAuthUserId,
       subjectId,
       packageId,
       version,
       channel,
-    })) as BackstageRawPackageDownloadRecord | null;
+    })) as BackstagePackageDownloadRecord | null;
     if (!resolved) {
       return errorResponse('Package not found', 404);
     }
-    const installableDownload = requireInstallableBackstageRawPackageDownload(resolved, packageId);
+    const installableDownload = requireInstallableBackstagePackageDownload(resolved, packageId);
 
     let downloadUrl = resolved.downloadUrl;
     if (isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
       const cdngine = getConfiguredCdngine(config);
       if (!cdngine) {
-        logger.error('CDNgine raw Backstage delivery is configured but not available', {
+        logger.error('CDNgine Backstage package delivery is configured but not available', {
           authUserId: product.creatorAuthUserId,
-          deliveryArtifactId: resolved.deliveryArtifactId,
+          deliveryArtifactId:
+            resolved.deliveryArtifactId ?? resolved.artifactId ?? resolved.artifactKey,
           packageId,
           version,
           channel,
@@ -1122,12 +1123,13 @@ async function issueAuthorizedRawPackageDownloadForCatalogProduct(
           packageId,
           request,
           resolved,
-          allowSourceFallback: true,
+          allowSourceFallback: false,
         });
       } catch (error) {
-        logger.warn('CDNgine raw Backstage delivery authorization failed', {
+        logger.warn('CDNgine Backstage package delivery authorization failed', {
           authUserId: product.creatorAuthUserId,
-          deliveryArtifactId: resolved.deliveryArtifactId,
+          deliveryArtifactId:
+            resolved.deliveryArtifactId ?? resolved.artifactId ?? resolved.artifactKey,
           packageId,
           version,
           channel,
@@ -1157,7 +1159,7 @@ async function issueAuthorizedRawPackageDownloadForCatalogProduct(
     if (error instanceof RequestBodyError) {
       return errorResponse(error.message, error.status);
     }
-    logger.error('Failed to authorize raw package download', {
+    logger.error('Failed to authorize package download', {
       authUserId: viewer.authUserId,
       catalogProductId,
       packageId,
@@ -1503,7 +1505,7 @@ export function createBackstageRepoRoutes(config: BackstageRepoConfig) {
         if (catalogProductId === null || packageId === null) {
           return errorResponse('Malformed path parameter encoding', 400);
         }
-        return await issueAuthorizedRawPackageDownloadForCatalogProduct(
+        return await issueAuthorizedPackageDownloadForCatalogProduct(
           request,
           config,
           catalogProductId,

@@ -1082,7 +1082,7 @@ describe('backstage repo routes', () => {
           packageSha256: 'b'.repeat(64),
           downloadAuthorizationUrl:
             'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
-          sourceKind: 'unitypackage',
+          sourceKind: 'zip',
           aliasContract: {
             kind: 'alias-v1',
             aliasId: 'song-thing',
@@ -1159,14 +1159,13 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'b'.repeat(64),
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
           };
@@ -1262,7 +1261,7 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           expect(args).toMatchObject({
             authUserId: 'creator-user-1',
             subjectId: 'subject_1',
@@ -1271,19 +1270,18 @@ describe('backstage repo routes', () => {
             channel: 'stable',
           });
           return {
-            deliveryArtifactId: 'raw_artifact_1',
+            artifactKey: 'backstage-package:com.yucp.song',
             downloadUrl: '',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'c'.repeat(64),
-            sourceKind: 'unitypackage',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'c'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
             cdngineDelivery: {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'raw-upload',
+              variant: 'vpm-package',
               serviceNamespaceId: 'yucp-backstage',
               tenantId: 'creator-user-1',
               assetOwner: 'creator:creator-user-1',
@@ -1333,11 +1331,11 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toMatchObject({
       downloadUrl: 'https://cdngine.test/uploads/backstage/vrc-get-com.yucp.song-1.2.3.zip',
       packageSha256: 'c'.repeat(64),
-      sourceKind: 'unitypackage',
+      sourceKind: 'zip',
       version: '1.2.3',
       channel: 'stable',
-      contentType: 'application/vnd.unity',
-      deliveryName: 'com.yucp.song-1.2.3.unitypackage',
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
     });
     const cdngineCall = fetchCalls.find((call) =>
       String(call.input).includes('/deliveries/paid-downloads/authorize')
@@ -1347,7 +1345,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('falls back to the raw package download URL when optional CDNgine authorization fails', async () => {
+  it('falls back to the package download URL when optional CDNgine authorization fails', async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (String(input).startsWith('https://cdngine.test/')) {
         return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
@@ -1393,21 +1391,20 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'c'.repeat(64),
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'c'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
             cdngineDelivery: {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'raw-upload',
+              variant: 'vpm-package',
               serviceNamespaceId: 'yucp-backstage',
               tenantId: 'creator-user-1',
               assetOwner: 'creator:creator-user-1',
@@ -1455,9 +1452,9 @@ describe('backstage repo routes', () => {
 
     expect(response?.status).toBe(200);
     await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
+      downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
       packageSha256: 'c'.repeat(64),
-      sourceKind: 'unitypackage',
+      sourceKind: 'zip',
     });
   });
 
@@ -1513,7 +1510,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('falls back to CDNgine source authorization when a package delivery variant is not materialized yet', async () => {
+  it('does not fall back to CDNgine source authorization for alias package downloads', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ input, init });
@@ -1578,21 +1575,20 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           return {
-            deliveryArtifactId: 'raw_artifact_1',
+            artifactKey: 'backstage-package:com.yucp.song',
             downloadUrl: '',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'b'.repeat(64),
-            sourceKind: 'unitypackage',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
             cdngineDelivery: {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'raw-upload',
+              variant: 'vpm-package',
               serviceNamespaceId: 'yucp-backstage',
               tenantId: 'creator-user-1',
               assetOwner: 'creator:creator-user-1',
@@ -1638,19 +1634,12 @@ describe('backstage repo routes', () => {
       )
     );
 
-    expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://cdngine.test/uploads/backstage/source/vrc-get-com.yucp.song-1.2.3.zip',
-      packageSha256: 'b'.repeat(64),
-      sourceKind: 'unitypackage',
-      version: '1.2.3',
-      channel: 'stable',
-      contentType: 'application/vnd.unity',
-      deliveryName: 'com.yucp.song-1.2.3.unitypackage',
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package delivery is temporarily unavailable',
     });
     expect(fetchCalls.map((call) => String(call.input))).toEqual([
       'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize',
-      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/source/authorize',
     ]);
   });
 
@@ -1735,14 +1724,13 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'b'.repeat(64),
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
           };
@@ -1790,7 +1778,7 @@ describe('backstage repo routes', () => {
     expect(seenQueryRefs).toContain('packageRegistry.getBuyerAccessContextByCatalogProductId');
   });
 
-  it('uses the raw upload artifact for alias install plans', async () => {
+  it('uses the VPM deliverable for alias install plans', async () => {
     const seenQueryRefs: unknown[] = [];
     queryImpl = async (ref: unknown, args?: unknown) => {
       seenQueryRefs.push(ref);
@@ -1832,7 +1820,7 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           expect(args).toMatchObject({
             authUserId: 'auth-user-1',
             subjectId: 'subject_1',
@@ -1841,17 +1829,16 @@ describe('backstage repo routes', () => {
             channel: 'stable',
           });
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'a'.repeat(64),
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
           };
-        case 'backstageRepos.resolvePackageDownloadForApi':
-          throw new Error('Alias install plans must resolve raw upload artifacts');
+        case 'backstageRepos.resolveRawPackageDownloadForApi':
+          throw new Error('Alias install plans must resolve VPM deliverables');
         default:
           return null;
       }
@@ -1872,17 +1859,17 @@ describe('backstage repo routes', () => {
       packages: [
         {
           packageId: 'com.yucp.song',
-          packageSha256: 'a'.repeat(64),
-          sourceKind: 'unitypackage',
+          packageSha256: 'b'.repeat(64),
+          sourceKind: 'zip',
           downloadAuthorizationUrl:
             'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
         },
       ],
     });
-    expect(seenQueryRefs).toContain('backstageRepos.resolveRawPackageDownloadForApi');
+    expect(seenQueryRefs).toContain('backstageRepos.resolvePackageDownloadForApi');
   });
 
-  it('rejects alias install plans with invalid raw artifact digests', async () => {
+  it('rejects alias install plans with invalid VPM deliverable digests', async () => {
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -1920,14 +1907,13 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'not-a-sha256-digest',
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'not-a-sha256-digest',
             version: '1.2.3',
             channel: 'stable',
           };
@@ -1951,7 +1937,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('authorizes alias package downloads from the raw upload artifact', async () => {
+  it('authorizes alias package downloads from the VPM deliverable', async () => {
     const seenQueryRefs: unknown[] = [];
     queryImpl = async (ref: unknown, args?: unknown) => {
       seenQueryRefs.push(ref);
@@ -1990,7 +1976,7 @@ describe('backstage repo routes', () => {
               },
             ],
           };
-        case 'backstageRepos.resolveRawPackageDownloadForApi':
+        case 'backstageRepos.resolvePackageDownloadForApi':
           expect(args).toMatchObject({
             authUserId: 'auth-user-1',
             subjectId: 'subject_1',
@@ -1999,17 +1985,16 @@ describe('backstage repo routes', () => {
             channel: 'stable',
           });
           return {
-            deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-            deliveryName: 'com.yucp.song-1.2.3.unitypackage',
-            contentType: 'application/vnd.unity',
-            packageSha256: 'a'.repeat(64),
-            sourceKind: 'unitypackage',
+            artifactKey: 'backstage-package:com.yucp.song',
+            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
           };
-        case 'backstageRepos.resolvePackageDownloadForApi':
-          throw new Error('Alias package downloads must resolve raw upload artifacts');
+        case 'backstageRepos.resolveRawPackageDownloadForApi':
+          throw new Error('Alias package downloads must resolve VPM deliverables');
         default:
           return null;
       }
@@ -2031,20 +2016,20 @@ describe('backstage repo routes', () => {
 
     expect(response?.status).toBe(200);
     await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://downloads.example/com.yucp.song-1.2.3.unitypackage',
-      packageSha256: 'a'.repeat(64),
-      sourceKind: 'unitypackage',
+      downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+      packageSha256: 'b'.repeat(64),
+      sourceKind: 'zip',
       version: '1.2.3',
       channel: 'stable',
-      contentType: 'application/vnd.unity',
-      deliveryName: 'com.yucp.song-1.2.3.unitypackage',
+      contentType: 'application/zip',
+      deliveryName: 'vrc-get-com.yucp.song-1.2.3.zip',
     });
-    expect(seenQueryRefs).toContain('backstageRepos.resolveRawPackageDownloadForApi');
+    expect(seenQueryRefs).toContain('backstageRepos.resolvePackageDownloadForApi');
   });
 
   it('rejects malformed alias package download bodies as client errors', async () => {
     queryImpl = async () => {
-      throw new Error('Malformed raw package download bodies should not reach Convex');
+      throw new Error('Malformed package download bodies should not reach Convex');
     };
 
     const response = await routes.handleRequest(
@@ -2067,7 +2052,7 @@ describe('backstage repo routes', () => {
 
   it('rejects oversized alias package download bodies before Convex reads', async () => {
     queryImpl = async () => {
-      throw new Error('Oversized raw package download bodies should not reach Convex');
+      throw new Error('Oversized package download bodies should not reach Convex');
     };
 
     const response = await routes.handleRequest(
