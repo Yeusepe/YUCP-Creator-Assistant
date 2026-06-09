@@ -579,22 +579,10 @@ function toBackstageReleaseManifestMetadata(
   const releaseMetadata = isRecord(release.metadata) ? release.metadata : {};
   const normalizedMetadata = stripBackstageVpmReservedMetadata(releaseMetadata);
   const manifestMetadata = applyYucpAliasPackageManifestDefaults(normalizedMetadata);
-  const trustedPersistedSourceKind =
-    releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY] ===
-    BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS.serverDerived;
-  const reservedSourceKind =
-    trustedPersistedSourceKind &&
-    (releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY] ===
-      BACKSTAGE_VPM_SOURCE_KINDS.unitypackage ||
-      releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY] === BACKSTAGE_VPM_SOURCE_KINDS.zip)
-      ? releaseMetadata[BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]
-      : undefined;
-  const sourceKind =
-    reservedSourceKind ??
-    inferBackstageVpmDeliverySourceKind({
-      deliveryName: release.deliveryName,
-      contentType: release.contentType,
-    });
+  const sourceKind = inferBackstageVpmDeliverySourceKind({
+    deliveryName: release.deliveryName,
+    contentType: release.contentType,
+  });
   return {
     ...manifestMetadata,
     ...buildRepoTokenVpmDeliveryMetadata(sourceKind),

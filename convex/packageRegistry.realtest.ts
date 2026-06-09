@@ -1382,7 +1382,7 @@ describe('packageRegistry', () => {
     });
   });
 
-  it('publishes a CDNgine-backed release and resolves the buyer-authorized raw artifact', async () => {
+  it('publishes a CDNgine-backed release with ZIP repo delivery and unitypackage raw delivery', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {
       authUserId: 'auth-user-1',
@@ -1501,7 +1501,7 @@ describe('packageRegistry', () => {
       },
       zipSHA256: deliverableSha256,
       yucpDeliveryMode: 'repo-token-vpm-v1',
-      yucpDeliverySourceKind: 'unitypackage',
+      yucpDeliverySourceKind: 'zip',
     });
 
     const rawDownload = await t.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
@@ -1672,7 +1672,7 @@ describe('packageRegistry', () => {
         'com.yucp.backstage.noname': {
           versions: {
             '1.0.0': {
-              yucpDeliverySourceKind: 'unitypackage',
+              yucpDeliverySourceKind: 'zip',
             },
           },
         },
