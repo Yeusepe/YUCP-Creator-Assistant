@@ -739,7 +739,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('falls back to the CDNgine source export when a deliverable version is not ready for delivery authorization', async () => {
+  it('does not fall back to CDNgine source export for VPM package downloads when delivery is not ready', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ input, init });
@@ -760,20 +760,7 @@ describe('backstage repo routes', () => {
         );
       }
       if (url.endsWith('/source/authorize')) {
-        return new Response(
-          JSON.stringify({
-            assetId: 'ast_backstage_1',
-            versionId: 'ver_backstage_1',
-            authorizationMode: 'signed-url',
-            resolvedOrigin: 'source-export',
-            expiresAt: '2026-05-01T12:00:00Z',
-            url: '/uploads/backstage/example-1.2.3.zip',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
+        throw new Error('VPM package downloads must not authorize source exports.');
       }
       return fetchImpl(input, init);
     }) as typeof fetch;
@@ -848,16 +835,12 @@ describe('backstage repo routes', () => {
       )
     );
 
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get('location')).toBe(
-      'https://cdngine.test/uploads/backstage/example-1.2.3.zip'
-    );
+    expect(response?.status).toBe(502);
     const cdngineCalls = fetchCalls.filter((call) =>
       String(call.input).startsWith('https://cdngine.test/')
     );
     expect(cdngineCalls.map((call) => call.input.toString())).toEqual([
       'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize',
-      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/source/authorize',
     ]);
   });
 

@@ -308,6 +308,7 @@ async function resolveCdngineDownloadUrl(input: {
   packageId: string;
   request: Request;
   resolved: BackstagePackageDownloadRecord | BackstageRawPackageDownloadRecord;
+  allowSourceFallback?: boolean;
 }): Promise<string> {
   const idempotencyHash = await sha256Hex(
     [
@@ -364,6 +365,11 @@ async function resolveCdngineDownloadUrl(input: {
   }
 
   if (response.status !== 404 && !isCdngineVersionNotReady(response.status, payload)) {
+    const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
+    throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
+  }
+
+  if (input.allowSourceFallback !== true) {
     const detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
     throw new Error(`CDNgine delivery authorization failed: ${response.status} ${detail}`);
   }
@@ -1116,6 +1122,7 @@ async function issueAuthorizedRawPackageDownloadForCatalogProduct(
           packageId,
           request,
           resolved,
+          allowSourceFallback: true,
         });
       } catch (error) {
         logger.warn('CDNgine raw Backstage delivery authorization failed', {
@@ -1426,6 +1433,7 @@ async function servePackageDownload(
         packageId,
         request,
         resolved,
+        allowSourceFallback: false,
       });
       return Response.redirect(cdngineUrl, 302);
     } catch (error) {
