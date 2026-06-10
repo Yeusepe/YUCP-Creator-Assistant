@@ -72,7 +72,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, write entitlements for the correct auth user, preserve degraded or failure signals all the way to the public surface, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, preserve degraded or failure signals all the way to the public surface, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
     primaryRegressionHomes: [
       'convex/verificationIntents.realtest.ts',
       'apps/api/src/routes/connect.user-verify.manual-license.test.ts',

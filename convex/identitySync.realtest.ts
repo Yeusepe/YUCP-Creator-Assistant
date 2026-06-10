@@ -492,4 +492,105 @@ describe('external account', () => {
     );
     expect(subject?.authUserId).toBe('buyer-auth-owner');
   });
+
+  it('given a Discord-backed buyer subject owned by a creator auth user, when the canonical buyer syncs the provider account, then ownership is rehomed to the buyer', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    const subjectId = await t.run(async (ctx) => {
+      return await ctx.db.insert('subjects', {
+        primaryDiscordUserId: 'discord-buyer-rehome-1',
+        authUserId: 'creator-auth-user-1',
+        displayName: 'Buyer Rehome',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await t.run(async (ctx) => {
+      const externalAccountId = await ctx.db.insert('external_accounts', {
+        provider: 'itchio',
+        providerUserId: 'itch-buyer-rehome-1',
+        providerUsername: 'itch-buyer-before-rehome',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert('buyer_provider_links', {
+        subjectId,
+        provider: 'itchio',
+        externalAccountId,
+        verificationMethod: 'account_link',
+        status: 'active',
+        linkedAt: now,
+        lastValidatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert('bindings', {
+        authUserId: 'creator-auth-user-1',
+        subjectId,
+        externalAccountId,
+        bindingType: 'verification',
+        status: 'active',
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: 'test-secret',
+      authUserId: 'buyer-auth-user-1',
+      provider: 'itchio',
+      providerUserId: 'itch-buyer-rehome-1',
+      username: 'itch-buyer-after-rehome',
+      discordUserId: 'discord-buyer-rehome-1',
+    });
+
+    expect(syncResult.subjectId).toBe(subjectId);
+
+    const ownerLinks = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId: 'creator-auth-user-1',
+    });
+    const buyerLinks = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId: 'buyer-auth-user-1',
+    });
+
+    expect(ownerLinks).toHaveLength(0);
+    expect(buyerLinks).toHaveLength(1);
+    expect(buyerLinks[0]).toMatchObject({
+      provider: 'itchio',
+      providerUserId: 'itch-buyer-rehome-1',
+      providerUsername: 'itch-buyer-after-rehome',
+    });
+
+    const repairedSubject = await t.run(async (ctx) => ctx.db.get(subjectId));
+    expect(repairedSubject?.authUserId).toBe('buyer-auth-user-1');
+
+    const buyerBindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', 'buyer-auth-user-1').eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    const creatorBindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('bindings')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', 'creator-auth-user-1').eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+
+    expect(buyerBindings).toHaveLength(1);
+    expect(creatorBindings).toHaveLength(0);
+  });
 });

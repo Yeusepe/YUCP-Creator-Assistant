@@ -535,7 +535,7 @@ function buildStatusContainer(
   /** Build a verification begin URL for a given mode/provider key */
   const buildBeginUrl = (mode: string): string | null => {
     if (!apiBaseUrl) return null;
-    const params = new URLSearchParams({ authUserId, mode, redirectUri });
+    const params = new URLSearchParams({ creatorAuthUserId: authUserId, mode, redirectUri });
     params.set('verificationMethod', 'account_link');
     if (userId) params.set('discordUserId', userId);
     return `${apiBaseUrl}/api/verification/begin?${params.toString()}`;

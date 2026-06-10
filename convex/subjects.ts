@@ -10,6 +10,7 @@ import { components } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { revokeBindingRecord } from './bindings';
 import {
   ApiActorBindingV,
   assertServiceActor,
@@ -25,7 +26,6 @@ import {
 } from './lib/externalAccountIdentity';
 import { hasActiveBindingForSubject } from './lib/ownership';
 import { ProviderV } from './lib/providers';
-import { revokeBindingRecord } from './bindings';
 
 export const PublicSubjectSelector = v.union(
   v.object({
@@ -223,7 +223,9 @@ export async function ensureCanonicalAuthUserIdForSubject(
 
   const authUserId = await findBetterAuthUserIdByLightMarker(ctx, resolution.marker);
   if (!authUserId) {
-    throw new Error(`Failed to materialize auth user for Discord subject ${subject.primaryDiscordUserId}`);
+    throw new Error(
+      `Failed to materialize auth user for Discord subject ${subject.primaryDiscordUserId}`
+    );
   }
 
   return {
@@ -889,6 +891,59 @@ export const ensureAuthUserIdForSubject = mutation({
     });
 
     return resolved.authUserId;
+  },
+});
+
+export const ensureCanonicalAuthContextForDiscordUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    discordUserId: v.string(),
+    displayName: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+  },
+  returns: v.object({
+    subjectId: v.id('subjects'),
+    authUserId: v.string(),
+    resolution: v.union(
+      v.literal('better_auth'),
+      v.literal('existing_light'),
+      v.literal('new_light')
+    ),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['subjects:service']);
+
+    const existingSubject = await ctx.db
+      .query('subjects')
+      .withIndex('by_discord_user', (q) => q.eq('primaryDiscordUserId', args.discordUserId))
+      .first();
+
+    const now = Date.now();
+    const subjectId =
+      existingSubject?._id ??
+      (await ctx.db.insert('subjects', {
+        primaryDiscordUserId: args.discordUserId,
+        status: 'active',
+        displayName: args.displayName,
+        avatarUrl: args.avatarUrl,
+        createdAt: now,
+        updatedAt: now,
+      }));
+    const subject = existingSubject ?? (await ctx.db.get(subjectId));
+    if (!subject) {
+      throw new Error(
+        `Subject not found after ensuring Discord subject ${args.discordUserId}. ` +
+          `subjectId=${subjectId}, existingSubject=${existingSubject?._id}`
+      );
+    }
+    const resolved = await ensureCanonicalAuthUserIdForSubject(ctx, subject);
+    return {
+      subjectId: subject._id,
+      authUserId: resolved.authUserId,
+      resolution: resolved.source,
+    };
   },
 });
 

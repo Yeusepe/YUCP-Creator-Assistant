@@ -210,7 +210,10 @@ export interface VerifyHostedBuyerLinkIntentResult {
 }
 
 export interface BuyerLinkPostLinkInput {
+  /** Canonical buyer auth user ID for the account that was linked. */
   authUserId: string;
+  /** Creator tenant auth user ID for verification sessions started from a creator-owned context. */
+  creatorAuthUserId?: string;
   sessionId: Id<'verification_sessions'>;
   sessionMode: string;
   verificationMethod?: string;

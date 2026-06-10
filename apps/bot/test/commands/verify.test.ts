@@ -201,7 +201,7 @@ describe('buildVerifyStatusReply', () => {
 
     const text = JSON.stringify(reply.components[0].toJSON());
     expect(text).toContain(
-      'https://api.example.com/api/verification/begin?authUserId=auth_verify_5&mode=gumroad'
+      'https://api.example.com/api/verification/begin?creatorAuthUserId=auth_verify_5&mode=gumroad'
     );
     expect(text).toContain('verificationMethod=account_link');
   });
@@ -220,7 +220,7 @@ describe('buildVerifyStatusReply', () => {
 
     const text = JSON.stringify(reply.components[0].toJSON());
     expect(text).toContain(
-      'https://api.example.com/api/verification/begin?authUserId=auth_verify_itch&mode=itchio'
+      'https://api.example.com/api/verification/begin?creatorAuthUserId=auth_verify_itch&mode=itchio'
     );
     expect(text).toContain('verificationMethod=account_link');
     expect(text).toContain('Connect itch.io');

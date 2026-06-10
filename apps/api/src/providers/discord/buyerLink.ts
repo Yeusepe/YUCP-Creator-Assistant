@@ -112,9 +112,10 @@ export function createDiscordBuyerLinkPlugin(): BuyerLinkPlugin {
         discordTokenExpiresAt: input.expiresAt ?? Date.now() + 7 * 24 * 60 * 60 * 1000,
       });
 
+      const creatorAuthUserId = input.creatorAuthUserId ?? input.authUserId;
       const tenant = await ctx.convex.query(api.creatorProfiles.getCreatorProfile, {
         apiSecret: ctx.apiSecret,
-        authUserId: input.authUserId,
+        authUserId: creatorAuthUserId,
       });
       if (!tenant) {
         throw new Error('Tenant not found');
@@ -129,7 +130,7 @@ export function createDiscordBuyerLinkPlugin(): BuyerLinkPlugin {
 
       const rules = await ctx.convex.query(api.role_rules.getDiscordRoleRulesByTenant, {
         apiSecret: ctx.apiSecret,
-        authUserId: input.authUserId,
+        authUserId: creatorAuthUserId,
         sourceGuildIds: allowedGuildIds,
       });
 
@@ -155,7 +156,7 @@ export function createDiscordBuyerLinkPlugin(): BuyerLinkPlugin {
         const sourceReference = productId ?? `discord_role:${sourceGuildId}:${requiredIds[0]}`;
         await ctx.convex.mutation(api.entitlements.grantEntitlement, {
           apiSecret: ctx.apiSecret,
-          authUserId: input.authUserId,
+          authUserId: creatorAuthUserId,
           subjectId: input.subjectId,
           productId,
           evidence: {
