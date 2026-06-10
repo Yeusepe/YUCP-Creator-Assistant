@@ -35,6 +35,16 @@ const fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<
       }
     );
 const originalFetch = globalThis.fetch;
+const TEST_CDNGINE_SOURCE_REFERENCE = {
+  assetId: 'ast_source_1',
+  versionId: 'ver_source_1',
+  serviceNamespaceId: 'yucp-backstage',
+  tenantId: 'creator-user-1',
+  assetOwner: 'creator:creator-user-1',
+  sha256: 'b'.repeat(64),
+  byteSize: 1234,
+  uploadedAt: 1_700_000_000_000,
+};
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
@@ -691,7 +701,7 @@ describe('backstage repo routes', () => {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'vpm-package',
+              variant: 'preserve-original',
               serviceNamespaceId: 'yucp-backstage',
               tenantId: 'auth-user-1',
               assetOwner: 'creator:auth-user-1',
@@ -762,7 +772,7 @@ describe('backstage repo routes', () => {
     );
     expect(JSON.parse(String(cdngineCall?.init?.body))).toEqual({
       responseFormat: 'url',
-      variant: 'vpm-package',
+      variant: 'preserve-original',
     });
   });
 
@@ -814,7 +824,7 @@ describe('backstage repo routes', () => {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'vpm-package',
+              variant: 'preserve-original',
               serviceNamespaceId: 'yucp-backstage',
               tenantId: 'auth-user-1',
               assetOwner: 'creator:auth-user-1',
@@ -904,7 +914,7 @@ describe('backstage repo routes', () => {
               assetId: 'ast_backstage_1',
               versionId: 'ver_backstage_1',
               deliveryScopeId: 'paid-downloads',
-              variant: 'vpm-package',
+              variant: 'preserve-original',
               serviceNamespaceId: 'yucp-backstage',
               assetOwner: 'creator:auth-user-1',
               sha256: 'a'.repeat(64),
@@ -1319,15 +1329,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           expect(args).toMatchObject({ authUserId: 'creator-user-1' });
@@ -1440,14 +1442,9 @@ describe('backstage repo routes', () => {
             version: '1.2.3',
             channel: 'stable',
             cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'creator-user-1',
-              assetOwner: 'creator:creator-user-1',
+              ...TEST_CDNGINE_SOURCE_REFERENCE,
               sha256: 'c'.repeat(64),
               byteSize: 4567,
-              uploadedAt: 1_700_000_000_000,
             },
           };
         default:
@@ -1554,7 +1551,7 @@ describe('backstage repo routes', () => {
         case 'backstageRepos.resolveRawPackageDownloadForApi':
           return {
             deliveryArtifactId: 'raw_artifact_1',
-            downloadUrl: 'https://downloads.example/vrc-get-com.yucp.song-1.2.3.zip',
+            downloadUrl: 'https://downloads.example/Song%20Thing_1.2.3.unitypackage',
             deliveryName: 'Song Thing_1.2.3.unitypackage',
             contentType: 'application/octet-stream',
             packageSha256: 'c'.repeat(64),
@@ -1562,14 +1559,9 @@ describe('backstage repo routes', () => {
             version: '1.2.3',
             channel: 'stable',
             cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'creator-user-1',
-              assetOwner: 'creator:creator-user-1',
+              ...TEST_CDNGINE_SOURCE_REFERENCE,
               sha256: 'c'.repeat(64),
               byteSize: 4567,
-              uploadedAt: 1_700_000_000_000,
             },
           };
         default:
@@ -1667,17 +1659,16 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('does not fall back to VPM delivery authorization for alias package downloads', async () => {
+  it('does not authorize VPM deliverable downloads for alias package installer downloads', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       fetchCalls.push({ input, init });
       const url = String(input);
       if (url.endsWith('/deliveries/paid-downloads/authorize')) {
-        throw new Error('Alias package downloads must not authorize VPM deliverables.');
+        throw new Error('Alias package installer downloads must not authorize VPM deliverables.');
       }
       if (url.endsWith('/source/authorize')) {
-        return new Response(JSON.stringify({ detail: 'source export is not ready' }), {
-          status: 409,
+        return new Response(JSON.stringify({ url: 'https://cdn.test/Song_Thing.unitypackage' }), {
           headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -1720,7 +1711,7 @@ describe('backstage repo routes', () => {
             ],
           };
         case 'backstageRepos.resolvePackageDownloadForApi':
-          throw new Error('Alias package downloads must not resolve VPM deliverables.');
+          throw new Error('Alias package installer downloads must not resolve VPM deliverables.');
         case 'backstageRepos.resolveRawPackageDownloadForApi':
           expect(args).toMatchObject({
             authUserId: 'creator-user-1',
@@ -1738,16 +1729,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'creator-user-1',
-              assetOwner: 'creator:creator-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 4567,
-              uploadedAt: 1_700_000_000_000,
-            },
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         default:
           return null;
@@ -1786,9 +1768,13 @@ describe('backstage repo routes', () => {
       )
     );
 
-    expect(response?.status).toBe(502);
-    await expect(response?.json()).resolves.toEqual({
-      error: 'Package delivery is temporarily unavailable',
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      downloadUrl: 'https://cdn.test/Song_Thing.unitypackage',
+      packageSha256: 'b'.repeat(64),
+      sourceKind: 'unitypackage',
+      contentType: 'application/octet-stream',
+      deliveryName: 'Song Thing_1.2.3.unitypackage',
     });
     expect(fetchCalls.map((call) => String(call.input))).toEqual([
       'https://cdngine.test/v1/assets/ast_source_1/versions/ver_source_1/source/authorize',
@@ -1888,15 +1874,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
@@ -1944,7 +1922,7 @@ describe('backstage repo routes', () => {
     expect(seenQueryRefs).not.toContain('backstageRepos.resolvePackageDownloadForApi');
   });
 
-  it('uses the raw package source for alias install plans', async () => {
+  it('uses the raw package source for alias install package downloads', async () => {
     const seenQueryRefs: unknown[] = [];
     queryImpl = async (ref: unknown, args?: unknown) => {
       seenQueryRefs.push(ref);
@@ -2005,15 +1983,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         default:
           return null;
@@ -2046,7 +2016,7 @@ describe('backstage repo routes', () => {
     expect(seenQueryRefs).not.toContain('backstageRepos.resolvePackageDownloadForApi');
   });
 
-  it('rejects alias install plans with invalid VPM deliverable digests', async () => {
+  it('rejects alias install plans with invalid raw package digests', async () => {
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -2094,6 +2064,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         default:
           return null;
@@ -2115,7 +2086,7 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('authorizes alias package downloads from the raw CDNgine source', async () => {
+  it('authorizes alias package installer downloads from the raw CDNgine source', async () => {
     const seenQueryRefs: unknown[] = [];
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -2190,15 +2161,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
           };
         default:
           return null;

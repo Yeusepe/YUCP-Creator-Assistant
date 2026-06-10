@@ -29,11 +29,42 @@ export type YucpAliasImporterPackage =
 export type YucpAliasPackageContract = {
   kind: typeof YUCP_ALIAS_PACKAGE_KIND;
   aliasId: string;
+  packageName?: string;
+  packageDisplayName?: string;
+  packageVersion?: string;
   installStrategy: YucpAliasPackageInstallStrategy;
   importerPackage: YucpAliasImporterPackage;
   minImporterVersion?: string;
   catalogProductIds?: string[];
   channel?: string;
+  resolvedRelease?: YucpAliasResolvedReleaseIdentity;
+  resolvedArtifact?: YucpAliasResolvedArtifactIdentity;
+  installPlan?: YucpAliasInstallPlanMetadata;
+};
+
+export type YucpAliasResolvedReleaseIdentity = {
+  releaseId?: string;
+  version?: string;
+  channel?: string;
+  artifactId?: string;
+};
+
+export type YucpAliasResolvedArtifactIdentity = {
+  artifactId?: string;
+  version?: string;
+  sha256?: string;
+  downloadUrl?: string;
+};
+
+export type YucpAliasInstallPlanMetadata = {
+  planId?: string;
+  planVersion?: string;
+  operation?: string;
+  status?: string;
+  managedPaths?: string[];
+  generatedPaths?: string[];
+  sharedPaths?: string[];
+  rawPlanJson?: string;
 };
 
 export type YucpAliasCatalogProductRef = {
@@ -81,6 +112,145 @@ function normalizeStringArray(value: unknown, fieldName: string): string[] | und
   );
 
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readOptionalStringAliases(
+  value: Record<string, unknown>,
+  fieldName: string,
+  aliases: string[]
+): string | undefined {
+  for (const alias of aliases) {
+    const normalized = trimOptionalString(value[alias], `${fieldName}.${alias}`);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function normalizeResolvedReleaseIdentity(
+  value: unknown
+): YucpAliasResolvedReleaseIdentity | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.resolvedRelease must be an object`);
+  }
+
+  const normalized: YucpAliasResolvedReleaseIdentity = {};
+  const releaseId = readOptionalStringAliases(
+    value,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedRelease`,
+    ['releaseId', 'id']
+  );
+  const version = trimOptionalString(
+    value.version,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedRelease.version`
+  );
+  const channel = trimOptionalString(
+    value.channel,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedRelease.channel`
+  );
+  const artifactId = trimOptionalString(
+    value.artifactId,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedRelease.artifactId`
+  );
+
+  if (releaseId) normalized.releaseId = releaseId;
+  if (version) normalized.version = version;
+  if (channel) normalized.channel = channel;
+  if (artifactId) normalized.artifactId = artifactId;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeResolvedArtifactIdentity(
+  value: unknown
+): YucpAliasResolvedArtifactIdentity | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.resolvedArtifact must be an object`);
+  }
+
+  const normalized: YucpAliasResolvedArtifactIdentity = {};
+  const artifactId = readOptionalStringAliases(
+    value,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedArtifact`,
+    ['artifactId', 'id']
+  );
+  const version = trimOptionalString(
+    value.version,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedArtifact.version`
+  );
+  const sha256 = trimOptionalString(
+    value.sha256,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedArtifact.sha256`
+  );
+  const downloadUrl = trimOptionalString(
+    value.downloadUrl,
+    `${YUCP_METADATA_ALIAS_PATH}.resolvedArtifact.downloadUrl`
+  );
+
+  if (artifactId) normalized.artifactId = artifactId;
+  if (version) normalized.version = version;
+  if (sha256) normalized.sha256 = sha256;
+  if (downloadUrl) normalized.downloadUrl = downloadUrl;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeAliasInstallPlan(value: unknown): YucpAliasInstallPlanMetadata | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${YUCP_METADATA_ALIAS_PATH}.installPlan must be an object`);
+  }
+
+  const normalized: YucpAliasInstallPlanMetadata = {};
+  const planId = readOptionalStringAliases(value, `${YUCP_METADATA_ALIAS_PATH}.installPlan`, [
+    'planId',
+    'id',
+  ]);
+  const planVersion = readOptionalStringAliases(value, `${YUCP_METADATA_ALIAS_PATH}.installPlan`, [
+    'planVersion',
+    'version',
+  ]);
+  const operation = trimOptionalString(
+    value.operation,
+    `${YUCP_METADATA_ALIAS_PATH}.installPlan.operation`
+  );
+  const status = trimOptionalString(value.status, `${YUCP_METADATA_ALIAS_PATH}.installPlan.status`);
+  const rawPlanJson = trimOptionalString(
+    value.rawPlanJson,
+    `${YUCP_METADATA_ALIAS_PATH}.installPlan.rawPlanJson`
+  );
+  const managedPaths = normalizeStringArray(
+    value.managedPaths,
+    `${YUCP_METADATA_ALIAS_PATH}.installPlan.managedPaths`
+  );
+  const generatedPaths = normalizeStringArray(
+    value.generatedPaths,
+    `${YUCP_METADATA_ALIAS_PATH}.installPlan.generatedPaths`
+  );
+  const sharedPaths = normalizeStringArray(
+    value.sharedPaths,
+    `${YUCP_METADATA_ALIAS_PATH}.installPlan.sharedPaths`
+  );
+
+  if (planId) normalized.planId = planId;
+  if (planVersion) normalized.planVersion = planVersion;
+  if (operation) normalized.operation = operation;
+  if (status) normalized.status = status;
+  if (managedPaths) normalized.managedPaths = managedPaths;
+  if (generatedPaths) normalized.generatedPaths = generatedPaths;
+  if (sharedPaths) normalized.sharedPaths = sharedPaths;
+  if (rawPlanJson) normalized.rawPlanJson = rawPlanJson;
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 export function normalizeYucpAliasPackageContract(
@@ -135,6 +305,30 @@ export function normalizeYucpAliasPackageContract(
     normalized.minImporterVersion = minImporterVersion;
   }
 
+  const packageName = trimOptionalString(
+    value.packageName,
+    `${YUCP_METADATA_ALIAS_PATH}.packageName`
+  );
+  if (packageName) {
+    normalized.packageName = packageName;
+  }
+
+  const packageDisplayName = trimOptionalString(
+    value.packageDisplayName,
+    `${YUCP_METADATA_ALIAS_PATH}.packageDisplayName`
+  );
+  if (packageDisplayName) {
+    normalized.packageDisplayName = packageDisplayName;
+  }
+
+  const packageVersion = trimOptionalString(
+    value.packageVersion,
+    `${YUCP_METADATA_ALIAS_PATH}.packageVersion`
+  );
+  if (packageVersion) {
+    normalized.packageVersion = packageVersion;
+  }
+
   const catalogProductIds = normalizeStringArray(
     value.catalogProductIds,
     `${YUCP_METADATA_ALIAS_PATH}.catalogProductIds`
@@ -146,6 +340,21 @@ export function normalizeYucpAliasPackageContract(
   const channel = trimOptionalString(value.channel, `${YUCP_METADATA_ALIAS_PATH}.channel`);
   if (channel) {
     normalized.channel = channel;
+  }
+
+  const resolvedRelease = normalizeResolvedReleaseIdentity(value.resolvedRelease);
+  if (resolvedRelease) {
+    normalized.resolvedRelease = resolvedRelease;
+  }
+
+  const resolvedArtifact = normalizeResolvedArtifactIdentity(value.resolvedArtifact);
+  if (resolvedArtifact) {
+    normalized.resolvedArtifact = resolvedArtifact;
+  }
+
+  const installPlan = normalizeAliasInstallPlan(value.installPlan);
+  if (installPlan) {
+    normalized.installPlan = installPlan;
   }
 
   return normalized;
@@ -297,6 +506,15 @@ export function mergeYucpAliasPackageMetadata(input: {
     yucp: {
       kind: YUCP_ALIAS_PACKAGE_KIND,
       aliasId: input.aliasId,
+      ...(existingAliasContract?.packageName
+        ? { packageName: existingAliasContract.packageName }
+        : {}),
+      ...(existingAliasContract?.packageDisplayName
+        ? { packageDisplayName: existingAliasContract.packageDisplayName }
+        : {}),
+      ...(existingAliasContract?.packageVersion
+        ? { packageVersion: existingAliasContract.packageVersion }
+        : {}),
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
       minImporterVersion: resolveAliasImporterMinimumVersion(
@@ -304,6 +522,15 @@ export function mergeYucpAliasPackageMetadata(input: {
       ),
       catalogProductIds: Array.from(new Set(input.catalogProductIds.map((value) => value.trim()))),
       channel: input.channel.trim(),
+      ...(existingAliasContract?.resolvedRelease
+        ? { resolvedRelease: existingAliasContract.resolvedRelease }
+        : {}),
+      ...(existingAliasContract?.resolvedArtifact
+        ? { resolvedArtifact: existingAliasContract.resolvedArtifact }
+        : {}),
+      ...(existingAliasContract?.installPlan
+        ? { installPlan: existingAliasContract.installPlan }
+        : {}),
     },
   };
 }

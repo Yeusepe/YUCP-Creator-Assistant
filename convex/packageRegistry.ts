@@ -171,6 +171,7 @@ type AuthorizedAliasInstallPlanPackageRecord = {
   displayName?: string;
   version: string;
   channel: string;
+  installPlan?: YucpAliasPackageContract['installPlan'];
   zipSha256?: string;
   media?: BackstagePackageMediaMap;
   aliasContract: YucpAliasPackageContract;
@@ -264,11 +265,42 @@ const BackstageRawPackageDownloadRecordV = v.object({
 const YucpAliasPackageContractV = v.object({
   kind: v.literal(YUCP_ALIAS_PACKAGE_KIND),
   aliasId: v.string(),
+  packageName: v.optional(v.string()),
+  packageDisplayName: v.optional(v.string()),
+  packageVersion: v.optional(v.string()),
   installStrategy: v.literal(YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized),
   importerPackage: v.literal(YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer),
   minImporterVersion: v.optional(v.string()),
   catalogProductIds: v.optional(v.array(v.string())),
   channel: v.optional(v.string()),
+  resolvedRelease: v.optional(
+    v.object({
+      releaseId: v.optional(v.string()),
+      version: v.optional(v.string()),
+      channel: v.optional(v.string()),
+      artifactId: v.optional(v.string()),
+    })
+  ),
+  resolvedArtifact: v.optional(
+    v.object({
+      artifactId: v.optional(v.string()),
+      version: v.optional(v.string()),
+      sha256: v.optional(v.string()),
+      downloadUrl: v.optional(v.string()),
+    })
+  ),
+  installPlan: v.optional(
+    v.object({
+      planId: v.optional(v.string()),
+      planVersion: v.optional(v.string()),
+      operation: v.optional(v.string()),
+      status: v.optional(v.string()),
+      managedPaths: v.optional(v.array(v.string())),
+      generatedPaths: v.optional(v.array(v.string())),
+      sharedPaths: v.optional(v.array(v.string())),
+      rawPlanJson: v.optional(v.string()),
+    })
+  ),
 });
 
 const AuthorizedAliasInstallPlanPackageRecordV = v.object({
@@ -276,6 +308,18 @@ const AuthorizedAliasInstallPlanPackageRecordV = v.object({
   displayName: v.optional(v.string()),
   version: v.string(),
   channel: v.string(),
+  installPlan: v.optional(
+    v.object({
+      planId: v.optional(v.string()),
+      planVersion: v.optional(v.string()),
+      operation: v.optional(v.string()),
+      status: v.optional(v.string()),
+      managedPaths: v.optional(v.array(v.string())),
+      generatedPaths: v.optional(v.array(v.string())),
+      sharedPaths: v.optional(v.array(v.string())),
+      rawPlanJson: v.optional(v.string()),
+    })
+  ),
   zipSha256: v.optional(v.string()),
   media: v.optional(BackstagePackageMediaMapV),
   aliasContract: YucpAliasPackageContractV,
@@ -2326,19 +2370,26 @@ export const getAuthorizedAliasInstallPlanByRef = query({
   returns: v.union(v.null(), AuthorizedAliasInstallPlanRecordV),
   handler: async (ctx, args): Promise<AuthorizedAliasInstallPlanRecord | null> => {
     requireApiSecret(args.apiSecret);
-    await requireApiActor(args.actor);
+    const actor = await requireApiActor(args.actor);
     const resolved = await resolveBackstageProductByRef(ctx, args.creatorRef, args.productRef);
     if (!resolved) {
       return null;
     }
 
     const targetCatalogProductId = String(resolved.product._id);
-    const entitledPackages = await listEntitledBackstagePackages(
-      ctx,
-      args.authUserId,
-      args.subjectId
-    );
-    const packages = entitledPackages.reduce<AuthorizedAliasInstallPlanPackageRecord[]>(
+    const hasCreatorOwnerAccess =
+      actor.kind === 'auth_user' && actor.authUserId === resolved.creatorAuthUserId;
+    const accessiblePackages = hasCreatorOwnerAccess
+      ? (
+          (await buildBackstagePackageMap(ctx, resolved.creatorAuthUserId, [resolved.product._id])).get(
+            targetCatalogProductId
+          ) ?? []
+        ).map((pkg) => ({
+          catalogProductIds: [resolved.product._id],
+          ...pkg,
+        }))
+      : await listEntitledBackstagePackages(ctx, args.authUserId, args.subjectId);
+    const packages = accessiblePackages.reduce<AuthorizedAliasInstallPlanPackageRecord[]>(
       (acc, pkg) => {
         const latestRelease = pkg.latestRelease;
         if (
@@ -2357,6 +2408,7 @@ export const getAuthorizedAliasInstallPlanByRef = query({
           displayName: pkg.displayName ?? pkg.packageName,
           version: latestRelease.version,
           channel: latestRelease.channel,
+          installPlan: latestRelease.aliasContract.installPlan,
           zipSha256: latestRelease.zipSha256,
           media: latestRelease.media,
           aliasContract: latestRelease.aliasContract,

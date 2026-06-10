@@ -157,7 +157,6 @@ function requireRawBackstagePackageDownload(
   if (!isCdngineBackstageSourceReference(resolved.cdngineSource)) {
     throw new Error(`Alias package '${packageId}' is missing CDNgine source coordinates`);
   }
-
   return {
     packageSha256,
     sourceKind: resolved.sourceKind,

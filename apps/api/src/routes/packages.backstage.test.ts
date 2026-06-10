@@ -787,7 +787,7 @@ describe('package Backstage publishing routes', () => {
         deliveryScopeId: 'paid-downloads',
         serviceNamespaceId: 'yucp-backstage',
         tenantId: 'auth-user-1',
-        variant: 'vpm-package',
+        variant: 'preserve-original',
         versionId: 'ver_1',
       },
       contentType: 'image/png',
@@ -1854,7 +1854,7 @@ describe('package Backstage publishing routes', () => {
       cdngineDelivery: {
         assetId: 'ast_1',
         deliveryScopeId: 'paid-downloads',
-        variant: 'vpm-package',
+        variant: 'preserve-original',
         versionId: 'ver_1',
       },
       deliverableContentType: 'application/zip',
@@ -2010,7 +2010,7 @@ describe('package Backstage publishing routes', () => {
       cdngineDelivery: {
         assetId: 'ast_1',
         deliveryScopeId: 'paid-downloads',
-        variant: 'vpm-package',
+        variant: 'preserve-original',
         versionId: 'ver_1',
       },
       deliverableContentType: 'application/zip',

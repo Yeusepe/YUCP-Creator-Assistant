@@ -125,7 +125,7 @@ export function requireCdngineBackstageConfig(
     ),
     serviceNamespaceId: config.serviceNamespaceId ?? 'yucp-backstage',
     timeoutMs: config.timeoutMs ?? 15_000,
-    variant: config.variant ?? 'vpm-package',
+    variant: config.variant ?? 'preserve-original',
   };
 }
 

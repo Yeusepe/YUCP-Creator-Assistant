@@ -520,6 +520,50 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(packageJson.displayName).not.toContain('|');
   });
 
+  it('records unitypackage payload paths in the alias install plan footprint', async () => {
+    const input = buildUnitypackage(
+      [
+        { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+        { path: 'asset-guid/asset.meta', content: strToU8('fileFormatVersion: 2\n') },
+        {
+          path: 'asset-guid/pathname',
+          content: strToU8('Assets/YUCP Assets/Song Thing/Marker.txt'),
+        },
+      ],
+      TAR_MTIME_A
+    );
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'song-thing.unitypackage',
+      contentType: 'application/octet-stream',
+      packageId: 'com.yucp.songthing',
+      version: '1.0.12',
+      displayName: 'Song Thing',
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          catalogProductIds: ['product_1'],
+          channel: 'stable',
+        },
+      },
+    });
+
+    const archive = unzipSync(materialized.bytes);
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    expect(packageJson.yucp.installPlan).toMatchObject({
+      operation: 'install',
+      managedPaths: [
+        'Packages/com.yucp.songthing/package.json',
+        'Assets/YUCP Assets/Song Thing/Marker.txt',
+        'Assets/YUCP Assets/Song Thing/Marker.txt.meta',
+      ],
+    });
+  });
+
   it('rejects unsafe archive paths during materialization', async () => {
     const input = zipSync(
       {

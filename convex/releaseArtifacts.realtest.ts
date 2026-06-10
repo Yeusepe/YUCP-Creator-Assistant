@@ -101,7 +101,7 @@ describe('releaseArtifacts CDNgine storage contract', () => {
           assetId: 'ast_delivery_1',
           versionId: 'ver_delivery_1',
           deliveryScopeId: 'paid-downloads',
-          variant: 'vpm-package',
+          variant: 'preserve-original',
           serviceNamespaceId: 'yucp-backstage',
           assetOwner: 'creator:auth-user-1',
           sha256: '2'.repeat(64),

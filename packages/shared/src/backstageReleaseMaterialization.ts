@@ -1,4 +1,4 @@
-import { unzipSync, type Zippable, zipSync } from 'fflate';
+import { gunzipSync, unzipSync, type Zippable, zipSync } from 'fflate';
 import { stripBackstagePackageMediaManifestMetadata } from './backstagePackageMedia';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
@@ -146,6 +146,150 @@ function assertSafeArchivePath(input: string): string {
   return normalized;
 }
 
+function readTarString(bytes: Uint8Array, offset: number, length: number): string {
+  let end = offset;
+  const max = Math.min(offset + length, bytes.byteLength);
+  while (end < max && bytes[end] !== 0) {
+    end += 1;
+  }
+  return new TextDecoder().decode(bytes.subarray(offset, end));
+}
+
+function readTarOctal(bytes: Uint8Array, offset: number, length: number): number {
+  const raw = readTarString(bytes, offset, length).trim().replace(/\0/g, '');
+  if (!raw) {
+    return 0;
+  }
+  return Number.parseInt(raw, 8);
+}
+
+function isEmptyTarBlock(bytes: Uint8Array, offset: number): boolean {
+  for (let index = 0; index < 512 && offset + index < bytes.byteLength; index++) {
+    if (bytes[offset + index] !== 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function assertSafeProjectImportPath(input: string): string {
+  const normalized = input.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/').trim();
+  if (!normalized) {
+    throw new Error('Backstage unitypackage contains an empty pathname.');
+  }
+  if (
+    /^[a-zA-Z]:/.test(normalized) ||
+    normalized.startsWith('../') ||
+    normalized === '..' ||
+    normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`Backstage unitypackage contains unsafe pathname: ${input}`);
+  }
+  return normalized;
+}
+
+function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[] {
+  const tarBytes = gunzipSync(sourceBytes);
+  const entriesByDirectory = new Map<
+    string,
+    {
+      asset: boolean;
+      assetMeta: boolean;
+      pathname?: string;
+    }
+  >();
+
+  for (let offset = 0; offset + 512 <= tarBytes.byteLength; ) {
+    if (isEmptyTarBlock(tarBytes, offset)) {
+      break;
+    }
+
+    const entryPath = readTarString(tarBytes, offset, 100);
+    const size = readTarOctal(tarBytes, offset + 124, 12);
+    const dataOffset = offset + 512;
+    const nextOffset = dataOffset + Math.ceil(size / 512) * 512;
+
+    if (entryPath) {
+      const slashIndex = entryPath.lastIndexOf('/');
+      const directory = slashIndex >= 0 ? entryPath.slice(0, slashIndex) : '';
+      const fileName = slashIndex >= 0 ? entryPath.slice(slashIndex + 1) : entryPath;
+      const entry = entriesByDirectory.get(directory) ?? {
+        asset: false,
+        assetMeta: false,
+      };
+
+      if (fileName === 'pathname') {
+        entry.pathname = new TextDecoder()
+          .decode(tarBytes.subarray(dataOffset, dataOffset + size))
+          .trim();
+      } else if (fileName === 'asset') {
+        entry.asset = true;
+      } else if (fileName === 'asset.meta') {
+        entry.assetMeta = true;
+      }
+
+      entriesByDirectory.set(directory, entry);
+    }
+
+    offset = nextOffset;
+  }
+
+  const managedPaths = new Set<string>();
+  for (const entry of entriesByDirectory.values()) {
+    if (!entry.pathname || !entry.asset) {
+      continue;
+    }
+
+    const projectPath = assertSafeProjectImportPath(entry.pathname);
+    managedPaths.add(projectPath);
+    if (entry.assetMeta) {
+      managedPaths.add(`${projectPath}.meta`);
+    }
+  }
+
+  return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
+}
+
+function withAliasInstallPlanFootprint(
+  metadata: Record<string, unknown>,
+  input: {
+    managedPaths: string[];
+    packageId: string;
+  }
+): Record<string, unknown> {
+  if (!isRecord(metadata.yucp)) {
+    return metadata;
+  }
+
+  const packageJsonPath = `Packages/${input.packageId}/package.json`;
+  const existingPlan = isRecord(metadata.yucp.installPlan) ? metadata.yucp.installPlan : {};
+  const existingManagedPaths = Array.isArray(existingPlan.managedPaths)
+    ? existingPlan.managedPaths.filter((path): path is string => typeof path === 'string')
+    : [];
+  const managedPaths = Array.from(
+    new Set(
+      [packageJsonPath, ...input.managedPaths, ...existingManagedPaths]
+        .map((path) => assertSafeProjectImportPath(path))
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    ...metadata,
+    yucp: {
+      ...metadata.yucp,
+      installPlan: {
+        ...existingPlan,
+        operation:
+          typeof existingPlan.operation === 'string' && existingPlan.operation.trim()
+            ? existingPlan.operation.trim()
+            : 'install',
+        managedPaths,
+      },
+    },
+  };
+}
+
 function materializeZip(input: {
   sourceBytes: Uint8Array;
   packageId?: string;
@@ -211,11 +355,18 @@ async function buildImporterShimZip(input: {
   packageId: string;
   version: string;
   displayName?: string;
+  managedPaths?: string[];
   metadata?: Record<string, unknown>;
 }): Promise<MaterializedBackstageReleaseArtifact> {
-  const sanitizedMetadata = preserveAliasPackageDisplayName(
-    sanitizePackageManifestMetadata(input.metadata),
-    input.displayName
+  const sanitizedMetadata = withAliasInstallPlanFootprint(
+    preserveAliasPackageDisplayName(
+      sanitizePackageManifestMetadata(input.metadata),
+      input.displayName
+    ),
+    {
+      managedPaths: input.managedPaths ?? [],
+      packageId: input.packageId,
+    }
   );
   const displayName = input.displayName?.trim() || input.packageId;
   const packageJsonMetadata = {
@@ -270,6 +421,7 @@ export async function materializeBackstageReleaseArtifact(input: {
       packageId: input.packageId.trim(),
       version: input.version.trim(),
       displayName: input.displayName?.trim(),
+      managedPaths: collectUnityPackageImportPaths(input.sourceBytes),
       metadata: input.metadata,
     });
   }

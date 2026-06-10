@@ -197,7 +197,7 @@ it('waits until CDNgine publishes Backstage deliverables before returning delive
   expect(delivery).toMatchObject({
     assetId: 'ast_1',
     deliveryScopeId: 'paid-downloads',
-    variant: 'vpm-package',
+    variant: 'preserve-original',
     versionId: 'ver_1',
   });
   expect(

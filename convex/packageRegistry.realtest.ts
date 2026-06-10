@@ -35,7 +35,7 @@ beforeEach(() => {
   process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
   process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
   process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
-  process.env.CDNGINE_BACKSTAGE_VARIANT = 'vpm-package';
+  process.env.CDNGINE_BACKSTAGE_VARIANT = 'preserve-original';
   process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS = 'true';
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
@@ -619,6 +619,13 @@ describe('packageRegistry', () => {
           minImporterVersion: '1.4.0',
           catalogProductIds: [String(catalogProductId)],
           channel: 'stable',
+          installPlan: {
+            operation: 'install',
+            managedPaths: [
+              'Packages/com.yucp.alias.plan/package.json',
+              'Assets/YUCP Assets/Song Thing/Marker.txt',
+            ],
+          },
         },
       },
     });
@@ -656,6 +663,13 @@ describe('packageRegistry', () => {
           displayName: 'Alias Plan Package',
           version: '1.2.3',
           channel: 'stable',
+          installPlan: {
+            operation: 'install',
+            managedPaths: [
+              'Packages/com.yucp.alias.plan/package.json',
+              'Assets/YUCP Assets/Song Thing/Marker.txt',
+            ],
+          },
           zipSha256: 'b'.repeat(64),
           media: {},
           aliasContract: {
@@ -666,11 +680,109 @@ describe('packageRegistry', () => {
             minImporterVersion: '1.4.0',
             catalogProductIds: [String(catalogProductId)],
             channel: 'stable',
+            installPlan: {
+              operation: 'install',
+              managedPaths: [
+                'Packages/com.yucp.alias.plan/package.json',
+                'Assets/YUCP Assets/Song Thing/Marker.txt',
+              ],
+            },
           },
         },
       ],
       providerProductRef: 'gumroad-product-alias-plan',
       displayName: 'Alias Plan Product',
+    });
+  });
+
+  it('builds an alias install plan for a creator-owned linked catalog product without a buyer entitlement', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-owner-alias-plan',
+      provider: 'jinxxy',
+      providerProductRef: 'jinxxy-product-owner-alias-plan',
+      displayName: 'Owner Alias Plan Product',
+    });
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-user-1',
+      primaryDiscordUserId: 'discord-owner-alias-plan-user',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.owner.alias.plan',
+      packageName: 'Owner Alias Plan Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: 'auth-user-1',
+      catalogProductId,
+      packageId: 'com.yucp.owner.alias.plan',
+      packageName: 'Owner Alias Plan Package',
+      displayName: 'Owner Alias Plan Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.owner.alias.plan',
+      version: '1.2.3',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'owner-alias-plan-stable',
+      zipSha256: 'b'.repeat(64),
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'owner-alias-plan',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '1.4.0',
+          catalogProductIds: [String(catalogProductId)],
+          channel: 'stable',
+          installPlan: {
+            operation: 'install',
+            managedPaths: [
+              'Packages/com.yucp.alias.plan/package.json',
+              'Assets/YUCP Assets/Song Thing/Marker.txt',
+            ],
+          },
+        },
+      },
+    });
+
+    const installPlan = await t.run(async (ctx) => {
+      return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+        apiSecret: 'test-secret',
+        actor: await createAuthUserActorBinding('auth-user-1'),
+        authUserId: 'auth-user-1',
+        subjectId,
+        creatorRef: 'auth-user-1',
+        productRef: 'jinxxy-product-owner-alias-plan',
+      });
+    });
+
+    expect(installPlan).toMatchObject({
+      creatorAuthUserId: 'auth-user-1',
+      providerProductRef: 'jinxxy-product-owner-alias-plan',
+      displayName: 'Owner Alias Plan Product',
+      packages: [
+        {
+          packageId: 'com.yucp.owner.alias.plan',
+          displayName: 'Owner Alias Plan Package',
+          version: '1.2.3',
+          channel: 'stable',
+          aliasContract: {
+            kind: 'alias-v1',
+            aliasId: 'owner-alias-plan',
+            catalogProductIds: [String(catalogProductId)],
+          },
+        },
+      ],
     });
   });
 
@@ -1225,7 +1337,7 @@ describe('packageRegistry', () => {
         serviceNamespaceId: 'yucp-backstage',
         sha256: deliverableSha256,
         uploadedAt: 1_714_000_000_000,
-        variant: 'vpm-package',
+        variant: 'preserve-original',
         versionId: 'ver_deliverable_auth_flow',
       },
     });
@@ -1358,7 +1470,7 @@ describe('packageRegistry', () => {
       deliveryName: 'vrc-get-com.yucp.backstage.cdngineflow-1.0.0.zip',
       sha256: deliverableSha256,
       cdngineDelivery: {
-        variant: 'vpm-package',
+        variant: 'preserve-original',
       },
     });
   });
@@ -1716,7 +1828,7 @@ describe('packageRegistry', () => {
           assetId: 'ast_backstage_cdngine',
           versionId: 'ver_backstage_cdngine',
           deliveryScopeId: 'paid-downloads',
-          variant: 'vpm-package',
+          variant: 'preserve-original',
           serviceNamespaceId: 'yucp-backstage',
           tenantId: 'auth-user-1',
           assetOwner: 'creator:auth-user-1',
@@ -1742,7 +1854,7 @@ describe('packageRegistry', () => {
         assetId: 'ast_backstage_cdngine',
         versionId: 'ver_backstage_cdngine',
         deliveryScopeId: 'paid-downloads',
-        variant: 'vpm-package',
+        variant: 'preserve-original',
         serviceNamespaceId: 'yucp-backstage',
         tenantId: 'auth-user-1',
         assetOwner: 'creator:auth-user-1',
