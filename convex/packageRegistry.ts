@@ -665,34 +665,62 @@ function toVpmVersionManifest(
   packageBaseUrl: string,
   packageHeaders?: Record<string, string>
 ): Record<string, unknown> | null {
-  if (!packageSummary.latestRelease || packageSummary.latestRelease.releaseStatus !== 'published') {
+  if (!isListedPublicRelease(packageSummary.latestRelease)) {
     return null;
   }
 
-  const metadata = toBackstageReleaseManifestMetadata(packageSummary.latestRelease);
+  const latestRelease = packageSummary.latestRelease;
+  const metadata = toBackstageReleaseManifestMetadata(latestRelease);
 
   return {
     ...metadata,
     name: packageSummary.packageId,
-    version: packageSummary.latestRelease.version,
+    version: latestRelease.version,
     displayName:
       packageSummary.displayName ?? packageSummary.packageName ?? packageSummary.packageId,
     url: buildBackstageDownloadUrl(
       packageBaseUrl,
       packageSummary.packageId,
-      packageSummary.latestRelease.version,
-      packageSummary.latestRelease.channel,
-      packageSummary.latestRelease.zipSha256
+      latestRelease.version,
+      latestRelease.channel,
+      latestRelease.zipSha256
     ),
     ...(packageHeaders && Object.keys(packageHeaders).length > 0
       ? { headers: packageHeaders }
       : {}),
-    ...(packageSummary.latestRelease.zipSha256
-      ? { zipSHA256: packageSummary.latestRelease.zipSha256 }
-      : {}),
-    ...(packageSummary.latestRelease.artifactKey
-      ? { yucpArtifactKey: packageSummary.latestRelease.artifactKey }
-      : {}),
+    ...(latestRelease.zipSha256 ? { zipSHA256: latestRelease.zipSha256 } : {}),
+    ...(latestRelease.artifactKey ? { yucpArtifactKey: latestRelease.artifactKey } : {}),
+  };
+}
+
+function isListedPublicRelease(
+  release: BackstageReleaseSummary | null | undefined
+): release is BackstageReleaseSummary {
+  return (
+    release?.repositoryVisibility === 'listed' &&
+    (release.releaseStatus === 'published' || release.releaseStatus === 'superseded')
+  );
+}
+
+type BackstagePackageSummaryWithPublicRelease<T extends BackstagePackageSummary> = Omit<
+  T,
+  'latestRelease'
+> & {
+  latestRelease: BackstageReleaseSummary;
+};
+
+function withLatestListedPublicRelease<T extends BackstagePackageSummary>(
+  packageSummary: T
+): BackstagePackageSummaryWithPublicRelease<T> | null {
+  const latestRelease = isListedPublicRelease(packageSummary.latestRelease)
+    ? packageSummary.latestRelease
+    : (packageSummary.releases.find(isListedPublicRelease) ?? null);
+  if (!latestRelease) {
+    return null;
+  }
+  return {
+    ...packageSummary,
+    latestRelease,
   };
 }
 
@@ -2332,12 +2360,14 @@ export const getPublicBackstageProductAccessByRef = query({
       backstagePackagesByCatalogProduct.get(String(resolved.product._id)) ?? []
     )
       .filter((pkg) => pkg.status === 'active')
+      .map(withLatestListedPublicRelease)
+      .filter((pkg): pkg is NonNullable<typeof pkg> => pkg !== null)
       .map((pkg) => ({
         packageId: pkg.packageId,
         displayName: pkg.displayName ?? pkg.packageName,
-        latestPublishedVersion: pkg.latestPublishedVersion,
-        latestReleaseChannel: pkg.latestRelease?.channel,
-        aliasContract: pkg.latestRelease?.aliasContract,
+        latestPublishedVersion: pkg.latestRelease.version,
+        latestReleaseChannel: pkg.latestRelease.channel,
+        aliasContract: pkg.latestRelease.aliasContract,
       }));
     const primaryPackage = packageSummaries[0];
 
@@ -2370,7 +2400,7 @@ export const getAuthorizedAliasInstallPlanByRef = query({
   returns: v.union(v.null(), AuthorizedAliasInstallPlanRecordV),
   handler: async (ctx, args): Promise<AuthorizedAliasInstallPlanRecord | null> => {
     requireApiSecret(args.apiSecret);
-    const actor = await requireApiActor(args.actor);
+    const actor = await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const resolved = await resolveBackstageProductByRef(ctx, args.creatorRef, args.productRef);
     if (!resolved) {
       return null;
@@ -2391,12 +2421,15 @@ export const getAuthorizedAliasInstallPlanByRef = query({
       : await listEntitledBackstagePackages(ctx, args.authUserId, args.subjectId);
     const packages = accessiblePackages.reduce<AuthorizedAliasInstallPlanPackageRecord[]>(
       (acc, pkg) => {
-        const latestRelease = pkg.latestRelease;
+        const publicPackage = withLatestListedPublicRelease(pkg);
+        if (!publicPackage) {
+          return acc;
+        }
+        const latestRelease = publicPackage.latestRelease;
         if (
           !pkg.catalogProductIds.some(
             (catalogProductId) => String(catalogProductId) === targetCatalogProductId
           ) ||
-          latestRelease?.releaseStatus !== 'published' ||
           !latestRelease.aliasContract ||
           !(latestRelease.aliasContract.catalogProductIds?.includes(targetCatalogProductId) ?? true)
         ) {
@@ -2941,17 +2974,21 @@ export const buildBackstageRepositoryForSubject = internalQuery({
     );
     const packages = entitledPackages.reduce<Record<string, { versions: Record<string, unknown> }>>(
       (acc, packageSummary) => {
+        const publicPackage = withLatestListedPublicRelease(packageSummary);
+        if (!publicPackage) {
+          return acc;
+        }
         const manifest = toVpmVersionManifest(
-          packageSummary,
+          publicPackage,
           args.packageBaseUrl,
           args.packageHeaders
         );
-        if (!manifest || !packageSummary.latestRelease) {
+        if (!manifest) {
           return acc;
         }
-        acc[packageSummary.packageId] = {
+        acc[publicPackage.packageId] = {
           versions: {
-            [packageSummary.latestRelease.version]: manifest,
+            [publicPackage.latestRelease.version]: manifest,
           },
         };
         return acc;
@@ -3009,7 +3046,11 @@ export const getEntitledPackageReleaseForSubject = internalQuery({
       )
       .collect();
     const matchingRelease = releases
-      .filter((release) => release.releaseStatus === 'published')
+      .filter(
+        (release) =>
+          release.repositoryVisibility === 'listed' &&
+          (release.releaseStatus === 'published' || release.releaseStatus === 'superseded')
+      )
       .filter((release) => (args.version ? release.version === args.version : true))
       .filter((release) => (args.channel ? release.channel === args.channel : true))
       .sort(compareReleaseRecency)[0];

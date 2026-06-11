@@ -2,6 +2,9 @@ import { apiClient } from '@/api/client';
 import type { BuyerProductAccessResponse } from '@/lib/productAccessTypes';
 
 export interface BuyerProductAccessVerificationIntent {
+  intentId: string;
+  codeVerifier: string;
+  machineFingerprint: string;
   verificationUrl: string;
 }
 

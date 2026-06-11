@@ -13,6 +13,7 @@ import { afterEach, expect, it } from 'bun:test';
 
 import {
   authorizeCdngineBackstageSource,
+  requireCdngineBackstageConfig,
   uploadBackstageBytesToCdngine,
   uploadBackstageDeliverableToCdngine,
 } from './cdngineBackstage';
@@ -21,6 +22,23 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+it('normalizes invalid CDNgine request timeouts to the default timeout', () => {
+  expect(
+    requireCdngineBackstageConfig({
+      accessToken: 'cdngine-token',
+      apiBaseUrl: 'https://cdngine.test',
+      timeoutMs: 0,
+    }).timeoutMs
+  ).toBe(15_000);
+  expect(
+    requireCdngineBackstageConfig({
+      accessToken: 'cdngine-token',
+      apiBaseUrl: 'https://cdngine.test',
+      timeoutMs: Number.NaN,
+    }).timeoutMs
+  ).toBe(15_000);
 });
 
 it('resolves relative CDNgine upload target URLs against the configured API base URL', async () => {

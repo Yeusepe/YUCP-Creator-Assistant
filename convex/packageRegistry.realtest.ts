@@ -695,6 +695,85 @@ describe('packageRegistry', () => {
     });
   });
 
+  it('rejects authorized alias install plans when the actor does not own the requested auth user', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-alias-plan-boundary',
+      providerProductRef: 'gumroad-product-alias-plan-boundary',
+      displayName: 'Alias Plan Boundary Product',
+    });
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-user-1',
+      primaryDiscordUserId: 'discord-alias-plan-boundary-user',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.alias.plan.boundary',
+      packageName: 'Alias Plan Boundary Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: 'auth-user-1',
+      catalogProductId,
+      packageId: 'com.yucp.alias.plan.boundary',
+      packageName: 'Alias Plan Boundary Package',
+      displayName: 'Alias Plan Boundary Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.alias.plan.boundary',
+      version: '1.2.3',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'alias-plan-boundary-stable',
+      zipSha256: 'b'.repeat(64),
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing-boundary',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          catalogProductIds: [String(catalogProductId)],
+          channel: 'stable',
+        },
+      },
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('entitlements', {
+        authUserId: 'auth-user-1',
+        subjectId,
+        productId: 'product-alias-plan-boundary',
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-alias-plan-boundary',
+        catalogProductId,
+        status: 'active',
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+          apiSecret: 'test-secret',
+          actor: await createAuthUserActorBinding('attacker-user-1'),
+          authUserId: 'auth-user-1',
+          subjectId,
+          creatorRef: 'auth-user-1',
+          productRef: 'gumroad-product-alias-plan-boundary',
+        });
+      })
+    ).rejects.toThrow('Unauthorized: actor does not own this auth user');
+  });
+
   it('builds an alias install plan for a creator-owned linked catalog product without a buyer entitlement', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {
@@ -1271,6 +1350,147 @@ describe('packageRegistry', () => {
     ]);
   });
 
+  it('excludes hidden published releases from Backstage delivery surfaces', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-hidden-release',
+      providerProductRef: 'gumroad-product-hidden-release',
+      displayName: 'Hidden Release Product',
+    });
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-user-1',
+      primaryDiscordUserId: 'discord-hidden-release-user',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.hidden.release',
+      packageName: 'Hidden Release Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: 'auth-user-1',
+      catalogProductId,
+      packageId: 'com.yucp.hidden.release',
+      packageName: 'Hidden Release Package',
+      displayName: 'Hidden Release Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+
+    const aliasMetadata = {
+      yucp: {
+        kind: 'alias-v1',
+        aliasId: 'hidden-release-product',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        catalogProductIds: [String(catalogProductId)],
+        channel: 'stable',
+      },
+    };
+
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.hidden.release',
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'hidden-release-listed',
+      zipSha256: '1'.repeat(64),
+      metadata: aliasMetadata,
+    });
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.hidden.release',
+      version: '2.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'hidden',
+      artifactKey: 'hidden-release-hidden',
+      zipSha256: '2'.repeat(64),
+      metadata: aliasMetadata,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('entitlements', {
+        authUserId: 'auth-user-1',
+        subjectId,
+        productId: 'product-hidden-release',
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-hidden-release',
+        catalogProductId,
+        status: 'active',
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const repository = await t.query(internal.packageRegistry.buildBackstageRepositoryForSubject, {
+      authUserId: 'auth-user-1',
+      subjectId,
+      repositoryUrl: 'https://api.yucp.test/v1/backstage/repos/index.json',
+      packageBaseUrl: 'https://api.yucp.test/v1/backstage/package',
+    });
+
+    const repositoryPackages = repository.packages as Record<
+      string,
+      { versions: Record<string, { version: string; zipSHA256?: string }> }
+    >;
+    expect(Object.keys(repositoryPackages['com.yucp.hidden.release'].versions)).toEqual([
+      '1.0.0',
+    ]);
+    expect(repositoryPackages['com.yucp.hidden.release'].versions['1.0.0']).toMatchObject({
+      version: '1.0.0',
+      zipSHA256: '1'.repeat(64),
+    });
+    expect(repositoryPackages['com.yucp.hidden.release'].versions['2.0.0']).toBeUndefined();
+
+    const latestRelease = await t.query(
+      internal.packageRegistry.getEntitledPackageReleaseForSubject,
+      {
+        authUserId: 'auth-user-1',
+        subjectId,
+        packageId: 'com.yucp.hidden.release',
+      }
+    );
+    expect(latestRelease).toMatchObject({
+      version: '1.0.0',
+      repositoryVisibility: 'listed',
+    });
+
+    const hiddenRelease = await t.query(
+      internal.packageRegistry.getEntitledPackageReleaseForSubject,
+      {
+        authUserId: 'auth-user-1',
+        subjectId,
+        packageId: 'com.yucp.hidden.release',
+        version: '2.0.0',
+      }
+    );
+    expect(hiddenRelease).toBeNull();
+
+    const aliasPlan = await t.run(async (ctx) => {
+      return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+        apiSecret: 'test-secret',
+        actor: await createAuthUserActorBinding('auth-user-1'),
+        authUserId: 'auth-user-1',
+        subjectId,
+        creatorRef: 'auth-user-1',
+        productRef: 'gumroad-product-hidden-release',
+      });
+    });
+    expect(aliasPlan?.packages).toEqual([
+      expect.objectContaining({
+        packageId: 'com.yucp.hidden.release',
+        version: '1.0.0',
+        zipSha256: '1'.repeat(64),
+      }),
+    ]);
+  });
+
   it('publishes a CDNgine-backed release with ZIP repo delivery and unitypackage raw delivery', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {
@@ -1297,6 +1517,7 @@ describe('packageRegistry', () => {
       packageId: 'com.yucp.backstage.cdngineflow',
       packageName: 'CDNgine Auth Flow Package',
       displayName: 'CDNgine Auth Flow Package',
+      repositoryVisibility: 'listed',
       version: '1.0.0',
       metadata: {
         [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'unitypackage',

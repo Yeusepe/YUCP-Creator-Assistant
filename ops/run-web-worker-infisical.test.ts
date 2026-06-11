@@ -3,6 +3,7 @@ import {
   buildInfisicalCliEnv,
   buildInfisicalLoginArgs,
   buildInfisicalRunArgs,
+  buildWebWorkerCommand,
   resolveInfisicalRunConfig,
 } from './run-web-worker-infisical';
 
@@ -87,6 +88,20 @@ describe('run-web-worker-infisical', () => {
       '--filter',
       '@yucp/web',
       'worker:dev',
+    ]);
+  });
+
+  test('forwards Vite dev server args through the web worker command', () => {
+    expect(buildWebWorkerCommand(['--port', '3100', '--strictPort'])).toEqual([
+      'bun',
+      'run',
+      '--filter',
+      '@yucp/web',
+      'worker:dev',
+      '--',
+      '--port',
+      '3100',
+      '--strictPort',
     ]);
   });
 });

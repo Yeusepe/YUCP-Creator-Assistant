@@ -11,6 +11,9 @@ const convexActionMock = mock(
 const loggerErrorMock = mock(() => undefined);
 
 const apiMock = {
+  backstageRepos: {
+    getSubjectByAuthUserForApi: 'backstageRepos.getSubjectByAuthUserForApi',
+  },
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
@@ -48,18 +51,60 @@ mock.module('../lib/logger', () => ({
 
 mock.module('../lib/apiActor', () => ({
   createAuthUserActorBinding: async () => 'actor-binding',
+  createApiServiceActorBinding: async () => 'service-actor-binding',
 }));
 
 mock.module('@yucp/providers/providerMetadata', () => ({
-  buildCatalogProductUrl: (provider: string, ref: string) =>
-    `https://store.test/${provider}/${ref}`,
-  getProviderDescriptor: (provider: string) =>
-    provider === 'gumroad'
-      ? {
-          buyerVerificationMethods: ['account_link', 'license_key'],
-        }
-      : null,
+  CATALOG_SYNC_PROVIDER_KEYS: ['gumroad', 'jinxxy', 'lemonsqueezy', 'patreon'],
+  buildCatalogProductUrl: (provider: string, ref: string) => {
+    if (provider === 'jinxxy') {
+      return `https://jinxxy.app/products/${ref}`;
+    }
+    return `https://store.test/${provider}/${ref}`;
+  },
+  getProviderDescriptor: (provider: string) => {
+    const descriptors: Record<
+      string,
+      {
+        buyerVerificationMethods: string[];
+        capabilities: string[];
+        supportsAutoDiscovery?: boolean;
+        supportsBuyerOAuthLink?: boolean;
+      }
+    > = {
+      gumroad: {
+        buyerVerificationMethods: ['account_link', 'license_key'],
+        capabilities: ['catalog_sync', 'license_verification'],
+        supportsAutoDiscovery: true,
+        supportsBuyerOAuthLink: true,
+      },
+      jinxxy: {
+        buyerVerificationMethods: ['account_link', 'license_key'],
+        capabilities: ['catalog_sync', 'tier_catalog', 'license_verification'],
+        supportsAutoDiscovery: false,
+        supportsBuyerOAuthLink: true,
+      },
+      lemonsqueezy: {
+        buyerVerificationMethods: ['account_link', 'license_key'],
+        capabilities: ['catalog_sync', 'license_verification'],
+        supportsAutoDiscovery: true,
+        supportsBuyerOAuthLink: false,
+      },
+      patreon: {
+        buyerVerificationMethods: ['account_link'],
+        capabilities: ['catalog_sync', 'tier_catalog', 'tier_entitlements', 'subscriptions'],
+        supportsAutoDiscovery: true,
+        supportsBuyerOAuthLink: true,
+      },
+    };
+    return descriptors[provider] ?? null;
+  },
   providerLabel: (provider: string) => (provider === 'gumroad' ? 'Gumroad' : provider),
+}));
+
+mock.module('../verification/verificationConfig', () => ({
+  getVerificationConfig: (provider: string) =>
+    provider === 'gumroad' ? { clientId: 'test-client-id' } : null,
 }));
 
 mock.module('@yucp/shared', () => ({
@@ -74,6 +119,7 @@ mock.module('@yucp/shared/crypto', () => ({
 mock.module('../verification/hostedIntents', () => ({
   normalizeHostedVerificationRequirements: (requirements: unknown) => requirements,
   mapHostedVerificationIntentResponse: (intent: { id: string }, frontendBaseUrl: string) => ({
+    id: intent.id,
     verificationUrl: `${frontendBaseUrl}/verify/purchase?intent=${intent.id}`,
   }),
 }));
@@ -148,10 +194,19 @@ describe('connect user product access routes', () => {
           ],
         };
       }
-      if (reference === apiMock.entitlements.listByAuthUser) {
+      if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
           authUserId: 'buyer-auth-user',
+        });
+        return { _id: 'subject_buyer_1' };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          authUserId: 'creator-auth-user',
+          subjectId: 'subject_buyer_1',
           productId: 'product_123',
           status: 'active',
           limit: 20,
@@ -345,6 +400,10 @@ describe('connect user product access routes', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
+      id: 'intent_123',
+      intentId: 'intent_123',
+      codeVerifier: expect.any(String),
+      machineFingerprint: createdMachineFingerprint,
       verificationUrl: 'http://localhost:3000/verify/purchase?intent=intent_123',
     });
     expect(response.headers.get('Set-Cookie')).toContain(
@@ -412,5 +471,60 @@ describe('connect user product access routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('skips buyer account-link requirements when the provider does not support hosted OAuth linking', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'lemonsqueezy',
+          providerProductRef: 'lemonsqueezy-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          backstagePackages: [
+            {
+              packageId: 'com.yucp.avatar.bundle',
+              displayName: 'Avatar Bundle',
+              repositoryVisibility: 'hidden',
+            },
+          ],
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference !== apiMock.verificationIntents.createVerificationIntent) {
+        throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+      }
+
+      expect((args as { requirements: Array<{ kind: string }> }).requirements).toEqual([
+        expect.objectContaining({ kind: 'existing_entitlement' }),
+        expect.objectContaining({ kind: 'manual_license' }),
+      ]);
+      return { intentId: 'intent_789' };
+    });
+    convexActionMock.mockImplementation(async (reference: unknown) => {
+      if (reference !== apiMock.verificationIntents.getVerificationIntent) {
+        throw new Error(`Unexpected action reference: ${String(reference)}`);
+      }
+
+      return { id: 'intent_789' };
+    });
+
+    const routes = createRoutes();
+    const response = await routes.postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ returnTo: '/access/catalog_123' }),
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
   });
 });

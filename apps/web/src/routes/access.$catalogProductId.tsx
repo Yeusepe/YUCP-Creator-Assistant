@@ -18,12 +18,16 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
-import { requestUserBackstageRepoAccess } from '@/lib/backstageAccess';
+import {
+  redeemBuyerBackstageVerificationIntent,
+  requestUserBackstageRepoAccess,
+} from '@/lib/backstageAccess';
 import { createBuyerProductAccessVerificationIntent } from '@/lib/productAccess';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
 
 const accessRouteApi = getRouteApi('/access/$catalogProductId');
+const BUYER_PRODUCT_ACCESS_VERIFICATION_STORAGE_PREFIX = 'yucp:buyer-product-access-verification:';
 
 export const Route = createFileRoute('/access/$catalogProductId')({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -117,12 +121,84 @@ function AccessStep({
   );
 }
 
+interface PendingBuyerProductAccessVerification {
+  catalogProductId: string;
+  codeVerifier: string;
+  machineFingerprint: string;
+}
+
+function getPendingBuyerProductAccessVerificationStorageKey(intentId: string): string {
+  return `${BUYER_PRODUCT_ACCESS_VERIFICATION_STORAGE_PREFIX}${intentId}`;
+}
+
+function storePendingBuyerProductAccessVerification(
+  intentId: string,
+  pending: PendingBuyerProductAccessVerification
+): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(
+      getPendingBuyerProductAccessVerificationStorageKey(intentId),
+      JSON.stringify(pending)
+    );
+  } catch {
+    // The return page will ask the buyer to restart verification if storage is unavailable.
+  }
+}
+
+function readPendingBuyerProductAccessVerification(
+  intentId: string,
+  catalogProductId: string
+): PendingBuyerProductAccessVerification | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(
+      getPendingBuyerProductAccessVerificationStorageKey(intentId)
+    );
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PendingBuyerProductAccessVerification>;
+    if (
+      parsed.catalogProductId !== catalogProductId ||
+      typeof parsed.codeVerifier !== 'string' ||
+      typeof parsed.machineFingerprint !== 'string'
+    ) {
+      return null;
+    }
+    return {
+      catalogProductId,
+      codeVerifier: parsed.codeVerifier,
+      machineFingerprint: parsed.machineFingerprint,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function removePendingBuyerProductAccessVerification(intentId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(getPendingBuyerProductAccessVerificationStorageKey(intentId));
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function removeVerificationReturnParams(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('grant');
+  url.searchParams.delete('intent_id');
+  window.history.replaceState({}, '', url.toString());
+}
+
 function BuyerProductAccessPage() {
   const { catalogProductId } = accessRouteApi.useParams();
   const search = accessRouteApi.useSearch();
   const accessData = accessRouteApi.useLoaderData();
   const toast = useToast();
   const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const grant = search.grant;
+  const intentId = search.intent_id;
 
   const repoAccessQuery = useQuery({
     queryKey: ['buyer-backstage-repo-access', catalogProductId],
@@ -134,13 +210,31 @@ function BuyerProductAccessPage() {
     retry: false,
   });
 
-  if (search.grant && typeof window !== 'undefined') {
-    queueMicrotask(() => {
-      const url = new URL(window.location.href);
-      url.searchParams.delete('grant');
-      window.history.replaceState({}, '', url.toString());
-    });
-  }
+  const redemptionQuery = useQuery({
+    queryKey: ['buyer-product-access-verification-redemption', catalogProductId, intentId, grant],
+    queryFn: async () => {
+      if (!grant || !intentId) {
+        throw new Error('Verification grant and intent are required.');
+      }
+      const pending = readPendingBuyerProductAccessVerification(intentId, catalogProductId);
+      if (!pending) {
+        throw new Error('Verification session was not found. Restart verification from this page.');
+      }
+      await redeemBuyerBackstageVerificationIntent({
+        intentId,
+        grantToken: grant,
+        codeVerifier: pending.codeVerifier,
+        machineFingerprint: pending.machineFingerprint,
+      });
+      const repoAccess = await requestUserBackstageRepoAccess({ catalogProductId });
+      removePendingBuyerProductAccessVerification(intentId);
+      removeVerificationReturnParams();
+      return repoAccess;
+    },
+    enabled: isAuthenticated && Boolean(grant) && Boolean(intentId),
+    retry: false,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 
   const startAccessMutation = useMutation({
     mutationFn: async () => {
@@ -151,6 +245,11 @@ function BuyerProductAccessPage() {
 
       const response = await createBuyerProductAccessVerificationIntent(catalogProductId, {
         returnTo: accessData.product.accessPagePath,
+      });
+      storePendingBuyerProductAccessVerification(response.intentId, {
+        catalogProductId,
+        codeVerifier: response.codeVerifier,
+        machineFingerprint: response.machineFingerprint,
       });
       window.location.href = response.verificationUrl;
     },
@@ -174,7 +273,11 @@ function BuyerProductAccessPage() {
 
   const { product, accessState } = accessData;
   const isViewerPending = isAuthPending;
-  const hasAccess = accessState.hasActiveEntitlement;
+  const isReturningFromVerification = Boolean(grant && intentId && isAuthenticated);
+  const hasAccess =
+    accessState.hasActiveEntitlement ||
+    redemptionQuery.isSuccess ||
+    (isReturningFromVerification && redemptionQuery.isPending);
   const isSignedOut = !isViewerPending && !isAuthenticated;
   const packageCount = product.packagePreview.length;
   const packageCountLabel = `${packageCount} Unity package${packageCount === 1 ? '' : 's'}`;
@@ -193,8 +296,10 @@ function BuyerProductAccessPage() {
         ? `Confirm the ${product.providerLabel} purchase or enter the license details you received after buying.`
         : 'Start by signing in with your Creator Identity. You will come back here to verify the purchase.';
   const currentStep = isViewerPending ? 0 : hasAccess ? 2 : isAuthenticated ? 1 : 0;
-  const isRepoReady = Boolean(repoAccessQuery.data?.addRepoUrl);
-  const isRepoPending = hasAccess && repoAccessQuery.isLoading;
+  const repoAccess = redemptionQuery.data ?? repoAccessQuery.data;
+  const isRepoReady = Boolean(repoAccess?.addRepoUrl);
+  const isRepoPending = hasAccess && (repoAccessQuery.isLoading || redemptionQuery.isLoading);
+  const isRepoError = repoAccessQuery.isError || redemptionQuery.isError;
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
 
   if (isViewerPending) {
@@ -271,15 +376,15 @@ function BuyerProductAccessPage() {
                     isLoading={isRepoPending}
                     isDisabled={!isRepoReady}
                     onPress={() => {
-                      if (repoAccessQuery.data?.addRepoUrl) {
-                        window.location.href = repoAccessQuery.data.addRepoUrl;
+                      if (repoAccess?.addRepoUrl) {
+                        window.location.href = repoAccess.addRepoUrl;
                       }
                     }}
                   >
                     {isRepoPending ? 'Preparing VCC access...' : 'Add to VCC'}
                   </YucpButton>
 
-                  {repoAccessQuery.isError ? (
+                  {isRepoError ? (
                     <p className="vp-method-error">
                       We could not prepare your repo handoff. Refresh and try again.
                     </p>
@@ -430,7 +535,7 @@ function BuyerProductAccessPage() {
                         Use <strong>Add to VCC</strong> first. Manual setup is fallback only.
                       </p>
                     </div>
-                    {repoAccessQuery.data?.repositoryUrl ? (
+                    {repoAccess?.repositoryUrl ? (
                       <YucpButton
                         yucp="ghost"
                         className="vp-manual-setup-toggle"
@@ -444,7 +549,7 @@ function BuyerProductAccessPage() {
                       </YucpButton>
                     ) : null}
                   </div>
-                  {repoAccessQuery.data?.repositoryUrl ? (
+                  {repoAccess?.repositoryUrl ? (
                     <div className="vp-manual-setup-rail">
                       <div
                         className={`vp-manual-setup-panel${isManualSetupOpen ? ' is-open' : ''}`}
@@ -456,17 +561,12 @@ function BuyerProductAccessPage() {
                             repo URL.
                           </p>
                           <div className="vp-manual-repo-box">
-                            <p className="vp-manual-repo-url">
-                              {repoAccessQuery.data.repositoryUrl}
-                            </p>
+                            <p className="vp-manual-repo-url">{repoAccess.repositoryUrl}</p>
                             <YucpButton
                               yucp="ghost"
                               className="vp-manual-repo-copy"
                               onPress={() =>
-                                handleCopyValue(
-                                  repoAccessQuery.data?.repositoryUrl ?? '',
-                                  'Repo URL copied'
-                                )
+                                handleCopyValue(repoAccess.repositoryUrl, 'Repo URL copied')
                               }
                             >
                               <Copy className="size-3.5" />

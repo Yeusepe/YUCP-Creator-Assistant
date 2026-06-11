@@ -227,7 +227,7 @@ export function buildPublicApiRateLimitKey(args: {
   userAgent?: string | null;
 }): string {
   if (args.publicApiKey) {
-    return `${args.routeFamily}:auth:public-api-key:${getPublicApiKeyPrefix(args.publicApiKey)}`;
+    return `${args.routeFamily}:auth:public-api-key:${getPublicApiKeyPrefix(args.publicApiKey)}:${hmacSha256(args.publicApiKey, getPublicApiKeyPepper())}`;
   }
   if (args.bearerToken) {
     return `${args.routeFamily}:auth:bearer:${hmacSha256(args.bearerToken, getPublicApiKeyPepper())}`;

@@ -124,7 +124,7 @@ export function requireCdngineBackstageConfig(
       DEFAULT_PUBLICATION_TIMEOUT_MS
     ),
     serviceNamespaceId: config.serviceNamespaceId ?? 'yucp-backstage',
-    timeoutMs: config.timeoutMs ?? 15_000,
+    timeoutMs: getPositiveNumberOrDefault(config.timeoutMs, 15_000),
     variant: config.variant ?? 'preserve-original',
   };
 }
@@ -470,9 +470,8 @@ export async function uploadBackstageBytesToCdngine(input: {
 }
 
 /**
- * CDNgine upstream contract:
- * - E:/GitDevelopment/Development/antiwork/cdngine/contracts/arazzo/public-upload.arazzo.yaml
- * - E:/GitDevelopment/Development/antiwork/cdngine/contracts/openapi/public.openapi.yaml#getAssetVersion
+ * CDNgine upstream contract: public upload Arazzo flow and public OpenAPI
+ * getAssetVersion operation in the companion service docs.
  */
 export async function waitForCdngineBackstageDeliveryPublication(input: {
   config: CdngineBackstageConfig | undefined;

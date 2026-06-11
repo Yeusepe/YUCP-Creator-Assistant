@@ -4,6 +4,14 @@ import { join, resolve } from 'node:path';
 const ROOT_DIR = resolve(import.meta.dir, '..');
 const DEFAULT_COMMAND = ['bun', 'run', '--filter', '@yucp/web', 'worker:dev'] as const;
 
+export function buildWebWorkerCommand(forwardedArgs: readonly string[] = []): string[] {
+  if (forwardedArgs.length === 0) {
+    return [...DEFAULT_COMMAND];
+  }
+
+  return [...DEFAULT_COMMAND, '--', ...forwardedArgs];
+}
+
 function normalizeOptional(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
@@ -125,7 +133,7 @@ export function buildInfisicalCliEnv(
 
 export function buildInfisicalRunArgs(
   config: Pick<InfisicalRunConfig, 'projectId' | 'environment' | 'path'>,
-  command: readonly string[] = DEFAULT_COMMAND
+  command: readonly string[] = buildWebWorkerCommand()
 ): string[] {
   return [
     'infisical',
@@ -191,7 +199,7 @@ async function main(): Promise<void> {
         projectId: config.projectId,
         environment: config.environment,
         path: config.path,
-      })
+      }, buildWebWorkerCommand(process.argv.slice(2)))
     ),
     cwd: ROOT_DIR,
     env: buildInfisicalCliEnv(

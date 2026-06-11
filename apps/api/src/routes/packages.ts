@@ -217,6 +217,23 @@ function cdngineBackstageUnavailableResponse(error: string): Response {
   return jsonResponse({ error }, 502);
 }
 
+function getCdngineSourceOwnershipError(input: {
+  authUserId: string;
+  expectedServiceNamespaceId: string;
+  source: CdngineBackstageSourceReference;
+}): string | null {
+  if (input.source.assetOwner !== `creator:${input.authUserId}`) {
+    return 'CDNgine source is not owned by this creator';
+  }
+  if (input.source.tenantId !== input.authUserId) {
+    return 'CDNgine source is not owned by this creator';
+  }
+  if (input.source.serviceNamespaceId !== input.expectedServiceNamespaceId) {
+    return 'CDNgine source is not owned by this creator';
+  }
+  return null;
+}
+
 function base64UrlEncode(input: string): string {
   return Buffer.from(input, 'utf8').toString('base64url');
 }
@@ -2097,6 +2114,14 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         { error: 'accessSelectors, cdngineSource, and version are required' },
         400
       );
+    }
+    const cdngineSourceOwnershipError = getCdngineSourceOwnershipError({
+      authUserId: viewer.authUserId,
+      expectedServiceNamespaceId: config.cdngine?.serviceNamespaceId ?? 'yucp-backstage',
+      source: body.cdngineSource,
+    });
+    if (cdngineSourceOwnershipError) {
+      return jsonResponse({ error: cdngineSourceOwnershipError }, 403);
     }
 
     try {

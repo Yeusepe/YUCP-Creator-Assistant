@@ -1862,6 +1862,36 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('rejects CDNgine source references that are not owned by the authenticated creator', async () => {
+    const response = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          cdngineSource: {
+            ...cdngineSourceFixture,
+            assetOwner: 'creator:other-auth-user',
+            tenantId: 'other-auth-user',
+          },
+          version: '1.2.4',
+          channel: 'stable',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'CDNgine source is not owned by this creator',
+    });
+    expect(cdngineCreateUploadBodies).toHaveLength(0);
+    expect(lastActionArgs).toBeUndefined();
+  });
+
   it('materializes unitypackage CDNgine sources into VPM ZIP deliverables before publishing', async () => {
     const sourceBytes = buildUnitypackage([
       {

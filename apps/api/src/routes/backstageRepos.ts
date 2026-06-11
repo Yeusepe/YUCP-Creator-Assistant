@@ -38,6 +38,7 @@ const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
 const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
 const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
 const BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
+const BACKSTAGE_VERIFICATION_REDEEM_BODY_MAX_BYTES = 4 * 1024;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
@@ -1061,8 +1062,11 @@ async function readRequestTextWithLimit(request: Request, maxBytes: number): Pro
   return new TextDecoder().decode(bodyBytes);
 }
 
-async function parseJsonObjectBody(request: Request): Promise<Record<string, unknown>> {
-  const text = await readRequestTextWithLimit(request, BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES);
+async function parseJsonObjectBody(
+  request: Request,
+  maxBytes = BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES
+): Promise<Record<string, unknown>> {
+  const text = await readRequestTextWithLimit(request, maxBytes);
   if (!text.trim()) {
     return {};
   }
@@ -1358,12 +1362,27 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
         media.cdngineDelivery.versionId,
       ].join('|')
     );
-    const authorization = await authorizeCdngineBackstageDeliveryUrl({
-      cdngine,
-      delivery: media.cdngineDelivery,
-      idempotencyKey: `backstage-media-download-${idempotencyHash}`,
-      request,
-    });
+    let authorization: Awaited<ReturnType<typeof authorizeCdngineBackstageDeliveryUrl>>;
+    try {
+      authorization = await authorizeCdngineBackstageDeliveryUrl({
+        cdngine,
+        delivery: media.cdngineDelivery,
+        idempotencyKey: `backstage-media-download-${idempotencyHash}`,
+        request,
+      });
+    } catch (error) {
+      logger.warn('CDNgine Backstage package media delivery authorization failed', {
+        authUserId: product.creatorAuthUserId,
+        catalogProductId,
+        packageId,
+        version: planPackage.version,
+        channel: planPackage.channel,
+        mediaKind,
+        required: cdngine.required === true,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return errorResponse('Package media is temporarily unavailable', 502);
+    }
     if (!authorization.ok) {
       const detail =
         typeof authorization.payload.detail === 'string'
@@ -1519,6 +1538,11 @@ async function redeemBuyerVerificationIntent(
   config: BackstageRepoConfig,
   intentId: string
 ): Promise<Response> {
+  const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
+  if (csrfBlock) {
+    return csrfBlock;
+  }
+
   const authUserId = await requireSessionAuthUserId(request, config);
   if (authUserId instanceof Response) {
     return authUserId;
@@ -1530,8 +1554,14 @@ async function redeemBuyerVerificationIntent(
     grantToken?: string;
   };
   try {
-    body = (await request.json()) as typeof body;
-  } catch {
+    body = (await parseJsonObjectBody(
+      request,
+      BACKSTAGE_VERIFICATION_REDEEM_BODY_MAX_BYTES
+    )) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return errorResponse(error.message, error.status);
+    }
     return errorResponse('Invalid JSON body', 400);
   }
 

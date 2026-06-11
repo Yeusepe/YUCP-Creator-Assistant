@@ -28,25 +28,57 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
-async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+async function forceKillChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (process.platform !== 'win32' || !child.pid) {
+    child.kill('SIGKILL');
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    killer.once('error', () => resolve());
+    killer.once('exit', () => resolve());
+  });
+}
+
+function isChildProcessAlive(child: ChildProcessWithoutNullStreams): boolean {
   if (child.exitCode !== null) {
+    return false;
+  }
+  if (!child.pid) {
+    return true;
+  }
+  try {
+    process.kill(child.pid, 0);
+    return true;
+  } catch (error) {
+    return (error as { code?: string }).code === 'EPERM';
+  }
+}
+
+async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (!isChildProcessAlive(child)) {
     return;
   }
 
   child.kill();
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (child.exitCode !== null) {
+    if (!isChildProcessAlive(child)) {
       return;
     }
     await delay(100);
   }
-  child.kill('SIGKILL');
+  await forceKillChild(child);
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    if (child.exitCode !== null) {
+    if (!isChildProcessAlive(child)) {
       return;
     }
     await delay(100);
   }
+  throw new Error('Child process did not exit after SIGKILL');
 }
 
 afterAll(async () => {

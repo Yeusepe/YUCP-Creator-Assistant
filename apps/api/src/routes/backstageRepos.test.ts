@@ -35,16 +35,33 @@ const fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<
       }
     );
 const originalFetch = globalThis.fetch;
-const TEST_CDNGINE_SOURCE_REFERENCE = {
-  assetId: 'ast_source_1',
-  versionId: 'ver_source_1',
-  serviceNamespaceId: 'yucp-backstage',
-  tenantId: 'creator-user-1',
-  assetOwner: 'creator:creator-user-1',
-  sha256: 'b'.repeat(64),
-  byteSize: 1234,
-  uploadedAt: 1_700_000_000_000,
+type TestCdngineSourceReference = {
+  assetId: string;
+  versionId: string;
+  serviceNamespaceId: string;
+  tenantId: string;
+  assetOwner: string;
+  sha256: string;
+  byteSize: number;
+  uploadedAt: number;
 };
+
+function makeTestCdngineSourceReference(
+  authUserId: string,
+  overrides: Partial<Omit<TestCdngineSourceReference, 'tenantId' | 'assetOwner'>> = {}
+): TestCdngineSourceReference {
+  return {
+    assetId: 'ast_source_1',
+    versionId: 'ver_source_1',
+    serviceNamespaceId: 'yucp-backstage',
+    tenantId: authUserId,
+    assetOwner: `creator:${authUserId}`,
+    sha256: 'b'.repeat(64),
+    byteSize: 1234,
+    uploadedAt: 1_700_000_000_000,
+    ...overrides,
+  };
+}
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
@@ -1263,6 +1280,98 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('reports thrown CDNgine media authorization failures as temporary delivery outages', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith('https://cdngine.test/')) {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'auth-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            status: 'active',
+          };
+        case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          return {
+            creatorAuthUserId: 'auth-user-1',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            packages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                version: '1.2.3',
+                channel: 'stable',
+                media: {
+                  icon: {
+                    kind: 'icon',
+                    byteSize: 10,
+                    contentType: 'image/png',
+                    deliveryName: 'song-icon.png',
+                    sha256: 'd'.repeat(64),
+                    cdngineDelivery: {
+                      assetId: 'ast_media_icon',
+                      versionId: 'ver_media_icon',
+                      deliveryScopeId: 'paid-downloads',
+                      variant: 'package-media',
+                      serviceNamespaceId: 'yucp-backstage',
+                      tenantId: 'auth-user-1',
+                      assetOwner: 'creator:auth-user-1',
+                      sha256: 'd'.repeat(64),
+                      byteSize: 10,
+                      uploadedAt: 1_700_000_000_000,
+                    },
+                  },
+                },
+              },
+            ],
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: true,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
+        {
+          headers: {
+            authorization: 'Bearer oauth-token',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package media is temporarily unavailable',
+    });
+  });
+
   it('resolves bearer alias install plans against the creator entitlement scope', async () => {
     queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
@@ -1329,7 +1438,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('creator-user-1'),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           expect(args).toMatchObject({ authUserId: 'creator-user-1' });
@@ -1441,11 +1550,10 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              ...TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('creator-user-1', {
               sha256: 'c'.repeat(64),
               byteSize: 4567,
-            },
+            }),
           };
         default:
           return null;
@@ -1558,11 +1666,10 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              ...TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('creator-user-1', {
               sha256: 'c'.repeat(64),
               byteSize: 4567,
-            },
+            }),
           };
         default:
           return null;
@@ -1659,6 +1766,109 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('requires a session before redeeming buyer verification grants', async () => {
+    actionImpl = async () => {
+      throw new Error('Unauthenticated requests must not redeem verification grants.');
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          codeVerifier: 'verifier',
+          machineFingerprint: 'buyer-web-machine',
+          grantToken: 'grant-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(401);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Authentication required',
+    });
+  });
+
+  it('blocks cross-site buyer verification grant redemption before mutating state', async () => {
+    sessionImpl = async () => ({ user: { id: 'auth-user-1' } });
+    actionImpl = async () => {
+      throw new Error('Cross-site requests must not redeem verification grants.');
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://attacker.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          codeVerifier: 'verifier',
+          machineFingerprint: 'buyer-web-machine',
+          grantToken: 'grant-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(403);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Cross-site requests are not allowed',
+    });
+  });
+
+  it('rejects malformed buyer verification grant redemption bodies before mutating state', async () => {
+    sessionImpl = async () => ({ user: { id: 'auth-user-1' } });
+    actionImpl = async () => {
+      throw new Error('Malformed redemption bodies must not reach Convex.');
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: '{',
+      })
+    );
+
+    expect(response?.status).toBe(400);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Invalid JSON body',
+    });
+  });
+
+  it('rejects oversized buyer verification grant redemption bodies before mutating state', async () => {
+    sessionImpl = async () => ({ user: { id: 'auth-user-1' } });
+    actionImpl = async () => {
+      throw new Error('Oversized redemption bodies must not reach Convex.');
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          codeVerifier: 'v'.repeat(5_000),
+          machineFingerprint: 'buyer-web-machine',
+          grantToken: 'grant-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(413);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Request body too large',
+    });
+  });
+
   it('does not authorize VPM deliverable downloads for alias package installer downloads', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -1729,7 +1939,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('creator-user-1'),
           };
         default:
           return null;
@@ -1874,7 +2084,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
@@ -1983,7 +2193,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
           };
         default:
           return null;
@@ -2064,7 +2274,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
           };
         default:
           return null;
@@ -2161,7 +2371,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: TEST_CDNGINE_SOURCE_REFERENCE,
+            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
           };
         default:
           return null;
