@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   generatePublicApiKeyValue,
   getPublicApiKeyPrefix,
-  hashPublicApiKey,
   PUBLIC_API_KEY_PREFIX,
 } from './publicApiKeys';
 
@@ -11,12 +10,6 @@ describe('publicApiKeys', () => {
     const key = generatePublicApiKeyValue();
     expect(key.startsWith(PUBLIC_API_KEY_PREFIX)).toBe(true);
     expect(key.length).toBeGreaterThan(PUBLIC_API_KEY_PREFIX.length);
-  });
-
-  it('hashes the same key deterministically for the same pepper', () => {
-    const pepper = 'test-pepper';
-    const key = `${PUBLIC_API_KEY_PREFIX}abc123`;
-    expect(hashPublicApiKey(key, pepper)).toBe(hashPublicApiKey(key, pepper));
   });
 
   it('returns a short display prefix', () => {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type Redis from 'ioredis';
 import { RateLimiterMemory, RateLimiterRedis } from 'rate-limiter-flexible';
 import { logger } from './logger';
-import { getPublicApiKeyPrefix, hashPublicApiKey } from './publicApiKeys';
+import { getPublicApiKeyPrefix } from './publicApiKeys';
 
 export interface PublicApiRateLimitStore {
   consume(args: {
@@ -226,15 +226,28 @@ export function buildPublicApiRateLimitKey(args: {
   bearerToken?: string | null;
   userAgent?: string | null;
 }): string {
+  const clientFingerprint = buildClientFingerprint(args);
   if (args.publicApiKey) {
-    return `${args.routeFamily}:auth:public-api-key:${getPublicApiKeyPrefix(args.publicApiKey)}:${hashPublicApiKey(args.publicApiKey)}`;
+    return `${args.routeFamily}:auth:public-api-key:${sanitizeKeySegment(getPublicApiKeyPrefix(args.publicApiKey))}:${clientFingerprint}`;
   }
   if (args.bearerToken) {
-    return `${args.routeFamily}:auth:bearer:${hashPublicApiKey(args.bearerToken)}`;
+    return `${args.routeFamily}:auth:bearer:${clientFingerprint}`;
   }
 
+  return `${args.routeFamily}:ip:${clientFingerprint}`;
+}
+
+function buildClientFingerprint(args: {
+  clientAddress: string;
+  userAgent?: string | null;
+}): string {
   const userAgent = args.userAgent?.trim() || 'unknown';
-  return `${args.routeFamily}:ip:${sha256(`${args.clientAddress}:${userAgent}`)}`;
+  return sha256(`${args.clientAddress}:${userAgent}`);
+}
+
+function sanitizeKeySegment(value: string): string {
+  const sanitized = value.replace(/[^A-Za-z0-9_-]/g, '_');
+  return sanitized || 'unknown';
 }
 
 function sha256(value: string): string {

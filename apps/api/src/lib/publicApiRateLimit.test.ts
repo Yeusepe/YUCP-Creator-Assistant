@@ -48,45 +48,45 @@ describe('checkPublicApiRateLimit', () => {
     expect(blocked.headers['Retry-After']).toBe('59');
   });
 
-  it('derives public API key buckets from the full key without exposing the secret', () => {
-    const originalPepper = process.env.PUBLIC_API_KEY_PEPPER;
-    process.env.PUBLIC_API_KEY_PEPPER = 'rate-limit-pepper';
-    try {
-      const publicApiKey = `ypsk_01234567${'89abcdef'.repeat(5)}`;
-      const collidingPrefixKey = `ypsk_01234567${'fedcba98'.repeat(5)}`;
+  it('derives pre-auth public API key buckets from the public prefix and client fingerprint only', () => {
+    const publicApiKey = `ypsk_01234567${'89abcdef'.repeat(5)}`;
+    const collidingPrefixKey = `ypsk_01234567${'fedcba98'.repeat(5)}`;
 
-      const key = buildPublicApiRateLimitKey({
-        routeFamily: 'manual-licenses',
-        clientAddress: '203.0.113.10',
-        publicApiKey,
-        userAgent: 'test-agent',
-      });
-      const collidingKey = buildPublicApiRateLimitKey({
-        routeFamily: 'manual-licenses',
-        clientAddress: '203.0.113.10',
-        publicApiKey: collidingPrefixKey,
-        userAgent: 'test-agent',
-      });
+    const key = buildPublicApiRateLimitKey({
+      routeFamily: 'manual-licenses',
+      clientAddress: '203.0.113.10',
+      publicApiKey,
+      userAgent: 'test-agent',
+    });
+    const collidingKey = buildPublicApiRateLimitKey({
+      routeFamily: 'manual-licenses',
+      clientAddress: '203.0.113.10',
+      publicApiKey: collidingPrefixKey,
+      userAgent: 'test-agent',
+    });
+    const differentClientKey = buildPublicApiRateLimitKey({
+      routeFamily: 'manual-licenses',
+      clientAddress: '203.0.113.11',
+      publicApiKey,
+      userAgent: 'test-agent',
+    });
 
-      expect(key).toStartWith('manual-licenses:auth:public-api-key:ypsk_01234567:');
-      expect(collidingKey).toStartWith('manual-licenses:auth:public-api-key:ypsk_01234567:');
-      expect(collidingKey).not.toBe(key);
-      expect(key).not.toContain(publicApiKey);
-      expect(collidingKey).not.toContain(collidingPrefixKey);
-    } finally {
-      if (originalPepper === undefined) {
-        delete process.env.PUBLIC_API_KEY_PEPPER;
-      } else {
-        process.env.PUBLIC_API_KEY_PEPPER = originalPepper;
-      }
-    }
+    expect(key).toStartWith('manual-licenses:auth:public-api-key:ypsk_01234567:');
+    expect(collidingKey).toBe(key);
+    expect(differentClientKey).not.toBe(key);
+    expect(key).not.toContain(publicApiKey);
+    expect(collidingKey).not.toContain(collidingPrefixKey);
+    expect(key).not.toContain('203.0.113.10');
   });
 
-  it('delegates public API credential fingerprinting to the shared API key helper', () => {
+  it('does not hash full public API credentials in the pre-auth rate-limit gate', () => {
     const source = readFileSync(resolve(import.meta.dir, 'publicApiRateLimit.ts'), 'utf8');
+    const publicApiKeysSource = readFileSync(resolve(import.meta.dir, 'publicApiKeys.ts'), 'utf8');
 
-    expect(source).toContain('hashPublicApiKey');
     expect(source).not.toContain('createHmac');
     expect(source).not.toContain('function hmacSha256');
+    expect(source).not.toContain('hashPublicApiKey');
+    expect(publicApiKeysSource).not.toContain('createHmac');
+    expect(publicApiKeysSource).not.toContain('PUBLIC_API_KEY_PEPPER');
   });
 });

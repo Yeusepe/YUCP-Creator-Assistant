@@ -27,7 +27,6 @@ export interface LocalEnv {
   BETTER_AUTH_URL?: string;
   /** Legacy alias for SITE_URL. Avoid using for new config. */
   FRONTEND_URL?: string;
-  PUBLIC_API_KEY_PEPPER?: string;
   PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON?: string;
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
@@ -179,7 +178,6 @@ function loadFromEnv(): LocalEnv {
     ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
     BETTER_AUTH_URL: normalizeUrl(process.env.BETTER_AUTH_URL),
     FRONTEND_URL: process.env.FRONTEND_URL,
-    PUBLIC_API_KEY_PEPPER: process.env.PUBLIC_API_KEY_PEPPER,
     PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON: process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON,
     INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     INTERNAL_RPC_SHARED_SECRET: process.env.INTERNAL_RPC_SHARED_SECRET,
