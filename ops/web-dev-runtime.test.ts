@@ -99,6 +99,7 @@ describe('web dev runtime', () => {
           API_BASE_URL: process.env.API_BASE_URL ?? 'http://127.0.0.1:8787',
           CONVEX_SITE_URL: process.env.CONVEX_SITE_URL ?? 'https://test-yucp.convex.site',
           CONVEX_URL: process.env.CONVEX_URL ?? 'https://test-yucp.convex.cloud',
+          CLOUDFLARE_INCLUDE_PROCESS_ENV: 'true',
           FRONTEND_URL: process.env.FRONTEND_URL ?? 'http://127.0.0.1:0',
           SITE_URL: process.env.SITE_URL ?? 'http://127.0.0.1:0',
           WEB_LOCAL_ENV_PATH: localWorkerEnvPath,

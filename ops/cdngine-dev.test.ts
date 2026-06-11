@@ -45,7 +45,7 @@ describe('cdngine docker dev runner', () => {
 
   test('buildCdngineComposeFilePath sanitizes branch refs for local filenames', () => {
     expect(buildCdngineComposeFilePath('E:\\tmp\\cdngine', 'feature/runtime/dev')).toBe(
-      'E:\\tmp\\cdngine\\compose.feature_runtime_dev.yaml'
+      path.join('E:\\tmp\\cdngine', 'compose.feature_runtime_dev.yaml')
     );
   });
 

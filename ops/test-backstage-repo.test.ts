@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import {
   collectFixturePackages,
   parseAddRepoUrl,
@@ -53,18 +53,19 @@ describe('test-backstage-repo', () => {
   });
 
   it('resolves config from an add-repo url and environment-backed fixture directory', () => {
+    const packageDir = join(tmpdir(), 'fixtures');
     const config = resolveBackstageRepoTestConfig(
       [
         '--addRepoUrl',
         'vcc://vpm/addRepo?url=https%3A%2F%2Frepo.test%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example',
       ],
       {
-        YUCP_BACKSTAGE_PACKAGE_DIR: 'C:\\fixtures',
+        YUCP_BACKSTAGE_PACKAGE_DIR: packageDir,
       } as NodeJS.ProcessEnv
     );
 
     expect(config).toEqual({
-      packageDir: 'C:\\fixtures',
+      packageDir: resolve(packageDir),
       repositoryHeaders: {
         'X-YUCP-Repo-Token': 'ybt_example',
       },
