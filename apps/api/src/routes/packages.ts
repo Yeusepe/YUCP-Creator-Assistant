@@ -1016,7 +1016,16 @@ async function resolveViewer(
   };
 }
 
+const PRODUCTS_READ_SCOPES: readonly PublicApiScope[] = ['products:read'];
 const PRODUCTS_WRITE_SCOPES: readonly PublicApiScope[] = ['products:write'];
+
+async function resolveProductReadViewer(
+  request: Request,
+  auth: Auth,
+  config: PackagesConfig
+): Promise<{ authUserId: string; actorBinding: ApiActorBinding } | Response> {
+  return await resolveViewer(request, auth, config, PRODUCTS_READ_SCOPES);
+}
 
 async function resolveProductWriteViewer(
   request: Request,
@@ -1028,7 +1037,7 @@ async function resolveProductWriteViewer(
 
 export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   async function getBackstageRepoAccess(request: Request): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductReadViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1078,7 +1087,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function listBackstageProducts(request: Request): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductReadViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1152,7 +1161,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function listPackages(request: Request): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductReadViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }

@@ -7,7 +7,10 @@ let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let verifyBetterAuthAccessTokenImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
   ok: true,
-  token: { sub: 'auth-user-1', grantedScopes: ['profile:read', 'products:write'] },
+  token: {
+    sub: 'auth-user-1',
+    grantedScopes: ['profile:read', 'products:read', 'products:write'],
+  },
 });
 let listProviderProductsViaApiImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
   products: [],
@@ -240,7 +243,10 @@ describe('package Backstage publishing routes', () => {
   beforeEach(() => {
     verifyBetterAuthAccessTokenImpl = async () => ({
       ok: true,
-      token: { sub: 'auth-user-1', grantedScopes: ['profile:read', 'products:write'] },
+      token: {
+        sub: 'auth-user-1',
+        grantedScopes: ['profile:read', 'products:read', 'products:write'],
+      },
     });
     cdngineUploadCounter = 0;
     cdngineCreateUploadBodies = [];
@@ -896,6 +902,66 @@ describe('package Backstage publishing routes', () => {
     });
     expect(payload).not.toHaveProperty('repoToken');
     expect(payload).not.toHaveProperty('repoTokenHeader');
+  });
+
+  it('requires products:read before OAuth Backstage repo and package read handlers', async () => {
+    verifyBetterAuthAccessTokenImpl = async (_token: unknown, options: unknown) => {
+      const requiredScopes =
+        typeof options === 'object' && options && 'requiredScopes' in options
+          ? ((options as { requiredScopes?: string[] }).requiredScopes ?? [])
+          : [];
+      if (requiredScopes.includes('products:read')) {
+        return { ok: false, reason: 'insufficient_scope' };
+      }
+      return {
+        ok: true,
+        token: { sub: 'auth-user-1', grantedScopes: ['profile:read'] },
+      };
+    };
+    const queryRefs: unknown[] = [];
+    const mutationRefs: unknown[] = [];
+    queryImpl = async (ref: unknown) => {
+      queryRefs.push(ref);
+      return [];
+    };
+    mutationImpl = async (ref: unknown) => {
+      mutationRefs.push(ref);
+      return null;
+    };
+
+    const repoAccessResponse = await routes.getBackstageRepoAccess(
+      new Request('https://api.test/api/packages/backstage/repo-access', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+    const backstageProductsResponse = await routes.listBackstageProducts(
+      new Request('https://api.test/api/packages/backstage/products', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+    const packagesResponse = await routes.listPackages(
+      new Request('https://api.test/api/packages', {
+        method: 'GET',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      })
+    );
+
+    for (const response of [repoAccessResponse, backstageProductsResponse, packagesResponse]) {
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Token missing required scope: products:read',
+      });
+    }
+    expect(queryRefs).toEqual([]);
+    expect(mutationRefs).toEqual([]);
   });
 
   it('lists creator product links for the Backstage release picker', async () => {
