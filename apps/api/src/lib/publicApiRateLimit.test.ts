@@ -1,4 +1,6 @@
 import { describe, expect, it, mock } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 mock.module('rate-limiter-flexible', () => ({
   RateLimiterMemory: class {},
@@ -78,5 +80,13 @@ describe('checkPublicApiRateLimit', () => {
         process.env.PUBLIC_API_KEY_PEPPER = originalPepper;
       }
     }
+  });
+
+  it('delegates public API credential fingerprinting to the shared API key helper', () => {
+    const source = readFileSync(resolve(import.meta.dir, 'publicApiRateLimit.ts'), 'utf8');
+
+    expect(source).toContain('hashPublicApiKey');
+    expect(source).not.toContain('createHmac');
+    expect(source).not.toContain('function hmacSha256');
   });
 });
