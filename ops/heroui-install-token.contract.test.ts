@@ -84,4 +84,15 @@ describe('HeroUI Pro install token plumbing', () => {
     expect(dockerfile).toMatch(/^HEALTHCHECK\b/m);
     expect(dockerfile).toContain('http://127.0.0.1:${PORT:-8080}');
   });
+
+  test('declares HeroUI Pro static icon imports for clean Workers builds', () => {
+    const packageJson = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'apps', 'web', 'package.json'), 'utf8')
+    ) as {
+      dependencies?: Record<string, string>;
+    };
+
+    // Upstream: https://github.com/heroui-inc/heroui/issues/6468
+    expect(packageJson.dependencies?.['@gravity-ui/icons']).toBeDefined();
+  });
 });

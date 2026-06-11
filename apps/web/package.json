@@ -28,6 +28,7 @@
   "dependencies": {
     "@convex-dev/better-auth": "^0.11.0",
     "@convex-dev/react-query": "^0.1.0",
+    "@gravity-ui/icons": "2.18.0",
     "@heroui-pro/react": "^1.0.0-beta.2",
     "@heroui/react": "^3.0.3",
     "@heroui/styles": "^3.0.3",
