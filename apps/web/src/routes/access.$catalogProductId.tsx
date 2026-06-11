@@ -1,17 +1,6 @@
-import { Card, Separator } from '@heroui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute, getRouteApi, Link } from '@tanstack/react-router';
-import {
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  ExternalLink,
-  KeyRound,
-  LogIn,
-  Package,
-  ShieldCheck,
-  Store,
-} from 'lucide-react';
+import { CheckCircle2, ChevronDown, Copy, ExternalLink, Lock, Package, Store } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
@@ -36,7 +25,7 @@ export const Route = createFileRoute('/access/$catalogProductId')({
   }),
   head: () => ({
     meta: [{ title: 'Product Access | YUCP' }],
-    links: routeStylesheetLinks(routeStyleHrefs.verifyPurchase),
+    links: routeStylesheetLinks(routeStyleHrefs.verifyPurchase, routeStyleHrefs.productAccess),
   }),
   pendingComponent: BuyerProductAccessPending,
   errorComponent: BuyerProductAccessError,
@@ -68,7 +57,7 @@ function PageShell({
   );
 }
 
-function ProductPreview({
+function PackageRow({
   packageId,
   displayName,
   latestPublishedVersion,
@@ -78,45 +67,38 @@ function ProductPreview({
   latestPublishedVersion: string | null;
 }>) {
   return (
-    <div className="vp-access-item-card">
-      <div className="vp-access-item-icon">
+    <div className="vpa-package">
+      <span className="vpa-package-icon" aria-hidden="true">
         <Package className="size-4" />
+      </span>
+      <div className="vpa-package-text">
+        <p className="vpa-package-name">{displayName ?? packageId}</p>
+        <p className="vpa-package-id">{packageId}</p>
       </div>
-      <div className="vp-access-item-content">
-        <p className="vp-access-item-title">{displayName ?? packageId}</p>
-        <p className="vp-access-item-description break-all font-mono">{packageId}</p>
-      </div>
-      <div className="vp-access-item-action">
-        <span className="vp-status-badge vp-status-badge--none">
-          {latestPublishedVersion ? `v${latestPublishedVersion}` : 'Pending'}
-        </span>
-      </div>
+      <span className="vpa-version">
+        {latestPublishedVersion ? `v${latestPublishedVersion}` : 'Pending'}
+      </span>
     </div>
   );
 }
 
-function AccessStep({
+function ProgressStep({
   index,
   currentStep,
-  title,
-  description,
+  label,
 }: Readonly<{
   index: number;
   currentStep: number;
-  title: string;
-  description: string;
+  label: string;
 }>) {
-  const status = index < currentStep ? 'complete' : index === currentStep ? 'active' : 'inactive';
+  const status = index < currentStep ? 'complete' : index === currentStep ? 'active' : 'upcoming';
 
   return (
-    <li className={`vp-access-step vp-access-step--${status}`}>
-      <span className="vp-access-step-indicator" aria-hidden="true">
+    <li className={`vpa-step vpa-step--${status}`}>
+      <span className="vpa-step-dot" aria-hidden="true">
         {status === 'complete' ? <CheckCircle2 className="size-4" /> : index + 1}
       </span>
-      <div className="vp-access-step-copy">
-        <p className="vp-access-step-title">{title}</p>
-        <p className="vp-access-step-description">{description}</p>
-      </div>
+      <span className="vpa-step-label">{label}</span>
     </li>
   );
 }
@@ -278,25 +260,27 @@ function BuyerProductAccessPage() {
     accessState.hasActiveEntitlement ||
     redemptionQuery.isSuccess ||
     (isReturningFromVerification && redemptionQuery.isPending);
-  const isSignedOut = !isViewerPending && !isAuthenticated;
+  // packagePreview is only populated once the buyer is signed in; hasPublishedPackages is the
+  // source of truth for whether a package exists at all (true even while the preview is hidden).
   const packageCount = product.packagePreview.length;
-  const packageCountLabel = `${packageCount} Unity package${packageCount === 1 ? '' : 's'}`;
-  const heroCopy = isViewerPending
-    ? 'Loading your YUCP account so this page can show the right purchase flow.'
-    : hasAccess
-      ? 'Your purchase is ready. Add the package source to VCC, then install it in Unity.'
-      : isAuthenticated
-        ? 'Next, confirm the purchase so this YUCP account can unlock the package for VCC.'
-        : 'Sign in with the Discord account you use for YUCP. After that, you can verify the purchase and add the package to VCC.';
-  const flowNote = isViewerPending
-    ? 'Checking whether this purchase is already linked to your account.'
-    : hasAccess
-      ? 'VCC will open with your private package source.'
-      : isAuthenticated
-        ? `Confirm the ${product.providerLabel} purchase or enter the license details you received after buying.`
-        : 'Start by signing in with your Creator Identity. You will come back here to verify the purchase.';
+  const hasPublishedPackages = accessState.hasPublishedPackages;
+  const metaText =
+    packageCount > 0
+      ? `${packageCount} Unity package${packageCount === 1 ? '' : 's'} · Private VCC access`
+      : 'Private VCC access';
+  const actionTitle = hasAccess
+    ? "You're all set"
+    : isAuthenticated
+      ? 'Verify your purchase'
+      : 'Sign in to get started';
+  const actionDesc = hasAccess
+    ? 'Add the package source to VCC, then install the package in Unity.'
+    : isAuthenticated
+      ? `Confirm your ${product.providerLabel} purchase to unlock this package for VCC.`
+      : 'Sign in with the Creator Identity you use in VCC so this purchase links to your account.';
   const currentStep = isViewerPending ? 0 : hasAccess ? 2 : isAuthenticated ? 1 : 0;
   const repoAccess = redemptionQuery.data ?? repoAccessQuery.data;
+  const repositoryUrl = repoAccess?.repositoryUrl ?? null;
   const isRepoReady = Boolean(repoAccess?.addRepoUrl);
   const isRepoPending = hasAccess && (repoAccessQuery.isLoading || redemptionQuery.isLoading);
   const isRepoError = repoAccessQuery.isError || redemptionQuery.isError;
@@ -308,307 +292,179 @@ function BuyerProductAccessPage() {
 
   return (
     <PageShell>
-      <Card className={`vp-card vp-access-card${isSignedOut ? ' vp-access-card--signed-out' : ''}`}>
-        <div className="vp-access-hero">
-          <div className="vp-access-summary">
-            <h1 className="vp-package-name">{product.displayName}</h1>
-            <p className="vp-card-subtitle">{heroCopy}</p>
-
-            <ul className="vp-access-facts" aria-label="Product access details">
-              <li className="vp-access-fact">
-                <Store className="size-3.5" />
-                Purchase source: {product.providerLabel}
-              </li>
-              <li className="vp-access-fact">
-                <Package className="size-3.5" />
-                {packageCountLabel}
-              </li>
-              <li className="vp-access-fact">
-                <ShieldCheck className="size-3.5" />
-                Private VCC access
-              </li>
-            </ul>
-
-            {search.intent_id ? (
-              <div className="vp-access-callout vp-access-callout--success">
-                Purchase confirmed. Continue with VCC below.
-              </div>
-            ) : null}
-
-            {!accessState.hasPublishedPackages ? (
-              <div className="vp-access-callout vp-access-callout--warning">
-                This product is linked, but the creator has not published a package yet.
-              </div>
-            ) : null}
+      <div className="vp-card vpa-card">
+        <header className="vpa-head">
+          <div className="vpa-thumb">
+            {product.thumbnailUrl ? (
+              <img className="vpa-thumb-img" src={product.thumbnailUrl} alt="" />
+            ) : (
+              <Package className="size-7" aria-hidden="true" />
+            )}
           </div>
+          <div className="vpa-head-text">
+            <span className="vpa-provider">
+              <Store className="size-3.5" />
+              {product.providerLabel}
+            </span>
+            <h1 className="vpa-title">{product.displayName}</h1>
+            <p className="vpa-meta">{metaText}</p>
+          </div>
+        </header>
 
-          <Card
-            className={`vp-access-action-card${isSignedOut ? ' vp-access-action-card--signed-out' : ''}`}
-            variant="secondary"
-          >
-            <Card.Header>
-              <Card.Title>
-                {isViewerPending
-                  ? 'Checking your account'
-                  : hasAccess
-                    ? 'Add to VCC'
-                    : isSignedOut
-                      ? 'Sign in to continue'
-                      : 'Verify this purchase'}
-              </Card.Title>
-              <Card.Description>{flowNote}</Card.Description>
-            </Card.Header>
-            <Card.Content>
-              {isViewerPending ? (
-                <div className="vp-checking-section">
-                  <YucpButton yucp="primary" className="vp-primary-btn w-full" isLoading isDisabled>
-                    Checking account...
-                  </YucpButton>
-                  <p className="vp-section-desc mb-0">
-                    The purchase flow will appear once your YUCP session finishes loading.
-                  </p>
-                </div>
-              ) : hasAccess ? (
-                <div className="vp-checking-section">
-                  <YucpButton
-                    yucp="primary"
-                    className="vp-primary-btn w-full"
-                    isLoading={isRepoPending}
-                    isDisabled={!isRepoReady}
-                    onPress={() => {
-                      if (repoAccess?.addRepoUrl) {
-                        window.location.href = repoAccess.addRepoUrl;
-                      }
-                    }}
-                  >
-                    {isRepoPending ? 'Preparing VCC access...' : 'Add to VCC'}
-                  </YucpButton>
+        <ol className="vpa-steps" aria-label="Access steps">
+          <ProgressStep index={0} currentStep={currentStep} label="Sign in" />
+          <ProgressStep index={1} currentStep={currentStep} label="Verify" />
+          <ProgressStep index={2} currentStep={currentStep} label="Add to VCC" />
+        </ol>
 
-                  {isRepoError ? (
-                    <p className="vp-method-error">
-                      We could not prepare your repo handoff. Refresh and try again.
-                    </p>
-                  ) : !isRepoPending && !isRepoReady ? (
-                    <p className="vp-section-desc mb-0">
-                      Your purchase is verified, but the VCC button is still being prepared. Refresh
-                      this page in a moment.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <div className={`vp-oauth-section${isSignedOut ? ' vp-access-signin-panel' : ''}`}>
-                  {isSignedOut ? (
-                    <div className="vp-signin-flow">
-                      <div className="vp-signin-flow-intro">
-                        <div className="vp-access-signin-icon">
-                          <LogIn className="size-5" />
-                        </div>
-                        <div>
-                          <p className="vp-access-signin-title">
-                            Sign in with your Creator Identity
-                          </p>
-                          <p className="vp-access-signin-copy">
-                            Use your Creator Identity in VCC so this purchase links correctly.
-                          </p>
-                        </div>
-                      </div>
-
-                      <YucpButton
-                        yucp="primary"
-                        className="vp-signin-cta-btn"
-                        isLoading={startAccessMutation.isPending}
-                        isDisabled={!accessState.hasPublishedPackages || isAuthPending}
-                        onPress={() => startAccessMutation.mutate()}
-                      >
-                        {startAccessMutation.isPending
-                          ? 'Starting sign-in...'
-                          : 'Sign in to continue'}
-                      </YucpButton>
-                    </div>
-                  ) : null}
-
-                  {!isSignedOut ? (
-                    <div className="vp-oauth-row">
-                      <div className="vp-oauth-row-left">
-                        <KeyRound className="size-5 text-white/70" />
-                        <div className="vp-oauth-row-text">
-                          <span className="vp-oauth-label">Purchase check</span>
-                          <span className="vp-oauth-account">
-                            Signed in. Now verify what you bought.
-                          </span>
-                        </div>
-                      </div>
-                      <div className="vp-oauth-row-right">
-                        <YucpButton
-                          yucp="primary"
-                          className="vp-oauth-verify-btn"
-                          isLoading={startAccessMutation.isPending}
-                          isDisabled={!accessState.hasPublishedPackages || isAuthPending}
-                          onPress={() => startAccessMutation.mutate()}
-                        >
-                          {startAccessMutation.isPending
-                            ? 'Starting verification...'
-                            : 'Verify purchase'}
-                        </YucpButton>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </Card.Content>
-          </Card>
-        </div>
-
-        <Separator className="vp-access-separator" />
-
-        <div className={`vp-access-body${isSignedOut ? ' vp-access-body--signed-out' : ''}`}>
-          <section className="vp-access-flow" aria-label="Access flow">
-            <div className="vp-section-heading">
-              <p className="vp-section-title">{isSignedOut ? 'What happens next' : 'Next steps'}</p>
-              <p className="vp-section-desc">
-                {isViewerPending
-                  ? 'We are checking your account before showing the active step.'
-                  : isSignedOut
-                    ? 'You only need to do this once for your Creator Identity.'
-                    : 'Complete the active step, then continue in Unity.'}
-              </p>
+        <section className="vpa-action">
+          {search.intent_id ? (
+            <div className="vpa-callout vpa-callout--success">
+              <CheckCircle2 className="size-4" />
+              Purchase confirmed. Continue with VCC below.
             </div>
-            <ol className="vp-access-stepper">
-              <AccessStep
-                index={0}
-                currentStep={currentStep}
-                title="Sign in"
-                description="Choose your Creator Identity in VCC."
-              />
-              <AccessStep
-                index={1}
-                currentStep={currentStep}
-                title="Confirm your purchase"
-                description={`Use the ${product.providerLabel} account or license details from your receipt.`}
-              />
-              <AccessStep
-                index={2}
-                currentStep={currentStep}
-                title="Add to VCC"
-                description="Open VCC with your private package source and install the package."
-              />
-            </ol>
-          </section>
+          ) : null}
+          {!accessState.hasPublishedPackages ? (
+            <div className="vpa-callout vpa-callout--warning">
+              This product is linked, but the creator has not published a package yet.
+            </div>
+          ) : null}
 
-          <div className="vp-content-column">
-            <section className="vp-section">
-              <div className="vp-section-heading">
-                <p className="vp-section-title">
-                  {isViewerPending
-                    ? 'Included package'
-                    : isSignedOut
-                      ? 'You will unlock'
-                      : `Included package${packageCount === 1 ? '' : 's'}`}
-                </p>
-                <p className="vp-section-desc">
-                  {isViewerPending
-                    ? `${packageCountLabel} will be available once your account state finishes loading.`
-                    : isSignedOut
-                      ? 'After verification, this package source is added privately to your account.'
-                      : `${packageCountLabel} will appear after VCC syncs.`}
-                </p>
-              </div>
-              <div className="vp-section-stack">
-                {product.packagePreview.map((packageLink) => (
-                  <ProductPreview
-                    key={packageLink.packageId}
-                    packageId={packageLink.packageId}
-                    displayName={packageLink.displayName}
-                    latestPublishedVersion={packageLink.latestPublishedVersion}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {hasAccess ? (
-              <Card className="vp-manual-assist-card" variant="secondary">
-                <Card.Content className="vp-manual-assist-content">
-                  <div className="vp-manual-assist-top">
-                    <div className="vp-manual-assist-heading">
-                      <h3 className="vp-manual-assist-title">Need help adding to VCC?</h3>
-                      <p className="vp-manual-assist-desc">
-                        Use <strong>Add to VCC</strong> first. Manual setup is fallback only.
-                      </p>
-                    </div>
-                    {repoAccess?.repositoryUrl ? (
-                      <YucpButton
-                        yucp="ghost"
-                        className="vp-manual-setup-toggle"
-                        aria-pressed={isManualSetupOpen}
-                        onPress={() => setIsManualSetupOpen((value) => !value)}
-                      >
-                        Manual setup
-                        <ChevronDown
-                          className={`size-4 vp-manual-setup-toggle-icon${isManualSetupOpen ? ' is-open' : ''}`}
-                        />
-                      </YucpButton>
-                    ) : null}
-                  </div>
-                  {repoAccess?.repositoryUrl ? (
-                    <div className="vp-manual-setup-rail">
-                      <div
-                        className={`vp-manual-setup-panel${isManualSetupOpen ? ' is-open' : ''}`}
-                        aria-hidden={!isManualSetupOpen}
-                      >
-                        <div className="vp-manual-setup">
-                          <p className="vp-manual-setup-copy">
-                            In VCC, choose <strong>Add Repository</strong>, then paste this private
-                            repo URL.
-                          </p>
-                          <div className="vp-manual-repo-box">
-                            <p className="vp-manual-repo-url">{repoAccess.repositoryUrl}</p>
-                            <YucpButton
-                              yucp="ghost"
-                              className="vp-manual-repo-copy"
-                              onPress={() =>
-                                handleCopyValue(repoAccess.repositoryUrl, 'Repo URL copied')
-                              }
-                            >
-                              <Copy className="size-3.5" />
-                              Copy
-                            </YucpButton>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="vp-section-desc mb-0">
-                      If Add to VCC fails, manual repo setup appears here once your handoff is
-                      ready.
-                    </p>
-                  )}
-                </Card.Content>
-              </Card>
-            ) : null}
+          <div>
+            <h2 className="vpa-action-title">{actionTitle}</h2>
+            <p className="vpa-action-desc">{actionDesc}</p>
           </div>
-        </div>
 
-        <div className="vp-card-footer">
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {isAuthenticated ? (
-              <Link to="/account/licenses" className="vp-action-btn">
-                Open my purchases
-              </Link>
-            ) : null}
-            {product.storefrontUrl ? (
-              <a
-                href={product.storefrontUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="vp-action-btn"
+          {hasAccess ? (
+            <>
+              <YucpButton
+                yucp="primary"
+                pill
+                className="vpa-cta"
+                isLoading={isRepoPending}
+                isDisabled={!isRepoReady}
+                onPress={() => {
+                  if (repoAccess?.addRepoUrl) {
+                    window.location.href = repoAccess.addRepoUrl;
+                  }
+                }}
               >
-                <ExternalLink className="size-4" />
-                Open store listing
-              </a>
-            ) : null}
-          </div>
-        </div>
-      </Card>
+                {isRepoPending ? 'Preparing VCC access...' : 'Add to VCC'}
+              </YucpButton>
+              {isRepoError ? (
+                <p className="vpa-note vpa-note--error">
+                  We could not prepare your VCC handoff. Refresh and try again.
+                </p>
+              ) : !isRepoPending && !isRepoReady ? (
+                <p className="vpa-note">
+                  Your purchase is verified. The VCC button is still being prepared, refresh in a
+                  moment.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <YucpButton
+              yucp="primary"
+              pill
+              className="vpa-cta"
+              isLoading={startAccessMutation.isPending}
+              isDisabled={!accessState.hasPublishedPackages || isAuthPending}
+              onPress={() => startAccessMutation.mutate()}
+            >
+              {isAuthenticated
+                ? startAccessMutation.isPending
+                  ? 'Starting verification...'
+                  : 'Verify purchase'
+                : startAccessMutation.isPending
+                  ? 'Starting sign-in...'
+                  : 'Sign in to continue'}
+            </YucpButton>
+          )}
+        </section>
+
+        {hasPublishedPackages ? (
+          <section className="vpa-section">
+            <h3 className="vpa-section-title">
+              {packageCount > 1 ? `What's included (${packageCount})` : "What's included"}
+            </h3>
+            {packageCount > 0 ? (
+              product.packagePreview.map((packageLink) => (
+                <PackageRow
+                  key={packageLink.packageId}
+                  packageId={packageLink.packageId}
+                  displayName={packageLink.displayName}
+                  latestPublishedVersion={packageLink.latestPublishedVersion}
+                />
+              ))
+            ) : (
+              <div className="vpa-locked">
+                <span className="vpa-package-icon" aria-hidden="true">
+                  <Lock className="size-4" />
+                </span>
+                <div className="vpa-package-text">
+                  <p className="vpa-locked-title">Private package included</p>
+                  <p className="vpa-locked-desc">Sign in to see the package you&apos;ll install.</p>
+                </div>
+              </div>
+            )}
+          </section>
+        ) : null}
+
+        {hasAccess && repositoryUrl ? (
+          <section className="vpa-manual">
+            <button
+              type="button"
+              className="vpa-manual-toggle"
+              aria-expanded={isManualSetupOpen}
+              onClick={() => setIsManualSetupOpen((value) => !value)}
+            >
+              Manual setup
+              <ChevronDown
+                className={`size-4 vpa-manual-toggle-icon${isManualSetupOpen ? ' is-open' : ''}`}
+              />
+            </button>
+            <div
+              className={`vpa-manual-panel${isManualSetupOpen ? ' is-open' : ''}`}
+              aria-hidden={!isManualSetupOpen}
+            >
+              <p className="vpa-manual-copy">
+                Prefer to add it yourself? In VCC choose <strong>Add Repository</strong> and paste
+                this private URL.
+              </p>
+              <div className="vpa-repo-box">
+                <p className="vpa-repo-url">{repositoryUrl}</p>
+                <YucpButton
+                  yucp="ghost"
+                  className="vpa-repo-copy"
+                  onPress={() => handleCopyValue(repositoryUrl, 'Repo URL copied')}
+                >
+                  <Copy className="size-3.5" />
+                  Copy
+                </YucpButton>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        <footer className="vpa-foot">
+          {isAuthenticated ? (
+            <Link to="/account/licenses" className="vpa-foot-link">
+              My purchases
+            </Link>
+          ) : null}
+          {product.storefrontUrl ? (
+            <a
+              href={product.storefrontUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="vpa-foot-link"
+            >
+              <ExternalLink className="size-4" />
+              Store listing
+            </a>
+          ) : null}
+        </footer>
+      </div>
     </PageShell>
   );
 }
