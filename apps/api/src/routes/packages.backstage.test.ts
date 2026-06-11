@@ -1847,6 +1847,107 @@ describe('package Backstage publishing routes', () => {
     expect(cdngineCreateUploadBodies).toHaveLength(0);
   });
 
+  it('requires products:write before OAuth Backstage upload setup and destructive handlers', async () => {
+    verifyBetterAuthAccessTokenImpl = async (_token: unknown, options: unknown) => {
+      const requiredScopes =
+        typeof options === 'object' && options && 'requiredScopes' in options
+          ? ((options as { requiredScopes?: string[] }).requiredScopes ?? [])
+          : [];
+      if (requiredScopes.includes('products:write')) {
+        return { ok: false, reason: 'insufficient_scope' };
+      }
+      return {
+        ok: true,
+        token: { sub: 'auth-user-1', grantedScopes: ['profile:read'] },
+      };
+    };
+
+    const uploadSessionResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify({
+          byteSize: 1024,
+          deliveryName: 'example.unitypackage',
+          sha256: 'e'.repeat(64),
+          sourceContentType: 'application/octet-stream',
+        }),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+    const mediaResponse = await routes.uploadBackstageReleaseMedia(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/media?kind=icon', {
+        body: new TextEncoder().encode('icon-bytes'),
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'image/png',
+        },
+        method: 'POST',
+      }),
+      'com.yucp.example'
+    );
+    const archiveProductResponse = await routes.archiveBackstageProduct(
+      new Request('https://api.test/api/packages/backstage/products/product_1/archive', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'product_1'
+    );
+    const deleteProductResponse = await routes.deleteBackstageProduct(
+      new Request('https://api.test/api/packages/backstage/products/product_2', {
+        method: 'DELETE',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'product_2'
+    );
+    const archiveReleaseResponse = await routes.archiveBackstageRelease(
+      new Request(
+        'https://api.test/api/packages/com.yucp.example/backstage/releases/release_old/archive',
+        {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+          },
+        }
+      ),
+      'com.yucp.example',
+      'release_old'
+    );
+    const deleteReleaseResponse = await routes.deleteBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases/release_old', {
+        method: 'DELETE',
+        headers: {
+          authorization: 'Bearer oauth-token',
+        },
+      }),
+      'com.yucp.example',
+      'release_old'
+    );
+
+    for (const response of [
+      uploadSessionResponse,
+      mediaResponse,
+      archiveProductResponse,
+      deleteProductResponse,
+      archiveReleaseResponse,
+      deleteReleaseResponse,
+    ]) {
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Token missing required scope: products:write',
+      });
+    }
+    expect(lastActionArgs).toBeUndefined();
+    expect(cdngineCreateUploadBodies).toHaveLength(0);
+  });
+
   it('publishes uploaded Backstage releases for the authenticated creator', async () => {
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {

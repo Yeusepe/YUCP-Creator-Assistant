@@ -21,12 +21,12 @@ RUN addgroup --system --gid 1001 appgroup \
 
 ENV NODE_ENV=production
 ENV LOG_LEVEL=debug
-# Zeabur injects PORT at runtime, usually 8080.
+# Runtime hosts may inject PORT; Vite preview defaults to 3000 when it is unset.
 # vite preview reads process.env.PORT through apps/web/vite.config.ts.
-EXPOSE 8080
+EXPOSE 3000
 
 USER appuser
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/bin/sh", "-lc", "bun -e \"fetch('http://127.0.0.1:${PORT:-8080}').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/bin/sh", "-lc", "bun -e \"fetch('http://127.0.0.1:${PORT:-3000}').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
 
 CMD ["/bin/sh", "-lc", "echo \"[web] bun=$(bun --version) node_env=${NODE_ENV} port=${PORT:-unset}\" && bun run start"]

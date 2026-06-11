@@ -82,7 +82,7 @@ describe('HeroUI Pro install token plumbing', () => {
     expect(dockerfile).toMatch(/RUN addgroup\b[\s\S]*adduser\b/);
     expect(dockerfile).toContain('USER appuser');
     expect(dockerfile).toMatch(/^HEALTHCHECK\b/m);
-    expect(dockerfile).toContain('http://127.0.0.1:${PORT:-8080}');
+    expect(dockerfile).toContain('http://127.0.0.1:${PORT:-3000}');
   });
 
   test('declares HeroUI Pro static icon imports for clean Workers builds', () => {

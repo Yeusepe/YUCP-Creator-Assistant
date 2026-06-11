@@ -1016,6 +1016,16 @@ async function resolveViewer(
   };
 }
 
+const PRODUCTS_WRITE_SCOPES: readonly PublicApiScope[] = ['products:write'];
+
+async function resolveProductWriteViewer(
+  request: Request,
+  auth: Auth,
+  config: PackagesConfig
+): Promise<{ authUserId: string; actorBinding: ApiActorBinding } | Response> {
+  return await resolveViewer(request, auth, config, PRODUCTS_WRITE_SCOPES);
+}
+
 export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   async function getBackstageRepoAccess(request: Request): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
@@ -1167,7 +1177,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function renamePackage(request: Request, packageIdParam: string): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1220,7 +1230,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function archivePackage(request: Request, packageIdParam: string): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1261,7 +1271,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function restorePackage(request: Request, packageIdParam: string): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1302,7 +1312,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
   }
 
   async function deletePackage(request: Request, packageIdParam: string): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1346,7 +1356,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     catalogProductId: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1380,7 +1390,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     catalogProductId: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1414,7 +1424,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     catalogProductId: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1449,7 +1459,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     packageIdParam: string,
     deliveryPackageReleaseId: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1500,7 +1510,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     packageIdParam: string,
     deliveryPackageReleaseId: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1597,7 +1607,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -1789,7 +1799,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }
@@ -2035,7 +2045,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config, ['products:write']);
+    const viewer = await resolveProductWriteViewer(request, auth, config);
     if (viewer instanceof Response) {
       return viewer;
     }

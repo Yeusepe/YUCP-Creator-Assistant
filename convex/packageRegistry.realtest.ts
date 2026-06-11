@@ -531,7 +531,7 @@ describe('packageRegistry', () => {
       packageId: 'com.yucp.buyer.access',
       packageName: 'Buyer Access Package',
       displayName: 'Buyer Access Package',
-      repositoryVisibility: 'hidden',
+      repositoryVisibility: 'listed',
       defaultChannel: 'stable',
     });
 
@@ -541,7 +541,7 @@ describe('packageRegistry', () => {
       version: '1.0.0',
       channel: 'stable',
       releaseStatus: 'published',
-      repositoryVisibility: 'hidden',
+      repositoryVisibility: 'listed',
       artifactKey: 'buyer-access-stable',
     });
 
@@ -565,9 +565,59 @@ describe('packageRegistry', () => {
           displayName: 'Buyer Access Package',
           defaultChannel: 'stable',
           latestPublishedVersion: '1.0.0',
-          repositoryVisibility: 'hidden',
+          repositoryVisibility: 'listed',
         },
       ],
+    });
+  });
+
+  it('does not advertise buyer access packages until they have a listed public release', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-buyer-access-hidden',
+      providerProductRef: 'gumroad-product-buyer-access-hidden',
+      displayName: 'Buyer Access Hidden Product',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.buyer.access.hidden',
+      packageName: 'Hidden Buyer Access Package',
+      publisherId: 'publisher-1',
+      yucpUserId: 'auth-user-1',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: 'auth-user-1',
+      catalogProductId,
+      packageId: 'com.yucp.buyer.access.hidden',
+      packageName: 'Hidden Buyer Access Package',
+      displayName: 'Hidden Buyer Access Package',
+      repositoryVisibility: 'hidden',
+      defaultChannel: 'stable',
+    });
+
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.buyer.access.hidden',
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'draft',
+      repositoryVisibility: 'hidden',
+      artifactKey: 'buyer-access-hidden-draft',
+    });
+
+    const result = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      catalogProductId,
+    });
+
+    expect(result).toMatchObject({
+      catalogProductId,
+      creatorAuthUserId: 'auth-user-1',
+      productId: 'product-buyer-access-hidden',
+      status: 'active',
+      backstagePackages: [],
     });
   });
 
@@ -1230,6 +1280,29 @@ describe('packageRegistry', () => {
     await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
       authUserId: 'auth-user-1',
       packageId: 'com.yucp.backstage.vpm',
+      version: '3.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'vpm-package-previous',
+      zipSha256: '0123456789abcdef',
+      metadata: {
+        description: 'Private VPM package previous version',
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '1.4.0',
+          catalogProductIds: [String(catalogProductId)],
+          channel: 'stable',
+        },
+      },
+    });
+
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.backstage.vpm',
       version: '3.1.0',
       channel: 'stable',
       releaseStatus: 'published',
@@ -1321,6 +1394,16 @@ describe('packageRegistry', () => {
     >;
     expect(repositoryPackages['com.yucp.backstage.vpm'].versions['3.1.0'].url).toBe(
       'https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.vpm&version=3.1.0&channel=stable&zipSHA256=abcdef1234567890'
+    );
+    expect(repositoryPackages['com.yucp.backstage.vpm'].versions['3.0.0']).toMatchObject({
+      name: 'com.yucp.backstage.vpm',
+      version: '3.0.0',
+      displayName: 'VPM Package',
+      zipSHA256: '0123456789abcdef',
+      yucpArtifactKey: 'vpm-package-previous',
+    });
+    expect(repositoryPackages['com.yucp.backstage.vpm'].versions['3.0.0'].url).toBe(
+      'https://api.yucp.test/v1/backstage/package?packageId=com.yucp.backstage.vpm&version=3.0.0&channel=stable&zipSHA256=0123456789abcdef'
     );
 
     const publicAccess = await t.run(async (ctx) => {

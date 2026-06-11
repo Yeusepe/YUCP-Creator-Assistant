@@ -662,34 +662,34 @@ function buildBackstageDownloadUrl(
 
 function toVpmVersionManifest(
   packageSummary: BackstagePackageSummary,
+  release: BackstageReleaseSummary,
   packageBaseUrl: string,
   packageHeaders?: Record<string, string>
 ): Record<string, unknown> | null {
-  if (!isListedPublicRelease(packageSummary.latestRelease)) {
+  if (!isListedPublicRelease(release)) {
     return null;
   }
 
-  const latestRelease = packageSummary.latestRelease;
-  const metadata = toBackstageReleaseManifestMetadata(latestRelease);
+  const metadata = toBackstageReleaseManifestMetadata(release);
 
   return {
     ...metadata,
     name: packageSummary.packageId,
-    version: latestRelease.version,
+    version: release.version,
     displayName:
       packageSummary.displayName ?? packageSummary.packageName ?? packageSummary.packageId,
     url: buildBackstageDownloadUrl(
       packageBaseUrl,
       packageSummary.packageId,
-      latestRelease.version,
-      latestRelease.channel,
-      latestRelease.zipSha256
+      release.version,
+      release.channel,
+      release.zipSha256
     ),
     ...(packageHeaders && Object.keys(packageHeaders).length > 0
       ? { headers: packageHeaders }
       : {}),
-    ...(latestRelease.zipSha256 ? { zipSHA256: latestRelease.zipSha256 } : {}),
-    ...(latestRelease.artifactKey ? { yucpArtifactKey: latestRelease.artifactKey } : {}),
+    ...(release.zipSha256 ? { zipSHA256: release.zipSha256 } : {}),
+    ...(release.artifactKey ? { yucpArtifactKey: release.artifactKey } : {}),
   };
 }
 
@@ -2920,15 +2920,20 @@ export const getBuyerAccessContextByCatalogProductId = query({
     const backstagePackages =
       backstagePackagesByCatalogProduct
         .get(String(product._id))
-        ?.sort(compareBackstagePackages)
+        ?.map(withLatestListedPublicRelease)
+        .filter(
+          (packageLink): packageLink is BackstagePackageSummaryWithPublicRelease<BackstagePackageSummary> =>
+            packageLink !== null
+        )
+        .sort(compareBackstagePackages)
         .map((packageLink) => ({
           packageId: packageLink.packageId,
           packageName: packageLink.packageName,
           displayName: packageLink.displayName,
           defaultChannel: packageLink.defaultChannel,
-          latestPublishedVersion: packageLink.latestPublishedVersion,
-          latestPublishedAt: packageLink.latestPublishedAt,
-          repositoryVisibility: packageLink.repositoryVisibility,
+          latestPublishedVersion: packageLink.latestRelease.version,
+          latestPublishedAt: packageLink.latestRelease.publishedAt ?? packageLink.latestPublishedAt,
+          repositoryVisibility: packageLink.latestRelease.repositoryVisibility,
         })) ?? [];
 
     return {
@@ -2978,18 +2983,26 @@ export const buildBackstageRepositoryForSubject = internalQuery({
         if (!publicPackage) {
           return acc;
         }
-        const manifest = toVpmVersionManifest(
-          publicPackage,
-          args.packageBaseUrl,
-          args.packageHeaders
+        const versions = publicPackage.releases.reduce<Record<string, unknown>>(
+          (versionAcc, release) => {
+            const manifest = toVpmVersionManifest(
+              publicPackage,
+              release,
+              args.packageBaseUrl,
+              args.packageHeaders
+            );
+            if (manifest) {
+              versionAcc[release.version] = manifest;
+            }
+            return versionAcc;
+          },
+          {}
         );
-        if (!manifest) {
+        if (Object.keys(versions).length === 0) {
           return acc;
         }
         acc[publicPackage.packageId] = {
-          versions: {
-            [publicPackage.latestRelease.version]: manifest,
-          },
+          versions,
         };
         return acc;
       },
