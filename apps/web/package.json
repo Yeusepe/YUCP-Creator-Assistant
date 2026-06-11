@@ -15,6 +15,8 @@
     "worker:secrets:sync": "bun run ../../ops/sync-web-worker-secrets.ts",
     "worker:deploy": "bun run ../../ops/deploy-web-worker.ts",
     "worker:version:upload": "bun run ../../ops/upload-web-worker-version.ts",
+    "cloudflare:worker:deploy": "cd ../.. && bun run cloudflare:worker:deploy",
+    "cloudflare:worker:version:upload": "cd ../.. && bun run cloudflare:worker:version:upload",
     "cf-typegen": "wrangler types",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
