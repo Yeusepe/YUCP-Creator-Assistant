@@ -226,7 +226,7 @@ export function buildPublicApiRateLimitKey(args: {
   bearerToken?: string | null;
   userAgent?: string | null;
 }): string {
-  const clientFingerprint = buildClientFingerprint(args);
+  const clientFingerprint = buildClientFingerprint(args.clientAddress);
   if (args.publicApiKey) {
     return `${args.routeFamily}:auth:public-api-key:${sanitizeKeySegment(getPublicApiKeyPrefix(args.publicApiKey))}:${clientFingerprint}`;
   }
@@ -237,12 +237,8 @@ export function buildPublicApiRateLimitKey(args: {
   return `${args.routeFamily}:ip:${clientFingerprint}`;
 }
 
-function buildClientFingerprint(args: {
-  clientAddress: string;
-  userAgent?: string | null;
-}): string {
-  const userAgent = args.userAgent?.trim() || 'unknown';
-  return sha256(`${args.clientAddress}:${userAgent}`);
+function buildClientFingerprint(clientAddress: string): string {
+  return sha256(clientAddress);
 }
 
 function sanitizeKeySegment(value: string): string {

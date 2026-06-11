@@ -9,6 +9,7 @@ export type PublicApiScope =
   | 'entitlements:read'
   | 'transactions:read'
   | 'products:read'
+  | 'products:write'
   | 'downloads:read'
   | 'collaborators:read'
   | 'webhooks:manage'
@@ -65,6 +66,15 @@ export const PUBLIC_API_SCOPE_DEFINITIONS = [
     description: 'Read product records needed to verify package access and imports.',
     badge: 'Catalog',
     sensitive: false,
+    defaultForApiKeys: false,
+    defaultForOAuthApps: false,
+  },
+  {
+    scope: 'products:write',
+    label: 'Publish product releases',
+    description: 'Create and update product package releases and delivery metadata.',
+    badge: 'Write',
+    sensitive: true,
     defaultForApiKeys: false,
     defaultForOAuthApps: false,
   },

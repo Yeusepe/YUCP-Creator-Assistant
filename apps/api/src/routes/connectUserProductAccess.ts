@@ -87,8 +87,12 @@ function resolveBuyerAccessMachineFingerprint(request: Request): {
   };
 }
 
-function buildBuyerAccessIdempotencyKey(catalogProductId: string, returnPath: string): string {
-  return `buyer-access:${catalogProductId}:${encodeURIComponent(returnPath)}`;
+function buildBuyerAccessIdempotencyKey(
+  catalogProductId: string,
+  returnPath: string,
+  codeChallenge: string
+): string {
+  return `buyer-access:${catalogProductId}:${encodeURIComponent(returnPath)}:${codeChallenge}`;
 }
 
 function buildHostedVerificationRequirements(
@@ -124,6 +128,8 @@ function buildHostedVerificationRequirements(
       methodKey: `${product.provider}-manual-license`,
       providerKey: product.provider,
       kind: 'manual_license',
+      creatorAuthUserId: product.creatorAuthUserId,
+      productId: product.productId,
       providerProductRef: product.providerProductRef,
     });
   }
@@ -138,9 +144,14 @@ export function createConnectUserProductAccessRoutes({
   async function resolveAccessProduct(
     catalogProductId: string
   ): Promise<BuyerAccessCatalogProduct | null> {
-    const convex = getConvexClientFromUrl(config.convexUrl);
+    const actor = await createApiServiceActorBinding({
+      service: 'buyer-product-access',
+      scopes: ['creator:delegate'],
+    });
+    const convex = getConvexClientFromUrl(config.convexUrl, actor);
     return (await convex.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
       apiSecret: config.convexApiSecret,
+      actor,
       catalogProductId: catalogProductId as Id<'product_catalog'>,
     })) as BuyerAccessCatalogProduct | null;
   }
@@ -265,7 +276,6 @@ export function createConnectUserProductAccessRoutes({
         );
       }
 
-      const convex = getConvexClientFromUrl(config.convexUrl);
       const safeReturnPath =
         getSafeRelativeRedirectTarget(body.returnTo) ??
         buildBuyerProductAccessPath(String(product.catalogProductId));
@@ -287,6 +297,8 @@ export function createConnectUserProductAccessRoutes({
         authUserId: session.user.id,
         source: 'session',
       });
+      const convex = getConvexClientFromUrl(config.convexUrl, actor);
+      const codeChallenge = await sha256Base64Url(codeVerifier);
 
       const created = await convex.mutation(api.verificationIntents.createVerificationIntent, {
         apiSecret: config.convexApiSecret,
@@ -295,16 +307,18 @@ export function createConnectUserProductAccessRoutes({
         packageId,
         packageName,
         machineFingerprint: buyerAccessFingerprint.machineFingerprint,
-        codeChallenge: await sha256Base64Url(codeVerifier),
+        codeChallenge,
         returnUrl,
         idempotencyKey: buildBuyerAccessIdempotencyKey(
           String(product.catalogProductId),
-          safeReturnPath
+          safeReturnPath,
+          codeChallenge
         ),
         requirements,
       });
       const intent = (await convex.action(api.verificationIntents.getVerificationIntent, {
         apiSecret: config.convexApiSecret,
+        actor,
         authUserId: session.user.id,
         intentId: created.intentId,
       })) as HostedVerificationIntentRecord | null;

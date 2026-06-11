@@ -520,6 +520,8 @@ export const verifyLicenseProof = internalAction({
     licenseKey: v.string(),
     provider: v.string(),
     productPermalink: v.string(),
+    creatorAuthUserId: v.optional(v.string()),
+    productId: v.optional(v.string()),
   },
   returns: v.object({
     success: v.boolean(),
@@ -538,14 +540,26 @@ export const verifyLicenseProof = internalAction({
     });
 
     if (product) {
-      const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-        packageId: args.packageId,
-      });
-      if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
-        return {
-          success: false,
-          error: 'Package not found or not registered to the product owner',
-        };
+      if (args.creatorAuthUserId || args.productId) {
+        if (
+          args.creatorAuthUserId !== product.authUserId ||
+          args.productId !== product.productId
+        ) {
+          return {
+            success: false,
+            error: 'Verification method points at a different creator product',
+          };
+        }
+      } else {
+        const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+          packageId: args.packageId,
+        });
+        if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
+          return {
+            success: false,
+            error: 'Package not found or not registered to the product owner',
+          };
+        }
       }
 
       verifyResult = await verifyLicenseWithProviderRuntime(ctx, {

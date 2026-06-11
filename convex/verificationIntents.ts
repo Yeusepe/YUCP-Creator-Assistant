@@ -1181,6 +1181,8 @@ export const verifyIntentWithManualLicense = action({
         licenseKey: args.licenseKey,
         provider: requirement.providerKey,
         productPermalink: requirement.providerProductRef,
+        creatorAuthUserId: requirement.creatorAuthUserId,
+        productId: requirement.productId,
       }
     );
 

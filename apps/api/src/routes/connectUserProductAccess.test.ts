@@ -172,6 +172,7 @@ describe('connect user product access routes', () => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
           catalogProductId: 'catalog_123',
         });
         return {
@@ -257,8 +258,13 @@ describe('connect user product access routes', () => {
   });
 
   it('does not expose Backstage package metadata to signed-out product access callers', async () => {
-    convexQueryMock.mockImplementation(async (reference: unknown) => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          catalogProductId: 'catalog_123',
+        });
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
@@ -327,8 +333,13 @@ describe('connect user product access routes', () => {
   it('creates a hosted verification intent with a flow-scoped machine fingerprint when the caller sends an unsafe return path', async () => {
     let createdMachineFingerprint: string | null = null;
 
-    convexQueryMock.mockImplementation(async (reference: unknown) => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          catalogProductId: 'catalog_123',
+        });
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
@@ -360,7 +371,7 @@ describe('connect user product access routes', () => {
         packageId: 'com.yucp.avatar.bundle',
         packageName: 'Avatar Bundle',
         returnUrl: 'http://localhost:3000/access/catalog_123',
-        idempotencyKey: 'buyer-access:catalog_123:%2Faccess%2Fcatalog_123',
+        idempotencyKey: 'buyer-access:catalog_123:%2Faccess%2Fcatalog_123:hashed-code-challenge',
       });
       expect((args as { machineFingerprint: string }).machineFingerprint).toMatch(
         /^buyer-access-web:[0-9a-f]{32}$/
@@ -369,7 +380,12 @@ describe('connect user product access routes', () => {
       expect((args as { requirements: Array<{ kind: string }> }).requirements).toEqual([
         expect.objectContaining({ kind: 'existing_entitlement' }),
         expect.objectContaining({ kind: 'buyer_provider_link' }),
-        expect.objectContaining({ kind: 'manual_license' }),
+        expect.objectContaining({
+          kind: 'manual_license',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          providerProductRef: 'gumroad-ref',
+        }),
       ]);
       return { intentId: 'intent_123' };
     });
@@ -380,6 +396,7 @@ describe('connect user product access routes', () => {
 
       expect(args).toEqual({
         apiSecret: 'test-convex-secret',
+        actor: 'actor-binding',
         authUserId: 'buyer-auth-user',
         intentId: 'intent_123',
       });
@@ -412,8 +429,13 @@ describe('connect user product access routes', () => {
   });
 
   it('reuses the existing buyer access machine fingerprint for the same product access flow', async () => {
-    convexQueryMock.mockImplementation(async (reference: unknown) => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          catalogProductId: 'catalog_123',
+        });
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
@@ -442,7 +464,7 @@ describe('connect user product access routes', () => {
       expect(args).toMatchObject({
         machineFingerprint: 'buyer-access-web:0123456789abcdef0123456789abcdef',
         returnUrl: 'http://localhost:3000/account/licenses',
-        idempotencyKey: 'buyer-access:catalog_123:%2Faccount%2Flicenses',
+        idempotencyKey: 'buyer-access:catalog_123:%2Faccount%2Flicenses:hashed-code-challenge',
       });
       return { intentId: 'intent_456' };
     });
@@ -474,8 +496,13 @@ describe('connect user product access routes', () => {
   });
 
   it('skips buyer account-link requirements when the provider does not support hosted OAuth linking', async () => {
-    convexQueryMock.mockImplementation(async (reference: unknown) => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          catalogProductId: 'catalog_123',
+        });
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
@@ -503,7 +530,12 @@ describe('connect user product access routes', () => {
 
       expect((args as { requirements: Array<{ kind: string }> }).requirements).toEqual([
         expect.objectContaining({ kind: 'existing_entitlement' }),
-        expect.objectContaining({ kind: 'manual_license' }),
+        expect.objectContaining({
+          kind: 'manual_license',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          providerProductRef: 'lemonsqueezy-ref',
+        }),
       ]);
       return { intentId: 'intent_789' };
     });

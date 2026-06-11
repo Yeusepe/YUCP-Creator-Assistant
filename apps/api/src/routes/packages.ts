@@ -4,7 +4,11 @@ import {
   CATALOG_SYNC_PROVIDER_KEYS,
   getProviderDescriptor,
 } from '@yucp/providers/providerMetadata';
-import { mergeYucpAliasPackageMetadata, type YucpAliasPackageContract } from '@yucp/shared';
+import {
+  mergeYucpAliasPackageMetadata,
+  type PublicApiScope,
+  type YucpAliasPackageContract,
+} from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
   BACKSTAGE_PACKAGE_MEDIA_KINDS,
@@ -209,8 +213,21 @@ function jsonResponse(body: object, status = 200): Response {
 function isCdngineBackstageDependencyError(error: unknown): boolean {
   return (
     error instanceof CdngineApiRequestError ||
+    isFetchAbortOrTimeoutError(error) ||
     (error instanceof Error && error.message.includes('CDNgine'))
   );
+}
+
+function isFetchAbortOrTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const name = error.name.trim().toLowerCase();
+  if (name === 'aborterror' || name === 'timeouterror') {
+    return true;
+  }
+  const message = error.message.trim().toLowerCase();
+  return message.includes('aborted') || message.includes('timed out');
 }
 
 function cdngineBackstageUnavailableResponse(error: string): Response {
@@ -947,7 +964,8 @@ async function reconcileBackstageTiersFromConnectedProviders(args: {
 async function resolveViewer(
   request: Request,
   auth: Auth,
-  config: PackagesConfig
+  config: PackagesConfig,
+  requiredScopes: readonly PublicApiScope[] = ['profile:read']
 ): Promise<{ authUserId: string; actorBinding: ApiActorBinding } | Response> {
   const authHeader = request.headers.get('authorization')?.trim() ?? '';
   if (authHeader.startsWith('Bearer ')) {
@@ -955,11 +973,17 @@ async function resolveViewer(
     const verified = await verifyBetterAuthAccessToken(token, {
       convexSiteUrl: config.convexSiteUrl,
       audience: 'yucp-public-api',
-      requiredScopes: ['profile:read'],
+      requiredScopes: Array.from(requiredScopes),
       logger,
       logContext: 'Package routes OAuth token verification failed',
     });
     if (!verified.ok) {
+      if (verified.reason === 'insufficient_scope') {
+        return jsonResponse(
+          { error: `Token missing required scope: ${requiredScopes.join(', ')}` },
+          403
+        );
+      }
       return jsonResponse({ error: 'Authentication required' }, 401);
     }
 
@@ -968,7 +992,7 @@ async function resolveViewer(
       actorBinding: await createAuthUserActorBinding({
         authUserId: verified.token.sub,
         source: 'oauth',
-        scopes: ['profile:read'],
+        scopes: requiredScopes,
       }),
     };
   }
@@ -2011,7 +2035,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
+    const viewer = await resolveViewer(request, auth, config, ['products:write']);
     if (viewer instanceof Response) {
       return viewer;
     }

@@ -5,6 +5,10 @@ import { gzipSync, unzipSync, zipSync } from 'fflate';
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+let verifyBetterAuthAccessTokenImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
+  ok: true,
+  token: { sub: 'auth-user-1', grantedScopes: ['profile:read', 'products:write'] },
+});
 let listProviderProductsViaApiImpl: (...args: unknown[]) => Promise<unknown> = async () => ({
   products: [],
 });
@@ -192,10 +196,7 @@ mock.module('../lib/convex', () => ({
 }));
 
 mock.module('../lib/oauthAccessToken', () => ({
-  verifyBetterAuthAccessToken: async () => ({
-    ok: true,
-    token: { sub: 'auth-user-1' },
-  }),
+  verifyBetterAuthAccessToken: (...args: unknown[]) => verifyBetterAuthAccessTokenImpl(...args),
 }));
 
 mock.module('../lib/apiActor', () => ({
@@ -237,6 +238,10 @@ describe('package Backstage publishing routes', () => {
   );
 
   beforeEach(() => {
+    verifyBetterAuthAccessTokenImpl = async () => ({
+      ok: true,
+      token: { sub: 'auth-user-1', grantedScopes: ['profile:read', 'products:write'] },
+    });
     cdngineUploadCounter = 0;
     cdngineCreateUploadBodies = [];
     cdngineCreateUploadIdempotencyKeys = [];
@@ -1803,6 +1808,45 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('requires products:write before accepting OAuth Backstage release publishing', async () => {
+    verifyBetterAuthAccessTokenImpl = async (_token: unknown, options: unknown) => {
+      const requiredScopes =
+        typeof options === 'object' && options && 'requiredScopes' in options
+          ? ((options as { requiredScopes?: string[] }).requiredScopes ?? [])
+          : [];
+      if (requiredScopes.includes('products:write')) {
+        return { ok: false, reason: 'insufficient_scope' };
+      }
+      return {
+        ok: true,
+        token: { sub: 'auth-user-1', grantedScopes: ['profile:read'] },
+      };
+    };
+
+    const response = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          cdngineSource: cdngineSourceFixture,
+          version: '1.2.3',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Token missing required scope: products:write',
+    });
+    expect(lastActionArgs).toBeUndefined();
+    expect(cdngineCreateUploadBodies).toHaveLength(0);
+  });
+
   it('publishes uploaded Backstage releases for the authenticated creator', async () => {
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
@@ -1889,6 +1933,50 @@ describe('package Backstage publishing routes', () => {
       error: 'CDNgine source is not owned by this creator',
     });
     expect(cdngineCreateUploadBodies).toHaveLength(0);
+    expect(lastActionArgs).toBeUndefined();
+  });
+
+  it('maps aborted CDNgine source downloads to temporary upstream failures', async () => {
+    let sourceDownloadCount = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/source/authorize')) {
+        return new Response(JSON.stringify({ url: 'https://cdn.test/source.zip' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url === 'https://cdn.test/source.zip') {
+        sourceDownloadCount += 1;
+        const abortError = new Error('The operation was aborted.');
+        abortError.name = 'AbortError';
+        throw abortError;
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    const response = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          cdngineSource: cdngineSourceFixture,
+          version: '1.2.5',
+          channel: 'stable',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(sourceDownloadCount).toBe(1);
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage package delivery is temporarily unavailable',
+    });
     expect(lastActionArgs).toBeUndefined();
   });
 

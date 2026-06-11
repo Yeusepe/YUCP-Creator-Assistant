@@ -75,4 +75,13 @@ describe('HeroUI Pro install token plumbing', () => {
     expect(dockerfile).toContain('cat /run/secrets/HEROUI_AUTH_TOKEN');
     expect(dockerfile).toContain('bun install --frozen-lockfile');
   });
+
+  test('runs the web preview image as a non-root user with a healthcheck', () => {
+    const dockerfile = readFileSync(resolve(process.cwd(), 'apps', 'web', 'Dockerfile'), 'utf8');
+
+    expect(dockerfile).toMatch(/RUN addgroup\b[\s\S]*adduser\b/);
+    expect(dockerfile).toContain('USER appuser');
+    expect(dockerfile).toMatch(/^HEALTHCHECK\b/m);
+    expect(dockerfile).toContain('http://127.0.0.1:${PORT:-8080}');
+  });
 });

@@ -38,6 +38,7 @@ const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
 const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
 const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
 const BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
+const BACKSTAGE_VERIFICATION_BOOTSTRAP_BODY_MAX_BYTES = 4 * 1024;
 const BACKSTAGE_VERIFICATION_REDEEM_BODY_MAX_BYTES = 4 * 1024;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
@@ -537,6 +538,8 @@ function buildBuyerAccessRequirements(product: PublicBackstageAccessRecord) {
       methodKey: `${product.provider}-license-key`,
       providerKey: product.provider,
       kind: 'manual_license' as const,
+      creatorAuthUserId: product.creatorAuthUserId,
+      productId: product.productId,
       providerProductRef: product.providerProductRef,
     });
   }
@@ -587,6 +590,7 @@ async function getPublicProductAccess(
   const convex = getConvexClientFromUrl(config.convexUrl, actor);
   const access = (await convex.query(api.packageRegistry.getPublicBackstageProductAccessByRef, {
     apiSecret: config.convexApiSecret,
+    actor,
     creatorRef,
     productRef,
   })) as PublicBackstageAccessRecord | null;
@@ -601,6 +605,21 @@ async function getPublicProductAccess(
   });
 
   return { access, creatorRepoIdentity };
+}
+
+async function resolveAliasInstallPlanActor(
+  viewer: BackstageAccessViewer,
+  creatorAuthUserId: string
+): Promise<ApiActorBinding> {
+  if (viewer.authUserId === creatorAuthUserId) {
+    return viewer.actorBinding;
+  }
+
+  return await createApiServiceActorBinding({
+    service: 'backstage-access',
+    scopes: ['creator:delegate'],
+    authUserId: creatorAuthUserId,
+  });
 }
 
 async function getActiveSubjectId(
@@ -750,6 +769,7 @@ async function issueRepoAccess(
       api.packageRegistry.getBuyerAccessContextByCatalogProductId,
       {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         catalogProductId: requestedCatalogProductId as Id<'product_catalog'>,
       }
     )) as BuyerAccessCatalogProduct | null;
@@ -761,8 +781,10 @@ async function issueRepoAccess(
     if (!creatorRef || !productRef) {
       throw new Error('Alias product access context was incomplete.');
     }
+    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
@@ -786,8 +808,10 @@ async function issueRepoAccess(
     if (!resolved) {
       return errorResponse('Product not found', 404);
     }
+    const planActor = await resolveAliasInstallPlanActor(viewer, resolved.access.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: resolved.access.creatorAuthUserId,
       subjectId,
       creatorRef: requestedCreatorRef,
@@ -862,8 +886,10 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
+    const planActor = await resolveAliasInstallPlanActor(viewer, resolved.access.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: resolved.access.creatorAuthUserId,
       subjectId,
       creatorRef,
@@ -912,6 +938,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       api.packageRegistry.getBuyerAccessContextByCatalogProductId,
       {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         catalogProductId: catalogProductId as Id<'product_catalog'>,
       }
     )) as BuyerAccessCatalogProduct | null;
@@ -925,8 +952,10 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
+    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
@@ -1170,6 +1199,7 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       api.packageRegistry.getBuyerAccessContextByCatalogProductId,
       {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         catalogProductId: catalogProductId as Id<'product_catalog'>,
       }
     )) as BuyerAccessCatalogProduct | null;
@@ -1183,8 +1213,10 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
+    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
@@ -1304,6 +1336,7 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       api.packageRegistry.getBuyerAccessContextByCatalogProductId,
       {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         catalogProductId: catalogProductId as Id<'product_catalog'>,
       }
     )) as BuyerAccessCatalogProduct | null;
@@ -1317,8 +1350,10 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
+    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
     const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
@@ -1486,8 +1521,14 @@ async function bootstrapBuyerVerificationIntent(
     idempotencyKey?: string;
   };
   try {
-    body = (await request.json()) as typeof body;
-  } catch {
+    body = (await parseJsonObjectBody(
+      request,
+      BACKSTAGE_VERIFICATION_BOOTSTRAP_BODY_MAX_BYTES
+    )) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return errorResponse(error.message, error.status);
+    }
     return errorResponse('Invalid JSON body', 400);
   }
 
@@ -1578,6 +1619,7 @@ async function redeemBuyerVerificationIntent(
   try {
     const result = await convex.action(api.verificationIntents.redeemVerificationIntent, {
       apiSecret: config.convexApiSecret,
+      actor,
       authUserId,
       intentId: intentId as Id<'verification_intents'>,
       codeVerifier: body.codeVerifier,

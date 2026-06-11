@@ -96,16 +96,10 @@ mock.module('../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../lib/convex', () => ({
-  getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
-    query: (reference: unknown, args?: unknown) =>
-      queryImpl(reference, actor && args && typeof args === 'object' ? { ...args, actor } : args),
-    mutation: (reference: unknown, args?: unknown) =>
-      mutationImpl(
-        reference,
-        actor && args && typeof args === 'object' ? { ...args, actor } : args
-      ),
-    action: (reference: unknown, args?: unknown) =>
-      actionImpl(reference, actor && args && typeof args === 'object' ? { ...args, actor } : args),
+  getConvexClientFromUrl: () => ({
+    query: (reference: unknown, args?: unknown) => queryImpl(reference, args),
+    mutation: (reference: unknown, args?: unknown) => mutationImpl(reference, args),
+    action: (reference: unknown, args?: unknown) => actionImpl(reference, args),
   }),
 }));
 
@@ -436,8 +430,9 @@ describe('backstage repo routes', () => {
             productRef: 'song-thing',
             actor: {
               payload: JSON.stringify({
-                authUserId: 'buyer-user-1',
-                source: 'session',
+                service: 'backstage-access',
+                scopes: ['creator:delegate'],
+                authUserId: 'creator-user-1',
               }),
               signature: 'test-signature',
             },
@@ -1106,6 +1101,42 @@ describe('backstage repo routes', () => {
     ).toBe(false);
   });
 
+  it('rejects oversized buyer verification bootstrap bodies before creating an intent', async () => {
+    const mutationCalls: Array<{ ref: unknown; args: unknown }> = [];
+    const defaultMutationImpl = mutationImpl;
+    mutationImpl = async (ref: unknown, args?: unknown) => {
+      mutationCalls.push({ ref, args });
+      return defaultMutationImpl(ref, args);
+    };
+    sessionImpl = async () => ({
+      user: {
+        id: 'auth-user-1',
+      },
+    });
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing/verification-intent', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnUrl: 'https://app.test/get-in-unity/mapache/song-thing',
+          machineFingerprint: 'machine_1',
+          codeChallenge: 'challenge_1',
+          padding: 'x'.repeat(5_000),
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(413);
+    await expect(response?.json()).resolves.toEqual({ error: 'Request body too large' });
+    expect(
+      mutationCalls.some((call) => call.ref === 'verificationIntents.createVerificationIntent')
+    ).toBe(false);
+  });
+
   it('issues a bearer-authenticated alias install plan without exposing repo credentials', async () => {
     const response = await routes.handleRequest(
       new Request('https://api.test/api/backstage/access/mapache/song-thing/install-plan', {
@@ -1398,9 +1429,9 @@ describe('backstage repo routes', () => {
             productRef: 'song-thing',
             actor: {
               payload: JSON.stringify({
-                authUserId: 'auth-user-1',
-                source: 'oauth',
-                scopes: ['products:read'],
+                service: 'backstage-access',
+                scopes: ['creator:delegate'],
+                authUserId: 'creator-user-1',
               }),
               signature: 'test-signature',
             },

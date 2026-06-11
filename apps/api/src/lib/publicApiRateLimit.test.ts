@@ -79,6 +79,47 @@ describe('checkPublicApiRateLimit', () => {
     expect(key).not.toContain('203.0.113.10');
   });
 
+  it('keeps client-controlled User-Agent changes in the same pre-auth bucket', () => {
+    const publicApiKey = `ypsk_01234567${'89abcdef'.repeat(5)}`;
+    const base = {
+      routeFamily: 'manual-licenses',
+      clientAddress: '203.0.113.10',
+    };
+
+    const anonymousKey = buildPublicApiRateLimitKey({
+      ...base,
+      userAgent: 'first-agent',
+    });
+    const anonymousRotatedAgentKey = buildPublicApiRateLimitKey({
+      ...base,
+      userAgent: 'second-agent',
+    });
+    const bearerKey = buildPublicApiRateLimitKey({
+      ...base,
+      bearerToken: 'oauth-token',
+      userAgent: 'first-agent',
+    });
+    const bearerRotatedAgentKey = buildPublicApiRateLimitKey({
+      ...base,
+      bearerToken: 'oauth-token',
+      userAgent: 'second-agent',
+    });
+    const publicApiKeyBucket = buildPublicApiRateLimitKey({
+      ...base,
+      publicApiKey,
+      userAgent: 'first-agent',
+    });
+    const publicApiRotatedAgentKey = buildPublicApiRateLimitKey({
+      ...base,
+      publicApiKey,
+      userAgent: 'second-agent',
+    });
+
+    expect(anonymousRotatedAgentKey).toBe(anonymousKey);
+    expect(bearerRotatedAgentKey).toBe(bearerKey);
+    expect(publicApiRotatedAgentKey).toBe(publicApiKeyBucket);
+  });
+
   it('does not hash full public API credentials in the pre-auth rate-limit gate', () => {
     const source = readFileSync(resolve(import.meta.dir, 'publicApiRateLimit.ts'), 'utf8');
     const publicApiKeysSource = readFileSync(resolve(import.meta.dir, 'publicApiKeys.ts'), 'utf8');
