@@ -90,6 +90,36 @@ describe('proxyApiRequest', () => {
     expect(mockGetToken).not.toHaveBeenCalled();
   });
 
+  it('forwards the Backstage upload completion token to the API proxy target', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ cdngineSource: { assetId: 'asset_1' } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    await proxyApiRequest({
+      url: 'http://localhost:3000/api/packages/com.yucp.song/backstage/upload-session/upload_1/complete',
+      method: 'POST',
+      headers: new Headers({
+        'X-YUCP-Upload-Completion-Token': 'completion-token-1',
+        authorization: 'Bearer should-not-forward',
+      }),
+      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+    } as unknown as Request);
+
+    const call = mockFetch.mock.calls[0];
+    expect(call).toBeDefined();
+    const [, init] = call as [string, RequestInit];
+    const headers = new Headers(init.headers);
+
+    expect(headers.get('X-YUCP-Upload-Completion-Token')).toBe('completion-token-1');
+    expect(headers.get('Authorization')).toBeNull();
+    expect(mockGetToken).not.toHaveBeenCalled();
+  });
+
   it('converts upstream fetch resets into a controlled 502 response instead of throwing', async () => {
     mockFetch.mockRejectedValueOnce(
       Object.assign(new TypeError('fetch failed'), {

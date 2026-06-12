@@ -31,6 +31,7 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
 
   copyHeaderIfPresent(request.headers, headers, 'content-type');
   copyHeaderIfPresent(request.headers, headers, 'idempotency-key');
+  copyHeaderIfPresent(request.headers, headers, 'x-yucp-upload-completion-token');
 
   const forwardedCookies = filterForwardedAuthCookieHeader(request.headers.get('cookie'));
   if (forwardedCookies) {
