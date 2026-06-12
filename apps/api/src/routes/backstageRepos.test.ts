@@ -4,6 +4,7 @@ let sessionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
+const convexQueryCalls: Array<{ reference: unknown; args: unknown; actor: unknown }> = [];
 const fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<Response> =
   async () =>
     new Response(
@@ -120,8 +121,10 @@ mock.module('../../../../convex/_generated/api', () => ({
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
-    query: (reference: unknown, args?: unknown) =>
-      queryImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor)),
+    query: (reference: unknown, args?: unknown) => {
+      convexQueryCalls.push({ reference, args, actor });
+      return queryImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor));
+    },
     mutation: (reference: unknown, args?: unknown) =>
       mutationImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor)),
     action: (reference: unknown, args?: unknown) =>
@@ -173,6 +176,7 @@ describe('backstage repo routes', () => {
 
   beforeEach(() => {
     globalThis.fetch = ((...args) => fetchImpl(...args)) as typeof fetch;
+    convexQueryCalls.length = 0;
     sessionImpl = async () => null;
     actionImpl = async () => null;
     queryImpl = async (ref: unknown, args?: unknown) => {
@@ -1957,6 +1961,17 @@ describe('backstage repo routes', () => {
     const cdngineCall = fetchCalls.find((call) => String(call.input).includes('/source/authorize'));
     expect(cdngineCall?.init?.headers).toMatchObject({
       authorization: 'Bearer cdngine-token',
+    });
+    const rawPackageResolutionCall = convexQueryCalls.find(
+      (call) => call.reference === 'backstageRepos.resolveRawPackageDownloadForApi'
+    );
+    expect(rawPackageResolutionCall?.actor).toMatchObject({
+      payload: JSON.stringify({
+        service: 'backstage-access',
+        scopes: ['creator:delegate'],
+        authUserId: 'creator-user-1',
+      }),
+      signature: 'test-signature',
     });
   });
 

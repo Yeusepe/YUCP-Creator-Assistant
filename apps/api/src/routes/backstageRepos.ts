@@ -1287,12 +1287,16 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const { plan } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
-      authUserId: product.creatorAuthUserId,
-      subjectId,
-      creatorRef,
-      productRef,
-    });
+    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
+      config,
+      viewer,
+      {
+        authUserId: product.creatorAuthUserId,
+        subjectId,
+        creatorRef,
+        productRef,
+      }
+    );
     const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
     if (!planPackage) {
       return errorResponse('Package not found', 404);
@@ -1304,7 +1308,7 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       return errorResponse('Package not found', 404);
     }
 
-    const resolved = (await convex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+    const resolved = (await planConvex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
       apiSecret: config.convexApiSecret,
       authUserId: product.creatorAuthUserId,
       subjectId,
