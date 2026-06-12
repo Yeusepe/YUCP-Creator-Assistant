@@ -667,6 +667,33 @@ async function resolveAliasInstallPlanActor(
   });
 }
 
+async function getAuthorizedAliasInstallPlanForViewer(
+  config: BackstageRepoConfig,
+  viewer: BackstageAccessViewer,
+  input: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    creatorRef: string;
+    productRef: string;
+  }
+): Promise<{
+  convex: ReturnType<typeof getConvexClientFromUrl>;
+  plan: AuthorizedAliasInstallPlanRecord | null;
+}> {
+  const actor = await resolveAliasInstallPlanActor(viewer, input.authUserId);
+  const convex = getConvexClientFromUrl(config.convexUrl, actor);
+  const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
+    apiSecret: config.convexApiSecret,
+    actor,
+    authUserId: input.authUserId,
+    subjectId: input.subjectId,
+    creatorRef: input.creatorRef,
+    productRef: input.productRef,
+  })) as AuthorizedAliasInstallPlanRecord | null;
+
+  return { convex, plan };
+}
+
 async function getActiveSubjectId(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   config: BackstageRepoConfig,
@@ -826,15 +853,12 @@ async function issueRepoAccess(
     if (!creatorRef || !productRef) {
       throw new Error('Alias product access context was incomplete.');
     }
-    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
+    const { plan } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
       productRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    });
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
@@ -853,15 +877,12 @@ async function issueRepoAccess(
     if (!resolved) {
       return errorResponse('Product not found', 404);
     }
-    const planActor = await resolveAliasInstallPlanActor(viewer, resolved.access.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
+    const { plan } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
       authUserId: resolved.access.creatorAuthUserId,
       subjectId,
       creatorRef: requestedCreatorRef,
       productRef: requestedProductRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    });
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
@@ -931,22 +952,23 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
-    const planActor = await resolveAliasInstallPlanActor(viewer, resolved.access.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
-      authUserId: resolved.access.creatorAuthUserId,
-      subjectId,
-      creatorRef,
-      productRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
+      config,
+      viewer,
+      {
+        authUserId: resolved.access.creatorAuthUserId,
+        subjectId,
+        creatorRef,
+        productRef,
+      }
+    );
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
 
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
-      convex,
+      planConvex,
       plan,
       subjectId,
       String(resolved.access.catalogProductId)
@@ -1019,22 +1041,23 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
-      authUserId: product.creatorAuthUserId,
-      subjectId,
-      creatorRef,
-      productRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
+      config,
+      viewer,
+      {
+        authUserId: product.creatorAuthUserId,
+        subjectId,
+        creatorRef,
+        productRef,
+      }
+    );
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
 
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
-      convex,
+      planConvex,
       plan,
       subjectId,
       catalogProductId,
@@ -1264,15 +1287,12 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
+    const { plan } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
       productRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    });
     const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
     if (!planPackage) {
       return errorResponse('Package not found', 404);
@@ -1401,15 +1421,12 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const planActor = await resolveAliasInstallPlanActor(viewer, product.creatorAuthUserId);
-    const plan = (await convex.query(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
-      apiSecret: config.convexApiSecret,
-      actor: planActor,
+    const { plan } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
       authUserId: product.creatorAuthUserId,
       subjectId,
       creatorRef,
       productRef,
-    })) as AuthorizedAliasInstallPlanRecord | null;
+    });
     const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
     const media = planPackage?.media?.[mediaKind];
     if (!planPackage || !media) {

@@ -35,6 +35,29 @@ const fetchImpl: (input: string | URL | Request, init?: RequestInit) => Promise<
       }
     );
 const originalFetch = globalThis.fetch;
+
+function applyBoundActorForProtectedMockCall(
+  reference: unknown,
+  args: unknown,
+  actor: unknown
+): unknown {
+  if (
+    !actor ||
+    typeof reference !== 'string' ||
+    !reference.startsWith('packageRegistry.') ||
+    !args ||
+    typeof args !== 'object' ||
+    Array.isArray(args)
+  ) {
+    return args;
+  }
+
+  return {
+    ...(args as Record<string, unknown>),
+    actor,
+  };
+}
+
 type TestCdngineSourceReference = {
   assetId: string;
   versionId: string;
@@ -96,10 +119,13 @@ mock.module('../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({
-    query: (reference: unknown, args?: unknown) => queryImpl(reference, args),
-    mutation: (reference: unknown, args?: unknown) => mutationImpl(reference, args),
-    action: (reference: unknown, args?: unknown) => actionImpl(reference, args),
+  getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
+    query: (reference: unknown, args?: unknown) =>
+      queryImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor)),
+    mutation: (reference: unknown, args?: unknown) =>
+      mutationImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor)),
+    action: (reference: unknown, args?: unknown) =>
+      actionImpl(reference, applyBoundActorForProtectedMockCall(reference, args, actor)),
   }),
 }));
 
@@ -256,7 +282,7 @@ describe('backstage repo routes', () => {
         case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
           return {
             catalogProductId: 'catalog_1',
-            creatorAuthUserId: 'auth-user-1',
+            creatorAuthUserId: 'creator-user-1',
             productId: 'product_1',
             provider: 'gumroad',
             providerProductRef: 'song-thing',
@@ -1394,14 +1420,14 @@ describe('backstage repo routes', () => {
       }
       return fetchImpl(input, init);
     }) as typeof fetch;
-    queryImpl = async (ref: unknown) => {
+    queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
           return { _id: 'subject_1' };
         case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
           return {
             catalogProductId: 'catalog_1',
-            creatorAuthUserId: 'auth-user-1',
+            creatorAuthUserId: 'creator-user-1',
             productId: 'product_1',
             provider: 'gumroad',
             providerProductRef: 'song-thing',
@@ -1410,8 +1436,22 @@ describe('backstage repo routes', () => {
             status: 'active',
           };
         case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          expect(args).toMatchObject({
+            authUserId: 'creator-user-1',
+            subjectId: 'subject_1',
+            creatorRef: 'creator-user-1',
+            productRef: 'song-thing',
+            actor: {
+              payload: JSON.stringify({
+                service: 'backstage-access',
+                scopes: ['creator:delegate'],
+                authUserId: 'creator-user-1',
+              }),
+              signature: 'test-signature',
+            },
+          });
           return {
-            creatorAuthUserId: 'auth-user-1',
+            creatorAuthUserId: 'creator-user-1',
             providerProductRef: 'song-thing',
             canonicalSlug: 'song-thing',
             packages: [
@@ -1433,8 +1473,8 @@ describe('backstage repo routes', () => {
                       deliveryScopeId: 'paid-downloads',
                       variant: 'package-media',
                       serviceNamespaceId: 'yucp-backstage',
-                      tenantId: 'auth-user-1',
-                      assetOwner: 'creator:auth-user-1',
+                      tenantId: 'creator-user-1',
+                      assetOwner: 'creator:creator-user-1',
                       sha256: 'd'.repeat(64),
                       byteSize: 10,
                       uploadedAt: 1_700_000_000_000,
@@ -1810,6 +1850,14 @@ describe('backstage repo routes', () => {
             subjectId: 'subject_1',
             creatorRef: 'creator-user-1',
             productRef: 'song-thing',
+            actor: {
+              payload: JSON.stringify({
+                service: 'backstage-access',
+                scopes: ['creator:delegate'],
+                authUserId: 'creator-user-1',
+              }),
+              signature: 'test-signature',
+            },
           });
           return {
             creatorAuthUserId: 'creator-user-1',
