@@ -24,13 +24,16 @@ export type CreatorRepoIdentity = {
   repositoryName: string;
 };
 
-function sanitizeRepositoryIdSegment(value: string): string {
-  const sanitized = value
+function toRepositoryIdSegment(value: string): string {
+  return value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return sanitized || 'creator';
+}
+
+function sanitizeRepositoryIdSegment(value: string): string {
+  return toRepositoryIdSegment(value) || 'creator';
 }
 
 function trimOptional(value: string | undefined): string | undefined {
@@ -72,7 +75,8 @@ export function buildCreatorRepoRef(input: { authUserId: string; creatorSlug?: s
   if (!authUserId) {
     throw new Error('authUserId is required to derive a creator repository reference.');
   }
-  return input.creatorSlug?.trim() || authUserId;
+  const creatorSlug = input.creatorSlug?.trim();
+  return creatorSlug && toRepositoryIdSegment(creatorSlug) ? creatorSlug : authUserId;
 }
 
 export function buildBackstageRepositoryUrls(apiBaseUrl: string, creatorRepoRef: string) {

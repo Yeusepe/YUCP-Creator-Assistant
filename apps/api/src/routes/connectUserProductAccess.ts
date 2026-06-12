@@ -197,7 +197,7 @@ export function createConnectUserProductAccessRoutes({
             String(entitlement.catalogProductId) === String(product.catalogProductId)
         ) ?? null;
 
-      const packagePreview = session
+      const packagePreview = activeEntitlement
         ? product.backstagePackages.map((packageLink) => ({
             packageId: packageLink.packageId,
             packageName: packageLink.packageName ?? null,

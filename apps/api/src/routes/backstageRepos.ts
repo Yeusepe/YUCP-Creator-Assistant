@@ -45,6 +45,7 @@ const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
 const BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
 const BACKSTAGE_VERIFICATION_BOOTSTRAP_BODY_MAX_BYTES = 4 * 1024;
 const BACKSTAGE_VERIFICATION_REDEEM_BODY_MAX_BYTES = 4 * 1024;
+const CDNGINE_AUTHORIZATION_RESPONSE_MAX_BYTES = 16 * 1024;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
@@ -192,6 +193,16 @@ function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
 }
 
+function redirectNoStore(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: {
+      Location: location,
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 function safeDecodeURIComponent(value: string): string | null {
   try {
     return decodeURIComponent(value);
@@ -241,7 +252,11 @@ async function fetchForwardedToolchainPackages(): Promise<BackstageRepositoryPac
     if (Number.isFinite(contentLength) && contentLength > BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES) {
       throw new Error('Forwarded toolchain repository response exceeded the byte limit.');
     }
-    const text = await response.text();
+    const text = await readResponseTextWithLimit(
+      response,
+      BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES,
+      'Forwarded toolchain repository response exceeded the byte limit.'
+    );
     if (new TextEncoder().encode(text).byteLength > BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES) {
       throw new Error('Forwarded toolchain repository response exceeded the byte limit.');
     }
@@ -329,6 +344,36 @@ function parseCdngineJsonObject(text: string): Record<string, unknown> {
   }
 }
 
+async function readResponseTextWithLimit(
+  response: Response,
+  maxBytes: number,
+  errorMessage: string
+): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return '';
+  }
+
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > maxBytes) {
+      await reader.cancel('response body exceeded limit').catch(() => undefined);
+      throw new Error(errorMessage);
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
 function isCdngineBackstageDependencyError(error: unknown): boolean {
   return error instanceof Error && error.message.includes('CDNgine');
 }
@@ -361,7 +406,11 @@ async function authorizeCdngineBackstageDeliveryUrl(input: {
     },
     input.cdngine.timeoutMs ?? 5000
   );
-  const text = await response.text();
+  const text = await readResponseTextWithLimit(
+    response,
+    CDNGINE_AUTHORIZATION_RESPONSE_MAX_BYTES,
+    'CDNgine authorization response exceeded the byte limit.'
+  );
   const payload = parseCdngineJsonObject(text);
   if (!response.ok) {
     return {
@@ -841,7 +890,7 @@ async function issueRepoAccess(
   ).repositoryUrl;
   const addRepoUrl = buildBackstageAddRepoUrl(repositoryUrl, issued.token);
   if (requestUrl.searchParams.get('mode') === 'redirect') {
-    return Response.redirect(addRepoUrl, 302);
+    return redirectNoStore(addRepoUrl);
   }
 
   return jsonResponse({
@@ -1437,7 +1486,7 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       });
       return errorResponse('Package media is temporarily unavailable', 502);
     }
-    return Response.redirect(authorization.url, 302);
+    return redirectNoStore(authorization.url);
   } catch (error) {
     if (isCdngineBackstageDependencyError(error)) {
       logger.warn('CDNgine Backstage package media delivery authorization failed', {
@@ -1516,12 +1565,7 @@ async function bootstrapBuyerVerificationIntent(
     return errorResponse('This product is not ready for Unity yet', 409);
   }
 
-  let body: {
-    returnUrl?: string;
-    machineFingerprint?: string;
-    codeChallenge?: string;
-    idempotencyKey?: string;
-  };
+  let body: Record<string, unknown>;
   try {
     body = (await parseJsonObjectBody(
       request,
@@ -1534,10 +1578,14 @@ async function bootstrapBuyerVerificationIntent(
     return errorResponse('Invalid JSON body', 400);
   }
 
-  if (!body.returnUrl || !body.machineFingerprint || !body.codeChallenge) {
+  const returnUrlInput = readOptionalBodyString(body, 'returnUrl');
+  const machineFingerprint = readOptionalBodyString(body, 'machineFingerprint');
+  const codeChallenge = readOptionalBodyString(body, 'codeChallenge');
+  const idempotencyKey = readOptionalBodyString(body, 'idempotencyKey');
+  if (!returnUrlInput || !machineFingerprint || !codeChallenge) {
     return errorResponse('returnUrl, machineFingerprint, and codeChallenge are required', 400);
   }
-  const returnUrl = normalizeFrontendReturnUrl(config, body.returnUrl);
+  const returnUrl = normalizeFrontendReturnUrl(config, returnUrlInput);
   if (!returnUrl) {
     return errorResponse('Invalid returnUrl', 400);
   }
@@ -1554,10 +1602,10 @@ async function bootstrapBuyerVerificationIntent(
         resolved.access.displayName ??
         resolved.access.primaryPackageName ??
         resolved.access.providerProductRef,
-      machineFingerprint: body.machineFingerprint,
-      codeChallenge: body.codeChallenge,
+      machineFingerprint,
+      codeChallenge,
       returnUrl,
-      idempotencyKey: body.idempotencyKey,
+      idempotencyKey,
       requirements,
     });
 
@@ -1591,11 +1639,7 @@ async function redeemBuyerVerificationIntent(
     return authUserId;
   }
 
-  let body: {
-    codeVerifier?: string;
-    machineFingerprint?: string;
-    grantToken?: string;
-  };
+  let body: Record<string, unknown>;
   try {
     body = (await parseJsonObjectBody(
       request,
@@ -1608,7 +1652,10 @@ async function redeemBuyerVerificationIntent(
     return errorResponse('Invalid JSON body', 400);
   }
 
-  if (!body.codeVerifier || !body.machineFingerprint || !body.grantToken) {
+  const codeVerifier = readOptionalBodyString(body, 'codeVerifier');
+  const machineFingerprint = readOptionalBodyString(body, 'machineFingerprint');
+  const grantToken = readOptionalBodyString(body, 'grantToken');
+  if (!codeVerifier || !machineFingerprint || !grantToken) {
     return errorResponse('codeVerifier, machineFingerprint, and grantToken are required', 400);
   }
 
@@ -1624,9 +1671,9 @@ async function redeemBuyerVerificationIntent(
       actor,
       authUserId,
       intentId: intentId as Id<'verification_intents'>,
-      codeVerifier: body.codeVerifier,
-      machineFingerprint: body.machineFingerprint,
-      grantToken: body.grantToken,
+      codeVerifier,
+      machineFingerprint,
+      grantToken,
       issuerBaseUrl: config.apiBaseUrl,
     });
 
@@ -1745,7 +1792,7 @@ async function servePackageDownload(
         request,
         resolved,
       });
-      return Response.redirect(cdngineUrl, 302);
+      return redirectNoStore(cdngineUrl);
     } catch (error) {
       logger.warn('CDNgine Backstage delivery authorization failed', {
         authUserId: access.authUserId,
@@ -1767,7 +1814,7 @@ async function servePackageDownload(
   if (!resolved.downloadUrl) {
     return errorResponse('Package delivery is temporarily unavailable', 502);
   }
-  return Response.redirect(resolved.downloadUrl, 302);
+  return redirectNoStore(resolved.downloadUrl);
 }
 
 export function createBackstageRepoRoutes(config: BackstageRepoConfig) {

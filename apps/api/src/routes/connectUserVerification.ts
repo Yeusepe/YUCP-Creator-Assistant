@@ -238,11 +238,7 @@ export function createConnectUserVerificationRoutes({
       return viewer;
     }
     try {
-      await reconcileBuyerVerificationAccounts(viewer.convex, viewer.authUserId);
-      const links = await viewer.convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
-        apiSecret: config.convexApiSecret,
-        authUserId: viewer.authUserId,
-      });
+      const links = await reconcileBuyerVerificationAccounts(viewer.convex, viewer.authUserId);
       return Response.json({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),

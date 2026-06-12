@@ -12,6 +12,7 @@ describe('API CORS headers', () => {
     expect(headers['Access-Control-Allow-Methods']).toContain('OPTIONS');
     expect(headers['Access-Control-Allow-Headers']).toContain('Content-Type');
     expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-File-Name');
+    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Upload-Completion-Token');
   });
 
   it('keeps localhost UI origins allowed in development when the public API URL is a tunnel', () => {

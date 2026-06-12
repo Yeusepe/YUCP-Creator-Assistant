@@ -41,6 +41,16 @@ it('normalizes invalid CDNgine request timeouts to the default timeout', () => {
   ).toBe(15_000);
 });
 
+it('normalizes non-positive CDNgine publication poll intervals to the default interval', () => {
+  expect(
+    requireCdngineBackstageConfig({
+      accessToken: 'cdngine-token',
+      apiBaseUrl: 'https://cdngine.test',
+      publicationPollIntervalMs: 0,
+    }).publicationPollIntervalMs
+  ).toBe(500);
+});
+
 it('resolves relative CDNgine upload target URLs against the configured API base URL', async () => {
   const requestedUrls: string[] = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -201,7 +211,7 @@ it('waits until CDNgine publishes Backstage deliverables before returning delive
     config: {
       accessToken: 'cdngine-token',
       apiBaseUrl: 'https://cdngine.test',
-      publicationPollIntervalMs: 0,
+      publicationPollIntervalMs: 1,
       publicationTimeoutMs: 100,
     },
     contentType: 'application/zip',

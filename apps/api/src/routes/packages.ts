@@ -50,6 +50,7 @@ import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
+const BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER = 'X-YUCP-Upload-Completion-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
@@ -1692,9 +1693,10 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       );
       const completeUrl = `${config.apiBaseUrl.replace(/\/+$/, '')}/api/packages/${encodeURIComponent(
         packageId
-      )}/backstage/upload-session/complete?completionToken=${encodeURIComponent(completionToken)}`;
+      )}/backstage/upload-session/complete`;
 
       return jsonResponse({
+        completionToken,
         completeUrl,
         packageId,
         uploadSessionId: session.uploadSessionId,
@@ -1737,7 +1739,8 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
     }
 
-    const completionToken = new URL(request.url).searchParams.get('completionToken') ?? '';
+    const completionToken =
+      request.headers.get(BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER)?.trim() ?? '';
     const tokenPayload = verifyBackstageUploadCompletionToken(
       completionToken,
       config.convexApiSecret

@@ -13,13 +13,15 @@ const convexMutationMock = mock(
 const loggerErrorMock = mock(() => undefined);
 let csrfBlockImpl: (request: Request) => Response | null = () => null;
 
-const testActorBinding = {
+const createTestActorBinding = (authUserId: string, source = 'session') => ({
   payload: JSON.stringify({
-    authUserId: 'buyer_auth_user_B',
-    source: 'session',
+    authUserId,
+    source,
   }),
   signature: 'test-signature',
-};
+});
+
+const testActorBinding = createTestActorBinding('buyer_auth_user_B');
 
 const apiMock = {
   subjects: {
@@ -51,7 +53,13 @@ mock.module('../lib/convex', () => ({
 }));
 
 mock.module('../lib/apiActor', () => ({
-  createAuthUserActorBinding: async () => testActorBinding,
+  createAuthUserActorBinding: async ({
+    authUserId,
+    source,
+  }: {
+    authUserId: string;
+    source: string;
+  }) => createTestActorBinding(authUserId, source),
 }));
 
 mock.module('../lib/csrf', () => ({
@@ -405,6 +413,7 @@ describe('GET /api/connect/user/accounts', () => {
 
     expect(getResponse.status).toBe(200);
     expect(convexMutationMock).not.toHaveBeenCalled();
+    convexQueryMock.mockClear();
 
     const response = await routes.refreshUserAccounts(
       new Request('http://localhost:3001/api/connect/user/accounts/refresh', {
@@ -421,6 +430,7 @@ describe('GET /api/connect/user/accounts', () => {
         authUserId: 'buyer_auth_user_B',
       }
     );
+    expect(convexQueryMock).toHaveBeenCalledTimes(1);
   });
 
   it('uses the signed-in user actor for account-link reads', async () => {

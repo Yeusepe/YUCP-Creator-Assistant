@@ -387,6 +387,7 @@ describe('backstage repo routes', () => {
     expect(response?.headers.get('location')).toBe(
       'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example'
     );
+    expect(response?.headers.get('cache-control')).toBe('no-store');
   });
 
   it('issues buyer repo access for the product creator repo instead of the buyer workspace', async () => {
@@ -664,6 +665,7 @@ describe('backstage repo routes', () => {
 
     expect(response?.status).toBe(302);
     expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
+    expect(response?.headers.get('cache-control')).toBe('no-store');
   });
 
   it('redirects entitled package downloads through CDNgine when a deliverable reference exists', async () => {
@@ -770,6 +772,7 @@ describe('backstage repo routes', () => {
     expect(response?.headers.get('location')).toBe(
       'https://cdngine.test/uploads/backstage/example-1.2.3.zip'
     );
+    expect(response?.headers.get('cache-control')).toBe('no-store');
     const cdngineCall = fetchCalls.find((call) =>
       String(call.input).startsWith('https://cdngine.test/')
     );
@@ -786,6 +789,111 @@ describe('backstage repo routes', () => {
       responseFormat: 'url',
       variant: 'preserve-original',
     });
+  });
+
+  it('stops reading oversized CDNgine authorization responses before buffering the full body', async () => {
+    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
+    let cdngineChunksRead = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ input, init });
+      const url = String(input);
+      if (url.startsWith('https://cdngine.test/')) {
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              cdngineChunksRead += 1;
+              controller.enqueue(new Uint8Array(8 * 1024).fill(120));
+              if (cdngineChunksRead >= 8) {
+                controller.close();
+              }
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: 'https://downloads.example/package.zip',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
+            version: '1.2.3',
+            channel: 'stable',
+            cdngineDelivery: {
+              assetId: 'ast_backstage_1',
+              versionId: 'ver_backstage_1',
+              deliveryScopeId: 'paid-downloads',
+              variant: 'preserve-original',
+              serviceNamespaceId: 'yucp-backstage',
+              tenantId: 'auth-user-1',
+              assetOwner: 'creator:auth-user-1',
+              sha256: 'a'.repeat(64),
+              byteSize: 1234,
+              uploadedAt: 1_700_000_000_000,
+            },
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      auth: {
+        getSession: (...args: unknown[]) =>
+          sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
+      } as never,
+      apiBaseUrl: 'https://api.test',
+      enableSessionAccess: true,
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: true,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(502);
+    expect(cdngineChunksRead).toBeLessThan(8);
   });
 
   it('does not fall back to CDNgine source export for VPM package downloads when delivery is not ready', async () => {
@@ -1066,6 +1174,43 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('rejects blank buyer verification bootstrap fields before creating an intent', async () => {
+    const mutationCalls: Array<{ ref: unknown; args: unknown }> = [];
+    const defaultMutationImpl = mutationImpl;
+    mutationImpl = async (ref: unknown, args?: unknown) => {
+      mutationCalls.push({ ref, args });
+      return defaultMutationImpl(ref, args);
+    };
+    sessionImpl = async () => ({
+      user: {
+        id: 'auth-user-1',
+      },
+    });
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing/verification-intent', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnUrl: '   ',
+          machineFingerprint: 'machine_1',
+          codeChallenge: 'challenge_1',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(400);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'returnUrl, machineFingerprint, and codeChallenge are required',
+    });
+    expect(
+      mutationCalls.some((call) => call.ref === 'verificationIntents.createVerificationIntent')
+    ).toBe(false);
+  });
+
   it('rejects untrusted buyer verification return URLs before creating an intent', async () => {
     const mutationCalls: Array<{ ref: unknown; args: unknown }> = [];
     const defaultMutationImpl = mutationImpl;
@@ -1332,6 +1477,107 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package media is temporarily unavailable',
     });
+  });
+
+  it('marks CDNgine package media redirects as non-cacheable', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (String(input).startsWith('https://cdngine.test/')) {
+        return new Response(
+          JSON.stringify({
+            url: 'https://cdn.cdngine.test/media/song-icon.png?signature=signed',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'auth-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            status: 'active',
+          };
+        case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          return {
+            creatorAuthUserId: 'auth-user-1',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            packages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                version: '1.2.3',
+                channel: 'stable',
+                media: {
+                  icon: {
+                    kind: 'icon',
+                    byteSize: 10,
+                    contentType: 'image/png',
+                    deliveryName: 'song-icon.png',
+                    sha256: 'd'.repeat(64),
+                    cdngineDelivery: {
+                      assetId: 'ast_media_icon',
+                      versionId: 'ver_media_icon',
+                      deliveryScopeId: 'paid-downloads',
+                      variant: 'package-media',
+                      serviceNamespaceId: 'yucp-backstage',
+                      tenantId: 'auth-user-1',
+                      assetOwner: 'creator:auth-user-1',
+                      sha256: 'd'.repeat(64),
+                      byteSize: 10,
+                      uploadedAt: 1_700_000_000_000,
+                    },
+                  },
+                },
+              },
+            ],
+          };
+        default:
+          return null;
+      }
+    };
+
+    const cdngineRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      cdngine: {
+        apiBaseUrl: 'https://cdngine.test',
+        accessToken: 'cdngine-token',
+        required: true,
+      },
+    });
+
+    const response = await cdngineRoutes.handleRequest(
+      new Request(
+        'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
+        {
+          headers: {
+            authorization: 'Bearer oauth-token',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get('location')).toBe(
+      'https://cdn.cdngine.test/media/song-icon.png?signature=signed'
+    );
+    expect(response?.headers.get('cache-control')).toBe('no-store');
   });
 
   it('reports thrown CDNgine media authorization failures as temporary delivery outages', async () => {
@@ -1844,6 +2090,36 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Authentication required',
     });
+  });
+
+  it('rejects blank buyer verification redemption fields before redeeming grants', async () => {
+    sessionImpl = async () => ({ user: { id: 'auth-user-1' } });
+    const actionCalls: unknown[][] = [];
+    actionImpl = async (...args: unknown[]) => {
+      actionCalls.push(args);
+      return { success: true };
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/verification-intents/intent_123/redeem', {
+        method: 'POST',
+        headers: {
+          origin: 'https://app.test',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          codeVerifier: 'verifier',
+          machineFingerprint: '   ',
+          grantToken: 'grant-token',
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(400);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'codeVerifier, machineFingerprint, and grantToken are required',
+    });
+    expect(actionCalls).toHaveLength(0);
   });
 
   it('blocks cross-site buyer verification grant redemption before mutating state', async () => {

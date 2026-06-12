@@ -23,6 +23,8 @@ const API_CORS_ALLOWED_HEADERS = [
   'baggage',
   'X-YUCP-File-Name',
   'x-yucp-file-name',
+  'X-YUCP-Upload-Completion-Token',
+  'x-yucp-upload-completion-token',
 ];
 
 function isLoopbackOrigin(origin: string): boolean {

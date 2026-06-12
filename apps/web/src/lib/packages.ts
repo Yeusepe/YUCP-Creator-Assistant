@@ -118,6 +118,7 @@ export interface BackstageDirectUploadTarget {
 }
 
 export interface BackstageReleaseUploadSessionResponse {
+  completionToken: string;
   completeUrl: string;
   packageId: string;
   uploadSessionId: string;
@@ -303,7 +304,10 @@ export async function createBackstageReleaseUploadSession(input: {
   );
 }
 
-export async function completeBackstageReleaseUploadSession(input: { completeUrl: string }) {
+export async function completeBackstageReleaseUploadSession(input: {
+  completionToken: string;
+  completeUrl: string;
+}) {
   const completeUrl =
     typeof window === 'undefined'
       ? input.completeUrl
@@ -314,6 +318,9 @@ export async function completeBackstageReleaseUploadSession(input: { completeUrl
             : `${url.pathname}${url.search}`;
         })();
   const response = await fetch(completeUrl, {
+    headers: {
+      'X-YUCP-Upload-Completion-Token': input.completionToken,
+    },
     method: 'POST',
   });
   const payload = (await response
@@ -432,7 +439,10 @@ export async function uploadBackstageReleaseFileDirect(input: {
     onProgress: input.onProgress,
     uploadTarget: session.uploadTarget,
   });
-  const result = await completeBackstageReleaseUploadSession({ completeUrl: session.completeUrl });
+  const result = await completeBackstageReleaseUploadSession({
+    completeUrl: session.completeUrl,
+    completionToken: session.completionToken,
+  });
   input.onProgress?.({ progress: 100, stage: 'complete' });
   return result;
 }

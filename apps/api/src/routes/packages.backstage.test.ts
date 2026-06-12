@@ -518,6 +518,7 @@ describe('package Backstage publishing routes', () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload).toMatchObject({
+      completionToken: expect.any(String),
       packageId: 'com.yucp.example',
       uploadSessionId: 'upl_1',
       uploadTarget: {
@@ -526,9 +527,10 @@ describe('package Backstage publishing routes', () => {
         url: 'https://uploads.cdngine.test/files/upl_1',
       },
     });
-    expect(payload.completeUrl).toStartWith(
-      'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken='
+    expect(payload.completeUrl).toBe(
+      'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete'
     );
+    expect(new URL(payload.completeUrl).search).toBe('');
     expect(cdngineCreateUploadBodies).toHaveLength(1);
     expect(cdngineCreateUploadBodies[0]).toMatchObject({
       assetOwner: 'creator:auth-user-1',
@@ -627,11 +629,17 @@ describe('package Backstage publishing routes', () => {
       }),
       'com.yucp.example'
     );
-    const { completeUrl } = (await sessionResponse.json()) as { completeUrl: string };
+    const { completeUrl, completionToken } = (await sessionResponse.json()) as {
+      completeUrl: string;
+      completionToken: string;
+    };
 
     const completeResponse = await routes.completeBackstageReleaseUploadSession(
       new Request(completeUrl, {
         method: 'POST',
+        headers: {
+          'X-YUCP-Upload-Completion-Token': completionToken,
+        },
       }),
       'com.yucp.example'
     );
@@ -687,11 +695,17 @@ describe('package Backstage publishing routes', () => {
       }),
       'com.yucp.example'
     );
-    const { completeUrl } = (await sessionResponse.json()) as { completeUrl: string };
+    const { completeUrl, completionToken } = (await sessionResponse.json()) as {
+      completeUrl: string;
+      completionToken: string;
+    };
 
     const completeResponse = await routes.completeBackstageReleaseUploadSession(
       new Request(completeUrl, {
         method: 'POST',
+        headers: {
+          'X-YUCP-Upload-Completion-Token': completionToken,
+        },
       }),
       'com.yucp.example'
     );
@@ -738,11 +752,17 @@ describe('package Backstage publishing routes', () => {
       }),
       'com.yucp.example'
     );
-    const { completeUrl } = (await sessionResponse.json()) as { completeUrl: string };
+    const { completeUrl, completionToken } = (await sessionResponse.json()) as {
+      completeUrl: string;
+      completionToken: string;
+    };
 
     const completeResponse = await routes.completeBackstageReleaseUploadSession(
       new Request(completeUrl, {
         method: 'POST',
+        headers: {
+          'X-YUCP-Upload-Completion-Token': completionToken,
+        },
       }),
       'com.yucp.example'
     );
@@ -756,11 +776,49 @@ describe('package Backstage publishing routes', () => {
   it('rejects malformed upload completion tokens without throwing', async () => {
     const response = await routes.completeBackstageReleaseUploadSession(
       new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=${encodeURIComponent(signMalformedBackstageToken('not-json'))}`,
+        'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
         {
           method: 'POST',
+          headers: {
+            'X-YUCP-Upload-Completion-Token': signMalformedBackstageToken('not-json'),
+          },
         }
       ),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid upload completion token',
+    });
+  });
+
+  it('rejects upload completion tokens sent through query strings', async () => {
+    const sessionResponse = await routes.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify({
+          byteSize: 1024,
+          deliveryName: 'example.unitypackage',
+          sha256: 'e'.repeat(64),
+          sourceContentType: 'application/octet-stream',
+        }),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+    const { completeUrl, completionToken } = (await sessionResponse.json()) as {
+      completeUrl: string;
+      completionToken: string;
+    };
+
+    const response = await routes.completeBackstageReleaseUploadSession(
+      new Request(`${completeUrl}?completionToken=${encodeURIComponent(completionToken)}`, {
+        method: 'POST',
+      }),
       'com.yucp.example'
     );
 

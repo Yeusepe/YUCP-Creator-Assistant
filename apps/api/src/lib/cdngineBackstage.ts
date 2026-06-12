@@ -98,11 +98,6 @@ function getPositiveNumberOrDefault(value: number | undefined, fallback: number)
   return resolved > 0 ? resolved : fallback;
 }
 
-function getNonNegativeNumberOrDefault(value: number | undefined, fallback: number): number {
-  const resolved = getFiniteNumberOrDefault(value, fallback);
-  return resolved >= 0 ? resolved : fallback;
-}
-
 export function requireCdngineBackstageConfig(
   config: CdngineBackstageConfig | undefined
 ): ConfiguredCdngineBackstageConfig {
@@ -115,7 +110,7 @@ export function requireCdngineBackstageConfig(
     accessToken: config.accessToken,
     apiBaseUrl: config.apiBaseUrl.replace(/\/+$/, ''),
     deliveryScopeId: config.deliveryScopeId ?? 'paid-downloads',
-    publicationPollIntervalMs: getNonNegativeNumberOrDefault(
+    publicationPollIntervalMs: getPositiveNumberOrDefault(
       config.publicationPollIntervalMs,
       DEFAULT_PUBLICATION_POLL_INTERVAL_MS
     ),

@@ -312,6 +312,74 @@ describe('connect user product access routes', () => {
     );
   });
 
+  it('does not expose Backstage package metadata to signed-in buyers without entitlement access', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          catalogProductId: 'catalog_123',
+        });
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          canonicalSlug: 'avatar-bundle',
+          thumbnailUrl: 'https://cdn.test/avatar.png',
+          status: 'active',
+          backstagePackages: [
+            {
+              packageId: 'com.yucp.avatar.bundle',
+              displayName: 'Avatar Bundle',
+              latestPublishedVersion: '1.2.0',
+              repositoryVisibility: 'hidden',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'buyer-auth-user',
+        });
+        return { _id: 'subject_buyer_1' };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        expect(args).toMatchObject({
+          apiSecret: 'test-convex-secret',
+          authUserId: 'creator-auth-user',
+          subjectId: 'subject_buyer_1',
+          productId: 'product_123',
+          status: 'active',
+        });
+        return { data: [] };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createRoutes();
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      product: {
+        packagePreview: [],
+      },
+      accessState: {
+        hasActiveEntitlement: false,
+        requiresVerification: true,
+        hasPublishedPackages: true,
+      },
+    });
+  });
+
   it('blocks cross-site buyer verification intent creation before mutating state', async () => {
     const routes = createRoutes();
     const response = await routes.postBuyerProductAccessVerificationIntent(

@@ -117,7 +117,7 @@ Supports **account linking** where the provider supports webhook-backed sync, or
 
 ## Project layout
 
-```
+```text
 apps/          api, bot, web
 packages/      application, policy, private-rpc, providers, shared
 convex/        schema, auth, and backend functions

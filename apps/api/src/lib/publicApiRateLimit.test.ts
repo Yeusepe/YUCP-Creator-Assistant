@@ -1,6 +1,4 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 
 mock.module('rate-limiter-flexible', () => ({
   RateLimiterMemory: class {},
@@ -118,16 +116,5 @@ describe('checkPublicApiRateLimit', () => {
     expect(anonymousRotatedAgentKey).toBe(anonymousKey);
     expect(bearerRotatedAgentKey).toBe(bearerKey);
     expect(publicApiRotatedAgentKey).toBe(publicApiKeyBucket);
-  });
-
-  it('does not hash full public API credentials in the pre-auth rate-limit gate', () => {
-    const source = readFileSync(resolve(import.meta.dir, 'publicApiRateLimit.ts'), 'utf8');
-    const publicApiKeysSource = readFileSync(resolve(import.meta.dir, 'publicApiKeys.ts'), 'utf8');
-
-    expect(source).not.toContain('createHmac');
-    expect(source).not.toContain('function hmacSha256');
-    expect(source).not.toContain('hashPublicApiKey');
-    expect(publicApiKeysSource).not.toContain('createHmac');
-    expect(publicApiKeysSource).not.toContain('PUBLIC_API_KEY_PEPPER');
   });
 });

@@ -195,6 +195,17 @@ function normalizeTokenResponse(payload: Partial<TokenResponse> | null | undefin
   };
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function normalizeOptionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
 function normalizeProductsResponse(
   payload: Partial<ProductsResponse> | null | undefined
 ): ProductsResponse {
@@ -204,9 +215,9 @@ function normalizeProductsResponse(
       name: product?.name,
       collaboratorName: product?.collaboratorName,
       productUrl: product?.productUrl,
-      thumbnailUrl: product?.thumbnailUrl,
-      canonicalSlug: product?.canonicalSlug,
-      aliases: product?.aliases,
+      thumbnailUrl: normalizeOptionalString(product?.thumbnailUrl),
+      canonicalSlug: normalizeOptionalString(product?.canonicalSlug),
+      aliases: normalizeOptionalStringArray(product?.aliases),
     })),
     error: payload?.error,
   };
