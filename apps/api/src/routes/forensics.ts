@@ -15,12 +15,14 @@ import {
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import { getProviderRuntime } from '../providers/index';
 import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
+const FORENSICS_REVEAL_BODY_MAX_BYTES = 4 * 1024;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -736,8 +738,16 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
     try {
-      const body = (await request.json()) as { packageId?: unknown; licenseSubject?: unknown };
-      const packageId = assertPackageId(String(body.packageId ?? ''));
+      const body = await readJsonObjectBodyWithLimit(request, FORENSICS_REVEAL_BODY_MAX_BYTES);
+      let packageId: string;
+      try {
+        packageId = assertPackageId(String(body.packageId ?? ''));
+      } catch (error) {
+        return jsonResponse(
+          { error: error instanceof Error ? error.message : 'Invalid packageId format' },
+          400
+        );
+      }
       const licenseSubject = String(body.licenseSubject ?? '')
         .trim()
         .toLowerCase();
@@ -755,6 +765,9 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       }
       return jsonResponse({ licenseKey: result.licenseKey });
     } catch (error) {
+      if (error instanceof RequestBodyError) {
+        return jsonResponse({ error: error.message }, error.status);
+      }
       logger.error('Failed to reveal coupling license key', {
         error: error instanceof Error ? error.message : String(error),
       });

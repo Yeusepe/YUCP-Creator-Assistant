@@ -29,6 +29,11 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import {
+  RequestBodyError,
+  readJsonObjectBodyWithLimit,
+  readRequestTextWithLimit,
+} from '../lib/requestBody';
 import { normalizeHostedVerificationRequirements } from '../verification/hostedIntents';
 import { getVerificationConfig } from '../verification/verificationConfig';
 
@@ -134,15 +139,6 @@ type ConfiguredCdngineBackstageDelivery = {
   required?: boolean;
   timeoutMs?: number;
 };
-
-class RequestBodyError extends Error {
-  constructor(
-    message: string,
-    readonly status: number
-  ) {
-    super(message);
-  }
-}
 
 function requireRawBackstagePackageDownload(
   resolved: BackstageRawPackageDownloadRecord,
@@ -942,7 +938,10 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
         machineFingerprint = parsedBody.machineFingerprint.trim();
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return errorResponse(error.message, error.status);
+    }
     machineFingerprint = null;
   }
 
@@ -1107,61 +1106,11 @@ async function buildAuthorizedAliasInstallPlanResponse(
   });
 }
 
-async function readRequestTextWithLimit(request: Request, maxBytes: number): Promise<string> {
-  const contentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new RequestBodyError('Request body too large', 413);
-  }
-  if (!request.body) {
-    return '';
-  }
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      byteLength += chunk.value.byteLength;
-      if (byteLength > maxBytes) {
-        throw new RequestBodyError('Request body too large', 413);
-      }
-      chunks.push(chunk.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bodyBytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bodyBytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bodyBytes);
-}
-
 async function parseJsonObjectBody(
   request: Request,
   maxBytes = BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES
 ): Promise<Record<string, unknown>> {
-  const text = await readRequestTextWithLimit(request, maxBytes);
-  if (!text.trim()) {
-    return {};
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text) as unknown;
-  } catch {
-    throw new RequestBodyError('Invalid JSON body', 400);
-  }
-  if (!isRecord(parsed)) {
-    throw new RequestBodyError('Request body must be a JSON object.', 400);
-  }
-  return parsed;
+  return readJsonObjectBodyWithLimit(request, maxBytes);
 }
 
 function readOptionalBodyString(body: Record<string, unknown>, key: string): string | undefined {

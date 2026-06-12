@@ -1137,6 +1137,29 @@ describe('backstage repo routes', () => {
     ).toBe(false);
   });
 
+  it('rejects oversized catalog install-plan bodies before Convex reads', async () => {
+    queryImpl = async () => {
+      throw new Error('Oversized install-plan bodies should not reach Convex');
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/products/catalog_1/install-plan', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          machineFingerprint: 'machine_1',
+          padding: 'x'.repeat(5_000),
+        }),
+      })
+    );
+
+    expect(response?.status).toBe(413);
+    await expect(response?.json()).resolves.toEqual({ error: 'Request body too large' });
+  });
+
   it('issues a bearer-authenticated alias install plan without exposing repo credentials', async () => {
     const response = await routes.handleRequest(
       new Request('https://api.test/api/backstage/access/mapache/song-thing/install-plan', {

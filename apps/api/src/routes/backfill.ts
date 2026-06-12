@@ -137,6 +137,11 @@ export function createBackfillProductHandler(
         });
       }
 
+      const providerRuntime = dependencies.getProviderById(provider);
+      if (!providerRuntime?.backfill) {
+        throw new BackfillProviderNotSupportedError(provider);
+      }
+
       const convexUrl = dependencies.getConvexUrl();
       if (!convexUrl) {
         return new Response(JSON.stringify({ error: 'CONVEX_URL not configured' }), {
@@ -157,7 +162,10 @@ export function createBackfillProductHandler(
       const backfillService = new BackfillService({
         providers: {
           getProvider: (providerKey) => {
-            const runtime = dependencies.getProviderById(providerKey);
+            const runtime =
+              providerKey === provider
+                ? providerRuntime
+                : dependencies.getProviderById(providerKey);
             if (!runtime?.backfill) {
               return undefined;
             }

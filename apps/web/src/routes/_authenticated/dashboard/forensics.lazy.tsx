@@ -229,12 +229,15 @@ export default function DashboardForensics() {
     return buyers.sort((a, b) => b.createdAt - a.createdAt);
   }, [lookupResult]);
 
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
+
   const lookupMutation = useMutation({
     mutationFn: ({ packageId, file }: { packageId: string; file: File }) =>
       runCouplingForensicsLookup({ packageId, file }),
     onMutate: () => {
       setInlineError(null);
       setLookupResult(null);
+      setRevealedKeys({});
     },
     onSuccess: (result) => {
       setLookupResult(result);
@@ -254,7 +257,6 @@ export default function DashboardForensics() {
     },
   });
 
-  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
   const revealMutation = useMutation({
     mutationFn: ({ licenseSubject }: { licenseSubject: string }) =>
       revealCouplingLicenseKey({
@@ -263,7 +265,10 @@ export default function DashboardForensics() {
       }),
     onSuccess: (result, variables) => {
       if (result.licenseKey) {
-        setRevealedKeys((prev) => ({ ...prev, [variables.licenseSubject]: result.licenseKey as string }));
+        setRevealedKeys((prev) => ({
+          ...prev,
+          [variables.licenseSubject]: result.licenseKey as string,
+        }));
       }
     },
     onError: (error) => {
@@ -276,11 +281,6 @@ export default function DashboardForensics() {
       });
     },
   });
-
-  // Revealed keys are scoped to the current lookup result.
-  useEffect(() => {
-    setRevealedKeys({});
-  }, [lookupResult]);
 
   const isLoading =
     !isAuthResolved || (canRunPanelQueries && isPersonalDashboard && certificatesQuery.isLoading);
@@ -684,7 +684,7 @@ export default function DashboardForensics() {
                           <div className="forensics-buyer-meta-row forensics-buyer-meta-row--full">
                             <dt className="forensics-buyer-meta-key">License</dt>
                             <dd className="forensics-buyer-meta-val forensics-buyer-meta-val--mono">
-                              {revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey ? (
+                              {(revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey) ? (
                                 (revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey)
                               ) : (
                                 <span

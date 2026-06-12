@@ -54,7 +54,7 @@
     "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
-    "test:bot": "bun test ./apps/bot/test/commands",
+    "test:bot": "cross-env INTERNAL_SERVICE_AUTH_SECRET=test-internal-service-auth-secret bun test ./apps/bot/test/commands",
     "test:all": "bun run test:fast && bun run test:convex && bun run test:api:integration && bun run test:bot",
     "test:infisical": "bun run --env-file=.env.infisical test",
     "test:ci": "bun run test:ops && bun run test:fast:ci",
