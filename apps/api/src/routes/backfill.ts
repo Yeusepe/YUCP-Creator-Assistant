@@ -19,6 +19,7 @@ import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { loadEnv } from '../lib/env';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import { sanitizePublicErrorMessage } from '../lib/userFacingErrors';
 import { getProviderRuntime } from '../providers/index';
 import type { BackfillRecord } from '../providers/types';
@@ -26,6 +27,7 @@ import type { BackfillRecord } from '../providers/types';
 export type { BackfillRecord };
 
 const BATCH_SIZE = 100;
+const BACKFILL_REQUEST_BODY_MAX_BYTES = 4 * 1024;
 
 export interface BackfillRequest {
   apiSecret: string;
@@ -106,16 +108,10 @@ export function createBackfillProductHandler(
     }
 
     try {
-      let parsedBody: unknown;
-      try {
-        parsedBody = await request.json();
-      } catch {
-        return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
+      const parsedBody = await readJsonObjectBodyWithLimit(
+        request,
+        BACKFILL_REQUEST_BODY_MAX_BYTES
+      );
       const body = parseBackfillRequest(parsedBody);
       const { apiSecret, authUserId, provider, providerProductRef } = body;
 
@@ -219,6 +215,12 @@ export function createBackfillProductHandler(
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     } catch (err) {
+      if (err instanceof RequestBodyError) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: err.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (
         err instanceof Error &&
         err.message ===

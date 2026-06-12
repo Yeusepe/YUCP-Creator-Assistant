@@ -761,7 +761,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         licenseSubject,
       });
       if (result.error) {
-        return jsonResponse({ error: result.error }, 403);
+        return jsonResponse({ error: 'Forbidden' }, 403);
       }
       return jsonResponse({ licenseKey: result.licenseKey });
     } catch (error) {
