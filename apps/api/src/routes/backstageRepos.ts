@@ -927,6 +927,25 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
     return viewer;
   }
 
+  // Optional machine fingerprint: when present, the install plan mints a machine-bound
+  // license token per package so the client can apply per-buyer coupling. Absent/malformed
+  // body is non-fatal — the plan is still issued, just without coupling tokens.
+  let machineFingerprint: string | null = null;
+  try {
+    const rawBody = await readRequestTextWithLimit(request, 4096);
+    if (rawBody) {
+      const parsedBody = JSON.parse(rawBody) as { machineFingerprint?: unknown };
+      if (
+        typeof parsedBody.machineFingerprint === 'string' &&
+        parsedBody.machineFingerprint.trim().length > 0
+      ) {
+        machineFingerprint = parsedBody.machineFingerprint.trim();
+      }
+    }
+  } catch {
+    machineFingerprint = null;
+  }
+
   try {
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
     const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
@@ -970,7 +989,8 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       convex,
       plan,
       subjectId,
-      catalogProductId
+      catalogProductId,
+      machineFingerprint
     );
   } catch (error) {
     logger.error('Failed to issue catalog-product alias install plan', {
@@ -987,7 +1007,8 @@ async function buildAuthorizedAliasInstallPlanResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   plan: AuthorizedAliasInstallPlanRecord,
   subjectId: string,
-  catalogProductId: string
+  catalogProductId: string,
+  machineFingerprint: string | null = null
 ): Promise<Response> {
   const creatorRepoIdentity = await getCreatorRepoIdentity({
     convex,
@@ -1031,6 +1052,37 @@ async function buildAuthorizedAliasInstallPlanResponse(
           );
         }
         const sourceDownload = requireRawBackstagePackageDownload(resolvedDownload, pkg.packageId);
+
+        // Mint a machine-bound license token for per-buyer coupling when the client
+        // supplied a fingerprint. Best-effort: a mint failure never blocks the install
+        // (the plan is still returned, just without a coupling token for this package).
+        let licenseToken: string | undefined;
+        if (machineFingerprint) {
+          try {
+            const mint = (await convex.action(api.yucpLicenses.issueAliasInstallLicenseToken, {
+              apiSecret: config.convexApiSecret,
+              creatorAuthUserId: plan.creatorAuthUserId,
+              subjectId: subjectId as Id<'subjects'>,
+              catalogProductId: catalogProductId as Id<'product_catalog'>,
+              packageId: pkg.packageId,
+              machineFingerprint,
+            })) as { success: boolean; token?: string; error?: string };
+            if (mint.success && mint.token) {
+              licenseToken = mint.token;
+            } else {
+              logger.warn('Alias install license token mint did not succeed', {
+                packageId: pkg.packageId,
+                error: mint.error,
+              });
+            }
+          } catch (error) {
+            logger.warn('Alias install license token mint failed', {
+              packageId: pkg.packageId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
         return {
           packageId: pkg.packageId,
           displayName: pkg.displayName,
@@ -1040,6 +1092,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
           packageSha256: sourceDownload.packageSha256,
           sourceKind: sourceDownload.sourceKind,
           downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(catalogProductId)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
+          licenseToken,
           media: buildPackageMediaInstallPlanDescriptors({
             apiBaseUrl: config.apiBaseUrl,
             catalogProductId,

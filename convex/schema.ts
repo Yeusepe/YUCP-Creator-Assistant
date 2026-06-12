@@ -558,6 +558,7 @@ const AuditEventType = v.union(
   v.literal('protected.materialization.grant.receipted'),
   v.literal('protected.materialization.grant.revoked'),
   v.literal('coupling.lookup.performed'),
+  v.literal('coupling.license_key.revealed'),
   v.literal('setup.job.created'),
   v.literal('setup.job.resumed'),
   v.literal('setup.job.status.updated'),
@@ -800,6 +801,11 @@ const entitlements = defineTable({
   sourceProvider: Provider,
   // Reference to the source evidence
   sourceReference: v.string(),
+  // Canonical license subject (SHA-256 of the provider license key) captured at
+  // verification time. Lets the alias/VPM install-plan mint a license token whose
+  // `sub` re-uses this subject, so coupling forensics resolve a watermark hit back
+  // to the specific license + buyer. Optional: legacy/non-license grants have none.
+  licenseSubject: v.optional(v.string()),
   // Optional link to provider customer memory
   providerCustomerId: v.optional(v.id('provider_customers')),
   // Optional link to catalog product

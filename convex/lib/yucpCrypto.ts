@@ -285,8 +285,34 @@ export interface YucpTrustBundleClaims {
   keys: YucpTrustJwk[];
 }
 
+/**
+ * Short-lived token authorizing a single coupling-runtime artifact download. Minted by
+ * /v1/licenses/coupling-job and consumed by GET /v1/licenses/coupling-runtime. Bound to the
+ * same machine + license subject as the coupling job and pinned to the artifact it issued for.
+ */
+export interface CouplingRuntimeClaims {
+  iss: string;
+  aud: 'yucp-coupling-runtime';
+  sub: string;
+  jti: string;
+  package_id: string;
+  machine_fingerprint: string;
+  artifact_version: string;
+  plaintext_sha256: string;
+  iat: number;
+  exp: number;
+}
+
 export async function signProtectedUnlockJwt(
   claims: ProtectedUnlockClaims,
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  return signJwt(claims, privateKeyBase64, keyId);
+}
+
+export async function signCouplingRuntimeJwt(
+  claims: CouplingRuntimeClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -321,7 +347,7 @@ export async function signYucpTrustBundleJwt(
 }
 
 async function signJwt(
-  claims: LicenseClaims | ProtectedUnlockClaims | YucpTrustBundleClaims,
+  claims: LicenseClaims | ProtectedUnlockClaims | YucpTrustBundleClaims | CouplingRuntimeClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -431,6 +457,18 @@ export async function verifyProtectedUnlockJwtAgainstPinnedRoots(
     (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
     expectedIssuer,
     'yucp-protected-unlock'
+  );
+}
+
+export async function verifyCouplingRuntimeJwtAgainstPinnedRoots(
+  jwt: string,
+  expectedIssuer: string
+): Promise<CouplingRuntimeClaims | null> {
+  return await verifyJwtWithPublicKeyResolver<CouplingRuntimeClaims>(
+    jwt,
+    (keyId) => getConfiguredYucpRootByKeyId(keyId)?.publicKeyBase64,
+    expectedIssuer,
+    'yucp-coupling-runtime'
   );
 }
 

@@ -49,16 +49,23 @@ import {
   encryptProtectedBlobContentKey,
 } from './lib/protectedAssetKeyCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
-import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
+import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import {
+  type CouplingRuntimeClaims,
   type LicenseClaims,
   type ProtectedUnlockClaims,
   resolvePinnedYucpSigningRoot,
+  signCouplingRuntimeJwt,
   signLicenseJwt,
   signProtectedUnlockJwt,
   verifyLicenseJwtAgainstPinnedRoots,
   verifyProtectedUnlockJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
+import {
+  RELEASE_ARTIFACT_KEYS,
+  RELEASE_CHANNELS,
+  RELEASE_PLATFORMS,
+} from './lib/releaseArtifactKeys';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
@@ -1013,6 +1020,320 @@ export const verifyLicense = internalAction({
     );
 
     return { success: true, token, expiresAt: exp };
+  },
+});
+
+/**
+ * Resolves the active entitlement for an alias/VPM buyer so the install-plan can
+ * mint a machine-bound license token. Returns the canonical license subject (when
+ * the grant was license-verified) and the source provider for the token claim.
+ */
+export const resolveAliasInstallLicenseContext = internalQuery({
+  args: {
+    creatorAuthUserId: v.string(),
+    subjectId: v.id('subjects'),
+    catalogProductId: v.id('product_catalog'),
+  },
+  returns: v.object({
+    active: v.boolean(),
+    licenseSubject: v.optional(v.string()),
+    provider: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('catalogProductId'), args.catalogProductId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!entitlement) {
+      return { active: false };
+    }
+
+    return {
+      active: true,
+      licenseSubject: entitlement.licenseSubject,
+      provider: entitlement.sourceProvider,
+    };
+  },
+});
+
+/**
+ * Mints a short-lived, machine-fingerprint-bound license token for an entitled
+ * alias/VPM buyer at install-plan time. The token's `sub` re-uses the buyer's
+ * canonical license subject (when present) so a later coupling watermark resolves
+ * back to the specific license + buyer; otherwise it falls back to a deterministic
+ * non-license subject so attribution still binds to the buyer/product.
+ *
+ * Security: entitlement re-checked here; token machine-bound, short TTL, `jti`
+ * consumed against used_nonces. Never logs the token.
+ */
+export const issueAliasInstallLicenseToken = action({
+  args: {
+    apiSecret: v.string(),
+    creatorAuthUserId: v.string(),
+    subjectId: v.id('subjects'),
+    catalogProductId: v.id('product_catalog'),
+    packageId: v.string(),
+    machineFingerprint: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    token: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid package id' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+
+    // Derive the issuer exactly like POST /v1/licenses/verify so the token's `iss`
+    // matches what the client pins.
+    const issuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!issuerBaseUrl) {
+      return { success: false, error: 'Service not configured' };
+    }
+
+    const context = await ctx.runQuery(internal.yucpLicenses.resolveAliasInstallLicenseContext, {
+      creatorAuthUserId: args.creatorAuthUserId,
+      subjectId: args.subjectId,
+      catalogProductId: args.catalogProductId,
+    });
+    if (!context.active) {
+      return { success: false, error: 'No active entitlement for this product' };
+    }
+
+    // Re-use the buyer's canonical license subject when the grant was license-verified
+    // so coupling forensics can resolve the specific license; otherwise bind a
+    // deterministic non-license subject to the buyer/product for buyer attribution.
+    const sub =
+      context.licenseSubject ??
+      (await sha256Hex(
+        `alias-fallback:${args.creatorAuthUserId}:${args.subjectId}:${args.catalogProductId}`
+      ));
+
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const issuer = buildPublicAuthIssuer(issuerBaseUrl);
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + TOKEN_TTL_SECONDS;
+    const jti = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce: jti });
+
+    const claims: LicenseClaims = {
+      iss: issuer,
+      aud: 'yucp-license-gate',
+      sub,
+      jti,
+      package_id: args.packageId,
+      machine_fingerprint: args.machineFingerprint,
+      provider: context.provider ?? 'alias',
+      iat,
+      exp,
+    };
+
+    const token = await signLicenseJwt(claims, signingRoot.privateKeyBase64, signingRoot.keyId);
+    return { success: true, token, expiresAt: exp };
+  },
+});
+
+const COUPLING_RUNTIME_TOKEN_TTL_SECONDS = 10 * 60;
+
+/** Inserts one coupling_trace_records row per coupled asset (hash-only forensics). */
+export const recordCouplingTraces = internalMutation({
+  args: {
+    authUserId: v.string(),
+    packageId: v.string(),
+    licenseSubject: v.string(),
+    provider: v.optional(v.string()),
+    machineFingerprintHash: v.string(),
+    projectIdHash: v.string(),
+    runtimeArtifactVersion: v.string(),
+    runtimePlaintextSha256: v.string(),
+    correlationId: v.string(),
+    entries: v.array(
+      v.object({ assetPath: v.string(), tokenHash: v.string(), tokenLength: v.number() })
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const entry of args.entries) {
+      await ctx.db.insert('coupling_trace_records', {
+        authUserId: args.authUserId,
+        packageId: args.packageId,
+        licenseSubject: args.licenseSubject,
+        assetPath: entry.assetPath,
+        tokenHash: entry.tokenHash,
+        tokenLength: entry.tokenLength,
+        machineFingerprintHash: args.machineFingerprintHash,
+        projectIdHash: args.projectIdHash,
+        runtimeArtifactVersion: args.runtimeArtifactVersion,
+        runtimePlaintextSha256: args.runtimePlaintextSha256,
+        correlationId: args.correlationId,
+        createdAt: now,
+        provider: args.provider,
+      });
+    }
+    return null;
+  },
+});
+
+/**
+ * Issues per-asset coupling tokens for an entitled VPM/alias install and records the
+ * forensic traces. Validates the machine-bound license token server-side and binds the
+ * traces to the token's licenseSubject so a later watermark hit resolves to the buyer.
+ *
+ * Self-guarding: if no coupling-runtime artifact is active, returns success with no files
+ * (skipReason) so the importer skips coupling instead of failing the install.
+ */
+export const issueCouplingJob = internalAction({
+  args: {
+    packageId: v.string(),
+    projectId: v.string(),
+    machineFingerprint: v.string(),
+    licenseToken: v.string(),
+    assetPaths: v.array(v.string()),
+    issuerBaseUrl: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    runtimeToken: v.optional(v.string()),
+    runtimeSha256: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    skipReason: v.optional(v.string()),
+    error: v.optional(v.string()),
+    files: v.optional(
+      v.array(v.object({ assetPath: v.string(), tokenHex: v.string() }))
+    ),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    success: boolean;
+    runtimeToken?: string;
+    runtimeSha256?: string;
+    expiresAt?: number;
+    skipReason?: string;
+    error?: string;
+    files?: { assetPath: string; tokenHex: string }[];
+  }> => {
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!PROJECT_ID_RE.test(args.projectId)) {
+      return { success: false, error: 'Invalid projectId format' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+    if (args.assetPaths.length === 0) {
+      return { success: true, files: [], skipReason: 'no_assets' };
+    }
+    if (args.assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return { success: false, error: 'Too many coupling asset paths' };
+    }
+    for (const assetPath of args.assetPaths) {
+      if (!assetPath || assetPath.length > COUPLING_ASSET_PATH_MAX_LENGTH) {
+        return { success: false, error: 'Invalid coupling asset path' };
+      }
+    }
+
+    // Validate the machine-bound license token server-side; never trust the client.
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
+    const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
+    if (!claims) {
+      return { success: false, error: 'License token is invalid or expired' };
+    }
+    if (claims.package_id !== args.packageId) {
+      return { success: false, error: 'License token package mismatch' };
+    }
+    if (claims.machine_fingerprint !== args.machineFingerprint) {
+      return { success: false, error: 'License token machine mismatch' };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!registration) {
+      return { success: false, error: 'Package not found' };
+    }
+
+    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
+      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
+      channel: RELEASE_CHANNELS.stable,
+      platform: RELEASE_PLATFORMS.winX64,
+    });
+    if (!artifact) {
+      // No runtime published yet → skip coupling without failing the install.
+      return { success: true, files: [], skipReason: 'no_runtime' };
+    }
+
+    const files: { assetPath: string; tokenHex: string }[] = [];
+    const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
+    for (const assetPath of args.assetPaths) {
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+      const tokenHex = Array.from(tokenBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      files.push({ assetPath, tokenHex });
+      entries.push({
+        assetPath,
+        tokenHash: await sha256Hex(tokenHex),
+        tokenLength: tokenBytes.length,
+      });
+    }
+
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: artifact.version,
+      runtimePlaintextSha256: artifact.plaintextSha256,
+      correlationId,
+      entries,
+    });
+
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
+    const runtimeClaims: CouplingRuntimeClaims = {
+      iss: issuer,
+      aud: 'yucp-coupling-runtime',
+      sub: claims.sub,
+      jti: crypto.randomUUID(),
+      package_id: args.packageId,
+      machine_fingerprint: args.machineFingerprint,
+      artifact_version: artifact.version,
+      plaintext_sha256: artifact.plaintextSha256,
+      iat,
+      exp,
+    };
+    const runtimeToken = await signCouplingRuntimeJwt(
+      runtimeClaims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
+
+    return {
+      success: true,
+      runtimeToken,
+      runtimeSha256: artifact.plaintextSha256,
+      expiresAt: exp,
+      files,
+    };
   },
 });
 

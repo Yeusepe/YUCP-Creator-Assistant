@@ -21,6 +21,8 @@ export interface CouplingForensicsMatchSummary {
   packVersion?: string | null;
   /** License store ('gumroad', 'jinxxy', etc.) */
   provider?: string | null;
+  /** Non-secret license identifier (provider + short fingerprint). Full key via reveal. */
+  licenseMasked?: string | null;
   /** Buyer's email address from the provider API */
   purchaserEmail?: string | null;
   /** Raw license key used to verify the purchase */
@@ -69,6 +71,22 @@ export async function runCouplingForensicsLookup(args: { packageId: string; file
   return await apiFetch<CouplingForensicsLookupResponse>('/api/forensics/lookup', {
     method: 'POST',
     body: formData,
+  });
+}
+
+export interface CouplingForensicsRevealResponse {
+  licenseKey?: string | null;
+}
+
+/**
+ * Reveals the full provider license key behind a forensics match. Privileged + audit-logged
+ * server-side; only call from an explicit user action (e.g. a "Reveal" button).
+ */
+export async function revealCouplingLicenseKey(args: { packageId: string; licenseSubject: string }) {
+  return await apiFetch<CouplingForensicsRevealResponse>('/api/forensics/reveal-license', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ packageId: args.packageId, licenseSubject: args.licenseSubject }),
   });
 }
 

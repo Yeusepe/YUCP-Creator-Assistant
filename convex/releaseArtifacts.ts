@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { internalMutation, internalQuery } from './_generated/server';
+import { RELEASE_ARTIFACT_KEYS } from './lib/releaseArtifactKeys';
 
 const signedReleaseArtifactValidator = v.object({
   artifactKey: v.string(),
@@ -116,6 +117,68 @@ export const getActiveArtifact = internalQuery({
       )[0];
 
     return toSignedReleaseArtifact(active);
+  },
+});
+
+/**
+ * Resolves the active coupling-runtime artifact for the non-brokered importer download path,
+ * including a fresh storage download URL and the envelope parameters needed to decrypt the
+ * ciphertext into the runnable plaintext DLL. Returns null when none is active.
+ */
+export const getActiveCouplingRuntimeForDownload = internalQuery({
+  args: {
+    channel: v.string(),
+    platform: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      version: v.string(),
+      plaintextSha256: v.string(),
+      ciphertextSha256: v.string(),
+      envelopeCipher: v.string(),
+      envelopeIvBase64: v.string(),
+      artifactKey: v.string(),
+      channel: v.string(),
+      platform: v.string(),
+      contentType: v.string(),
+      deliveryName: v.string(),
+      downloadUrl: v.string(),
+    })
+  ),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query('signed_release_artifacts')
+      .withIndex('by_artifact_key_status', (q) =>
+        q.eq('artifactKey', RELEASE_ARTIFACT_KEYS.couplingRuntime).eq('status', 'active')
+      )
+      .collect();
+    const active = rows
+      .filter((row) => row.channel === args.channel && row.platform === args.platform)
+      .sort(
+        (left, right) =>
+          (right.activatedAt ?? right.createdAt) - (left.activatedAt ?? left.createdAt)
+      )[0];
+    if (!active) {
+      return null;
+    }
+    const downloadUrl = await ctx.storage.getUrl(active.storageId);
+    if (!downloadUrl) {
+      return null;
+    }
+    return {
+      version: active.version,
+      plaintextSha256: active.plaintextSha256,
+      ciphertextSha256: active.ciphertextSha256,
+      envelopeCipher: active.envelopeCipher,
+      envelopeIvBase64: active.envelopeIvBase64,
+      artifactKey: active.artifactKey,
+      channel: active.channel,
+      platform: active.platform,
+      contentType: active.contentType,
+      deliveryName: active.deliveryName,
+      downloadUrl,
+    };
   },
 });
 

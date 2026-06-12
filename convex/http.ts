@@ -72,8 +72,11 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
+import { deriveCouplingRuntimeEnvelopeKeyBytes } from './lib/couplingRuntimeEnvelope';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import { type PublicProductRecord } from './lib/publicProducts';
+import { RELEASE_CHANNELS, RELEASE_PLATFORMS } from './lib/releaseArtifactKeys';
+import { decryptArtifactEnvelope, sha256HexBytes } from './lib/releaseArtifactEnvelope';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -86,6 +89,7 @@ import {
   signPackageCertificateData,
   signYucpTrustBundleJwt,
   verifyCertEnvelopeAgainstPinnedRoots,
+  verifyCouplingRuntimeJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import './polyfills';
@@ -1889,6 +1893,137 @@ http.route({
     }
 
     return jsonResponse({ success: true });
+  }),
+});
+
+// POST /v1/licenses/coupling-job — issue per-asset coupling tokens for an entitled VPM install
+// and record forensic traces. The client passes its machine-bound license token; the server
+// re-validates it. Returns empty files (skipReason) when no coupling-runtime artifact is active.
+http.route({
+  method: 'POST',
+  path: '/v1/licenses/coupling-job',
+  handler: httpAction(async (ctx, request) => {
+    let body: {
+      packageId: string;
+      projectId: string;
+      machineFingerprint: string;
+      licenseToken: string;
+      assetPaths: string[];
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+
+    const { packageId, projectId, machineFingerprint, licenseToken, assetPaths } = body ?? {};
+    if (!packageId || !projectId || !machineFingerprint || !licenseToken) {
+      return errorResponse(
+        'packageId, projectId, machineFingerprint, and licenseToken are required',
+        400
+      );
+    }
+    if (!Array.isArray(assetPaths)) {
+      return errorResponse('assetPaths must be an array', 400);
+    }
+    if (assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return errorResponse('Too many coupling asset paths', 400);
+    }
+    if (!PROJECT_ID_RE.test(projectId)) {
+      return errorResponse('Invalid projectId format', 400);
+    }
+
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
+
+    const result = await ctx.runAction(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths,
+      issuerBaseUrl: publicIssuerBaseUrl,
+    });
+
+    if (!result.success) {
+      return jsonResponse({ error: result.error }, 422);
+    }
+    return jsonResponse({
+      success: true,
+      runtimeToken: result.runtimeToken,
+      runtimeSha256: result.runtimeSha256,
+      expiresAt: result.expiresAt,
+      skipReason: result.skipReason,
+      files: result.files ?? [],
+    });
+  }),
+});
+
+// GET /v1/licenses/coupling-runtime?token=... — stream the decrypted coupling-runtime DLL.
+// The token is the short-lived runtime token minted by /v1/licenses/coupling-job. The stored
+// artifact is enveloped, so we decrypt server-side and return the runnable plaintext bytes.
+http.route({
+  method: 'GET',
+  path: '/v1/licenses/coupling-runtime',
+  handler: httpAction(async (ctx, request) => {
+    const token = new URL(request.url).searchParams.get('token');
+    if (!token) {
+      return errorResponse('token is required', 400);
+    }
+
+    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
+    const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
+
+    const claims = await verifyCouplingRuntimeJwtAgainstPinnedRoots(token, issuer);
+    if (!claims) {
+      return errorResponse('Runtime token is invalid or expired', 401);
+    }
+
+    const artifact = await ctx.runQuery(
+      internal.releaseArtifacts.getActiveCouplingRuntimeForDownload,
+      { channel: RELEASE_CHANNELS.stable, platform: RELEASE_PLATFORMS.winX64 }
+    );
+    if (!artifact) {
+      return errorResponse('Coupling runtime is not available', 404);
+    }
+    // The token was minted for a specific artifact; refuse if it rotated under us so the
+    // client's runtimeSha256 check can't silently fail (it should re-request a coupling job).
+    if (artifact.plaintextSha256 !== claims.plaintext_sha256) {
+      return errorResponse('Coupling runtime changed; please retry', 409);
+    }
+
+    const ciphertextResponse = await fetch(artifact.downloadUrl);
+    if (!ciphertextResponse.ok) {
+      return errorResponse('Coupling runtime storage unavailable', 502);
+    }
+    const ciphertext = new Uint8Array(await ciphertextResponse.arrayBuffer());
+
+    const keyBytes = await deriveCouplingRuntimeEnvelopeKeyBytes({
+      artifactKey: artifact.artifactKey,
+      channel: artifact.channel,
+      platform: artifact.platform,
+      version: artifact.version,
+      plaintextSha256: artifact.plaintextSha256,
+    });
+    let plaintext: Uint8Array;
+    try {
+      plaintext = await decryptArtifactEnvelope(ciphertext, keyBytes, artifact.envelopeIvBase64);
+    } catch {
+      return errorResponse('Coupling runtime could not be decrypted', 500);
+    }
+    if ((await sha256HexBytes(plaintext)) !== artifact.plaintextSha256) {
+      return errorResponse('Coupling runtime integrity check failed', 500);
+    }
+
+    return new Response(plaintext.buffer as ArrayBuffer, {
+      status: 200,
+      headers: new Headers({
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      }),
+    });
   }),
 });
 

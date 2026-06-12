@@ -1013,6 +1013,10 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'POST') return forensicsRoutes.lookup(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  if (pathname === '/api/forensics/reveal-license' && forensicsRoutes) {
+    if (request.method === 'POST') return forensicsRoutes.revealLicense(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   if (pathname === '/api/packages' && packageRoutes) {
     if (request.method === 'GET') return packageRoutes.listPackages(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });

@@ -299,6 +299,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       packFamily?: string;
       packVersion?: string;
       provider?: string;
+      licenseMasked?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -641,6 +642,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
             ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
+            ...(match.licenseMasked !== undefined ? { licenseMasked: match.licenseMasked } : {}),
             ...(match.buyerProviderUserId !== undefined
               ? { buyerProviderUserId: match.buyerProviderUserId }
               : {}),
@@ -725,8 +727,44 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
+  async function revealLicense(request: Request): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+    try {
+      const body = (await request.json()) as { packageId?: unknown; licenseSubject?: unknown };
+      const packageId = assertPackageId(String(body.packageId ?? ''));
+      const licenseSubject = String(body.licenseSubject ?? '')
+        .trim()
+        .toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(licenseSubject)) {
+        return jsonResponse({ error: 'Invalid licenseSubject' }, 400);
+      }
+      const result = await convex.mutation(api.couplingForensics.revealCouplingLicenseKey, {
+        apiSecret: config.convexApiSecret,
+        authUserId: viewer.authUserId,
+        packageId,
+        licenseSubject,
+      });
+      if (result.error) {
+        return jsonResponse({ error: result.error }, 403);
+      }
+      return jsonResponse({ licenseKey: result.licenseKey });
+    } catch (error) {
+      logger.error('Failed to reveal coupling license key', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to reveal license key' }, 500);
+    }
+  }
+
   return {
     listPackages,
     lookup,
+    revealLicense,
   };
 }
