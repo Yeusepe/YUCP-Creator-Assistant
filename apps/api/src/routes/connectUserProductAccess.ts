@@ -13,6 +13,7 @@ import { buildCookie, getCookieValue } from '../lib/browserSessions';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import type { ConnectConfig } from '../providers/types';
 import {
   type HostedVerificationIntentRecord,
@@ -59,6 +60,16 @@ function getAllowedOrigins(config: ConnectConfig): Set<string> {
 const BUYER_ACCESS_MACHINE_COOKIE = 'yucp_buyer_access_machine';
 const BUYER_ACCESS_MACHINE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const BUYER_ACCESS_MACHINE_FINGERPRINT_PATTERN = /^buyer-access-web:[0-9a-f]{32}$/;
+const BUYER_ACCESS_VERIFICATION_INTENT_BODY_MAX_BYTES = 4096;
+
+function jsonNoStore(body: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  headers.set('Cache-Control', 'private, no-store');
+  return Response.json(body, {
+    ...init,
+    headers,
+  });
+}
 
 function createBuyerAccessMachineFingerprint(): string {
   const bytes = new Uint8Array(16);
@@ -209,7 +220,7 @@ export function createConnectUserProductAccessRoutes({
           }))
         : [];
 
-      return Response.json({
+      return jsonNoStore({
         product: {
           catalogProductId: String(product.catalogProductId),
           displayName: product.displayName ?? product.productId,
@@ -254,11 +265,17 @@ export function createConnectUserProductAccessRoutes({
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    let body: { returnTo?: string } = {};
+    let body: Record<string, unknown> = {};
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      body = {};
+      body = await readJsonObjectBodyWithLimit(
+        request,
+        BUYER_ACCESS_VERIFICATION_INTENT_BODY_MAX_BYTES
+      );
+    } catch (error) {
+      if (error instanceof RequestBodyError) {
+        return Response.json({ error: error.message }, { status: error.status });
+      }
+      throw error;
     }
 
     try {
@@ -277,8 +294,9 @@ export function createConnectUserProductAccessRoutes({
       }
 
       const safeReturnPath =
-        getSafeRelativeRedirectTarget(body.returnTo) ??
-        buildBuyerProductAccessPath(String(product.catalogProductId));
+        getSafeRelativeRedirectTarget(
+          typeof body.returnTo === 'string' ? body.returnTo : undefined
+        ) ?? buildBuyerProductAccessPath(String(product.catalogProductId));
       const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
       const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
       const primaryPackage = product.backstagePackages[0];
@@ -332,7 +350,7 @@ export function createConnectUserProductAccessRoutes({
         headers.set('Set-Cookie', buyerAccessFingerprint.setCookie);
       }
 
-      return Response.json(
+      return jsonNoStore(
         {
           ...mapHostedVerificationIntentResponse(intent, config.frontendBaseUrl),
           intentId: String(created.intentId),

@@ -29,7 +29,11 @@ function toRepositoryIdSegment(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/^[._-]+|[._-]+$/g, '');
+}
+
+function hasRepositoryIdSegment(value: string): boolean {
+  return /[a-z0-9]/.test(toRepositoryIdSegment(value));
 }
 
 function sanitizeRepositoryIdSegment(value: string): string {
@@ -76,10 +80,13 @@ export function buildCreatorRepoRef(input: { authUserId: string; creatorSlug?: s
     throw new Error('authUserId is required to derive a creator repository reference.');
   }
   const creatorSlug = input.creatorSlug?.trim();
-  return creatorSlug && toRepositoryIdSegment(creatorSlug) ? creatorSlug : authUserId;
+  return creatorSlug && hasRepositoryIdSegment(creatorSlug) ? creatorSlug : authUserId;
 }
 
 export function buildBackstageRepositoryUrls(apiBaseUrl: string, creatorRepoRef: string) {
+  if (!hasRepositoryIdSegment(creatorRepoRef)) {
+    throw new Error('creatorRepoRef must include an alphanumeric repository segment.');
+  }
   const baseUrl = apiBaseUrl.replace(/\/$/, '');
   const encodedCreatorRepoRef = encodeURIComponent(creatorRepoRef);
   return {

@@ -152,6 +152,107 @@ it('resolves relative CDNgine authorized source URLs against the configured API 
   );
 });
 
+it('rejects oversized CDNgine JSON authorization responses before parsing', async () => {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+
+    if (url === 'https://cdngine.test/v1/assets/ast_1/versions/ver_1/source/authorize') {
+      return new Response('x'.repeat(16 * 1024 + 1), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response('unexpected URL', { status: 500 });
+  }) as typeof fetch;
+
+  await expect(
+    authorizeCdngineBackstageSource({
+      config: {
+        accessToken: 'cdngine-token',
+        apiBaseUrl: 'https://cdngine.test',
+      },
+      idempotencyKey: 'source-read:test',
+      source: {
+        assetId: 'ast_1',
+        assetOwner: 'creator:test',
+        byteSize: 123,
+        serviceNamespaceId: 'yucp-backstage',
+        sha256: 'a'.repeat(64),
+        tenantId: 'test',
+        uploadedAt: 1,
+        versionId: 'ver_1',
+      },
+    })
+  ).rejects.toThrow('CDNgine response exceeded the byte limit.');
+});
+
+it('rejects oversized CDNgine JSON status responses before parsing', async () => {
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+
+    if (url === 'https://cdngine.test/v1/upload-sessions') {
+      return new Response(
+        JSON.stringify({
+          uploadSessionId: 'upl_1',
+          assetId: 'ast_1',
+          versionId: 'ver_1',
+          uploadTarget: {
+            method: 'PATCH',
+            protocol: 'tus',
+            url: '/uploads/staging/backstage/source.zip',
+          },
+        }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url === 'https://cdngine.test/uploads/staging/backstage/source.zip') {
+      expect(init?.method).toBe('PATCH');
+      return new Response(null, { status: 204 });
+    }
+
+    if (url === 'https://cdngine.test/v1/upload-sessions/upl_1/complete') {
+      return new Response(
+        JSON.stringify({
+          assetId: 'ast_1',
+          versionId: 'ver_1',
+        }),
+        { status: 202, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url === 'https://cdngine.test/v1/assets/ast_1/versions/ver_1') {
+      return new Response('x'.repeat(16 * 1024 + 1), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response('unexpected URL', { status: 500 });
+  }) as typeof fetch;
+
+  const bytes = new Uint8Array([80, 75, 3, 4]);
+  await expect(
+    uploadBackstageDeliverableToCdngine({
+      bytes: bytes.buffer,
+      byteSize: bytes.byteLength,
+      config: {
+        accessToken: 'cdngine-token',
+        apiBaseUrl: 'https://cdngine.test',
+        publicationPollIntervalMs: 1,
+        publicationTimeoutMs: 100,
+      },
+      contentType: 'application/zip',
+      deliveryName: 'source.zip',
+      releaseId: 'release_1',
+      assetOwner: 'creator:test',
+      tenantId: 'test',
+      sha256: 'b'.repeat(64),
+    })
+  ).rejects.toThrow('CDNgine response exceeded the byte limit.');
+});
+
 it('waits until CDNgine publishes Backstage deliverables before returning delivery references', async () => {
   const requestedUrls: string[] = [];
   let versionReadCount = 0;

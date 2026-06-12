@@ -211,10 +211,10 @@ function normalizeProductsResponse(
 ): ProductsResponse {
   return {
     products: (payload?.products ?? []).map((product) => ({
-      id: product?.id,
-      name: product?.name,
-      collaboratorName: product?.collaboratorName,
-      productUrl: product?.productUrl,
+      id: normalizeOptionalString(product?.id),
+      name: normalizeOptionalString(product?.name),
+      collaboratorName: normalizeOptionalString(product?.collaboratorName),
+      productUrl: normalizeOptionalString(product?.productUrl),
       thumbnailUrl: normalizeOptionalString(product?.thumbnailUrl),
       canonicalSlug: normalizeOptionalString(product?.canonicalSlug),
       aliases: normalizeOptionalStringArray(product?.aliases),

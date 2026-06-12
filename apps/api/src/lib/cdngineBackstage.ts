@@ -79,6 +79,7 @@ export type CdngineBackstageUploadSession = {
 
 const DEFAULT_PUBLICATION_POLL_INTERVAL_MS = 500;
 const DEFAULT_PUBLICATION_TIMEOUT_MS = 120_000;
+const CDNGINE_RESPONSE_MAX_BYTES = 16 * 1024;
 
 const PENDING_PUBLICATION_STATES = new Set([
   'awaiting-upload',
@@ -154,6 +155,40 @@ async function fetchWithTimeout(
   }
 }
 
+async function readResponseTextWithLimit(response: Response, maxBytes: number): Promise<string> {
+  const contentLength = Number.parseInt(response.headers.get('content-length') ?? '', 10);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error('CDNgine response exceeded the byte limit.');
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return '';
+  }
+
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = '';
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('response body exceeded limit').catch(() => undefined);
+        throw new Error('CDNgine response exceeded the byte limit.');
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return text + decoder.decode();
+}
+
 async function requestCdngineJson<T>(
   config: ConfiguredCdngineBackstageConfig,
   input: {
@@ -176,7 +211,7 @@ async function requestCdngineJson<T>(
     },
     config.timeoutMs
   );
-  const text = await response.text();
+  const text = await readResponseTextWithLimit(response, CDNGINE_RESPONSE_MAX_BYTES);
   let payload: unknown = null;
   if (text.length > 0) {
     try {
@@ -235,7 +270,7 @@ async function requestCdngineGetJson<T>(
     },
     config.timeoutMs
   );
-  const text = await response.text();
+  const text = await readResponseTextWithLimit(response, CDNGINE_RESPONSE_MAX_BYTES);
   let payload: unknown = null;
   if (text.length > 0) {
     try {

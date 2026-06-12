@@ -315,6 +315,7 @@ describe('GET /api/connect/user/accounts', () => {
     );
 
     expect(creatorResponse.status).toBe(200);
+    expect(creatorResponse.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(creatorResponse.json()).resolves.toEqual({
       connections: [],
     });
@@ -338,6 +339,7 @@ describe('GET /api/connect/user/accounts', () => {
     );
 
     expect(buyerResponse.status).toBe(200);
+    expect(buyerResponse.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(buyerResponse.json()).resolves.toEqual({
       connections: [
         {
@@ -422,6 +424,7 @@ describe('GET /api/connect/user/accounts', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     expect(convexMutationMock).toHaveBeenCalledWith(
       apiMock.subjects.reconcileBuyerProviderLinksForAuthUser,
       {

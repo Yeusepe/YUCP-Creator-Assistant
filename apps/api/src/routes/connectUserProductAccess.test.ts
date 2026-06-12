@@ -227,6 +227,7 @@ describe('connect user product access routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toEqual({
       product: {
         catalogProductId: 'catalog_123',
@@ -296,6 +297,7 @@ describe('connect user product access routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toMatchObject({
       product: {
         packagePreview: [],
@@ -368,6 +370,7 @@ describe('connect user product access routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toMatchObject({
       product: {
         packagePreview: [],
@@ -484,6 +487,7 @@ describe('connect user product access routes', () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toEqual({
       id: 'intent_123',
       intentId: 'intent_123',
@@ -494,6 +498,28 @@ describe('connect user product access routes', () => {
     expect(response.headers.get('Set-Cookie')).toContain(
       `yucp_buyer_access_machine=${createdMachineFingerprint}`
     );
+  });
+
+  it('rejects oversized buyer verification intent bodies before reading product access state', async () => {
+    const routes = createRoutes();
+    const response = await routes.postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          returnTo: '/access/catalog_123',
+          padding: 'x'.repeat(4096),
+        }),
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: 'Request body too large' });
+    expect(convexQueryMock).not.toHaveBeenCalled();
+    expect(convexMutationMock).not.toHaveBeenCalled();
   });
 
   it('reuses the existing buyer access machine fingerprint for the same product access flow', async () => {

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 let sessionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -368,6 +368,10 @@ describe('backstage repo routes', () => {
           return null;
       }
     };
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   afterAll(() => {

@@ -42,6 +42,15 @@ export function createConnectUserVerificationRoutes({
     return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
   }
 
+  function jsonNoStore(body: unknown, init?: ResponseInit): Response {
+    const headers = new Headers(init?.headers);
+    headers.set('Cache-Control', 'private, no-store');
+    return Response.json(body, {
+      ...init,
+      headers,
+    });
+  }
+
   async function requireSessionActor(request: Request): Promise<
     | {
         authUserId: string;
@@ -196,7 +205,7 @@ export function createConnectUserVerificationRoutes({
         apiSecret: config.convexApiSecret,
         authUserId: viewer.authUserId,
       });
-      return Response.json({
+      return jsonNoStore({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
           provider: link.provider,
@@ -239,7 +248,7 @@ export function createConnectUserVerificationRoutes({
     }
     try {
       const links = await reconcileBuyerVerificationAccounts(viewer.convex, viewer.authUserId);
-      return Response.json({
+      return jsonNoStore({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
           provider: link.provider,
