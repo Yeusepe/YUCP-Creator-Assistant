@@ -571,6 +571,89 @@ describe('packageRegistry', () => {
     });
   });
 
+  it('keeps tier-scoped packages out of product-level buyer and public access summaries', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-tier-only-access';
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-tier-only-access',
+      provider: 'gumroad',
+      providerProductRef: 'gumroad-tier-only-access',
+      displayName: 'Tier Only Access Product',
+    });
+    const catalogTierId = await t.mutation(api.catalogTiers.upsertCatalogTier, {
+      apiSecret: 'test-secret',
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      productId: 'product-tier-only-access',
+      catalogProductId,
+      providerProductRef: 'gumroad-tier-only-access',
+      providerTierRef: 'gumroad-tier-only-access:gold',
+      displayName: 'Gold Tier',
+      amountCents: 1500,
+      currency: 'USD',
+      status: 'active',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.tier.only.access',
+      packageName: 'Tier Only Access Package',
+      publisherId: 'publisher-1',
+      yucpUserId: creatorAuthUserId,
+    });
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForAccessSelectors, {
+      authUserId: creatorAuthUserId,
+      accessSelectors: [{ kind: 'catalogTier', catalogTierId }],
+      packageId: 'com.yucp.tier.only.access',
+      packageName: 'Tier Only Access Package',
+      displayName: 'Tier Only Access Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+    await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: creatorAuthUserId,
+      packageId: 'com.yucp.tier.only.access',
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: 'tier-only-access-stable',
+    });
+
+    const creatorListing = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding(creatorAuthUserId),
+      authUserId: creatorAuthUserId,
+    });
+    expect(creatorListing.data[0]?.backstagePackages.map((pkg) => pkg.packageId)).toEqual([
+      'com.yucp.tier.only.access',
+    ]);
+
+    const buyerContext = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('buyer-tier-only-access'),
+      catalogProductId,
+    });
+    expect(buyerContext).toMatchObject({
+      catalogProductId,
+      productId: 'product-tier-only-access',
+      backstagePackages: [],
+    });
+
+    const publicAccess = await t.query(api.packageRegistry.getPublicBackstageProductAccessByRef, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('buyer-tier-only-access'),
+      creatorRef: creatorAuthUserId,
+      productRef: 'gumroad-tier-only-access',
+    });
+    expect(publicAccess).toMatchObject({
+      catalogProductId,
+      productId: 'product-tier-only-access',
+      packageSummaries: [],
+    });
+    expect(publicAccess?.primaryPackageId).toBeUndefined();
+  });
+
   it('does not advertise buyer access packages until they have a listed public release', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {

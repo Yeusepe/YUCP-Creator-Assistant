@@ -1294,7 +1294,10 @@ async function summarizeBackstagePackagesFromLinks(
 async function buildBackstagePackageMap(
   ctx: RegistryReaderCtx,
   authUserId: string,
-  catalogProductIds: ReadonlyArray<Id<'product_catalog'>>
+  catalogProductIds: ReadonlyArray<Id<'product_catalog'>>,
+  options: {
+    includeTierScopedLinks?: boolean;
+  } = {}
 ): Promise<Map<string, BackstagePackageSummary[]>> {
   if (catalogProductIds.length === 0) {
     return new Map();
@@ -1307,7 +1310,10 @@ async function buildBackstagePackageMap(
       .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
       .collect()
   ).filter(
-    (link) => link.status === 'active' && catalogProductIdSet.has(String(link.catalogProductId))
+    (link) =>
+      link.status === 'active' &&
+      catalogProductIdSet.has(String(link.catalogProductId)) &&
+      (options.includeTierScopedLinks !== false || link.catalogTierId === undefined)
   );
 
   return await summarizeBackstagePackagesFromLinks(ctx, authUserId, links);
@@ -2354,7 +2360,8 @@ export const getPublicBackstageProductAccessByRef = query({
     const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(
       ctx,
       resolved.creatorAuthUserId,
-      [resolved.product._id]
+      [resolved.product._id],
+      { includeTierScopedLinks: false }
     );
     const packageSummaries = (
       backstagePackagesByCatalogProduct.get(String(resolved.product._id)) ?? []
@@ -2915,7 +2922,8 @@ export const getBuyerAccessContextByCatalogProductId = query({
     const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(
       ctx,
       product.authUserId,
-      [args.catalogProductId]
+      [args.catalogProductId],
+      { includeTierScopedLinks: false }
     );
     const backstagePackages =
       backstagePackagesByCatalogProduct
