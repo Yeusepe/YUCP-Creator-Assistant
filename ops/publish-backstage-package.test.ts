@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   publishBackstagePackage,
+  printUsage,
   resolvePublishBackstagePackageConfig,
 } from './publish-backstage-package';
 
@@ -45,7 +46,8 @@ describe('publish-backstage-package', () => {
             url: 'https://upload.test/backstage',
           },
           completeUrl:
-            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
+            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
+          completionToken: 'completion-token-1',
         });
       }
       if (url === 'https://upload.test/backstage') {
@@ -108,6 +110,9 @@ describe('publish-backstage-package', () => {
       'Upload-Offset': '0',
     });
     expect(calls[2].init?.method).toBe('POST');
+    expect(calls[2].init?.headers).toEqual({
+      'X-YUCP-Upload-Completion-Token': 'completion-token-1',
+    });
     expect(calls[3].init?.headers).toEqual({
       Authorization: 'Bearer oauth-token',
       'Content-Type': 'application/json',
@@ -186,7 +191,8 @@ describe('publish-backstage-package', () => {
             url: 'https://upload.test/backstage',
           },
           completeUrl:
-            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete?completionToken=token',
+            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
+          completionToken: 'completion-token-2',
         });
       }
       if (url === 'https://upload.test/backstage') {
@@ -241,5 +247,23 @@ describe('publish-backstage-package', () => {
       deliveryName: 'example.unitypackage',
       sourceContentType: 'application/octet-stream',
     });
+  });
+
+  it('documents the products:write scope required for package publishing', () => {
+    const originalLog = console.log;
+    const messages: string[] = [];
+    console.log = (message?: unknown) => {
+      messages.push(String(message));
+    };
+
+    try {
+      printUsage();
+    } finally {
+      console.log = originalLog;
+    }
+
+    const usage = messages.join('\n');
+    expect(usage).toContain('products:write');
+    expect(usage).not.toContain('profile:read');
   });
 });

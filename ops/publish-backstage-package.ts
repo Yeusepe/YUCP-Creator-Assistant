@@ -5,7 +5,7 @@
  *   bun run publish:backstage-package -- --packageId com.yucp.example --catalogProductId product_123 --version 1.2.3 --sourcePath E:\exports\example.unitypackage
  *
  * Authentication:
- *   Provide a Better Auth access token with the public API audience and at least the `profile:read`
+ *   Provide a Better Auth access token with the public API audience and at least the `products:write`
  *   scope. The external Unity exporter can reuse the same OAuth token it already obtains for YUCP.
  */
 
@@ -38,6 +38,7 @@ export type PublishBackstagePackageConfig = {
 
 type UploadSessionResponse = {
   completeUrl: string;
+  completionToken: string;
   packageId: string;
   uploadSessionId: string;
   uploadTarget: {
@@ -124,6 +125,9 @@ Options:
 Environment:
   YUCP_API_BASE_URL                 Default value for --apiBaseUrl.
   YUCP_ACCESS_TOKEN                 Default value for --accessToken.
+
+Authentication:
+  YUCP_ACCESS_TOKEN must include the public API audience and the products:write scope.
 `);
 }
 
@@ -310,6 +314,7 @@ export async function uploadBackstagePackageArtifactDirect(
   if (session.uploadTarget.protocol !== 'tus') {
     throw new Error(`Unsupported Backstage upload protocol "${session.uploadTarget.protocol}".`);
   }
+  const completionToken = trimRequired(session.completionToken, 'upload completion token');
   const uploadResponse = await fetchImpl(session.uploadTarget.url, {
     method: session.uploadTarget.method,
     headers: {
@@ -327,6 +332,9 @@ export async function uploadBackstagePackageArtifactDirect(
 
   const completionResponse = await fetchImpl(session.completeUrl, {
     method: 'POST',
+    headers: {
+      'X-YUCP-Upload-Completion-Token': completionToken,
+    },
   });
   const payload = await assertApiResponse<UploadStorageResponse>(
     completionResponse,
