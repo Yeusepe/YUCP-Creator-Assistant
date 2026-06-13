@@ -171,9 +171,8 @@ describe('buyer product access route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
-    expect(await screen.findByText(/Purchase source:/)).toBeInTheDocument();
     expect((await screen.findAllByText(/Gumroad/)).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText('1 Unity package')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/1 Unity package/)).length).toBeGreaterThan(0);
     const verifyButton = await screen.findByRole('button', { name: 'Verify purchase' });
     fireEvent.click(verifyButton);
 
@@ -192,9 +191,6 @@ describe('buyer product access route', () => {
       codeVerifier: 'verifier_123',
       machineFingerprint: 'buyer-access-web:0123456789abcdef0123456789abcdef',
     });
-    expect(
-      await screen.findByText(/Use the Gumroad account or license details/i)
-    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add to VCC' })).not.toBeInTheDocument();
   });
 
@@ -268,6 +264,8 @@ describe('buyer product access route', () => {
   });
 
   it('prioritizes Add to VCC and keeps manual repo details hidden until expanded', async () => {
+    const addRepoUrl =
+      'vcc://vpm/addRepo?url=https%3A%2F%2Frepo.test%2Fprivate.json&headers[]=X-YUCP-Repo-Token%3Atoken_123';
     mockUseLoaderData.mockReturnValue({
       ...buyerAccessResponse,
       accessState: {
@@ -277,7 +275,7 @@ describe('buyer product access route', () => {
       },
     });
     vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
-      addRepoUrl: 'vcc://addRepo',
+      addRepoUrl,
       repositoryUrl: 'https://repo.test/private.json',
     } as Awaited<ReturnType<typeof backstageAccessApi.requestUserBackstageRepoAccess>>);
     Object.defineProperty(window.navigator, 'clipboard', {
@@ -298,22 +296,22 @@ describe('buyer product access route', () => {
     expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
       catalogProductId: 'catalog_123',
     });
-    expect(await screen.findByText('Need help adding to VCC?')).toBeInTheDocument();
-    const repoUrl = screen.getByText('https://repo.test/private.json');
-    expect(repoUrl.closest('.vp-manual-setup-panel')).toHaveAttribute('aria-hidden', 'true');
+    const manualToggle = await screen.findByRole('button', { name: /manual setup/i });
+    expect(manualToggle).toHaveAttribute('aria-expanded', 'false');
+    const repoHandoff = screen.getByText(addRepoUrl);
+    expect(repoHandoff.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'true');
 
-    fireEvent.click(await screen.findByRole('button', { name: /manual setup/i }));
+    fireEvent.click(manualToggle);
 
-    expect(repoUrl.closest('.vp-manual-setup-panel')).toHaveAttribute('aria-hidden', 'false');
+    expect(manualToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(repoHandoff.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'false');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
 
     await waitFor(() =>
-      expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(
-        'https://repo.test/private.json'
-      )
+      expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(addRepoUrl)
     );
-    expect(toastSuccessMock).toHaveBeenCalledWith('Repo URL copied');
+    expect(toastSuccessMock).toHaveBeenCalledWith('VCC handoff copied');
   });
 
   it('loads buyer access through the route loader before render', async () => {

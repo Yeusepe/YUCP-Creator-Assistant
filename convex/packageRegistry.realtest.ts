@@ -547,6 +547,7 @@ describe('packageRegistry', () => {
 
     const result = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
       apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
       catalogProductId,
     });
 
@@ -692,6 +693,7 @@ describe('packageRegistry', () => {
 
     const result = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
       apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-1'),
       catalogProductId,
     });
 
