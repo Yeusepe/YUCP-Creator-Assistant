@@ -280,7 +280,7 @@ function BuyerProductAccessPage() {
       : 'Sign in with the Creator Identity you use in VCC so this purchase links to your account.';
   const currentStep = isViewerPending ? 0 : hasAccess ? 2 : isAuthenticated ? 1 : 0;
   const repoAccess = redemptionQuery.data ?? repoAccessQuery.data;
-  const manualHandoffUrl = repoAccess?.addRepoUrl ?? null;
+  const manualRepositoryUrl = repoAccess?.repositoryUrl ?? null;
   const isRepoReady = Boolean(repoAccess?.addRepoUrl);
   const isRepoPending = hasAccess && (repoAccessQuery.isLoading || redemptionQuery.isLoading);
   const isRepoError = repoAccessQuery.isError || redemptionQuery.isError;
@@ -410,7 +410,7 @@ function BuyerProductAccessPage() {
           </section>
         ) : null}
 
-        {hasAccess && manualHandoffUrl ? (
+        {hasAccess && manualRepositoryUrl ? (
           <section className="vpa-manual">
             <button
               type="button"
@@ -428,15 +428,15 @@ function BuyerProductAccessPage() {
               aria-hidden={!isManualSetupOpen}
             >
               <p className="vpa-manual-copy">
-                Prefer to add it yourself? Copy this authenticated VCC handoff and open it from your
-                browser or system launcher.
+                Use Add to VCC for the normal flow. If support asks for the repo URL, copy this
+                entitled repository address.
               </p>
               <div className="vpa-repo-box">
-                <p className="vpa-repo-url">{manualHandoffUrl}</p>
+                <p className="vpa-repo-url">{manualRepositoryUrl}</p>
                 <YucpButton
                   yucp="ghost"
                   className="vpa-repo-copy"
-                  onPress={() => handleCopyValue(manualHandoffUrl, 'VCC handoff copied')}
+                  onPress={() => handleCopyValue(manualRepositoryUrl, 'Repo URL copied')}
                 >
                   <Copy className="size-3.5" />
                   Copy

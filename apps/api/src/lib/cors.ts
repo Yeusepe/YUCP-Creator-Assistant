@@ -23,6 +23,10 @@ const API_CORS_ALLOWED_HEADERS = [
   'baggage',
   'X-YUCP-File-Name',
   'x-yucp-file-name',
+  'X-YUCP-Media-Kind',
+  'x-yucp-media-kind',
+  'X-YUCP-Source-Path',
+  'x-yucp-source-path',
   'X-YUCP-Upload-Completion-Token',
   'x-yucp-upload-completion-token',
 ];
@@ -75,7 +79,7 @@ export function buildApiCorsHeaders(input: ApiCorsHeaderInput): Record<string, s
 
   corsHeaders['Access-Control-Allow-Origin'] = input.origin;
   corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-  corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
+  corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
   corsHeaders['Access-Control-Allow-Headers'] = API_CORS_ALLOWED_HEADERS.join(', ');
   corsHeaders['Access-Control-Expose-Headers'] = 'X-Request-Id, X-Trace-Id';
   corsHeaders['Access-Control-Max-Age'] = '600';

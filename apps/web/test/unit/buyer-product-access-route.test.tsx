@@ -263,9 +263,10 @@ describe('buyer product access route', () => {
     expect(productAccessApi.createBuyerProductAccessVerificationIntent).not.toHaveBeenCalled();
   });
 
-  it('prioritizes Add to VCC and keeps manual repo details hidden until expanded', async () => {
+  it('prioritizes Add to VCC and keeps the token handoff out of manual setup', async () => {
     const addRepoUrl =
       'vcc://vpm/addRepo?url=https%3A%2F%2Frepo.test%2Fprivate.json&headers[]=X-YUCP-Repo-Token%3Atoken_123';
+    const repositoryUrl = 'https://repo.test/private.json';
     mockUseLoaderData.mockReturnValue({
       ...buyerAccessResponse,
       accessState: {
@@ -276,7 +277,7 @@ describe('buyer product access route', () => {
     });
     vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
       addRepoUrl,
-      repositoryUrl: 'https://repo.test/private.json',
+      repositoryUrl,
     } as Awaited<ReturnType<typeof backstageAccessApi.requestUserBackstageRepoAccess>>);
     Object.defineProperty(window.navigator, 'clipboard', {
       configurable: true,
@@ -298,20 +299,21 @@ describe('buyer product access route', () => {
     });
     const manualToggle = await screen.findByRole('button', { name: /manual setup/i });
     expect(manualToggle).toHaveAttribute('aria-expanded', 'false');
-    const repoHandoff = screen.getByText(addRepoUrl);
-    expect(repoHandoff.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'true');
+    const repoUrl = screen.getByText(repositoryUrl);
+    expect(screen.queryByText(addRepoUrl)).not.toBeInTheDocument();
+    expect(repoUrl.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'true');
 
     fireEvent.click(manualToggle);
 
     expect(manualToggle).toHaveAttribute('aria-expanded', 'true');
-    expect(repoHandoff.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'false');
+    expect(repoUrl.closest('.vpa-manual-panel')).toHaveAttribute('aria-hidden', 'false');
 
     fireEvent.click(await screen.findByRole('button', { name: 'Copy' }));
 
     await waitFor(() =>
-      expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(addRepoUrl)
+      expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(repositoryUrl)
     );
-    expect(toastSuccessMock).toHaveBeenCalledWith('VCC handoff copied');
+    expect(toastSuccessMock).toHaveBeenCalledWith('Repo URL copied');
   });
 
   it('loads buyer access through the route loader before render', async () => {

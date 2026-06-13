@@ -9,9 +9,12 @@ describe('API CORS headers', () => {
     });
 
     expect(headers['Access-Control-Allow-Origin']).toBe('http://localhost:3000');
+    expect(headers['Access-Control-Allow-Methods']).toContain('PUT');
     expect(headers['Access-Control-Allow-Methods']).toContain('OPTIONS');
     expect(headers['Access-Control-Allow-Headers']).toContain('Content-Type');
     expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-File-Name');
+    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Media-Kind');
+    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Source-Path');
     expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Upload-Completion-Token');
   });
 

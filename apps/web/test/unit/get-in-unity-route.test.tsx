@@ -171,4 +171,37 @@ describe('get in unity route', () => {
       vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mock.invocationCallOrder[0]
     );
   });
+
+  it('loads repo access for already verified signed-in buyers without a fresh grant', async () => {
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer-user-1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
+      creatorName: 'Mapache',
+      creatorRepoRef: 'mapache',
+      repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
+      repositoryName: 'Mapache repo',
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) {
+      throw new Error('Get in Unity route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('button', { name: /add to vcc/i })).toBeInTheDocument();
+    expect(backstageAccessApi.redeemBuyerBackstageVerificationIntent).not.toHaveBeenCalled();
+    expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
+      creatorRef: 'mapache',
+      productRef: 'song-thing',
+    });
+  });
 });

@@ -38,6 +38,7 @@ import {
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { normalizeProviderThumbnailUrl } from '../lib/catalogMedia';
 import { E, Emoji } from '../lib/emojis';
 import {
   createDiscordRoleSetupSessionToken,
@@ -223,7 +224,7 @@ function resolveCatalogProductThumbnail(
   provider: string,
   productId: string
 ): string | undefined {
-  return session.productThumbnails?.[provider]?.[productId]?.trim() || undefined;
+  return normalizeProviderThumbnailUrl(session.productThumbnails?.[provider]?.[productId]);
 }
 
 function cleanExpiredSessions(): void {
@@ -632,7 +633,10 @@ export async function handleProductTypeSelect(
         session.productUrls = { ...session.productUrls, [selectedType]: productUrls };
       }
       const productThumbnails = Object.fromEntries(
-        products.flatMap((p) => (p.thumbnailUrl ? [[p.id, p.thumbnailUrl]] : []))
+        products.flatMap((p) => {
+          const thumbnailUrl = normalizeProviderThumbnailUrl(p.thumbnailUrl);
+          return thumbnailUrl ? [[p.id, thumbnailUrl]] : [];
+        })
       );
       if (Object.keys(productThumbnails).length > 0) {
         session.productThumbnails = {

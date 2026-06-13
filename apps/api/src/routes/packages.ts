@@ -580,15 +580,28 @@ function decodeHtmlEntity(entity: string): string {
 
   if (entity.startsWith('#x') || entity.startsWith('#X')) {
     const parsed = Number.parseInt(entity.slice(2), 16);
-    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+    return decodeHtmlCodePoint(parsed, entity);
   }
 
   if (entity.startsWith('#')) {
     const parsed = Number.parseInt(entity.slice(1), 10);
-    return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : `&${entity};`;
+    return decodeHtmlCodePoint(parsed, entity);
   }
 
   return `&${entity};`;
+}
+
+function decodeHtmlCodePoint(parsed: number, entity: string): string {
+  if (
+    !Number.isInteger(parsed) ||
+    parsed < 0 ||
+    parsed > 0x10ffff ||
+    (parsed >= 0xd800 && parsed <= 0xdfff)
+  ) {
+    return `&${entity};`;
+  }
+
+  return String.fromCodePoint(parsed);
 }
 
 function normalizeRichTextToPlainText(value?: string | null): string | undefined {

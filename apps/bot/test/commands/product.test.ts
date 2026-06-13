@@ -1819,6 +1819,7 @@ describe('handleProductConfirmAdd, catalog product URLs', () => {
             id: '11',
             name: 'Game One',
             productUrl: 'https://creator.itch.io/game-one',
+            thumbnailUrl: 'javascript:alert(1)',
           },
         ],
       })
@@ -1912,5 +1913,6 @@ describe('handleProductConfirmAdd, catalog product URLs', () => {
     expect(addProductArgs?.provider).toBe('itchio');
     expect(addProductArgs?.productId).toBe('11');
     expect(addProductArgs?.canonicalUrl).toBe('https://creator.itch.io/game-one');
+    expect(addProductArgs?.thumbnailUrl).toBeUndefined();
   });
 });

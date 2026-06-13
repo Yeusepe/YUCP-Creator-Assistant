@@ -108,14 +108,14 @@ For any production incident in provider, identity, verification, account, or bac
 Do not close the incident with a consumer-only test. The contract boundary and the public symptom must both stay covered.
 
 ## Prioritize architecture over ease of programming:
-    - Design for extensibility — new features should slot in cleanly without touching existing code
-    - Prefer modularity: clear separation of concerns, single-responsibility components
-    - Favor patterns that let me "add and forget" (open/closed principle)
-    - Avoid shortcuts that couple things unnecessarily or make future changes hard
-    - If there are two approaches, choose the one with better long-term structure, even if more verbose now
-    - Avoid baking values, make it as nicely extensible as possible.
-    - If unsure, always search online for architecture tips, or how big companies (spotify, stripe, and more) do so.
-    - If I ask about bleeding edge, search the latest of the latest. Tech that has come out in the past few months, or has had substantial new updates. Search research papers too.
+- Design for extensibility, new features should slot in cleanly without touching existing code
+- Prefer modularity: clear separation of concerns, single-responsibility components
+- Favor patterns that let me "add and forget" (open/closed principle)
+- Avoid shortcuts that couple things unnecessarily or make future changes hard
+- If there are two approaches, choose the one with better long-term structure, even if more verbose now
+- Avoid baking values, make it as nicely extensible as possible.
+- If unsure, always search online for architecture tips, or how big companies (spotify, stripe, and more) do so.
+- If I ask about bleeding edge, search the latest of the latest. Tech that has come out in the past few months, or has had substantial new updates. Search research papers too.
 
 # This is something very important that I NEED you to internalize. NEVER EVER, AND I MEAN EVER MOCK FUNCTIONALITY OR STUB IT. I would rather it ERROR than having a stub. NEVER MAKE STUBS. The ONLY allowable mock is in tests. And even in there, prefer running the whole thing than subbing functionality. Stubs are a terrible coding practice. 
 

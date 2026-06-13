@@ -651,6 +651,50 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('rejects revoked repo tokens before touching or serving repository contents', async () => {
+    const mutationCalls: Array<{ ref: unknown; args: unknown }> = [];
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'revoked',
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+    mutationImpl = async (ref: unknown, args?: unknown) => {
+      mutationCalls.push({ ref, args });
+      return null;
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/v1/backstage/repos/mapache/index.json', {
+        headers: {
+          'X-YUCP-Repo-Token': 'ybt_revoked',
+        },
+      })
+    );
+
+    expect(response?.status).toBe(404);
+    expect(mutationCalls).not.toContainEqual(
+      expect.objectContaining({ ref: 'backstageRepos.touchRepoTokenForApi' })
+    );
+  });
+
   it('serves creator repository packages when forwarded toolchain packages are unavailable', async () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       if (String(input).startsWith('https://vpm.yucp.club/')) {

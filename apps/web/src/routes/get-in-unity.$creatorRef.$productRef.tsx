@@ -128,25 +128,31 @@ function BuyerUnityAccessPage() {
   const repoAccessQuery = useQuery({
     queryKey: ['buyer-backstage-repo-access', authUserId, creatorRef, productRef, intentId, grant],
     queryFn: async () => {
-      if (!grant || !intentId) {
+      if (grant && !intentId) {
         throw new Error('Verification grant and intent are required.');
       }
-      const pending = readPendingBuyerBackstageVerification(intentId, creatorRef, productRef);
-      if (!pending) {
-        throw new Error('Verification session was not found. Restart verification from this page.');
+      if (grant && intentId) {
+        const pending = readPendingBuyerBackstageVerification(intentId, creatorRef, productRef);
+        if (!pending) {
+          throw new Error(
+            'Verification session was not found. Restart verification from this page.'
+          );
+        }
+        await redeemBuyerBackstageVerificationIntent({
+          intentId,
+          grantToken: grant,
+          codeVerifier: pending.codeVerifier,
+          machineFingerprint: pending.machineFingerprint,
+        });
       }
-      await redeemBuyerBackstageVerificationIntent({
-        intentId,
-        grantToken: grant,
-        codeVerifier: pending.codeVerifier,
-        machineFingerprint: pending.machineFingerprint,
-      });
       const repoAccess = await requestUserBackstageRepoAccess({ creatorRef, productRef });
-      removePendingBuyerBackstageVerification(intentId);
-      removeVerificationReturnParams();
+      if (grant && intentId) {
+        removePendingBuyerBackstageVerification(intentId);
+        removeVerificationReturnParams();
+      }
       return repoAccess;
     },
-    enabled: Boolean(authUserId) && Boolean(grant) && Boolean(intentId),
+    enabled: Boolean(authUserId) && (!grant || Boolean(intentId)),
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -229,19 +235,22 @@ function BuyerUnityAccessPage() {
                   Ask the creator for a fresh Unity access link for this product.
                 </p>
               </div>
-            ) : grant && isAuthenticated ? (
+            ) : (grant && isAuthenticated) || repoAccessQuery.data ? (
               <div className="space-y-6">
                 <div className="space-y-3 text-center">
                   <div className="mx-auto flex size-14 items-center justify-center rounded-full border border-emerald-400/35 bg-emerald-400/12 text-emerald-200">
                     <ShieldCheck className="size-7" />
                   </div>
-                  <p className="text-sm font-medium text-foreground/75">Purchase verified</p>
+                  <p className="text-sm font-medium text-foreground/75">
+                    {grant ? 'Purchase verified' : 'Repo access ready'}
+                  </p>
                   <h1 className="text-3xl font-semibold text-foreground">
                     {accessQuery.data.title}
                   </h1>
                   <p className="mx-auto max-w-2xl text-sm text-foreground/70">
-                    You&apos;re signed in and verified. Add your private repo to VCC to see the
-                    Unity packages you own.
+                    {grant
+                      ? "You're signed in and verified. Add your private repo to VCC to see the Unity packages you own."
+                      : "You're signed in with access to this product. Add your private repo to VCC to see the Unity packages you own."}
                   </p>
                 </div>
 

@@ -788,6 +788,12 @@ async function resolveRepoAccess(
   if (!access) {
     return { ok: false };
   }
+  if (access.status !== 'active') {
+    return { ok: false };
+  }
+  if (typeof access.expiresAt === 'number' && access.expiresAt <= Date.now()) {
+    return { ok: false };
+  }
 
   const creatorRepoIdentity = await getCreatorRepoIdentity({
     convex,

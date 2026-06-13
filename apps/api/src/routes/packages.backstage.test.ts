@@ -26,6 +26,10 @@ let cdngineCreateUploadIdempotencyKeys: Array<string | null> = [];
 let cdngineUploadTargetBodies: Array<{ url: string; bytes: Uint8Array }> = [];
 let cdngineVersionReadStates: string[] = [];
 
+function failUnmockedFetch(input: string | URL | Request): never {
+  throw new Error(`Unexpected outbound fetch in packages.backstage.test.ts: ${String(input)}`);
+}
+
 type SyncedCatalogRow = {
   _id: string;
   aliases: string[];
@@ -322,7 +326,7 @@ describe('package Backstage publishing routes', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
-      return originalFetch(input, init);
+      return failUnmockedFetch(input);
     }) as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
@@ -1448,7 +1452,7 @@ describe('package Backstage publishing routes', () => {
           id: 'tier_gold',
           productId: 'patreon-campaign-1',
           name: 'Gold Monthly',
-          description: '<div><p>Includes <strong>Discord</strong> role</p></div>',
+          description: '<div><p>Includes <strong>Discord</strong> role &#999999999;</p></div>',
           amountCents: 1200,
           currency: 'USD',
           active: true,
@@ -1481,7 +1485,7 @@ describe('package Backstage publishing routes', () => {
             {
               catalogTierId: 'tier_gold',
               displayName: 'Gold Monthly',
-              description: 'Includes Discord role',
+              description: 'Includes Discord role &#999999999;',
             },
           ],
         },
@@ -2163,7 +2167,7 @@ describe('package Backstage publishing routes', () => {
 
   it('maps aborted CDNgine source downloads to temporary upstream failures', async () => {
     let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {
         return new Response(JSON.stringify({ url: 'https://cdn.test/source.zip' }), {
@@ -2177,7 +2181,7 @@ describe('package Backstage publishing routes', () => {
         abortError.name = 'AbortError';
         throw abortError;
       }
-      return originalFetch(input, init);
+      return failUnmockedFetch(input);
     }) as typeof fetch;
 
     const response = await routes.publishBackstageRelease(
@@ -2208,7 +2212,7 @@ describe('package Backstage publishing routes', () => {
   it('rejects oversized Backstage sources before in-process materialization', async () => {
     const oversizedSourceBytes = 300 * 1024 * 1024;
     let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/source/authorize')) {
         return new Response(JSON.stringify({ url: 'https://cdn.test/huge-source.unitypackage' }), {
@@ -2226,7 +2230,7 @@ describe('package Backstage publishing routes', () => {
           },
         });
       }
-      return originalFetch(input, init);
+      return failUnmockedFetch(input);
     }) as typeof fetch;
 
     const response = await routes.publishBackstageRelease(
@@ -2342,7 +2346,7 @@ describe('package Backstage publishing routes', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
-      return originalFetch(input, init);
+      return failUnmockedFetch(input);
     }) as typeof fetch;
 
     const response = await routes.publishBackstageRelease(
@@ -2541,7 +2545,7 @@ describe('package Backstage publishing routes', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
-      return originalFetch(input, init);
+      return failUnmockedFetch(input);
     }) as typeof fetch;
 
     const response = await routes.publishBackstageRelease(
