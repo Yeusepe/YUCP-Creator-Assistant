@@ -153,6 +153,17 @@ describe('serverApiFetch', () => {
     await expect(serverApiFetch('/api/admin')).rejects.toThrow(/403/);
   });
 
+  it('wraps upstream fetch failures with route context and a stable failure code', async () => {
+    const upstreamError = new Error('internal error; reference = test-reference');
+    Object.assign(upstreamError, { code: 'ECONNREFUSED' });
+    mockFetch.mockRejectedValueOnce(upstreamError);
+    const { serverApiFetch } = await import('@/lib/server/api-client');
+
+    await expect(serverApiFetch('/api/connect/dashboard/shell')).rejects.toThrow(
+      'API GET /api/connect/dashboard/shell upstream fetch failed (ECONNREFUSED)'
+    );
+  });
+
   it('includes response body text in error message', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response('{"error":"invalid token","code":"AUTH_FAILED"}', {
