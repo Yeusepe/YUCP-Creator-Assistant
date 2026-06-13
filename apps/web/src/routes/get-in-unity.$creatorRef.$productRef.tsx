@@ -301,11 +301,11 @@ function BuyerUnityAccessPage() {
                         size="lg"
                         variant="ghost"
                         onPress={() =>
-                          handleCopy(repoAccessQuery.data.repositoryUrl, 'Repo link copied')
+                          handleCopy(repoAccessQuery.data.addRepoUrl, 'VCC setup link copied')
                         }
                       >
                         <Copy className="size-4" />
-                        Copy repo link
+                        Copy VCC setup link
                       </Button>
                     </div>
                     <details className="rounded-2xl border border-white/12 bg-white/7 p-4 text-sm dark:border-white/10 dark:bg-white/5">

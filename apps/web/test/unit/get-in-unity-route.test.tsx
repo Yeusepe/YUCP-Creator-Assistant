@@ -204,4 +204,46 @@ describe('get in unity route', () => {
       productRef: 'song-thing',
     });
   });
+
+  it('copies the authenticated VCC setup link from manual setup', async () => {
+    const repositoryUrl = 'https://api.test/v1/backstage/repos/mapache/index.json';
+    const addRepoUrl =
+      'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json&headers%5B%5D=X-YUCP-Repo-Token%3Aybt_example';
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer-user-1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
+      creatorName: 'Mapache',
+      creatorRepoRef: 'mapache',
+      repositoryUrl,
+      repositoryName: 'Mapache repo',
+      addRepoUrl,
+      expiresAt: Date.now() + 60_000,
+    });
+    Object.defineProperty(window.navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) {
+      throw new Error('Get in Unity route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('button', { name: /add to vcc/i })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /copy vcc setup link/i }));
+
+    await waitFor(() =>
+      expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith(addRepoUrl)
+    );
+    expect(window.navigator.clipboard.writeText).not.toHaveBeenCalledWith(repositoryUrl);
+  });
 });

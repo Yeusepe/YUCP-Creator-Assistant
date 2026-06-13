@@ -11,7 +11,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src",
+    "test": "bun run ./scripts/test-ci.ts",
     "test:ci": "bun run ./scripts/test-ci.ts",
     "test:e2e": "cross-env TEST_BASE_URL=http://localhost:3001 bun x playwright test --config playwright.config.ts",
     "test:e2e:list": "bun x playwright test --config playwright.config.ts --list"

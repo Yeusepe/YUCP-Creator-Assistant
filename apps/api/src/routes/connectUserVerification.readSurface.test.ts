@@ -5,6 +5,7 @@ import {
   createBuyerProviderLinkStore,
 } from '../../../../packages/shared/test/buyerProviderLinkInvariantMatrix';
 import type { ConnectConfig } from '../providers/types';
+import { createTestLogger } from '../testSupport/loggerMock';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => [] as unknown[]);
 const convexMutationMock = mock(
@@ -67,11 +68,11 @@ mock.module('../lib/csrf', () => ({
 }));
 
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: loggerErrorMock,
     info: mock(() => undefined),
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 mock.module('../lib/observability', () => ({

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConnectConfig } from '../providers/types';
+import { createTestLogger } from '../testSupport/loggerMock';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const convexMutationMock = mock(
@@ -9,6 +10,9 @@ const convexActionMock = mock(
   async (_reference?: unknown, _args?: unknown): Promise<unknown> => undefined
 );
 const loggerErrorMock = mock(() => undefined);
+const providerMetadataActual = await import('@yucp/providers/providerMetadata');
+const sharedActual = await import('@yucp/shared');
+const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
   backstageRepos: {
@@ -42,11 +46,11 @@ mock.module('../lib/convex', () => ({
 }));
 
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: loggerErrorMock,
     info: mock(() => undefined),
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 mock.module('../lib/apiActor', () => ({
@@ -55,6 +59,7 @@ mock.module('../lib/apiActor', () => ({
 }));
 
 mock.module('@yucp/providers/providerMetadata', () => ({
+  ...providerMetadataActual,
   CATALOG_SYNC_PROVIDER_KEYS: ['gumroad', 'jinxxy', 'lemonsqueezy', 'patreon'],
   buildCatalogProductUrl: (provider: string, ref: string) => {
     if (provider === 'jinxxy') {
@@ -103,11 +108,15 @@ mock.module('@yucp/providers/providerMetadata', () => ({
 }));
 
 mock.module('../verification/verificationConfig', () => ({
+  ...verificationConfigActual,
   getVerificationConfig: (provider: string) =>
-    provider === 'gumroad' ? { clientId: 'test-client-id' } : null,
+    provider === 'gumroad'
+      ? { clientId: 'test-client-id' }
+      : verificationConfigActual.getVerificationConfig(provider),
 }));
 
 mock.module('@yucp/shared', () => ({
+  ...sharedActual,
   getSafeRelativeRedirectTarget: (value?: string) =>
     typeof value === 'string' && value.startsWith('/') ? value : null,
 }));
@@ -160,6 +169,10 @@ function createSignedOutRoutes() {
 }
 
 describe('connect user product access routes', () => {
+  afterAll(() => {
+    mock.restore();
+  });
+
   beforeEach(() => {
     convexQueryMock.mockReset();
     convexMutationMock.mockReset();

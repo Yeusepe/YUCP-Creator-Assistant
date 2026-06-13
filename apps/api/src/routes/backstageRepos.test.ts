@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createTestLogger } from '../testSupport/loggerMock';
 
 let sessionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let queryImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -140,11 +141,11 @@ mock.module('../lib/oauthAccessToken', () => ({
 }));
 
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: mock(() => undefined),
     info: mock(() => undefined),
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 mock.module('../lib/apiActor', () => ({

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConnectConfig } from '../providers/types';
+import { createTestLogger } from '../testSupport/loggerMock';
 
 const convexQueryMock = mock(
   async (_reference?: unknown, _args?: unknown): Promise<unknown> => null
@@ -40,11 +41,11 @@ mock.module('../lib/observability', () => ({
 }));
 
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: mock(() => undefined),
     info: mock(() => undefined),
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 const { createConnectUserVerificationRoutes } = await import('./connectUserVerification');
