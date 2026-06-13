@@ -48,7 +48,7 @@ type LemonSqueezyRuntimeLogger = Pick<StructuredLogger, 'warn' | 'error'>;
 
 interface LemonSqueezyClientLike {
   getProducts(params: { page: number; perPage: number }): Promise<{
-    products: Array<{ id: string; name: string }>;
+    products: Array<{ id: string; name: string; slug?: string | null; url?: string | null }>;
     pagination: { nextPage: number | null };
   }>;
   getVariants(productId: string): Promise<
@@ -113,9 +113,9 @@ function getClient(ports: LemonSqueezyRuntimePorts, apiToken: string): LemonSque
 async function listProductsForToken(
   apiToken: string,
   ports: LemonSqueezyRuntimePorts
-): Promise<Array<{ id: string; name: string }>> {
+): Promise<ProductRecord[]> {
   const client = getClient(ports, apiToken);
-  const products: Array<{ id: string; name: string }> = [];
+  const products: ProductRecord[] = [];
   let page = 1;
 
   while (true) {
@@ -125,7 +125,12 @@ async function listProductsForToken(
     });
     for (const product of pageProducts) {
       if (product.id && product.name) {
-        products.push({ id: product.id, name: product.name });
+        products.push({
+          id: product.id,
+          name: product.name,
+          ...(product.slug?.trim() ? { canonicalSlug: product.slug.trim() } : {}),
+          ...(product.url?.trim() ? { productUrl: product.url.trim() } : {}),
+        });
       }
     }
     if (!pagination.nextPage) {

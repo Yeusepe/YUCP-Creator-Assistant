@@ -91,6 +91,10 @@ export const insertWebhookEvent = mutation({
       rawPayload: args.rawPayload,
       signatureValid: args.signatureValid,
       verificationMethod: args.verificationMethod,
+      authenticated: isAuthenticatedEvent({
+        signatureValid: args.signatureValid,
+        verificationMethod: args.verificationMethod,
+      }),
       status: 'pending',
       authUserId: args.authUserId,
       receivedAt: now,
@@ -148,6 +152,7 @@ export const getPendingWebhookEvents = query({
       rawPayload: v.any(),
       signatureValid: v.boolean(),
       verificationMethod: VerificationMethodV,
+      authenticated: v.optional(v.boolean()),
       status: v.string(),
       receivedAt: v.number(),
     })
@@ -155,14 +160,38 @@ export const getPendingWebhookEvents = query({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const limit = Math.min(args.limit ?? 50, 100);
-    // Over-fetch then filter: only process events that are authenticated (HMAC or route-token)
-    // so the pipeline never acts on tampered or unverifiable payloads.
-    const events = await ctx.db
+    // Queue on the indexed authentication gate so unauthenticated pending events cannot
+    // starve later verified events. The legacy scan keeps older rows processable until
+    // every historical row has the derived authenticated field.
+    const authenticatedEvents = await ctx.db
+      .query('webhook_events')
+      .withIndex('by_status_authenticated_received', (q) =>
+        q.eq('status', 'pending').eq('authenticated', true)
+      )
+      .order('asc')
+      .take(limit);
+
+    if (authenticatedEvents.length >= limit) {
+      return authenticatedEvents;
+    }
+
+    const seen = new Set<string>();
+    const legacyEvents = await ctx.db
       .query('webhook_events')
       .withIndex('by_status', (q) => q.eq('status', 'pending'))
       .order('asc')
-      .take(limit * 2);
-    return events.filter(isAuthenticatedEvent).slice(0, limit);
+      .take(1000);
+
+    return [...authenticatedEvents, ...legacyEvents]
+      .filter((event) => {
+        if (seen.has(event._id)) {
+          return false;
+        }
+        seen.add(event._id);
+        return event.authenticated === true || (event.authenticated === undefined && isAuthenticatedEvent(event));
+      })
+      .sort((left, right) => left.receivedAt - right.receivedAt)
+      .slice(0, limit);
   },
 });
 

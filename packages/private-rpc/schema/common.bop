@@ -16,6 +16,9 @@ message ProductRecord {
   2 -> string name;
   3 -> string collaboratorName;
   4 -> string productUrl;
+  5 -> string thumbnailUrl;
+  6 -> string canonicalSlug;
+  7 -> string[] aliases;
 }
 
 message ProductsResponse {

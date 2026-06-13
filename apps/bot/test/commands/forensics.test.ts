@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import type { ChatInputCommandInteraction } from 'discord.js';
+
+mock.module('../../src/lib/apiUrls', () => ({
+  getApiUrls: mock(() => ({
+    apiInternal: process.env.API_INTERNAL_URL ?? process.env.API_BASE_URL,
+    apiPublic: process.env.API_BASE_URL,
+    webPublic: process.env.FRONTEND_URL ?? process.env.VERIFY_BASE_URL,
+  })),
+}));
+
 import { handleForensicsLookup } from '../../src/commands/forensics';
 import { mockSlashCommand } from '../helpers/mockInteraction';
 

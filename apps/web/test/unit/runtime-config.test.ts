@@ -59,6 +59,7 @@ describe('createPublicRuntimeConfig', () => {
       hyperdxApiKey: 'key-123',
       hyperdxAppUrl: 'https://analytics.admin.yucp.club',
       hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/ingest',
+      privateVpmEnabled: false,
     });
   });
 
@@ -82,6 +83,7 @@ describe('createPublicRuntimeConfig', () => {
           HYPERDX_APP_URL: 'https://analytics.admin.yucp.club',
           OTEL_EXPORTER_OTLP_ENDPOINT: 'https://analytics.admin.yucp.club/ingest',
           YUCP_ENABLE_AUTOMATIC_SETUP: 'true',
+          YUCP_ENABLE_PRIVATE_VPM: 'true',
         },
         'https://verify.creators.yucp.club/dashboard'
       )
@@ -94,6 +96,7 @@ describe('createPublicRuntimeConfig', () => {
       hyperdxApiKey: 'key-234',
       hyperdxAppUrl: 'https://analytics.admin.yucp.club',
       hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/ingest',
+      privateVpmEnabled: true,
     });
   });
 
@@ -109,6 +112,7 @@ describe('createPublicRuntimeConfig', () => {
       browserAuthBaseUrl: 'https://verify.creators.yucp.club',
       buildId: 'dev',
       hyperdxOtlpHttpUrl: 'https://analytics.admin.yucp.club/otlp',
+      privateVpmEnabled: false,
     });
   });
 });

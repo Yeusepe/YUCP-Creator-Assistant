@@ -15,12 +15,14 @@ import {
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import { getProviderRuntime } from '../providers/index';
 import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
+const FORENSICS_REVEAL_BODY_MAX_BYTES = 4 * 1024;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -299,6 +301,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       packFamily?: string;
       packVersion?: string;
       provider?: string;
+      licenseMasked?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -641,6 +644,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
             ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
             ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
+            ...(match.licenseMasked !== undefined ? { licenseMasked: match.licenseMasked } : {}),
             ...(match.buyerProviderUserId !== undefined
               ? { buyerProviderUserId: match.buyerProviderUserId }
               : {}),
@@ -725,8 +729,55 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
+  async function revealLicense(request: Request): Promise<Response> {
+    const viewer = await resolveViewer(request, auth, config);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    if (request.method !== 'POST') {
+      return jsonResponse({ error: 'Method not allowed' }, 405);
+    }
+    try {
+      const body = await readJsonObjectBodyWithLimit(request, FORENSICS_REVEAL_BODY_MAX_BYTES);
+      let packageId: string;
+      try {
+        packageId = assertPackageId(String(body.packageId ?? ''));
+      } catch (error) {
+        return jsonResponse(
+          { error: error instanceof Error ? error.message : 'Invalid packageId format' },
+          400
+        );
+      }
+      const licenseSubject = String(body.licenseSubject ?? '')
+        .trim()
+        .toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(licenseSubject)) {
+        return jsonResponse({ error: 'Invalid licenseSubject' }, 400);
+      }
+      const result = await convex.mutation(api.couplingForensics.revealCouplingLicenseKey, {
+        apiSecret: config.convexApiSecret,
+        authUserId: viewer.authUserId,
+        packageId,
+        licenseSubject,
+      });
+      if (result.error) {
+        return jsonResponse({ error: 'Forbidden' }, 403);
+      }
+      return jsonResponse({ licenseKey: result.licenseKey });
+    } catch (error) {
+      if (error instanceof RequestBodyError) {
+        return jsonResponse({ error: error.message }, error.status);
+      }
+      logger.error('Failed to reveal coupling license key', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Failed to reveal license key' }, 500);
+    }
+  }
+
   return {
     listPackages,
     lookup,
+    revealLicense,
   };
 }

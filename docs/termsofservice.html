@@ -201,7 +201,7 @@
                 <h1 class="text-5xl md:text-6xl text-center">Terms of Service</h1>
             </div>
             <p class="text-xl opacity-70 leading-relaxed font-medium">
-                <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> March 6,
+                <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp; <strong>Last updated:</strong> May 3,
                 2026
             </p>
         </header>
@@ -210,17 +210,23 @@
             <div id="intro" class="tos-card rounded-2xl p-8">
                 <p class="leading-relaxed mb-4">
                     These Terms of Service (the "Terms") govern access to and use of the Creator Assistant services,
-                    including our websites, setup pages, dashboards, APIs, webhook endpoints, Discord® bot (slash commands,
-                    verification flows, Liened Downloads, collaborator sharing), Unity® runtime integration, and any related
-                    software, features, and content that link to these Terms (collectively, the "Service"). The Service
-                    is operated by <strong>Creator Assistant</strong> ("we", "us", or "our").
+                    including our websites, sign-in and consent pages, setup and connect flows, dashboards, account
+                    security, privacy, and authorized-app pages, billing and certificate surfaces, package and Unity/VCC
+                    access flows, APIs, webhook endpoints, Discord® bot, verification flows, Liened Downloads,
+                    collaborator sharing, Unity® runtime integration, and any related software, features, and content
+                    that link to these Terms (collectively, the "Service"). The Service is operated by
+                    <strong>Creator Assistant</strong> ("we", "us", or "our").
                 </p>
                 <p class="leading-relaxed">
                     By accessing, installing, connecting, configuring, or using the Service, you agree to these Terms. If
                     you do not agree, you must not use the Service.
                 </p>
                 <p class="leading-relaxed mt-4 p-4 rounded-xl" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);">
-                    <strong>Third-Party Disclaimer:</strong> Gumroad®; Discord®; VRChat®; Unity®; Jinxxy™; PostHog®; and other product or company names mentioned herein are trademarks or registered trademarks of their respective owners. Creator Assistant is not connected with, endorsed by, sponsored by, collaborating with, or otherwise associated with any of these companies. All such marks are used solely for identification and reference purposes.
+                    <strong>Third-Party Disclaimer:</strong> Gumroad®; Discord®; VRChat®; Unity®; Jinxxy™; itch.io®;
+                    Lemon Squeezy®; Patreon®; Payhip®; Polar®; HyperDX®; and other product or company names mentioned
+                    herein are trademarks or registered trademarks of their respective owners. Creator Assistant is not
+                    connected with, endorsed by, sponsored by, collaborating with, or otherwise associated with any of
+                    these companies. All such marks are used solely for identification and reference purposes.
                 </p>
             </div>
 
@@ -233,13 +239,14 @@
                 <p>These Terms apply to all users of the Service, including:</p>
                 <ul>
                     <li>creators, sellers, studios, moderators, and community operators who install or configure the
-                        Service (including Liened Downloads, collaborator sharing, and Unity® integration)</li>
+                        Service (including Liened Downloads, collaborator sharing, Unity® integration, billing, certificates, and package delivery)</li>
+                    <li>account holders who use sign-in, privacy, security, authorized-app, billing, certificate, package, or Unity access features</li>
                     <li>Discord® server owners, administrators, and staff members who manage settings, roles, verification
                         flows, and liened downloads</li>
-                    <li>collaborators who share their Jinxxy™ store or API key with another creator's Server</li>
+                    <li>collaborators who share supported provider access with another creator's Server or workspace</li>
                     <li>end users who connect accounts, submit verification information (including license keys), or
-                        receive entitlements, Discord® roles, or access to Liened Download archives</li>
-                    <li>developers or operators who access our APIs, setup pages, or webhook endpoints</li>
+                        receive entitlements, Discord® roles, or access to Liened Download archives, package delivery, or Unity/VCC flows</li>
+                    <li>developers or operators who access our APIs, setup pages, webhook endpoints, or OAuth surfaces</li>
                 </ul>
                 <p>Additional terms, policies, feature specific rules, or order terms may apply to certain features. If
                     there is a conflict, the more specific terms control for that feature.</p>
@@ -256,7 +263,8 @@
                     <li><strong>"Admin"</strong> means a person authorized to configure the Service for a Creator or a
                         Discord® server.</li>
                     <li><strong>"Connected Provider"</strong> means a third party platform or service connected to the
-                        Service: Discord®, Gumroad®, or Jinxxy™.</li>
+                        Service, such as Discord®, Gumroad®, itch.io®, Jinxxy™, Lemon Squeezy®, Patreon®, Payhip®, VRChat®,
+                        or another integration we make available.</li>
                     <li><strong>"Connected Provider Data"</strong> means data received from or sent to a Connected
                         Provider, including account identifiers, product references, order or sale references, webhook
                         events, profile metadata, license information, role information, or entitlement related data.
@@ -264,7 +272,7 @@
                     <li><strong>"Content"</strong> means text, images, metadata, settings, product mappings, links,
                         messages, files, and other materials submitted to or made available through the Service.</li>
                     <li><strong>"Creator"</strong> means a person or entity using the Service to manage product
-                        verification, role assignment, entitlements, or community access.</li>
+                        verification, role assignment, entitlements, billing, certificates, package access, or community access.</li>
                     <li><strong>"Discord® Data"</strong> means Discord® user IDs, guild or server IDs, role IDs, channel
                         IDs, profile information, and related metadata used by the Service.</li>
                     <li><strong>"Entitlement"</strong> means a verification outcome, product recognition, license
@@ -276,7 +284,7 @@
                         secrets, or similar credentials used to connect a Connected Provider.</li>
                     <li><strong>"Purchase Data"</strong> means order data, sale records, line items, product IDs,
                         provider order IDs, provider customer identifiers, payment state, refund state, dispute state,
-                        purchase timestamps, and related fields.</li>
+                        subscription state, purchase timestamps, and related fields.</li>
                     <li><strong>"Server"</strong> means a Discord® server or guild.</li>
                     <li><strong>"Liened Downloads"</strong> means the feature that routes qualifying attachments from
                         source channels into role-gated archive channels. Archived files remain in Discord® (archive
@@ -286,10 +294,10 @@
                         archive channel, including required roles, role logic (all or any), and allowed file extensions.</li>
                     <li><strong>"Download Artifact"</strong> means a record of a file archived for Liened Downloads,
                         including source and archive message references and file metadata.</li>
-                    <li><strong>"Collaborator"</strong> means a creator who shares their Jinxxy™ store or API key with
-                        another creator's server for verification, via an invite flow.</li>
+                    <li><strong>"Collaborator"</strong> means a creator who shares supported provider credentials or account
+                        access with another creator's server or workspace for verification through an invite flow.</li>
                     <li><strong>"Collaborator Invite"</strong> means a single-use token (with limited validity) used to
-                        invite a Collaborator to share their Jinxxy™ credentials with a Creator's tenant.</li>
+                        invite a Collaborator to share supported provider credentials or account access with a Creator's tenant.</li>
                     <li><strong>"Manual License"</strong> means a Creator-generated license key validated by the Service;
                         keys are stored only as cryptographic hashes, never in plaintext.</li>
                     <li><strong>"License Claim"</strong> means a canonical record that associates a license (by provider
@@ -323,8 +331,8 @@
                 <p>You must be at least 13 years old to use the Service and old enough to legally consent in your
                     jurisdiction. If you are under the age of majority where you live, you may use the Service only with
                     permission from a parent or legal guardian.</p>
-                <p>You must also satisfy the eligibility rules of each Connected Provider you use. If Discord®, Gumroad®,
-                    or Jinxxy™ suspends or restricts your account, your ability to use related parts of the Service may
+                <p>You must also satisfy the eligibility rules of each Connected Provider you use. If a Connected
+                    Provider suspends or restricts your account, your ability to use related parts of the Service may
                     be limited or terminated.</p>
             </div>
 
@@ -335,25 +343,27 @@
                     <h2 class="text-2xl">The Service</h2>
                 </div>
                 <p>The Service is designed to help Creators and communities manage verification, linked accounts,
-                    entitlements, Discord® role access, liened downloads, and Unity® runtime validation. Depending on
-                    the feature set enabled by a Creator, the Service may:</p>
+                    entitlements, Discord® role access, account controls, billing, certificates, buyer access, liened
+                    downloads, and Unity® runtime validation. Depending on the feature set enabled by a Creator, the
+                    Service may:</p>
                 <ul>
                     <li>install and operate a Discord® bot in one or more Servers via OAuth (bot and applications.commands scopes)</li>
-                    <li>provide a setup wizard (/creator-admin setup start or restart) and Connect flow for Gumroad® OAuth, Jinxxy™, and Discord® account linking</li>
-                    <li>expose slash commands: /creator (status, verify, refresh) and /creator-admin (setup, product, downloads, settings, moderation, collab, stats, analytics, spawn-verify)</li>
-                    <li>let Creators connect Gumroad® or Jinxxy™ and store Provider Credentials in encrypted form</li>
-                    <li>receive and process provider webhooks (sale, refund, payment, product events) from Gumroad®, Jinxxy™, and Collaborator Jinxxy™ webhooks</li>
+                    <li>provide creator and admin commands, setup pages, dashboards, and connect flows that may change over time</li>
+                    <li>support linked-account, verification, privacy, security, recovery, and authorized-app tools for end users</li>
+                    <li>let Creators connect supported providers such as Gumroad®, Jinxxy™, Lemon Squeezy®, Patreon®, Payhip®, itch.io®, and VRChat®, and store Provider Credentials in encrypted form where needed</li>
+                    <li>receive and process provider webhooks, API responses, and similar provider events where the connected provider supports them</li>
                     <li>perform historical sync or backfill of sales or orders for connected products</li>
-                    <li>maintain a product catalog with products from Gumroad®, Jinxxy™, Discord® role (cross-server), and manual sources</li>
-                    <li>create or update subject records, external accounts, bindings, entitlements, and provider customer records</li>
-                    <li>match purchases to users through account identifiers, hashed email matching, license-key verification (Gumroad®/Jinxxy™ API or manual licenses), or auto-discovery for remembered purchasers</li>
+                    <li>maintain product, entitlement, billing, certificate, audit-log, and package-access records</li>
+                    <li>create or update subject records, external accounts, bindings, entitlements, provider customer records, and consent records</li>
+                    <li>match purchases or ownership to users through account identifiers, OAuth or account linking, license-key verification, creator-configured manual licenses, Discord® role rules, or supported ownership checks</li>
                     <li>project, grant, update, suspend, revoke, or remove Entitlements</li>
                     <li>assign, sync, or remove Discord® roles based on verification results, role rules, or Creator configuration; optionally auto-verify on guild member join</li>
-                    <li>support cross-server verification (user must have a required role in an approved source Server)</li>
+                    <li>support cross-server verification, including one or more source roles and any/all role matching where configured</li>
                     <li>operate Liened Downloads: route qualifying attachments from source channels into role-gated archive channels; support backfill and autofix; gate access by required roles (all or any)</li>
-                    <li>support Collaborator sharing: Creators may invite other Creators via single-use invite links; Collaborators may share API key only or full account (API key plus webhook); Collaborator webhooks route to the owner tenant</li>
-                    <li>issue Unity® runtime assertions (JWTs) for license validation in Unity® applications (when enabled)</li>
+                    <li>support Collaborator sharing through supported provider account or credential sharing flows</li>
+                    <li>issue Unity® runtime assertions (JWTs), buyer package access grants, and Unity/VCC delivery flows when enabled</li>
                     <li>support manual licenses (Creator-generated keys stored as hashes), suspicious account marking (quarantine, notify, revoke), and moderation actions (unverify)</li>
+                    <li>offer account pages for privacy exports, account deletion requests, authorized-app revocation, security recovery, billing, certificates, packages, and audit logs</li>
                     <li>generate analytics, operational metrics, audit events, and Event Logs</li>
                 </ul>
                 <p>The exact features available may vary by Creator, Server, provider, and product.</p>
@@ -375,7 +385,7 @@
                     <li>you have the right to submit all information and instructions you provide to the Service</li>
                 </ul>
                 <h4>5.2 Connected Provider authority</h4>
-                <p>If you connect Gumroad® or Jinxxy™, you represent and warrant that:</p>
+                <p>If you connect a supported provider, you represent and warrant that:</p>
                 <ul>
                     <li>you are the lawful owner of that provider account or are authorized to connect it on behalf of
                         its owner</li>
@@ -396,8 +406,9 @@
                     <h2 class="text-2xl">Connected Providers and Data Sync</h2>
                 </div>
                 <h4>6.1 Provider connections</h4>
-                <p>The Service integrates with Connected Providers: Discord®, Gumroad®, and Jinxxy™. By connecting a provider,
-                    you instruct us to communicate with that provider as needed to:
+                <p>The Service integrates with Connected Providers, which may include Discord®, Gumroad®, itch.io®,
+                    Jinxxy™, Lemon Squeezy®, Patreon®, Payhip®, and VRChat®. By connecting a provider, you instruct us
+                    to communicate with that provider as needed to:
                 </p>
                 <ul>
                     <li>authenticate the connection</li>
@@ -408,34 +419,34 @@
                     <li>verify purchases, licenses, product ownership, account status, or role eligibility</li>
                     <li>maintain, refresh, or disconnect the provider connection</li>
                 </ul>
-                <h4>6.2 Gumroad® and Jinxxy™ commerce sync</h4>
-                <p>If a Creator connects Gumroad® or Jinxxy™, the Service may ingest or process information such as:</p>
+                <h4>6.2 Commerce, subscription, and ownership sync</h4>
+                <p>If a Creator connects a supported commerce, subscription, or ownership provider, the Service may ingest
+                    or process information such as:</p>
                 <ul>
                     <li>provider user IDs and connected account metadata</li>
-                    <li>product IDs and product mappings</li>
-                    <li>sale or order identifiers</li>
+                    <li>product, campaign, listing, avatar, or catalog mappings</li>
+                    <li>sale, order, subscription, or ownership identifiers</li>
                     <li>order item identifiers</li>
                     <li>license identifiers where applicable</li>
                     <li>purchase timestamps</li>
-                    <li>payment, refund, or dispute status</li>
+                    <li>payment, refund, dispute, or subscription status</li>
                     <li>customer email addresses or normalized or hashed forms of email addresses</li>
-                    <li>webhook payloads and historical purchase records</li>
+                    <li>webhook payloads, ownership checks, and historical purchase records</li>
                 </ul>
                 <p>The Service may also perform a historical sync or backfill of sales or orders for connected products
                     where that feature is enabled.</p>
                 <h4>6.3 Webhooks and provider events</h4>
-                <p>The Service receives webhooks from Gumroad® (per-tenant), Jinxxy™ (per-tenant), and Collaborator Jinxxy™
-                    (per owner-tenant and invite). Webhook payloads are verified using HMAC-SHA256 signatures where a
-                    secret is configured; Gumroad® may fall back to API verification when no secret is set. Provider events
-                    are stored with metadata such as provider, event type, raw payload, signature validation state,
-                    tenant or creator association, processing status, error state, and timestamps. Events are
-                    deduplicated and processed into Purchase Facts and Entitlements.</p>
+                <p>Where a connected provider offers webhooks or similar notifications, the Service may receive and
+                    process those events. Provider events may be stored with metadata such as provider, event type, raw
+                    payload, signature or authenticity status, tenant or creator association, processing status, error
+                    state, and timestamps. Events may be deduplicated and processed into Purchase Facts,
+                    ownership records, or Entitlements.</p>
                 <h4>6.4 Revocation and refund truth source</h4>
                 <p>Webhooks are the primary channel for revocation and refund updates. The Service treats provider
-                    webhooks (sale, refund, dispute events) as the source of truth for Entitlement and role changes.
-                    Provider API status checks are used only when necessary (e.g., dispute or refund claims, missing
-                    webhooks, or reconciliation). Such lookups are cached and rate limited to avoid excessive provider
-                    API usage.</p>
+                    webhooks or equivalent provider events as the source of truth for Entitlement and role changes where
+                    that provider supports them. Provider API status checks are used only when necessary (for example,
+                    dispute or refund claims, missing events, ownership checks, or reconciliation). Such lookups are
+                    cached and rate limited to avoid excessive provider API usage.</p>
                 <h4>6.5 No control over third party providers</h4>
                 <p>Connected Providers are independent third parties. We do not control their APIs, uptime, product
                     identifiers, event quality, webhook delivery, rate limits, account restrictions, or data accuracy.
@@ -450,13 +461,14 @@
                     <h2 class="text-2xl">Verification, Linking, and Entitlements</h2>
                 </div>
                 <h4>7.1 Verification methods</h4>
-                <p>The Service supports verification methods including: Gumroad® OAuth (account linking; one linked
-                    account may verify all products), Jinxxy™ account linking or API-key verification, Discord® role
-                    based verification (cross-server; user must have a required role in an approved source Server),
-                    and manual license keys (Creator-generated keys entered by the user; validated against hashed
-                    records). Verification may be triggered by: provider webhooks (sale, refund, purchase events),
-                    user actions (/creator verify, /creator refresh, Connect flows), or guild member join (when
-                    auto-verify on join is enabled). OAuth flows use PKCE and short-lived session tokens.</p>
+                <p>The Service supports multiple verification methods depending on the configured product and provider.
+                    Examples include provider OAuth or account linking for Gumroad®, itch.io®, Patreon®, and similar
+                    flows; license-key verification for Gumroad®, Jinxxy™, Lemon Squeezy®, Payhip®, or manual licenses
+                    where enabled; Discord® role based verification, including cross-server rules that can require one
+                    or more source roles; and ownership or account-link flows for VRChat® or other supported providers.
+                    Verification may be triggered by provider webhooks or API responses, user actions through account,
+                    setup, dashboard, or public access flows, or guild member join when a Creator enables automatic
+                    checks. OAuth flows may use PKCE and short-lived session tokens.</p>
                 <h4>7.2 Linked identities and subject records</h4>
                 <p>To operate the Service, we may create records that associate one or more external accounts with a
                     single internal subject, profile, or verification record. This may include Discord® accounts,
@@ -469,12 +481,12 @@
                 <p>If enabled by a Creator, the Service may assign, sync, maintain, or remove Discord® roles based on
                     active Entitlements, provider events, configuration changes, revocations, refunds, disputes,
                     security flags, or moderation actions (e.g., unverify). Role rules map products to Discord® roles
-                    per guild; Creators may configure priority, remove-on-revoke, and cross-server source guild and
-                    required role.</p>
+                    per guild; Creators may configure priority, remove-on-revoke, cross-server source guilds, and one
+                    or more required roles with any/all matching rules.</p>
                 <h4>7.5 Cross server verification</h4>
                 <p>If enabled by a Creator, the Service may consider a User's role or status in another approved Server
-                    as part of a verification or role decision. Cross-server verification is distinct from store-based
-                    verification (Gumroad®, Jinxxy™, manual). The Service issues a signed verification stamp from our
+                    as part of a verification or role decision. Cross-server verification is distinct from store,
+                    subscription, ownership, or manual-license verification flows. The Service issues a signed verification stamp from our
                     backend with a bounded validity window, audience and guild binding rules, and does not treat Discord®
                     roles as a long-term source of truth. Creators configure allowed source guilds and required roles.</p>
                 <h4>7.6 Errors and reversals</h4>
@@ -519,9 +531,10 @@
                     <li>audit events, event logs, error logs, security review logs, and fraud or suspicious activity flags
                     </li>
                     <li>IP addresses, user agent strings, timestamps, correlation IDs, and related operational metadata</li>
-                    <li>session cookies, authentication records, and account connection status</li>
+                    <li>session cookies, authentication records, privacy preference records, authorized-app grants, and account connection status</li>
+                    <li>billing, certificate, package access, install ID, and custom VPM repo access records</li>
                     <li>analytics and telemetry events relating to command usage, verification flows, product activity,
-                        suspicious activity review, and Service performance</li>
+                        suspicious activity review, Service performance, and optional diagnostics</li>
                 </ul>
                 <p>Some data may be stored temporarily in in memory systems, key value stores, caches, or job queues for
                     setup flows, OAuth flows, webhook processing, retry handling, or rate limiting.</p>
@@ -604,7 +617,7 @@
                     <li>understanding that a Creator's own product, refund, moderation, and community rules may
                         separately apply to you</li>
                 </ul>
-                <p>Your transaction for a product may be with the Creator, Gumroad®, or Jinxxy™, not with us. Except where
+                <p>Your transaction for a product may be with the Creator or a Connected Provider, not with us. Except where
                     expressly stated, we are not the merchant of record, seller, reseller, licensor, or payment processor
                     for Creator products.</p>
             </div>
@@ -718,7 +731,8 @@
                 <p>We do not guarantee that the Service or any feature will remain available or compatible with any
                     specific platform, provider API, browser, server setup, or Discord® permission model.</p>
                 <h4>17.1 Support</h4>
-                <p>We provide support through documentation, Discord®, and email (contact@yucp.club). We do not commit
+                <p>We provide support through documentation, in-product account controls, Discord®, and email
+                    (contact@yucp.club for general support or privacy@yucp.club for privacy requests). We do not commit
                     to specific response times or service level agreements unless expressly agreed in a separate
                     written agreement for paid plans. Support is provided on a best-effort basis.</p>
             </div>
@@ -729,18 +743,19 @@
                     <span class="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 18</span>
                     <h2 class="text-2xl">Fees, Billing, and Paid Features</h2>
                 </div>
-                <p>Some parts of the Service may be free, while others may require payment now or in the future. If paid
-                    features apply, we will disclose the relevant pricing, billing terms, and feature scope at the point
-                    of purchase or in a separate written agreement.</p>
+                <p>Some parts of the Service are currently offered as paid features. Creator certificate, package-delivery,
+                    install ID, custom VPM repo, or related access capabilities may require an active paid plan. Pricing,
+                    plan limits, included capabilities, renewal terms, and any metered components are disclosed during
+                    checkout, in the billing portal, or in a separate written agreement.</p>
                 <p>Unless expressly stated otherwise:</p>
                 <ul>
                     <li>fees are non refundable except as required by law or expressly stated by us</li>
                     <li>taxes are your responsibility</li>
-                    <li>failure to pay may result in downgrade, suspension, or termination of paid features</li>
+                    <li>billing, checkout, and subscription management may be handled through Polar® or another billing vendor we designate</li>
+                    <li>failure to pay or billing becoming inactive may result in downgrade, loss of signing capacity, package or VCC access, or suspension of paid features</li>
                     <li>paid plans renew automatically at the end of each billing period (monthly or annually, as
                         applicable) unless you cancel before the renewal date</li>
-                    <li>cancellation takes effect at the end of the current billing period; you retain access until
-                        then</li>
+                    <li>cancellation or downgrade takes effect according to the plan terms or billing portal; access may continue until the current billing period ends unless the billing provider or applicable law requires earlier termination</li>
                     <li>trial periods, if offered, convert to paid subscriptions at the end of the trial unless you
                         cancel</li>
                     <li>we may change prices with at least 30 days' notice; continued use after the change constitutes
@@ -755,8 +770,9 @@
                     <h2 class="text-2xl">Third Party Services</h2>
                 </div>
                 <p>Your use of Connected Providers and other third party services is governed by their own terms and
-                    policies. This includes Discord®, Gumroad®, Jinxxy™, Unity®, analytics providers, cloud providers,
-                    hosting providers, and any marketplace or identity service connected to the Service.</p>
+                    policies. This includes Discord®, Gumroad®, itch.io®, Jinxxy™, Lemon Squeezy®, Patreon®, Payhip®,
+                    VRChat®, Unity®, Polar®, diagnostics providers, cloud providers, hosting providers, and any
+                    marketplace or identity service connected to the Service.</p>
                 <p>We are not responsible for third party services or third party content, including their:</p>
                 <ul>
                     <li>policies and legal terms</li>
@@ -857,10 +873,15 @@
                     business and legal purposes, including security, fraud prevention, audit, dispute handling, legal
                     compliance, enforcement, backup integrity, and recordkeeping.</p>
                 <p>We may also delete or de identify data in accordance with our retention practices and applicable law.</p>
-                <p>Creators may request an export of their configuration data (role rules, product mappings, download
-                    routes, tenant settings) before or shortly after termination, subject to our then-current export
-                    capabilities and retention schedule. Contact <strong>contact@yucp.club</strong> to request an
-                    export. We do not guarantee export of audit logs, webhook payloads, or other operational data.</p>
+                <p>End users with a Creator Assistant account can use in-product account controls to download account
+                    data, revoke authorized applications, and request account deletion while their account remains
+                    accessible. Those self-serve tools do not guarantee export of creator workspace configuration or
+                    operational logs.</p>
+                <p>Creators may request an offboarding export of configuration data (role rules, product mappings,
+                    download routes, tenant settings, billing configuration, or certificate settings) before or shortly
+                    after termination, subject to our then-current export capabilities and retention schedule. Contact
+                    <strong>contact@yucp.club</strong> to discuss creator offboarding. We do not guarantee export of
+                    audit logs, webhook payloads, diagnostics data, or other operational data.</p>
             </div>
 
             <!-- Section 25 -->
@@ -970,10 +991,11 @@
                     <li>You remain responsible for reviewing role mappings, access grants, download route
                         configuration (source channel, archive channel, required roles, role logic, allowed extensions),
                         cross-server settings, tenant policy, and provider sync results in your own Server.</li>
-                    <li>If you invite Collaborators to share their Jinxxy™ store or API key, you are responsible for the
-                        relationship and any data shared through that connection. Collaborator invites are single-use
-                        and time-limited; Collaborators may share API key only or full account (API key plus webhook).
-                        Collaborator webhooks route to your tenant.</li>
+                    <li>If you invite Collaborators to share a supported provider account or API key connection, you are
+                        responsible for the relationship and any data shared through that connection. Collaborator
+                        invites are single-use and time-limited. Depending on provider support, Collaborators may share
+                        an API key connection or a full account connection with webhook-backed sync. Collaborator
+                        webhooks route to your tenant when that provider flow uses them.</li>
                     <li>If you use Unity® runtime assertions, you are responsible for how your Unity® application uses
                         them and for any device-binding or installation limits you configure.</li>
                     <li>If you use manual licenses, you are responsible for generating and distributing keys; the

@@ -1,10 +1,12 @@
 import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
+import { symmetricEncrypt } from 'better-auth/crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { getPublicKeyFromPrivate } from './lib/yucpCrypto';
-import { makeTestConvex, seedSubject } from './testHelpers';
+import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
 
@@ -14,6 +16,7 @@ async function seedExternalAccount(
     provider?: string;
     providerUserId?: string;
     providerUsername?: string;
+    emailHash?: string;
     status?: 'active' | 'disconnected' | 'revoked';
   } = {}
 ): Promise<Id<'external_accounts'>> {
@@ -23,7 +26,37 @@ async function seedExternalAccount(
       provider: overrides.provider ?? 'vrchat',
       providerUserId: overrides.providerUserId ?? `provider-user-${now}`,
       providerUsername: overrides.providerUsername,
+      emailHash: overrides.emailHash,
       status: overrides.status ?? 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
+async function seedPurchaseFact(
+  t: ReturnType<typeof makeTestConvex>,
+  args: {
+    authUserId: string;
+    provider: 'gumroad' | 'itchio' | 'jinxxy' | 'vrchat' | 'payhip' | 'lemonsqueezy';
+    providerProductId: string;
+    externalOrderId: string;
+    buyerEmailHash?: string;
+    providerUserId?: string;
+  }
+): Promise<void> {
+  await t.run(async (ctx) => {
+    const now = Date.now();
+    await ctx.db.insert('purchase_facts', {
+      authUserId: args.authUserId,
+      provider: args.provider,
+      externalOrderId: args.externalOrderId,
+      buyerEmailHash: args.buyerEmailHash,
+      providerUserId: args.providerUserId,
+      providerProductId: args.providerProductId,
+      paymentStatus: 'paid',
+      lifecycleStatus: 'active',
+      purchasedAt: now - 60_000,
       createdAt: now,
       updatedAt: now,
     });
@@ -48,6 +81,32 @@ async function seedVerificationBinding(
       bindingType: 'verification',
       status: args.status ?? 'active',
       version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+}
+
+async function seedCatalogProduct(
+  t: ReturnType<typeof makeTestConvex>,
+  overrides: {
+    authUserId?: string;
+    productId?: string;
+    provider?: 'gumroad' | 'itchio' | 'jinxxy' | 'vrchat' | 'payhip' | 'lemonsqueezy';
+    providerProductRef?: string;
+    displayName?: string;
+  } = {}
+): Promise<Id<'product_catalog'>> {
+  return t.run(async (ctx) => {
+    const now = Date.now();
+    return await ctx.db.insert('product_catalog', {
+      authUserId: overrides.authUserId ?? 'auth-catalog-owner',
+      productId: overrides.productId ?? 'product-catalog-1',
+      provider: overrides.provider ?? 'gumroad',
+      providerProductRef: overrides.providerProductRef ?? 'gumroad-product-1',
+      displayName: overrides.displayName ?? 'Catalog Product',
+      status: 'active',
+      supportsAutoDiscovery: true,
       createdAt: now,
       updatedAt: now,
     });
@@ -94,10 +153,18 @@ afterEach(() => {
 });
 
 describe('verification intents buyer provider links', () => {
+  const originalFetch = globalThis.fetch;
+
   beforeEach(async () => {
     process.env.CONVEX_API_SECRET = API_SECRET;
     process.env.CONVEX_SITE_URL = 'https://rare-squid-409.convex.site';
+    process.env.BETTER_AUTH_SECRET = 'test-better-auth-secret';
+    globalThis.fetch = originalFetch;
     await configurePinnedTestRoot();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   it('verifies a buyer_provider_link requirement when the buyer has an active link', async () => {
@@ -157,7 +224,7 @@ describe('verification intents buyer provider links', () => {
     expect(intent?.verifiedMethodKey).toBe('vrchat-link');
   });
 
-  it('canonicalizes legacy itch manual-license intents into buyer-provider-link verification', async () => {
+  it('canonicalizes legacy itch manual-license intents into buyer-provider-link requirements', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-itch-legacy-link';
     const subjectId = await seedSubject(t, {
@@ -210,15 +277,435 @@ describe('verification intents buyer provider links', () => {
         providerProductRef: '42',
       },
     ]);
+  });
+
+  it('resolves missing buyer-provider-link product context through the public Convex lookups', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-gumroad-legacy-creator';
+    const buyerAuthUserId = 'auth-gumroad-legacy-buyer';
+    const packageId = 'pkg-gumroad-legacy-link';
+    const productId = 'product-gumroad-legacy-link';
+    const providerProductRef = 'QAJc7ErxdAC815P5P8R89g==';
+    const buyerEmailHash = await sha256Hex('buyer@example.com');
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-gumroad-legacy-link',
+    });
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-gumroad-legacy-creator',
+    });
+    const externalAccountId = await seedExternalAccount(t, {
+      provider: 'gumroad',
+      providerUserId: 'gumroad-user-legacy',
+      providerUsername: 'LegacyGumroadBuyer',
+      emailHash: buyerEmailHash,
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Legacy Gumroad Linked Package',
+      publisherId: 'publisher-gumroad-legacy-link',
+      yucpUserId: creatorAuthUserId,
+    });
+
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Legacy Gumroad Linked Product',
+    });
+
+    await seedPurchaseFact(t, {
+      authUserId: creatorAuthUserId,
+      provider: 'gumroad',
+      providerProductId: providerProductRef,
+      externalOrderId: 'gumroad-order-legacy',
+      buyerEmailHash,
+    });
+
+    await t.mutation(api.subjects.upsertBuyerProviderLink, {
+      apiSecret: API_SECRET,
+      subjectId,
+      provider: 'gumroad',
+      externalAccountId,
+      verificationMethod: 'account_link',
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-gumroad-legacy-link',
+      codeChallenge: 'challenge-gumroad-legacy-link',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'gumroad-link',
+          providerKey: 'gumroad',
+          kind: 'buyer_provider_link',
+          title: 'Linked Gumroad account',
+          providerProductRef,
+        },
+      ],
+    });
 
     const result = await t.action(api.verificationIntents.verifyIntentWithBuyerProviderLink, {
       apiSecret: API_SECRET,
-      authUserId,
+      authUserId: buyerAuthUserId,
       intentId,
-      methodKey: 'itchio-link',
+      methodKey: 'gumroad-link',
     });
 
     expect(result).toEqual({ success: true });
+    await expect(
+      t.query(internal.yucpLicenses.checkSubjectEntitlement, {
+        authUserId: creatorAuthUserId,
+        subjectId,
+        productId,
+      })
+    ).resolves.toBe(true);
+  });
+
+  it('verifies manual-license intents through the public Convex action when Gumroad accepts product_permalink fallback', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-manual-license-creator';
+    const buyerAuthUserId = 'auth-manual-license-buyer';
+    const packageId = 'pkg.manual-license';
+    const productId = 'product-manual-license';
+    const providerProductRef = 'gumroad-product-manual-license';
+    const encryptedAccessToken = await symmetricEncrypt({
+      key: process.env.BETTER_AUTH_SECRET as string,
+      data: 'gumroad-access-token',
+    });
+    let requestCount = 0;
+
+    globalThis.fetch = async (input, init) => {
+      requestCount += 1;
+      expect(String(input)).toBe('https://api.gumroad.com/v2/licenses/verify');
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toEqual({
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+      expect(String(init?.body)).toContain('access_token=gumroad-access-token');
+      expect(String(init?.body)).toContain('license_key=license_123');
+      if (requestCount === 1) {
+        expect(String(init?.body)).toContain(`product_id=${providerProductRef}`);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            message: 'That license does not exist for the provided product.',
+          }),
+          {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      expect(String(init?.body)).toContain(`product_permalink=${providerProductRef}`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          purchase: {
+            product_permalink: providerProductRef,
+            email: 'buyer@example.com',
+            sale_id: 'sale_123',
+            refunded: false,
+            chargebacked: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    };
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Manual License Package',
+      publisherId: 'publisher-manual-license',
+      yucpUserId: creatorAuthUserId,
+    });
+
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Manual License Product',
+    });
+
+    const connectionId = await t.mutation(api.providerConnections.createProviderConnection, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerKey: 'gumroad',
+      authMode: 'oauth',
+      label: 'Gumroad Store',
+    });
+
+    await t.mutation(api.providerConnections.putProviderCredential, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerConnectionId: connectionId,
+      credentialKey: 'oauth_access_token',
+      kind: 'oauth_access_token',
+      encryptedValue: encryptedAccessToken,
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-manual-license',
+      codeChallenge: 'challenge-manual-license',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'gumroad-license',
+          providerKey: 'gumroad',
+          kind: 'manual_license',
+          title: 'Gumroad license',
+          providerProductRef,
+        },
+      ],
+    });
+
+    const result = await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+      methodKey: 'gumroad-license',
+      licenseKey: 'license_123',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(requestCount).toBe(2);
+
+    const intent = await t.query(api.verificationIntents.getIntentRecord, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+    });
+
+    expect(intent?.status).toBe('verified');
+    expect(intent?.verifiedMethodKey).toBe('gumroad-license');
+  });
+
+  it('verifies manual-license intents through the public Convex action when Gumroad accepts product_id directly', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-manual-license-product-id-creator';
+    const buyerAuthUserId = 'auth-manual-license-product-id-buyer';
+    const packageId = 'pkg.manual-license.product-id';
+    const productId = 'product-manual-license-product-id';
+    const providerProductRef = 'QAJc7ErxdAC815P5P8R89g==';
+    const encryptedAccessToken = await symmetricEncrypt({
+      key: process.env.BETTER_AUTH_SECRET as string,
+      data: 'gumroad-access-token',
+    });
+    let requestCount = 0;
+
+    globalThis.fetch = async (input, init) => {
+      requestCount += 1;
+      expect(String(input)).toBe('https://api.gumroad.com/v2/licenses/verify');
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toEqual({
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+      expect(String(init?.body)).toContain('access_token=gumroad-access-token');
+      expect(String(init?.body)).toContain(
+        `product_id=${encodeURIComponent(providerProductRef)}`
+      );
+      expect(String(init?.body)).toContain('license_key=license_123');
+      expect(String(init?.body)).not.toContain('product_permalink=');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          purchase: {
+            product_permalink: 'song-thing',
+            email: 'buyer@example.com',
+            sale_id: 'sale_456',
+            refunded: false,
+            chargebacked: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    };
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Manual License Product ID Package',
+      publisherId: 'publisher-manual-license-product-id',
+      yucpUserId: creatorAuthUserId,
+    });
+
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Manual License Product ID Product',
+    });
+
+    const connectionId = await t.mutation(api.providerConnections.createProviderConnection, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerKey: 'gumroad',
+      authMode: 'oauth',
+      label: 'Gumroad Store',
+    });
+
+    await t.mutation(api.providerConnections.putProviderCredential, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerConnectionId: connectionId,
+      credentialKey: 'oauth_access_token',
+      kind: 'oauth_access_token',
+      encryptedValue: encryptedAccessToken,
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-manual-license-product-id',
+      codeChallenge: 'challenge-manual-license-product-id',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'gumroad-license',
+          providerKey: 'gumroad',
+          kind: 'manual_license',
+          title: 'Gumroad license',
+          providerProductRef,
+        },
+      ],
+    });
+
+    const result = await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+      methodKey: 'gumroad-license',
+      licenseKey: 'license_123',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(requestCount).toBe(1);
+  });
+
+  it('verifies manual-license intents for Backstage delivery packages without legacy package registration', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-manual-license-backstage-creator';
+    const buyerAuthUserId = 'auth-manual-license-backstage-buyer';
+    const packageId = 'com.yucp.backstage.manual-license';
+    const productId = 'product-manual-license-backstage';
+    const providerProductRef = 'QAJc7ErxdAC815P5P8R89g==';
+    const encryptedAccessToken = await symmetricEncrypt({
+      key: process.env.BETTER_AUTH_SECRET as string,
+      data: 'gumroad-access-token',
+    });
+    let requestCount = 0;
+
+    globalThis.fetch = async (input, init) => {
+      requestCount += 1;
+      expect(String(input)).toBe('https://api.gumroad.com/v2/licenses/verify');
+      expect(init?.method).toBe('POST');
+      expect(String(init?.body)).toContain('access_token=gumroad-access-token');
+      expect(String(init?.body)).toContain(
+        `product_id=${encodeURIComponent(providerProductRef)}`
+      );
+      expect(String(init?.body)).toContain('license_key=license_123');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          purchase: {
+            product_permalink: 'song-thing',
+            email: 'buyer@example.com',
+            sale_id: 'sale_456',
+            refunded: false,
+            chargebacked: false,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    };
+
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Manual License Backstage Product',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: creatorAuthUserId,
+      catalogProductId,
+      packageId,
+      packageName: 'Manual License Backstage Package',
+      displayName: 'Manual License Backstage Package',
+      repositoryVisibility: 'hidden',
+      defaultChannel: 'stable',
+    });
+
+    const connectionId = await t.mutation(api.providerConnections.createProviderConnection, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerKey: 'gumroad',
+      authMode: 'oauth',
+      label: 'Gumroad Store',
+    });
+
+    await t.mutation(api.providerConnections.putProviderCredential, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      providerConnectionId: connectionId,
+      credentialKey: 'oauth_access_token',
+      kind: 'oauth_access_token',
+      encryptedValue: encryptedAccessToken,
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-manual-license-backstage',
+      codeChallenge: 'challenge-manual-license-backstage',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'gumroad-license',
+          providerKey: 'gumroad',
+          kind: 'manual_license',
+          title: 'Gumroad license',
+          providerProductRef,
+          creatorAuthUserId,
+          productId,
+        },
+      ],
+    });
+
+    const result = await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+      methodKey: 'gumroad-license',
+      licenseKey: 'license_123',
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(requestCount).toBe(1);
   });
 
   it('preserves itch account-link product references across current and legacy intent shapes', async () => {

@@ -602,7 +602,7 @@ async function handleUserCommand(
 ): Promise<void> {
   const subcommand = interaction.options.getSubcommand(false);
 
-  if (subcommand === 'account') {
+  if (subcommand === 'identity') {
     const { handleAccountCommand } = await import('../commands/account');
     await handleAccountCommand(interaction);
     return;

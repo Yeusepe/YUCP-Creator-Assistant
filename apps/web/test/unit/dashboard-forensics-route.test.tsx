@@ -78,6 +78,17 @@ vi.mock('@/hooks/useDashboardSession', () => ({
 }));
 
 vi.mock('@/lib/certificates', () => ({
+  hasActiveCreatorBillingCapability: vi.fn(
+    (
+      capabilities: Array<{ capabilityKey: string; status: string }> | undefined,
+      capabilityKey: string
+    ) =>
+      capabilities?.some(
+        (capability) =>
+          capability.capabilityKey === capabilityKey &&
+          (capability.status === 'active' || capability.status === 'grace')
+      ) ?? false
+  ),
   listCreatorCertificates: vi.fn(),
 }));
 

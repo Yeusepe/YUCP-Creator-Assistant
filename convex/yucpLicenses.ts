@@ -1,17 +1,17 @@
 /**
  * YUCP License Gate, Unity editor license verification endpoint.
  *
- * Verifies a purchase license (Gumroad or Jinxxy) for a specific YUCP package,
+ * Verifies a purchase license for a specific YUCP package,
  * then returns a short-lived signed JWT that the Unity client caches locally.
  * The JWT is machine-fingerprint-bound so it cannot be shared between machines.
  *
  * Credential resolution order:
  *   1. Look up product in product_catalog by providerProductRef -> get owner authUserId
- *   2. Decrypt owner's credentials from provider_connections via Better Auth symmetricDecrypt
- *   3. For Jinxxy: fall through to collaborator_connections if primary credential missing/invalid
+ *   2. Resolve the provider runtime for that store
+ *   3. Let the provider-owned verification module validate the license
  *
  * Flow:
- *   Unity client  ->  POST /v1/licenses/verify  ->  Gumroad/Jinxxy API
+ *   Unity client  ->  POST /v1/licenses/verify  ->  provider-owned verification runtime
  *                                              <-  { token: "<EdDSA JWT>" }
  *   Unity client stores JWT in AES-256-CBC+HMAC encrypted on-disk cache
  *   DerivedFbxBuilder reads SessionState set by LicenseTokenCache before decrypting FBX
@@ -29,9 +29,7 @@
  *   RFC 8725 JWT BCP     https://www.rfc-editor.org/rfc/rfc8725
  */
 
-import { JinxxyApiClient } from '@yucp/providers';
 import { sha256Hex } from '@yucp/shared/crypto';
-import { symmetricDecrypt } from 'better-auth/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import {
@@ -42,34 +40,34 @@ import {
   query,
 } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
-import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
+import { verifyLicenseWithProviderRuntime } from './lib/providerLicenseVerification';
 import {
   decryptProtectedBlobContentKey,
   encryptProtectedBlobContentKey,
 } from './lib/protectedAssetKeyCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
+import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import {
-  sealProtectedMaterializationGrant,
-  unsealProtectedMaterializationGrant,
-} from './lib/protectedMaterializationGrant';
-import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
-import {
+  type CouplingRuntimeClaims,
   type LicenseClaims,
-  type ProtectedInstallIntentClaims,
   type ProtectedUnlockClaims,
   resolvePinnedYucpSigningRoot,
+  signCouplingRuntimeJwt,
   signLicenseJwt,
-  signProtectedInstallIntentJwt,
   signProtectedUnlockJwt,
   verifyLicenseJwtAgainstPinnedRoots,
   verifyProtectedUnlockJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
+import {
+  RELEASE_ARTIFACT_KEYS,
+  RELEASE_CHANNELS,
+  RELEASE_PLATFORMS,
+} from './lib/releaseArtifactKeys';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
-const PROTECTED_INSTALL_INTENT_TTL_SECONDS = 10 * 60;
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
@@ -208,7 +206,14 @@ export const getProviderConnection = internalQuery({
 /** Get active collaborator API keys for a creator owner. */
 export const getCollaboratorConnections = internalQuery({
   args: { ownerAuthUserId: v.string() },
-  returns: v.array(v.object({ credentialEncrypted: v.optional(v.string()) })),
+  returns: v.array(
+    v.object({
+      id: v.string(),
+      provider: v.string(),
+      credentialEncrypted: v.optional(v.string()),
+      collaboratorDisplayName: v.optional(v.string()),
+    })
+  ),
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query('collaborator_connections')
@@ -218,7 +223,12 @@ export const getCollaboratorConnections = internalQuery({
       .collect();
     return rows
       .filter((r) => r.credentialEncrypted)
-      .map((r) => ({ credentialEncrypted: r.credentialEncrypted }));
+      .map((r) => ({
+        id: r._id,
+        provider: r.provider,
+        credentialEncrypted: r.credentialEncrypted,
+        collaboratorDisplayName: r.collaboratorDisplayName,
+      }));
   },
 });
 
@@ -517,6 +527,8 @@ export const verifyLicenseProof = internalAction({
     licenseKey: v.string(),
     provider: v.string(),
     productPermalink: v.string(),
+    creatorAuthUserId: v.optional(v.string()),
+    productId: v.optional(v.string()),
   },
   returns: v.object({
     success: v.boolean(),
@@ -535,50 +547,34 @@ export const verifyLicenseProof = internalAction({
     });
 
     if (product) {
-      const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-        packageId: args.packageId,
-      });
-      if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
-        return {
-          success: false,
-          error: 'Package not found or not registered to the product owner',
-        };
+      if (args.creatorAuthUserId || args.productId) {
+        if (
+          args.creatorAuthUserId !== product.authUserId ||
+          args.productId !== product.productId
+        ) {
+          return {
+            success: false,
+            error: 'Verification method points at a different creator product',
+          };
+        }
+      } else {
+        const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+          packageId: args.packageId,
+        });
+        if (!packageReg || packageReg.yucpUserId !== product.authUserId) {
+          return {
+            success: false,
+            error: 'Package not found or not registered to the product owner',
+          };
+        }
       }
 
-      const conn = await ctx.runQuery(internal.yucpLicenses.getProviderConnection, {
-        authUserId: product.authUserId,
+      verifyResult = await verifyLicenseWithProviderRuntime(ctx, {
         provider: args.provider,
+        licenseKey: args.licenseKey,
+        providerProductRef: args.productPermalink,
+        authUserId: product.authUserId,
       });
-
-      if (args.provider === 'gumroad' && conn?.credentials.oauth_access_token) {
-        const token = await decryptCredential(conn.credentials.oauth_access_token);
-        if (token) {
-          verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, token);
-        }
-      } else if (args.provider === 'jinxxy') {
-        if (conn?.credentials.api_key) {
-          const key = await decryptCredential(conn.credentials.api_key);
-          if (key) {
-            verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
-          }
-        }
-
-        if (!verifyResult?.valid) {
-          const collabConns = await ctx.runQuery(internal.yucpLicenses.getCollaboratorConnections, {
-            ownerAuthUserId: product.authUserId,
-          });
-          for (const collab of collabConns) {
-            if (!collab.credentialEncrypted) continue;
-            const key = await decryptCredential(collab.credentialEncrypted);
-            if (!key) continue;
-            const result = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
-            if (result.valid) {
-              verifyResult = result;
-              break;
-            }
-          }
-        }
-      }
     }
 
     if (!verifyResult?.valid) {
@@ -588,141 +584,6 @@ export const verifyLicenseProof = internalAction({
     return { success: true };
   },
 });
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-function normalizeCouplingAssetPath(input: string): string {
-  return input.replace(/\\/g, '/').replace(/^\/+/, '').trim();
-}
-
-function isValidCouplingAssetPath(input: string): boolean {
-  return (
-    input.length > 0 &&
-    input.length <= COUPLING_ASSET_PATH_MAX_LENGTH &&
-    !input.includes('|') &&
-    !input.includes('\r') &&
-    !input.includes('\n')
-  );
-}
-
-function getCouplingTokenLength(assetPath: string): number {
-  const p = normalizeCouplingAssetPath(assetPath).toLowerCase();
-  if (p.endsWith('.png')) return 64;
-  if (p.endsWith('.fbx')) return 32;
-  return 0;
-}
-
-async function hmacSha256Hex(secret: string, input: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(input));
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-async function decryptCredential(encrypted: string): Promise<string | null> {
-  const secret = process.env.BETTER_AUTH_SECRET;
-  if (!secret || !encrypted) return null;
-  try {
-    return await symmetricDecrypt({ key: secret, data: encrypted });
-  } catch {
-    return null;
-  }
-}
-
-// =============================================================================
-// Provider verification (accept credentials as params -- no global env reads)
-// =============================================================================
-
-interface GumroadVerifyResult {
-  success: boolean;
-  purchase?: {
-    product_permalink: string;
-    email: string;
-    sale_id?: string;
-    refunded: boolean;
-    chargebacked: boolean;
-  };
-  message?: string;
-}
-
-async function verifyGumroadLicense(
-  licenseKey: string,
-  productPermalink: string,
-  accessToken: string
-): Promise<{
-  valid: boolean;
-  purchaserEmail?: string;
-  providerUserId?: string;
-  externalOrderId?: string;
-  reason?: string;
-}> {
-  const params = new URLSearchParams({
-    access_token: accessToken,
-    product_permalink: productPermalink,
-    license_key: licenseKey,
-    increment_uses_count: 'false',
-  });
-
-  const resp = await fetch('https://api.gumroad.com/v2/licenses/verify', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString(),
-  });
-
-  const json = (await resp.json()) as GumroadVerifyResult;
-
-  if (!json.success) return { valid: false, reason: json.message ?? 'Invalid license' };
-  if (json.purchase?.refunded) return { valid: false, reason: 'License has been refunded' };
-  if (json.purchase?.chargebacked) return { valid: false, reason: 'License has a chargeback' };
-
-  const purchaserEmail = json.purchase?.email?.trim().toLowerCase();
-  return {
-    valid: true,
-    purchaserEmail,
-    providerUserId: purchaserEmail ? await sha256Hex(purchaserEmail) : undefined,
-    externalOrderId: json.purchase?.sale_id,
-  };
-}
-
-async function verifyJinxxyLicense(
-  licenseKey: string,
-  productId: string,
-  apiKey: string
-): Promise<{
-  valid: boolean;
-  purchaserEmail?: string;
-  providerUserId?: string;
-  externalOrderId?: string;
-  providerProductId?: string;
-  reason?: string;
-}> {
-  const client = new JinxxyApiClient({ apiKey });
-  const result = await client.verifyLicenseWithBuyerByKey(licenseKey);
-
-  if (!result.valid) {
-    return { valid: false, reason: result.error ?? 'License verification failed' };
-  }
-  if (productId && result.license?.product_id && result.license.product_id !== productId) {
-    return { valid: false, reason: 'License does not match the expected product' };
-  }
-
-  return {
-    valid: true,
-    purchaserEmail: result.purchaserEmail,
-    providerUserId: result.providerUserId,
-    externalOrderId: result.externalOrderId,
-    providerProductId: result.providerProductId,
-  };
-}
 
 // =============================================================================
 // Nonce replay prevention
@@ -926,99 +787,6 @@ export const recordProtectedUnlockIssuance = internalMutation({
   },
 });
 
-export const recordCouplingTraceIssuance = internalMutation({
-  args: {
-    authUserId: v.string(),
-    packageId: v.string(),
-    licenseSubject: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    runtimeArtifactVersion: v.string(),
-    runtimePlaintextSha256: v.string(),
-    grantId: v.optional(v.string()),
-    correlationId: v.string(),
-    provider: v.optional(v.string()),
-    jobs: v.array(
-      v.object({
-        assetPath: v.string(),
-        tokenHex: v.string(),
-        materializationNonce: v.optional(v.string()),
-      })
-    ),
-  },
-  handler: async (ctx, args) => {
-    const machineFingerprintHash = await sha256Hex(args.machineFingerprint);
-    const projectIdHash = await sha256Hex(args.projectId);
-    const now = Date.now();
-
-    for (const job of args.jobs) {
-      await ctx.db.insert('coupling_trace_records', {
-        authUserId: args.authUserId,
-        packageId: args.packageId,
-        licenseSubject: args.licenseSubject,
-        assetPath: job.assetPath,
-        tokenHash: await sha256Hex(job.tokenHex),
-        tokenLength: job.tokenHex.length,
-        machineFingerprintHash,
-        projectIdHash,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-        runtimePlaintextSha256: args.runtimePlaintextSha256,
-        grantId: args.grantId,
-        grantIssuanceStatus: args.grantId ? 'issued' : undefined,
-        correlationId: args.correlationId,
-        createdAt: now,
-        materializationNonce: job.materializationNonce,
-        provider: args.provider,
-      });
-    }
-
-    await ctx.db.insert('audit_events', {
-      authUserId: args.authUserId,
-      eventType: 'coupling.trace.recorded',
-      actorType: 'system',
-      metadata: {
-        packageId: args.packageId,
-        licenseSubject: args.licenseSubject,
-        assetCount: args.jobs.length,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-      },
-      correlationId: args.correlationId,
-      createdAt: now,
-    });
-
-    await ctx.db.insert('audit_events', {
-      authUserId: args.authUserId,
-      eventType: 'coupling.unlock.issued',
-      actorType: 'system',
-      metadata: {
-        packageId: args.packageId,
-        licenseSubject: args.licenseSubject,
-        assetCount: args.jobs.length,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-      },
-      correlationId: args.correlationId,
-      createdAt: now,
-    });
-
-    if (args.grantId) {
-      await ctx.db.insert('audit_events', {
-        authUserId: args.authUserId,
-        eventType: 'protected.materialization.grant.issued',
-        actorType: 'system',
-        metadata: {
-          grantId: args.grantId,
-          packageId: args.packageId,
-          licenseSubject: args.licenseSubject,
-          assetCount: args.jobs.length,
-          runtimeArtifactVersion: args.runtimeArtifactVersion,
-        },
-        correlationId: args.correlationId,
-        createdAt: now,
-      });
-    }
-  },
-});
-
 export const recordLicenseSubjectLink = internalMutation({
   args: {
     licenseSubject: v.string(),
@@ -1184,42 +952,12 @@ export const verifyLicense = internalAction({
 
       productAuthUserId = product.authUserId;
 
-      const conn = await ctx.runQuery(internal.yucpLicenses.getProviderConnection, {
-        authUserId: product.authUserId,
+      verifyResult = await verifyLicenseWithProviderRuntime(ctx, {
         provider: args.provider,
+        licenseKey: args.licenseKey,
+        providerProductRef: args.productPermalink,
+        authUserId: product.authUserId,
       });
-
-      if (args.provider === 'gumroad' && conn?.credentials.oauth_access_token) {
-        const token = await decryptCredential(conn.credentials.oauth_access_token);
-        if (token) {
-          verifyResult = await verifyGumroadLicense(args.licenseKey, args.productPermalink, token);
-        }
-      } else if (args.provider === 'jinxxy') {
-        // Try primary connection first
-        if (conn?.credentials.api_key) {
-          const key = await decryptCredential(conn.credentials.api_key);
-          if (key) {
-            verifyResult = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
-          }
-        }
-
-        // If primary failed or missing, try collaborator connections
-        if (!verifyResult?.valid) {
-          const collabConns = await ctx.runQuery(internal.yucpLicenses.getCollaboratorConnections, {
-            ownerAuthUserId: product.authUserId,
-          });
-          for (const collab of collabConns) {
-            if (!collab.credentialEncrypted) continue;
-            const key = await decryptCredential(collab.credentialEncrypted);
-            if (!key) continue;
-            const result = await verifyJinxxyLicense(args.licenseKey, args.productPermalink, key);
-            if (result.valid) {
-              verifyResult = result;
-              break;
-            }
-          }
-        }
-      }
     }
 
     // c63: No global credential fallback, only the product owner's credentials are accepted.
@@ -1253,11 +991,7 @@ export const verifyLicense = internalAction({
       exp,
     };
 
-    const token = await signLicenseJwt(
-      claims,
-      signingRoot.privateKeyBase64,
-      signingRoot.keyId
-    );
+    const token = await signLicenseJwt(claims, signingRoot.privateKeyBase64, signingRoot.keyId);
 
     // 5b. Store the license subject link for forensics lookups (best-effort, does not fail the request).
     if (
@@ -1286,6 +1020,320 @@ export const verifyLicense = internalAction({
     );
 
     return { success: true, token, expiresAt: exp };
+  },
+});
+
+/**
+ * Resolves the active entitlement for an alias/VPM buyer so the install-plan can
+ * mint a machine-bound license token. Returns the canonical license subject (when
+ * the grant was license-verified) and the source provider for the token claim.
+ */
+export const resolveAliasInstallLicenseContext = internalQuery({
+  args: {
+    creatorAuthUserId: v.string(),
+    subjectId: v.id('subjects'),
+    catalogProductId: v.id('product_catalog'),
+  },
+  returns: v.object({
+    active: v.boolean(),
+    licenseSubject: v.optional(v.string()),
+    provider: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('catalogProductId'), args.catalogProductId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+
+    if (!entitlement) {
+      return { active: false };
+    }
+
+    return {
+      active: true,
+      licenseSubject: entitlement.licenseSubject,
+      provider: entitlement.sourceProvider,
+    };
+  },
+});
+
+/**
+ * Mints a short-lived, machine-fingerprint-bound license token for an entitled
+ * alias/VPM buyer at install-plan time. The token's `sub` re-uses the buyer's
+ * canonical license subject (when present) so a later coupling watermark resolves
+ * back to the specific license + buyer; otherwise it falls back to a deterministic
+ * non-license subject so attribution still binds to the buyer/product.
+ *
+ * Security: entitlement re-checked here; token machine-bound, short TTL, `jti`
+ * consumed against used_nonces. Never logs the token.
+ */
+export const issueAliasInstallLicenseToken = action({
+  args: {
+    apiSecret: v.string(),
+    creatorAuthUserId: v.string(),
+    subjectId: v.id('subjects'),
+    catalogProductId: v.id('product_catalog'),
+    packageId: v.string(),
+    machineFingerprint: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    token: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid package id' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+
+    // Derive the issuer exactly like POST /v1/licenses/verify so the token's `iss`
+    // matches what the client pins.
+    const issuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+    if (!issuerBaseUrl) {
+      return { success: false, error: 'Service not configured' };
+    }
+
+    const context = await ctx.runQuery(internal.yucpLicenses.resolveAliasInstallLicenseContext, {
+      creatorAuthUserId: args.creatorAuthUserId,
+      subjectId: args.subjectId,
+      catalogProductId: args.catalogProductId,
+    });
+    if (!context.active) {
+      return { success: false, error: 'No active entitlement for this product' };
+    }
+
+    // Re-use the buyer's canonical license subject when the grant was license-verified
+    // so coupling forensics can resolve the specific license; otherwise bind a
+    // deterministic non-license subject to the buyer/product for buyer attribution.
+    const sub =
+      context.licenseSubject ??
+      (await sha256Hex(
+        `alias-fallback:${args.creatorAuthUserId}:${args.subjectId}:${args.catalogProductId}`
+      ));
+
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const issuer = buildPublicAuthIssuer(issuerBaseUrl);
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + TOKEN_TTL_SECONDS;
+    const jti = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.checkAndConsumeNonce, { nonce: jti });
+
+    const claims: LicenseClaims = {
+      iss: issuer,
+      aud: 'yucp-license-gate',
+      sub,
+      jti,
+      package_id: args.packageId,
+      machine_fingerprint: args.machineFingerprint,
+      provider: context.provider ?? 'alias',
+      iat,
+      exp,
+    };
+
+    const token = await signLicenseJwt(claims, signingRoot.privateKeyBase64, signingRoot.keyId);
+    return { success: true, token, expiresAt: exp };
+  },
+});
+
+const COUPLING_RUNTIME_TOKEN_TTL_SECONDS = 10 * 60;
+
+/** Inserts one coupling_trace_records row per coupled asset (hash-only forensics). */
+export const recordCouplingTraces = internalMutation({
+  args: {
+    authUserId: v.string(),
+    packageId: v.string(),
+    licenseSubject: v.string(),
+    provider: v.optional(v.string()),
+    machineFingerprintHash: v.string(),
+    projectIdHash: v.string(),
+    runtimeArtifactVersion: v.string(),
+    runtimePlaintextSha256: v.string(),
+    correlationId: v.string(),
+    entries: v.array(
+      v.object({ assetPath: v.string(), tokenHash: v.string(), tokenLength: v.number() })
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const entry of args.entries) {
+      await ctx.db.insert('coupling_trace_records', {
+        authUserId: args.authUserId,
+        packageId: args.packageId,
+        licenseSubject: args.licenseSubject,
+        assetPath: entry.assetPath,
+        tokenHash: entry.tokenHash,
+        tokenLength: entry.tokenLength,
+        machineFingerprintHash: args.machineFingerprintHash,
+        projectIdHash: args.projectIdHash,
+        runtimeArtifactVersion: args.runtimeArtifactVersion,
+        runtimePlaintextSha256: args.runtimePlaintextSha256,
+        correlationId: args.correlationId,
+        createdAt: now,
+        provider: args.provider,
+      });
+    }
+    return null;
+  },
+});
+
+/**
+ * Issues per-asset coupling tokens for an entitled VPM/alias install and records the
+ * forensic traces. Validates the machine-bound license token server-side and binds the
+ * traces to the token's licenseSubject so a later watermark hit resolves to the buyer.
+ *
+ * Self-guarding: if no coupling-runtime artifact is active, returns success with no files
+ * (skipReason) so the importer skips coupling instead of failing the install.
+ */
+export const issueCouplingJob = internalAction({
+  args: {
+    packageId: v.string(),
+    projectId: v.string(),
+    machineFingerprint: v.string(),
+    licenseToken: v.string(),
+    assetPaths: v.array(v.string()),
+    issuerBaseUrl: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    runtimeToken: v.optional(v.string()),
+    runtimeSha256: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    skipReason: v.optional(v.string()),
+    error: v.optional(v.string()),
+    files: v.optional(
+      v.array(v.object({ assetPath: v.string(), tokenHex: v.string() }))
+    ),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    success: boolean;
+    runtimeToken?: string;
+    runtimeSha256?: string;
+    expiresAt?: number;
+    skipReason?: string;
+    error?: string;
+    files?: { assetPath: string; tokenHex: string }[];
+  }> => {
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!PROJECT_ID_RE.test(args.projectId)) {
+      return { success: false, error: 'Invalid projectId format' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+    if (args.assetPaths.length === 0) {
+      return { success: true, files: [], skipReason: 'no_assets' };
+    }
+    if (args.assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return { success: false, error: 'Too many coupling asset paths' };
+    }
+    for (const assetPath of args.assetPaths) {
+      if (!assetPath || assetPath.length > COUPLING_ASSET_PATH_MAX_LENGTH) {
+        return { success: false, error: 'Invalid coupling asset path' };
+      }
+    }
+
+    // Validate the machine-bound license token server-side; never trust the client.
+    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
+    const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
+    if (!claims) {
+      return { success: false, error: 'License token is invalid or expired' };
+    }
+    if (claims.package_id !== args.packageId) {
+      return { success: false, error: 'License token package mismatch' };
+    }
+    if (claims.machine_fingerprint !== args.machineFingerprint) {
+      return { success: false, error: 'License token machine mismatch' };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!registration) {
+      return { success: false, error: 'Package not found' };
+    }
+
+    const artifact = await ctx.runQuery(internal.releaseArtifacts.getActiveArtifact, {
+      artifactKey: RELEASE_ARTIFACT_KEYS.couplingRuntime,
+      channel: RELEASE_CHANNELS.stable,
+      platform: RELEASE_PLATFORMS.winX64,
+    });
+    if (!artifact) {
+      // No runtime published yet → skip coupling without failing the install.
+      return { success: true, files: [], skipReason: 'no_runtime' };
+    }
+
+    const files: { assetPath: string; tokenHex: string }[] = [];
+    const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
+    for (const assetPath of args.assetPaths) {
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+      const tokenHex = Array.from(tokenBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      files.push({ assetPath, tokenHex });
+      entries.push({
+        assetPath,
+        tokenHash: await sha256Hex(tokenHex),
+        tokenLength: tokenBytes.length,
+      });
+    }
+
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: artifact.version,
+      runtimePlaintextSha256: artifact.plaintextSha256,
+      correlationId,
+      entries,
+    });
+
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
+    const runtimeClaims: CouplingRuntimeClaims = {
+      iss: issuer,
+      aud: 'yucp-coupling-runtime',
+      sub: claims.sub,
+      jti: crypto.randomUUID(),
+      package_id: args.packageId,
+      machine_fingerprint: args.machineFingerprint,
+      artifact_version: artifact.version,
+      plaintext_sha256: artifact.plaintextSha256,
+      iat,
+      exp,
+    };
+    const runtimeToken = await signCouplingRuntimeJwt(
+      runtimeClaims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
+
+    return {
+      success: true,
+      runtimeToken,
+      runtimeSha256: artifact.plaintextSha256,
+      expiresAt: exp,
+      files,
+    };
   },
 });
 
@@ -1417,724 +1465,6 @@ type ProtectedUnlockIssueResult = {
   expiresAt?: number;
   error?: string;
 };
-
-type ProtectedInstallIntentIssueResult = {
-  success: boolean;
-  installIntentToken?: string;
-  expiresAt?: number;
-  error?: string;
-};
-
-type CouplingJobIssueResult = {
-  success: boolean;
-  subject?: string;
-  jobs?: Array<{ assetPath: string; tokenHex: string; materializationNonce: string }>;
-  skipReason?: string;
-  error?: string;
-};
-
-export const issueProtectedMaterializationGrant = internalAction({
-  args: {
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    issuerBaseUrl: v.string(),
-    runtimeArtifactVersion: v.optional(v.string()),
-    runtimePlaintextSha256: v.optional(v.string()),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    grant: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ProtectedMaterializationGrantIssueResult> => {
-    const grantId = crypto.randomUUID();
-    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!packageReg) {
-      return { success: false, error: 'Package registration not found' };
-    }
-
-    const unlockResult: ProtectedUnlockIssueResult = await ctx.runAction(
-      internal.yucpLicenses.issueProtectedUnlock,
-      {
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        machineFingerprint: args.machineFingerprint,
-        projectId: args.projectId,
-        licenseToken: args.licenseToken,
-        issuerBaseUrl: args.issuerBaseUrl,
-      }
-    );
-
-    if (!unlockResult.success || !unlockResult.unlockToken || !unlockResult.expiresAt) {
-      return {
-        success: false,
-        error:
-          unlockResult.error ?? 'Protected materialization grant could not authorize the asset',
-      };
-    }
-
-    const couplingResult: CouplingJobIssueResult = await ctx.runAction(
-      internal.yucpLicenses.issueCouplingJob,
-      {
-        packageId: args.packageId,
-        machineFingerprint: args.machineFingerprint,
-        projectId: args.projectId,
-        licenseToken: args.licenseToken,
-        assetPaths: args.assetPaths,
-        grantId,
-        issuerBaseUrl: args.issuerBaseUrl,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-        runtimePlaintextSha256: args.runtimePlaintextSha256,
-      }
-    );
-
-    if (!couplingResult.success) {
-      return {
-        success: false,
-        error:
-          couplingResult.error ?? 'Protected materialization grant could not issue coupling jobs',
-      };
-    }
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const grant = await sealProtectedMaterializationGrant({
-      schemaVersion: 1,
-      grantId,
-      creatorAuthUserId: packageReg.yucpUserId,
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-      licenseSubject: couplingResult.subject ?? '',
-      issuedAt: nowSeconds,
-      expiresAt: unlockResult.expiresAt,
-      unlockToken: unlockResult.unlockToken,
-      unlockExpiresAt: unlockResult.expiresAt,
-      coupling: {
-        ...(couplingResult.subject ? { subject: couplingResult.subject } : {}),
-        ...(couplingResult.skipReason ? { skipReason: couplingResult.skipReason } : {}),
-        jobs: couplingResult.jobs ?? [],
-      },
-    });
-
-    return {
-      success: true,
-      grant,
-      expiresAt: unlockResult.expiresAt,
-    };
-  },
-});
-
-export const issueProtectedInstallIntent = internalAction({
-  args: {
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    manifestBindingSha256: v.string(),
-    licenseToken: v.string(),
-    issuerBaseUrl: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    installIntentToken: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ProtectedInstallIntentIssueResult> => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!PROTECTED_ASSET_ID_RE.test(args.protectedAssetId)) {
-      return { success: false, error: 'Invalid protected asset identifier' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-    if (!PROJECT_ID_RE.test(args.projectId)) {
-      return { success: false, error: 'Invalid project identifier' };
-    }
-    if (!CONTENT_HASH_RE.test(args.manifestBindingSha256)) {
-      return { success: false, error: 'Invalid manifest binding hash' };
-    }
-    if (!args.licenseToken) {
-      return { success: false, error: 'licenseToken is required' };
-    }
-
-    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
-
-    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-
-    if (!licenseClaims) {
-      return { success: false, error: 'License token is invalid or expired' };
-    }
-    if (licenseClaims.package_id !== args.packageId) {
-      return { success: false, error: 'License token package mismatch' };
-    }
-    if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
-      return { success: false, error: 'License token machine mismatch' };
-    }
-
-    const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-    });
-    if (!protectedAsset) {
-      return { success: false, error: 'Protected asset registration not found' };
-    }
-
-    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!packageReg || packageReg.yucpUserId !== protectedAsset.yucpUserId) {
-      return { success: false, error: 'Protected asset owner mismatch' };
-    }
-    if (!CONTENT_HASH_RE.test(protectedAsset.contentHash)) {
-      return { success: false, error: 'Protected asset content hash is invalid' };
-    }
-    if (!CONTENT_HASH_RE.test(protectedAsset.manifestBindingSha256 ?? '')) {
-      return {
-        success: false,
-        error: 'Protected asset registration is missing a manifest binding hash',
-      };
-    }
-    if (protectedAsset.manifestBindingSha256 !== args.manifestBindingSha256) {
-      return {
-        success: false,
-        error: 'Protected asset registration did not match the manifest-bound payload descriptor',
-      };
-    }
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const exp = nowSeconds + PROTECTED_INSTALL_INTENT_TTL_SECONDS;
-    const claims: ProtectedInstallIntentClaims = {
-      iss: issuer,
-      aud: 'yucp-protected-install-intent',
-      sub: licenseClaims.sub,
-      jti: crypto.randomUUID(),
-      package_id: args.packageId,
-      protected_asset_id: args.protectedAssetId,
-      machine_fingerprint: args.machineFingerprint,
-      project_id: args.projectId,
-      manifest_binding_sha256: args.manifestBindingSha256,
-      iat: nowSeconds,
-      exp,
-    };
-
-    const installIntentToken = await signProtectedInstallIntentJwt(
-      claims,
-      signingRoot.privateKeyBase64,
-      signingRoot.keyId
-    );
-    return { success: true, installIntentToken, expiresAt: exp };
-  },
-});
-
-export const issueProtectedMaterializationGrantForApi = action({
-  args: {
-    apiSecret: v.string(),
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    issuerBaseUrl: v.string(),
-    runtimeArtifactVersion: v.optional(v.string()),
-    runtimePlaintextSha256: v.optional(v.string()),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    grant: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ProtectedMaterializationGrantIssueResult> => {
-    requireApiSecret(args.apiSecret);
-    return await ctx.runAction(internal.yucpLicenses.issueProtectedMaterializationGrant, {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-      licenseToken: args.licenseToken,
-      assetPaths: args.assetPaths,
-      issuerBaseUrl: args.issuerBaseUrl,
-      runtimeArtifactVersion: args.runtimeArtifactVersion,
-      runtimePlaintextSha256: args.runtimePlaintextSha256,
-    });
-  },
-});
-
-export const issueProtectedInstallIntentForApi = action({
-  args: {
-    apiSecret: v.string(),
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    manifestBindingSha256: v.string(),
-    licenseToken: v.string(),
-    issuerBaseUrl: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    installIntentToken: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ProtectedInstallIntentIssueResult> => {
-    requireApiSecret(args.apiSecret);
-    return await ctx.runAction(internal.yucpLicenses.issueProtectedInstallIntent, {
-      packageId: args.packageId,
-      protectedAssetId: args.protectedAssetId,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-      manifestBindingSha256: args.manifestBindingSha256,
-      licenseToken: args.licenseToken,
-      issuerBaseUrl: args.issuerBaseUrl,
-    });
-  },
-});
-
-export const redeemProtectedMaterializationGrant = internalAction({
-  args: {
-    grant: v.string(),
-    issuerBaseUrl: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    grantId: v.optional(v.string()),
-    creatorAuthUserId: v.optional(v.string()),
-    packageId: v.optional(v.string()),
-    protectedAssetId: v.optional(v.string()),
-    machineFingerprint: v.optional(v.string()),
-    projectId: v.optional(v.string()),
-    licenseSubject: v.optional(v.string()),
-    contentKeyBase64: v.optional(v.string()),
-    contentHash: v.optional(v.string()),
-    couplingJobs: v.optional(
-      v.array(
-        v.object({
-          assetPath: v.string(),
-          tokenHex: v.string(),
-          materializationNonce: v.optional(v.string()),
-        })
-      )
-    ),
-    skipReason: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    if (!args.grant) {
-      return { success: false, error: 'grant is required' };
-    }
-
-    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const payload = await unsealProtectedMaterializationGrant(args.grant);
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    if (payload.expiresAt <= nowSeconds) {
-      return { success: false, error: 'Protected materialization grant is expired' };
-    }
-
-    // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
-    const isRevoked = await ctx.runQuery(internal.yucpLicenses.isGrantRevoked, {
-      grantId: payload.grantId,
-    });
-    if (isRevoked) {
-      return { success: false, error: 'Protected materialization grant has been revoked' };
-    }
-
-    const unlockClaims = await verifyProtectedUnlockJwtAgainstPinnedRoots(
-      payload.unlockToken,
-      issuer
-    );
-    if (!unlockClaims) {
-      return { success: false, error: 'Protected materialization grant unlock token is invalid' };
-    }
-
-    if (
-      unlockClaims.package_id !== payload.packageId ||
-      unlockClaims.protected_asset_id !== payload.protectedAssetId ||
-      unlockClaims.machine_fingerprint !== payload.machineFingerprint ||
-      unlockClaims.project_id !== payload.projectId ||
-      unlockClaims.sub !== payload.licenseSubject
-    ) {
-      return { success: false, error: 'Protected materialization grant claims did not match' };
-    }
-
-    if (unlockClaims.unlock_mode !== 'content_key_b64' || !unlockClaims.content_key_b64) {
-      return {
-        success: false,
-        error:
-          'Protected materialization grant does not permit brokered content-key materialization',
-      };
-    }
-
-    await ctx.runMutation(internal.yucpLicenses.recordProtectedMaterializationGrantRedemption, {
-      authUserId: payload.creatorAuthUserId,
-      grantId: payload.grantId,
-      packageId: payload.packageId,
-      protectedAssetId: payload.protectedAssetId,
-      licenseSubject: payload.licenseSubject,
-      couplingJobCount: payload.coupling.jobs.length,
-    });
-
-    return {
-      success: true,
-      grantId: payload.grantId,
-      creatorAuthUserId: payload.creatorAuthUserId,
-      packageId: payload.packageId,
-      protectedAssetId: payload.protectedAssetId,
-      machineFingerprint: payload.machineFingerprint,
-      projectId: payload.projectId,
-      licenseSubject: payload.licenseSubject,
-      contentKeyBase64: unlockClaims.content_key_b64,
-      contentHash: unlockClaims.content_hash,
-      couplingJobs: payload.coupling.jobs,
-      skipReason: payload.coupling.skipReason,
-      expiresAt: payload.expiresAt,
-    };
-  },
-});
-
-export const receiptProtectedMaterializationGrant = internalMutation({
-  args: {
-    grant: v.string(),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    updatedCount: v.number(),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    if (!args.grant) {
-      return { success: false, updatedCount: 0, error: 'grant is required' };
-    }
-
-    const payload = await unsealProtectedMaterializationGrant(args.grant);
-    const machineFingerprintHash = await sha256Hex(payload.machineFingerprint);
-    const projectIdHash = await sha256Hex(payload.projectId);
-    const grantRows = await ctx.db
-      .query('coupling_trace_records')
-      .withIndex('by_grant_id', (q) => q.eq('grantId', payload.grantId))
-      .collect();
-
-    const matchingRows = grantRows.filter(
-      (row) =>
-        row.authUserId === payload.creatorAuthUserId &&
-        row.machineFingerprintHash === machineFingerprintHash &&
-        row.projectIdHash === projectIdHash
-    );
-
-    if (matchingRows.length === 0) {
-      if (payload.coupling.jobs.length === 0) {
-        await ctx.db.insert('audit_events', {
-          authUserId: payload.creatorAuthUserId,
-          eventType: 'protected.materialization.grant.receipted',
-          actorType: 'system',
-          metadata: {
-            grantId: payload.grantId,
-            packageId: payload.packageId,
-            licenseSubject: payload.licenseSubject,
-            assetCount: 0,
-          },
-          correlationId: crypto.randomUUID(),
-          createdAt: Date.now(),
-        });
-
-        return {
-          success: true,
-          updatedCount: 0,
-        };
-      }
-
-      return {
-        success: false,
-        updatedCount: 0,
-        error: 'Protected materialization grant receipt did not match any issued traces',
-      };
-    }
-
-    const now = Date.now();
-    for (const row of matchingRows) {
-      await ctx.db.patch(row._id, {
-        grantIssuanceStatus: 'receipted',
-        grantReceiptedAt: now,
-      });
-    }
-
-    await ctx.db.insert('audit_events', {
-      authUserId: payload.creatorAuthUserId,
-      eventType: 'protected.materialization.grant.receipted',
-      actorType: 'system',
-      metadata: {
-        grantId: payload.grantId,
-        packageId: matchingRows[0]?.packageId,
-        licenseSubject: matchingRows[0]?.licenseSubject,
-        assetCount: matchingRows.length,
-      },
-      correlationId: matchingRows[0]?.correlationId ?? crypto.randomUUID(),
-      createdAt: now,
-    });
-
-    return {
-      success: true,
-      updatedCount: matchingRows.length,
-    };
-  },
-});
-
-export const recordProtectedMaterializationGrantRedemption = internalMutation({
-  args: {
-    authUserId: v.string(),
-    grantId: v.string(),
-    packageId: v.string(),
-    protectedAssetId: v.string(),
-    licenseSubject: v.string(),
-    couplingJobCount: v.number(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await ctx.db.insert('audit_events', {
-      authUserId: args.authUserId,
-      eventType: 'protected.materialization.grant.redeemed',
-      actorType: 'system',
-      metadata: {
-        grantId: args.grantId,
-        packageId: args.packageId,
-        protectedAssetId: args.protectedAssetId,
-        licenseSubject: args.licenseSubject,
-        couplingJobCount: args.couplingJobCount,
-      },
-      correlationId: crypto.randomUUID(),
-      createdAt: Date.now(),
-    });
-    return null;
-  },
-});
-
-export const issueCouplingJob = internalAction({
-  args: {
-    packageId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    grantId: v.optional(v.string()),
-    issuerBaseUrl: v.string(),
-    runtimeArtifactVersion: v.optional(v.string()),
-    runtimePlaintextSha256: v.optional(v.string()),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    subject: v.optional(v.string()),
-    jobs: v.optional(
-      v.array(
-        v.object({
-          assetPath: v.string(),
-          tokenHex: v.string(),
-          materializationNonce: v.string(),
-        })
-      )
-    ),
-    skipReason: v.optional(v.string()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args) => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      return { success: false, error: 'Invalid packageId format' };
-    }
-    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
-      return { success: false, error: 'Invalid machine fingerprint' };
-    }
-    if (!PROJECT_ID_RE.test(args.projectId)) {
-      return { success: false, error: 'Invalid project identifier' };
-    }
-    if (!args.licenseToken) {
-      return { success: false, error: 'licenseToken is required' };
-    }
-    if (!Array.isArray(args.assetPaths) || args.assetPaths.length === 0) {
-      return { success: false, error: 'At least one asset path is required' };
-    }
-    if (args.assetPaths.length > 512) {
-      return { success: false, error: 'Too many coupling asset paths in one request' };
-    }
-
-    const issuer = buildPublicAuthIssuer(args.issuerBaseUrl);
-    const licenseClaims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-
-    if (!licenseClaims) {
-      return { success: false, error: 'License token is invalid or expired' };
-    }
-    if (licenseClaims.package_id !== args.packageId) {
-      return { success: false, error: 'License token package mismatch' };
-    }
-    if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
-      return { success: false, error: 'License token machine mismatch' };
-    }
-
-    const packageReg = await ctx.runQuery(internal.packageRegistry.getRegistration, {
-      packageId: args.packageId,
-    });
-    if (!packageReg) {
-      return { success: false, error: 'Package registration not found' };
-    }
-
-    const creatorCanTrace = await ctx.runQuery(
-      internal.certificateBilling.hasCapabilityForAuthUser,
-      {
-        authUserId: packageReg.yucpUserId,
-        capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
-      }
-    );
-    if (!creatorCanTrace) {
-      return {
-        success: true,
-        subject: licenseClaims.sub,
-        jobs: [],
-        skipReason: 'capability_disabled',
-      };
-    }
-
-    const couplingHmacKey = process.env.YUCP_COUPLING_HMAC_KEY;
-    if (!couplingHmacKey) {
-      throw new Error('YUCP_COUPLING_HMAC_KEY is required for coupling token derivation');
-    }
-    if (!!args.runtimeArtifactVersion !== !!args.runtimePlaintextSha256) {
-      return { success: false, error: 'Coupling runtime trace metadata is incomplete' };
-    }
-    if (args.runtimePlaintextSha256 && !CONTENT_HASH_RE.test(args.runtimePlaintextSha256)) {
-      return { success: false, error: 'Coupling runtime trace hash is invalid' };
-    }
-
-    type JobRecord = {
-      assetPath: string;
-      tokenHex: string;
-      materializationNonce: string;
-    };
-    const jobs: JobRecord[] = [];
-    const seen = new Set<string>();
-
-    for (const rawAssetPath of args.assetPaths) {
-      const assetPath = normalizeCouplingAssetPath(rawAssetPath ?? '');
-      if (!isValidCouplingAssetPath(assetPath)) {
-        return { success: false, error: `Invalid coupling asset path: ${rawAssetPath ?? ''}` };
-      }
-      if (seen.has(assetPath)) {
-        continue;
-      }
-      seen.add(assetPath);
-
-      const tokenLength = getCouplingTokenLength(assetPath);
-      if (tokenLength <= 0) {
-        continue;
-      }
-
-      // Per-materialization carrier nonce: prevents carrier position discovery via comparison attack
-      const materializationNonceBytes = crypto.getRandomValues(new Uint8Array(8));
-      const materializationNonce = Array.from(materializationNonceBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      // Derive HMAC-SHA256 coupling token bound to grant, recipient, asset, and materialization nonce.
-      // Input binds all uniqueness dimensions, same inputs never produce same token across re-issuance.
-      const tokenInput = [
-        args.grantId ?? '',
-        args.packageId,
-        licenseClaims.sub,
-        args.machineFingerprint,
-        args.projectId,
-        assetPath,
-        materializationNonce,
-      ].join('|');
-      const fullTokenHex = await hmacSha256Hex(couplingHmacKey, tokenInput);
-      const tokenHex = fullTokenHex.slice(0, tokenLength);
-
-      jobs.push({ assetPath, tokenHex, materializationNonce });
-    }
-
-    if (jobs.length > 0 && args.runtimeArtifactVersion && args.runtimePlaintextSha256) {
-      const correlationId = crypto.randomUUID();
-      await ctx.runMutation(internal.yucpLicenses.recordCouplingTraceIssuance, {
-        authUserId: packageReg.yucpUserId,
-        packageId: args.packageId,
-        licenseSubject: licenseClaims.sub,
-        machineFingerprint: args.machineFingerprint,
-        projectId: args.projectId,
-        runtimeArtifactVersion: args.runtimeArtifactVersion,
-        runtimePlaintextSha256: args.runtimePlaintextSha256,
-        grantId: args.grantId,
-        correlationId,
-        provider: licenseClaims.provider,
-        jobs,
-      });
-    }
-
-    return {
-      success: true,
-      subject: licenseClaims.sub,
-      // Return only what the caller (grant sealer) needs; nonce flows into the grant payload
-      jobs: jobs.map(({ assetPath, tokenHex, materializationNonce }) => ({
-        assetPath,
-        tokenHex,
-        materializationNonce,
-      })),
-    };
-  },
-});
-
-export const issueCouplingJobForApi = action({
-  args: {
-    apiSecret: v.string(),
-    packageId: v.string(),
-    machineFingerprint: v.string(),
-    projectId: v.string(),
-    licenseToken: v.string(),
-    assetPaths: v.array(v.string()),
-    grantId: v.optional(v.string()),
-    issuerBaseUrl: v.string(),
-    runtimeArtifactVersion: v.optional(v.string()),
-    runtimePlaintextSha256: v.optional(v.string()),
-  },
-  returns: v.object({
-    success: v.boolean(),
-    subject: v.optional(v.string()),
-    jobs: v.optional(
-      v.array(
-        v.object({
-          assetPath: v.string(),
-          tokenHex: v.string(),
-          materializationNonce: v.string(),
-        })
-      )
-    ),
-    skipReason: v.optional(v.string()),
-    error: v.optional(v.string()),
-  }),
-  handler: async (ctx, args): Promise<CouplingJobIssueResult> => {
-    requireApiSecret(args.apiSecret);
-    return await ctx.runAction(internal.yucpLicenses.issueCouplingJob, {
-      packageId: args.packageId,
-      machineFingerprint: args.machineFingerprint,
-      projectId: args.projectId,
-      licenseToken: args.licenseToken,
-      assetPaths: args.assetPaths,
-      grantId: args.grantId,
-      issuerBaseUrl: args.issuerBaseUrl,
-      runtimeArtifactVersion: args.runtimeArtifactVersion,
-      runtimePlaintextSha256: args.runtimePlaintextSha256,
-    });
-  },
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 9, Grant revocation (forward-looking only)

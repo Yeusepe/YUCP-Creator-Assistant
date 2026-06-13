@@ -3,7 +3,9 @@ import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
+import { createAuthUserActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { withApiSpan } from '../lib/observability';
 import {
@@ -15,6 +17,7 @@ import {
   buildLinkedEntitlementRequirements,
   type HostedVerificationIntentRecord,
   mapHostedVerificationIntentResponse,
+  shouldResolveLinkedEntitlementRequirements,
   verifyHostedBuyerProviderLinkIntent,
   verifyHostedManualLicenseIntent,
 } from '../verification/hostedIntents';
@@ -35,6 +38,42 @@ export function createConnectUserVerificationRoutes({
   config,
   isTenantOwnedBySessionUser,
 }: CreateConnectUserVerificationRoutesOptions) {
+  function getAllowedOrigins(): Set<string> {
+    return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
+  }
+
+  function jsonNoStore(body: unknown, init?: ResponseInit): Response {
+    const headers = new Headers(init?.headers);
+    headers.set('Cache-Control', 'private, no-store');
+    return Response.json(body, {
+      ...init,
+      headers,
+    });
+  }
+
+  async function requireSessionActor(request: Request): Promise<
+    | {
+        authUserId: string;
+        convex: ReturnType<typeof getConvexClientFromUrl>;
+      }
+    | Response
+  > {
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const actor = await createAuthUserActorBinding({
+      authUserId: session.user.id,
+      source: 'session',
+    });
+
+    return {
+      authUserId: session.user.id,
+      convex: getConvexClientFromUrl(config.convexUrl, actor),
+    };
+  }
+
   async function reconcileBuyerVerificationAccounts(
     convex: ReturnType<typeof getConvexClientFromUrl>,
     authUserId: string
@@ -157,14 +196,16 @@ export function createConnectUserVerificationRoutes({
   }
 
   async function getUserAccounts(request: Request): Promise<Response> {
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const links = await reconcileBuyerVerificationAccounts(convex, session.user.id);
-      return Response.json({
+      const links = await viewer.convex.query(api.subjects.listBuyerProviderLinksForAuthUser, {
+        apiSecret: config.convexApiSecret,
+        authUserId: viewer.authUserId,
+      });
+      return jsonNoStore({
         connections: links.map((link: (typeof links)[number]) => ({
           id: String(link.id),
           provider: link.provider,
@@ -193,13 +234,60 @@ export function createConnectUserVerificationRoutes({
     }
   }
 
+  async function refreshUserAccounts(request: Request): Promise<Response> {
+    if (request.method !== 'POST') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins());
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
+    }
+    try {
+      const links = await reconcileBuyerVerificationAccounts(viewer.convex, viewer.authUserId);
+      return jsonNoStore({
+        connections: links.map((link: (typeof links)[number]) => ({
+          id: String(link.id),
+          provider: link.provider,
+          label: link.label,
+          connectionType: 'verification',
+          status: link.status,
+          webhookConfigured: false,
+          hasApiKey: false,
+          hasAccessToken: false,
+          providerUserId: link.providerUserId,
+          providerUsername: link.providerUsername ?? null,
+          verificationMethod: link.verificationMethod ?? null,
+          providerDisplay: getConnectedAccountProviderDisplay(link.provider),
+          linkedAt: link.linkedAt,
+          lastValidatedAt: link.lastValidatedAt ?? null,
+          expiresAt: link.expiresAt ?? null,
+          createdAt: link.createdAt,
+          updatedAt: link.updatedAt,
+        })),
+      });
+    } catch (err) {
+      logger.error('Failed to refresh user accounts', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return Response.json({ error: 'Failed to refresh accounts' }, { status: 500 });
+    }
+  }
+
   async function deleteUserAccount(request: Request): Promise<Response> {
     if (request.method !== 'DELETE') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins());
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
     const url = new URL(request.url);
     const id = url.searchParams.get('id');
@@ -207,10 +295,9 @@ export function createConnectUserVerificationRoutes({
       return Response.json({ error: 'id is required' }, { status: 400 });
     }
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const result = await convex.mutation(api.subjects.revokeBuyerProviderLink, {
+      const result = await viewer.convex.mutation(api.subjects.revokeBuyerProviderLink, {
         apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         linkId: id as Id<'buyer_provider_links'>,
       });
       if (!result.success) {
@@ -301,39 +388,45 @@ export function createConnectUserVerificationRoutes({
   }
 
   async function getUserVerificationIntent(request: Request, intentId: string): Promise<Response> {
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
 
     try {
       logger.info('Hosted verification intent fetch requested', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
       });
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const storedIntent = await convex.action(api.verificationIntents.getVerificationIntent, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-        intentId: intentId as Id<'verification_intents'>,
-      });
-      const intent = storedIntent
-        ? await ensureLinkedEntitlementRequirements(
-            convex,
-            storedIntent as HostedVerificationIntentRecord,
-            session.user.id
-          )
-        : null;
-      if (!intent) {
-        const diagnostic = await convex.query(api.verificationIntents.getIntentAccessDiagnostic, {
+      const storedIntent = await viewer.convex.action(
+        api.verificationIntents.getVerificationIntent,
+        {
           apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
           intentId: intentId as Id<'verification_intents'>,
-        });
+        }
+      );
+      const intent =
+        storedIntent && shouldResolveLinkedEntitlementRequirements(storedIntent)
+          ? await ensureLinkedEntitlementRequirements(
+              viewer.convex,
+              storedIntent as HostedVerificationIntentRecord,
+              viewer.authUserId
+            )
+          : storedIntent;
+      if (!intent) {
+        const diagnostic = await viewer.convex.query(
+          api.verificationIntents.getIntentAccessDiagnostic,
+          {
+            apiSecret: config.convexApiSecret,
+            intentId: intentId as Id<'verification_intents'>,
+          }
+        );
 
         if (!diagnostic) {
           logger.warn('Hosted verification intent fetch missed missing record', {
             intentId,
-            authUserId: session.user.id,
+            authUserId: viewer.authUserId,
           });
           return Response.json(
             { error: 'Verification intent not found', code: 'verification_intent_missing' },
@@ -341,10 +434,10 @@ export function createConnectUserVerificationRoutes({
           );
         }
 
-        if (diagnostic.authUserId !== session.user.id) {
+        if (diagnostic.authUserId !== viewer.authUserId) {
           logger.warn('Hosted verification intent belongs to different user', {
             intentId,
-            authUserId: session.user.id,
+            authUserId: viewer.authUserId,
             ownerAuthUserId: diagnostic.authUserId,
             status: diagnostic.status,
             expiresAt: diagnostic.expiresAt,
@@ -362,7 +455,7 @@ export function createConnectUserVerificationRoutes({
 
         logger.warn('Hosted verification intent fetch returned null despite matching owner', {
           intentId,
-          authUserId: session.user.id,
+          authUserId: viewer.authUserId,
           status: diagnostic.status,
           expiresAt: diagnostic.expiresAt,
           packageId: diagnostic.packageId,
@@ -374,7 +467,7 @@ export function createConnectUserVerificationRoutes({
       }
       logger.info('Hosted verification intent fetch succeeded', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         status: intent.status,
       });
       return Response.json(
@@ -399,9 +492,13 @@ export function createConnectUserVerificationRoutes({
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins());
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
 
     let body: { methodKey?: string } = {};
@@ -417,27 +514,29 @@ export function createConnectUserVerificationRoutes({
     try {
       logger.info('Hosted entitlement verification requested', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         methodKey: body.methodKey,
       });
-      const convex = getConvexClientFromUrl(config.convexUrl);
-      const storedIntent = await convex.action(api.verificationIntents.getVerificationIntent, {
-        apiSecret: config.convexApiSecret,
-        authUserId: session.user.id,
-        intentId: intentId as Id<'verification_intents'>,
-      });
-      if (storedIntent) {
+      const storedIntent = await viewer.convex.action(
+        api.verificationIntents.getVerificationIntent,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          intentId: intentId as Id<'verification_intents'>,
+        }
+      );
+      if (storedIntent && shouldResolveLinkedEntitlementRequirements(storedIntent)) {
         await ensureLinkedEntitlementRequirements(
-          convex,
+          viewer.convex,
           storedIntent as HostedVerificationIntentRecord,
-          session.user.id
+          viewer.authUserId
         );
       }
-      const result = await convex.action(
+      const result = await viewer.convex.action(
         api.verificationIntents.verifyIntentWithExistingEntitlement,
         {
           apiSecret: config.convexApiSecret,
-          authUserId: session.user.id,
+          authUserId: viewer.authUserId,
           intentId: intentId as Id<'verification_intents'>,
           methodKey: body.methodKey,
         }
@@ -445,7 +544,7 @@ export function createConnectUserVerificationRoutes({
       if (!result.success) {
         logger.warn('Hosted entitlement verification rejected', {
           intentId,
-          authUserId: session.user.id,
+          authUserId: viewer.authUserId,
           methodKey: body.methodKey,
           code: result.errorCode,
         });
@@ -459,7 +558,7 @@ export function createConnectUserVerificationRoutes({
       }
       logger.info('Hosted entitlement verification succeeded', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         methodKey: body.methodKey,
       });
       return Response.json({ success: true });
@@ -479,9 +578,13 @@ export function createConnectUserVerificationRoutes({
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins());
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
 
     let body: { methodKey?: string; licenseKey?: string } = {};
@@ -495,12 +598,11 @@ export function createConnectUserVerificationRoutes({
     }
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
       const result = await verifyHostedManualLicenseIntent({
-        convex,
+        convex: viewer.convex,
         apiSecret: config.convexApiSecret,
         encryptionSecret: config.encryptionSecret,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         intentId: intentId as Id<'verification_intents'>,
         methodKey: body.methodKey,
         licenseKey: body.licenseKey,
@@ -528,9 +630,13 @@ export function createConnectUserVerificationRoutes({
     if (request.method !== 'POST') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const session = await auth.getSession(request);
-    if (!session) {
-      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins());
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+    const viewer = await requireSessionActor(request);
+    if (viewer instanceof Response) {
+      return viewer;
     }
 
     let body: { methodKey?: string } = {};
@@ -546,22 +652,21 @@ export function createConnectUserVerificationRoutes({
     try {
       logger.info('Hosted provider link verification requested', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         methodKey: body.methodKey,
       });
-      const convex = getConvexClientFromUrl(config.convexUrl);
       const result = await verifyHostedBuyerProviderLinkIntent({
-        convex,
+        convex: viewer.convex,
         apiSecret: config.convexApiSecret,
         encryptionSecret: config.encryptionSecret,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         intentId: intentId as Id<'verification_intents'>,
         methodKey: body.methodKey,
       });
       if (!result.success) {
         logger.warn('Hosted provider link verification rejected', {
           intentId,
-          authUserId: session.user.id,
+          authUserId: viewer.authUserId,
           methodKey: body.methodKey,
           code: result.errorCode,
         });
@@ -575,7 +680,7 @@ export function createConnectUserVerificationRoutes({
       }
       logger.info('Hosted provider link verification succeeded', {
         intentId,
-        authUserId: session.user.id,
+        authUserId: viewer.authUserId,
         methodKey: body.methodKey,
       });
       return Response.json({ success: true });
@@ -591,6 +696,7 @@ export function createConnectUserVerificationRoutes({
   return {
     getUserConnections,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserProviders,
     postUserVerifyStart,

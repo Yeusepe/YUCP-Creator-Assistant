@@ -108,7 +108,7 @@ export function AccountProfileSkeleton() {
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"
         eyebrow="Creator mode"
-        title="Your creator workspace is getting ready"
+        title="Your Creator Identity is getting ready"
         description="Workspace actions and shortcuts appear here once the profile data is ready."
       >
         <SkeletonLine width="min(560px, 100%)" className="skeleton-line-muted" />

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createTestLogger } from '../testSupport/loggerMock';
 
 const convexQueryMock = mock(async () => null as unknown);
 const convexMutationMock = mock(async () => null as unknown);
@@ -28,9 +29,9 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     warn: loggerWarnMock,
-  },
+  }),
 }));
 
 const { BetterAuthEndpointError } = await import('../auth');

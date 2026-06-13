@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createTestLogger } from '../../testSupport/loggerMock';
 import type { ConnectContext } from '../types';
 
 const stateStoreGetMock = mock(async () =>
@@ -47,10 +48,10 @@ mock.module('../../lib/stateStore', () => ({
 }));
 
 mock.module('../../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: loggerErrorMock,
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 mock.module('../../lib/convex', () => ({

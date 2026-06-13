@@ -12,6 +12,10 @@ const oauthLoginRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/oauth/login.tsx'),
   'utf8'
 );
+const oauthConsentLazyRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/oauth/consent.lazy.tsx'),
+  'utf8'
+);
 const dashboardLazyRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard.lazy.tsx'),
   'utf8'
@@ -75,6 +79,7 @@ describe('initial load architecture', () => {
       signInRouteSource,
       signInRedirectRouteSource,
       oauthLoginRouteSource,
+      oauthConsentLazyRouteSource,
       dashboardLazyRouteSource,
       accountLazyRouteSource,
     ]) {

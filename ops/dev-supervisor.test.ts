@@ -4,7 +4,16 @@ import { once } from 'node:events';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { applyLocalDevDefaults, isProcessAlive, killProcessTree } from './dev-supervisor';
+import {
+  applyLocalDevDefaults,
+  buildDevCommands,
+  DevSupervisor,
+  describeCdngineStartup,
+  getCdngineDir,
+  getCdngineStartMode,
+  isProcessAlive,
+  killProcessTree,
+} from './dev-supervisor';
 import { buildHyperdxDockerArgs, isDockerUnavailable } from './hyperdx-dev';
 
 async function waitFor<T>(
@@ -31,6 +40,10 @@ async function waitFor<T>(
   }
 
   throw new Error('Timed out waiting for expected condition');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe('DevSupervisor', () => {
@@ -93,6 +106,43 @@ describe('DevSupervisor', () => {
       HYPERDX_OTLP_GRPC_URL: 'otel.hyperdx.example:4317',
       OTEL_EXPORTER_OTLP_ENDPOINT: 'https://otel.hyperdx.example',
       OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf',
+    });
+  });
+
+  test('applyLocalDevDefaults wires Gumroad to the local CDNgine public runtime when CDNGINE_DIR is configured', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-defaults-'));
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_DIR: tempDir,
+      })
+    ).toMatchObject({
+      CDNGINE_API_BASE_URL: 'http://localhost:4000',
+      CDNGINE_ACCESS_TOKEN: 'local-public-runtime-token',
+    });
+  });
+
+  test('applyLocalDevDefaults wires Gumroad to the local CDNgine public runtime when a managed CDNgine ref is configured', () => {
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596',
+      })
+    ).toMatchObject({
+      CDNGINE_API_BASE_URL: 'http://localhost:4000',
+      CDNGINE_ACCESS_TOKEN: 'local-public-runtime-token',
+    });
+  });
+
+  test('applyLocalDevDefaults preserves explicit CDNgine API config', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-explicit-'));
+    expect(
+      applyLocalDevDefaults({
+        CDNGINE_ACCESS_TOKEN: 'explicit-token',
+        CDNGINE_API_BASE_URL: 'https://cdngine.example',
+        CDNGINE_DIR: tempDir,
+      })
+    ).toMatchObject({
+      CDNGINE_ACCESS_TOKEN: 'explicit-token',
+      CDNGINE_API_BASE_URL: 'https://cdngine.example',
     });
   });
 
@@ -195,4 +245,156 @@ describe('DevSupervisor', () => {
       (state) => !state.parentAlive && !state.grandchildAlive
     );
   }, 20_000);
+
+  test('getCdngineDir returns an explicit CDNGINE_DIR when it exists', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-dir-'));
+    expect(getCdngineDir({ CDNGINE_DIR: tempDir })).toBe(tempDir);
+  });
+
+  test('getCdngineDir skips cdngine when CDNGINE_DIR is unset', () => {
+    expect(getCdngineDir({})).toBeNull();
+  });
+
+  test('getCdngineStartMode defaults to server', () => {
+    expect(getCdngineStartMode({})).toBe('server');
+  });
+
+  test('getCdngineStartMode accepts demo', () => {
+    expect(getCdngineStartMode({ CDNGINE_START_MODE: 'demo' })).toBe('demo');
+  });
+
+  test('describeCdngineStartup explains how to enable cdngine when CDNGINE_DIR is unset', () => {
+    expect(describeCdngineStartup({})).toBe(
+      'cdngine disabled. Set CDNGINE_DIR or CDNGINE_DOCKER_REF in .env.local or .env.infisical to launch it.'
+    );
+  });
+
+  test('describeCdngineStartup reports the managed cdngine Docker ref', () => {
+    expect(
+      describeCdngineStartup({
+        CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596',
+      })
+    ).toBe(
+      'cdngine enabled via Docker Compose https://github.com/Yeusepe/cdngine @ ef5813602b76c996e907261ee9afc4f45722c596 (mode: server)'
+    );
+  });
+
+  test('getCdngineDir rejects an explicit CDNGINE_DIR that is missing', () => {
+    expect(() =>
+      getCdngineDir({ CDNGINE_DIR: path.join(os.tmpdir(), 'yucp-cdngine-missing-path') })
+    ).toThrow('CDNGINE_DIR does not exist');
+  });
+
+  test('describeCdngineStartup reports the configured cdngine directory', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-status-'));
+    expect(describeCdngineStartup({ CDNGINE_DIR: tempDir })).toBe(
+      `cdngine enabled via CDNGINE_DIR: ${tempDir} (mode: server)`
+    );
+  });
+
+  test('buildDevCommands starts the cdngine server by default when the directory exists', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-build-'));
+    const commands = buildDevCommands({ CDNGINE_DIR: tempDir }, false);
+    expect(commands.some((command) => command.name === 'cdngine')).toBe(true);
+    expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
+      cwd: tempDir,
+      required: false,
+      command: 'npm start && npm run build && node ./apps/demo/scripts/start-public-runtime.mjs',
+    });
+    expect(commands.find((command) => command.name === 'tunnel')).toMatchObject({
+      required: false,
+    });
+  });
+
+  test('buildDevCommands starts a managed cdngine Docker runtime when a Docker ref is configured', () => {
+    const commands = buildDevCommands(
+      { CDNGINE_DOCKER_REF: 'ef5813602b76c996e907261ee9afc4f45722c596' },
+      true
+    );
+    expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
+      required: false,
+      command: 'bun run ops/cdngine-dev.ts',
+    });
+  });
+
+  test('buildDevCommands can opt into the cdngine demo path explicitly', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-demo-build-'));
+    const commands = buildDevCommands({ CDNGINE_DIR: tempDir, CDNGINE_START_MODE: 'demo' }, false);
+    expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
+      cwd: tempDir,
+      command: 'npm start && npm run demo:start',
+    });
+  });
+
+  test('buildDevCommands can opt into the cdngine stack bootstrap only', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-stack-build-'));
+    const commands = buildDevCommands({ CDNGINE_DIR: tempDir, CDNGINE_START_MODE: 'stack' }, false);
+    expect(commands.find((command) => command.name === 'cdngine')).toMatchObject({
+      cwd: tempDir,
+      command: 'npm start',
+    });
+  });
+
+  test('buildDevCommands rejects an invalid CDNGINE_START_MODE', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-cdngine-invalid-mode-'));
+    expect(() =>
+      buildDevCommands({ CDNGINE_DIR: tempDir, CDNGINE_START_MODE: 'invalid' }, false)
+    ).toThrow('CDNGINE_START_MODE must be "stack", "server", or "demo"');
+  });
+
+  test('buildDevCommands rejects a missing explicit CDNGINE_DIR', () => {
+    expect(() =>
+      buildDevCommands(
+        { CDNGINE_DIR: path.join(os.tmpdir(), 'yucp-cdngine-missing-build-path') },
+        false
+      )
+    ).toThrow('CDNGINE_DIR does not exist');
+  });
+
+  test('waitForExit keeps required commands running when cdngine exits early', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-dev-supervisor-optional-'));
+    const startedPath = path.join(tempDir, 'required-started.txt');
+    const runningFixturePath = path.join(process.cwd(), 'ops', 'test-fixtures', 'wait-forever.mjs');
+    const failingFixturePath = path.join(
+      process.cwd(),
+      'ops',
+      'test-fixtures',
+      'exit-with-code.mjs'
+    );
+    const supervisor = new DevSupervisor(
+      [
+        {
+          name: 'api',
+          color: 'blue',
+          command: `node ${runningFixturePath} ${startedPath}`,
+        },
+        {
+          name: 'cdngine',
+          color: 'cyan',
+          command: `node ${failingFixturePath} 1`,
+          required: false,
+        },
+      ],
+      process.env,
+      { prefixOutput: false }
+    );
+
+    await supervisor.start();
+    const waitForExitPromise = supervisor.waitForExit();
+    await waitFor(
+      async () => readFile(startedPath, 'utf8'),
+      (contents) => contents.includes('started')
+    );
+    await delay(250);
+
+    const exitState = await Promise.race([
+      waitForExitPromise.then((code) => ({ status: 'resolved' as const, code })),
+      delay(500).then(() => ({ status: 'pending' as const })),
+    ]);
+
+    await supervisor.shutdown('SIGINT');
+    await waitForExitPromise;
+
+    expect(exitState).toEqual({ status: 'pending' });
+  });
 });

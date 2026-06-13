@@ -335,7 +335,7 @@ function AccountSecurityPage() {
                 <strong>Add a backup before you need it</strong>
                 <span className="account-status-banner-detail">
                   {securityOverview.isCreatorAccount
-                    ? 'Creator accounts should keep a passkey, backup codes, or a second inbox on file.'
+                    ? 'Your Creator Identity should keep a passkey, backup codes, or a second inbox on file.'
                     : 'A passkey, backup codes, or a verified recovery email keeps you from getting stuck.'}
                 </span>
               </div>

@@ -4,6 +4,8 @@ import type { Doc } from './_generated/dataModel';
 import { mutation, type QueryCtx, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { BILLING_CAPABILITY_KEYS } from './lib/billingCapabilities';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { decryptForPurpose } from './lib/vrchat/crypto';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
@@ -36,6 +38,19 @@ function isArchivedPackage(
   registration: Pick<Doc<'package_registry'>, 'status'> | null | undefined
 ): boolean {
   return registration?.status === 'archived';
+}
+
+/**
+ * Non-secret license identifier for the forensics list view: the provider plus a short,
+ * stable fingerprint of the license subject (SHA-256 of the key). Identifies *which* license
+ * without revealing it — the full key is only available via the audit-logged reveal action.
+ */
+function buildLicenseMaskedLabel(
+  provider: string | undefined,
+  licenseSubject: string
+): string {
+  const fingerprint = licenseSubject.slice(0, 10);
+  return provider ? `${provider} · ${fingerprint}` : fingerprint;
 }
 
 type ResolvedBuyerIdentity = {
@@ -240,6 +255,7 @@ export const lookupTraceMatchesForAuthUser = query({
         packFamily: v.optional(v.string()),
         packVersion: v.optional(v.string()),
         provider: v.optional(v.string()),
+        licenseMasked: v.optional(v.string()),
         licenseKeyEncrypted: v.optional(v.string()),
         providerProductId: v.optional(v.string()),
         buyerProviderUserId: v.optional(v.string()),
@@ -301,6 +317,7 @@ export const lookupTraceMatchesForAuthUser = query({
       packFamily?: string;
       packVersion?: string;
       provider?: string;
+      licenseMasked?: string;
       licenseKeyEncrypted?: string;
       providerProductId?: string;
       buyerProviderUserId?: string;
@@ -401,6 +418,10 @@ export const lookupTraceMatchesForAuthUser = query({
           packFamily: row.packFamily,
           packVersion: row.packVersion,
           provider: identity?.provider ?? row.provider,
+          licenseMasked: buildLicenseMaskedLabel(
+            identity?.provider ?? row.provider,
+            row.licenseSubject
+          ),
           licenseKeyEncrypted: identity?.licenseKeyEncrypted,
           providerProductId: identity?.providerProductId,
           buyerProviderUserId: identity?.buyerProviderUserId,
@@ -417,6 +438,98 @@ export const lookupTraceMatchesForAuthUser = query({
       matches,
       unmatchedTokenHashes: tokenHashes.filter((tokenHash) => !matchedTokenHashes.has(tokenHash)),
     };
+  },
+});
+
+/**
+ * Reveals the full provider license key behind a coupling forensics match. Privileged:
+ * requires the owning creator, the coupling-traceability capability, and a real coupling
+ * trace for that license subject on the package. Every reveal writes an audit_events row.
+ */
+export const revealCouplingLicenseKey = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    packageId: v.string(),
+    licenseSubject: v.string(),
+  },
+  returns: v.object({
+    licenseKey: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    assertPackageId(args.packageId);
+    if (!TOKEN_HASH_RE.test(args.licenseSubject)) {
+      throw new ConvexError('Invalid licenseSubject');
+    }
+
+    const capabilityEnabled = await ctx.runQuery(
+      internal.certificateBilling.hasCapabilityForAuthUser,
+      {
+        authUserId: args.authUserId,
+        capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
+      }
+    );
+    if (!capabilityEnabled) {
+      return { error: 'Coupling traceability is not enabled for this account' };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (
+      !registration ||
+      registration.yucpUserId !== args.authUserId ||
+      isArchivedPackage(registration)
+    ) {
+      return { error: 'Package not found or not owned by this account' };
+    }
+
+    // Require a real coupling trace tying this license subject to the owner's package.
+    const trace = await ctx.db
+      .query('coupling_trace_records')
+      .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
+      .filter((q) => q.eq(q.field('licenseSubject'), args.licenseSubject))
+      .first();
+    if (!trace || trace.authUserId !== args.authUserId) {
+      return { error: 'No coupling trace for that license on this package' };
+    }
+
+    const link = await ctx.db
+      .query('license_subject_links')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('licenseSubject', args.licenseSubject)
+      )
+      .first();
+    if (!link?.licenseKeyEncrypted) {
+      return { error: 'No license key on file for this license' };
+    }
+
+    const secret = process.env.ENCRYPTION_SECRET;
+    if (!secret) {
+      throw new ConvexError('ENCRYPTION_SECRET is required to reveal license keys');
+    }
+    const licenseKey = await decryptForPurpose(
+      link.licenseKeyEncrypted,
+      secret,
+      PII_PURPOSES.forensicsLicenseKey
+    );
+
+    await ctx.db.insert('audit_events', {
+      authUserId: args.authUserId,
+      eventType: 'coupling.license_key.revealed',
+      actorType: 'system',
+      metadata: {
+        packageId: args.packageId,
+        licenseSubject: args.licenseSubject,
+        provider: link.provider,
+      },
+      correlationId: `coupling-reveal:${args.authUserId}:${args.licenseSubject}:${Date.now()}`,
+      createdAt: Date.now(),
+    });
+
+    return { licenseKey };
   },
 });
 

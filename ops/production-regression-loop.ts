@@ -33,20 +33,21 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, or violating transport contracts such as int64 serialization.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, violating transport contracts such as int64 serialization, publishing Backstage repo manifests that drop synthesized alias metadata and importer requirements for metadata-less or previously persisted releases, storing canonical CDNgine source coordinates as delivery references, or persisting Backstage CDNgine delivery references before CDNgine publication is visible.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
       'packages/providers/test/lemonsqueezy/module.test.ts',
       'packages/providers/test/vrchat/module.test.ts',
       'apps/api/src/internalRpc/router.test.ts',
+      'apps/api/src/routes/packages.backstage.test.ts',
     ],
     secondaryRegressionHomes: [
       'apps/bot/test/lib/internalRpc.test.ts',
       'apps/bot/test/lib/setupCatalog.test.ts',
       'apps/bot/test/commands/autosetup.test.ts',
     ],
-    remediationHomes: ['apps/api/test/providers'],
+    remediationHomes: ['apps/api/test/providers', 'convex/packageRegistry.realtest.ts'],
   },
   {
     id: 'identity',
@@ -71,8 +72,12 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and preserve degraded or failure signals all the way to the public surface.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, preserve degraded or failure signals all the way to the public surface, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
     primaryRegressionHomes: [
+      'convex/verificationIntents.realtest.ts',
+      'apps/api/src/routes/connect.user-verify.manual-license.test.ts',
+      'apps/api/src/routes/connect.user-verify.provider-link.test.ts',
+      'apps/api/src/verification/hostedIntents.test.ts',
       'apps/api/src/verification/completeLicense.test.ts',
       'apps/api/src/verification/sessionManager.accountLink.test.ts',
       'apps/api/src/routes/connect.user-verify.behavior.test.ts',
@@ -139,6 +144,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/jinxxy/module.test.ts',
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
+      './apps/api/src/routes/packages.backstage.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',
     ],
@@ -151,7 +157,9 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     cwdRelativeToRepoRoot: 'apps/api',
     args: [
       'test',
+      './src/verification/hostedIntents.test.ts',
       './src/lib/subjectIdentity.test.ts',
+      './src/routes/connect.user-verify.manual-license.test.ts',
       './src/routes/providerPlatform.test.ts',
       './src/routes/connectUserVerification.readSurface.test.ts',
       './src/routes/connect.user-verify.behavior.test.ts',

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
@@ -12,7 +12,27 @@ import tsConfigPaths from 'vite-tsconfig-paths';
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT_DIR = join(APP_DIR, '..', '..');
-const LOCAL_WORKER_ENV_FILES = [join(APP_DIR, '.dev.vars'), join(REPO_ROOT_DIR, '.env.local')];
+
+function resolveLocalWorkerEnvPath(): string {
+  return process.env.WEB_LOCAL_ENV_PATH?.trim()
+    ? resolve(process.env.WEB_LOCAL_ENV_PATH)
+    : join(APP_DIR, '.dev.vars');
+}
+
+const LOCAL_WORKER_ENV_FILES = [resolveLocalWorkerEnvPath(), join(REPO_ROOT_DIR, '.env.local')];
+
+function parsePort(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) {
+    throw new Error(`Invalid web dev port: ${value}`);
+  }
+
+  return parsed;
+}
 
 function loadLocalWorkerEnvFiles(): void {
   let loaded = 0;
@@ -63,12 +83,16 @@ export default defineConfig(async () => {
   return {
     server: {
       allowedHosts,
-      port: 3000,
+      host: process.env.WEB_DEV_HOST,
+      port: parsePort(process.env.WEB_DEV_PORT, 3000),
     },
     preview: {
       allowedHosts,
       port: process.env.PORT ? parseInt(process.env.PORT, 10) : 3000,
       host: '0.0.0.0',
+    },
+    resolve: {
+      dedupe: ['react', 'react-dom'],
     },
     ssr: {
       noExternal: ['@convex-dev/better-auth'],

@@ -5,8 +5,7 @@
  * When the server's buildId differs from the request-scoped runtime config,
  * fires a persistent toast notification prompting the user to reload.
  *
- * Pattern: Linear-style "Update available" banner, non-blocking, user stays
- * in control and can reload when convenient.
+ * Uses the same success toast styling as other confirmations (green accent).
  */
 
 import { useEffect, useRef } from 'react';
@@ -54,10 +53,9 @@ export function useVersionPoller(): void {
 
       notifiedRef.current = true;
 
-      toast.info('Update ready', {
+      toast.success('Update ready', {
         duration: 0, // persistent, user must act
         description: 'Reload to use the latest version.',
-        visualVariant: 'update',
         action: {
           label: 'Reload',
           onClick: () => {

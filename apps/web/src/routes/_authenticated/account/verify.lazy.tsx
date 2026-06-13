@@ -21,6 +21,7 @@ import {
   verifyUserVerificationProviderLink,
 } from '@/lib/account';
 import {
+  getUserAccountsQueryKey,
   listUserAccounts,
   listUserProviders,
   startUserVerify,
@@ -285,7 +286,7 @@ function AccountVerifyPage() {
     enabled: needsBuyerProviderLinks,
   });
   const accountsQuery = useQuery({
-    queryKey: ['user-accounts'],
+    queryKey: getUserAccountsQueryKey(),
     queryFn: listUserAccounts,
     enabled: needsBuyerProviderLinks,
   });

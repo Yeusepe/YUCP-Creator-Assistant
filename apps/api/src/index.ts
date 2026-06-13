@@ -4,11 +4,11 @@
 
 import path from 'node:path';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
-import { buildAllowedBrowserOrigins } from '@yucp/shared/authOrigins';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
 import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
+import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './lib/cors';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
@@ -24,11 +24,18 @@ import {
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import {
+  buildPublicApiRateLimitKey,
+  checkPublicApiRateLimit,
+  getPublicApiRateLimitStore,
+} from './lib/publicApiRateLimit';
+import { MAX_BACKSTAGE_UPLOAD_BYTES } from './lib/requestBodyLimits';
 import { detectTunnelUrl } from './lib/tunnel';
+import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
+  createBackstageRepoRoutes,
   createConnectRoutes,
-  createCouplingLicenseRoutes,
   createForensicsRoutes,
   createPackageRoutes,
   createProviderPlatformRoutes,
@@ -53,7 +60,7 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
-let couplingLicenseRoutes: ReturnType<typeof createCouplingLicenseRoutes> | null = null;
+let backstageRepoRoutes: ReturnType<typeof createBackstageRepoRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
 let packageRoutes: ReturnType<typeof createPackageRoutes> | null = null;
@@ -72,6 +79,63 @@ let resolvedFrontendOrigin: string | null = null;
 const RATE_LIMIT_BUCKETS = new Map<string, { count: number; resetAt: number }>();
 const PUBLIC_BASE_DIR = path.resolve(import.meta.dir, '..', 'public');
 
+function parseBearerToken(authHeader: string | null): string | null {
+  return (
+    authHeader
+      ?.trim()
+      .match(/^Bearer\s+(.+)$/i)?.[1]
+      ?.trim() ?? null
+  );
+}
+
+function safeDecodeURIComponent(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function badPathEncodingResponse(): Response {
+  return Response.json({ error: 'Malformed path parameter encoding' }, { status: 400 });
+}
+
+function withExtraHeaders(
+  response: Response,
+  headers: Record<string, string> | undefined
+): Response {
+  if (!headers) return response;
+  const next = new Response(response.body, response);
+  for (const [key, value] of Object.entries(headers)) {
+    next.headers.set(key, value);
+  }
+  return next;
+}
+
+function getPublicApiRouteFamily(pathname: string): string {
+  if (pathname.startsWith('/api/public/v2/downloads')) return 'public-v2-downloads';
+  if (pathname.startsWith('/api/public/v2/products')) return 'public-v2-products';
+  if (pathname.startsWith('/api/public/v2/verification')) return 'public-v2-verification';
+  if (pathname.startsWith('/api/public/v2/webhooks')) return 'public-v2-webhooks';
+  if (pathname.startsWith('/api/public/v2/')) return 'public-v2-general';
+  return 'public-v1-general';
+}
+
+function getPublicApiRateLimitPolicy(routeFamily: string): { limit: number; windowMs: number } {
+  switch (routeFamily) {
+    case 'public-v2-downloads':
+      return { limit: 30, windowMs: 60_000 };
+    case 'public-v2-products':
+      return { limit: 120, windowMs: 60_000 };
+    case 'public-v2-verification':
+      return { limit: 120, windowMs: 60_000 };
+    case 'public-v2-webhooks':
+      return { limit: 60, windowMs: 60_000 };
+    default:
+      return { limit: 240, windowMs: 60_000 };
+  }
+}
+
 function getConfiguredConvexUrl(env: ReturnType<typeof loadEnv>): string {
   const convexUrl = env.CONVEX_URL ?? env.CONVEX_DEPLOYMENT;
   if (!convexUrl) {
@@ -88,6 +152,37 @@ function getEncryptionSecret(env: ReturnType<typeof loadEnv>): string {
     throw new Error('ENCRYPTION_SECRET must be set in production');
   }
   return env.BETTER_AUTH_SECRET ?? '';
+}
+
+function getCdngineBackstageApiConfig(env: ReturnType<typeof loadEnv>) {
+  const apiBaseUrl = (env.CDNGINE_API_BASE_URL ?? env.CDNGINE_PUBLIC_API_BASE_URL)?.trim();
+  const accessToken = (env.CDNGINE_ACCESS_TOKEN ?? env.CDNGINE_API_TOKEN)?.trim();
+  if (!apiBaseUrl || !accessToken) {
+    return undefined;
+  }
+  const timeoutMs = Number.parseInt(env.CDNGINE_BACKSTAGE_TIMEOUT_MS ?? '5000', 10);
+  const publicationPollIntervalMs = Number.parseInt(
+    env.CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS ?? '500',
+    10
+  );
+  const publicationTimeoutMs = Number.parseInt(
+    env.CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS ?? '120000',
+    10
+  );
+  return {
+    accessToken,
+    apiBaseUrl,
+    publicationPollIntervalMs:
+      Number.isFinite(publicationPollIntervalMs) && publicationPollIntervalMs >= 0
+        ? publicationPollIntervalMs
+        : 500,
+    publicationTimeoutMs:
+      Number.isFinite(publicationTimeoutMs) && publicationTimeoutMs > 0
+        ? publicationTimeoutMs
+        : 120000,
+    required: env.CDNGINE_BACKSTAGE_REQUIRED === 'true',
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000,
+  };
 }
 
 function redirectToFrontendRoute(
@@ -144,6 +239,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('VRCHAT_PENDING_STATE_SECRET');
     getRequired('ENCRYPTION_SECRET');
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
+    getPublicApiRateLimitStore();
     if (!env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim()) {
       throw new Error(
         'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
@@ -168,13 +264,12 @@ function initializeAuth(webhookBaseUrl?: string) {
 
   resolvedApiBaseUrl = publicBaseUrl;
   resolvedFrontendOrigin = new URL(frontendUrl).origin;
-  allowedCorsOrigins = new Set(
-    buildAllowedBrowserOrigins({
-      siteUrl,
-      frontendUrl,
-      additionalOrigins: [publicBaseUrl],
-    })
-  );
+  allowedCorsOrigins = buildApiAllowedCorsOrigins({
+    siteUrl,
+    frontendUrl,
+    publicBaseUrl,
+    nodeEnv: env.NODE_ENV,
+  });
 
   const convexSiteUrl = env.CONVEX_SITE_URL ?? '';
   if (!convexSiteUrl) {
@@ -252,12 +347,15 @@ function initializeAuth(webhookBaseUrl?: string) {
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
 
-  couplingLicenseRoutes = createCouplingLicenseRoutes({
+  backstageRepoRoutes = createBackstageRepoRoutes({
+    auth,
     apiBaseUrl: publicBaseUrl,
-    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+    enableSessionAccess: true,
+    frontendBaseUrl: frontendUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    convexSiteUrl,
     convexUrl,
+    cdngine: getCdngineBackstageApiConfig(env),
   });
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
@@ -281,6 +379,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
+    cdngine: getCdngineBackstageApiConfig(env),
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
@@ -370,6 +469,7 @@ async function routeRequest(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const clientAddress = getClientAddress(request);
+  let publicApiRateLimitHeaders: Record<string, string> | undefined;
 
   // Basic in-memory guardrails for abuse-prone routes.
   if (pathname === INTERNAL_RPC_PATH && internalRpcRouter) {
@@ -433,10 +533,26 @@ async function routeRequest(request: Request): Promise<Response> {
     }
   }
   if (pathname.startsWith('/api/public/')) {
-    if (isRateLimited(`public:${clientAddress}`, 120, 60_000)) {
+    const routeFamily = getPublicApiRouteFamily(pathname);
+    const policy = getPublicApiRateLimitPolicy(routeFamily);
+    const authHeader = request.headers.get('authorization')?.trim() ?? null;
+    const bearerToken = parseBearerToken(authHeader);
+    const rateLimit = await checkPublicApiRateLimit({
+      store: getPublicApiRateLimitStore(),
+      key: buildPublicApiRateLimitKey({
+        routeFamily,
+        clientAddress,
+        publicApiKey: request.headers.get('x-api-key')?.trim() ?? null,
+        bearerToken,
+        userAgent: request.headers.get('user-agent'),
+      }),
+      ...policy,
+    });
+    publicApiRateLimitHeaders = rateLimit.headers;
+    if (!rateLimit.allowed) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...rateLimit.headers },
       });
     }
   }
@@ -477,6 +593,10 @@ async function routeRequest(request: Request): Promise<Response> {
     return new Response(file, {
       headers: { 'Content-Type': 'text/css; charset=utf-8' },
     });
+  }
+
+  if (pathname === '/v1/keys' && request.method === 'GET') {
+    return buildYucpKeysResponse();
   }
 
   // Handle /Icons/ even with path prefix (e.g. /api/Icons/ when API has base path)
@@ -554,10 +674,13 @@ async function routeRequest(request: Request): Promise<Response> {
   // requests to Convex. Auth, YUCP OAuth, and the versioned public API (/v1/)
   // all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
-  if (pathname.startsWith('/v1/') && couplingLicenseRoutes) {
-    const localCouplingResponse = await couplingLicenseRoutes.handleRequest(request);
-    if (localCouplingResponse) {
-      return localCouplingResponse;
+  if (
+    (pathname.startsWith('/v1/') || pathname.startsWith('/api/backstage/')) &&
+    backstageRepoRoutes
+  ) {
+    const localBackstageResponse = await backstageRepoRoutes.handleRequest(request);
+    if (localBackstageResponse) {
+      return localBackstageResponse;
     }
   }
 
@@ -754,43 +877,61 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
     return connectRoutes.postUserVerifyStart(request);
   }
+  const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
+  if (buyerProductAccessMatch && connectRoutes) {
+    const catalogProductId = safeDecodeURIComponent(buyerProductAccessMatch[1]);
+    if (catalogProductId === null) {
+      return badPathEncodingResponse();
+    }
+    if (request.method === 'GET') {
+      return connectRoutes.getBuyerProductAccess(request, catalogProductId);
+    }
+    if (request.method === 'POST') {
+      return connectRoutes.postBuyerProductAccessVerificationIntent(request, catalogProductId);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   const userVerificationIntentMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)$/
   );
   if (userVerificationIntentMatch && connectRoutes) {
+    const intentId = safeDecodeURIComponent(userVerificationIntentMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
     if (request.method === 'GET') {
-      return connectRoutes.getUserVerificationIntent(
-        request,
-        decodeURIComponent(userVerificationIntentMatch[1])
-      );
+      return connectRoutes.getUserVerificationIntent(request, intentId);
     }
   }
   const userVerificationEntitlementMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/verify-entitlement$/
   );
   if (userVerificationEntitlementMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationEntitlement(
-      request,
-      decodeURIComponent(userVerificationEntitlementMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationEntitlementMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationEntitlement(request, intentId);
   }
   const userVerificationProviderLinkMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/verify-provider-link$/
   );
   if (userVerificationProviderLinkMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationProviderLink(
-      request,
-      decodeURIComponent(userVerificationProviderLinkMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationProviderLinkMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationProviderLink(request, intentId);
   }
   const userVerificationManualMatch = pathname.match(
     /^\/api\/connect\/user\/verification-intents\/([^/]+)\/manual-license$/
   );
   if (userVerificationManualMatch && connectRoutes) {
-    return connectRoutes.postUserVerificationManualLicense(
-      request,
-      decodeURIComponent(userVerificationManualMatch[1])
-    );
+    const intentId = safeDecodeURIComponent(userVerificationManualMatch[1]);
+    if (intentId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.postUserVerificationManualLicense(request, intentId);
   }
   if (pathname === '/api/connect/user/guilds' && connectRoutes) {
     return connectRoutes.getUserGuilds(request);
@@ -808,6 +949,10 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/connect/user/accounts' && connectRoutes) {
     if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
     if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/connect/user/accounts/refresh' && connectRoutes) {
+    if (request.method === 'POST') return connectRoutes.refreshUserAccounts(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   if (pathname === '/api/connect/user/certificates' && connectRoutes) {
@@ -868,8 +1013,75 @@ async function routeRequest(request: Request): Promise<Response> {
     if (request.method === 'POST') return forensicsRoutes.lookup(request);
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
+  if (pathname === '/api/forensics/reveal-license' && forensicsRoutes) {
+    if (request.method === 'POST') return forensicsRoutes.revealLicense(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
   if (pathname === '/api/packages' && packageRoutes) {
     if (request.method === 'GET') return packageRoutes.listPackages(request);
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/packages/backstage/repo-access' && packageRoutes) {
+    if (request.method === 'GET') {
+      return packageRoutes.getBackstageRepoAccess(request);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  if (pathname === '/api/packages/backstage/products' && packageRoutes) {
+    if (request.method === 'GET') {
+      return packageRoutes.listBackstageProducts(request);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageProductArchiveMatch = pathname.match(
+    /^\/api\/packages\/backstage\/products\/([^/]+)\/archive$/
+  );
+  if (backstageProductArchiveMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.archiveBackstageProduct(request, backstageProductArchiveMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageProductRestoreMatch = pathname.match(
+    /^\/api\/packages\/backstage\/products\/([^/]+)\/restore$/
+  );
+  if (backstageProductRestoreMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.restoreBackstageProduct(request, backstageProductRestoreMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageProductMatch = pathname.match(/^\/api\/packages\/backstage\/products\/([^/]+)$/);
+  if (backstageProductMatch && packageRoutes) {
+    if (request.method === 'DELETE') {
+      return packageRoutes.deleteBackstageProduct(request, backstageProductMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageReleaseArchiveMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/releases\/([^/]+)\/archive$/
+  );
+  if (backstageReleaseArchiveMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.archiveBackstageRelease(
+        request,
+        backstageReleaseArchiveMatch[1],
+        backstageReleaseArchiveMatch[2]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageReleaseDeleteMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/releases\/([^/]+)$/
+  );
+  if (backstageReleaseDeleteMatch && packageRoutes) {
+    if (request.method === 'DELETE') {
+      return packageRoutes.deleteBackstageRelease(
+        request,
+        backstageReleaseDeleteMatch[1],
+        backstageReleaseDeleteMatch[2]
+      );
+    }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
   const packagesMatch = pathname.match(/^\/api\/packages\/([^/]+)$/);
@@ -893,6 +1105,44 @@ async function routeRequest(request: Request): Promise<Response> {
   if (packageRestoreMatch && packageRoutes) {
     if (request.method === 'POST') {
       return packageRoutes.restorePackage(request, packageRestoreMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageUploadSessionMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-session$/
+  );
+  if (backstageUploadSessionMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.createBackstageReleaseUploadSession(
+        request,
+        backstageUploadSessionMatch[1]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageUploadSessionCompleteMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-session\/complete$/
+  );
+  if (backstageUploadSessionCompleteMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.completeBackstageReleaseUploadSession(
+        request,
+        backstageUploadSessionCompleteMatch[1]
+      );
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageMediaUploadMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/media$/);
+  if (backstageMediaUploadMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.uploadBackstageReleaseMedia(request, backstageMediaUploadMatch[1]);
+    }
+    return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  }
+  const backstageReleaseMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/releases$/);
+  if (backstageReleaseMatch && packageRoutes) {
+    if (request.method === 'POST') {
+      return packageRoutes.publishBackstageRelease(request, backstageReleaseMatch[1]);
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
@@ -988,11 +1238,15 @@ async function routeRequest(request: Request): Promise<Response> {
     request.method === 'POST'
   ) {
     const keyId = pathname.replace(/^\/api\/connect\/public-api\/keys\//, '').split('/')[0];
+    const decodedKeyId = safeDecodeURIComponent(keyId);
+    if (decodedKeyId === null) {
+      return badPathEncodingResponse();
+    }
     if (pathname.endsWith('/revoke')) {
-      return connectRoutes.revokePublicApiKey(request, decodeURIComponent(keyId));
+      return connectRoutes.revokePublicApiKey(request, decodedKeyId);
     }
     if (pathname.endsWith('/rotate')) {
-      return connectRoutes.rotatePublicApiKey(request, decodeURIComponent(keyId));
+      return connectRoutes.rotatePublicApiKey(request, decodedKeyId);
     }
   }
   if (pathname === '/api/connect/oauth-apps' && connectRoutes) {
@@ -1010,10 +1264,17 @@ async function routeRequest(request: Request): Promise<Response> {
     const appId = pathname
       .replace(/^\/api\/connect\/oauth-apps\//, '')
       .replace(/\/regenerate-secret$/, '');
-    return connectRoutes.regenerateOAuthAppSecret(request, decodeURIComponent(appId));
+    const decodedAppId = safeDecodeURIComponent(appId);
+    if (decodedAppId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.regenerateOAuthAppSecret(request, decodedAppId);
   }
   if (pathname.startsWith('/api/connect/oauth-apps/') && connectRoutes) {
-    const appId = decodeURIComponent(pathname.replace(/^\/api\/connect\/oauth-apps\//, ''));
+    const appId = safeDecodeURIComponent(pathname.replace(/^\/api\/connect\/oauth-apps\//, ''));
+    if (appId === null) {
+      return badPathEncodingResponse();
+    }
     if (request.method === 'PUT') return connectRoutes.updateOAuthApp(request, appId);
     if (request.method === 'DELETE') return connectRoutes.deleteOAuthApp(request, appId);
   }
@@ -1026,13 +1287,13 @@ async function routeRequest(request: Request): Promise<Response> {
   // Public API v2, must be checked before v1 since both share /api/public/ prefix
   if (pathname.startsWith('/api/public/v2/') && publicV2Routes) {
     const response = await publicV2Routes.handleRequest(request, pathname);
-    if (response) return response;
+    if (response) return withExtraHeaders(response, publicApiRateLimitHeaders);
   }
 
   // Public verification API
   if (pathname.startsWith('/api/public/') && publicRoutes) {
     const response = await publicRoutes.handleRequest(request, pathname);
-    if (response) return response;
+    if (response) return withExtraHeaders(response, publicApiRateLimitHeaders);
   }
 
   // Suite verification API (OAuth 2.1 protected)
@@ -1125,17 +1386,7 @@ async function handleRequest(request: Request): Promise<Response> {
 
   return withApiRequestSpan(request, requestId, async () => {
     // Build CORS headers for approved browser origins used by the app UI.
-    const corsHeaders: Record<string, string> = {};
-    if (origin && allowedCorsOrigins.has(origin)) {
-      corsHeaders['Access-Control-Allow-Origin'] = origin;
-      corsHeaders['Access-Control-Allow-Credentials'] = 'true';
-      corsHeaders['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS';
-      corsHeaders['Access-Control-Allow-Headers'] =
-        'Authorization, Content-Type, Traceparent, traceparent, Tracestate, tracestate, Baggage, baggage';
-      corsHeaders['Access-Control-Expose-Headers'] = 'X-Request-Id, X-Trace-Id';
-      corsHeaders['Timing-Allow-Origin'] = origin;
-      corsHeaders.Vary = 'Origin';
-    }
+    const corsHeaders = buildApiCorsHeaders({ allowedOrigins: allowedCorsOrigins, origin });
 
     annotateApiSpan({
       requestId,
@@ -1194,6 +1445,7 @@ async function main() {
   // Start HTTP server
   Bun.serve({
     hostname,
+    maxRequestBodySize: MAX_BACKSTAGE_UPLOAD_BYTES,
     port,
     fetch: handleRequest,
   });

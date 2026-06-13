@@ -1,3 +1,4 @@
+import type { QueryFunctionContext } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { DashboardProvider, Guild } from '@/lib/server/dashboard';
 
@@ -211,6 +212,16 @@ export interface UserProviderDisplay {
   description: string | null;
 }
 
+export interface UserAccountsQueryOptions {
+  refresh?: boolean;
+}
+
+export function getUserAccountsQueryKey(options?: UserAccountsQueryOptions) {
+  return ['user-accounts', { refresh: Boolean(options?.refresh) }] as const;
+}
+
+type UserAccountsQueryKey = ReturnType<typeof getUserAccountsQueryKey>;
+
 export function getProviderIconPath(provider: { icon?: string | null }) {
   return provider.icon ? `/Icons/${provider.icon}` : null;
 }
@@ -234,10 +245,16 @@ export async function startUserVerify(
   });
 }
 
-export async function listUserAccounts() {
-  const data = await apiClient.get<{ connections?: UserAccountConnection[] }>(
-    '/api/connect/user/accounts'
-  );
+export async function listUserAccounts(
+  input?: UserAccountsQueryOptions | QueryFunctionContext<UserAccountsQueryKey>
+) {
+  const refresh =
+    input && 'queryKey' in input ? Boolean(input.queryKey[1]?.refresh) : Boolean(input?.refresh);
+  const data = refresh
+    ? await apiClient.post<{ connections?: UserAccountConnection[] }>(
+        '/api/connect/user/accounts/refresh'
+      )
+    : await apiClient.get<{ connections?: UserAccountConnection[] }>('/api/connect/user/accounts');
   return data.connections ?? [];
 }
 

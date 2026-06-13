@@ -379,6 +379,7 @@ export const completeLicenseVerification = mutation({
         .withIndex('by_auth_user_subject', (q) =>
           q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
         )
+        .filter((q) => q.eq(q.field('productId'), product.productId))
         .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
         .first();
 
@@ -393,6 +394,10 @@ export const completeLicenseVerification = mutation({
             status: 'active',
             revokedAt: undefined,
             updatedAt: now,
+            // Backfill the canonical license subject if this grant carries one and the
+            // existing row predates the field, so forensics can resolve the license.
+            licenseSubject:
+              args.licenseSubjectLink?.licenseSubject ?? existingEntitlement.licenseSubject,
           });
           // Emit role sync for reactivated entitlement
           const jobId = await ctx.db.insert('outbox_jobs', {
@@ -429,6 +434,7 @@ export const completeLicenseVerification = mutation({
           productId: product.productId,
           sourceProvider: args.provider,
           sourceReference: product.sourceReference,
+          licenseSubject: args.licenseSubjectLink?.licenseSubject,
           providerCustomerId,
           catalogProductId: product.catalogProductId,
           status: 'active',

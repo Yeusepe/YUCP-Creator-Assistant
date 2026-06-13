@@ -7,25 +7,40 @@
     "packages/*"
   ],
   "overrides": {
-    "axios": ">=1.15.0",
+    "@opentelemetry/auto-instrumentations-node": ">=0.75.0",
+    "@opentelemetry/exporter-prometheus": ">=0.217.0",
+    "@opentelemetry/sdk-node": ">=0.217.0",
+    "@protobufjs/utf8": ">=1.1.1",
+    "@tanstack/start-server-core": "1.169.8",
+    "axios": ">=1.15.2",
     "bebop": "3.0.4",
     "fast-xml-parser": "5.7.0",
-    "h3": "2.0.1-rc.19",
+    "fast-xml-builder": ">=1.2.0",
+    "h3": "2.0.1-rc.20",
     "happy-dom": ">=20.8.8",
-    "kysely": ">=0.28.12",
+    "kysely": "0.28.17",
     "lodash": ">=4.18.1",
     "picomatch": "2.3.2",
     "prismjs": ">=1.30.0",
+    "protobufjs": "7.6.1",
     "defu": ">=6.1.6",
+    "esbuild": "0.28.1",
     "undici": ">=6.23.0",
     "vite": ">=7.3.2",
     "follow-redirects": ">=1.15.12",
     "@smithy/config-resolver": ">=4.4.0",
     "srvx": ">=0.11.13",
     "@babel/runtime": ">=7.26.10",
-    "protobufjs": ">=7.5.5",
+    "@grpc/grpc-js": ">=1.14.4",
     "postcss": ">=8.5.10",
-    "uuid": ">=14.0.0"
+    "uuid": ">=14.0.0",
+    "ws": ">=8.20.1",
+    "better-auth": "1.6.11",
+    "@better-auth/api-key": "1.6.11",
+    "@better-auth/core": "1.6.11",
+    "@better-auth/oauth-provider": "1.6.11",
+    "@better-auth/passkey": "1.6.11",
+    "shell-quote": "1.8.4"
   },
   "scripts": {
     "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",
@@ -33,14 +48,14 @@
     "contracts:check": "bun run --filter @yucp/private-rpc check:generated",
     "typecheck": "bun run contracts:check && tsc -b tsconfig.solution.json --pretty false && bun run --filter '@yucp/api' typecheck && bun run --filter '@yucp/bot' typecheck && bun run --filter '@yucp/web' typecheck",
     "test": "bun run test:fast",
-    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/web-vite-config.contract.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
+    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/cdngine-dev.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/publish-backstage-package.test.ts ./ops/test-backstage-repo.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
     "test:external-integrations": "bun run ops/test-external-integrations.ts",
     "test:fast": "bun run test:ops && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:convex": "bun x vitest run --config convex/vitest.config.ts",
     "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
-    "test:bot": "bun test ./apps/bot/test/commands",
+    "test:bot": "cross-env INTERNAL_SERVICE_AUTH_SECRET=test-internal-service-auth-secret bun test ./apps/bot/test/commands",
     "test:all": "bun run test:fast && bun run test:convex && bun run test:api:integration && bun run test:bot",
     "test:infisical": "bun run --env-file=.env.infisical test",
     "test:ci": "bun run test:ops && bun run test:fast:ci",
@@ -50,6 +65,7 @@
     "test:bot:e2e:ci": "bun run --filter '@yucp/bot' test:e2e:ci",
     "capture:discord-storage": "tsx ops/capture-discord-storage-state.ts",
     "ops:buyer-attribution-remediation": "bun run ops/buyer-attribution-remediation.ts",
+    "ops:backstage-deliverable-remediation": "bun run ops/backstage-deliverable-remediation.ts",
     "ops:subject-ownership-remediation": "bun run ops/subject-ownership-remediation.ts",
     "build:docs:index": "bun run --filter @yucp/api build:docs:index",
     "build": "bun run --filter '*' build",
@@ -61,6 +77,9 @@
     "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
     "smoke:providers": "bun run ops/provider-live-smoke.ts",
     "smoke:providers:refresh-fixtures": "bun run ops/provider-live-smoke.ts --refresh-fixtures",
+    "smoke:backstage-repo": "bun run ops/test-backstage-repo.ts",
+    "cloudflare:worker:deploy": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:deploy -- --prod",
+    "cloudflare:worker:version:upload": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:version:upload",
     "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",
     "infisical:convex:prod": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts --prod",
     "dev:api": "cross-env FRONTEND_URL=http://localhost:3000 bun run --watch apps/api/src/index.ts",
@@ -74,7 +93,8 @@
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
     "start:web": "bun run --filter @yucp/web preview",
-    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\" \"bun run start:web\""
+    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\" \"bun run start:web\"",
+    "publish:backstage-package": "tsx ops/publish-backstage-package.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",
@@ -99,29 +119,51 @@
     "bun": ">=1.1"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.6.5",
-    "@better-auth/core": "1.6.5",
-    "@better-auth/oauth-provider": "1.6.5",
-    "@better-auth/passkey": "1.6.5",
+    "@better-auth/api-key": "1.6.11",
+    "@better-auth/core": "1.6.11",
+    "@better-auth/oauth-provider": "1.6.11",
+    "@better-auth/passkey": "1.6.11",
     "@convex-dev/better-auth": "^0.11.0",
     "@noble/ed25519": "^2.2.3",
+    "@noble/hashes": "^2.0.1",
     "@polar-sh/better-auth": "^1.8.3",
     "@polar-sh/sdk": "^0.46.6",
     "@tempojs/client": "^0.0.12",
     "@tempojs/cloudflare-worker-router": "^0.0.12",
     "@tempojs/server": "^0.0.12",
     "bebop": "3.0.4",
-    "better-auth": "1.6.5",
+    "better-auth": "1.6.11",
     "buffer": "^6.0.3",
     "convex": "^1.32.0",
     "dotenv": "^17.3.1",
     "fflate": "^0.8.2",
-    "h3-v2": "npm:h3@2.0.1-rc.19",
+    "h3-v2": "npm:h3@2.0.1-rc.20",
     "jsonc-parser": "^3.3.1",
     "tar": "^7.5.13"
   },
   "patchedDependencies": {
-    "@convex-dev/better-auth@0.11.4": "patches/@convex-dev%2Fbetter-auth@0.11.4.patch",
-    "@tanstack/start-server-core@1.167.1": "patches/@tanstack%2Fstart-server-core@1.167.1.patch"
-  }
+    "@convex-dev/better-auth@0.11.4": "patches/@convex-dev%2Fbetter-auth@0.11.4.patch"
+  },
+  "trustedDependencies": [
+    "heroui-pro",
+    "@heroui-pro/react",
+    "heroui-native-pro"
+  ],
+  "description": "![YUCP Creator Assistant](https://github.com/user-attachments/assets/592a7c28-0bec-4673-9a43-0656d2a9ca6c)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yeusepe/YUCP-Creator-Assistant.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Yeusepe/YUCP-Creator-Assistant/issues"
+  },
+  "homepage": "https://github.com/Yeusepe/YUCP-Creator-Assistant#readme"
 }

@@ -48,6 +48,11 @@ describe('Route Tree', () => {
     expect(routeTree).toBeDefined();
   });
 
+  it('keeps setup helper modules out of the route tree scanner', () => {
+    expect(existsSync(resolve(ROUTES_DIR, 'setup/lemonsqueezySetupSupport.ts'))).toBe(false);
+    expect(existsSync(resolve(ROUTES_DIR, 'setup/-lemonsqueezySetupSupport.ts'))).toBe(true);
+  });
+
   for (const file of expectedRouteFiles) {
     it(`route file exists: ${file}`, () => {
       const fullPath = resolve(ROUTES_DIR, file);

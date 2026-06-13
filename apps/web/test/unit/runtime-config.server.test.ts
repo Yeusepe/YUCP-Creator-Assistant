@@ -12,6 +12,7 @@ describe('getPublicRuntimeConfigForRequest', () => {
     vi.clearAllMocks();
     process.env = { ...originalEnv };
     delete process.env.YUCP_ENABLE_AUTOMATIC_SETUP;
+    delete process.env.YUCP_ENABLE_PRIVATE_VPM;
     getRequestUrlMock.mockReturnValue(new URL('https://preview.creators.yucp.club/sign-in'));
   });
 
@@ -31,6 +32,7 @@ describe('getPublicRuntimeConfigForRequest', () => {
         automaticSetupEnabled: false,
         browserAuthBaseUrl: 'https://preview.creators.yucp.club',
         buildId: 'build-preview',
+        privateVpmEnabled: false,
       })
     );
     expect(getRequestUrlMock).toHaveBeenCalledWith({

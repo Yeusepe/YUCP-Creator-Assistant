@@ -253,6 +253,7 @@ export function buildGumroadTierRefFromPurchaseSelection(input: {
 
 /**
  * Gumroad product resource from /products/:id
+ * Gumroad products API reference: https://gumroad.com/api#products
  */
 export interface GumroadProduct {
   id: string;
@@ -261,6 +262,7 @@ export interface GumroadProduct {
   price: number;
   currency: string;
   short_url: string;
+  thumbnail_url?: string | null;
   custom_permalink?: string;
   formatted_price: string;
   purchase_type: 'buy' | 'subscription' | 'pay_what_you_want';

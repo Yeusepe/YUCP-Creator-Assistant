@@ -284,7 +284,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
           {currentState === 'state-signin' && (
             <div id="state-signin" className="state active">
               <h1 className="card-title">Sign in</h1>
-              <p className="card-sub">Use Discord or a passkey to access your creator account.</p>
+              <p className="card-sub">Use Discord or a passkey to access your Creator Identity.</p>
 
               <fieldset className="sign-in-actions sign-in-methods">
                 <legend className="sign-in-sr-only">Sign-in options</legend>

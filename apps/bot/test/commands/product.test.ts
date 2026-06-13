@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import {
+  PROVIDER_META as REAL_PROVIDER_META,
+  providerLabel as realProviderLabel,
+} from '@yucp/providers/core/meta';
 import type {
   ButtonInteraction,
   ChatInputCommandInteraction,
@@ -49,8 +53,25 @@ mock.module('../../src/lib/posthog', () => ({
   track: mock(() => {}),
 }));
 
+function createGeneratedApiMock(overrides: Record<string, unknown>) {
+  return new Proxy(overrides, {
+    get(target, prop: string | symbol) {
+      if (prop in target) {
+        return target[prop as keyof typeof target];
+      }
+      return new Proxy(
+        {},
+        {
+          get: (_moduleTarget, functionName: string | symbol) =>
+            `${String(prop)}:${String(functionName)}`,
+        }
+      );
+    },
+  });
+}
+
 mock.module('../../../../convex/_generated/api', () => ({
-  api: {
+  api: createGeneratedApiMock({
     providerConnections: {
       getConnectionStatus: 'providerConnections:getConnectionStatus',
     },
@@ -70,7 +91,7 @@ mock.module('../../../../convex/_generated/api', () => ({
       getCreatorProfile: 'creatorProfiles:getCreatorProfile',
       updateCreatorPolicy: 'creatorProfiles:updateCreatorPolicy',
     },
-  },
+  }),
 }));
 
 // Mock @yucp/providers so resolvePayhipProduct and resolveGumroadProduct don't make real HTTP calls
@@ -79,64 +100,8 @@ const mockResolvePayhipProduct = mock((_permalink: string) =>
 );
 
 mock.module('@yucp/providers', () => ({
-  PROVIDER_META: {
-    gumroad: {
-      label: 'Gumroad',
-      emojiKey: 'Gumorad',
-      supportsLicenseVerify: true,
-      supportsOAuth: true,
-    },
-    jinxxy: {
-      label: 'Jinxxy',
-      emojiKey: 'Jinxxy',
-      supportsLicenseVerify: true,
-      supportsOAuth: false,
-    },
-    lemonsqueezy: {
-      label: 'Lemon Squeezy',
-      emojiKey: 'LemonSqueezy',
-      supportsLicenseVerify: true,
-      supportsOAuth: false,
-    },
-    payhip: {
-      label: 'Payhip',
-      emojiKey: 'Payhip',
-      supportsLicenseVerify: true,
-      supportsOAuth: false,
-    },
-    vrchat: {
-      label: 'VRChat',
-      emojiKey: 'VRC',
-      supportsLicenseVerify: false,
-      supportsOAuth: false,
-    },
-    discord: {
-      label: 'Discord',
-      emojiKey: 'Discord',
-      supportsLicenseVerify: false,
-      supportsOAuth: true,
-    },
-    manual: {
-      label: 'Manual',
-      emojiKey: 'PersonKey',
-      supportsLicenseVerify: false,
-      supportsOAuth: false,
-    },
-  },
-  providerLabel: (provider: string) =>
-    (
-      ({
-        gumroad: 'Gumroad',
-        jinxxy: 'Jinxxy',
-        lemonsqueezy: 'Lemon Squeezy',
-        payhip: 'Payhip',
-        vrchat: 'VRChat',
-        discord: 'Discord',
-        manual: 'Manual',
-      }) as const
-    )[
-      provider as 'gumroad' | 'jinxxy' | 'lemonsqueezy' | 'payhip' | 'vrchat' | 'discord' | 'manual'
-    ] ?? provider,
+  PROVIDER_META: REAL_PROVIDER_META,
+  providerLabel: realProviderLabel,
   resolvePayhipProduct: mockResolvePayhipProduct,
   resolveGumroadProduct: mock((urlOrSlug: string) =>
     Promise.resolve({ id: urlOrSlug, name: 'Gumroad Product' })
@@ -1854,6 +1819,7 @@ describe('handleProductConfirmAdd, catalog product URLs', () => {
             id: '11',
             name: 'Game One',
             productUrl: 'https://creator.itch.io/game-one',
+            thumbnailUrl: 'javascript:alert(1)',
           },
         ],
       })
@@ -1947,5 +1913,6 @@ describe('handleProductConfirmAdd, catalog product URLs', () => {
     expect(addProductArgs?.provider).toBe('itchio');
     expect(addProductArgs?.productId).toBe('11');
     expect(addProductArgs?.canonicalUrl).toBe('https://creator.itch.io/game-one');
+    expect(addProductArgs?.thumbnailUrl).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
   disconnectUserAccount,
+  getUserAccountsQueryKey,
   listUserAccounts,
   listUserProviders,
   startUserVerify,
@@ -122,7 +123,7 @@ function ProviderCard({
   const disconnectMut = useMutation({
     mutationFn: (id: string) => disconnectUserAccount(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-accounts'] });
+      queryClient.invalidateQueries({ queryKey: getUserAccountsQueryKey() });
       setConfirmingId(null);
       toast.success('Account disconnected', {
         description: `${provider.label} will no longer be used for account verification.`,
@@ -273,7 +274,7 @@ function AccountConnections() {
   });
 
   const accountsQuery = useQuery({
-    queryKey: ['user-accounts'],
+    queryKey: getUserAccountsQueryKey(),
     queryFn: listUserAccounts,
   });
 

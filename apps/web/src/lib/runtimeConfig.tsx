@@ -1,4 +1,4 @@
-import { isAutomaticSetupEnabled } from '@yucp/shared/featureFlags';
+import { isAutomaticSetupEnabled, isPrivateVpmEnabled } from '@yucp/shared/featureFlags';
 import { createContext, type ReactNode, useContext } from 'react';
 
 const LOCAL_FALLBACK_SITE_URL = 'http://localhost:3000';
@@ -12,6 +12,7 @@ export interface PublicRuntimeConfig {
   hyperdxApiKey?: string;
   hyperdxAppUrl?: string;
   hyperdxOtlpHttpUrl?: string;
+  privateVpmEnabled?: boolean;
 }
 
 export interface PublicRuntimeEnvSource {
@@ -25,6 +26,7 @@ export interface PublicRuntimeEnvSource {
   OTEL_EXPORTER_OTLP_ENDPOINT?: string | null;
   SITE_URL?: string | null;
   YUCP_ENABLE_AUTOMATIC_SETUP?: string | null;
+  YUCP_ENABLE_PRIVATE_VPM?: string | null;
 }
 
 const PUBLIC_RUNTIME_ENV_KEYS = [
@@ -38,6 +40,7 @@ const PUBLIC_RUNTIME_ENV_KEYS = [
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'SITE_URL',
   'YUCP_ENABLE_AUTOMATIC_SETUP',
+  'YUCP_ENABLE_PRIVATE_VPM',
 ] as const;
 
 declare global {
@@ -95,6 +98,7 @@ export function createPublicRuntimeConfig({
   hyperdxApiKey,
   hyperdxAppUrl,
   hyperdxOtlpHttpUrl,
+  privateVpmEnabled,
 }: Readonly<{
   automaticSetupEnabled?: boolean;
   requestUrl?: string | URL | null;
@@ -107,6 +111,7 @@ export function createPublicRuntimeConfig({
   hyperdxApiKey?: string | null;
   hyperdxAppUrl?: string | null;
   hyperdxOtlpHttpUrl?: string | null;
+  privateVpmEnabled?: boolean;
 }>): PublicRuntimeConfig {
   return {
     automaticSetupEnabled: automaticSetupEnabled === true,
@@ -122,6 +127,7 @@ export function createPublicRuntimeConfig({
     hyperdxApiKey: normalizeOptionalValue(hyperdxApiKey),
     hyperdxAppUrl: normalizeOptionalValue(hyperdxAppUrl),
     hyperdxOtlpHttpUrl: normalizeOptionalValue(hyperdxOtlpHttpUrl),
+    privateVpmEnabled: privateVpmEnabled === true,
   };
 }
 
@@ -143,6 +149,7 @@ export function createPublicRuntimeConfigFromEnv(
     hyperdxApiKey: env.HYPERDX_API_KEY,
     hyperdxAppUrl: env.HYPERDX_APP_URL,
     hyperdxOtlpHttpUrl,
+    privateVpmEnabled: isPrivateVpmEnabled(env as Record<string, string | undefined>),
     siteUrl: env.SITE_URL,
   });
 }
@@ -175,6 +182,7 @@ export function getPublicRuntimeConfig(): PublicRuntimeConfig {
     createPublicRuntimeConfig({
       automaticSetupEnabled: false,
       buildId: 'dev',
+      privateVpmEnabled: false,
       requestUrl: window.location.href,
       fallback: window.location.origin,
     })

@@ -1,0 +1,367 @@
+import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { api, internal } from './_generated/api';
+import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
+import { PII_PURPOSES } from './lib/credentialKeys';
+import { encryptPii } from './lib/piiCrypto';
+import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
+import * as yucpCrypto from './lib/yucpCrypto';
+import {
+  makeTestConvex,
+  seedCertificateBillingCatalog,
+  seedCreatorProfile,
+} from './testHelpers';
+
+const issuerBaseUrl = 'https://coupling-job.test.example';
+const packageId = 'pkg.coupling.bundle';
+const machineFingerprint = 'a604eb0948054b9acb9f40da80a6a4c8e711b98c59e54a11089fea3a2b77dc1c';
+const projectId = '0123456789abcdef0123456789abcdef';
+const creatorAuthUserId = 'auth-coupling-job';
+const publisherId = 'publisher-coupling-job';
+const licenseSubject = 'f'.repeat(64);
+const runtimeVersion = '2026.03.27.1';
+const runtimePlaintextSha256 = 'b'.repeat(64);
+
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Buffer.from(new Uint8Array(digest)).toString('hex');
+}
+
+describe('coupling job + license reveal', () => {
+  let rootPrivateKey = '';
+
+  beforeEach(async () => {
+    process.env.CONVEX_API_SECRET = 'test-secret';
+    process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-coupling-job-flow';
+    process.env.API_BASE_URL = issuerBaseUrl;
+    rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
+    process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
+    const rootPublicKey = await yucpCrypto.getPublicKeyFromPrivate(rootPrivateKey);
+    process.env.YUCP_ROOT_PUBLIC_KEY = rootPublicKey;
+    process.env.YUCP_ROOT_KEY_ID = 'yucp-root';
+    setPinnedYucpRootsForTests([
+      { keyId: 'yucp-root', algorithm: 'Ed25519', publicKeyBase64: rootPublicKey },
+    ]);
+  });
+
+  afterEach(() => {
+    setPinnedYucpRootsForTests(null);
+  });
+
+  async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
+    await t.run(async (ctx) => {
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId,
+        yucpUserId: creatorAuthUserId,
+        status: 'active',
+        registeredAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+  }
+
+  async function seedActiveCouplingRuntime(t: ReturnType<typeof makeTestConvex>) {
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(new Blob([new Uint8Array([1, 2, 3, 4])]));
+      await ctx.db.insert('signed_release_artifacts', {
+        artifactKey: 'coupling-runtime',
+        channel: 'stable',
+        platform: 'win-x64',
+        version: runtimeVersion,
+        metadataVersion: 1,
+        storageId,
+        contentType: 'application/octet-stream',
+        deliveryName: 'yucp_coupling.dll',
+        envelopeCipher: 'aes-256-gcm',
+        envelopeIvBase64: Buffer.from(new Uint8Array(12)).toString('base64'),
+        ciphertextSha256: 'a'.repeat(64),
+        ciphertextSize: 4,
+        plaintextSha256: runtimePlaintextSha256,
+        plaintextSize: 4,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+  }
+
+  async function mintLicenseToken(overrides?: Partial<{ machine_fingerprint: string; package_id: string }>) {
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return await yucpCrypto.signLicenseJwt(
+      {
+        iss: buildPublicAuthIssuer(issuerBaseUrl),
+        aud: 'yucp-license-gate',
+        sub: licenseSubject,
+        jti: `nonce-${nowSeconds}-${Math.floor(crypto.getRandomValues(new Uint32Array(1))[0])}`,
+        package_id: overrides?.package_id ?? packageId,
+        machine_fingerprint: overrides?.machine_fingerprint ?? machineFingerprint,
+        provider: 'gumroad',
+        iat: nowSeconds,
+        exp: nowSeconds + 3600,
+      },
+      rootPrivateKey,
+      'yucp-root'
+    );
+  }
+
+  it('rejects an invalid license token', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken: 'not-a-jwt',
+      assetPaths: ['Assets/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+  });
+
+  it('rejects a token whose machine fingerprint does not match the request', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    const licenseToken = await mintLicenseToken({ machine_fingerprint: 'c'.repeat(64) });
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('machine');
+  });
+
+  it('skips (without failing) when no coupling-runtime artifact is active', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.skipReason).toBe('no_runtime');
+    expect(result.files).toEqual([]);
+  });
+
+  it('issues per-asset tokens and records hash-only forensic traces bound to the license subject', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    const licenseToken = await mintLicenseToken();
+    const assetPaths = ['Assets/Character/body.png', 'Assets/Model/model.fbx'];
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths,
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.runtimeToken).toBeTruthy();
+    expect(result.runtimeSha256).toBe(runtimePlaintextSha256);
+    expect(result.files).toHaveLength(2);
+
+    // The runtime token round-trips and is bound to the same artifact.
+    const runtimeClaims = await yucpCrypto.verifyCouplingRuntimeJwtAgainstPinnedRoots(
+      result.runtimeToken ?? '',
+      buildPublicAuthIssuer(issuerBaseUrl)
+    );
+    expect(runtimeClaims).toMatchObject({
+      package_id: packageId,
+      machine_fingerprint: machineFingerprint,
+      artifact_version: runtimeVersion,
+      plaintext_sha256: runtimePlaintextSha256,
+    });
+
+    const traces = await t.run(async (ctx) =>
+      ctx.db
+        .query('coupling_trace_records')
+        .withIndex('by_auth_user_created', (q) => q.eq('authUserId', creatorAuthUserId))
+        .collect()
+    );
+    expect(traces).toHaveLength(2);
+    for (const trace of traces) {
+      expect(trace.licenseSubject).toBe(licenseSubject);
+      expect(trace.machineFingerprintHash).toBe(await sha256Hex(machineFingerprint));
+      expect(trace.projectIdHash).toBe(await sha256Hex(projectId));
+      expect(trace.runtimePlaintextSha256).toBe(runtimePlaintextSha256);
+    }
+    // tokenHash is the SHA-256 of the per-file tokenHex; plaintext token is never stored.
+    for (const file of result.files ?? []) {
+      const expectedHash = await sha256Hex(file.tokenHex);
+      expect(traces.some((trace) => trace.tokenHash === expectedHash)).toBe(true);
+    }
+  });
+
+  // ── Reveal ────────────────────────────────────────────────────────────────
+
+  async function seedCouplingTraceability(t: ReturnType<typeof makeTestConvex>) {
+    const now = Date.now();
+    await seedCertificateBillingCatalog(t, {
+      productId: 'plan-coupling-traceability',
+      capabilityKeys: ['coupling_traceability'],
+      capabilityKey: 'coupling_traceability',
+      featureFlags: { coupling_traceability: true },
+      benefitMetadata: { coupling_traceability: true },
+    });
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-coupling-job',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('creator_billing_entitlements', {
+        workspaceKey: buildCreatorProfileWorkspaceKey(creatorProfileId),
+        authUserId: creatorAuthUserId,
+        creatorProfileId,
+        planKey: 'creator-suite-plus',
+        productId: 'plan-coupling-traceability',
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        deviceCap: 5,
+        auditRetentionDays: 30,
+        supportTier: 'standard',
+        currentPeriodEnd: now + 86_400_000,
+        graceUntil: now + 3 * 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+  }
+
+  async function seedTraceAndLink(
+    t: ReturnType<typeof makeTestConvex>,
+    licenseKey: string
+  ) {
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      await ctx.db.insert('coupling_trace_records', {
+        authUserId: creatorAuthUserId,
+        packageId,
+        licenseSubject,
+        assetPath: 'Assets/Character/body.png',
+        tokenHash: 'a'.repeat(64),
+        tokenLength: 32,
+        machineFingerprintHash: 'c'.repeat(64),
+        projectIdHash: 'd'.repeat(64),
+        runtimeArtifactVersion: runtimeVersion,
+        runtimePlaintextSha256: runtimePlaintextSha256,
+        correlationId: 'corr-coupling-reveal',
+        createdAt: now,
+        provider: 'gumroad',
+      });
+    });
+    const encrypted = await encryptPii(licenseKey, PII_PURPOSES.forensicsLicenseKey);
+    await t.run(async (ctx) => {
+      await ctx.db.insert('license_subject_links', {
+        licenseSubject,
+        authUserId: creatorAuthUserId,
+        packageId,
+        provider: 'gumroad',
+        licenseKeyEncrypted: encrypted,
+        providerProductId: 'product-coupling',
+        createdAt: now,
+      });
+    });
+  }
+
+  it('surfaces a non-secret masked license id but never the raw key in lookups', async () => {
+    const t = makeTestConvex();
+    await seedCouplingTraceability(t);
+    await seedPackageRegistration(t);
+    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
+
+    const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId: creatorAuthUserId,
+      packageId,
+      tokenHashes: ['a'.repeat(64)],
+    });
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].licenseMasked).toBe(`gumroad · ${licenseSubject.slice(0, 10)}`);
+    expect(result.matches[0]).not.toHaveProperty('licenseKey');
+  });
+
+  it('reveals the full license key for the owner and writes an audit event', async () => {
+    const t = makeTestConvex();
+    await seedCouplingTraceability(t);
+    await seedPackageRegistration(t);
+    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
+
+    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
+      apiSecret: 'test-secret',
+      authUserId: creatorAuthUserId,
+      packageId,
+      licenseSubject,
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.licenseKey).toBe('LICENSE-KEY-12345');
+
+    const audits = await t.run(async (ctx) =>
+      ctx.db
+        .query('audit_events')
+        .filter((q) => q.eq(q.field('eventType'), 'coupling.license_key.revealed'))
+        .collect()
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0].authUserId).toBe(creatorAuthUserId);
+  });
+
+  it('refuses to reveal without the coupling-traceability capability', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
+
+    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
+      apiSecret: 'test-secret',
+      authUserId: creatorAuthUserId,
+      packageId,
+      licenseSubject,
+    });
+
+    expect(result.licenseKey).toBeUndefined();
+    expect(result.error).toBeTruthy();
+  });
+
+  it('refuses to reveal for a non-owner', async () => {
+    const t = makeTestConvex();
+    await seedCouplingTraceability(t);
+    await seedPackageRegistration(t);
+    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
+
+    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
+      apiSecret: 'test-secret',
+      authUserId: 'someone-else',
+      packageId,
+      licenseSubject,
+    });
+
+    expect(result.licenseKey).toBeUndefined();
+    expect(result.error).toBeTruthy();
+  });
+});

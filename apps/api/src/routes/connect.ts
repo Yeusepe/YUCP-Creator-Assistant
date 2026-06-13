@@ -41,6 +41,7 @@ import { createConnectApiAccessRoutes } from './connectApiAccess';
 import { createConnectCertificateRoutes } from './connectCertificateRoutes';
 import { createConnectDiscordRoleRoutes } from './connectDiscordRoleRoutes';
 import { createConnectUserAccountRoutes } from './connectUserAccountRoutes';
+import { createConnectUserProductAccessRoutes } from './connectUserProductAccess';
 import { createConnectUserVerificationRoutes } from './connectUserVerification';
 
 // Re-exported for backwards compatibility, ConnectConfig is defined in providers/types.ts
@@ -1270,6 +1271,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
   const {
     getUserConnections,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserProviders,
     postUserVerifyStart,
@@ -1282,6 +1284,11 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     config,
     isTenantOwnedBySessionUser,
   });
+  const { getBuyerProductAccess, postBuyerProductAccessVerificationIntent } =
+    createConnectUserProductAccessRoutes({
+      auth,
+      config,
+    });
 
   async function loadDashboardPolicyForAuthUser(
     request: Request,
@@ -1523,6 +1530,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
                 id: string;
                 sourceProvider: string;
                 productId: string;
+                catalogProductId?: string | null;
                 sourceReference?: string;
                 status: string;
                 grantedAt: number;
@@ -1531,6 +1539,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
                 id: e.id,
                 sourceProvider: e.sourceProvider,
                 productId: e.productId,
+                catalogProductId: e.catalogProductId ? String(e.catalogProductId) : null,
                 sourceReference: e.sourceReference ?? null,
                 status: e.status,
                 grantedAt: e.grantedAt,
@@ -1736,12 +1745,15 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getUserGuilds,
     getUserConnections,
     getUserProviders,
+    getBuyerProductAccess,
+    postBuyerProductAccessVerificationIntent,
     postUserVerifyStart,
     getUserVerificationIntent,
     postUserVerificationEntitlement,
     postUserVerificationProviderLink,
     postUserVerificationManualLicense,
     getUserAccounts,
+    refreshUserAccounts,
     deleteUserAccount,
     getUserCertificates,
     getCreatorCertificates: getUserCertificates,

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { PropsWithChildren, ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 
 const routeSearch = vi.hoisted(() => ({
   value: {
@@ -103,7 +104,16 @@ describe('dashboard layout bootstrap state', () => {
   it('keeps the standard header visible while checking server bootstrap state', () => {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <DashboardRoute.options.component />
+        <RuntimeConfigProvider
+          value={{
+            automaticSetupEnabled: false,
+            browserAuthBaseUrl: 'https://app.example.com',
+            buildId: 'test-build',
+            privateVpmEnabled: false,
+          }}
+        >
+          <DashboardRoute.options.component />
+        </RuntimeConfigProvider>
       </QueryClientProvider>
     );
 
@@ -115,7 +125,16 @@ describe('dashboard layout bootstrap state', () => {
   it('does not render the server setup sidebar tab', () => {
     const html = renderToStaticMarkup(
       <QueryClientProvider client={new QueryClient()}>
-        <DashboardRoute.options.component />
+        <RuntimeConfigProvider
+          value={{
+            automaticSetupEnabled: false,
+            browserAuthBaseUrl: 'https://app.example.com',
+            buildId: 'test-build',
+            privateVpmEnabled: false,
+          }}
+        >
+          <DashboardRoute.options.component />
+        </RuntimeConfigProvider>
       </QueryClientProvider>
     );
 

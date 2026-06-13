@@ -13,11 +13,12 @@ import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
-import { listCreatorCertificates } from '@/lib/certificates';
+import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
 import {
   type CouplingForensicsLookupResponse,
   isCouplingTraceabilityRequiredError,
   listCouplingForensicsPackages,
+  revealCouplingLicenseKey,
   runCouplingForensicsLookup,
 } from '@/lib/couplingForensics';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
@@ -129,12 +130,10 @@ export default function DashboardForensics() {
     retry: noRetryOn4xx,
   });
 
-  const capabilityEnabled =
-    certificatesQuery.data?.billing.capabilities.some(
-      (capability) =>
-        capability.capabilityKey === BILLING_CAPABILITY_KEYS.couplingTraceability &&
-        (capability.status === 'active' || capability.status === 'grace')
-    ) ?? false;
+  const capabilityEnabled = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
+  );
 
   const packagesQuery = useQuery({
     queryKey: ['coupling-forensics', 'packages'],
@@ -187,6 +186,7 @@ export default function DashboardForensics() {
       packFamily?: string | null;
       packVersion?: string | null;
       provider?: string | null;
+      licenseMasked?: string | null;
       purchaserEmail?: string | null;
       licenseKey?: string | null;
       buyerProviderUserId?: string | null;
@@ -214,6 +214,7 @@ export default function DashboardForensics() {
             packFamily: match.packFamily,
             packVersion: match.packVersion,
             provider: match.provider,
+            licenseMasked: match.licenseMasked,
             purchaserEmail: match.purchaserEmail?.trim() || null,
             licenseKey: match.licenseKey,
             buyerProviderUserId: match.buyerProviderUserId,
@@ -228,12 +229,15 @@ export default function DashboardForensics() {
     return buyers.sort((a, b) => b.createdAt - a.createdAt);
   }, [lookupResult]);
 
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
+
   const lookupMutation = useMutation({
     mutationFn: ({ packageId, file }: { packageId: string; file: File }) =>
       runCouplingForensicsLookup({ packageId, file }),
     onMutate: () => {
       setInlineError(null);
       setLookupResult(null);
+      setRevealedKeys({});
     },
     onSuccess: (result) => {
       setLookupResult(result);
@@ -250,6 +254,31 @@ export default function DashboardForensics() {
         return;
       }
       setInlineError('Scan failed. Please try again with a supported .unitypackage or .zip file.');
+    },
+  });
+
+  const revealMutation = useMutation({
+    mutationFn: ({ licenseSubject }: { licenseSubject: string }) =>
+      revealCouplingLicenseKey({
+        packageId: lookupResult?.packageId ?? selectedPackageId,
+        licenseSubject,
+      }),
+    onSuccess: (result, variables) => {
+      if (result.licenseKey) {
+        setRevealedKeys((prev) => ({
+          ...prev,
+          [variables.licenseSubject]: result.licenseKey as string,
+        }));
+      }
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not reveal license key', {
+        description: 'You may not have access, or no key is on file for this license.',
+      });
     },
   });
 
@@ -294,7 +323,7 @@ export default function DashboardForensics() {
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Leak tracing is scoped to your creator account. Open it from your root creator
+                  Leak tracing is scoped to your Creator Identity. Open it from your root creator
                   dashboard.
                 </p>
               </div>
@@ -649,11 +678,44 @@ export default function DashboardForensics() {
                           </dd>
                         </div>
 
-                        {buyer.licenseKey && (
+                        {(buyer.licenseMasked ||
+                          buyer.licenseKey ||
+                          revealedKeys[buyer.licenseSubject]) && (
                           <div className="forensics-buyer-meta-row forensics-buyer-meta-row--full">
-                            <dt className="forensics-buyer-meta-key">License key</dt>
+                            <dt className="forensics-buyer-meta-key">License</dt>
                             <dd className="forensics-buyer-meta-val forensics-buyer-meta-val--mono">
-                              {buyer.licenseKey}
+                              {(revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey) ? (
+                                (revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey)
+                              ) : (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    gap: '0.5rem',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap',
+                                  }}
+                                >
+                                  <span>{buyer.licenseMasked}</span>
+                                  <YucpButton
+                                    type="button"
+                                    yucp="primary"
+                                    pill
+                                    isLoading={
+                                      revealMutation.isPending &&
+                                      revealMutation.variables?.licenseSubject ===
+                                        buyer.licenseSubject
+                                    }
+                                    isDisabled={revealMutation.isPending}
+                                    onClick={() =>
+                                      revealMutation.mutate({
+                                        licenseSubject: buyer.licenseSubject,
+                                      })
+                                    }
+                                  >
+                                    Reveal key
+                                  </YucpButton>
+                                </span>
+                              )}
                             </dd>
                           </div>
                         )}

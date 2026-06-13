@@ -17,7 +17,14 @@ import { createClient } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
 import { checkout, polar, portal, usage, webhooks } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
-import { verifyRecoveryPasskeyContext } from '@yucp/shared';
+import {
+  DEFAULT_PUBLIC_API_KEY_SCOPES,
+  PUBLIC_API_AUDIENCE,
+  PUBLIC_API_KEY_PERMISSION_NAMESPACE,
+  PUBLIC_API_KEY_PREFIX,
+  PUBLIC_API_SCOPES,
+  verifyRecoveryPasskeyContext,
+} from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
@@ -39,9 +46,6 @@ import { completeRecoveryPasskeyEnrollmentOrThrow } from './lib/recoveryPasskeyC
 import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
-const PUBLIC_API_AUDIENCE = 'yucp-public-api';
-const PUBLIC_API_KEY_PREFIX = 'ypsk_';
-const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 let hasLoggedBetterAuthConfig = false;
 
 function resolveConvexSiteUrl(): string {
@@ -298,14 +302,14 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         enableSessionForAPIKeys: false,
         permissions: {
           defaultPermissions: {
-            [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: ['verification:read', 'subjects:read'],
+            [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: [...DEFAULT_PUBLIC_API_KEY_SCOPES],
           },
         },
       }),
       oauthProvider({
         loginPage: `${siteUrl.replace(/\/$/, '')}/oauth/login`,
         consentPage: `${siteUrl.replace(/\/$/, '')}/oauth/consent`,
-        scopes: ['verification:read', 'cert:issue'],
+        scopes: [...PUBLIC_API_SCOPES],
         validAudiences: [PUBLIC_API_AUDIENCE],
         cachedTrustedClients,
         allowDynamicClientRegistration: false,

@@ -4,6 +4,7 @@ export function createJsonRequest(
   init?: {
     headers?: HeadersInit;
     method?: string;
+    signal?: AbortSignal;
   }
 ): Request {
   const headers = new Headers(init?.headers);
@@ -12,6 +13,7 @@ export function createJsonRequest(
     method: init?.method ?? 'POST',
     headers,
     body: JSON.stringify(body),
+    signal: init?.signal,
   });
 }
 

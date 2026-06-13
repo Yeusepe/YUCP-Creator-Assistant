@@ -1,4 +1,5 @@
 import * as ed from '@noble/ed25519';
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
 import {
   base64ToBytes,
@@ -75,6 +76,17 @@ type VerificationIntentRedemptionResult = {
   expiresAt?: number;
   error?: string;
 };
+type ResolvedProductContextResult =
+  | {
+      ok: true;
+      creatorAuthUserId?: string;
+      productId?: string;
+    }
+  | {
+      ok: false;
+      errorCode: string;
+      errorMessage: string;
+    };
 
 function canonicalizeVerificationRequirement(
   requirement: VerificationIntentRequirement
@@ -97,6 +109,73 @@ function canonicalizeVerificationRequirements(
   requirements: VerificationIntentRequirement[]
 ): VerificationIntentRequirement[] {
   return requirements.map(canonicalizeVerificationRequirement);
+}
+
+async function resolveBuyerProviderRequirementProductContext(
+  ctx: ActionCtx,
+  args: {
+    apiSecret: string;
+    actor: ApiActorBinding;
+    packageId: string;
+    requirement: VerificationIntentRequirement;
+  }
+): Promise<ResolvedProductContextResult> {
+  if (args.requirement.creatorAuthUserId && args.requirement.productId) {
+    return {
+      ok: true,
+      creatorAuthUserId: args.requirement.creatorAuthUserId,
+      productId: args.requirement.productId,
+    };
+  }
+
+  if (!args.requirement.providerProductRef) {
+    return {
+      ok: true,
+    };
+  }
+
+  const product = await ctx.runQuery(api.yucpLicenses.lookupProductByProviderRef, {
+    apiSecret: args.apiSecret,
+    provider: args.requirement.providerKey,
+    providerProductRef: args.requirement.providerProductRef,
+  });
+  if (!product) {
+    return {
+      ok: false,
+      errorCode: 'product_not_linked',
+      errorMessage:
+        'This verification method is not linked to an active creator product. Ask the creator to reconnect the store product and try again.',
+    };
+  }
+
+  const packageRegistration = await ctx.runQuery(api.packageRegistry.lookupRegistration, {
+    apiSecret: args.apiSecret,
+    actor: args.actor,
+    packageId: args.packageId,
+  });
+  if (!packageRegistration) {
+    return {
+      ok: false,
+      errorCode: 'package_not_registered',
+      errorMessage:
+        'This package is not registered for buyer verification yet. Ask the creator to finish package setup and try again.',
+    };
+  }
+
+  if (packageRegistration.yucpUserId !== product.authUserId) {
+    return {
+      ok: false,
+      errorCode: 'creator_store_mismatch',
+      errorMessage:
+        'This verification method points at a different creator store than the package being redeemed.',
+    };
+  }
+
+  return {
+    ok: true,
+    creatorAuthUserId: product.authUserId,
+    productId: product.productId,
+  };
 }
 
 const VerificationIntentRequirementKindV = v.union(
@@ -922,10 +1001,29 @@ export const verifyIntentWithBuyerProviderLink = action({
       };
     }
 
+    const resolvedProductContext = await resolveBuyerProviderRequirementProductContext(ctx, {
+      apiSecret: args.apiSecret,
+      actor: args.actor,
+      packageId: intent.packageId,
+      requirement,
+    });
+    if (!resolvedProductContext.ok) {
+      await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+        intentId: args.intentId,
+        errorCode: resolvedProductContext.errorCode,
+        errorMessage: resolvedProductContext.errorMessage,
+      });
+      return {
+        success: false,
+        errorCode: resolvedProductContext.errorCode,
+        errorMessage: resolvedProductContext.errorMessage,
+      };
+    }
+
     // When the requirement carries product context, verify the actual purchase.
     // This prevents a link-only pass when the buyer has signed in with a Gumroad
     // account that did not purchase the product.
-    if (requirement.creatorAuthUserId && requirement.productId) {
+    if (resolvedProductContext.creatorAuthUserId && resolvedProductContext.productId) {
       const accountInfo = await ctx.runQuery(internal.subjects.getExternalAccountEmailHash, {
         externalAccountId: buyerProviderLink.externalAccountId,
       });
@@ -937,8 +1035,8 @@ export const verifyIntentWithBuyerProviderLink = action({
         provider: requirement.providerKey,
         externalAccountId: buyerProviderLink.externalAccountId,
         hasEmailHash: Boolean(accountInfo?.emailHash),
-        creatorAuthUserId: requirement.creatorAuthUserId,
-        productId: requirement.productId,
+        creatorAuthUserId: resolvedProductContext.creatorAuthUserId,
+        productId: resolvedProductContext.productId,
       });
 
       try {
@@ -962,9 +1060,9 @@ export const verifyIntentWithBuyerProviderLink = action({
       }
 
       const hasEntitlement = await ctx.runQuery(internal.yucpLicenses.checkSubjectEntitlement, {
-        authUserId: requirement.creatorAuthUserId,
+        authUserId: resolvedProductContext.creatorAuthUserId,
         subjectId,
-        productId: requirement.productId,
+        productId: resolvedProductContext.productId,
       });
       console.info('[convex] buyer provider link entitlement lookup completed', {
         phase: 'convex-verification-intent-buyer-provider-link',
@@ -972,8 +1070,8 @@ export const verifyIntentWithBuyerProviderLink = action({
         methodKey: args.methodKey,
         subjectId,
         provider: requirement.providerKey,
-        creatorAuthUserId: requirement.creatorAuthUserId,
-        productId: requirement.productId,
+        creatorAuthUserId: resolvedProductContext.creatorAuthUserId,
+        productId: resolvedProductContext.productId,
         hasEntitlement,
       });
 
@@ -984,8 +1082,8 @@ export const verifyIntentWithBuyerProviderLink = action({
           methodKey: args.methodKey,
           subjectId,
           provider: requirement.providerKey,
-          creatorAuthUserId: requirement.creatorAuthUserId,
-          productId: requirement.productId,
+          creatorAuthUserId: resolvedProductContext.creatorAuthUserId,
+          productId: resolvedProductContext.productId,
         });
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
@@ -1083,6 +1181,8 @@ export const verifyIntentWithManualLicense = action({
         licenseKey: args.licenseKey,
         provider: requirement.providerKey,
         productPermalink: requirement.providerProductRef,
+        creatorAuthUserId: requirement.creatorAuthUserId,
+        productId: requirement.productId,
       }
     );
 

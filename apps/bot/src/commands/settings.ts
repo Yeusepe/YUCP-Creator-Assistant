@@ -19,7 +19,7 @@ export async function handleSettingsDisconnect(
   const embed = new EmbedBuilder()
     .setTitle('⚠️ Warning: Disconnect Server')
     .setDescription(
-      'You are about to disconnect this server from your Creator Assistant account. This will completely stop role verification.'
+      'You are about to disconnect this server from your Creator Identity. This will completely stop role verification.'
     )
     .setColor('#FFA500'); // Orange
 

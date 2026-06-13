@@ -1,4 +1,8 @@
-import type { ApiActorBinding } from '@yucp/shared/apiActor';
+import {
+  type ApiActorBinding,
+  PUBLIC_API_KEY_PERMISSION_NAMESPACE,
+  PUBLIC_API_KEY_PREFIX,
+} from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { createAuthUserActorBinding } from '../../lib/apiActor';
 import { getConvexClientFromUrl } from '../../lib/convex';
@@ -9,9 +13,6 @@ import { errorResponse, generateRequestId } from './helpers';
 import type { PublicV2Config } from './types';
 
 const PUBLIC_API_KEY_PATTERN = /^ypsk_[0-9a-f]{48}$/;
-const PUBLIC_API_KEY_PREFIX = 'ypsk_';
-const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
-
 export interface AuthResult {
   authUserId: string;
   actorBinding: ApiActorBinding;

@@ -15,7 +15,7 @@
     "test:e2e:ci": "bun test ./test/e2e --timeout 300000"
   },
   "dependencies": {
-    "@hyperdx/node-opentelemetry": "^0.10.3",
+    "@hyperdx/node-opentelemetry": "^0.11.0",
     "@opentelemetry/api": "^1.9.1",
     "@tempojs/client": "^0.0.12",
     "@tempojs/common": "^0.0.12",

@@ -4,7 +4,7 @@ import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getToken } from '../auth-server';
 import { filterForwardedAuthCookieHeader } from './forwardedAuthCookies';
 import { getActiveWebServerTraceId, withWebServerSpan } from './observability';
-import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
+import { getWebApiBaseUrl, getWebRuntimeEnv, isWebProductionRuntime } from './runtimeEnv';
 
 /**
  * Server-side HTTP client for calling the Bun API.
@@ -16,10 +16,6 @@ import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
  * This replaces the browser-direct fetch calls that previously went through
  * the Vite dev proxy.
  */
-
-function getApiBaseUrl(): string {
-  return getWebApiBaseUrl(getWebRuntimeEnv());
-}
 
 function getInternalSecret(): string {
   return getInternalRpcSharedSecret(getWebRuntimeEnv());
@@ -79,6 +75,33 @@ function getForwardedAuthCookieHeader(): string | null {
   }
 }
 
+function getErrorCode(error: unknown): string {
+  const directCode =
+    error instanceof Error && 'code' in error
+      ? (error as Error & { code?: unknown }).code
+      : undefined;
+  if (typeof directCode === 'string' && directCode.trim()) {
+    return directCode.trim();
+  }
+
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : undefined;
+  const causeCode =
+    cause && 'code' in cause ? (cause as Error & { code?: unknown }).code : undefined;
+  if (typeof causeCode === 'string' && causeCode.trim()) {
+    return causeCode.trim();
+  }
+
+  return 'UPSTREAM_FETCH_FAILED';
+}
+
+function getSafeOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '[invalid API_BASE_URL]';
+  }
+}
+
 /**
  * Makes an authenticated server-to-server HTTP request to the Bun API.
  */
@@ -97,7 +120,8 @@ export async function serverApiFetch<T = unknown>(
       'web.server.auth.forwarded': Boolean(authToken),
     },
     async () => {
-      const base = getApiBaseUrl();
+      const runtimeEnv = getWebRuntimeEnv();
+      const base = getWebApiBaseUrl(runtimeEnv);
 
       let url = `${base}${path}`;
       if (params) {
@@ -126,13 +150,26 @@ export async function serverApiFetch<T = unknown>(
 
       propagation.inject(context.active(), headers);
 
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-
       const activeSpan = trace.getActiveSpan();
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method,
+          headers,
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+      } catch (error) {
+        const code = getErrorCode(error);
+        const origin = getSafeOrigin(base);
+        const errorOrigin = isWebProductionRuntime(runtimeEnv) ? '[internal API]' : origin;
+        activeSpan?.setAttribute('http.request.failed', true);
+        activeSpan?.setAttribute('downstream.error_code', code);
+        activeSpan?.setAttribute('downstream.origin', origin);
+        throw new Error(
+          `API ${method} ${path} upstream fetch failed (${code}) while contacting ${errorOrigin}`
+        );
+      }
+
       activeSpan?.setAttribute('http.response.status_code', response.status);
       const apiTraceId = response.headers.get('x-trace-id')?.trim();
       if (apiTraceId) {

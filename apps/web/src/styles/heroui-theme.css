@@ -2,7 +2,8 @@
 /* Reference: https://heroui.com/docs/handbook/theming */
 
 :root,
-[data-theme="light"] {
+[data-theme="light"],
+[data-theme="glass-light"] {
   /* Backgrounds */
   --background: oklch(0.93 0.02 222);
   --foreground: oklch(0.18 0.03 240);
@@ -61,7 +62,8 @@
 }
 
 .dark,
-[data-theme="dark"] {
+[data-theme="dark"],
+[data-theme="glass-dark"] {
   /* Backgrounds */
   --background: oklch(0.2 0.04 240);
   --foreground: oklch(0.95 0.005 220);

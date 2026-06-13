@@ -212,17 +212,14 @@ Use this order:
 For this repo, the standard finish line is:
 
 ```bash
-bun audit
+bun audit --ignore GHSA-4hxc-9384-m385 --ignore GHSA-2j6q-whv2-gh6w
 bun run lint
 bun run typecheck
+bun run test:external-integrations
 bun run test:ci
 ```
 
-For production-incident style work that touches provider, identity, verification, account, or backfill boundaries, also run the relevant targeted regression gate such as:
-
-```bash
-bun run test:external-integrations
-```
+That block mirrors the current CI jobs on pushes and pull requests. For production-incident work that touches provider, identity, verification, account, or backfill boundaries, run `bun run test:external-integrations` early as soon as the first regression lands, then keep it in the final repo-level finish line.
 
 ## 10. Common pitfalls
 

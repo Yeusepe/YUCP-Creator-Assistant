@@ -33,6 +33,26 @@ mock.module('../lib/csrf', () => ({
 
 const { createPackageRoutes } = await import('./packages');
 
+function expectDelegatedArgs(
+  args: unknown,
+  expected: {
+    apiSecret: string;
+    authUserId: string;
+    packageId?: string;
+    packageName?: string;
+  }
+): void {
+  expect(args).toEqual(
+    expect.objectContaining({
+      ...expected,
+      actor: {
+        payload: expect.any(String),
+        signature: expect.any(String),
+      },
+    })
+  );
+}
+
 describe('package routes', () => {
   const auth = {
     getSession: async () => ({ user: { id: 'creator-user' } }),
@@ -54,7 +74,7 @@ describe('package routes', () => {
   it('lists owned packages with human-readable names', async () => {
     queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
       if (ref === apiMock.packageRegistry.listForAuthUser) {
-        expect(args).toEqual({
+        expectDelegatedArgs(args, {
           apiSecret: 'convex-secret',
           authUserId: 'creator-user',
         });
@@ -104,7 +124,7 @@ describe('package routes', () => {
   it('renames a package owned by the current creator', async () => {
     mutationMock.mockImplementation(async (ref: unknown, args: unknown) => {
       if (ref === apiMock.packageRegistry.renameForAuthUser) {
-        expect(args).toEqual({
+        expectDelegatedArgs(args, {
           apiSecret: 'convex-secret',
           authUserId: 'creator-user',
           packageId: 'pkg.creator.bundle',
@@ -189,7 +209,7 @@ describe('package routes', () => {
   it('archives a package owned by the current creator', async () => {
     mutationMock.mockImplementation(async (ref: unknown, args: unknown) => {
       if (ref === apiMock.packageRegistry.archiveForAuthUser) {
-        expect(args).toEqual({
+        expectDelegatedArgs(args, {
           apiSecret: 'convex-secret',
           authUserId: 'creator-user',
           packageId: 'pkg.creator.bundle',
@@ -219,7 +239,7 @@ describe('package routes', () => {
   it('restores an archived package owned by the current creator', async () => {
     mutationMock.mockImplementation(async (ref: unknown, args: unknown) => {
       if (ref === apiMock.packageRegistry.restoreForAuthUser) {
-        expect(args).toEqual({
+        expectDelegatedArgs(args, {
           apiSecret: 'convex-secret',
           authUserId: 'creator-user',
           packageId: 'pkg.creator.bundle',

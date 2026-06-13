@@ -15,6 +15,7 @@ import oauthConsentHref from '@/styles/oauth-consent.css?url';
 import oauthErrorHref from '@/styles/oauth-error.css?url';
 import oauthLoginHref from '@/styles/oauth-login.css?url';
 import payhipSetupHref from '@/styles/payhip-setup.css?url';
+import productAccessHref from '@/styles/product-access.css?url';
 import signInHref from '@/styles/sign-in.css?url';
 import signInRedirectHref from '@/styles/sign-in-redirect.css?url';
 import verifyErrorHref from '@/styles/verify-error.css?url';
@@ -37,6 +38,7 @@ export const routeStyleHrefs = {
   oauthError: oauthErrorHref,
   oauthLogin: oauthLoginHref,
   payhipSetup: payhipSetupHref,
+  productAccess: productAccessHref,
   signIn: signInHref,
   signInRedirect: signInRedirectHref,
   verifyError: verifyErrorHref,

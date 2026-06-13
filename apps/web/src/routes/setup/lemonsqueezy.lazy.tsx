@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/lemonsqueezy-setup.css';
-import { resolveSetupApiBase } from './lemonsqueezySetupSupport';
+import { resolveSetupApiBase } from './-lemonsqueezySetupSupport';
 
 export const Route = createLazyFileRoute('/setup/lemonsqueezy')({
   component: LemonSqueezySetupPage,

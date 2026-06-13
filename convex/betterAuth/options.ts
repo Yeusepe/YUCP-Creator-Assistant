@@ -1,13 +1,16 @@
 import { oauthProvider } from '@better-auth/oauth-provider';
 import { apiKey } from '@better-auth/api-key';
 import { passkey } from '@better-auth/passkey';
+import {
+  DEFAULT_PUBLIC_API_KEY_SCOPES,
+  PUBLIC_API_AUDIENCE,
+  PUBLIC_API_KEY_PERMISSION_NAMESPACE,
+  PUBLIC_API_KEY_PREFIX,
+  PUBLIC_API_SCOPES,
+} from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { createJwtJwksAdapter } from './jwtAdapter';
-
-const PUBLIC_API_AUDIENCE = 'yucp-public-api';
-const PUBLIC_API_KEY_PREFIX = 'ypsk_';
-const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 
 export const createSchemaAuthOptions = (): BetterAuthOptions =>
   ({
@@ -22,7 +25,7 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         enableSessionForAPIKeys: false,
         permissions: {
           defaultPermissions: {
-            [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: ['verification:read', 'subjects:read'],
+            [PUBLIC_API_KEY_PERMISSION_NAMESPACE]: [...DEFAULT_PUBLIC_API_KEY_SCOPES],
           },
         },
       }),
@@ -42,7 +45,7 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
       oauthProvider({
         loginPage: 'https://example.com/oauth/login',
         consentPage: 'https://example.com/oauth/consent',
-        scopes: ['verification:read', 'cert:issue'],
+        scopes: [...PUBLIC_API_SCOPES],
         validAudiences: [PUBLIC_API_AUDIENCE],
         cachedTrustedClients: new Set<string>(),
         allowDynamicClientRegistration: false,

@@ -38,6 +38,7 @@ import {
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { normalizeProviderThumbnailUrl } from '../lib/catalogMedia';
 import { E, Emoji } from '../lib/emojis';
 import {
   createDiscordRoleSetupSessionToken,
@@ -76,6 +77,8 @@ interface ProductSession {
   productNames?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> provider-supplied canonical product URL) */
   productUrls?: Record<string, Record<string, string>>;
+  /** provider key -> (product id -> provider-supplied thumbnail URL) */
+  productThumbnails?: Record<string, Record<string, string>>;
   /** provider key -> (product id -> source/collaborator name) */
   productSources?: Record<string, Record<string, string>>;
   availableTiers?: Record<
@@ -214,6 +217,14 @@ function resolveCatalogProductUrl(
     return providerProductUrl;
   }
   return buildCatalogProductUrl(provider, productId);
+}
+
+function resolveCatalogProductThumbnail(
+  session: ProductSession,
+  provider: string,
+  productId: string
+): string | undefined {
+  return normalizeProviderThumbnailUrl(session.productThumbnails?.[provider]?.[productId]);
 }
 
 function cleanExpiredSessions(): void {
@@ -593,6 +604,7 @@ export async function handleProductTypeSelect(
         id: string;
         name: string;
         productUrl?: string;
+        thumbnailUrl?: string;
       }> = data.products ?? [];
       if (products.length === 0) {
         await interaction.editReply({
@@ -619,6 +631,18 @@ export async function handleProductTypeSelect(
       );
       if (Object.keys(productUrls).length > 0) {
         session.productUrls = { ...session.productUrls, [selectedType]: productUrls };
+      }
+      const productThumbnails = Object.fromEntries(
+        products.flatMap((p) => {
+          const thumbnailUrl = normalizeProviderThumbnailUrl(p.thumbnailUrl);
+          return thumbnailUrl ? [[p.id, thumbnailUrl]] : [];
+        })
+      );
+      if (Object.keys(productThumbnails).length > 0) {
+        session.productThumbnails = {
+          ...session.productThumbnails,
+          [selectedType]: productThumbnails,
+        };
       }
       const sourcesMap: Record<string, string> = Object.fromEntries(
         products.flatMap((p) => (p.collaboratorName ? [[p.id, p.collaboratorName]] : []))
@@ -1462,6 +1486,7 @@ export async function handleProductConfirmAdd(
         canonicalUrl,
         supportsAutoDiscovery: descriptor.supportsAutoDiscovery ?? false,
         displayName,
+        thumbnailUrl: resolveCatalogProductThumbnail(session, type, productIdFromApi),
       });
       productId = result.productId;
       catalogProductId = result.catalogProductId;

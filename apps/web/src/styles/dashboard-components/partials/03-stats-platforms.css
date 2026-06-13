@@ -1,12 +1,13 @@
-.btn-primary {
+.btn-primary,
+.btn-primary.button--primary {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: #0ea5e9;
-  color: #ffffff;
-  border: none;
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.96), rgba(30, 64, 175, 0.96));
+  color: #f8fafc;
+  border: 1px solid rgba(30, 64, 175, 0.28);
   font-family: var(--font-display), sans-serif;
   font-weight: 700;
   font-size: 13px;
@@ -15,16 +16,35 @@
   cursor: pointer;
   transition:
     background 0.2s ease,
+    border-color 0.2s ease,
     box-shadow 0.2s ease,
     transform 0.2s ease;
   overflow: hidden;
   z-index: 1;
+  box-shadow: 0 12px 30px rgba(29, 78, 216, 0.2);
 }
 
-.btn-primary:hover {
-  background: #0284c7;
-  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.35);
+.dark .btn-primary,
+.dark .btn-primary.button--primary {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.92), rgba(30, 64, 175, 0.92));
+  color: #f8fafc;
+  border-color: rgba(147, 197, 253, 0.22);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.34);
+}
+
+.btn-primary:hover,
+.btn-primary.button--primary:hover {
+  background: linear-gradient(135deg, rgba(30, 64, 175, 1), rgba(30, 58, 138, 1));
+  border-color: rgba(30, 58, 138, 0.36);
+  box-shadow: 0 16px 34px rgba(30, 64, 175, 0.28);
   transform: translateY(-1px);
+}
+
+.dark .btn-primary:hover,
+.dark .btn-primary.button--primary:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.96), rgba(37, 99, 235, 0.96));
+  border-color: rgba(191, 219, 254, 0.28);
+  box-shadow: 0 18px 38px rgba(37, 99, 235, 0.28);
 }
 
 .btn-primary.btn-primary--diagnostics {
@@ -154,10 +174,24 @@
   transition-duration: 0.1s;
 }
 
-.btn-primary:disabled {
+.btn-primary:disabled,
+.btn-primary.button--primary:disabled,
+.btn-primary.button--primary[data-disabled] {
   opacity: 0.6;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.55), rgba(30, 64, 175, 0.55));
+  color: rgba(248, 250, 252, 0.92);
+  border-color: rgba(30, 64, 175, 0.16);
+  box-shadow: none;
   cursor: not-allowed;
   transform: none;
+}
+
+.dark .btn-primary:disabled,
+.dark .btn-primary.button--primary:disabled,
+.dark .btn-primary.button--primary[data-disabled] {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.42), rgba(30, 64, 175, 0.42));
+  color: rgba(248, 250, 252, 0.86);
+  border-color: rgba(191, 219, 254, 0.14);
 }
 
 @media (min-width: 768px) {

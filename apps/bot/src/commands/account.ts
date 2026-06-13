@@ -24,14 +24,17 @@ export async function handleAccountCommand(
   const connectionsUrl = new URL('/account/connections', webPublic).toString();
 
   const embed = new EmbedBuilder()
-    .setTitle('Your Creator Account')
+    .setTitle('Your Creator Identity')
     .setDescription(
-      'Open the Creator Portal to manage your linked accounts, licenses, authorized apps, and privacy settings.'
+      'Open the Creator Portal to manage your Creator Identity, linked providers, licenses, authorized apps, and privacy settings.'
     )
     .setColor(0x5865f2);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setLabel('Open My Account').setStyle(ButtonStyle.Link).setURL(accountUrl),
+    new ButtonBuilder()
+      .setLabel('Open Creator Identity')
+      .setStyle(ButtonStyle.Link)
+      .setURL(accountUrl),
     new ButtonBuilder()
       .setLabel('Manage Connections')
       .setStyle(ButtonStyle.Link)

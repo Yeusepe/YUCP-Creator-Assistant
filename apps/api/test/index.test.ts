@@ -42,6 +42,39 @@ describe('API server, route mounting', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
+  it('GET /v1/keys serves the importer trust bootstrap on the API host', async () => {
+    const res = await server.fetch('/v1/keys');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+
+    const body = (await res.json()) as {
+      keys?: Array<{
+        kty?: string;
+        crv?: string;
+        kid?: string;
+        x?: string;
+      }>;
+    };
+
+    expect(body.keys?.length).toBeGreaterThan(0);
+    expect(body.keys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kty: 'OKP',
+          crv: 'Ed25519',
+          kid: expect.any(String),
+          x: expect.any(String),
+        }),
+      ])
+    );
+    for (const key of body.keys ?? []) {
+      expect(key).not.toHaveProperty('d');
+      expect(key).not.toHaveProperty('seed');
+      expect(key).not.toHaveProperty('privateKey');
+    }
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
   it('still serves shared static assets that are used outside the migrated creator UI', async () => {
     const res = await server.fetch('/tokens.css');
     expect(res.status).toBe(200);

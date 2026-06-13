@@ -40,6 +40,23 @@ let mockProductsResultsByProvider:
   | Partial<Record<string, { products: Array<{ id: string; name: string }>; error?: string }>>
   | undefined;
 
+function createGeneratedApiMock(overrides: Record<string, unknown>) {
+  return new Proxy(overrides, {
+    get(target, prop: string | symbol) {
+      if (prop in target) {
+        return target[prop as keyof typeof target];
+      }
+      return new Proxy(
+        {},
+        {
+          get: (_moduleTarget, functionName: string | symbol) =>
+            `${String(prop)}:${String(functionName)}`,
+        }
+      );
+    },
+  });
+}
+
 // Mock internalRpc BEFORE importing the command (bun:test hoists mock.module).
 mock.module('../../src/lib/internalRpc', () => ({
   createSetupSessionToken: createSetupSessionTokenMock,
@@ -57,11 +74,11 @@ mock.module('../../src/lib/posthog', () => ({
 }));
 
 mock.module('../../../../convex/_generated/api', () => ({
-  api: {
+  api: createGeneratedApiMock({
     setupJobs: {
       createOrResumeSetupJobForOwner: 'setupJobs:createOrResumeSetupJobForOwner',
     },
-  },
+  }),
 }));
 
 mock.module('../../src/lib/apiUrls', () => ({

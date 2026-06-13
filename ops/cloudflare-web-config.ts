@@ -10,7 +10,13 @@ export const REPO_ROOT_ENV_LOCAL_PATH = resolve(REPO_ROOT_DIR, '.env.local');
 export const WEB_WRANGLER_CONFIG_PATH = resolve(WEB_APP_DIR, 'wrangler.jsonc');
 export const WEB_DIST_SERVER_DIR = resolve(WEB_APP_DIR, 'dist', 'server');
 export const WEB_GENERATED_WRANGLER_CONFIG_PATH = resolve(WEB_DIST_SERVER_DIR, 'wrangler.json');
-export const WEB_LOCAL_ENV_PATH = resolve(WEB_APP_DIR, '.dev.vars');
+
+export function resolveWebLocalEnvPath(env: Record<string, string | undefined> = process.env) {
+  const configuredPath = normalizeOptional(env.WEB_LOCAL_ENV_PATH);
+  return configuredPath ? resolve(configuredPath) : resolve(WEB_APP_DIR, '.dev.vars');
+}
+
+export const WEB_LOCAL_ENV_PATH = resolveWebLocalEnvPath();
 
 export const WEB_BUILD_ENV_KEYS = [
   'BUILD_ID',
@@ -35,6 +41,8 @@ export const WEB_RUNTIME_VAR_KEYS = [
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_PROTOCOL',
   'SITE_URL',
+  'YUCP_ENABLE_AUTOMATIC_SETUP',
+  'YUCP_ENABLE_PRIVATE_VPM',
 ] as const;
 
 export const WEB_SECRET_KEYS = [

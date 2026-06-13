@@ -1,44 +1,47 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "@heroui-pro/react/css";
+@import "@heroui-pro/react/themes/glass";
 @import "./heroui-theme.css";
 
 /* Scan route and component files for Tailwind utility classes */
 @source "../routes";
 @source "../components";
 @source "../../node_modules/@heroui/react/dist";
+@source "../../node_modules/@heroui-pro/react/dist";
 @source "../../node_modules/@heroui/styles/dist";
 
 /* ── Airbnb Cereal, self-hosted, all weights ── */
 @font-face {
-  font-family: "AirbnbCereal";
+  font-family: AirbnbCereal;
   src: url("/fonts/airbnb-cereal/AirbnbCereal-Light.ttf") format("truetype");
   font-weight: 300;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "AirbnbCereal";
+  font-family: AirbnbCereal;
   src: url("/fonts/airbnb-cereal/AirbnbCereal-Book.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "AirbnbCereal";
+  font-family: AirbnbCereal;
   src: url("/fonts/airbnb-cereal/AirbnbCereal-Medium.ttf") format("truetype");
   font-weight: 500;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "AirbnbCereal";
+  font-family: AirbnbCereal;
   src: url("/fonts/airbnb-cereal/AirbnbCereal-Bold.ttf") format("truetype");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
-  font-family: "AirbnbCereal";
+  font-family: AirbnbCereal;
   src: url("/fonts/airbnb-cereal/AirbnbCereal-ExtraBold.ttf") format("truetype");
   font-weight: 800;
   font-style: normal;
@@ -46,7 +49,7 @@
 }
 
 :root {
-  --font-display: "AirbnbCereal", sans-serif;
+  --font-display: AirbnbCereal, sans-serif;
 }
 
 @layer base {
@@ -63,7 +66,7 @@
   body {
     background-color: var(--bg-color);
     color: var(--text-primary);
-    font-family: "AirbnbCereal", sans-serif;
+    font-family: AirbnbCereal, sans-serif;
     font-weight: 400;
     overflow-x: hidden;
     min-height: 100dvh;

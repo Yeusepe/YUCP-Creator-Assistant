@@ -31,6 +31,7 @@ vi.mock('@/components/ui/Toast', () => ({
 
 vi.mock('@/lib/dashboard', () => ({
   disconnectUserAccount: vi.fn(),
+  getUserAccountsQueryKey: vi.fn(() => ['user-accounts', { refresh: false }] as const),
   listUserAccounts: vi.fn(),
   listUserProviders: vi.fn(),
   startUserVerify: vi.fn(),

@@ -20,9 +20,10 @@ import type { Auth } from './auth';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
+import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
-  createCouplingLicenseRoutes,
+  createBackstageRepoRoutes,
   createVerificationRoutes,
   mountVerificationRouteHandlers,
   type VerificationConfig,
@@ -70,6 +71,14 @@ export interface TestServerConfig {
   /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
+  cdngine?: {
+    accessToken?: string;
+    apiBaseUrl: string;
+    publicationPollIntervalMs?: number;
+    publicationTimeoutMs?: number;
+    required?: boolean;
+    timeoutMs?: number;
+  };
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
@@ -135,12 +144,15 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
   };
   const verificationHandlers = createVerificationRoutes(verificationConfig);
   const verificationRoutes = mountVerificationRouteHandlers(verificationHandlers);
-  const couplingLicenseRoutes = createCouplingLicenseRoutes({
+  const backstageRepoRoutes = createBackstageRepoRoutes({
+    auth: stubAuth,
     apiBaseUrl: baseUrl,
-    couplingServiceBaseUrl: config.couplingServiceBaseUrl ?? '',
-    couplingServiceSharedSecret: config.couplingServiceSharedSecret ?? '',
-    convexUrl: config.convexUrl,
+    enableSessionAccess: true,
+    frontendBaseUrl: frontendUrl,
     convexApiSecret: config.convexApiSecret,
+    convexSiteUrl: config.convexSiteUrl,
+    convexUrl: config.convexUrl,
+    cdngine: config.cdngine,
   });
   const accountSecurityRoutes = createAccountSecurityRoutes(stubAuth, {
     convexUrl: config.convexUrl,
@@ -208,6 +220,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       return new Response(file, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     }
 
+    if (pathname === '/v1/keys' && request.method === 'GET') {
+      return buildYucpKeysResponse();
+    }
+
     if (
       pathname.startsWith('/assets/') ||
       pathname.startsWith('/Icons/') ||
@@ -239,12 +255,14 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       return webhookHandler(request);
     }
 
-    // Provider platform routes (/v1/*)
-    if (pathname.startsWith('/v1/')) {
-      const couplingResponse = await couplingLicenseRoutes.handleRequest(request);
-      if (couplingResponse) return couplingResponse;
-      const local = await providerPlatformRoutes.handleRequest(request);
-      if (local) return local;
+    // Provider platform routes (/v1/*) and session-backed Backstage access (/api/backstage/*)
+    if (pathname.startsWith('/v1/') || pathname.startsWith('/api/backstage/')) {
+      const backstageResponse = await backstageRepoRoutes.handleRequest(request);
+      if (backstageResponse) return backstageResponse;
+      if (pathname.startsWith('/v1/')) {
+        const local = await providerPlatformRoutes.handleRequest(request);
+        if (local) return local;
+      }
     }
 
     // Verification routes (license key, OAuth callbacks)
@@ -336,6 +354,10 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     if (pathname === '/api/connect/user/accounts') {
       if (request.method === 'GET') return connectRoutes.getUserAccounts(request);
       if (request.method === 'DELETE') return connectRoutes.deleteUserAccount(request);
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+    if (pathname === '/api/connect/user/accounts/refresh') {
+      if (request.method === 'POST') return connectRoutes.refreshUserAccounts(request);
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
     if (pathname === '/api/account-recovery/start') {

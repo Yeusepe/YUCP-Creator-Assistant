@@ -64,11 +64,53 @@ const ProductCatalogStatus = v.union(
   v.literal('hidden')
 );
 
+const DeliveryPackageStatus = v.union(
+  v.literal('draft'),
+  v.literal('active'),
+  v.literal('archived')
+);
+
+const DeliveryPackageLinkStatus = v.union(v.literal('active'), v.literal('archived'));
+
+const DeliveryPackageReleaseStatus = v.union(
+  v.literal('draft'),
+  v.literal('published'),
+  v.literal('revoked'),
+  v.literal('superseded')
+);
+
+const DeliveryPackageVisibility = v.union(v.literal('hidden'), v.literal('listed'));
+
+const DeliveryRepoTokenStatus = v.union(
+  v.literal('active'),
+  v.literal('revoked'),
+  v.literal('expired')
+);
+
 /** Signed release artifact publication status */
 const SignedReleaseArtifactStatus = v.union(
   v.literal('active'),
   v.literal('inactive'),
   v.literal('revoked')
+);
+
+const DeliveryArtifactMode = v.union(v.literal('legacy_signed'), v.literal('server_materialized'));
+
+const DeliveryReleaseArtifactRole = v.union(
+  v.literal('raw_upload'),
+  v.literal('server_deliverable')
+);
+
+const DeliveryReleaseArtifactOwnership = v.union(
+  v.literal('creator_upload'),
+  v.literal('server_materialized')
+);
+
+const DeliveryReleaseArtifactStatus = v.union(v.literal('active'), v.literal('inactive'));
+
+const DeliveryReleaseMaterializationStrategy = v.union(
+  v.literal('passthrough'),
+  v.literal('normalized_repack')
 );
 
 /** Catalog product link kinds */
@@ -516,6 +558,7 @@ const AuditEventType = v.union(
   v.literal('protected.materialization.grant.receipted'),
   v.literal('protected.materialization.grant.revoked'),
   v.literal('coupling.lookup.performed'),
+  v.literal('coupling.license_key.revealed'),
   v.literal('setup.job.created'),
   v.literal('setup.job.resumed'),
   v.literal('setup.job.status.updated'),
@@ -758,6 +801,11 @@ const entitlements = defineTable({
   sourceProvider: Provider,
   // Reference to the source evidence
   sourceReference: v.string(),
+  // Canonical license subject (SHA-256 of the provider license key) captured at
+  // verification time. Lets the alias/VPM install-plan mint a license token whose
+  // `sub` re-uses this subject, so coupling forensics resolve a watermark hit back
+  // to the specific license + buyer. Optional: legacy/non-license grants have none.
+  licenseSubject: v.optional(v.string()),
   // Optional link to provider customer memory
   providerCustomerId: v.optional(v.id('provider_customers')),
   // Optional link to catalog product
@@ -1343,6 +1391,8 @@ const product_catalog = defineTable({
   canonicalSlug: v.optional(v.string()),
   // Human-readable name for display (e.g. Jinxxy product name)
   displayName: v.optional(v.string()),
+  // Cached provider thumbnail for product management surfaces.
+  thumbnailUrl: v.optional(v.string()),
   // Alternative names/identifiers
   aliases: v.optional(v.array(v.string())),
   // Current status
@@ -1378,6 +1428,97 @@ const catalog_tiers = defineTable({
   .index('by_catalog_product', ['catalogProductId'])
   .index('by_product', ['authUserId', 'productId'])
   .index('by_provider_tier_ref', ['authUserId', 'provider', 'providerTierRef']);
+
+/**
+ * Delivery Packages - distributable Unity/VPM package identities for Backstage Repos.
+ * Separate from package_registry so namespace ownership and subscriber delivery stay decoupled.
+ */
+const delivery_packages = defineTable({
+  authUserId: v.string(),
+  packageId: v.string(),
+  packageName: v.optional(v.string()),
+  displayName: v.optional(v.string()),
+  description: v.optional(v.string()),
+  status: DeliveryPackageStatus,
+  repositoryVisibility: DeliveryPackageVisibility,
+  defaultChannel: v.optional(v.string()),
+  latestPublishedVersion: v.optional(v.string()),
+  latestPublishedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_package_id', ['packageId'])
+  .index('by_auth_user_status', ['authUserId', 'status']);
+
+/**
+ * Delivery Package Products - links creator storefront products and tiers to delivery packages.
+ * Product-level rules unlock a package for any active entitlement on the catalog product.
+ * Tier-level rules narrow that access to specific catalog tiers while staying anchored to the
+ * owning catalog product for workspace listing and delete guards.
+ */
+const delivery_package_products = defineTable({
+  authUserId: v.string(),
+  deliveryPackageId: v.id('delivery_packages'),
+  catalogProductId: v.id('product_catalog'),
+  catalogTierId: v.optional(v.id('catalog_tiers')),
+  status: DeliveryPackageLinkStatus,
+  accessMode: v.literal('entitlement'),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_delivery_package', ['deliveryPackageId'])
+  .index('by_catalog_product', ['catalogProductId'])
+  .index('by_catalog_tier', ['catalogTierId'])
+  .index('by_auth_user_catalog_product', ['authUserId', 'catalogProductId'])
+  .index('by_auth_user_catalog_tier', ['authUserId', 'catalogTierId']);
+
+/**
+ * Delivery Package Releases - published package versions and canonical delivery references.
+ * This is the release layer that future VCC listing and resolver endpoints will read from.
+ */
+const delivery_package_releases = defineTable({
+  authUserId: v.string(),
+  deliveryPackageId: v.id('delivery_packages'),
+  packageId: v.string(),
+  version: v.string(),
+  channel: v.string(),
+  releaseStatus: DeliveryPackageReleaseStatus,
+  repositoryVisibility: DeliveryPackageVisibility,
+  signedArtifactId: v.optional(v.id('signed_release_artifacts')),
+  artifactKey: v.optional(v.string()),
+  unityVersion: v.optional(v.string()),
+  zipSha256: v.optional(v.string()),
+  metadata: v.optional(v.any()),
+  publishedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_auth_user', ['authUserId'])
+  .index('by_delivery_package', ['deliveryPackageId'])
+  .index('by_package_version', ['packageId', 'version'])
+  .index('by_delivery_package_release_status', ['deliveryPackageId', 'releaseStatus'])
+  .index('by_auth_user_package', ['authUserId', 'packageId']);
+
+/**
+ * Delivery Repo Tokens - opaque revocable credentials for Backstage Repos access.
+ * Tokens are stored hashed so leaked database rows cannot be replayed as repo credentials.
+ */
+const delivery_repo_tokens = defineTable({
+  authUserId: v.string(),
+  subjectId: v.id('subjects'),
+  tokenHash: v.string(),
+  label: v.optional(v.string()),
+  status: DeliveryRepoTokenStatus,
+  expiresAt: v.optional(v.number()),
+  lastUsedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_token_hash', ['tokenHash'])
+  .index('by_subject_status', ['subjectId', 'status'])
+  .index('by_auth_user_status', ['authUserId', 'status']);
 
 /**
  * Purchase Facts - Canonical purchase layer for automatic verification
@@ -1926,6 +2067,8 @@ const webhook_events = defineTable({
   verificationMethod: v.optional(
     v.union(v.literal('hmac'), v.literal('static-key'), v.literal('route-token'))
   ),
+  // Derived authentication gate for queue reads. Older rows may not have this field.
+  authenticated: v.optional(v.boolean()),
   // Processing status
   status: WebhookEventStatus,
   // Error message if processing failed
@@ -1944,6 +2087,7 @@ const webhook_events = defineTable({
   .index('by_provider_event', ['provider', 'providerEventId'])
   .index('by_provider', ['provider'])
   .index('by_status', ['status'])
+  .index('by_status_authenticated_received', ['status', 'authenticated', 'receivedAt'])
   .index('by_auth_user', ['authUserId'])
   .index('by_connection_event', ['providerConnectionId', 'providerEventId'])
   .index('by_auth_user_provider_event', ['authUserId', 'provider', 'providerEventId'])
@@ -2364,6 +2508,52 @@ const signed_release_artifacts = defineTable({
   .index('by_artifact_key_status', ['artifactKey', 'status'])
   .index('by_status', ['status']);
 
+const delivery_release_artifacts = defineTable({
+  deliveryPackageReleaseId: v.id('delivery_package_releases'),
+  artifactRole: DeliveryReleaseArtifactRole,
+  ownership: DeliveryReleaseArtifactOwnership,
+  materializationStrategy: v.optional(DeliveryReleaseMaterializationStrategy),
+  sourceArtifactId: v.optional(v.id('delivery_release_artifacts')),
+  storageId: v.optional(v.id('_storage')),
+  contentType: v.string(),
+  deliveryName: v.string(),
+  sha256: v.string(),
+  byteSize: v.number(),
+  cdngineDelivery: v.optional(
+    v.object({
+      assetId: v.string(),
+      assetOwner: v.string(),
+      byteSize: v.number(),
+      deliveryScopeId: v.string(),
+      serviceNamespaceId: v.string(),
+      sha256: v.string(),
+      tenantId: v.optional(v.string()),
+      uploadedAt: v.number(),
+      variant: v.string(),
+      versionId: v.string(),
+    })
+  ),
+  cdngineSource: v.optional(
+    v.object({
+      assetId: v.string(),
+      assetOwner: v.string(),
+      byteSize: v.number(),
+      serviceNamespaceId: v.string(),
+      sha256: v.string(),
+      tenantId: v.optional(v.string()),
+      uploadedAt: v.number(),
+      versionId: v.string(),
+    })
+  ),
+  status: DeliveryReleaseArtifactStatus,
+  activatedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_release', ['deliveryPackageReleaseId'])
+  .index('by_release_role_status', ['deliveryPackageReleaseId', 'artifactRole', 'status'])
+  .index('by_source_artifact', ['sourceArtifactId']);
+
 const coupling_trace_records = defineTable({
   authUserId: v.string(),
   packageId: v.string(),
@@ -2736,6 +2926,10 @@ export default defineSchema({
   migration_grants,
   migration_events,
   product_catalog,
+  delivery_packages,
+  delivery_package_products,
+  delivery_package_releases,
+  delivery_repo_tokens,
   catalog_tiers,
   manual_licenses,
   purchase_facts,
@@ -2779,6 +2973,7 @@ export default defineSchema({
   creator_billing_meters,
   creator_billing_reconciliation_targets,
   signed_release_artifacts,
+  delivery_release_artifacts,
   coupling_trace_records,
   license_subject_links,
   revoked_grants,

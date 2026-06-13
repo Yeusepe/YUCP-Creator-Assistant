@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createTestLogger } from '../testSupport/loggerMock';
 import type { VerificationConfig } from './verificationConfig';
 
 const convexQueryMock = mock(
@@ -108,11 +109,11 @@ mock.module('../lib/convex', () => ({
 }));
 
 mock.module('../lib/logger', () => ({
-  logger: {
+  logger: createTestLogger({
     error: mock(() => undefined),
     info: mock(() => undefined),
     warn: mock(() => undefined),
-  },
+  }),
 }));
 
 mock.module('../lib/stateStore', () => ({
@@ -178,6 +179,10 @@ const testConfig: VerificationConfig = {
 };
 
 describe('VerificationSessionManager account-link callback', () => {
+  afterAll(() => {
+    mock.restore();
+  });
+
   beforeEach(() => {
     convexQueryMock.mockReset();
     convexMutationMock.mockReset();

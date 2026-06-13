@@ -27,7 +27,6 @@ export interface LocalEnv {
   BETTER_AUTH_URL?: string;
   /** Legacy alias for SITE_URL. Avoid using for new config. */
   FRONTEND_URL?: string;
-  PUBLIC_API_KEY_PEPPER?: string;
   PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON?: string;
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
@@ -66,6 +65,14 @@ export interface LocalEnv {
   YUCP_COUPLING_SERVICE_BASE_URL?: string;
   YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
   COUPLING_SERVICE_SECRET?: string;
+  CDNGINE_API_BASE_URL?: string;
+  CDNGINE_PUBLIC_API_BASE_URL?: string;
+  CDNGINE_ACCESS_TOKEN?: string;
+  CDNGINE_API_TOKEN?: string;
+  CDNGINE_BACKSTAGE_REQUIRED?: string;
+  CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS?: string;
+  CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS?: string;
+  CDNGINE_BACKSTAGE_TIMEOUT_MS?: string;
   HYPERDX_API_KEY?: string;
   HYPERDX_APP_URL?: string;
   HYPERDX_OTLP_HTTP_URL?: string;
@@ -171,7 +178,6 @@ function loadFromEnv(): LocalEnv {
     ERROR_REFERENCE_SECRET: process.env.ERROR_REFERENCE_SECRET,
     BETTER_AUTH_URL: normalizeUrl(process.env.BETTER_AUTH_URL),
     FRONTEND_URL: process.env.FRONTEND_URL,
-    PUBLIC_API_KEY_PEPPER: process.env.PUBLIC_API_KEY_PEPPER,
     PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON: process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON,
     INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     INTERNAL_RPC_SHARED_SECRET: process.env.INTERNAL_RPC_SHARED_SECRET,
@@ -203,6 +209,15 @@ function loadFromEnv(): LocalEnv {
     YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
     YUCP_COUPLING_SERVICE_SHARED_SECRET: resolveCouplingServiceSharedSecret(process.env),
     COUPLING_SERVICE_SECRET: process.env.COUPLING_SERVICE_SECRET,
+    CDNGINE_API_BASE_URL: process.env.CDNGINE_API_BASE_URL,
+    CDNGINE_PUBLIC_API_BASE_URL: process.env.CDNGINE_PUBLIC_API_BASE_URL,
+    CDNGINE_ACCESS_TOKEN: process.env.CDNGINE_ACCESS_TOKEN,
+    CDNGINE_API_TOKEN: process.env.CDNGINE_API_TOKEN,
+    CDNGINE_BACKSTAGE_REQUIRED: process.env.CDNGINE_BACKSTAGE_REQUIRED,
+    CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS:
+      process.env.CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS,
+    CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS: process.env.CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS,
+    CDNGINE_BACKSTAGE_TIMEOUT_MS: process.env.CDNGINE_BACKSTAGE_TIMEOUT_MS,
     HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
     HYPERDX_APP_URL: process.env.HYPERDX_APP_URL,
     HYPERDX_OTLP_HTTP_URL: process.env.HYPERDX_OTLP_HTTP_URL,
@@ -228,7 +243,19 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
   }
 
   const infisicalSecrets = await fetchFromInfisical();
-  if (Object.keys(infisicalSecrets).length > 0 && !infisicalLoaded) {
+  const infisicalSecretCount = Object.keys(infisicalSecrets).length;
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
+  if (infisicalSecretCount === 0) {
+    const message =
+      'Infisical secrets did not load; environment is using process.env and local fallback files only.';
+    if (nodeEnv === 'production') {
+      throw new Error(`${message} Refusing production startup.`);
+    }
+    logger.warn(message, {
+      infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
+    });
+  }
+  if (infisicalSecretCount > 0 && !infisicalLoaded) {
     infisicalLoaded = true;
     for (const [key, value] of Object.entries(infisicalSecrets)) {
       if (
@@ -243,7 +270,7 @@ export async function loadEnvAsync(): Promise<LocalEnv> {
       process.env.CONVEX_URL = process.env.CONVEX_DEPLOYMENT_URL;
     }
     logger.info('Loaded secrets from Infisical', {
-      count: Object.keys(infisicalSecrets).length,
+      count: infisicalSecretCount,
       infisicalEnv: process.env.INFISICAL_ENV ?? 'dev (default)',
     });
   }

@@ -1,3 +1,4 @@
+import { Card, Skeleton } from '@heroui/react';
 import type { CSSProperties } from 'react';
 
 import {
@@ -9,6 +10,13 @@ import {
 } from '@/components/ui/YucpSkeleton';
 
 const copySectionStyle: CSSProperties = { flex: 1 };
+const packageWorkspaceCardKeys = [
+  'registry-summary',
+  'package-health',
+  'package-targets',
+  'package-activity',
+] as const;
+const packageWorkspaceSideKeys = ['repo-access', 'release-targets', 'supporting-actions'] as const;
 
 type DashboardActionRowSkeletonProps = {
   count?: number;
@@ -181,31 +189,208 @@ export function DashboardCertificatesSkeleton() {
   );
 }
 
-/** Package registry row skeleton, icon + name/id pair + status pill + icon actions. */
-function DashboardPackageRowSkeleton() {
+export type PackageRegistryWorkspaceSkeletonProps = {
+  className?: string;
+  /** Full page (route loading) or content only (panel queries while header stays real). */
+  showHeader?: boolean;
+  listRows?: number;
+};
+
+/**
+ * Layout mirrors `PackageRegistryPanel` (header, `Card` header + content, inline note, product rows).
+ * `Skeleton` uses the default per-element shimmer
+ * (https://www.heroui.com/docs/react/components/skeleton), not the optional "Single Shimmer" pattern
+ * that wraps a group in `skeleton--shimmer` and sets `animationType="none"` on every child.
+ */
+function ProductLaneRowSkeleton() {
   return (
-    <div className="pkg-row pkg-row--skeleton" aria-hidden="true">
-      <SkeletonCircle size="36px" />
-      <div className="pkg-row__body">
-        <SkeletonLine width="42%" />
-        <SkeletonLine width="60%" className="skeleton-line-muted" />
-      </div>
-      <SkeletonPill width="56px" />
-      <div style={{ display: 'flex', gap: '6px' }}>
-        <SkeletonCircle size="30px" />
-        <SkeletonCircle size="30px" />
+    <div className="pm-product-row rounded-xl shadow-none">
+      <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <Skeleton className="size-11 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Skeleton className="h-4 w-[min(100%,14rem)] rounded" />
+              <Skeleton className="h-5 w-24 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-full max-w-2xl rounded" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+          <Skeleton className="h-8 w-40 max-w-full rounded-lg" />
+          <Skeleton className="h-8 w-24 rounded-lg" />
+        </div>
       </div>
     </div>
   );
 }
 
-export function DashboardPackageRegistrySkeleton({ rows = 3 }: { rows?: number }) {
+export function PackageRegistryWorkspaceSkeleton({
+  className = 'bento-col-12',
+  showHeader = true,
+  listRows = 4,
+}: PackageRegistryWorkspaceSkeletonProps) {
   return (
-    <div className="skeleton-stack" aria-hidden="true">
-      {Array.from({ length: rows }, (_, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-        <DashboardPackageRowSkeleton key={i} />
-      ))}
+    <section
+      className={['flex flex-col gap-4', className].filter(Boolean).join(' ')}
+      aria-label="Loading packages"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {showHeader ? (
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-[64ch] space-y-1.5">
+            <Skeleton className="h-8 w-48 max-w-full rounded-md" />
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-4 w-5/6 rounded" />
+          </div>
+          <Skeleton className="h-10 w-48 shrink-0 rounded-full" />
+        </div>
+      ) : null}
+
+      <div className="flex w-full min-w-0 flex-col gap-4">
+        <Card className="pm-card pm-primary-panel rounded-2xl shadow-none">
+          <Card.Header className="flex flex-col gap-3 p-4 pb-2">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Skeleton className="size-6 shrink-0 rounded-md" />
+                <Skeleton className="h-5 w-72 max-w-full rounded-md" />
+              </div>
+              <Skeleton className="h-4 w-full max-w-[52ch] rounded" />
+            </div>
+          </Card.Header>
+          <Card.Content className="space-y-4 p-4 pt-0">
+            <div className="pm-inline-note space-y-2 rounded-[18px] p-3">
+              <Skeleton className="h-4 w-48 rounded" />
+              <Skeleton className="h-3 w-full max-w-[50ch] rounded" />
+              <Skeleton className="h-3 w-4/5 max-w-[46ch] rounded" />
+            </div>
+            <div className="space-y-3">
+              {Array.from({ length: listRows }, (_, index) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+                <ProductLaneRowSkeleton key={index} />
+              ))}
+            </div>
+          </Card.Content>
+        </Card>
+      </div>
+    </section>
+  );
+}
+
+export function DashboardBackstageWorkspaceSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      <div className="rounded-[28px] border border-border/70 bg-surface/80 p-6">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex min-w-0 gap-4">
+            <SkeletonTile size={56} radius={18} />
+            <div className="flex-1 space-y-3">
+              <SkeletonPill width="128px" />
+              <SkeletonLine width="220px" style={{ height: '24px' }} />
+              <SkeletonLine width="72%" className="skeleton-line-muted" />
+              <div className="flex flex-wrap gap-2 pt-1">
+                <SkeletonPill width="116px" />
+                <SkeletonPill width="132px" />
+                <SkeletonPill width="104px" />
+              </div>
+            </div>
+          </div>
+          <div className="w-full max-w-[340px] rounded-[24px] border border-border/60 bg-surface-secondary/70 p-4">
+            <div className="space-y-3">
+              <SkeletonLine width="46%" />
+              <SkeletonLine width="78%" className="skeleton-line-muted" />
+              <div className="flex flex-wrap gap-2 pt-1">
+                <SkeletonPill width="144px" />
+                <SkeletonPill width="120px" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
+          <div key={index} className="rounded-2xl border border-border/70 bg-surface/80 p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 space-y-3">
+                <SkeletonLine width="48%" />
+                <SkeletonLine width="26%" style={{ height: '26px' }} />
+                <SkeletonLine width="72%" className="skeleton-line-muted" />
+              </div>
+              <SkeletonTile size={44} radius={16} />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.95fr]">
+        <div className="rounded-[28px] border border-border/70 bg-surface/90 p-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <SkeletonLine width="28%" />
+              <SkeletonLine width="64%" className="skeleton-line-muted" />
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-surface-secondary/70 p-4">
+              <SkeletonLine width="42%" />
+              <SkeletonLine width="74%" className="skeleton-line-muted" />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <SkeletonPill width="142px" />
+                <SkeletonPill width="118px" />
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {packageWorkspaceCardKeys.map((key) => (
+                <div
+                  key={key}
+                  className="rounded-2xl border border-border/60 bg-surface-secondary/60 p-4"
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 space-y-2">
+                        <SkeletonLine width="56%" />
+                        <SkeletonLine width="72%" className="skeleton-line-muted" />
+                      </div>
+                      <SkeletonTile size={38} radius={14} />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <SkeletonPill width="88px" />
+                      <SkeletonPill width="102px" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-border/70 bg-surface/90 p-6">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <SkeletonLine width="34%" />
+              <SkeletonLine width="70%" className="skeleton-line-muted" />
+            </div>
+            <div className="space-y-3">
+              {packageWorkspaceSideKeys.map((key) => (
+                <div
+                  key={key}
+                  className="rounded-2xl border border-border/60 bg-surface-secondary/60 p-4"
+                >
+                  <div className="space-y-3">
+                    <SkeletonLine width="38%" />
+                    <SkeletonLine width="82%" className="skeleton-line-muted" />
+                    <div className="flex flex-wrap gap-2">
+                      <SkeletonPill width="128px" />
+                      <SkeletonPill width="112px" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

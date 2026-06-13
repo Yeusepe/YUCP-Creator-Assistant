@@ -18,19 +18,19 @@ describe('Toast light mode style contracts', () => {
     expect(source).toContain('--toast-surface: rgba(8, 12, 24, 0.72);');
   });
 
-  it('defines separate light and dark treatments for info and update toasts', () => {
+  it('defines separate light and dark treatments for info and success toasts', () => {
     const source = readToastStyles();
 
     expect(source).toContain('.toast.toast-info {');
     expect(source).toContain('.dark .toast.toast-info {');
-    expect(source).toContain('.toast.toast--update {');
-    expect(source).toContain('.dark .toast.toast--update {');
+    expect(source).toContain('.toast.toast-success {');
+    expect(source).toContain('.toast-success .toast-icon {');
   });
 
   it('keeps persistent toast accents visible in both themes', () => {
     const source = readToastStyles();
 
-    expect(source).toContain('.toast.toast-persistent:not(.toast--update)::after {');
-    expect(source).toContain('.dark .toast.toast-persistent:not(.toast--update)::after {');
+    expect(source).toContain('.toast.toast-persistent::after {');
+    expect(source).toContain('.dark .toast.toast-persistent::after {');
   });
 });

@@ -35,6 +35,8 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
       - name: Build docs landing assets

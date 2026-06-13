@@ -40,7 +40,10 @@ export function resolveDefaultWebRuntimeEnv({
   runtimeCloudflareEnv?: WebRuntimeEnv;
 }> = {}): WebRuntimeEnv {
   if (hasCloudflareRuntimeEnv(runtimeCloudflareEnv)) {
-    return runtimeCloudflareEnv;
+    return {
+      ...fallbackEnv,
+      ...runtimeCloudflareEnv,
+    };
   }
 
   return fallbackEnv;

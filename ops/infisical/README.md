@@ -1,274 +1,282 @@
 # Infisical Secret Management
 
-This directory contains documentation and templates for managing secrets with [Infisical](https://infisical.com).
+This repo uses [Infisical](https://infisical.com) as the source of truth for local development, Convex env sync, and Cloudflare Worker secret sync.
 
-## Project Structure
+## Environments
 
-Three environments are configured:
+| Environment | Purpose |
+|-------------|---------|
+| `dev` | Local development and feature branches |
+| `preview` | Preview deployments when a target uses preview secrets |
+| `prod` | Production workloads |
 
-| Environment | Project Slug | Purpose |
-|-------------|--------------|---------|
-| `dev` | `gumroad-dev` | Local development, feature branches |
-| `preview` | `gumroad-preview` | PR previews, staging deployments |
-| `prod` | `gumroad-prod` | Production workloads |
+## Current access model
 
-## Secret Paths
+- API and bot startup fetch secrets by key name from the configured Infisical project. The repo no longer relies on per-service `infisical run --path=/api` or `/bot` examples.
+- `.env.infisical` is the local bootstrap file for Infisical access and optional local overrides. It is what `dev:infisical`, `dev:api:infisical`, `dev:bot:infisical`, `dev:web:infisical`, `sync:convex:env`, and `infisical:convex` read first.
+- Cloudflare Worker sync can optionally scope exports with `INFISICAL_WEB_SECRETS_PATH`, but that is for Worker secret sync only.
 
-Secrets are organized by service and access scope:
+## Secret inventory by runtime surface
 
+### API runtime
+
+- Core startup secrets:
+  - `CONVEX_URL`
+  - `CONVEX_SITE_URL`
+  - `CONVEX_API_SECRET`
+  - `SITE_URL` or one of its legacy fallbacks (`FRONTEND_URL`, `BETTER_AUTH_URL`)
+  - `BETTER_AUTH_SECRET`
+  - `ENCRYPTION_SECRET`
+- Production-only guards:
+  - `INTERNAL_SERVICE_AUTH_SECRET`
+  - `VRCHAT_PENDING_STATE_SECRET`
+  - `YUCP_COUPLING_SERVICE_BASE_URL`
+  - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
+- Feature and provider secrets used when those surfaces are enabled:
+  - `DISCORD_CLIENT_ID`
+  - `DISCORD_CLIENT_SECRET`
+  - `DISCORD_BOT_TOKEN`
+  - `GUMROAD_ACCESS_TOKEN`
+  - `GUMROAD_CLIENT_ID`
+  - `GUMROAD_CLIENT_SECRET`
+  - `ITCHIO_CLIENT_ID`
+  - `PATREON_CLIENT_ID`
+  - `PATREON_CLIENT_SECRET`
+  - `JINXXY_API_BASE_URL`
+  - `JINXXY_API_KEY`
+  - `JINXXY_SECRET_KEY`
+  - `RESEND_API_KEY`
+  - `EMAIL_FROM`
+  - `POLAR_ACCESS_TOKEN`
+  - `POLAR_WEBHOOK_SECRET`
+  - `POLAR_SERVER`
+  - `CDNGINE_API_BASE_URL`
+  - `CDNGINE_PUBLIC_API_BASE_URL`
+  - `CDNGINE_ACCESS_TOKEN`
+  - `CDNGINE_BACKSTAGE_TIMEOUT_MS`
+- Shared optional security and observability vars:
+  - `ERROR_REFERENCE_SECRET`
+  - `PUBLIC_API_KEY_PEPPER`
+  - `PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON`
+  - `INTERNAL_RPC_SHARED_SECRET`
+  - `HYPERDX_API_KEY`
+  - `HYPERDX_APP_URL`
+  - `HYPERDX_OTLP_HTTP_URL`
+  - `HYPERDX_OTLP_GRPC_URL`
+  - `OTEL_EXPORTER_OTLP_ENDPOINT`
+  - `OTEL_EXPORTER_OTLP_HEADERS`
+  - `OTEL_EXPORTER_OTLP_PROTOCOL`
+
+### Bot runtime
+
+`apps/bot/src/lib/env.ts` currently validates this exact required startup contract:
+
+- `DISCORD_BOT_TOKEN`
+- `CONVEX_URL`
+- `CONVEX_API_SECRET`
+- `INTERNAL_SERVICE_AUTH_SECRET`
+
+Common supporting vars:
+
+- `INTERNAL_RPC_SHARED_SECRET` for explicit internal RPC auth. In non-production local dev, the shared helper falls back to the built-in local dev secret when this is unset.
+- `API_BASE_URL` and `API_INTERNAL_URL`
+- `DISCORD_GUILD_ID`
+- `HEARTBEAT_URL` and `HEARTBEAT_INTERVAL_MINUTES`
+- `BETTER_AUTH_SECRET` and `ERROR_REFERENCE_SECRET` for support-code handling
+- `HYPERDX_*`, `OTEL_EXPORTER_OTLP_*`, `POSTHOG_API_KEY`, `POSTHOG_HOST`
+
+### Convex auth and backend env sync
+
+`bun run sync:convex:env` and `bun run infisical:convex` sync these keys into Convex:
+
+```text
+BETTER_AUTH_SECRET
+ENCRYPTION_SECRET
+INTERNAL_SERVICE_AUTH_SECRET
+VRCHAT_PROVIDER_SESSION_SECRET
+BETTER_AUTH_URL
+API_BASE_URL
+DISCORD_CLIENT_ID
+DISCORD_CLIENT_SECRET
+FRONTEND_URL
+SITE_URL
+BACKFILL_API_URL
+YUCP_ROOT_PRIVATE_KEY
+YUCP_KEY_ID
+POLAR_ACCESS_TOKEN
+POLAR_WEBHOOK_SECRET
+POLAR_SERVER
+YUCP_BROKER_SHARED_SECRET
+YUCP_GRANT_SEAL_KEY
+YUCP_COUPLING_HMAC_KEY
+YUCP_RELEASE_ENVELOPE_KEY
 ```
-/                    # Root - admin only
-├── api/             # API service secrets
-│   ├── auth/        # Authentication secrets (Better Auth, OAuth)
-│   ├── database/    # Database connection strings
-│   └── integrations/# Third-party integrations (Gumroad, Jinxxy, Email)
-├── bot/             # Discord bot secrets
-│   └── discord/     # Discord-specific credentials
-└── infra/           # Infrastructure secrets
-    ├── convex/      # Convex deployment
-    ├── observability/# HyperDX / OpenTelemetry local and hosted endpoints
-    └── signing/     # Webhook signing keys
+
+Deployment credentials for the sync itself are separate and stay in the shell or Infisical export:
+
+- `CONVEX_DEPLOY_KEY` or `CONVEX_API_SECRET` for dev sync
+- `CONVEX_DEPLOY_KEY_PROD` for prod sync
+- `CONVEX_DEPLOYMENT` or `CONVEX_DEPLOYMENT_PROD` when targeting a specific deployment explicitly
+
+### Web worker
+
+The Cloudflare Worker uses Infisical export plus Wrangler sync helpers.
+
+Runtime vars passed through generated Wrangler config:
+
+```text
+API_BASE_URL
+BUILD_ID
+CONVEX_SITE_URL
+CONVEX_URL
+FRONTEND_URL
+HYPERDX_APP_URL
+HYPERDX_OTLP_GRPC_URL
+HYPERDX_OTLP_HTTP_URL
+NODE_ENV
+OTEL_EXPORTER_OTLP_ENDPOINT
+OTEL_EXPORTER_OTLP_PROTOCOL
+SITE_URL
 ```
 
-## Service Identities
+Secret bindings synced to Cloudflare:
 
-Each service has its own machine identity with least-privilege access:
+```text
+HYPERDX_API_KEY
+INTERNAL_RPC_SHARED_SECRET
+OTEL_EXPORTER_OTLP_HEADERS
+```
 
-| Identity | Environments | Paths | Purpose |
-|----------|--------------|-------|---------|
-| `api-dev` | dev | /api/*, /infra/* | Local API development |
-| `api-preview` | preview | /api/*, /infra/* | Preview deployments |
-| `api-prod` | prod | /api/*, /infra/* | Production API |
-| `bot-dev` | dev | /bot/* | Local bot development |
-| `bot-preview` | preview | /bot/* | Preview bot |
-| `bot-prod` | prod | /bot/* | Production bot |
-| `ci-cd` | dev, preview, prod | Read-only all | CI/CD pipeline |
-| `admin` | dev, preview, prod | All | Administrators only |
+### YUCP signing and protected delivery
 
-## Required Secrets
+These keys back certificate issuance, protected materialization grants, broker auth, and runtime artifact envelopes:
 
-### Discord Integration (`/bot/discord/` and `/api/auth/discord/`)
+- `YUCP_ROOT_PRIVATE_KEY`
+- `YUCP_KEY_ID` or `YUCP_ROOT_KEY_ID`
+- `YUCP_GRANT_SEAL_KEY`
+- `YUCP_RELEASE_ENVELOPE_KEY`
+- `YUCP_BROKER_SHARED_SECRET`
+- `YUCP_COUPLING_HMAC_KEY`
 
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `DISCORD_BOT_TOKEN` | Bot authentication token | On compromise / 90 days |
-| `DISCORD_CLIENT_ID` | OAuth client ID | Never (public) |
-| `DISCORD_CLIENT_SECRET` | OAuth client secret | On compromise / 90 days |
-| `DISCORD_PUBLIC_KEY` | Interaction endpoint public key | On compromise |
+### Coupling and backstage delivery
 
-### Gumroad Integration (`/api/integrations/gumroad/`)
+- `YUCP_COUPLING_SERVICE_BASE_URL`
+- `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
+- `CDNGINE_API_BASE_URL`
+- `CDNGINE_PUBLIC_API_BASE_URL`
+- `CDNGINE_ACCESS_TOKEN`
+- `CDNGINE_BACKSTAGE_TIMEOUT_MS`
 
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `GUMROAD_CLIENT_ID` | OAuth client ID | Never (public) |
-| `GUMROAD_CLIENT_SECRET` | OAuth client secret | On compromise / 90 days |
+## Local workflows
 
-### Jinxxy Integration (`/api/integrations/jinxxy/`)
+### Bootstrap `.env.infisical`
 
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `JINXXY_API_KEY` | API key for Jinxxy | On compromise / 90 days |
+Keep the Infisical bootstrap values in `.env.infisical`:
 
-### Email (`/api/integrations/email/`)
+```dotenv
+INFISICAL_PROJECT_ID=...
+INFISICAL_ENV=dev
+INFISICAL_CLIENT_ID=...
+INFISICAL_CLIENT_SECRET=...
 
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `RESEND_API_KEY` | Resend API key for transactional emails | On compromise / 90 days |
-| `EMAIL_FROM` | From address (e.g. `Creator Assistant <noreply@yourdomain.com>`) | On domain change |
+# Optional
+INFISICAL_URL=https://app.infisical.com
+INFISICAL_WEB_SECRETS_PATH=/
+```
 
-### Authentication (`/api/auth/`)
+If you already have an `INFISICAL_TOKEN`, you can use that instead of `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`.
 
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `BETTER_AUTH_SECRET` | Session encryption key | On compromise / 180 days |
-| `ERROR_REFERENCE_SECRET` | Optional dedicated key for verification support-code encryption | On compromise / 180 days |
-| `DATABASE_URL` | PostgreSQL connection string | On credential change |
-
-### Infrastructure (`/infra/`)
-
-| Secret Key | Description | Rotation |
-|------------|-------------|----------|
-| `CONVEX_URL` | Convex deployment URL | Never (public-ish) |
-| `CONVEX_DEPLOY_KEY` | Convex deployment token | On compromise / 90 days |
-| `HYPERDX_API_KEY` | Public ingest key for browser/session-replay SDKs when HyperDX instrumentation is enabled | On compromise / 90 days |
-| `HYPERDX_APP_URL` | HyperDX UI base URL (e.g. `http://localhost:8080` for local dev) | On topology change |
-| `HYPERDX_OTLP_HTTP_URL` | OTLP HTTP collector URL (e.g. `http://localhost:4318`) | On topology change |
-| `HYPERDX_OTLP_GRPC_URL` | OTLP gRPC collector host/port (e.g. `localhost:4317`) | On topology change |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Default OTLP exporter endpoint for local SDK wiring | On topology change |
-| `OTEL_EXPORTER_OTLP_HEADERS` | Optional explicit OTLP headers override for API/bot exporters. Usually derived from `HYPERDX_API_KEY` automatically. | On auth change |
-| `INTERNAL_RPC_SHARED_SECRET` | Shared bearer secret for web, API, and bot internal RPC/authenticated proxy calls. Required in production, optional in local dev because services share a built-in dev secret. | On compromise / 90 days |
-| `WEBHOOK_SIGNING_SECRET` | Webhook signature key | On compromise / 90 days |
-
-## Environment Variable Mapping
-
-### API Service
+### Preferred local commands
 
 ```bash
-# Auth
-BETTER_AUTH_SECRET=/api/auth/BETTER_AUTH_SECRET
-ERROR_REFERENCE_SECRET=/api/auth/ERROR_REFERENCE_SECRET
-DATABASE_URL=/api/database/DATABASE_URL
+# Full stack dev with Infisical-backed services
+bun run dev:infisical
 
-# Discord OAuth
-DISCORD_CLIENT_ID=/api/auth/discord/DISCORD_CLIENT_ID
-DISCORD_CLIENT_SECRET=/api/auth/discord/DISCORD_CLIENT_SECRET
+# Individual services
+bun run dev:api:infisical
+bun run dev:bot:infisical
+bun run dev:web:infisical
 
-# Integrations
-GUMROAD_CLIENT_ID=/api/integrations/gumroad/GUMROAD_CLIENT_ID
-GUMROAD_CLIENT_SECRET=/api/integrations/gumroad/GUMROAD_CLIENT_SECRET
-JINXXY_API_KEY=/api/integrations/jinxxy/JINXXY_API_KEY
-RESEND_API_KEY=/api/integrations/email/RESEND_API_KEY
-EMAIL_FROM=/api/integrations/email/EMAIL_FROM
+# Sync Convex env from Infisical
+bun run sync:convex:env
+bun run sync:convex:env --prod
 
-# Infrastructure
-CONVEX_URL=/infra/convex/CONVEX_URL
-HYPERDX_API_KEY=/infra/observability/HYPERDX_API_KEY
-HYPERDX_APP_URL=/infra/observability/HYPERDX_APP_URL
-HYPERDX_OTLP_HTTP_URL=/infra/observability/HYPERDX_OTLP_HTTP_URL
-HYPERDX_OTLP_GRPC_URL=/infra/observability/HYPERDX_OTLP_GRPC_URL
-OTEL_EXPORTER_OTLP_ENDPOINT=/infra/observability/OTEL_EXPORTER_OTLP_ENDPOINT
-OTEL_EXPORTER_OTLP_HEADERS=/infra/observability/OTEL_EXPORTER_OTLP_HEADERS
-INTERNAL_RPC_SHARED_SECRET=/infra/signing/INTERNAL_RPC_SHARED_SECRET
-WEBHOOK_SIGNING_SECRET=/infra/signing/WEBHOOK_SIGNING_SECRET
+# Inject Infisical env into arbitrary Convex commands
+bun run infisical:convex -- bun x convex dev --once
+bun run infisical:convex --prod -- bun x convex deploy
 ```
 
-### Bot Service
+Notes:
+
+- `bun run dev:infisical` loads `.env.infisical`, applies local defaults, runs `bun run sync:convex:env`, then starts the supervisor stack with the Infisical-backed API, bot, web, HyperDX, and coupling-service commands.
+- `bun run dev` is the non-Infisical fallback. It uses `process.env` plus `.env.local`.
+- Do not follow the old `infisical export > .env.local` flow as the primary repo workflow.
+
+## Deploy and secret-sync primitives
+
+Use the explicit repo scripts instead of the old `deploy.sh` example:
 
 ```bash
-# Discord
-DISCORD_BOT_TOKEN=/bot/discord/DISCORD_BOT_TOKEN
-DISCORD_PUBLIC_KEY=/bot/discord/DISCORD_PUBLIC_KEY
-DISCORD_CLIENT_ID=/bot/discord/DISCORD_CLIENT_ID
-HEARTBEAT_URL=/bot/heartbeat/HEARTBEAT_URL
+# API and bot production starts
+bun run start:api:infisical
+bun run start:bot:infisical
 
-# Infrastructure
-CONVEX_URL=/infra/convex/CONVEX_URL
-INTERNAL_RPC_SHARED_SECRET=/infra/signing/INTERNAL_RPC_SHARED_SECRET
+# Local preview of the built web app
+bun run start:web
+
+# Convex sync and deploy helpers
+bun run sync:convex:env --prod
+bun run infisical:convex --prod -- bun x convex deploy
+
+# Cloudflare Worker setup and deploy
+bun run --filter @yucp/web worker:sync:setup
+bun run --filter @yucp/web worker:secrets:sync
+bun run --filter @yucp/web worker:deploy
+bun run --filter @yucp/web worker:version:upload
 ```
 
-## CLI Usage
+What each command does:
 
-### Local Development
+- `sync:convex:env` pushes the curated Convex env list from Infisical into the target Convex deployment.
+- `infisical:convex` either runs that sync inline or injects Infisical secrets into any command after `--`.
+- `worker:sync:setup` creates or updates the Infisical to Cloudflare Worker sync definition.
+- `worker:secrets:sync` uploads current Worker secret bindings to Cloudflare.
+- `worker:deploy` builds `apps/web` and deploys with Cloudflare-managed bindings.
+- `worker:version:upload` uploads a Worker version without replacing this deploy guidance.
+
+## Secret rotation guidance
+
+### General rules
+
+- Rotate provider client secrets and API keys in the upstream provider first, then update Infisical, then redeploy the affected runtime.
+- Rotate Convex-backed secrets by updating Infisical and rerunning the relevant Convex sync command before deployment.
+- Rotate Worker secrets by updating Infisical and rerunning `worker:secrets:sync` before or with `worker:deploy`.
+
+### Public webhook signing secrets
+
+There is no repo-wide `WEBHOOK_SIGNING_SECRET` env contract anymore.
+
+- Public V2 webhook subscriptions generate a unique `whsec_...` secret per subscription when the API creates or rotates that subscription.
+- The API stores those per-subscription secrets encrypted with `ENCRYPTION_SECRET`.
+- To rotate a webhook secret, call `POST /webhooks/:id/rotate-secret`, update the downstream consumer with the newly returned signing secret, then verify delivery with a test event or delivery replay.
+- Do not use the Discord Developer Portal for this flow. Discord interaction verification is controlled separately by `DISCORD_PUBLIC_KEY`.
+
+## Decoding verification support codes
+
+There is no checked-in `ops/decode-support-token.ts` wrapper.
+
+Use the shared helper directly after loading `ERROR_REFERENCE_SECRET` or `BETTER_AUTH_SECRET`:
 
 ```bash
-# Install Infisical CLI
-brew install infisical/get-cli/infisical
-
-# Login with machine identity
-export INFISICAL_TOKEN=$(infisical login \
-  --method=universal-auth \
-  --client-id=$INFISICAL_CLIENT_ID \
-  --client-secret=$INFISICAL_CLIENT_SECRET \
-  --silent --plain)
-
-# Run with secrets injected
-infisical run --env=dev --path=/api -- bun run dev
-
-# Export secrets to .env (for IDE support)
-infisical export --env=dev --path=/api --format=dotenv-export > .env.local
+bun --env-file=.env.infisical --eval "import { decodeVerificationSupportToken } from './packages/shared/src/verificationSupport.ts'; const result = await decodeVerificationSupportToken(process.argv[1]); console.log(JSON.stringify(result, null, 2));" <support-code>
 ```
 
-### CI/CD Pipeline
+For plain `VFY0-...` codes this prints the plain token metadata. For encoded `VFY1-...` codes it also decrypts the embedded payload when the secret is available.
 
-```bash
-# Using Universal Auth
-export INFISICAL_TOKEN=$(infisical login \
-  --method=universal-auth \
-  --client-id=$INFISICAL_CLIENT_ID \
-  --client-secret=$INFISICAL_CLIENT_SECRET \
-  --silent --plain)
+## Security practices
 
-# Run deployment with secrets
-infisical run --env=$ENVIRONMENT --path=/api -- ./deploy.sh
-```
-
-## Secret Rotation Runbooks
-
-### Rotation Schedule
-
-| Secret Type | Frequency | Automation |
-|-------------|-----------|------------|
-| OAuth secrets | 90 days | Manual with automation assist |
-| API keys | 90 days | Manual with automation assist |
-| Session secrets | 180 days | Manual, requires logout all |
-| Signing keys | 90 days | Manual with webhook re-registration |
-
-### Discord Bot Token Rotation
-
-1. Navigate to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Select the application → Bot → Reset Token
-3. Copy new token immediately
-4. Update in Infisical: `/bot/discord/DISCORD_BOT_TOKEN`
-5. Redeploy bot service
-6. Verify bot connects successfully
-7. Mark old token as compromised (cannot be revoked separately)
-
-### Discord Client Secret Rotation
-
-1. Navigate to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Select the application → OAuth2 → Reset Secret
-3. Copy new secret immediately
-4. Update in Infisical: `/api/auth/discord/DISCORD_CLIENT_SECRET`
-5. Redeploy API service
-6. Test OAuth flow
-7. Old secret is immediately invalid
-
-### Better Auth Secret Rotation
-
-1. Generate new 32-byte secret: `openssl rand -base64 32`
-2. Store new secret temporarily
-3. Update in Infisical: `/api/auth/BETTER_AUTH_SECRET`
-4. **IMPORTANT**: This will invalidate all existing sessions
-5. Redeploy API service
-6. Users must re-authenticate
-7. Consider announcing maintenance window
-
-### Gumroad Client Secret Rotation
-
-1. Navigate to [Gumroad Settings](https://gumroad.com/settings)
-2. Advanced → OAuth Applications → Regenerate Secret
-3. Update in Infisical: `/api/integrations/gumroad/GUMROAD_CLIENT_SECRET`
-4. Redeploy API service
-5. Test OAuth flow with Gumroad
-
-### Jinxxy API Key Rotation
-
-1. Log into Jinxxy dashboard
-2. Generate new API key
-3. Update in Infisical: `/api/integrations/jinxxy/JINXXY_API_KEY`
-4. Redeploy API service
-5. Test integration
-6. Revoke old key in Jinxxy dashboard
-
-### Webhook Signing Secret Rotation
-
-1. Generate new secret: `openssl rand -hex 32`
-2. Update in Infisical: `/infra/signing/WEBHOOK_SIGNING_SECRET`
-3. Update webhook registrations in Discord Developer Portal
-4. Redeploy all services that handle webhooks
-5. Test webhook signature verification
-
-## Security Best Practices
-
-1. **Never commit secrets to git** - Use `.gitignore` for `.env*` files
-2. **Use least-privilege access** - Services only access paths they need
-3. **Rotate on compromise** - Any suspected leak requires immediate rotation
-4. **Audit access logs** - Review Infisical audit logs weekly
-5. **Separate environments** - No shared secrets between dev/preview/prod
-6. **Short-lived tokens** - CI/CD tokens should have minimal TTL
-7. **No secrets in logs** - Ensure logging doesn't capture secret values
-
-## Files
-
-- `secrets.template.yaml` - Template showing all required secrets with placeholder values
-- `access-policy.yaml` - Access control policy definitions for service identities
-
-## Decoding Verification Support Codes
-
-When a user reports a verification support code, decode it locally with:
-
-```bash
-bun ops/decode-support-token.ts <support-code>
-```
-
-The script uses `ERROR_REFERENCE_SECRET` when present and falls back to `BETTER_AUTH_SECRET`. If those env vars are not already loaded, it will make a best-effort Infisical fetch first.
+1. Never commit secrets or checked-in `.env` files with live values.
+2. Keep Infisical machine identity credentials in `.env.infisical`, not in app-specific docs or ad hoc shell history.
+3. Do not log secret values. Log key names or redacted placeholders only.
+4. Use the smallest runtime surface possible when syncing secrets to Convex or Cloudflare.
+5. Rotate immediately on suspected compromise and document the downstream systems that also need redeploy or resync.

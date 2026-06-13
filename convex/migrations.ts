@@ -13,6 +13,15 @@
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
+import { internal } from './_generated/api';
+import {
+  getYucpAliasPackageContract,
+  mergeYucpAliasPackageMetadata,
+} from '@yucp/shared';
+import {
+  buildSyntheticAliasMetadataSeed,
+  type CatalogProductAliasSource,
+} from './lib/backstageAliasMetadata';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
@@ -88,9 +97,59 @@ type SubjectOwnershipCandidate = {
   relatedVerificationBindings: SubjectOwnershipRelatedBinding[];
   repairable: boolean;
 };
+type BackstageAliasMetadataRemediationCandidate = {
+  deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+  deliveryPackageId: Id<'delivery_packages'>;
+  authUserId: string;
+  packageId: string;
+  version: string;
+  channel: string;
+  aliasId?: string;
+  catalogProductIds: Array<Id<'product_catalog'>>;
+  productRefs: string[];
+  repairable: boolean;
+  reason: string;
+};
+type BackstageCdngineDeliveryVariantRemediationCandidate = {
+  deliveryArtifactId: Id<'delivery_release_artifacts'>;
+  deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+  deliveryPackageId: Id<'delivery_packages'>;
+  authUserId: string;
+  packageId: string;
+  version: string;
+  channel: string;
+  assetId: string;
+  versionId: string;
+  deliveryScopeId: string;
+  currentVariant: string;
+  targetVariant: string;
+  repairable: boolean;
+  reason: string;
+};
+type BackstageRawUploadSourceFieldRemediationCandidate = {
+  deliveryArtifactId: Id<'delivery_release_artifacts'>;
+  deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+  deliveryPackageId: Id<'delivery_packages'>;
+  authUserId: string;
+  packageId: string;
+  version: string;
+  channel: string;
+  assetId: string;
+  versionId: string;
+  currentField: 'cdngineDelivery';
+  targetField: 'cdngineSource';
+  repairable: boolean;
+  reason: string;
+};
 
 const DEFAULT_BUYER_ATTRIBUTION_REPORT_LIMIT = 50;
 const DEFAULT_SUBJECT_OWNERSHIP_REPORT_LIMIT = 50;
+const DEFAULT_BACKSTAGE_ALIAS_METADATA_REPORT_LIMIT = 50;
+const DEFAULT_BACKSTAGE_CDNGINE_VARIANT_REPORT_LIMIT = 50;
+const DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT = 50;
+const LEGACY_BACKSTAGE_CDNGINE_DELIVERY_VARIANT = 'vpm-package';
+const LEGACY_BACKSTAGE_RAW_UPLOAD_SOURCE_VARIANT = 'raw-upload';
+const GENERIC_BACKSTAGE_CDNGINE_DELIVERY_VARIANT = 'preserve-original';
 const REPORTABLE_BINDING_STATUSES = new Set<Doc<'bindings'>['status']>(['active', 'pending']);
 
 const LEGACY_TABLES = [
@@ -506,6 +565,317 @@ async function listSubjectOwnershipCandidates(
   };
 }
 
+async function buildBackstageAliasMetadataCandidate(
+  ctx: Pick<QueryCtx, 'db'>,
+  release: Doc<'delivery_package_releases'>,
+  deliveryPackage: Doc<'delivery_packages'> | null,
+  linkedCatalogProducts: ReadonlyArray<CatalogProductAliasSource>
+): Promise<BackstageAliasMetadataRemediationCandidate | null> {
+  if (
+    release.releaseStatus !== 'published' ||
+    !deliveryPackage ||
+    getYucpAliasPackageContract(release.metadata)
+  ) {
+    return null;
+  }
+
+  const aliasMetadataSeed = buildSyntheticAliasMetadataSeed(linkedCatalogProducts, release.channel);
+  const productRefs = linkedCatalogProducts
+    .map((product) => product.canonicalSlug ?? product.providerProductRef ?? undefined)
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+
+  return {
+    deliveryPackageReleaseId: release._id,
+    deliveryPackageId: release.deliveryPackageId,
+    authUserId: release.authUserId,
+    packageId: deliveryPackage.packageId,
+    version: release.version,
+    channel: release.channel,
+    aliasId: aliasMetadataSeed?.aliasId,
+    catalogProductIds: linkedCatalogProducts.map((product) => product._id as Id<'product_catalog'>),
+    productRefs,
+    repairable: aliasMetadataSeed !== undefined,
+    reason:
+      aliasMetadataSeed !== undefined
+        ? 'Missing alias metadata on a published release with recoverable catalog product links'
+        : productRefs.length > 0
+          ? 'Missing alias metadata but linked catalog products resolve to different alias ids'
+          : 'Missing alias metadata but no linked catalog product exposes a canonical slug or provider product reference',
+  };
+}
+
+async function listBackstageAliasMetadataCandidates(
+  ctx: Pick<QueryCtx, 'db'>,
+  limit: number
+) {
+  const releases = (await ctx.db.query('delivery_package_releases').collect()) as Doc<
+    'delivery_package_releases'
+  >[];
+  const deliveryPackageIds = Array.from(
+    new Set(releases.map((release) => String(release.deliveryPackageId)))
+  );
+  const deliveryPackages = (
+    await Promise.all(
+      deliveryPackageIds.map(async (deliveryPackageId) => {
+        return await ctx.db.get(deliveryPackageId as Id<'delivery_packages'>);
+      })
+    )
+  ).filter((deliveryPackage): deliveryPackage is Doc<'delivery_packages'> => deliveryPackage !== null);
+  const deliveryPackagesById = new Map(
+    deliveryPackages.map((deliveryPackage) => [String(deliveryPackage._id), deliveryPackage])
+  );
+
+  const activeLinks = ((await ctx.db.query('delivery_package_products').collect()) as Doc<
+    'delivery_package_products'
+  >[]).filter((link) => link.status === 'active');
+  const catalogProductIds = Array.from(new Set(activeLinks.map((link) => String(link.catalogProductId))));
+  const catalogProducts = (
+    await Promise.all(
+      catalogProductIds.map(async (catalogProductId) => {
+        return await ctx.db.get(catalogProductId as Id<'product_catalog'>);
+      })
+    )
+  ).filter((product): product is Doc<'product_catalog'> => product !== null);
+  const catalogProductsById = new Map(
+    catalogProducts.map((product) => [String(product._id), product])
+  );
+  const catalogProductsByDeliveryPackageId = new Map<string, CatalogProductAliasSource[]>();
+  for (const link of activeLinks) {
+    const linkedCatalogProduct = catalogProductsById.get(String(link.catalogProductId));
+    if (!linkedCatalogProduct) {
+      continue;
+    }
+    const existingProducts = catalogProductsByDeliveryPackageId.get(String(link.deliveryPackageId)) ?? [];
+    existingProducts.push(linkedCatalogProduct);
+    catalogProductsByDeliveryPackageId.set(String(link.deliveryPackageId), existingProducts);
+  }
+
+  const candidates = (
+    await Promise.all(
+      releases.map(async (release) =>
+        await buildBackstageAliasMetadataCandidate(
+          ctx,
+          release,
+          deliveryPackagesById.get(String(release.deliveryPackageId)) ?? null,
+          catalogProductsByDeliveryPackageId.get(String(release.deliveryPackageId)) ?? []
+        )
+      )
+    )
+  )
+    .filter((candidate): candidate is BackstageAliasMetadataRemediationCandidate => candidate !== null)
+    .sort(
+      (left, right) =>
+        left.packageId.localeCompare(right.packageId) ||
+        left.version.localeCompare(right.version) ||
+        String(left.deliveryPackageReleaseId).localeCompare(String(right.deliveryPackageReleaseId))
+    );
+
+  return {
+    scannedAt: Date.now(),
+    summary: {
+      candidateReleases: candidates.length,
+      repairableReleases: candidates.filter((candidate) => candidate.repairable).length,
+      skippedDueToLimit: Math.max(0, candidates.length - limit),
+    },
+    candidates: candidates.slice(0, limit),
+  };
+}
+
+async function buildBackstageCdngineDeliveryVariantCandidate(
+  ctx: Pick<QueryCtx, 'db'>,
+  artifact: Doc<'delivery_release_artifacts'>
+): Promise<BackstageCdngineDeliveryVariantRemediationCandidate | null> {
+  const delivery = artifact.cdngineDelivery;
+  if (
+    artifact.status !== 'active' ||
+    artifact.artifactRole !== 'server_deliverable' ||
+    !delivery ||
+    delivery.variant !== LEGACY_BACKSTAGE_CDNGINE_DELIVERY_VARIANT
+  ) {
+    return null;
+  }
+
+  const release = (await ctx.db.get(
+    artifact.deliveryPackageReleaseId
+  )) as Doc<'delivery_package_releases'> | null;
+  if (!release) {
+    return null;
+  }
+  const deliveryPackage = (await ctx.db.get(
+    release.deliveryPackageId
+  )) as Doc<'delivery_packages'> | null;
+  if (!deliveryPackage) {
+    return null;
+  }
+
+  const repairable =
+    release.releaseStatus === 'published' &&
+    artifact.contentType === 'application/zip' &&
+    artifact.ownership === 'server_materialized' &&
+    artifact.materializationStrategy === 'normalized_repack' &&
+    delivery.deliveryScopeId === 'paid-downloads';
+
+  return {
+    deliveryArtifactId: artifact._id,
+    deliveryPackageReleaseId: release._id,
+    deliveryPackageId: release.deliveryPackageId,
+    authUserId: release.authUserId,
+    packageId: deliveryPackage.packageId,
+    version: release.version,
+    channel: release.channel,
+    assetId: delivery.assetId,
+    versionId: delivery.versionId,
+    deliveryScopeId: delivery.deliveryScopeId,
+    currentVariant: delivery.variant,
+    targetVariant: GENERIC_BACKSTAGE_CDNGINE_DELIVERY_VARIANT,
+    repairable,
+    reason: repairable
+      ? 'Generic Backstage CDNgine deliverable stores the legacy unpublished variant'
+      : 'Legacy variant exists outside the generic published Backstage deliverable shape',
+  };
+}
+
+function legacyRawUploadDeliveryToSource(
+  delivery: NonNullable<Doc<'delivery_release_artifacts'>['cdngineDelivery']>
+): NonNullable<Doc<'delivery_release_artifacts'>['cdngineSource']> {
+  return {
+    assetId: delivery.assetId,
+    assetOwner: delivery.assetOwner,
+    byteSize: delivery.byteSize,
+    serviceNamespaceId: delivery.serviceNamespaceId,
+    sha256: delivery.sha256,
+    tenantId: delivery.tenantId,
+    uploadedAt: delivery.uploadedAt,
+    versionId: delivery.versionId,
+  };
+}
+
+async function buildBackstageRawUploadSourceFieldCandidate(
+  ctx: Pick<QueryCtx, 'db'>,
+  artifact: Doc<'delivery_release_artifacts'>
+): Promise<BackstageRawUploadSourceFieldRemediationCandidate | null> {
+  const delivery = artifact.cdngineDelivery;
+  if (
+    artifact.status !== 'active' ||
+    artifact.artifactRole !== 'raw_upload' ||
+    artifact.cdngineSource ||
+    !delivery
+  ) {
+    return null;
+  }
+
+  const release = (await ctx.db.get(
+    artifact.deliveryPackageReleaseId
+  )) as Doc<'delivery_package_releases'> | null;
+  if (!release) {
+    return null;
+  }
+  const deliveryPackage = (await ctx.db.get(
+    release.deliveryPackageId
+  )) as Doc<'delivery_packages'> | null;
+  if (!deliveryPackage) {
+    return null;
+  }
+
+  const variantMatches = delivery.variant === LEGACY_BACKSTAGE_RAW_UPLOAD_SOURCE_VARIANT;
+  const shaMatches = delivery.sha256 === artifact.sha256;
+  const byteSizeMatches = delivery.byteSize === artifact.byteSize;
+  const repairable = variantMatches && shaMatches && byteSizeMatches;
+  const mismatchReasons = [
+    variantMatches ? null : `variant is ${delivery.variant}`,
+    shaMatches ? null : 'CDNgine SHA-256 does not match artifact SHA-256',
+    byteSizeMatches ? null : 'CDNgine byte size does not match artifact byte size',
+  ].filter((reason): reason is string => reason !== null);
+
+  return {
+    deliveryArtifactId: artifact._id,
+    deliveryPackageReleaseId: release._id,
+    deliveryPackageId: release.deliveryPackageId,
+    authUserId: release.authUserId,
+    packageId: deliveryPackage.packageId,
+    version: release.version,
+    channel: release.channel,
+    assetId: delivery.assetId,
+    versionId: delivery.versionId,
+    currentField: 'cdngineDelivery',
+    targetField: 'cdngineSource',
+    repairable,
+    reason: repairable
+      ? 'Legacy raw Backstage upload stores CDNgine source coordinates in cdngineDelivery'
+      : `Legacy raw upload coordinates require manual review: ${mismatchReasons.join(', ')}`,
+  };
+}
+
+async function listBackstageCdngineDeliveryVariantCandidates(
+  ctx: Pick<QueryCtx, 'db'>,
+  limit: number
+) {
+  const artifacts = (await ctx.db.query('delivery_release_artifacts').collect()) as Doc<
+    'delivery_release_artifacts'
+  >[];
+  const candidates = (
+    await Promise.all(
+      artifacts.map(async (artifact) => await buildBackstageCdngineDeliveryVariantCandidate(ctx, artifact))
+    )
+  )
+    .filter(
+      (candidate): candidate is BackstageCdngineDeliveryVariantRemediationCandidate =>
+        candidate !== null
+    )
+    .sort(
+      (left, right) =>
+        left.packageId.localeCompare(right.packageId) ||
+        left.version.localeCompare(right.version) ||
+        String(left.deliveryArtifactId).localeCompare(String(right.deliveryArtifactId))
+    );
+
+  return {
+    scannedAt: Date.now(),
+    summary: {
+      candidateArtifacts: candidates.length,
+      repairableArtifacts: candidates.filter((candidate) => candidate.repairable).length,
+      skippedDueToLimit: Math.max(0, candidates.length - limit),
+    },
+    candidates: candidates.slice(0, limit),
+  };
+}
+
+async function listBackstageRawUploadSourceFieldCandidates(
+  ctx: Pick<QueryCtx, 'db'>,
+  limit: number
+) {
+  const artifacts = (await ctx.db.query('delivery_release_artifacts').collect()) as Doc<
+    'delivery_release_artifacts'
+  >[];
+  const candidates = (
+    await Promise.all(
+      artifacts.map(
+        async (artifact) => await buildBackstageRawUploadSourceFieldCandidate(ctx, artifact)
+      )
+    )
+  )
+    .filter(
+      (candidate): candidate is BackstageRawUploadSourceFieldRemediationCandidate =>
+        candidate !== null
+    )
+    .sort(
+      (left, right) =>
+        left.packageId.localeCompare(right.packageId) ||
+        left.version.localeCompare(right.version) ||
+        String(left.deliveryArtifactId).localeCompare(String(right.deliveryArtifactId))
+    );
+
+  return {
+    scannedAt: Date.now(),
+    summary: {
+      candidateArtifacts: candidates.length,
+      repairableArtifacts: candidates.filter((candidate) => candidate.repairable).length,
+      skippedDueToLimit: Math.max(0, candidates.length - limit),
+    },
+    candidates: candidates.slice(0, limit),
+  };
+}
+
 async function repairBuyerAttributionBindingIds(
   ctx: Pick<MutationCtx, 'db'>,
   bindingIds: readonly Id<'bindings'>[]
@@ -798,6 +1168,58 @@ export const migrateLegacyLicenseSubjectLinks = internalMutation({
 });
 
 /**
+ * Detection-first remediation report for published Backstage releases that were
+ * stored before alias metadata synthesis existed.
+ */
+export const listBackstageAliasMetadataRemediationCandidates = internalQuery({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const requestedLimit = args.limit ?? DEFAULT_BACKSTAGE_ALIAS_METADATA_REPORT_LIMIT;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(500, Math.trunc(requestedLimit)))
+      : DEFAULT_BACKSTAGE_ALIAS_METADATA_REPORT_LIMIT;
+    return await listBackstageAliasMetadataCandidates(ctx, limit);
+  },
+});
+
+/**
+ * Detection-first remediation report for generic Backstage CDNgine deliverables
+ * that were stored with the pre-publication local variant name.
+ */
+export const listBackstageCdngineDeliveryVariantRemediationCandidates = internalQuery({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const requestedLimit = args.limit ?? DEFAULT_BACKSTAGE_CDNGINE_VARIANT_REPORT_LIMIT;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(500, Math.trunc(requestedLimit)))
+      : DEFAULT_BACKSTAGE_CDNGINE_VARIANT_REPORT_LIMIT;
+    return await listBackstageCdngineDeliveryVariantCandidates(ctx, limit);
+  },
+});
+
+/**
+ * Detection-first remediation report for raw Backstage upload artifacts that
+ * were stored with source CDNgine coordinates in the delivery field.
+ */
+export const listBackstageRawUploadSourceFieldRemediationCandidates = internalQuery({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const requestedLimit =
+      args.limit ?? DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(1, Math.min(500, Math.trunc(requestedLimit)))
+      : DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT;
+    return await listBackstageRawUploadSourceFieldCandidates(ctx, limit);
+  },
+});
+
+/**
  * Detection-first remediation report for buyer verification records that were
  * historically attributed to the creator auth user instead of the buyer.
  */
@@ -841,6 +1263,205 @@ export const repairBuyerAttributionCandidates = internalMutation({
     bindingIds: v.array(v.id('bindings')),
   },
   handler: async (ctx, args) => await repairBuyerAttributionBindingIds(ctx, args.bindingIds),
+});
+
+/**
+ * Explicit, opt-in repair for selected published Backstage releases that are
+ * missing the synthesized alias metadata contract.
+ */
+export const repairBackstageAliasMetadataCandidates = internalMutation({
+  args: {
+    releaseIds: v.array(v.id('delivery_package_releases')),
+  },
+  handler: async (ctx, args) => {
+    const uniqueReleaseIds = Array.from(new Set(args.releaseIds));
+    const skippedReleases: Array<{
+      deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+      reason: string;
+    }> = [];
+    let repairedReleases = 0;
+
+    for (const releaseId of uniqueReleaseIds) {
+      const release = (await ctx.db.get(releaseId)) as Doc<'delivery_package_releases'> | null;
+      if (!release) {
+        skippedReleases.push({
+          deliveryPackageReleaseId: releaseId,
+          reason: 'Release no longer exists',
+        });
+        continue;
+      }
+      if (release.releaseStatus !== 'published') {
+        skippedReleases.push({
+          deliveryPackageReleaseId: releaseId,
+          reason: `Release status ${release.releaseStatus} is not repairable`,
+        });
+        continue;
+      }
+      if (getYucpAliasPackageContract(release.metadata)) {
+        skippedReleases.push({
+          deliveryPackageReleaseId: releaseId,
+          reason: 'Release already has alias metadata',
+        });
+        continue;
+      }
+
+      const activeLinks = ((await ctx.db
+        .query('delivery_package_products')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', release.authUserId))
+        .collect()) as Doc<'delivery_package_products'>[]).filter(
+        (link) =>
+          link.status === 'active' && String(link.deliveryPackageId) === String(release.deliveryPackageId)
+      );
+      const linkedCatalogProducts = (
+        await Promise.all(activeLinks.map(async (link) => await ctx.db.get(link.catalogProductId)))
+      ).filter((product): product is Doc<'product_catalog'> => product !== null);
+      const aliasMetadataSeed = buildSyntheticAliasMetadataSeed(linkedCatalogProducts, release.channel);
+      if (!aliasMetadataSeed) {
+        skippedReleases.push({
+          deliveryPackageReleaseId: releaseId,
+          reason:
+            linkedCatalogProducts.some(
+              (product) => (product.canonicalSlug ?? product.providerProductRef)?.trim()
+            )
+              ? 'Linked catalog products resolve to different alias ids'
+              : 'No linked catalog product exposes a canonical slug or provider product reference',
+        });
+        continue;
+      }
+
+      await ctx.db.patch(releaseId, {
+        metadata: mergeYucpAliasPackageMetadata({
+          metadata: release.metadata,
+          aliasId: aliasMetadataSeed.aliasId,
+          catalogProductIds: aliasMetadataSeed.catalogProductIds,
+          channel: aliasMetadataSeed.channel,
+        }),
+        updatedAt: Date.now(),
+      });
+      repairedReleases += 1;
+    }
+
+    return {
+      repairedReleases,
+      skippedReleases,
+    };
+  },
+});
+
+/**
+ * Explicit, opt-in repair for active Backstage server deliverables that point at
+ * CDNgine's generic preserve-original publication but kept the legacy variant.
+ */
+export const repairBackstageCdngineDeliveryVariantCandidates = internalMutation({
+  args: {
+    artifactIds: v.array(v.id('delivery_release_artifacts')),
+  },
+  handler: async (ctx, args) => {
+    const uniqueArtifactIds = Array.from(new Set(args.artifactIds));
+    const skippedArtifacts: Array<{
+      deliveryArtifactId: Id<'delivery_release_artifacts'>;
+      reason: string;
+    }> = [];
+    let repairedArtifacts = 0;
+
+    for (const artifactId of uniqueArtifactIds) {
+      const artifact = (await ctx.db.get(artifactId)) as Doc<'delivery_release_artifacts'> | null;
+      if (!artifact) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: 'Artifact no longer exists',
+        });
+        continue;
+      }
+
+      const candidate = await buildBackstageCdngineDeliveryVariantCandidate(ctx, artifact);
+      if (!candidate) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: 'Artifact is not an active legacy Backstage CDNgine deliverable',
+        });
+        continue;
+      }
+      if (!candidate.repairable || !artifact.cdngineDelivery) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: candidate.reason,
+        });
+        continue;
+      }
+
+      await ctx.db.patch(artifactId, {
+        cdngineDelivery: {
+          ...artifact.cdngineDelivery,
+          variant: GENERIC_BACKSTAGE_CDNGINE_DELIVERY_VARIANT,
+        },
+        updatedAt: Date.now(),
+      });
+      repairedArtifacts += 1;
+    }
+
+    return {
+      repairedArtifacts,
+      skippedArtifacts,
+    };
+  },
+});
+
+/**
+ * Explicit, opt-in repair for active raw Backstage uploads that stored source
+ * CDNgine coordinates in cdngineDelivery instead of cdngineSource.
+ */
+export const repairBackstageRawUploadSourceFieldCandidates = internalMutation({
+  args: {
+    artifactIds: v.array(v.id('delivery_release_artifacts')),
+  },
+  handler: async (ctx, args) => {
+    const uniqueArtifactIds = Array.from(new Set(args.artifactIds));
+    const skippedArtifacts: Array<{
+      deliveryArtifactId: Id<'delivery_release_artifacts'>;
+      reason: string;
+    }> = [];
+    let repairedArtifacts = 0;
+
+    for (const artifactId of uniqueArtifactIds) {
+      const artifact = (await ctx.db.get(artifactId)) as Doc<'delivery_release_artifacts'> | null;
+      if (!artifact) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: 'Artifact no longer exists',
+        });
+        continue;
+      }
+
+      const candidate = await buildBackstageRawUploadSourceFieldCandidate(ctx, artifact);
+      if (!candidate) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: 'Artifact is not an active legacy raw Backstage upload',
+        });
+        continue;
+      }
+      if (!candidate.repairable || !artifact.cdngineDelivery) {
+        skippedArtifacts.push({
+          deliveryArtifactId: artifactId,
+          reason: candidate.reason,
+        });
+        continue;
+      }
+
+      await ctx.db.patch(artifactId, {
+        cdngineSource: legacyRawUploadDeliveryToSource(artifact.cdngineDelivery),
+        cdngineDelivery: undefined,
+        updatedAt: Date.now(),
+      });
+      repairedArtifacts += 1;
+    }
+
+    return {
+      repairedArtifacts,
+      skippedArtifacts,
+    };
+  },
 });
 
 /**

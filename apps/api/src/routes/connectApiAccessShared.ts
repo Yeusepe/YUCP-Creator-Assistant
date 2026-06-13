@@ -1,3 +1,11 @@
+import {
+  DEFAULT_OAUTH_APP_SCOPES,
+  DEFAULT_PUBLIC_API_KEY_SCOPES,
+  normalizePublicApiScopeList,
+  PUBLIC_API_KEY_PERMISSION_NAMESPACE,
+  type PublicApiScope,
+} from '@yucp/shared';
+
 export interface BetterAuthPermissionStatements {
   [key: string]: string[];
 }
@@ -38,11 +46,7 @@ export interface OAuthAppMappingRecord {
   scopes: string[];
 }
 
-const ALLOWED_PUBLIC_API_SCOPES = new Set(['verification:read', 'subjects:read']);
 export const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
-const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
-const DEFAULT_PUBLIC_API_SCOPES = ['verification:read', 'subjects:read'];
-const DEFAULT_OAUTH_APP_SCOPES = ['verification:read'];
 
 export function toTimestamp(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -68,17 +72,12 @@ export function toTimestamp(value: unknown): number | undefined {
   return undefined;
 }
 
-export function normalizePublicApiScopes(scopes: unknown): string[] {
-  const values =
-    Array.isArray(scopes) && scopes.length > 0
-      ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
-      : [...DEFAULT_PUBLIC_API_SCOPES];
-
-  if (values.some((scope) => !ALLOWED_PUBLIC_API_SCOPES.has(scope))) {
-    throw new Error('Invalid API key scopes');
-  }
-
-  return Array.from(new Set(values));
+export function normalizePublicApiScopes(scopes: unknown): PublicApiScope[] {
+  return normalizePublicApiScopeList(
+    scopes,
+    DEFAULT_PUBLIC_API_KEY_SCOPES,
+    'Invalid API key scopes'
+  );
 }
 
 export function parsePublicApiKeyMetadata(
@@ -165,12 +164,8 @@ export function normalizeRedirectUris(redirectUris: unknown): string[] {
   return Array.from(new Set(values));
 }
 
-export function normalizeOAuthScopes(scopes: unknown): string[] {
-  const values = Array.isArray(scopes)
-    ? scopes.map((scope) => (typeof scope === 'string' ? scope.trim() : '')).filter(Boolean)
-    : [];
-
-  return Array.from(new Set(values.length > 0 ? values : [...DEFAULT_OAUTH_APP_SCOPES]));
+export function normalizeOAuthScopes(scopes: unknown): PublicApiScope[] {
+  return normalizePublicApiScopeList(scopes, DEFAULT_OAUTH_APP_SCOPES, 'Invalid OAuth scopes');
 }
 
 export function getBetterAuthErrorMessage(value: unknown, fallback: string): string {

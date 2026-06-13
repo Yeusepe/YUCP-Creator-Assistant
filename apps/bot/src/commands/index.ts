@@ -20,9 +20,7 @@ const CREATOR_USER_COMMAND = new SlashCommandBuilder()
       .setDescription('View your verification status and connect accounts (default)')
   )
   .addSubcommand((s) =>
-    s
-      .setName('account')
-      .setDescription('Open your Creator Assistant account and manage your connections')
+    s.setName('identity').setDescription('Open your Creator Identity and manage your connections')
   )
   .addSubcommand((s) =>
     s
@@ -157,7 +155,7 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
         .addSubcommand((s) =>
           s
             .setName('disconnect')
-            .setDescription('Disconnect this server from your Creator Assistant account')
+            .setDescription('Disconnect this server from your Creator Identity')
         )
     )
     .addSubcommand((s) => s.setName('analytics').setDescription('View analytics and key metrics'))

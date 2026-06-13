@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
 import { api, internal } from './_generated/api';
-import type { DataModel } from './_generated/dataModel';
+import type { DataModel, Id } from './_generated/dataModel';
 import betterAuthSchema from './betterAuth/schema';
 import { makeTestConvex } from './testHelpers';
 
@@ -19,6 +19,72 @@ type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
     functions: Record<string, () => Promise<unknown>>
   ) => void;
 };
+
+async function seedBackstageAliasMetadataCandidate(
+  t: ReturnType<typeof makeTestConvex>,
+  overrides: {
+    authUserId?: string;
+    packageId?: string;
+    productId?: string;
+    providerProductRef?: string;
+    version?: string;
+  } = {}
+): Promise<{
+  catalogProductId: Id<'product_catalog'>;
+  deliveryPackageReleaseId: Id<'delivery_package_releases'>;
+}> {
+  const authUserId = overrides.authUserId ?? 'auth-user-1';
+  const catalogProductId = await t.run(async (ctx) => {
+    return await ctx.db.insert('product_catalog', {
+      authUserId,
+      productId: overrides.productId ?? 'product-legacy-metadata',
+      provider: 'gumroad',
+      providerProductRef: overrides.providerProductRef ?? 'gumroad-product-legacy-metadata',
+      displayName: 'Legacy Metadata Product',
+      status: 'active',
+      supportsAutoDiscovery: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+
+  await t.mutation(internal.packageRegistry.registerPackage, {
+    packageId: overrides.packageId ?? 'com.yucp.backstage.legacy-metadata',
+    packageName: 'Legacy Metadata Package',
+    publisherId: 'publisher-1',
+    yucpUserId: authUserId,
+  });
+
+  await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+    authUserId,
+    catalogProductId,
+    packageId: overrides.packageId ?? 'com.yucp.backstage.legacy-metadata',
+    packageName: 'Legacy Metadata Package',
+    displayName: 'Legacy Metadata Package',
+    repositoryVisibility: 'listed',
+    defaultChannel: 'stable',
+  });
+
+  const { deliveryPackageReleaseId } = await t.mutation(
+    internal.packageRegistry.recordDeliveryPackageRelease,
+    {
+      authUserId,
+      packageId: overrides.packageId ?? 'com.yucp.backstage.legacy-metadata',
+      version: overrides.version ?? '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      metadata: {
+        description: 'Published before alias metadata synthesis',
+      },
+    }
+  );
+
+  return {
+    catalogProductId,
+    deliveryPackageReleaseId,
+  };
+}
 
 async function seedBetterAuthDiscordAccount(
   t: ComponentAwareTestConvex,
@@ -110,6 +176,299 @@ describe('legacy license subject link hardening', () => {
     expect(stored?.licenseKey).toBeUndefined();
     expect(stored?.licenseKeyEncrypted).toBeTruthy();
     expect(stored?.purchaserEmail).toBeUndefined();
+  });
+});
+
+describe('backstage alias metadata remediation', () => {
+  it('detects published releases that are missing alias metadata but can be repaired from linked products', async () => {
+    const t = makeTestConvex();
+    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t);
+
+    const report = await t.query(internal.migrations.listBackstageAliasMetadataRemediationCandidates, {
+      limit: 10,
+    });
+
+    expect(report.summary).toMatchObject({
+      candidateReleases: 1,
+      repairableReleases: 1,
+      skippedDueToLimit: 0,
+    });
+    expect(report.candidates).toEqual([
+      expect.objectContaining({
+        deliveryPackageReleaseId,
+        packageId: 'com.yucp.backstage.legacy-metadata',
+        version: '1.0.0',
+        channel: 'stable',
+        aliasId: 'gumroad-product-legacy-metadata',
+        catalogProductIds: [catalogProductId],
+        productRefs: ['gumroad-product-legacy-metadata'],
+        repairable: true,
+      }),
+    ]);
+  });
+
+  it('repairs a selected published release by backfilling the alias metadata contract', async () => {
+    vi.useFakeTimers();
+    const t = makeTestConvex();
+    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
+      packageId: 'com.yucp.backstage.legacy-repair',
+      productId: 'product-legacy-repair',
+      providerProductRef: 'gumroad-product-legacy-repair',
+      version: '2.0.0',
+    });
+
+    const result = await t.mutation(internal.migrations.repairBackstageAliasMetadataCandidates, {
+      releaseIds: [deliveryPackageReleaseId],
+    });
+
+    expect(result).toEqual({
+      repairedReleases: 1,
+      skippedReleases: [],
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const repairedRelease = await t.run(async (ctx) => ctx.db.get(deliveryPackageReleaseId));
+    expect(repairedRelease?.metadata).toMatchObject({
+      description: 'Published before alias metadata synthesis',
+      yucp: {
+        kind: 'alias-v1',
+        aliasId: 'gumroad-product-legacy-repair',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        minImporterVersion: '0.1.9',
+        catalogProductIds: [String(catalogProductId)],
+        channel: 'stable',
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it('marks multi-product releases with conflicting alias ids as review-only and skips repair', async () => {
+    const t = makeTestConvex();
+    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
+      packageId: 'com.yucp.backstage.legacy-conflict',
+      productId: 'product-legacy-conflict-a',
+      providerProductRef: 'gumroad-product-legacy-conflict-a',
+      version: '4.0.0',
+    });
+    const secondCatalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: 'auth-user-1',
+        productId: 'product-legacy-conflict-b',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-product-legacy-conflict-b',
+        displayName: 'Legacy Conflict Product B',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProducts, {
+      authUserId: 'auth-user-1',
+      catalogProductIds: [catalogProductId, secondCatalogProductId],
+      packageId: 'com.yucp.backstage.legacy-conflict',
+      packageName: 'Legacy Metadata Package',
+      displayName: 'Legacy Metadata Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+
+    const report = await t.query(internal.migrations.listBackstageAliasMetadataRemediationCandidates, {
+      limit: 10,
+    });
+
+    expect(report.summary).toMatchObject({
+      candidateReleases: 1,
+      repairableReleases: 0,
+      skippedDueToLimit: 0,
+    });
+    expect(report.candidates).toHaveLength(1);
+    expect(report.candidates[0]).toMatchObject({
+      deliveryPackageReleaseId,
+      repairable: false,
+      reason: 'Missing alias metadata but linked catalog products resolve to different alias ids',
+    });
+    expect(report.candidates[0]).not.toHaveProperty('aliasId');
+
+    const result = await t.mutation(internal.migrations.repairBackstageAliasMetadataCandidates, {
+      releaseIds: [deliveryPackageReleaseId],
+    });
+    expect(result).toEqual({
+      repairedReleases: 0,
+      skippedReleases: [
+        {
+          deliveryPackageReleaseId,
+          reason: 'Linked catalog products resolve to different alias ids',
+        },
+      ],
+    });
+
+    const unrepairedRelease = await t.run(async (ctx) => ctx.db.get(deliveryPackageReleaseId));
+    expect(unrepairedRelease?.metadata).toEqual({
+      description: 'Published before alias metadata synthesis',
+    });
+  });
+});
+
+describe('backstage CDNgine delivery variant remediation', () => {
+  it('detects and repairs legacy generic Backstage delivery variants', async () => {
+    const t = makeTestConvex();
+    const { deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
+      packageId: 'com.yucp.backstage.legacy-cdngine-variant',
+      version: '1.0.12',
+    });
+    const now = Date.now();
+    const artifactId = await t.run(async (ctx) => {
+      return await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId,
+        artifactRole: 'server_deliverable',
+        ownership: 'server_materialized',
+        materializationStrategy: 'normalized_repack',
+        contentType: 'application/zip',
+        deliveryName: 'vrc-get-com.yucp.backstage.legacy-cdngine-variant-1.0.12.zip',
+        sha256: '2'.repeat(64),
+        byteSize: 496,
+        cdngineDelivery: {
+          assetId: 'ast_legacy_variant',
+          assetOwner: 'creator:auth-user-1',
+          byteSize: 496,
+          deliveryScopeId: 'paid-downloads',
+          serviceNamespaceId: 'yucp-backstage',
+          sha256: '2'.repeat(64),
+          tenantId: 'auth-user-1',
+          uploadedAt: now,
+          variant: 'vpm-package',
+          versionId: 'ver_legacy_variant',
+        },
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const report = await t.query(
+      internal.migrations.listBackstageCdngineDeliveryVariantRemediationCandidates,
+      { limit: 10 }
+    );
+
+    expect(report.summary).toMatchObject({
+      candidateArtifacts: 1,
+      repairableArtifacts: 1,
+      skippedDueToLimit: 0,
+    });
+    expect(report.candidates).toEqual([
+      expect.objectContaining({
+        deliveryArtifactId: artifactId,
+        deliveryPackageReleaseId,
+        packageId: 'com.yucp.backstage.legacy-cdngine-variant',
+        version: '1.0.12',
+        channel: 'stable',
+        currentVariant: 'vpm-package',
+        targetVariant: 'preserve-original',
+        repairable: true,
+      }),
+    ]);
+
+    const result = await t.mutation(
+      internal.migrations.repairBackstageCdngineDeliveryVariantCandidates,
+      { artifactIds: [artifactId] }
+    );
+
+    expect(result).toEqual({
+      repairedArtifacts: 1,
+      skippedArtifacts: [],
+    });
+
+    const repaired = await t.run(async (ctx) => ctx.db.get(artifactId));
+    expect(repaired?.cdngineDelivery?.variant).toBe('preserve-original');
+  });
+});
+
+describe('backstage raw upload source field remediation', () => {
+  it('detects and repairs legacy raw uploads that stored CDNgine source coordinates as delivery coordinates', async () => {
+    const t = makeTestConvex();
+    const { deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
+      packageId: 'com.yucp.backstage.legacy-raw-source-field',
+      version: '1.0.12',
+    });
+    const now = Date.now();
+    const artifactId = await t.run(async (ctx) => {
+      return await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId,
+        artifactRole: 'raw_upload',
+        ownership: 'creator_upload',
+        contentType: 'application/octet-stream',
+        deliveryName: 'Legacy Raw_1.0.12.unitypackage',
+        sha256: '8'.repeat(64),
+        byteSize: 231_280_642,
+        cdngineDelivery: {
+          assetId: 'ast_legacy_raw_source_field',
+          assetOwner: 'creator:auth-user-1',
+          byteSize: 231_280_642,
+          deliveryScopeId: 'paid-downloads',
+          serviceNamespaceId: 'yucp-backstage',
+          sha256: '8'.repeat(64),
+          tenantId: 'auth-user-1',
+          uploadedAt: now,
+          variant: 'raw-upload',
+          versionId: 'ver_legacy_raw_source_field',
+        },
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const report = await t.query(
+      internal.migrations.listBackstageRawUploadSourceFieldRemediationCandidates,
+      { limit: 10 }
+    );
+
+    expect(report.summary).toMatchObject({
+      candidateArtifacts: 1,
+      repairableArtifacts: 1,
+      skippedDueToLimit: 0,
+    });
+    expect(report.candidates).toEqual([
+      expect.objectContaining({
+        deliveryArtifactId: artifactId,
+        deliveryPackageReleaseId,
+        packageId: 'com.yucp.backstage.legacy-raw-source-field',
+        version: '1.0.12',
+        channel: 'stable',
+        assetId: 'ast_legacy_raw_source_field',
+        versionId: 'ver_legacy_raw_source_field',
+        currentField: 'cdngineDelivery',
+        targetField: 'cdngineSource',
+        repairable: true,
+      }),
+    ]);
+
+    const result = await t.mutation(
+      internal.migrations.repairBackstageRawUploadSourceFieldCandidates,
+      { artifactIds: [artifactId] }
+    );
+
+    expect(result).toEqual({
+      repairedArtifacts: 1,
+      skippedArtifacts: [],
+    });
+
+    const repaired = await t.run(async (ctx) => ctx.db.get(artifactId));
+    expect(repaired?.cdngineDelivery).toBeUndefined();
+    expect(repaired?.cdngineSource).toEqual({
+      assetId: 'ast_legacy_raw_source_field',
+      assetOwner: 'creator:auth-user-1',
+      byteSize: 231_280_642,
+      serviceNamespaceId: 'yucp-backstage',
+      sha256: '8'.repeat(64),
+      tenantId: 'auth-user-1',
+      uploadedAt: now,
+      versionId: 'ver_legacy_raw_source_field',
+    });
   });
 });
 

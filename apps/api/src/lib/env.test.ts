@@ -96,6 +96,23 @@ describe('loadEnv', () => {
     }
   });
 
+  it('refuses production startup when Infisical secrets did not load', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'yucp-api-env-no-infisical-'));
+    const originalCwd = process.cwd();
+    process.chdir(tempDir);
+    try {
+      process.env = {
+        NODE_ENV: 'production',
+      };
+
+      await expect(loadEnvAsync()).rejects.toThrow(
+        'Infisical secrets did not load; environment is using process.env and local fallback files only. Refusing production startup.'
+      );
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
   it('falls back to COUPLING_SERVICE_SECRET when the YUCP alias is absent', () => {
     process.env.COUPLING_SERVICE_SECRET = 'legacy-secret';
 

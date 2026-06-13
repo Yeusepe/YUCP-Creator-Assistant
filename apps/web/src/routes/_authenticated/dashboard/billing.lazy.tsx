@@ -271,7 +271,7 @@ export default function DashboardBilling() {
               <div className="intg-copy" style={{ flex: 1 }}>
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Polar billing is attached to your creator identity. Return to your root dashboard
+                  Polar billing is attached to your Creator Identity. Return to your root dashboard
                   to manage plans and checkout.
                 </p>
               </div>

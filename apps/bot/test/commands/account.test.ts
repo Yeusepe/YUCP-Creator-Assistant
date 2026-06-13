@@ -33,12 +33,12 @@ afterEach(() => {
 });
 
 describe('account command', () => {
-  it('registers /creator account as a user-facing subcommand', () => {
+  it('registers /creator identity as a user-facing subcommand', () => {
     const creator = CREATOR_USER_COMMAND.toJSON();
-    const accountOption = creator.options?.find((option) => option.name === 'account');
+    const identityOption = creator.options?.find((option) => option.name === 'identity');
 
-    expect(accountOption).toBeDefined();
-    expect(accountOption?.description).toMatch(/account/i);
+    expect(identityOption).toBeDefined();
+    expect(identityOption?.description).toMatch(/creator identity/i);
   });
 
   it('opens the account portal without requiring guild context', async () => {
@@ -50,7 +50,7 @@ describe('account command', () => {
     const interaction = mockSlashCommand({
       commandName: 'creator',
       guildId: null,
-      subcommand: 'account',
+      subcommand: 'identity',
     });
 
     await handleInteraction(interaction as unknown as ChatInputCommandInteraction, {
@@ -69,7 +69,7 @@ describe('account command', () => {
     expect(
       buttons.some(
         (button) =>
-          button.data?.label === 'Open My Account' &&
+          button.data?.label === 'Open Creator Identity' &&
           button.data?.url === 'https://creators.example.com/account'
       )
     ).toBe(true);
@@ -91,7 +91,7 @@ describe('account command', () => {
     const interaction = mockSlashCommand({
       commandName: 'creator',
       guildId: null,
-      subcommand: 'account',
+      subcommand: 'identity',
     });
 
     await handleInteraction(interaction as unknown as ChatInputCommandInteraction, {

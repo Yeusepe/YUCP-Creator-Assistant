@@ -195,15 +195,29 @@ function normalizeTokenResponse(payload: Partial<TokenResponse> | null | undefin
   };
 }
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function normalizeOptionalStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
 function normalizeProductsResponse(
   payload: Partial<ProductsResponse> | null | undefined
 ): ProductsResponse {
   return {
     products: (payload?.products ?? []).map((product) => ({
-      id: product?.id,
-      name: product?.name,
-      collaboratorName: product?.collaboratorName,
-      productUrl: product?.productUrl,
+      id: normalizeOptionalString(product?.id),
+      name: normalizeOptionalString(product?.name),
+      collaboratorName: normalizeOptionalString(product?.collaboratorName),
+      productUrl: normalizeOptionalString(product?.productUrl),
+      thumbnailUrl: normalizeOptionalString(product?.thumbnailUrl),
+      canonicalSlug: normalizeOptionalString(product?.canonicalSlug),
+      aliases: normalizeOptionalStringArray(product?.aliases),
     })),
     error: payload?.error,
   };
@@ -231,7 +245,7 @@ function normalizeTiersResponse(payload: Partial<TiersResponse> | null | undefin
       description: tier?.description,
       amountCents: normalizeOptionalInt64(tier?.amountCents),
       currency: tier?.currency,
-      active: tier?.active ?? false,
+      active: typeof tier?.active === 'boolean' ? tier.active : undefined,
     })),
     error: payload?.error,
   };
@@ -240,14 +254,19 @@ function normalizeTiersResponse(payload: Partial<TiersResponse> | null | undefin
 export async function listProviderProductsViaApi(
   config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
   request: ListProviderProductsRequest,
-  handleProducts: typeof handleProviderProducts = handleProviderProducts
+  handleProducts: typeof handleProviderProducts = handleProviderProducts,
+  options?: { signal?: AbortSignal }
 ): Promise<ProductsResponse> {
   const provider = request.provider ?? '';
   const response = await handleProducts(
-    createJsonRequest(`${config.apiBaseUrl}/api/${provider}/products`, {
-      apiSecret: config.convexApiSecret,
-      authUserId: request.authUserId ?? '',
-    }),
+    createJsonRequest(
+      `${config.apiBaseUrl}/api/${provider}/products`,
+      {
+        apiSecret: config.convexApiSecret,
+        authUserId: request.authUserId ?? '',
+      },
+      { signal: options?.signal }
+    ),
     provider
   );
   return normalizeProductsResponse(
@@ -260,15 +279,20 @@ export async function listProviderProductsViaApi(
 export async function listProviderTiersViaApi(
   config: Pick<InternalRpcConfig, 'apiBaseUrl' | 'convexApiSecret'>,
   request: ListProviderTiersRequest,
-  handleTiers: typeof handleProviderTiers = handleProviderTiers
+  handleTiers: typeof handleProviderTiers = handleProviderTiers,
+  options?: { signal?: AbortSignal }
 ): Promise<TiersResponse> {
   const provider = request.provider ?? '';
   const response = await handleTiers(
-    createJsonRequest(`${config.apiBaseUrl}/api/${provider}/tiers`, {
-      apiSecret: config.convexApiSecret,
-      authUserId: request.authUserId ?? '',
-      productId: request.productId ?? '',
-    }),
+    createJsonRequest(
+      `${config.apiBaseUrl}/api/${provider}/tiers`,
+      {
+        apiSecret: config.convexApiSecret,
+        authUserId: request.authUserId ?? '',
+        productId: request.productId ?? '',
+      },
+      { signal: options?.signal }
+    ),
     provider
   );
   return normalizeTiersResponse(

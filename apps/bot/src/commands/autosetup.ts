@@ -42,6 +42,7 @@ import {
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
+import { normalizeProviderThumbnailUrl } from '../lib/catalogMedia';
 import { E, Emoji } from '../lib/emojis';
 import { createSetupSessionToken, listProviderProducts } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
@@ -58,6 +59,7 @@ export interface AutosetupProduct {
   id: string;
   name: string;
   provider: string;
+  thumbnailUrl?: string;
 }
 
 interface AutosetupSession {
@@ -910,6 +912,7 @@ export async function handleAutosetupProductsSelect(
           provider: product.provider,
           displayName: product.name,
           productUrl: buildCatalogProductUrl(product.provider, product.id) ?? undefined,
+          thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
           supportsAutoDiscovery: descriptor?.supportsAutoDiscovery ?? false,
         });
         await convex.mutation(api.role_rules.createRoleRule, {
@@ -1447,6 +1450,7 @@ export async function handleAutosetupMigrateProductSelect(
       providerProductRef: product.id,
       provider: product.provider,
       displayName: product.name,
+      thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
     });
     await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,
@@ -1681,6 +1685,7 @@ export async function handleAutosetupMigrateMapAllRoleSelect(
       providerProductRef: product.id,
       provider: product.provider,
       displayName: product.name,
+      thumbnailUrl: normalizeProviderThumbnailUrl(product.thumbnailUrl),
     });
     await convex.mutation(api.role_rules.createRoleRule, {
       apiSecret,

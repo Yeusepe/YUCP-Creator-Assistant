@@ -28,7 +28,7 @@ export async function handleAuditLogRoutes(
     return errorResponse('method_not_allowed', 'Method not allowed', 405, reqId);
   }
 
-  const auth = await resolveAuth(request, config, ['events:read'], reqId);
+  const auth = await resolveAuth(request, config, ['audit-log:read'], reqId);
   if (auth instanceof Response) return auth;
 
   const { limit, cursor } = parsePagination(url);

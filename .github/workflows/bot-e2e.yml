@@ -18,7 +18,19 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Validate dependency install secrets
+        shell: bash
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: |
+          if [[ -z "${HEROUI_AUTH_TOKEN}" ]]; then
+            echo "::error::Missing required secret: HEROUI_AUTH_TOKEN"
+            exit 1
+          fi
+
       - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
       - name: Install Playwright Chromium
@@ -49,6 +61,7 @@ jobs:
           BOT_E2E_JINXXY_PRODUCT_ID: ${{ secrets.BOT_E2E_JINXXY_PRODUCT_ID }}
           BOT_E2E_JINXXY_LICENSE_KEY: ${{ secrets.BOT_E2E_JINXXY_LICENSE_KEY }}
           BOT_E2E_COLLAB_JINXXY_API_KEY: ${{ secrets.BOT_E2E_COLLAB_JINXXY_API_KEY }}
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: |
           required=(
             DISCORD_BOT_TOKEN
@@ -73,6 +86,7 @@ jobs:
             BOT_E2E_JINXXY_PRODUCT_ID
             BOT_E2E_JINXXY_LICENSE_KEY
             BOT_E2E_COLLAB_JINXXY_API_KEY
+            HEROUI_AUTH_TOKEN
           )
 
           missing=()

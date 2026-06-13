@@ -10,6 +10,7 @@ const apiMock = {
     lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
     resolveBuyerIdentityForAuthUser: 'couplingForensics.resolveBuyerIdentityForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
+    revealCouplingLicenseKey: 'couplingForensics.revealCouplingLicenseKey',
   },
 } as const;
 
@@ -687,5 +688,68 @@ describe('forensics routes', () => {
     const match = json.results[0]?.matches[0];
     expect(match).not.toHaveProperty('licenseKey');
     expect(match).not.toHaveProperty('purchaserEmail');
+  });
+
+  it('rejects invalid reveal package ids as a client error before Convex writes', async () => {
+    mutationMock.mockImplementation(async () => {
+      throw new Error('Invalid reveal package ids should not reach Convex');
+    });
+
+    const response = await routes.revealLicense(
+      new Request('http://localhost:3001/api/forensics/reveal-license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: 'INVALID PACKAGE',
+          licenseSubject: 'a'.repeat(64),
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid packageId format' });
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized reveal bodies before Convex writes', async () => {
+    mutationMock.mockImplementation(async () => {
+      throw new Error('Oversized reveal bodies should not reach Convex');
+    });
+
+    const response = await routes.revealLicense(
+      new Request('http://localhost:3001/api/forensics/reveal-license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: 'creator.package',
+          licenseSubject: 'a'.repeat(64),
+          padding: 'x'.repeat(5_000),
+        }),
+      })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: 'Request body too large' });
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a fixed forbidden error when reveal access is denied', async () => {
+    mutationMock.mockResolvedValue({
+      error: 'internal authorization detail for license-subject',
+    });
+
+    const response = await routes.revealLicense(
+      new Request('http://localhost:3001/api/forensics/reveal-license', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          packageId: 'creator.package',
+          licenseSubject: 'a'.repeat(64),
+        }),
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' });
   });
 });

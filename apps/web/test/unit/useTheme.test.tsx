@@ -22,6 +22,7 @@ describe('useTheme hydration', () => {
     localStorage.clear();
     document.body.innerHTML = '';
     document.documentElement.classList.remove('dark');
+    document.documentElement.removeAttribute('data-theme');
   });
 
   it('hydrates without a class mismatch when a dark theme is stored', async () => {
@@ -48,5 +49,6 @@ describe('useTheme hydration', () => {
       "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties."
     );
     expect(errorOutput).not.toContain('hydration-mismatch');
+    expect(document.documentElement.dataset.theme).toBe('glass-dark');
   });
 });

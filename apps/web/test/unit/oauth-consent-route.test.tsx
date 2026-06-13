@@ -18,6 +18,10 @@ vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
   BackgroundCanvasRoot: () => null,
 }));
 
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: () => <div data-testid="cloud-background" />,
+}));
+
 vi.mock('@/lib/auth-client', () => ({
   authClient: {
     oauth2: {
@@ -75,5 +79,16 @@ describe('oauth consent route', () => {
     });
 
     expect(window.location.href).toBe('http://127.0.0.1:50481/callback?code=test');
+  });
+
+  it('renders the shared cloud background shell', () => {
+    const Component = Route.options.component;
+    if (!Component) {
+      throw new Error('OAuth consent route component is not defined');
+    }
+
+    render(<Component />);
+
+    expect(screen.getAllByTestId('cloud-background')).not.toHaveLength(0);
   });
 });

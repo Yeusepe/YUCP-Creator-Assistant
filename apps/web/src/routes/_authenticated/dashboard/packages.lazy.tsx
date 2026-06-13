@@ -1,15 +1,48 @@
+import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
+import { useEffect } from 'react';
+import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
-import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
-import { useDashboardSession } from '@/hooks/useDashboardSession';
+import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
+import { hasActiveCreatorBillingCapability, listCreatorCertificates } from '@/lib/certificates';
+import { useRuntimeConfig } from '@/lib/runtimeConfig';
+import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
 
-function DashboardPackagesPending() {
+function DashboardPackagesLoadingShell() {
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <DashboardGridSkeleton cards={3} />
+        <PackageRegistryWorkspaceSkeleton showHeader />
+      </div>
+    </div>
+  );
+}
+
+function DashboardPackagesPending() {
+  return <DashboardPackagesLoadingShell />;
+}
+
+function PackageRegistryFeatureDisabledState() {
+  return (
+    <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
+      <div className="bento-grid">
+        <section className="intg-card animate-in bento-col-12">
+          <div className="intg-header">
+            <div className="intg-icon">
+              <img src="/Icons/Library.png" alt="" aria-hidden="true" />
+            </div>
+            <div className="intg-copy">
+              <h1 className="intg-title">Package registry unavailable</h1>
+              <p className="intg-desc">
+                Private VPM packages are behind a feature flag and disabled in this environment.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -20,9 +53,40 @@ export const Route = createLazyFileRoute('/_authenticated/dashboard/packages')({
   component: DashboardPackages,
 });
 
+function noRetryOn4xx(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+  return failureCount < 2;
+}
+
 export default function DashboardPackages() {
   const { isPersonalDashboard } = useActiveDashboardContext();
-  const { isAuthResolved, status } = useDashboardSession();
+  const { canRunPanelQueries, isAuthResolved, markSessionExpired, status } = useDashboardSession();
+  const { privateVpmEnabled = false } = useRuntimeConfig();
+  const certificatesQuery = useQuery({
+    queryKey: ['creator-certificates'],
+    queryFn: listCreatorCertificates,
+    enabled: privateVpmEnabled && canRunPanelQueries && isPersonalDashboard,
+    retry: noRetryOn4xx,
+  });
+
+  useEffect(() => {
+    if (isDashboardAuthError(certificatesQuery.error)) {
+      markSessionExpired();
+    }
+  }, [certificatesQuery.error, markSessionExpired]);
+
+  const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.vpmRepo
+  );
+  const isLoading =
+    !isAuthResolved || (canRunPanelQueries && isPersonalDashboard && certificatesQuery.isLoading);
+  const hasCapabilityQueryError =
+    certificatesQuery.isError && !isDashboardAuthError(certificatesQuery.error);
+
+  if (!privateVpmEnabled) {
+    return <PackageRegistryFeatureDisabledState />;
+  }
 
   if (status === 'signed_out' || status === 'expired') {
     return (
@@ -30,7 +94,7 @@ export default function DashboardPackages() {
         <DashboardAuthRequiredState
           id="packages-auth"
           title="Sign in to manage packages"
-          description="Your session expired. Sign in again to rename packages, delete unused packages, or reuse a package ID in Unity."
+          description="Your session expired. Sign in again to upload updates, manage install IDs, or add your repo in VCC."
         />
       </div>
     );
@@ -53,8 +117,8 @@ export default function DashboardPackages() {
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
                 <p className="intg-desc">
-                  Package ownership belongs to your creator account. Open the root dashboard to
-                  manage package IDs.
+                  Package ownership belongs to your Creator Identity. Open the root dashboard to
+                  manage install IDs.
                 </p>
               </div>
             </div>
@@ -72,11 +136,31 @@ export default function DashboardPackages() {
     );
   }
 
-  if (!isAuthResolved) {
+  if (isLoading) {
+    return <DashboardPackagesLoadingShell />;
+  }
+
+  if (hasCapabilityQueryError) {
     return (
       <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
         <div className="bento-grid">
-          <DashboardGridSkeleton cards={3} />
+          <PackageRegistryAccessGate
+            mode="error"
+            isRetrying={certificatesQuery.isFetching}
+            onRetry={() => {
+              void certificatesQuery.refetch();
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasVpmRepoCapability) {
+    return (
+      <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
+        <div className="bento-grid">
+          <PackageRegistryAccessGate mode="missing" />
         </div>
       </div>
     );
@@ -85,7 +169,7 @@ export default function DashboardPackages() {
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
       <div className="bento-grid">
-        <PackageRegistryPanel description="Package IDs are managed from certificates now. This compatibility view stays available for direct links and Unity handoffs." />
+        <PackageRegistryPanel />
       </div>
     </div>
   );

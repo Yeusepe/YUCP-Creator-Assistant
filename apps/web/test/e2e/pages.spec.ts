@@ -9,7 +9,7 @@ import { expect, test } from 'playwright/test';
 test.describe('Page Rendering', () => {
   test('sign-in page renders with Discord button', async ({ page }) => {
     await page.goto('/sign-in');
-    await expect(page.locator('.card-title')).toContainText('Creator Assistant');
+    await expect(page.locator('.card-title')).toContainText('Sign in');
     await expect(page.locator('#discord-signin-btn')).toBeVisible();
   });
 

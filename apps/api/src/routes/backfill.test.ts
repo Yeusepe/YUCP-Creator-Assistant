@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { createBackfillProductHandler } from './backfill';
 
 describe('handleBackfillProduct', () => {
@@ -57,8 +57,7 @@ describe('handleBackfillProduct', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error:
-        'Missing required fields: apiSecret, authUserId, productId, provider, providerProductRef',
+      error: 'Request body must be a JSON object.',
     });
   });
 
@@ -86,7 +85,43 @@ describe('handleBackfillProduct', () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON' });
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+  });
+
+  it('rejects oversized request bodies before provider resolution', async () => {
+    const getProviderById = mock(() => undefined);
+    const handleBackfillProduct = createBackfillProductHandler({
+      getExpectedSecret: () => 'convex-secret',
+      getConvexUrl: () => 'https://convex.invalid',
+      getEncryptionSecret: () => 'test-encryption-secret',
+      createConvexClient: () => ({
+        query: async () => null,
+        mutation: async () => ({ inserted: 0, skipped: 0 }),
+        action: async () => null,
+      }),
+      getProviderById,
+      ingestBackfillBatch: async () => ({ inserted: 0, skipped: 0 }),
+      sleep: async () => {},
+    });
+
+    const response = await handleBackfillProduct(
+      new Request('http://localhost/api/internal/backfill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiSecret: 'convex-secret',
+          authUserId: 'user-1',
+          productId: 'product-1',
+          provider: 'gumroad',
+          providerProductRef: 'provider-product-1',
+          padding: 'x'.repeat(5_000),
+        }),
+      })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: 'Request body too large' });
+    expect(getProviderById).not.toHaveBeenCalled();
   });
 
   it('returns 400 when the provider does not support backfill', async () => {

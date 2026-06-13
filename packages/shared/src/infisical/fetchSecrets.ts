@@ -30,6 +30,7 @@ export async function fetchInfisicalSecrets(
   const response = await client.secrets().listSecrets({
     projectId,
     environment: envName,
+    recursive: true,
     viewSecretValue: true,
   });
 

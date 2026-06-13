@@ -12,6 +12,57 @@ function readSortedPartials(partialsDir: string): string {
     .join('\n');
 }
 
+function readCssDeclaration(css: string, selector: string, property: string): string {
+  const selectorIndex = css.indexOf(selector);
+  if (selectorIndex < 0) {
+    throw new Error(`Missing CSS block for ${selector}`);
+  }
+
+  const blockStart = css.indexOf('{', selectorIndex + selector.length);
+  const blockEnd = blockStart >= 0 ? css.indexOf('}', blockStart + 1) : -1;
+  if (blockStart < 0 || blockEnd < 0) {
+    throw new Error(`Missing CSS block for ${selector}`);
+  }
+
+  const body = css.slice(blockStart + 1, blockEnd);
+  for (const declaration of body.split(';')) {
+    const colonIndex = declaration.indexOf(':');
+    if (colonIndex < 0) {
+      continue;
+    }
+    const name = declaration.slice(0, colonIndex).trim();
+    if (name === property) {
+      return declaration.slice(colonIndex + 1).trim();
+    }
+  }
+
+  if (!body.includes(property)) {
+    throw new Error(`Missing ${property} declaration for ${selector}`);
+  }
+
+  throw new Error(`Could not parse ${property} declaration for ${selector}`);
+}
+
+function expectOpaqueLightBackground(selector: string, minimumAlpha = 0.84): void {
+  const background = readCssDeclaration(dashboardComponentsCss, selector, 'background');
+  const rgbaMatch = background.match(/^rgba\(255,\s*255,\s*255,\s*(?<alpha>0?\.\d+|1(?:\.0+)?)\)$/);
+  if (!rgbaMatch?.groups?.alpha) {
+    const hexMatch = background.match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!hexMatch?.groups?.hex) {
+      throw new Error(`${selector} must use an opaque light hex or white rgba() background`);
+    }
+    const hex =
+      hexMatch.groups.hex.length === 3
+        ? Array.from(hexMatch.groups.hex, (digit) => `${digit}${digit}`).join('')
+        : hexMatch.groups.hex;
+    const channels = hex.match(/[0-9a-f]{2}/gi)?.map((channel) => Number.parseInt(channel, 16));
+    expect(channels?.every((channel) => channel >= 220)).toBe(true);
+    return;
+  }
+
+  expect(Number(rgbaMatch.groups.alpha)).toBeGreaterThanOrEqual(minimumAlpha);
+}
+
 /** Concatenates dashboard token + partials (matches @import resolution in dashboard.css). */
 const dashboardCss = [
   readFileSync(join(stylesDir, 'dashboard-tokens.css'), 'utf8'),
@@ -50,6 +101,10 @@ const brandingAssetsSource = readFileSync(
   resolve(__dirname, '../../src/lib/brandingAssets.ts'),
   'utf8'
 );
+const packageRegistryPanelSource = readFileSync(
+  resolve(__dirname, '../../src/components/dashboard/PackageRegistryPanel.tsx'),
+  'utf8'
+);
 
 describe('dashboard UI contracts', () => {
   it('removes the redundant select-server prompt card from the dashboard body', () => {
@@ -61,6 +116,9 @@ describe('dashboard UI contracts', () => {
     expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
+    expect(dashboardLazyRouteSource).toContain('privateVpmEnabled && hasVpmRepoCapability');
+    expect(dashboardLazyRouteSource).toContain('Custom VPM repo');
+    expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 
   it('declares dashboard shell styles from the base route head so SSR markup is styled on first paint', () => {
@@ -164,6 +222,88 @@ describe('dashboard UI contracts', () => {
     expect(dashboardComponentsCss).toContain('max-width: 280px;');
     expect(dashboardComponentsCss).toContain('margin: 8px auto 0;');
     expect(dashboardComponentsCss).toContain('text-align: center;');
+  });
+
+  it('keeps package manager light-mode surfaces opaque enough for light mode', () => {
+    for (const selector of [
+      '.pm-card',
+      '.pm-primary-panel',
+      '.pm-muted-card',
+      '.pm-muted-panel',
+      '.pm-empty-state',
+      '.pm-package-row',
+      '.pm-product-row',
+      '.pm-icon-shell',
+      '.pm-sheet-content',
+      '.pm-summary-strip',
+      '.pm-management-details',
+      '.pm-upload-button',
+      '.pm-sheet-section',
+      '.pm-inline-note',
+      '.pm-static-field',
+      '.pm-upload-dropzone .drop-zone__area',
+      '.pm-upload-dropzone .drop-zone__trigger',
+      '.pm-upload-dropzone .drop-zone__file-item',
+    ]) {
+      expectOpaqueLightBackground(selector);
+      expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
+    }
+  });
+
+  it('keeps package picker and details surfaces readable in light mode', () => {
+    expect(packageRegistryPanelSource).toContain(
+      'className="pm-sheet-content mx-auto max-h-[94vh] max-w-[860px]"'
+    );
+    expect(packageRegistryPanelSource).toContain('className="pm-package-picker w-full"');
+    expect(packageRegistryPanelSource).toContain('className="pm-package-picker-popover"');
+    expect(readCssDeclaration(dashboardComponentsCss, '.pm-sheet-content', 'color')).toMatch(
+      /#0f172a|rgba\(15,\s*23,\s*42/
+    );
+    expect(readCssDeclaration(dashboardComponentsCss, '.dark .pm-sheet-content', 'color')).toMatch(
+      /#f8fafc|rgba\(248,\s*250,\s*252/
+    );
+
+    for (const selector of [
+      '.pm-package-picker .autocomplete__trigger',
+      '.pm-package-picker-popover.autocomplete__popover',
+      '.pm-package-picker .select__trigger',
+      '.pm-package-picker-popover.select__popover',
+      '.pm-package-picker-popover .search-field__group',
+      '.pm-package-picker-popover .list-box-item',
+    ]) {
+      expectOpaqueLightBackground(selector);
+      expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
+    }
+
+    for (const selector of [
+      '.pm-package-picker .autocomplete__trigger',
+      '.pm-package-picker .select__trigger',
+      '.pm-package-picker-popover .list-box-item',
+    ]) {
+      expect(readCssDeclaration(dashboardComponentsCss, selector, 'color')).toMatch(
+        /#0f172a|rgba\(15,\s*23,\s*42/
+      );
+    }
+  });
+
+  it('keeps the upload package drawer clear of the sticky footer and viewport bottom', () => {
+    expect(packageRegistryPanelSource).toContain(
+      'className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]"'
+    );
+    expect(packageRegistryPanelSource).toContain(
+      '<Sheet.Body className="pm-publish-sheet-body space-y-5">'
+    );
+
+    expect(
+      readCssDeclaration(
+        dashboardComponentsCss,
+        '.pm-publish-sheet-content[data-sheet-detached].sheet__content--bottom',
+        'bottom'
+      )
+    ).toContain('env(safe-area-inset-bottom)');
+    expect(
+      readCssDeclaration(dashboardComponentsCss, '.pm-publish-sheet-body', 'padding-bottom')
+    ).toContain('24px');
   });
 
   it('reveals the cloud background from a real first frame instead of fading it in later', () => {

@@ -128,7 +128,7 @@ function RootDocument({
         <script
           // biome-ignore lint/security/noDangerouslySetInnerHtml: intentional blocking inline script for theme hydration
           dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem('yucp_theme');if(t==='dark'||(t===null&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}`,
+            __html: `try{var t=localStorage.getItem('yucp_theme');var d=t==='dark'||(t===null&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'glass-dark':'glass-light';document.documentElement.classList.toggle('dark',d)}catch(e){document.documentElement.dataset.theme='glass-light'}`,
           }}
         />
         <script

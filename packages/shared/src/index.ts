@@ -39,8 +39,11 @@ export * from './accountRecoveryPasskey';
 export * from './apiActor';
 export * from './authOrigins';
 export * from './authRedirects';
+export * from './backstagePackageMedia';
+export * from './backstageVpmDelivery';
 // Binding module exports
 export * from './binding';
+export * from './cdngineBackstageDelivery';
 export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';
@@ -64,6 +67,8 @@ export * from './logging/redaction';
 export * from './observability';
 export * from './product';
 export * from './productParsers';
+export * from './publicApiScopes';
 export * from './publicAuthority';
 export * from './verificationSupport';
+export * from './yucpAliasPackageContract';
 export * from './yucpTrust';

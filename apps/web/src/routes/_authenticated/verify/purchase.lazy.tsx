@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createLazyFileRoute, useSearch } from '@tanstack/react-router';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAuth } from '@/hooks/useAuth';
+import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import {
+  getAccountProviderIconPath,
   getUserVerificationIntent,
   type UserVerificationIntent,
   type UserVerificationIntentRequirement,
@@ -11,10 +14,10 @@ import {
   verifyUserVerificationManualLicense,
   verifyUserVerificationProviderLink,
 } from '@/lib/account';
+import { requestUserBackstageRepoAccess } from '@/lib/backstageAccess';
 import {
   getProviderIconPath,
   listUserAccounts,
-  listUserProviders,
   startUserVerify,
   type UserAccountConnection,
   type UserProvider,
@@ -22,7 +25,6 @@ import {
 } from '@/lib/dashboard';
 import { getSafeInternalRedirectTarget } from '@/lib/safeRedirects';
 import {
-  areVerifyPurchaseConnectionQueriesSettled,
   getPurchaseIntentLoadErrorState,
   getVisiblePurchaseVerificationError,
   shouldAutoCheckExistingEntitlement,
@@ -55,6 +57,44 @@ function buildReturnUrl(intent: UserVerificationIntent): string | null {
   return url.toString();
 }
 
+function isBuyerAccessReturnUrl(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const pathname = new URL(value).pathname;
+    return pathname.startsWith('/access/') || pathname.startsWith('/get-in-unity/');
+  } catch {
+    return false;
+  }
+}
+
+function parseBuyerRepoAccessTarget(
+  value: string | null
+): { catalogProductId: string } | { creatorRef: string; productRef: string } | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const segments = new URL(value).pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    const catalogProductId = segments[1]?.trim();
+    const creatorRef = segments[1]?.trim();
+    const productRef = segments[2]?.trim();
+    if (segments[0] === 'access' && catalogProductId) {
+      return { catalogProductId };
+    }
+    if (segments[0] === 'get-in-unity' && creatorRef && productRef) {
+      return { creatorRef, productRef };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 // ---- Branded OAuth button -------------------------------------------------
 
 interface OAuthButtonProps {
@@ -77,6 +117,128 @@ function getProviderVisual(
   return (
     provider ?? linkedAccounts.find((account) => account.providerDisplay)?.providerDisplay ?? null
   );
+}
+
+/** Prefer dashboard provider metadata; fall back to known icon paths by provider key (see account.ts map). */
+function resolveVerificationProviderIcon(
+  providerVisual: UserProvider | UserProviderDisplay | null,
+  providerKey: string
+): string | null {
+  const fromVisual = providerVisual ? getProviderIconPath(providerVisual) : null;
+  if (fromVisual) {
+    return fromVisual;
+  }
+
+  return getAccountProviderIconPath(providerKey);
+}
+
+function formatLinkedAccountLine(label: string): string {
+  const trimmed = label.trim();
+  return trimmed.startsWith('@') ? trimmed : `@${trimmed}`;
+}
+
+function LinkedAccountLabelList({ accounts }: { accounts: { id: string; label: string }[] }) {
+  if (accounts.length === 0) {
+    return null;
+  }
+
+  const scrollClass = accounts.length > 3 ? ' vp-oauth-account-list--scroll' : '';
+
+  return (
+    <ul className={`vp-oauth-account-list${scrollClass}`}>
+      {accounts.map((account) => (
+        <li
+          key={account.id}
+          className="vp-oauth-account-line"
+          title={formatLinkedAccountLine(account.label)}
+        >
+          {formatLinkedAccountLine(account.label)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+type VerificationPanels = {
+  oauthMethods: UserVerificationIntentRequirement[];
+  licenseMethods: UserVerificationIntentRequirement[];
+  entitlementMethods: UserVerificationIntentRequirement[];
+  linkedEntitlementMethods: UserVerificationIntentRequirement[];
+  standaloneEntitlementMethods: UserVerificationIntentRequirement[];
+  oauthProviderKeys: Set<string>;
+  hasOAuth: boolean;
+  hasLinkedEntitlement: boolean;
+  hasSignInMethods: boolean;
+  hasLicense: boolean;
+  hasDualEntryModes: boolean;
+  hasEntitlement: boolean;
+  hasAnyActiveStoreLink: boolean;
+};
+
+function buildVerificationPanels(
+  intent: UserVerificationIntent,
+  accountsByProvider: Map<string, UserAccountConnection[]>
+): VerificationPanels {
+  const oauthMethods = intent.requirements.filter((r) => r.kind === 'buyer_provider_link');
+  const licenseMethods = intent.requirements.filter((r) => r.kind === 'manual_license');
+  const entitlementMethods = intent.requirements.filter((r) => r.kind === 'existing_entitlement');
+  const oauthProviderKeys = new Set(oauthMethods.map((method) => method.providerKey));
+
+  const linkedEntitlementMethods = entitlementMethods.filter((requirement) => {
+    if (requirement.providerKey === 'yucp' || oauthProviderKeys.has(requirement.providerKey)) {
+      return false;
+    }
+
+    return (accountsByProvider.get(requirement.providerKey) ?? []).some(
+      (account) => account.status === 'active'
+    );
+  });
+
+  const standaloneEntitlementMethods = entitlementMethods.filter(
+    (requirement) =>
+      !linkedEntitlementMethods.some(
+        (linkedRequirement) => linkedRequirement.methodKey === requirement.methodKey
+      )
+  );
+
+  const hasOAuth = oauthMethods.length > 0;
+  const hasLinkedEntitlement = linkedEntitlementMethods.length > 0;
+  const hasSignInMethods = hasOAuth || hasLinkedEntitlement;
+  const hasLicense = licenseMethods.length > 0;
+  const hasDualEntryModes = hasSignInMethods && hasLicense;
+  const hasEntitlement = standaloneEntitlementMethods.length > 0;
+
+  let hasAnyActiveStoreLink = false;
+  for (const req of oauthMethods) {
+    if ((accountsByProvider.get(req.providerKey) ?? []).some((a) => a.status === 'active')) {
+      hasAnyActiveStoreLink = true;
+      break;
+    }
+  }
+  if (!hasAnyActiveStoreLink) {
+    for (const req of linkedEntitlementMethods) {
+      if ((accountsByProvider.get(req.providerKey) ?? []).some((a) => a.status === 'active')) {
+        hasAnyActiveStoreLink = true;
+        break;
+      }
+    }
+  }
+
+  return {
+    oauthMethods,
+    licenseMethods,
+    entitlementMethods,
+    linkedEntitlementMethods,
+    standaloneEntitlementMethods,
+    oauthProviderKeys,
+    hasOAuth,
+    hasLinkedEntitlement,
+    hasSignInMethods,
+    hasLicense,
+    hasDualEntryModes,
+    hasEntitlement,
+    hasAnyActiveStoreLink,
+  };
 }
 
 function OAuthMethodButton({
@@ -151,7 +313,7 @@ function OAuthMethodButton({
   });
 
   const providerVisual = getProviderVisual(provider, linkedAccounts);
-  const iconSrc = providerVisual ? getProviderIconPath(providerVisual) : null;
+  const iconSrc = resolveVerificationProviderIcon(providerVisual, requirement.providerKey);
   const brandColor = providerVisual?.color ?? null;
 
   const rowPhase = isVerified ? 'verified' : isConnected ? 'connected' : 'disconnected';
@@ -168,13 +330,9 @@ function OAuthMethodButton({
             <div className="vp-oauth-row-text">
               <span className="vp-oauth-label">{requirement.providerLabel}</span>
               {accountCountLabel ? (
-                <span className="vp-oauth-account">{accountCountLabel}</span>
+                <span className="vp-oauth-account vp-oauth-account-meta">{accountCountLabel}</span>
               ) : null}
-              {linkedAccountsForDisplay.map((account) => (
-                <span key={account.id} className="vp-oauth-account">
-                  @{account.label}
-                </span>
-              ))}
+              <LinkedAccountLabelList accounts={linkedAccountsForDisplay} />
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
@@ -200,13 +358,9 @@ function OAuthMethodButton({
             <div className="vp-oauth-row-text">
               <span className="vp-oauth-label">{requirement.providerLabel}</span>
               {accountCountLabel ? (
-                <span className="vp-oauth-account">{accountCountLabel}</span>
+                <span className="vp-oauth-account vp-oauth-account-meta">{accountCountLabel}</span>
               ) : null}
-              {linkedAccountsForDisplay.map((account) => (
-                <span key={account.id} className="vp-oauth-account">
-                  @{account.label}
-                </span>
-              ))}
+              <LinkedAccountLabelList accounts={linkedAccountsForDisplay} />
             </div>
           </div>
           <div className="vp-oauth-row-right">
@@ -252,14 +406,10 @@ function OAuthMethodButton({
             <span className="vp-oauth-label">{requirement.providerLabel}</span>
             {expiredAccountsForDisplay.length > 0 ? (
               <>
-                <span className="vp-oauth-account">
+                <span className="vp-oauth-account vp-oauth-account-meta">
                   Previously linked {expiredAccountsForDisplay.length > 1 ? 'accounts' : 'account'}
                 </span>
-                {expiredAccountsForDisplay.map((account) => (
-                  <span key={account.id} className="vp-oauth-account">
-                    @{account.label}
-                  </span>
-                ))}
+                <LinkedAccountLabelList accounts={expiredAccountsForDisplay} />
               </>
             ) : null}
           </div>
@@ -338,7 +488,7 @@ function LinkedEntitlementMethodButton({
 
   const isVerifyLoading = entitlementMut.isPending || (entitlementMut.isSuccess && !isVerified);
   const providerVisual = getProviderVisual(provider, linkedAccounts);
-  const iconSrc = providerVisual ? getProviderIconPath(providerVisual) : null;
+  const iconSrc = resolveVerificationProviderIcon(providerVisual, requirement.providerKey);
   const brandColor = providerVisual?.color ?? null;
 
   if (linkedAccountsForDisplay.length === 0) {
@@ -362,12 +512,8 @@ function LinkedEntitlementMethodButton({
             ) : null}
             <div className="vp-oauth-row-text">
               <span className="vp-oauth-label">{requirement.providerLabel}</span>
-              <span className="vp-oauth-account">{accountCountLabel}</span>
-              {linkedAccountsForDisplay.map((account) => (
-                <span key={account.id} className="vp-oauth-account">
-                  @{account.label}
-                </span>
-              ))}
+              <span className="vp-oauth-account vp-oauth-account-meta">{accountCountLabel}</span>
+              <LinkedAccountLabelList accounts={linkedAccountsForDisplay} />
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
@@ -390,12 +536,8 @@ function LinkedEntitlementMethodButton({
           ) : null}
           <div className="vp-oauth-row-text">
             <span className="vp-oauth-label">{requirement.providerLabel}</span>
-            <span className="vp-oauth-account">{accountCountLabel}</span>
-            {linkedAccountsForDisplay.map((account) => (
-              <span key={account.id} className="vp-oauth-account">
-                @{account.label}
-              </span>
-            ))}
+            <span className="vp-oauth-account vp-oauth-account-meta">{accountCountLabel}</span>
+            <LinkedAccountLabelList accounts={linkedAccountsForDisplay} />
           </div>
         </div>
         <div className="vp-oauth-row-right">
@@ -447,7 +589,7 @@ function LicenseMethodRow({
   const queryClient = useQueryClient();
 
   const isVerified = verifiedMethodKey === requirement.methodKey;
-  const iconSrc = provider ? getProviderIconPath(provider) : null;
+  const iconSrc = resolveVerificationProviderIcon(provider, requirement.providerKey);
 
   const licenseMut = useMutation({
     mutationFn: () =>
@@ -539,7 +681,7 @@ function EntitlementRow({
 }: EntitlementRowProps) {
   const queryClient = useQueryClient();
   const isVerified = verifiedMethodKey === requirement.methodKey;
-  const iconSrc = provider ? getProviderIconPath(provider) : null;
+  const iconSrc = resolveVerificationProviderIcon(provider, requirement.providerKey);
 
   const entitlementMut = useMutation({
     mutationFn: () => verifyUserVerificationEntitlement(intentId, requirement.methodKey),
@@ -550,7 +692,9 @@ function EntitlementRow({
   });
 
   return (
-    <div className={`vp-method-row${isVerified ? ' vp-method-row--verified' : ''}`}>
+    <div
+      className={`vp-method-row vp-method-row--entitlement${isVerified ? ' vp-method-row--verified' : ''}`}
+    >
       <div className="vp-method-row-info">
         <div className="vp-method-provider">
           {iconSrc ? (
@@ -598,31 +742,23 @@ function VerifyPurchasePage() {
     from: '/_authenticated/verify/purchase',
   });
 
-  const [isVisible, setIsVisible] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [redirectCountdown, setRedirectCountdown] = useState(5);
-  const successHandledRef = useRef(false);
 
   const [entitlementCheckState, setEntitlementCheckState] = useState<'idle' | 'checking' | 'done'>(
     'idle'
   );
   const [oauthReturnState, setOauthReturnState] = useState<'idle' | 'checking' | 'done'>('idle');
+  const [licenseFallbackOpen, setLicenseFallbackOpen] = useState(false);
+  const licenseFallbackPrefApplied = useRef(false);
 
   const queryClient = useQueryClient();
   const { signOut } = useAuth();
-
-  useEffect(() => {
-    setIsVisible(true);
-  }, []);
 
   const intentQuery = useQuery({
     queryKey: ['vp-intent', intentId],
     queryFn: () => getUserVerificationIntent(intentId),
     enabled: intentId.length > 0,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      return data?.status === 'pending' ? 3000 : false;
-    },
+    refetchInterval: false,
   });
 
   const intent = intentQuery.data;
@@ -631,17 +767,9 @@ function VerifyPurchasePage() {
     [intent]
   );
 
-  const providersQuery = useQuery({
-    queryKey: ['vp-providers'],
-    queryFn: listUserProviders,
-    enabled: intent != null,
-    staleTime: 60_000,
-    placeholderData: (previousData) => previousData,
-  });
-
   const accountsQuery = useQuery({
     queryKey: ['vp-accounts'],
-    queryFn: listUserAccounts,
+    queryFn: () => listUserAccounts({ refresh: Boolean(justConnectedProvider) }),
     enabled: intent != null,
     staleTime: 30_000,
     placeholderData: (previousData) => previousData,
@@ -697,35 +825,19 @@ function VerifyPurchasePage() {
   }, [intent, intentId, justConnectedProvider, oauthReturnState, queryClient]);
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
-
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!intent || intent.status !== 'verified' || successHandledRef.current || !returnToUrl)
-      return;
-    successHandledRef.current = true;
-    setRedirectCountdown(5);
-
-    countdownRef.current = setInterval(() => {
-      setRedirectCountdown((c) => {
-        if (c <= 1) {
-          if (countdownRef.current) clearInterval(countdownRef.current);
-          window.location.href = returnToUrl;
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-
-    return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
-  }, [intent, returnToUrl]);
-
-  const providersByKey = useMemo(
-    () => new Map((providersQuery.data ?? []).map((p) => [p.id, p])),
-    [providersQuery.data]
+  const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
+  const buyerRepoAccessTarget = useMemo(
+    () => parseBuyerRepoAccessTarget(returnToUrl),
+    [returnToUrl]
   );
+  const shouldPrepareBuyerRepoAccess = intent?.status === 'verified' && returnsToBuyerAccess;
+  const repoAccessQuery = useQuery({
+    queryKey: ['vp-backstage-repo-access', intentId, buyerRepoAccessTarget],
+    queryFn: () => requestUserBackstageRepoAccess(buyerRepoAccessTarget ?? undefined),
+    enabled: shouldPrepareBuyerRepoAccess && buyerRepoAccessTarget !== null,
+    retry: false,
+    staleTime: 60_000,
+  });
 
   const accountsByProvider = useMemo(() => {
     const m = new Map<string, UserAccountConnection[]>();
@@ -737,16 +849,65 @@ function VerifyPurchasePage() {
     return m;
   }, [accountsQuery.data]);
 
-  const connectionQueriesSettled = areVerifyPurchaseConnectionQueriesSettled({
-    accounts: {
-      data: accountsQuery.data,
-      isError: accountsQuery.isError,
-    },
-    providers: {
-      data: providersQuery.data,
-      isError: providersQuery.isError,
-    },
+  const connectionQueriesSettled = accountsQuery.data !== undefined || accountsQuery.isError;
+
+  const verificationPanels = useMemo(() => {
+    if (!intent) {
+      return null;
+    }
+    if (
+      intent.status === 'verified' ||
+      intent.status === 'expired' ||
+      intent.status === 'cancelled'
+    ) {
+      return null;
+    }
+    return buildVerificationPanels(intent, accountsByProvider);
+  }, [intent, accountsByProvider]);
+
+  // Reset progressive-disclosure state when the route loads a different verification intent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentId is the route identity for verify/purchase
+  useEffect(() => {
+    licenseFallbackPrefApplied.current = false;
+    setLicenseFallbackOpen(false);
+    if (typeof document === 'undefined') return;
+    const content = document.getElementById('page-content');
+    if (content) {
+      content.classList.remove('is-visible');
+    }
+    const overlay = document.getElementById('page-loading-overlay');
+    if (overlay) {
+      overlay.style.display = '';
+      overlay.classList.remove('fade-out', 'is-hiding');
+    }
+  }, [intentId]);
+
+  useEffect(() => {
+    if (!verificationPanels?.hasDualEntryModes) return;
+    if (!connectionQueriesSettled) return;
+    if (licenseFallbackPrefApplied.current) return;
+    licenseFallbackPrefApplied.current = true;
+    if (!verificationPanels.hasAnyActiveStoreLink) {
+      setLicenseFallbackOpen(true);
+    }
+  }, [verificationPanels, connectionQueriesSettled]);
+
+  const pageReady =
+    intentId.length === 0 ||
+    (!intentQuery.isPending &&
+      (intentQuery.isError ||
+        intent == null ||
+        intent.status !== 'pending' ||
+        connectionQueriesSettled));
+
+  const revealVerifyPage = usePageLoadingTransition({
+    overlayFadeClass: 'fade-out',
   });
+
+  useEffect(() => {
+    if (!pageReady) return;
+    revealVerifyPage();
+  }, [pageReady, revealVerifyPage]);
 
   const hasEntitlementMethod =
     intent?.requirements.some((r) => r.kind === 'existing_entitlement') ?? false;
@@ -757,15 +918,17 @@ function VerifyPurchasePage() {
 
   const renderShell = (content: React.ReactNode) => (
     <div className="vp-page">
+      <PageLoadingOverlay />
       <CloudBackground variant="default" />
       <div className={wrapperClass}>
-        <main className={mainClass}>{content}</main>
+        <main id="page-content" className="vp-main">
+          {content}
+        </main>
       </div>
     </div>
   );
 
-  const wrapperClass = `vp-wrapper`;
-  const mainClass = `vp-main${isVisible ? ' is-visible' : ''}`;
+  const wrapperClass = `vp-wrapper vp-wrapper--verify-scroll`;
 
   // ---- empty intent
   if (!intentId) {
@@ -780,16 +943,9 @@ function VerifyPurchasePage() {
     );
   }
 
-  // ---- loading
+  // ---- loading (same full-page bag overlay as sign-in; reveals via revealVerifyPage when pageReady)
   if (intentQuery.isPending) {
-    return renderShell(
-      <div className="vp-card fade-up" style={{ animationDelay: '0.1s' }}>
-        <div className="vp-loading-state">
-          <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
-          <p className="vp-loading-text">Loading verification...</p>
-        </div>
-      </div>
-    );
+    return renderShell(null);
   }
 
   // ---- fetch error
@@ -867,60 +1023,173 @@ function VerifyPurchasePage() {
         </div>
 
         <h1 className="vp-success-title fade-up" style={{ animationDelay: '0.3s' }}>
-          Verified!
+          Purchase verified
         </h1>
 
         <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
-          {intent.packageName || intent.packageId} - purchase confirmed. Return to Unity to finish
-          installing.
+          {returnsToBuyerAccess
+            ? `${intent.packageName || intent.packageId} is ready. Add your entitled repo in VCC, then continue back to your buyer access page.`
+            : `${intent.packageName || intent.packageId} is ready. Return to Unity to continue installing the package.`}
         </p>
 
-        {returnToUrl ? (
+        {repoAccessQuery.isLoading ? (
+          <div className="vp-checking-section fade-up" style={{ animationDelay: '0.6s' }}>
+            <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
+            <p className="vp-checking-text">Preparing your VCC access...</p>
+          </div>
+        ) : null}
+
+        {returnsToBuyerAccess && repoAccessQuery.data ? (
+          <div
+            className="fade-up"
+            style={{
+              animationDelay: '0.6s',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.875rem',
+              padding: '0 2rem 2rem',
+            }}
+          >
+            <a href={repoAccessQuery.data.addRepoUrl} className="vp-primary-btn">
+              Add to VCC
+            </a>
+            {returnToUrl ? (
+              <a
+                href={returnToUrl}
+                className="vp-primary-btn"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.06)',
+                  borderColor: 'rgba(255, 255, 255, 0.16)',
+                }}
+              >
+                {returnsToBuyerAccess
+                  ? 'Continue after adding the repo'
+                  : 'Return to Unity after adding the repo'}
+              </a>
+            ) : null}
+            <p
+              className="vp-section-desc"
+              style={{ marginBottom: 0, maxWidth: '32rem', textAlign: 'center' }}
+            >
+              {repoAccessQuery.data.repositoryName} is now ready for this entitled buyer account.
+            </p>
+            <details
+              style={{
+                width: '100%',
+                maxWidth: '32rem',
+                textAlign: 'left',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '16px',
+                background: 'rgba(255, 255, 255, 0.04)',
+                padding: '1rem 1rem 0',
+              }}
+            >
+              <summary
+                style={{
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: 'rgba(255, 255, 255, 0.92)',
+                  marginBottom: '1rem',
+                }}
+              >
+                Manual setup and troubleshooting
+              </summary>
+              <div style={{ paddingBottom: '1rem' }}>
+                <p className="vp-section-desc" style={{ marginBottom: '0.75rem' }}>
+                  Use Add to VCC for the normal flow. If support asks for the repo URL, use the
+                  entitled address below.
+                </p>
+                <code
+                  style={{
+                    display: 'block',
+                    overflowWrap: 'anywhere',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    background: 'rgba(0, 0, 0, 0.24)',
+                    padding: '0.875rem 1rem',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '0.8rem',
+                    lineHeight: 1.55,
+                  }}
+                >
+                  {repoAccessQuery.data.repositoryUrl}
+                </code>
+              </div>
+            </details>
+          </div>
+        ) : returnToUrl ? (
           <div className="fade-up" style={{ animationDelay: '0.6s' }}>
             <a href={returnToUrl} className="vp-primary-btn">
-              Return to Unity
+              {returnsToBuyerAccess ? 'Continue' : 'Return to Unity'}
             </a>
-            <p className="vp-countdown-text">Returning automatically in {redirectCountdown}s</p>
           </div>
-        ) : (
+        ) : null}
+
+        {repoAccessQuery.isError ? (
           <p
             className="vp-success-subtitle fade-up"
-            style={{ animationDelay: '0.6s', marginBottom: '2rem' }}
+            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
+          >
+            {returnsToBuyerAccess
+              ? 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Continue back to your buyer access page and try again.'
+              : 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Return to Unity and try again.'}
+          </p>
+        ) : !repoAccessQuery.data && !returnToUrl ? (
+          <p
+            className="vp-success-subtitle fade-up"
+            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
           >
             You can close this window and return to Unity.
           </p>
-        )}
+        ) : null}
       </div>
     );
   }
 
   // ---- pending: main verification panel
-  const oauthMethods = intent.requirements.filter((r) => r.kind === 'buyer_provider_link');
-  const licenseMethods = intent.requirements.filter((r) => r.kind === 'manual_license');
-  const entitlementMethods = intent.requirements.filter((r) => r.kind === 'existing_entitlement');
-  const verifiedMethodKey = intent.verifiedMethodKey ?? null;
-  const oauthProviderKeys = new Set(oauthMethods.map((method) => method.providerKey));
-  const linkedEntitlementMethods = entitlementMethods.filter((requirement) => {
-    if (requirement.providerKey === 'yucp' || oauthProviderKeys.has(requirement.providerKey)) {
-      return false;
-    }
-
-    return (accountsByProvider.get(requirement.providerKey) ?? []).some(
-      (account) => account.status === 'active'
+  if (!verificationPanels) {
+    return renderShell(
+      <div className="vp-card vp-card--error fade-up" style={{ animationDelay: '0.1s' }}>
+        <h1 className="vp-package-name">Verification unavailable</h1>
+        <p className="vp-card-subtitle">Reload this page or restart verification from Unity.</p>
+      </div>
     );
-  });
-  const standaloneEntitlementMethods = entitlementMethods.filter(
-    (requirement) =>
-      !linkedEntitlementMethods.some(
-        (linkedRequirement) => linkedRequirement.methodKey === requirement.methodKey
-      )
-  );
+  }
 
-  const hasOAuth = oauthMethods.length > 0;
-  const hasLinkedEntitlement = linkedEntitlementMethods.length > 0;
-  const hasSignInMethods = hasOAuth || hasLinkedEntitlement;
-  const hasLicense = licenseMethods.length > 0;
-  const hasEntitlement = standaloneEntitlementMethods.length > 0;
+  const panels = verificationPanels;
+
+  const {
+    oauthMethods,
+    licenseMethods,
+    linkedEntitlementMethods,
+    standaloneEntitlementMethods,
+    hasOAuth,
+    hasLinkedEntitlement,
+    hasSignInMethods,
+    hasLicense,
+    hasDualEntryModes,
+    hasEntitlement,
+    hasAnyActiveStoreLink,
+  } = panels;
+
+  const verifiedMethodKey = intent.verifiedMethodKey ?? null;
+
+  const signInEyebrow = hasOAuth
+    ? 'Sign in to verify'
+    : hasLinkedEntitlement
+      ? 'Linked stores'
+      : 'Verify';
+
+  const signInDesc = hasOAuth
+    ? hasAnyActiveStoreLink
+      ? 'Pick the store account that owns this purchase, then verify.'
+      : 'Connect the store you used at checkout. If you cannot sign in, use a license key below.'
+    : hasLinkedEntitlement
+      ? 'These accounts are already linked to YUCP. Verify against the one that purchased this product.'
+      : '';
+
   const visibleErrorMessage = getVisiblePurchaseVerificationError({
     errorCode: intent.errorCode,
     errorMessage: intent.errorMessage,
@@ -932,7 +1201,6 @@ function VerifyPurchasePage() {
 
   return renderShell(
     <div className="vp-card fade-up" style={{ animationDelay: '0.1s' }}>
-      {/* Header */}
       <div className="vp-card-header">
         <p className="vp-eyebrow">Verify your purchase</p>
         <h1 className="vp-package-name">{intent.packageName || intent.packageId}</h1>
@@ -946,84 +1214,123 @@ function VerifyPurchasePage() {
         </div>
       ) : (
         <>
-          {/* OAuth sign-in section */}
-          {hasSignInMethods ? (
-            <div className="vp-oauth-section">
-              <p className="vp-section-eyebrow">Sign in to verify</p>
-              <p className="vp-section-desc">Choose the store where you purchased this product.</p>
-              {!connectionQueriesSettled ? (
-                <output
-                  className="vp-oauth-connections-loading"
-                  aria-live="polite"
-                  aria-label="Loading store connections"
+          <div
+            className={`vp-pending-layout${hasDualEntryModes ? ' vp-pending-layout--dual' : ''}${hasSignInMethods && !hasDualEntryModes ? ' vp-pending-layout--oauth-only' : ''}${hasLicense && !hasSignInMethods ? ' vp-pending-layout--license-only' : ''}`}
+          >
+            {hasSignInMethods ? (
+              <div className="vp-pending-panel vp-pending-panel--oauth">
+                <div className="vp-oauth-section">
+                  <p className="vp-section-eyebrow">{signInEyebrow}</p>
+                  {signInDesc ? <p className="vp-section-desc">{signInDesc}</p> : null}
+                  {!connectionQueriesSettled ? (
+                    <output
+                      className="vp-oauth-connections-loading"
+                      aria-live="polite"
+                      aria-label="Loading store connections"
+                    >
+                      <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
+                      <p className="vp-oauth-connections-loading-text">
+                        Loading your store connections...
+                      </p>
+                    </output>
+                  ) : (
+                    <div className="vp-oauth-buttons-scroll">
+                      <div className="vp-oauth-buttons">
+                        {oauthMethods.map((req) => (
+                          <OAuthMethodButton
+                            key={req.methodKey}
+                            intentId={intentId}
+                            requirement={req}
+                            linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
+                            provider={null}
+                            verifiedMethodKey={verifiedMethodKey}
+                            onSuccess={invalidateIntent}
+                          />
+                        ))}
+                        {linkedEntitlementMethods.map((req) => (
+                          <LinkedEntitlementMethodButton
+                            key={req.methodKey}
+                            intentId={intentId}
+                            requirement={req}
+                            linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
+                            provider={null}
+                            verifiedMethodKey={verifiedMethodKey}
+                            onSuccess={invalidateIntent}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {hasDualEntryModes ? (
+              <details
+                className="vp-license-fallback"
+                open={licenseFallbackOpen}
+                onToggle={(e) => setLicenseFallbackOpen(e.currentTarget.open)}
+              >
+                <summary className="vp-license-fallback-summary">
+                  <span className="vp-license-fallback-summary-main">
+                    <span className="vp-license-fallback-title">Verify with a license key</span>
+                    <span className="vp-license-fallback-sub">
+                      Use this if you cannot access your store account here.
+                    </span>
+                  </span>
+                  <span className="vp-license-fallback-chevron" aria-hidden="true" />
+                </summary>
+                <div className="vp-license-fallback-anim">
+                  <div className="vp-license-fallback-body">
+                    <div className="vp-pending-panel vp-pending-panel--license vp-pending-panel--license-nested">
+                      <div className="vp-section vp-section--license-panel">
+                        {licenseMethods.map((req) => (
+                          <LicenseMethodRow
+                            key={req.methodKey}
+                            intentId={intentId}
+                            requirement={req}
+                            provider={null}
+                            verifiedMethodKey={verifiedMethodKey}
+                            onSuccess={invalidateIntent}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            ) : null}
+
+            {hasLicense && !hasDualEntryModes ? (
+              <div className="vp-pending-panel vp-pending-panel--license">
+                <div
+                  className={`vp-section${!hasSignInMethods ? ' vp-section--top' : ''} vp-section--license-panel`}
                 >
-                  <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
-                  <p className="vp-oauth-connections-loading-text">
-                    Loading your store connections...
-                  </p>
-                </output>
-              ) : (
-                <div className="vp-oauth-buttons">
-                  {oauthMethods.map((req) => (
-                    <OAuthMethodButton
+                  {!hasSignInMethods ? <p className="vp-section-title">Enter license key</p> : null}
+                  {licenseMethods.map((req) => (
+                    <LicenseMethodRow
                       key={req.methodKey}
                       intentId={intentId}
                       requirement={req}
-                      linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
-                      provider={providersByKey.get(req.providerKey) ?? null}
-                      verifiedMethodKey={verifiedMethodKey}
-                      onSuccess={invalidateIntent}
-                    />
-                  ))}
-                  {linkedEntitlementMethods.map((req) => (
-                    <LinkedEntitlementMethodButton
-                      key={req.methodKey}
-                      intentId={intentId}
-                      requirement={req}
-                      linkedAccounts={accountsByProvider.get(req.providerKey) ?? []}
-                      provider={providersByKey.get(req.providerKey) ?? null}
+                      provider={null}
                       verifiedMethodKey={verifiedMethodKey}
                       onSuccess={invalidateIntent}
                     />
                   ))}
                 </div>
-              )}
-            </div>
-          ) : null}
-
-          {/* Divider between OAuth and license */}
-          {hasSignInMethods && hasLicense ? (
-            <div className="vp-methods-divider">
-              <span className="vp-methods-divider-label">or enter license key</span>
-            </div>
-          ) : null}
-
-          {/* License key section */}
-          {hasLicense ? (
-            <div className={`vp-section${!hasSignInMethods ? ' vp-section--top' : ''}`}>
-              {!hasSignInMethods ? <p className="vp-section-title">Enter license key</p> : null}
-              {licenseMethods.map((req) => (
-                <LicenseMethodRow
-                  key={req.methodKey}
-                  intentId={intentId}
-                  requirement={req}
-                  provider={providersByKey.get(req.providerKey) ?? null}
-                  verifiedMethodKey={verifiedMethodKey}
-                  onSuccess={invalidateIntent}
-                />
-              ))}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
 
           {/* Entitlement check rows (shown only if no OAuth or they failed) */}
           {hasEntitlement && !hasSignInMethods && !hasLicense ? (
-            <div className="vp-section">
+            <div className="vp-section vp-pending-followup">
               {standaloneEntitlementMethods.map((req) => (
                 <EntitlementRow
                   key={req.methodKey}
                   intentId={intentId}
                   requirement={req}
-                  provider={providersByKey.get(req.providerKey) ?? null}
+                  provider={null}
                   verifiedMethodKey={verifiedMethodKey}
                   isAutoChecking={isAutoChecking}
                   onSuccess={invalidateIntent}
@@ -1037,8 +1344,9 @@ function VerifyPurchasePage() {
       {/* Footer */}
       <div className="vp-card-footer">
         <p className="vp-footer-note">
-          Verification is handled securely in your browser. Unity only receives access after the
-          server confirms your purchase.
+          {returnsToBuyerAccess
+            ? 'Verification is handled securely in your browser. After the server confirms your purchase, YUCP prepares entitled repo access for VCC and package install.'
+            : 'Verification is handled securely in your browser. After the server confirms your purchase, YUCP returns the verification grant to Unity so installation can continue.'}
         </p>
       </div>
     </div>

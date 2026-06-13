@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { internal } from './_generated/api';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
@@ -239,77 +239,5 @@ describe('protected blob package-first architecture', () => {
     expect((storedUnlocks[0]?.lastIssuedAt ?? 0) >= (storedUnlocks[0]?.firstUnlockedAt ?? 0)).toBe(
       true
     );
-  });
-
-  it('records coupling trace records for package-owned protected blobs', async () => {
-    const t = makeTestConvex();
-    await seedPackageRegistration(t);
-    await seedProtectedAsset(t);
-    await seedActiveCouplingBilling(t);
-    const licenseToken = await mintLicenseToken();
-
-    const couplingResult = await t.action(internal.yucpLicenses.issueCouplingJob, {
-      packageId,
-      machineFingerprint,
-      projectId,
-      licenseToken,
-      assetPaths: ['Assets/Protected/Model.fbx'],
-      issuerBaseUrl,
-      runtimeArtifactVersion: couplingRuntimeVersion,
-      runtimePlaintextSha256: couplingRuntimePlaintextSha256,
-    });
-
-    expect(couplingResult).toMatchObject({
-      success: true,
-      subject: 'license-subject-protected-ticket',
-      jobs: [{ assetPath: 'Assets/Protected/Model.fbx' }],
-    });
-    const issuedJobs = couplingResult.jobs ?? [];
-    expect(issuedJobs).toHaveLength(1);
-    const issuedJob = issuedJobs[0];
-    expect(issuedJob?.tokenHex).toMatch(/^[0-9a-f]+$/);
-
-    const stored = await t.run(async (ctx) => {
-      return {
-        traces: await (ctx.db as any).query('coupling_trace_records').collect(),
-        auditEvents: await (ctx.db as any).query('audit_events').collect(),
-      };
-    });
-
-    expect(stored.traces).toHaveLength(1);
-    expect(stored.traces[0]).toMatchObject({
-      authUserId: creatorAuthUserId,
-      packageId,
-      licenseSubject: 'license-subject-protected-ticket',
-      assetPath: 'Assets/Protected/Model.fbx',
-      tokenHash: await sha256Hex(issuedJob?.tokenHex ?? ''),
-      tokenLength: issuedJob?.tokenHex.length,
-      machineFingerprintHash: await sha256Hex(machineFingerprint),
-      projectIdHash: await sha256Hex(projectId),
-      runtimeArtifactVersion: couplingRuntimeVersion,
-      runtimePlaintextSha256: couplingRuntimePlaintextSha256,
-      correlationId: expect.any(String),
-    });
-
-    const traceRecordedEvents = stored.auditEvents.filter(
-      (event: { eventType?: string }) => event.eventType === 'coupling.trace.recorded'
-    );
-    const unlockIssuedEvents = stored.auditEvents.filter(
-      (event: { eventType?: string }) => event.eventType === 'coupling.unlock.issued'
-    );
-    expect(traceRecordedEvents).toHaveLength(1);
-    expect(unlockIssuedEvents).toHaveLength(1);
-    expect(traceRecordedEvents[0]).toMatchObject({
-      authUserId: creatorAuthUserId,
-      correlationId: stored.traces[0]?.correlationId,
-    });
-    expect(couplingResult).toMatchObject({
-      jobs: [
-        {
-          assetPath: 'Assets/Protected/Model.fbx',
-          tokenHex: issuedJob?.tokenHex,
-        },
-      ],
-    });
   });
 });

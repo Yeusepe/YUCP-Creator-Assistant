@@ -86,6 +86,55 @@ describe('createLemonSqueezyProviderModule', () => {
     ]);
   });
 
+  it('preserves Lemon Squeezy product slugs as canonical slugs for catalog identity', async () => {
+    const module = createLemonSqueezyProviderModule({
+      logger,
+      async getEncryptedCredential() {
+        return 'owner-encrypted';
+      },
+      async decryptCredential() {
+        return 'owner-token';
+      },
+      async listCollaboratorConnections() {
+        return [];
+      },
+      createClient() {
+        return {
+          async getProducts() {
+            return {
+              products: [
+                {
+                  id: '1',
+                  name: 'Owner Product',
+                  slug: 'owner-product',
+                  url: 'https://store.example.com/products/owner-product',
+                },
+              ],
+              pagination: { nextPage: null },
+            };
+          },
+          async getStores() {
+            return { stores: [{ id: 'store-1' }] };
+          },
+          async getVariants() {
+            return [];
+          },
+          async validateLicenseKey() {
+            return { valid: false };
+          },
+        };
+      },
+    });
+
+    expect(await module.fetchProducts('owner-token', makeCtx())).toEqual([
+      {
+        id: '1',
+        name: 'Owner Product',
+        canonicalSlug: 'owner-product',
+        productUrl: 'https://store.example.com/products/owner-product',
+      },
+    ]);
+  });
   it('loads tiers with a collaborator credential when the owner credential cannot access the product', async () => {
     const calls: Array<{ apiToken: string; productId: string }> = [];
     const module = createLemonSqueezyProviderModule({

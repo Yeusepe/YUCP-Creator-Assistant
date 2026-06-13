@@ -154,15 +154,7 @@ describe('gumroad buyer link plugin', () => {
         encryptionSecret: 'encrypt-secret',
       })
     );
-    expect(actionMock).toHaveBeenCalledWith(
-      internalMock.backgroundSync.syncPastPurchasesForSubject,
-      expect.objectContaining({
-        subjectId: 'subject_1',
-        provider: 'gumroad',
-        providerUserId: 'gumroad-user-1',
-        emailHash: 'email-hash-1',
-      })
-    );
+    expect(actionMock).not.toHaveBeenCalled();
     expect(mutationMock).toHaveBeenCalledWith(
       internalMock.verificationIntents.markIntentVerified,
       expect.objectContaining({

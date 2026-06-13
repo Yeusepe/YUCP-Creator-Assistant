@@ -404,6 +404,8 @@
         .badge-jinxxy  { background: rgba(145,70,255,0.12);  border: 1px solid rgba(145,70,255,0.35);  color: #a78bfa; }
         .badge-lemons  { background: rgba(255,211,110,0.12); border: 1px solid rgba(255,211,110,0.35); color: #ffd36e; }
         .badge-discord { background: rgba(88,101,242,0.12);  border: 1px solid rgba(88,101,242,0.35);  color: #818cf8; }
+        .badge-itch    { background: rgba(255,122,69,0.12);  border: 1px solid rgba(255,122,69,0.35);  color: #ff9f6b; }
+        .badge-patreon { background: rgba(255,105,88,0.12);  border: 1px solid rgba(255,105,88,0.35);  color: #ff8b7a; }
 .badge-manual  { background: rgba(0,230,118,0.10);   border: 1px solid rgba(0,230,118,0.3);    color: #34d399; }
 .badge-vrchat  { background: rgba(0,230,118,0.12);   border: 1px solid rgba(0,230,118,0.35);   color: #00e676; }
 .badge-payhip  { background: rgba(0,209,178,0.12);   border: 1px solid rgba(0,209,178,0.35);   color: #00d1b2; }
@@ -568,12 +570,12 @@
                 <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.2;"></div>
                 <p class="section-label">Section 1</p>
                 <h2 class="section-title">Introduction</h2>
-                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat® catalog</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. Setup is dashboard-first, reviewable, and built to handle both brand-new servers and migrations from older bots.</p>
+                <p class="section-lead">Creator Assistant bridges your <strong style="color:#fff;">Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Patreon, Payhip®, or VRChat® catalog</strong> with your Discord® server, automatically granting roles when buyers verify a purchase. Setup is dashboard-first, reviewable, and built to handle both brand-new servers and migrations from older bots.</p>
 
                 <div class="bento-card" style="margin-bottom:1.25rem;">
                     <div class="overview-steps">
                         <div class="overview-step"><div class="overview-num">1</div><h4>Install</h4><p>Add the bot to your server</p></div>
-                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat®</p></div>
+                        <div class="overview-step"><div class="overview-num">2</div><h4>Connect</h4><p>Link Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Patreon, Payhip®, or VRChat®</p></div>
                         <div class="overview-step"><div class="overview-num">3</div><h4>Verify</h4><p>Buyers get roles instantly</p></div>
                     </div>
                 </div>
@@ -583,7 +585,7 @@
                         <h4 style="color:#38bdf8;">For Creators</h4>
                         <ul>
                             <li>Automatic role assignment on purchase</li>
-                            <li>Connect Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Payhip®, or VRChat®</li>
+                            <li>Connect Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Patreon, Payhip®, or VRChat®</li>
                             <li>Map any product to any Discord® role</li>
                             <li>Review setup and migration plans before applying changes</li>
                             <li>Invite collaborating creators</li>
@@ -595,8 +597,8 @@
                         <h4 style="color:#818cf8;">For Buyers</h4>
                         <ul>
                             <li>Click the Verify button in-server</li>
-                            <li>Sign in with Gumroad® OAuth</li>
-                            <li>Enter a license key from receipt</li>
+                            <li>Link the provider account that matches the product</li>
+                            <li>Enter a license key from the receipt when the product uses one</li>
                             <li>Prove a role in another server</li>
                             <li>Roles assigned in seconds</li>
                             <li>Re-sync with <code>/creator refresh</code></li>
@@ -619,7 +621,7 @@
                 <h3 class="sub-heading"><span class="sub-dot"></span>Prerequisites</h3>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Administrator permissions in your Discord® server</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad®, itch.io, Lemon Squeezy®, Payhip®, or Jinxxy™ catalog with products, or VRChat® avatars to verify</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> A Gumroad®, itch.io, Jinxxy™, Lemon Squeezy®, Patreon, or Payhip® catalog with products or tiers, or VRChat® avatars to verify</div>
                     <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#34d399;font-weight:700;">&#10003;</span> Existing Discord® roles to adopt, or permission to let setup create missing ones</div>
                 </div>
 
@@ -650,7 +652,7 @@
                         <div class="step-content">
                             <h4>Connect your storefronts</h4>
                             <p>The setup flow starts by connecting the platforms you sell through. YUCP uses those connections to sync products, inspect your Discord® server, and prepare a recommended plan.</p>
-                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-jinxxy">Jinxxy™</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, <span class="badge badge-gumroad">itch.io (OAuth)</span>, or <span class="badge badge-vrchat">VRChat®</span> from the same page. Guided providers are called out when they need a one-time credential handoff before the job can continue.</p>
+                            <p style="margin-top:10px;font-size:13px;color:rgba(255,255,255,0.6);">Connect <span class="badge badge-gumroad">Gumroad® (OAuth)</span>, <span class="badge badge-itch">itch.io (OAuth)</span>, <span class="badge badge-jinxxy">Jinxxy™</span>, <span class="badge badge-lemons">Lemon Squeezy® (API Token)</span>, <span class="badge badge-patreon">Patreon (OAuth)</span>, <span class="badge badge-payhip">Payhip® (API Key)</span>, or <span class="badge badge-vrchat">VRChat®</span> from the same page. Guided providers are called out when they need a one-time credential handoff before the job can continue.</p>
                         </div>
                     </div>
                     <div class="step-item">
@@ -689,6 +691,10 @@
                         <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyer clicks <strong style="color:#fff;">Sign in with Gumroad®</strong>, authorizes read-only access to their purchase history. The bot matches purchases to your product mappings and grants roles automatically.</p>
                     </div>
                     <div class="bento-card" style="padding:1.25rem;">
+                        <div style="margin-bottom:8px;"><span class="badge badge-itch">itch.io Account Link</span> <span class="badge badge-patreon">Patreon</span></div>
+                        <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Buyers link the matching itch.io or Patreon account through the Creator Portal. The Assistant verifies ownership or tier access before granting the mapped role.</p>
+                    </div>
+                    <div class="bento-card" style="padding:1.25rem;">
                         <div style="margin-bottom:8px;"><span class="badge badge-lemons">Lemon Squeezy®</span></div>
                         <p style="font-size:13.5px;color:rgba(255,255,255,0.55);line-height:1.65;margin:0;">Connect your Lemon Squeezy® store with an API token. Buyers verify using a license key from their receipt or via account lookup; the Assistant validates licenses in real time and grants roles automatically.</p>
                     </div>
@@ -721,8 +727,8 @@
                         <span class="cmd-row-desc">View linked accounts and verified products</span>
                     </div>
                     <div class="cmd-row">
-                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator account')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">account</span></span></div>
-                        <span class="cmd-row-desc">Open the account portal to manage linked stores and personal settings</span>
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator identity')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">identity</span></span></div>
+                        <span class="cmd-row-desc">Open the Creator Portal to manage your Creator Identity, linked providers, and settings</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator verify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">verify</span> <span class="cmd-req">&lt;product&gt;</span></span></div>
@@ -753,8 +759,8 @@
                         <span class="cmd-row-desc">Open the verification panel; shows linked accounts and verified products</span>
                     </div>
                     <div class="cmd-row">
-                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator account')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">account</span></span></div>
-                        <span class="cmd-row-desc">Open the account portal to manage linked stores and personal settings</span>
+                        <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator identity')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">identity</span></span></div>
+                        <span class="cmd-row-desc">Open the Creator Portal to manage your Creator Identity, linked providers, and settings</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator verify')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator</span> <span class="cmd-sub">verify</span> <span class="cmd-req">&lt;product&gt;</span></span></div>
@@ -818,7 +824,7 @@
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin stats')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">stats</span></span></div>
-                        <span class="cmd-row-desc">Quick summary: verified members, active products, roles assigned, collaborators.</span>
+                        <span class="cmd-row-desc">Quick summary: verified users, mapped products, and new verifications over the last 24h, 7d, and 30d.</span>
                     </div>
                 </div>
 
@@ -827,7 +833,7 @@
                     <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> analytics</div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin analytics')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">analytics</span></span></div>
-                        <span class="cmd-row-desc">View key metrics and a deep link to your PostHog® analytics dashboard.</span>
+                        <span class="cmd-row-desc">Open the current PostHog® workspace link and review the command's high-level verification counts.</span>
                     </div>
                 </div>
 
@@ -840,7 +846,7 @@
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin settings disconnect')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">settings disconnect</span></span></div>
-                        <span class="cmd-row-desc">Disconnect this server from your Creator Assistant account. Runs a multi-step confirmation before removing all server configuration.</span>
+                        <span class="cmd-row-desc">Disconnect this server from your Creator Identity. Runs a multi-step confirmation before removing all server configuration.</span>
                     </div>
                 </div>
                 <div class="cmd-table" style="margin-bottom:1.5rem;">
@@ -884,11 +890,11 @@
                     <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg> collab</div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab invite')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab invite</span></span></div>
-                        <span class="cmd-row-desc">Generate a 7-day invite link to share with a collaborating Jinxxy™ creator.</span>
+                        <span class="cmd-row-desc">Choose a supported provider and generate a 7-day invite link for that collaborator credential.</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab add')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab add</span></span></div>
-                        <span class="cmd-row-desc">Manually add a collaborator by API key; use when the collaborator shares their key directly with you.</span>
+                        <span class="cmd-row-desc">Manually add a collaborator by selecting a supported provider and entering the credential they shared with you.</span>
                     </div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin collab list')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">collab list</span></span></div>
@@ -901,7 +907,7 @@
                     <div class="cmd-table-head"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg> forensics</div>
                     <div class="cmd-row">
                         <div class="cmd-row-left"><button class="copy-btn-sm clickable" onclick="copyCmd(this,'/creator-admin forensics lookup')" aria-label="Copy"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button><span class="cmd-row-syntax"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">forensics lookup</span></span></div>
-                        <span class="cmd-row-desc">Perform a deep forensic analysis of a package or asset. Returns metadata, linked accounts, and usage patterns.</span>
+                        <span class="cmd-row-desc">Upload a <code>.unitypackage</code> or <code>.zip</code> for a creator-owned package and get coupling-trace attribution results for decoded assets.</span>
                     </div>
                 </div>
             </section>
@@ -910,13 +916,13 @@
             <section class="doc-section" id="product-types">
                 <p class="section-label">Section 5</p>
                 <h2 class="section-title">Product <span class="grad-text grad-green">Types</span></h2>
-                <p class="section-lead">Five verification types with different buyer flows. Mix and match within the same server, each mapped to whichever Discord® role you choose.</p>
+                <p class="section-lead">Verification types with different buyer flows. Mix and match within the same server, each mapped to whichever Discord® role you choose.</p>
 
                 <div class="product-grid">
                     <div class="product-card" style="border-color:rgba(54,169,174,0.2);">
                         <div class="product-icon" style="background:rgba(54,169,174,0.12);"><img src="Icons/Gumorad.png" alt="Gumroad®"></div>
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>OAuth</h4><span class="badge badge-gumroad">Gumroad®</span></div>
-                        <p>Buyers sign in with Gumroad® (OAuth). The bot reads purchase history automatically, no key entry needed.</p>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>OAuth / Account Link</h4><span class="badge badge-gumroad">Gumroad®</span> <span class="badge badge-itch">itch.io</span> <span class="badge badge-patreon">Patreon</span></div>
+                        <p>Buyers sign in with the matching provider account. The Assistant checks purchase history, ownership, or tier access before granting roles.</p>
                     </div>
 
                     <div class="product-card" style="border-color:rgba(255,211,110,0.2);">
@@ -925,8 +931,8 @@
                             <div class="product-icon" style="background:rgba(255,211,110,0.12);margin-right:6px;"><img src="Icons/LemonSqueezy.png" alt="Lemon Squeezy®"></div>
                             <div class="product-icon" style="background:rgba(0,209,178,0.12);"><img src="Icons/PayHip.png" alt="Payhip®"></div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>License Key</h4><span class="badge badge-jinxxy">Jinxxy™</span> <span class="badge badge-lemons">Lemon Squeezy®</span> <span class="badge badge-payhip">Payhip®</span> <span class="badge badge-gumroad">itch.io</span></div>
-                        <p>Buyers validate license keys or the Assistant performs account or receipt lookup. Supported by Jinxxy™, Lemon Squeezy®, Payhip®, and itch.io, with provider-side checks performed in real time.</p>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><h4>License Key</h4><span class="badge badge-jinxxy">Jinxxy™</span> <span class="badge badge-lemons">Lemon Squeezy®</span> <span class="badge badge-payhip">Payhip®</span></div>
+                        <p>Buyers validate license keys or use the provider's linked-account lookup flow where supported. License validation is performed against Jinxxy™, Lemon Squeezy®, and Payhip® in real time.</p>
                     </div>
 
                     <div class="product-card" style="border-color:rgba(0,230,118,0.2);">
@@ -958,13 +964,14 @@
             <section class="doc-section" id="collaborators">
                 <p class="section-label">Section 6</p>
                 <h2 class="section-title">Collaborator <span class="grad-text grad-purple">Invites</span></h2>
-                <p class="section-lead">Invite other Jinxxy™ creators to share their store with your Discord® server. Their buyers can verify and get roles without either creator exchanging credentials.</p>
+                <p class="section-lead">Invite collaborators to share supported storefronts with your Discord® server. Today, collaborator invites support Jinxxy™, itch.io, Lemon Squeezy®, and Payhip® credentials without either creator pasting secrets into chat.</p>
 
                 <div class="two-col" style="margin-bottom:1.75rem;">
                     <div class="two-col-card" style="border-color:rgba(167,139,250,0.2);">
                         <h4 style="color:#a78bfa;">Server Owner (you)</h4>
                         <ul>
                             <li>Run <code>/creator-admin collab invite</code></li>
+                            <li>Select the provider the collaborator will connect</li>
                             <li>Bot generates a 7-day link</li>
                             <li>Share the link with the collaborator</li>
                             <li>Track connections via <code>collab list</code></li>
@@ -975,22 +982,22 @@
                         <ul>
                             <li>Open the invite link in a browser</li>
                             <li>Authorize with Discord® OAuth</li>
-                            <li>Enter their Jinxxy™ API key</li>
-                            <li>Test the webhook connection</li>
+                            <li>Review the provider requested by the invite</li>
+                            <li>Enter the requested provider credential securely</li>
                         </ul>
                     </div>
                 </div>
 
                 <div class="step-flow">
-                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Generate an invite link</h4><p>Run <code>/creator-admin collab invite</code>. The bot replies privately with a unique link expiring in 7 days.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Generate an invite link</h4><p>Run <code>/creator-admin collab invite</code>, choose the provider, and the bot replies privately with a unique link expiring in 7 days.</p></div></div>
                     <div class="step-item"><div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div><div class="step-content"><h4>Collaborator opens the link</h4><p>They visit the link and authorize with Discord® OAuth to confirm identity.</p></div></div>
-                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div><div class="step-content"><h4>Collaborator enters their Jinxxy™ API key</h4><p>They paste their own Jinxxy™ API key. The bot tests the connection and confirms the webhook is live. Alternatively, you can add them manually with <code>/creator-admin collab add</code>.</p></div></div>
-                    <div class="step-item"><div class="step-left"><div class="step-badge">4</div></div><div class="step-content"><h4>Collaboration is live</h4><p>Buyers from the collaborator's store can now verify in your server. Manage connections with <code>/creator-admin collab list</code>.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div><div class="step-connector"></div></div><div class="step-content"><h4>Collaborator submits the requested credential</h4><p>They provide the provider credential the invite was created for, such as a Jinxxy™, itch.io, Lemon Squeezy®, or Payhip® API key. Alternatively, you can add them manually with <code>/creator-admin collab add</code>.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">4</div></div><div class="step-content"><h4>Collaboration is live</h4><p>Buyers from the linked collaborator storefront can now verify in your server. Manage connections with <code>/creator-admin collab list</code>.</p></div></div>
                 </div>
 
                 <div class="callout callout-info">
                     <span class="callout-icon"><img src="Icons/World.png" alt="Cross-server"></span>
-                    <span>Neither creator sees the other's API key or credentials. The collaborator's key is stored securely and only used to validate their buyers' license codes.</span>
+                    <span>Neither creator sees the other's raw credential values in chat. The collaborator credential is stored securely and only used for the linked provider connection.</span>
                 </div>
             </section>
 
@@ -998,7 +1005,7 @@
             <section class="doc-section" id="cross-server">
                 <p class="section-label">Section 7</p>
                 <h2 class="section-title">Cross-Server <span class="grad-text grad-sky">Verification</span></h2>
-                <p class="section-lead">Let buyers verify by proving they hold a role in a different Discord® server. Useful for partnerships, community tiers, or cross-server access passes.</p>
+                <p class="section-lead">Let buyers verify by proving they hold the required roles in a different Discord® server. Useful for partnerships, community tiers, or cross-server access passes.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Enable it</h3>
                 <div class="cmd-wrap">
@@ -1010,8 +1017,9 @@
                 <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.7;margin-bottom:1rem;">Use <code>/creator-admin product add</code> and select <strong style="color:#818cf8;">Discord® Role</strong> as the type. You'll specify:</p>
                 <ul style="list-style:none;padding:0;margin:0 0 1.5rem;display:flex;flex-direction:column;gap:7px;">
                     <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Source Server ID</strong>: the server the buyer must be a member of</span></li>
-                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Required Role ID</strong>: the specific role they must hold in that server</span></li>
-                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Granted Role</strong>: the role to assign in <em>your</em> server upon verification</span></li>
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Required Role ID(s)</strong>: one or more roles they must hold in that server</span></li>
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Match Mode</strong>: choose <code>any</code> when one source role is enough or <code>all</code> when every listed role is required</span></li>
+                    <li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:rgba(255,255,255,0.55);"><span style="color:#38bdf8;margin-top:2px;">•</span><span><strong style="color:#fff;">Granted Role(s)</strong>: the role or roles to assign in <em>your</em> server upon verification</span></li>
                 </ul>
 
                 <div class="callout callout-warn">
@@ -1074,15 +1082,15 @@
             <section class="doc-section" id="analytics">
                 <p class="section-label">Section 10</p>
                 <h2 class="section-title">Analytics <span class="grad-text grad-sky">&amp; Stats</span></h2>
-                <p class="section-lead">Track how your verification system is performing: verified members, product popularity, method breakdowns, and trends over time.</p>
+                <p class="section-lead">Get a quick admin summary of verified users, mapped products, and recent verification activity, plus a shortcut to the current PostHog® workspace.</p>
 
                 <div style="display:flex;flex-direction:column;gap:0.6rem;margin-bottom:1.75rem;">
                     <div class="cmd-wrap">
-                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">stats</span><span class="cmd-desc">Quick card: total verified members, active products, roles assigned, collaborators.</span></div>
+                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">stats</span><span class="cmd-desc">Quick card: verified users, mapped products, and 24h, 7d, and 30d verification counts.</span></div>
                         <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin stats')" aria-label="Copy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
                     </div>
                     <div class="cmd-wrap">
-                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">analytics</span><span class="cmd-desc">Key metrics inline + a deep link to your PostHog® dashboard for full charts and funnels.</span></div>
+                        <div class="cmd-block"><span class="cmd-slash">/</span><span class="cmd-name">creator-admin</span> <span class="cmd-sub">analytics</span><span class="cmd-desc">Inline verification counts plus a link to the current PostHog® workspace.</span></div>
                         <button class="copy-btn clickable" onclick="copyCmd(this,'/creator-admin analytics')" aria-label="Copy"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
                     </div>
                 </div>
@@ -1090,16 +1098,16 @@
                 <div class="bento-card">
                     <p style="font-family:'Plus Jakarta Sans',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.25);margin:0 0 1rem;">Metrics Tracked</p>
                     <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;">
-                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Total Verified</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Unique members who verified at least one product</div></div>
-                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">By Product</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Verification count per mapped product</div></div>
-                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Method Split</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">OAuth vs license key vs cross-server breakdown</div></div>
-                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Trends</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Daily / weekly volume in PostHog® dashboards</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Verified Users</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Unique members who verified at least one product</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Mapped Products</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">How many product-to-role rules are currently configured</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Recent 24h</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">New verifications recorded in the last 24 hours</div></div>
+                        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Rolling Windows</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Compare the command's 7d and 30d counts against the 24h snapshot</div></div>
                     </div>
                 </div>
 
                 <div class="callout callout-info" style="margin-top:1rem;">
                     <span class="callout-icon"><img src="Icons/ClapStars.png" alt="Analytics"></span>
-                    <span>The PostHog® link returned by <code>/creator-admin analytics</code> is pre-filtered to your server's data only.</span>
+                    <span>The link returned by <code>/creator-admin analytics</code> currently opens the shared PostHog® workspace rather than a server-filtered dashboard.</span>
                 </div>
             </section>
 
@@ -1162,15 +1170,16 @@
                 <p class="section-lead">Subscribe to events and receive HTTP callbacks whenever something important happens in your verification system. Build custom integrations, sync with external tools, or trigger workflows.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Supported Events</h3>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1rem;">Use the Public API event catalog endpoint to fetch the full list. Today it includes entitlement, subject, binding, verification, transaction, membership, manual-license, product, guild-link, and ping events.</p>
                 <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-bottom:1.75rem;">
-                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Verification Completed</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Fires when a buyer successfully completes verification</div></div>
-                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Entitlement Granted / Revoked</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Fires when a role entitlement is granted or revoked</div></div>
-                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Role Synced</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Fires when Discord roles are synced after a refresh</div></div>
-                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Refund Processed</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Fires when a refund is processed and roles are adjusted</div></div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Entitlements &amp; Bindings</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Grant, revoke, expire, create, activate, or revoke product access records</div></div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Subjects &amp; Verifications</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Track subject creation or updates plus verification completion and failure</div></div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Transactions &amp; Memberships</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Purchase, refund, membership creation, and membership cancellation events</div></div>
+                    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:1rem;"><div style="font-size:10px;color:rgba(255,255,255,0.25);font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px;">Licenses, Products &amp; Guilds</div><div style="font-size:13.5px;color:rgba(255,255,255,0.65);">Manual-license, product catalog, guild link or unlink, and test ping events</div></div>
                 </div>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Security</h3>
-                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">Every webhook payload is signed with <strong style="color:#fff;">HMAC-SHA256</strong>. The signature is included in the <code>X-Signature-256</code> header so your endpoint can verify that the request is authentic and has not been tampered with.</p>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">Every webhook payload is signed with <strong style="color:#fff;">HMAC-SHA256</strong>. Use the <code>X-Yucp-Signature</code> header to verify authenticity and <code>X-Yucp-Delivery</code> to correlate delivery attempts.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Retry Policy</h3>
                 <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1rem;">If your endpoint returns a non-2xx status code or times out, the system retries with exponential backoff:</p>
@@ -1187,7 +1196,7 @@
                         <span class="tag-pill" style="font-size:10px;">8 hours</span>
                     </div>
                 </div>
-                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">After all retries are exhausted, the delivery is moved to a <strong style="color:#fff;">dead letter queue</strong>. You can inspect and replay failed deliveries from the dashboard.</p>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1.5rem;">After all retries are exhausted, the delivery is moved to a <strong style="color:#fff;">dead letter queue</strong>. Use delivery history in the dashboard or Public API to inspect what happened and decide on any follow-up action.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Management</h3>
                 <div class="two-col">
@@ -1196,17 +1205,17 @@
                         <ul>
                             <li>Create and manage webhook subscriptions</li>
                             <li>View delivery history and status</li>
-                            <li>Inspect and replay failed deliveries</li>
                             <li>Rotate signing secrets</li>
+                            <li>Review which destinations are enabled</li>
                         </ul>
                     </div>
                     <div class="two-col-card" style="border-color:rgba(56,189,248,0.18);">
                         <h4 style="color:#38bdf8;">Public API</h4>
                         <ul>
-                            <li>Programmatically manage subscriptions</li>
-                            <li>Query delivery logs</li>
-                            <li>Replay failed deliveries via API</li>
+                            <li>Fetch the supported event catalog</li>
                             <li>Full CRUD on webhook endpoints</li>
+                            <li>Rotate secrets and query delivery logs</li>
+                            <li>Queue test pings to validate an endpoint</li>
                         </ul>
                     </div>
                 </div>
@@ -1217,13 +1226,13 @@
                 <div class="glow-ring" style="width:280px;height:280px;background:var(--accent-sky);top:-40px;right:-60px;opacity:0.15;"></div>
                 <p class="section-label">Section 13</p>
                 <h2 class="section-title">API <span class="grad-text grad-sky">Access</span></h2>
-                <p class="section-lead">Programmatically manage your verification data, products, entitlements, and more through the Public API v2 with 56 endpoints.</p>
+                <p class="section-lead">Programmatically manage your verification data, products, entitlements, webhooks, and more through the Public API v2.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Getting an API Key</h3>
                 <div class="step-flow">
-                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Open Account Settings</h4><p>Navigate to <strong style="color:#fff;">Account → API Keys</strong> in the Creator Assistant dashboard.</p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">1</div><div class="step-connector"></div></div><div class="step-content"><h4>Open Integrations</h4><p>Navigate to <strong style="color:#fff;">Dashboard → Integrations → API Keys</strong> in the Creator Assistant dashboard.</p></div></div>
                     <div class="step-item"><div class="step-left"><div class="step-badge">2</div><div class="step-connector"></div></div><div class="step-content"><h4>Generate a new key</h4><p>Click <strong style="color:#fff;">Generate API Key</strong>. The key is shown once; copy it immediately and store it securely.</p></div></div>
-                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div></div><div class="step-content"><h4>Authenticate requests</h4><p>Include the key in the <code>Authorization</code> header: <code>Bearer ypsk_...</code></p></div></div>
+                    <div class="step-item"><div class="step-left"><div class="step-badge">3</div></div><div class="step-content"><h4>Authenticate requests</h4><p>Include the key in the <code>x-api-key</code> header: <code>x-api-key: ypsk_...</code>. Reserve bearer auth for OAuth-issued access tokens.</p></div></div>
                 </div>
 
                 <div class="bento-card" style="margin-bottom:1.5rem;">
@@ -1231,7 +1240,7 @@
                     <div class="cmd-wrap" style="margin:0;">
                         <div class="cmd-block" style="font-size:14px;"><span style="color:#38bdf8;font-weight:600;">ypsk_</span><span style="color:rgba(255,255,255,0.35);">&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;</span></div>
                     </div>
-                    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:0.75rem 0 0;line-height:1.5;">All API keys start with the <code>ypsk_</code> prefix. The full API covers 56 endpoints for managing verification data, products, entitlements, webhooks, and more.</p>
+                    <p style="font-size:13px;color:rgba(255,255,255,0.4);margin:0.75rem 0 0;line-height:1.5;">All API keys start with the <code>ypsk_</code> prefix. The OpenAPI surface covers verification data, products, entitlements, webhooks, licenses, and related creator tooling.</p>
                 </div>
 
                 <div class="callout callout-warn">
@@ -1251,7 +1260,7 @@
             <section class="doc-section" id="audit-log">
                 <p class="section-label">Section 14</p>
                 <h2 class="section-title">Audit <span class="grad-text grad-gold">Log</span></h2>
-                <p class="section-lead">Every significant action is logged with full context: who did it, when, and what changed. Use audit logs for compliance, debugging, and support investigations.</p>
+                <p class="section-lead">Every significant action is logged with context for support, debugging, and compliance work. Audit events are available through the Public API today, while the dashboard log browser is still in development.</p>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>What Gets Logged</h3>
                 <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.75rem;margin-bottom:1.75rem;">
@@ -1262,16 +1271,16 @@
                 </div>
 
                 <h3 class="sub-heading"><span class="sub-dot"></span>Viewing Logs</h3>
-                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1rem;">Open <strong style="color:#fff;">Dashboard → Audit Logs</strong> to browse the full event history. Use the built-in filters to narrow results:</p>
+                <p style="font-size:14px;color:rgba(255,255,255,0.55);line-height:1.75;margin-bottom:1rem;"><strong style="color:#fff;">Dashboard → Audit Logs</strong> is still marked in development. For now, query the Public API audit-log route and narrow results with the currently supported filters:</p>
                 <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:1.75rem;">
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Filter by event type (verification, role change, refund, settings)</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Filter by user (Discord ID or username)</div>
-                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Filter by date range</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Filter by <code>type</code> for event categories such as verification, entitlement, or settings</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Filter by <code>subject_id</code> to inspect a specific subject or record</div>
+                    <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:rgba(255,255,255,0.6);"><span style="color:#38bdf8;font-weight:700;">→</span> Paginate with the API cursor fields when you need deeper history</div>
                 </div>
 
                 <div class="callout callout-info">
                     <span class="callout-icon"><img src="Icons/Assistant.png" alt="API"></span>
-                    <span>Audit logs are also queryable via the <a href="https://yucp-creator-assistant.docs.buildwithfern.com" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;text-decoration:underline;">Public API</a>, making it easy to integrate with external compliance or monitoring tools.</span>
+                    <span>Audit logs are queryable via the <a href="https://yucp-creator-assistant.docs.buildwithfern.com" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;text-decoration:underline;">Public API</a>. Use an API key with the <code>audit-log:read</code> scope when wiring external compliance or monitoring tools.</span>
                 </div>
             </section>
 

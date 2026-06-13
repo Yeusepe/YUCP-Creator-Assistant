@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
+import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 
 type MockLinkProps = ComponentPropsWithoutRef<'a'> & {
   children?: ReactNode;
@@ -74,10 +76,30 @@ vi.mock('@/hooks/useDashboardSession', () => ({
 vi.mock('@/lib/certificates', () => ({
   createCreatorCertificateCheckout: vi.fn(),
   formatCertificateDate: vi.fn((value: number | null) => (value ? String(value) : 'Unknown date')),
+  hasActiveCreatorBillingCapability: vi.fn(
+    (
+      capabilities: Array<{ capabilityKey: string; status: string }> | undefined,
+      capabilityKey: string
+    ) =>
+      capabilities?.some(
+        (capability) =>
+          capability.capabilityKey === capabilityKey &&
+          (capability.status === 'active' || capability.status === 'grace')
+      ) ?? false
+  ),
   getCreatorCertificatePortal: vi.fn(),
   listCreatorCertificates: vi.fn(),
   reconcileCreatorCertificateBilling: vi.fn(),
   revokeCreatorCertificate: vi.fn(),
+}));
+
+vi.mock('@/components/dashboard/PackageRegistryPanel', () => ({
+  PackageRegistryPanel: ({ description }: { description?: string }) => (
+    <section>
+      <h2>Package Registry</h2>
+      {description ? <p>{description}</p> : null}
+    </section>
+  ),
 }));
 
 vi.mock('@/lib/packages', () => ({
@@ -93,7 +115,7 @@ import * as packagesApi from '@/lib/packages';
 import DashboardBilling from '@/routes/_authenticated/dashboard/billing.lazy';
 import DashboardCertificates from '@/routes/_authenticated/dashboard/certificates.lazy';
 
-function createWrapper() {
+function createWrapper({ privateVpmEnabled = true }: { privateVpmEnabled?: boolean } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -103,7 +125,18 @@ function createWrapper() {
   });
 
   return function Wrapper({ children }: PropsWithChildren) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <RuntimeConfigProvider
+        value={{
+          automaticSetupEnabled: false,
+          browserAuthBaseUrl: 'https://app.example.com',
+          buildId: 'test-build',
+          privateVpmEnabled,
+        }}
+      >
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </RuntimeConfigProvider>
+    );
   };
 }
 
@@ -153,7 +186,12 @@ describe('dashboard billing and certificates routes', () => {
         currentPeriodEnd: null,
         graceUntil: null,
         reason: 'Certificate subscription required',
-        capabilities: [],
+        capabilities: [
+          {
+            capabilityKey: BILLING_CAPABILITY_KEYS.vpmRepo,
+            status: 'active',
+          },
+        ],
       },
       devices: [],
       availablePlans: [
@@ -225,7 +263,12 @@ describe('dashboard billing and certificates routes', () => {
           currentPeriodEnd: null,
           graceUntil: null,
           reason: null,
-          capabilities: [],
+          capabilities: [
+            {
+              capabilityKey: BILLING_CAPABILITY_KEYS.vpmRepo,
+              status: 'active',
+            },
+          ],
         },
         devices: [],
         availablePlans: [],
@@ -305,11 +348,13 @@ describe('dashboard billing and certificates routes', () => {
   it('keeps the billing route branded for the creator suite instead of only code signing', async () => {
     render(<DashboardBilling />, { wrapper: createWrapper() });
 
-    await waitFor(() => expect(screen.getByText('Plans & Billing')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('Your work, protected from studio to shelf.')).toBeInTheDocument()
+    );
 
     expect(screen.queryByText('Code Signing Billing')).not.toBeInTheDocument();
-    expect(screen.getByText('Protected exports')).toBeInTheDocument();
-    expect(screen.getByText('Moderation lookup')).toBeInTheDocument();
+    expect(screen.getAllByText('Protected exports').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Moderation lookup').length).toBeGreaterThan(0);
   });
 
   it('keeps billing purchase actions off the certificates route', async () => {
@@ -323,18 +368,53 @@ describe('dashboard billing and certificates routes', () => {
   });
 
   it('renders the package registry inside the certificates route', async () => {
-    render(<DashboardCertificates />, { wrapper: createWrapper() });
+    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: true }) });
 
     await waitFor(() => expect(screen.getByText('Package Registry')).toBeInTheDocument());
-    await waitFor(() =>
-      expect(packagesApi.listCreatorPackages).toHaveBeenCalledWith({ includeArchived: true })
-    );
-    await waitFor(() => expect(screen.getByDisplayValue('Creator Bundle')).toBeInTheDocument());
-    expect(screen.getByText('pkg.creator.bundle')).toBeInTheDocument();
-    const archivedPackagesToggle = screen.getByRole('button', { name: /archived packages \(1\)/i });
-    expect(archivedPackagesToggle).toBeInTheDocument();
-    fireEvent.click(archivedPackagesToggle);
-    expect(screen.getByDisplayValue('Legacy Bundle')).toBeDisabled();
-    expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('hides the package registry when the private VPM feature flag is disabled', async () => {
+    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: false }) });
+
+    await waitFor(() => expect(screen.getByText('Code Signing Certificates')).toBeInTheDocument());
+    expect(screen.queryByText('Package Registry')).not.toBeInTheDocument();
+    expect(screen.queryByText('Custom VPM repo required')).not.toBeInTheDocument();
+  });
+
+  it('hides the package registry behind the Polar feature flag when the VPM repo benefit is absent', async () => {
+    vi.mocked(certificateApi.listCreatorCertificates).mockResolvedValue({
+      workspaceKey: 'creator-profile:profile-1',
+      creatorProfileId: 'profile-1',
+      billing: {
+        billingEnabled: true,
+        status: 'inactive',
+        allowEnrollment: false,
+        allowSigning: false,
+        planKey: null,
+        productId: null,
+        deviceCap: null,
+        activeDeviceCount: 0,
+        signQuotaPerPeriod: null,
+        auditRetentionDays: null,
+        supportTier: null,
+        currentPeriodEnd: null,
+        graceUntil: null,
+        reason: 'Certificate subscription required',
+        capabilities: [],
+      },
+      devices: [],
+      availablePlans: [],
+      meters: [],
+    });
+
+    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: true }) });
+
+    await waitFor(() => expect(screen.getByText('Custom VPM repo required')).toBeInTheDocument());
+    expect(screen.queryByText('Package Registry')).not.toBeInTheDocument();
   });
 });
