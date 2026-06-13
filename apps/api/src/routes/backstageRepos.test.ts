@@ -1179,6 +1179,76 @@ describe('backstage repo routes', () => {
     });
   });
 
+  it('selects the buyer access primary package by primaryPackageId', async () => {
+    const defaultQueryImpl = queryImpl;
+    queryImpl = async (ref: unknown, args?: unknown) => {
+      if (ref !== 'packageRegistry.getPublicBackstageProductAccessByRef') {
+        return defaultQueryImpl(ref, args);
+      }
+
+      return {
+        creatorAuthUserId: 'auth-user-1',
+        creatorSlug: 'mapache',
+        catalogProductId: 'catalog_1',
+        productId: 'product_1',
+        provider: 'gumroad',
+        providerProductRef: 'song-thing',
+        canonicalSlug: 'song-thing',
+        displayName: 'Song Thing',
+        thumbnailUrl: 'https://cdn.test/song.png',
+        primaryPackageId: 'com.yucp.primary',
+        primaryPackageName: 'Primary Package',
+        packageSummaries: [
+          {
+            packageId: 'com.yucp.secondary',
+            displayName: 'Secondary Package',
+            latestPublishedVersion: '1.0.0',
+            latestReleaseChannel: 'stable',
+            aliasContract: null,
+          },
+          {
+            packageId: 'com.yucp.primary',
+            displayName: 'Primary Package',
+            latestPublishedVersion: '2.0.0',
+            latestReleaseChannel: 'beta',
+            aliasContract: {
+              kind: 'alias-v1',
+              aliasId: 'song-thing',
+              installStrategy: 'server-authorized',
+              importerPackage: 'com.yucp.importer',
+              minImporterVersion: '1.4.0',
+              catalogProductIds: ['catalog_1'],
+              channel: 'beta',
+            },
+          },
+        ],
+      };
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing')
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      primaryPackageId: 'com.yucp.primary',
+      primaryPackage: {
+        packageId: 'com.yucp.primary',
+        displayName: 'Primary Package',
+        latestPublishedVersion: '2.0.0',
+        latestReleaseChannel: 'beta',
+      },
+      packageSummaries: [
+        {
+          packageId: 'com.yucp.secondary',
+        },
+        {
+          packageId: 'com.yucp.primary',
+        },
+      ],
+    });
+  });
+
   it('bootstraps a hosted verification intent from the session-backed buyer access route', async () => {
     sessionImpl = async () => ({
       user: {

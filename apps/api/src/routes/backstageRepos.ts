@@ -1544,7 +1544,9 @@ async function getBuyerAccessInfo(
     ...summary,
     importerDelivery: buildBackstageImporterDelivery(summary.aliasContract),
   }));
-  const primaryPackage = packageSummaries[0] ?? null;
+  const primaryPackage =
+    packageSummaries.find((summary) => summary.packageId === resolved.access.primaryPackageId) ??
+    null;
 
   return jsonResponse({
     creatorName: resolved.creatorRepoIdentity.creatorName,
