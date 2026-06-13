@@ -164,6 +164,24 @@ describe('serverApiFetch', () => {
     );
   });
 
+  it('redacts the upstream origin from production fetch failure messages', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('API_BASE_URL', 'https://internal-api.example.test');
+    mockFetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+    const { serverApiFetch } = await import('@/lib/server/api-client');
+
+    const error = await serverApiFetch('/api/connect/dashboard/shell').catch(
+      (caught: unknown) => caught
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      'API GET /api/connect/dashboard/shell upstream fetch failed (UPSTREAM_FETCH_FAILED)'
+    );
+    expect((error as Error).message).toContain('while contacting [internal API]');
+    expect((error as Error).message).not.toContain('internal-api.example.test');
+  });
+
   it('includes response body text in error message', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response('{"error":"invalid token","code":"AUTH_FAILED"}', {

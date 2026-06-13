@@ -4,7 +4,7 @@ import { getInternalRpcSharedSecret } from '@yucp/shared';
 import { getToken } from '../auth-server';
 import { filterForwardedAuthCookieHeader } from './forwardedAuthCookies';
 import { getActiveWebServerTraceId, withWebServerSpan } from './observability';
-import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
+import { getWebApiBaseUrl, getWebRuntimeEnv, isWebProductionRuntime } from './runtimeEnv';
 
 /**
  * Server-side HTTP client for calling the Bun API.
@@ -16,10 +16,6 @@ import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
  * This replaces the browser-direct fetch calls that previously went through
  * the Vite dev proxy.
  */
-
-function getApiBaseUrl(): string {
-  return getWebApiBaseUrl(getWebRuntimeEnv());
-}
 
 function getInternalSecret(): string {
   return getInternalRpcSharedSecret(getWebRuntimeEnv());
@@ -124,7 +120,8 @@ export async function serverApiFetch<T = unknown>(
       'web.server.auth.forwarded': Boolean(authToken),
     },
     async () => {
-      const base = getApiBaseUrl();
+      const runtimeEnv = getWebRuntimeEnv();
+      const base = getWebApiBaseUrl(runtimeEnv);
 
       let url = `${base}${path}`;
       if (params) {
@@ -164,11 +161,12 @@ export async function serverApiFetch<T = unknown>(
       } catch (error) {
         const code = getErrorCode(error);
         const origin = getSafeOrigin(base);
+        const errorOrigin = isWebProductionRuntime(runtimeEnv) ? '[internal API]' : origin;
         activeSpan?.setAttribute('http.request.failed', true);
         activeSpan?.setAttribute('downstream.error_code', code);
         activeSpan?.setAttribute('downstream.origin', origin);
         throw new Error(
-          `API ${method} ${path} upstream fetch failed (${code}) while contacting ${origin}`
+          `API ${method} ${path} upstream fetch failed (${code}) while contacting ${errorOrigin}`
         );
       }
 
