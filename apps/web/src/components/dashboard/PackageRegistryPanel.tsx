@@ -20,6 +20,7 @@ import { DropZone, EmptyState, PressableFeedback, Sheet } from '@heroui-pro/reac
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY,
+  canExtractBackstagePackageMediaFromSourceSize,
   extractBackstagePackageMediaAssetsFromSource,
   resolveComparableYucpAliasIdsFromCatalogProduct,
   resolveSharedYucpAliasIdFromCatalogProducts,
@@ -1720,22 +1721,26 @@ export function PackageRegistryPanel({
         );
       }
 
-      setSelectedUpload((current) =>
-        current
-          ? {
-              ...current,
-              progressLabel: 'Reading media',
-              progressValue: 0,
-            }
-          : current
-      );
-      const sourceBytes = new Uint8Array(await selectedUpload.file.arrayBuffer());
-      const extractedMedia = await extractBackstagePackageMediaAssetsFromSource({
-        sourceBytes,
-        deliveryName: selectedUpload.file.name,
-        contentType: selectedUpload.contentType,
-        packageId,
-      });
+      const extractedMedia = canExtractBackstagePackageMediaFromSourceSize(selectedUpload.file.size)
+        ? await (async () => {
+            setSelectedUpload((current) =>
+              current
+                ? {
+                    ...current,
+                    progressLabel: 'Reading media',
+                    progressValue: 0,
+                  }
+                : current
+            );
+            const sourceBytes = new Uint8Array(await selectedUpload.file.arrayBuffer());
+            return await extractBackstagePackageMediaAssetsFromSource({
+              sourceBytes,
+              deliveryName: selectedUpload.file.name,
+              contentType: selectedUpload.contentType,
+              packageId,
+            });
+          })()
+        : [];
 
       const upload = await uploadBackstageReleaseFileDirect({
         packageId,

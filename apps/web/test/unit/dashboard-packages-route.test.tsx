@@ -467,6 +467,7 @@ vi.mock('@heroui-pro/react', () => {
   }: PropsWithChildren<Record<string, unknown>>) => (
     <input
       {...props}
+      type="file"
       onChange={(event) => {
         if (typeof onSelect === 'function') {
           onSelect((event.target as HTMLInputElement).files);
@@ -576,6 +577,7 @@ vi.mock('@/lib/packages', () => ({
   restoreCreatorBackstageProduct: vi.fn(),
   restoreCreatorPackage: vi.fn(),
   uploadBackstageReleaseFileDirect: vi.fn(),
+  uploadBackstageReleaseMedia: vi.fn(),
 }));
 
 import { buildProductLanes } from '@/components/dashboard/PackageRegistryPanel';
@@ -606,6 +608,9 @@ const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as
 >;
 const uploadBackstageReleaseFileDirectMock =
   packagesApi.uploadBackstageReleaseFileDirect as ReturnType<typeof vi.fn>;
+const uploadBackstageReleaseMediaMock = packagesApi.uploadBackstageReleaseMedia as ReturnType<
+  typeof vi.fn
+>;
 
 function createWrapper({ privateVpmEnabled = true }: { privateVpmEnabled?: boolean } = {}) {
   const queryClient = new QueryClient({
@@ -1224,6 +1229,73 @@ describe('dashboard packages route', () => {
       screen.getByText('Dependency line 1 must use com.package.id@1.0.0 or com.package.id=1.0.0.')
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /upload package/i })).toBeDisabled();
+  });
+
+  it('does not buffer large package files before direct upload', async () => {
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    const largePackage = new File(['placeholder'], 'creator-bundle.unitypackage', {
+      type: 'application/octet-stream',
+    });
+    Object.defineProperty(largePackage, 'size', {
+      value: 64 * 1024 * 1024,
+    });
+    const arrayBufferMock = vi.fn(async () => {
+      throw new Error('Large package body should not be buffered before direct upload.');
+    });
+    Object.defineProperty(largePackage, 'arrayBuffer', {
+      value: arrayBufferMock,
+    });
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Install ID:\s*pkg\.creator\.bundle/i)).toBeInTheDocument()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /upload a package/i }));
+
+    await waitFor(() => expect(document.getElementById('package-release-version')).not.toBeNull());
+
+    const versionInput = screen.getByLabelText('Version') as HTMLInputElement;
+    const fileInput = document.querySelector(
+      'input[aria-label="Choose update file"]'
+    ) as HTMLInputElement | null;
+    if (!fileInput) {
+      throw new Error('Expected publish file input to render.');
+    }
+    const fileList = {
+      0: largePackage,
+      item: (index: number) => (index === 0 ? largePackage : null),
+      length: 1,
+    } as unknown as FileList;
+
+    fireEvent.change(versionInput, { target: { value: '1.2.4' } });
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      value: fileList,
+    });
+    fireEvent.change(fileInput);
+
+    await waitFor(() => expect(screen.getByText(/Ready to publish/i)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /upload package/i }));
+
+    await waitFor(() =>
+      expect(uploadBackstageReleaseFileDirectMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          file: largePackage,
+          packageId: 'pkg.creator.bundle',
+        })
+      )
+    );
+    await waitFor(() => expect(publishBackstageReleaseMock).toHaveBeenCalled());
+
+    expect(arrayBufferMock).not.toHaveBeenCalled();
+    expect(uploadBackstageReleaseMediaMock).not.toHaveBeenCalled();
   });
 
   it('keeps first-upload products behind the upload button instead of a separate setup section', async () => {

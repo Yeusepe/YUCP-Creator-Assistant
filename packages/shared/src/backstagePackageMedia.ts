@@ -9,6 +9,8 @@ export const BACKSTAGE_PACKAGE_MEDIA_KINDS = {
   icon: 'icon',
 } as const;
 
+export const BACKSTAGE_PACKAGE_MEDIA_EXTRACTION_MAX_SOURCE_BYTES = 32 * 1024 * 1024;
+
 export type BackstagePackageMediaKind =
   (typeof BACKSTAGE_PACKAGE_MEDIA_KINDS)[keyof typeof BACKSTAGE_PACKAGE_MEDIA_KINDS];
 
@@ -41,6 +43,14 @@ const TEXT_DECODER = new TextDecoder();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function canExtractBackstagePackageMediaFromSourceSize(byteSize: number): boolean {
+  return (
+    Number.isFinite(byteSize) &&
+    byteSize >= 0 &&
+    byteSize <= BACKSTAGE_PACKAGE_MEDIA_EXTRACTION_MAX_SOURCE_BYTES
+  );
 }
 
 function normalizeArchivePath(input: string): string {
