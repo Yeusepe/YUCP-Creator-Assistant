@@ -46,6 +46,7 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { readBoundedArrayBuffer, readContentLength } from '../lib/readBoundedArrayBuffer';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -414,62 +415,6 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function readContentLength(headers: Headers): number | null {
-  const parsed = Number.parseInt(headers.get('content-length') ?? '', 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function createResponseBodyLimitError(maxBytes: number): Error {
-  return new Error(`Response body exceeds the ${maxBytes} byte limit.`);
-}
-
-async function readBoundedArrayBuffer(
-  bodySource: Request | Response,
-  maxBytes: number,
-  createLimitError: (maxBytes: number) => Error = createResponseBodyLimitError
-): Promise<ArrayBuffer> {
-  const contentLength = readContentLength(bodySource.headers);
-  if (contentLength !== null && contentLength > maxBytes) {
-    throw createLimitError(maxBytes);
-  }
-
-  if (!bodySource.body) {
-    const bytes = await bodySource.arrayBuffer();
-    if (bytes.byteLength > maxBytes) {
-      throw createLimitError(maxBytes);
-    }
-    return bytes;
-  }
-
-  const reader = bodySource.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      byteLength += chunk.value.byteLength;
-      if (byteLength > maxBytes) {
-        await reader.cancel('body size limit exceeded').catch(() => undefined);
-        throw createLimitError(maxBytes);
-      }
-      chunks.push(chunk.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes.buffer;
 }
 
 function decodeOptionalHeaderValue(value: string | null): string | null {
