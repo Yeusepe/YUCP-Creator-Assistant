@@ -121,6 +121,38 @@ describe('proxyApiRequest', () => {
     expect(mockGetToken).not.toHaveBeenCalled();
   });
 
+  it('forwards Backstage media metadata headers to the API proxy target', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ kind: 'icon' }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    await proxyApiRequest({
+      url: 'http://localhost:3000/api/packages/com.yucp.song/backstage/media?kind=icon',
+      method: 'POST',
+      headers: new Headers({
+        'content-type': 'image/png',
+        'x-yucp-file-name': encodeURIComponent('icon.png'),
+        'x-yucp-media-kind': 'icon',
+        'x-yucp-source-path': 'Assets/YUCP/icon.png',
+      }),
+      arrayBuffer: () => Promise.resolve(new Uint8Array([1, 2, 3]).buffer),
+    } as unknown as Request);
+
+    const call = mockFetch.mock.calls[0];
+    expect(call).toBeDefined();
+    const [, init] = call as [string, RequestInit];
+    const headers = new Headers(init.headers);
+
+    expect(headers.get('X-YUCP-File-Name')).toBe(encodeURIComponent('icon.png'));
+    expect(headers.get('X-YUCP-Media-Kind')).toBe('icon');
+    expect(headers.get('X-YUCP-Source-Path')).toBe('Assets/YUCP/icon.png');
+  });
+
   it('rejects oversized proxied request bodies before fetching the API target', async () => {
     const { proxyApiRequest } = await import('@/lib/server/api-proxy');
 

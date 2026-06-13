@@ -212,6 +212,16 @@ class BackstageSourceMaterializationLimitError extends Error {
   }
 }
 
+class BackstagePackageMediaLimitError extends Error {
+  readonly limitBytes: number;
+
+  constructor(limitBytes: number) {
+    super('Backstage package media exceeds the maximum allowed size');
+    this.name = 'BackstagePackageMediaLimitError';
+    this.limitBytes = limitBytes;
+  }
+}
+
 function jsonResponse(body: object, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -416,19 +426,50 @@ function createResponseBodyLimitError(maxBytes: number): Error {
 }
 
 async function readBoundedArrayBuffer(
-  response: Response,
+  bodySource: Request | Response,
   maxBytes: number,
   createLimitError: (maxBytes: number) => Error = createResponseBodyLimitError
 ): Promise<ArrayBuffer> {
-  const contentLength = readContentLength(response.headers);
+  const contentLength = readContentLength(bodySource.headers);
   if (contentLength !== null && contentLength > maxBytes) {
     throw createLimitError(maxBytes);
   }
-  const bytes = await response.arrayBuffer();
-  if (bytes.byteLength > maxBytes) {
-    throw createLimitError(maxBytes);
+
+  if (!bodySource.body) {
+    const bytes = await bodySource.arrayBuffer();
+    if (bytes.byteLength > maxBytes) {
+      throw createLimitError(maxBytes);
+    }
+    return bytes;
   }
-  return bytes;
+
+  const reader = bodySource.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      byteLength += chunk.value.byteLength;
+      if (byteLength > maxBytes) {
+        await reader.cancel('body size limit exceeded').catch(() => undefined);
+        throw createLimitError(maxBytes);
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
 }
 
 function decodeOptionalHeaderValue(value: string | null): string | null {
@@ -1885,13 +1926,11 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
 
     try {
       const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
-      const bytes = await request.arrayBuffer();
-      if (bytes.byteLength > MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES) {
-        return jsonResponse(
-          { error: 'Backstage package media exceeds the maximum allowed size' },
-          413
-        );
-      }
+      const bytes = await readBoundedArrayBuffer(
+        request,
+        MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES,
+        (limitBytes) => new BackstagePackageMediaLimitError(limitBytes)
+      );
       if (bytes.byteLength === 0) {
         return jsonResponse({ error: 'Backstage package media cannot be empty' }, 400);
       }
@@ -1946,6 +1985,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       };
       return jsonResponse(reference, 201);
     } catch (error) {
+      if (error instanceof BackstagePackageMediaLimitError) {
+        return jsonResponse({ error: error.message }, 413);
+      }
       if (isCdngineBackstageDependencyError(error)) {
         logger.warn('Backstage package media upload is temporarily unavailable', {
           authUserId: viewer.authUserId,

@@ -119,6 +119,9 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   copyHeaderIfPresent(request.headers, headers, 'content-type');
   copyHeaderIfPresent(request.headers, headers, 'idempotency-key');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-upload-completion-token');
+  copyHeaderIfPresent(request.headers, headers, 'x-yucp-file-name');
+  copyHeaderIfPresent(request.headers, headers, 'x-yucp-media-kind');
+  copyHeaderIfPresent(request.headers, headers, 'x-yucp-source-path');
 
   const forwardedCookies = filterForwardedAuthCookieHeader(request.headers.get('cookie'));
   if (forwardedCookies) {

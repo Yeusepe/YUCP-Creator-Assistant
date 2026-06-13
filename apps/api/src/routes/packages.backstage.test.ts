@@ -891,6 +891,47 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
+  it('rejects chunked Backstage package media before reading past the media limit', async () => {
+    const maxMediaBytes = 5 * 1024 * 1024;
+    let pullCount = 0;
+
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pullCount += 1;
+        if (pullCount === 1) {
+          controller.enqueue(new Uint8Array(maxMediaBytes));
+          return;
+        }
+        if (pullCount === 2) {
+          controller.enqueue(new Uint8Array([1]));
+          return;
+        }
+        controller.error(new Error('media body should not be read after the limit is exceeded'));
+      },
+    });
+
+    const response = await routes.uploadBackstageReleaseMedia(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/media?kind=icon', {
+        body,
+        duplex: 'half',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'image/png',
+          'x-yucp-file-name': encodeURIComponent('icon.png'),
+        },
+        method: 'POST',
+      } as RequestInit & { duplex: 'half' }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage package media exceeds the maximum allowed size',
+    });
+    expect(pullCount).toBeGreaterThanOrEqual(2);
+    expect(cdngineCreateUploadBodies).toEqual([]);
+  });
+
   it('issues creator repo access links from the authenticated package workspace', async () => {
     const response = await routes.getBackstageRepoAccess(
       new Request('https://api.test/api/packages/backstage/repo-access', {
