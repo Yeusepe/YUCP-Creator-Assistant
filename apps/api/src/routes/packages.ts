@@ -54,6 +54,7 @@ const BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER = 'X-YUCP-Upload-Completion-Token
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
+const MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES = 256 * 1024 * 1024;
 const BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES = new Set([
   'image/gif',
   'image/jpeg',
@@ -198,6 +199,16 @@ class BackstageLiveSyncTimeoutError extends Error {
     super(`${operation} timed out after ${timeoutMs}ms`);
     this.name = 'BackstageLiveSyncTimeoutError';
     this.timeoutMs = timeoutMs;
+  }
+}
+
+class BackstageSourceMaterializationLimitError extends Error {
+  readonly limitBytes: number;
+
+  constructor(limitBytes: number) {
+    super('Backstage source exceeds the in-process publish limit');
+    this.name = 'BackstageSourceMaterializationLimitError';
+    this.limitBytes = limitBytes;
   }
 }
 
@@ -400,14 +411,22 @@ function readContentLength(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-async function readBoundedArrayBuffer(response: Response, maxBytes: number): Promise<ArrayBuffer> {
+function createResponseBodyLimitError(maxBytes: number): Error {
+  return new Error(`Response body exceeds the ${maxBytes} byte limit.`);
+}
+
+async function readBoundedArrayBuffer(
+  response: Response,
+  maxBytes: number,
+  createLimitError: (maxBytes: number) => Error = createResponseBodyLimitError
+): Promise<ArrayBuffer> {
   const contentLength = readContentLength(response.headers);
   if (contentLength !== null && contentLength > maxBytes) {
-    throw new Error(`Response body exceeds the ${maxBytes} byte limit.`);
+    throw createLimitError(maxBytes);
   }
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength > maxBytes) {
-    throw new Error(`Response body exceeds the ${maxBytes} byte limit.`);
+    throw createLimitError(maxBytes);
   }
   return bytes;
 }
@@ -1995,7 +2014,11 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       sourceResponse.headers.get('content-type')?.trim() ||
       input.contentType ||
       'application/octet-stream';
-    const sourceBuffer = await readBoundedArrayBuffer(sourceResponse, MAX_BACKSTAGE_PACKAGE_BYTES);
+    const sourceBuffer = await readBoundedArrayBuffer(
+      sourceResponse,
+      MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES,
+      (limitBytes) => new BackstageSourceMaterializationLimitError(limitBytes)
+    );
     const sourceSha256 = await sha256ArrayBuffer(sourceBuffer);
     if (sourceSha256 !== input.cdngineSource.sha256.trim().toLowerCase()) {
       throw new Error('CDNgine source download digest did not match the upload completion record.');
@@ -2260,6 +2283,20 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       });
       return jsonResponse(result, 201);
     } catch (error) {
+      if (error instanceof BackstageSourceMaterializationLimitError) {
+        logger.warn('Backstage source exceeds the in-process publish limit', {
+          authUserId: viewer.authUserId,
+          packageId,
+          limitBytes: error.limitBytes,
+        });
+        return jsonResponse(
+          {
+            error: 'Backstage source exceeds the in-process publish limit',
+            limitBytes: error.limitBytes,
+          },
+          413
+        );
+      }
       if (isCdngineBackstageDependencyError(error)) {
         logger.warn('Backstage package delivery publication is temporarily unavailable', {
           authUserId: viewer.authUserId,

@@ -2205,6 +2205,61 @@ describe('package Backstage publishing routes', () => {
     expect(lastActionArgs).toBeUndefined();
   });
 
+  it('rejects oversized Backstage sources before in-process materialization', async () => {
+    const oversizedSourceBytes = 300 * 1024 * 1024;
+    let sourceDownloadCount = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/source/authorize')) {
+        return new Response(JSON.stringify({ url: 'https://cdn.test/huge-source.unitypackage' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url === 'https://cdn.test/huge-source.unitypackage') {
+        sourceDownloadCount += 1;
+        return new Response(new Blob([new Uint8Array([1])]), {
+          status: 200,
+          headers: {
+            'Content-Length': String(oversizedSourceBytes),
+            'Content-Type': 'application/octet-stream',
+          },
+        });
+      }
+      return originalFetch(input, init);
+    }) as typeof fetch;
+
+    const response = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          cdngineSource: {
+            ...cdngineSourceFixture,
+            byteSize: oversizedSourceBytes,
+            sha256: 'f'.repeat(64),
+          },
+          version: '1.2.6',
+          channel: 'stable',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(sourceDownloadCount).toBe(1);
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage source exceeds the in-process publish limit',
+      limitBytes: 268435456,
+    });
+    expect(cdngineCreateUploadBodies).toHaveLength(0);
+    expect(lastActionArgs).toBeUndefined();
+  });
+
   it('materializes unitypackage CDNgine sources into VPM ZIP deliverables before publishing', async () => {
     const sourceBytes = buildUnitypackage([
       {
