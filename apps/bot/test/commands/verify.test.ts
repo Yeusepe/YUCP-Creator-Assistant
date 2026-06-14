@@ -172,6 +172,31 @@ describe('buildVerifyStatusReply', () => {
     expect(text).toContain('Awesome Course');
   });
 
+  it('shows role-sync permission failures when verification succeeded but role assignment failed', async () => {
+    const convex = makeConvex({
+      subjectFound: true,
+      linkedAccounts: [{ provider: 'gumroad', status: 'active', _id: 'acct_role_sync' }],
+      entitlements: [{ productId: 'prod_role_sync' }],
+      guildProducts: [{ productId: 'prod_role_sync', displayName: 'Role Product' }],
+      providers: ['gumroad'],
+      failedRoleSyncJobs: [{ lastError: 'guild_verify_roles: Bot lacks Manage Roles permission' }],
+    });
+
+    const reply = await buildVerifyStatusReply(
+      'user_verify_roles',
+      'auth_verify_roles',
+      'guild_verify_roles',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const text = JSON.stringify(reply.components[0].toJSON());
+    expect(text).toContain("You're verified!");
+    expect(text).toContain('Permissions needed');
+    expect(text).toContain('Manage Roles');
+  });
+
   it('builds verified state from the entitlement read DTO without raw table internals', async () => {
     const convex = makeConvex({
       subjectFound: true,

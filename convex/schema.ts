@@ -1095,6 +1095,8 @@ const outbox_jobs = defineTable({
   idempotencyKey: v.string(),
   // Target Discord guild (if applicable)
   targetGuildId: v.optional(v.string()),
+  // Product-level jobs can discover more than one target guild during processing.
+  targetGuildIds: v.optional(v.array(v.string())),
   // Target Discord user (if applicable)
   targetDiscordUserId: v.optional(v.string()),
   // Number of retry attempts

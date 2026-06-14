@@ -145,6 +145,7 @@ export interface OutboxJob {
   nextRetryAt?: number;
   lastError?: string;
   targetGuildId?: string;
+  targetGuildIds?: string[];
   targetDiscordUserId?: string;
 }
 
@@ -225,6 +226,7 @@ function getDefaultRolePlanAction(args: {
 export interface RoleSyncResult {
   success: boolean;
   guildId: string;
+  targetGuildIds?: string[];
   discordUserId: string;
   rolesAdded: string[];
   rolesRemoved: string[];
@@ -509,8 +511,17 @@ export class RoleSyncService {
             throw new Error(`Unknown job type: ${(job as OutboxJob).jobType}`);
           }
 
+          const resultTargetGuildIds =
+            result.targetGuildIds ?? (result.guildId ? [result.guildId] : undefined);
+
           if (result.success) {
-            await this.updateJobStatus(job._id, 'completed');
+            await this.updateJobStatus(
+              job._id,
+              'completed',
+              undefined,
+              undefined,
+              resultTargetGuildIds
+            );
             await this.emitAuditEvent(job, result);
 
             this.logger.info('Job completed successfully', {
@@ -534,9 +545,15 @@ export class RoleSyncService {
               jobId: job._id,
               error: result.error ?? 'Unknown error',
             });
-            await this.updateJobStatus(job._id, 'dead_letter', result.error ?? 'Unknown error');
+            await this.updateJobStatus(
+              job._id,
+              'dead_letter',
+              result.error ?? 'Unknown error',
+              undefined,
+              resultTargetGuildIds
+            );
           } else {
-            await this.handleJobFailure(job, result.error ?? 'Unknown error');
+            await this.handleJobFailure(job, result.error ?? 'Unknown error', resultTargetGuildIds);
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -617,6 +634,9 @@ export class RoleSyncService {
     const rolesAdded: string[] = [];
     const rolesRemoved: string[] = [];
     const errors: string[] = [];
+    const enabledGuildIds = new Set<string>();
+    const failedGuildIds = new Set<string>();
+    let expectedRoleGrantCount = 0;
     let nonRetriable = false;
 
     // Process each guild's role rules
@@ -624,10 +644,12 @@ export class RoleSyncService {
       if (!rule.enabled) {
         continue;
       }
+      enabledGuildIds.add(rule.guildId);
 
       const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
       for (const roleId of roleIds) {
+        expectedRoleGrantCount++;
         try {
           const result = await this.addRoleToMember(rule.guildId, discordUserId, roleId);
 
@@ -637,11 +659,13 @@ export class RoleSyncService {
 
           if (result.error) {
             errors.push(`${rule.guildId}: ${result.error}`);
+            failedGuildIds.add(rule.guildId);
             nonRetriable = nonRetriable || result.nonRetriable === true;
           }
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           errors.push(`${rule.guildId}: ${errorMsg}`);
+          failedGuildIds.add(rule.guildId);
           this.logger.error('Failed to add role', {
             guildId: rule.guildId,
             roleId,
@@ -651,16 +675,33 @@ export class RoleSyncService {
       }
     }
 
-    // Determine overall success
-    const success = rolesAdded.length > 0 || roleRules.filter((r) => r.enabled).length === 0;
+    const enabledRoleRuleCount = roleRules.filter((r) => r.enabled).length;
+    const missingRoleConfiguration =
+      enabledRoleRuleCount > 0 && expectedRoleGrantCount === 0
+        ? 'No verified role ids configured for enabled role rules'
+        : undefined;
+    if (missingRoleConfiguration) {
+      for (const guildId of enabledGuildIds) {
+        failedGuildIds.add(guildId);
+      }
+    }
+    // A multi-role product is only synced when every configured role is satisfied.
+    // addRoleToMember returns added=true for already-present roles, so idempotent retries still pass.
+    const success =
+      enabledRoleRuleCount === 0 ||
+      (expectedRoleGrantCount > 0 &&
+        errors.length === 0 &&
+        rolesAdded.length === expectedRoleGrantCount);
+    const error = errors.length > 0 ? errors.join('; ') : missingRoleConfiguration;
 
     return {
       success,
       guildId: roleRules[0]?.guildId ?? '',
+      targetGuildIds: Array.from(success ? enabledGuildIds : failedGuildIds),
       discordUserId,
       rolesAdded,
       rolesRemoved,
-      error: errors.length > 0 ? errors.join('; ') : undefined,
+      error,
       nonRetriable,
     };
   }
@@ -1957,7 +1998,11 @@ export class RoleSyncService {
   /**
    * Handle job failure with retry logic.
    */
-  private async handleJobFailure(job: OutboxJob, error: string): Promise<void> {
+  private async handleJobFailure(
+    job: OutboxJob,
+    error: string,
+    targetGuildIds?: string[]
+  ): Promise<void> {
     const newRetryCount = job.retryCount + 1;
 
     this.logger.warn('Job failed', {
@@ -1969,7 +2014,7 @@ export class RoleSyncService {
 
     if (newRetryCount >= job.maxRetries) {
       // Move to dead letter queue
-      await this.updateJobStatus(job._id, 'dead_letter', error);
+      await this.updateJobStatus(job._id, 'dead_letter', error, undefined, targetGuildIds);
       this.logger.error('Job moved to dead letter queue', {
         jobId: job._id,
         totalRetries: newRetryCount,
@@ -1979,7 +2024,7 @@ export class RoleSyncService {
       const backoffMs = this.rateLimiter.calculateBackoff(newRetryCount);
       const nextRetryAt = Date.now() + backoffMs;
 
-      await this.updateJobStatus(job._id, 'pending', error, nextRetryAt);
+      await this.updateJobStatus(job._id, 'pending', error, nextRetryAt, targetGuildIds);
     }
   }
 
@@ -2068,8 +2113,11 @@ export class RoleSyncService {
     jobId: Id<'outbox_jobs'>,
     status: OutboxJob['status'],
     error?: string,
-    nextRetryAt?: number
+    nextRetryAt?: number,
+    targetGuildIds?: string[]
   ): Promise<void> {
+    const uniqueTargetGuildIds =
+      targetGuildIds && targetGuildIds.length > 0 ? Array.from(new Set(targetGuildIds)) : undefined;
     await withBotStageSpan(
       'outbox.update_status',
       {
@@ -2077,6 +2125,7 @@ export class RoleSyncService {
         status,
         hasError: Boolean(error),
         hasNextRetryAt: nextRetryAt !== undefined,
+        targetGuildCount: uniqueTargetGuildIds?.length ?? 0,
       },
       async () => {
         try {
@@ -2086,6 +2135,8 @@ export class RoleSyncService {
             status,
             error,
             nextRetryAt,
+            targetGuildId: uniqueTargetGuildIds?.length === 1 ? uniqueTargetGuildIds[0] : undefined,
+            targetGuildIds: uniqueTargetGuildIds,
           });
         } catch (updateError) {
           this.logger.error('Failed to update job status', {

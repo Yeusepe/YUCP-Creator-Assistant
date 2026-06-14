@@ -174,12 +174,22 @@ export const getFailedRoleSyncForUser = query({
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
     return jobs
       .filter((j) => {
-        const payload = j.payload as { discordUserId?: string; guildId?: string };
-        const matchGuild = j.targetGuildId === args.guildId || payload?.guildId === args.guildId;
+        const payload = j.payload as {
+          discordUserId?: string;
+          guildId?: string;
+          targetGuildId?: string;
+        };
+        const targetGuildIds = j.targetGuildIds ?? [];
+        const matchGuild =
+          j.targetGuildId === args.guildId ||
+          targetGuildIds.includes(args.guildId) ||
+          payload?.guildId === args.guildId ||
+          payload?.targetGuildId === args.guildId;
         const matchUser =
           j.targetDiscordUserId === args.discordUserId ||
           payload?.discordUserId === args.discordUserId;
-        const hasError = j.lastError && j.lastError.length > 0;
+        const lastError = typeof j.lastError === 'string' ? j.lastError : '';
+        const hasError = lastError.length > 0;
         const recent = (j.updatedAt ?? j.createdAt) >= oneDayAgo;
         return matchGuild && matchUser && hasError && recent;
       })
@@ -230,6 +240,7 @@ export const createJob = mutation({
     payload: v.any(),
     idempotencyKey: v.string(),
     targetGuildId: v.optional(v.string()),
+    targetGuildIds: v.optional(v.array(v.string())),
     targetDiscordUserId: v.optional(v.string()),
     maxRetries: v.optional(v.number()),
   },
@@ -259,6 +270,7 @@ export const createJob = mutation({
       status: 'pending',
       idempotencyKey: args.idempotencyKey,
       targetGuildId: args.targetGuildId,
+      targetGuildIds: args.targetGuildIds,
       targetDiscordUserId: args.targetDiscordUserId,
       retryCount: 0,
       maxRetries: args.maxRetries ?? 5,
@@ -281,6 +293,8 @@ export const updateJobStatus = mutation({
     status: OutboxJobStatus,
     error: v.optional(v.string()),
     nextRetryAt: v.optional(v.number()),
+    targetGuildId: v.optional(v.string()),
+    targetGuildIds: v.optional(v.array(v.string())),
   },
   returns: v.object({
     success: v.boolean(),
@@ -305,6 +319,14 @@ export const updateJobStatus = mutation({
 
     if (args.nextRetryAt) {
       update.nextRetryAt = args.nextRetryAt;
+    }
+
+    if (args.targetGuildId) {
+      update.targetGuildId = args.targetGuildId;
+    }
+
+    if (args.targetGuildIds && args.targetGuildIds.length > 0) {
+      update.targetGuildIds = args.targetGuildIds;
     }
 
     if (args.status === 'completed') {
