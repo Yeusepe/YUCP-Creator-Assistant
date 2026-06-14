@@ -172,7 +172,6 @@ export interface Subject {
 /** Entitlement document type */
 export interface Entitlement {
   _id: Id<'entitlements'>;
-  authUserId: string;
   subjectId: Id<'subjects'>;
   productId: string;
   status: 'active' | 'revoked' | 'expired' | 'refunded' | 'disputed';

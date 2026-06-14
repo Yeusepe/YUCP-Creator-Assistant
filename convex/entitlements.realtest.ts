@@ -10,10 +10,43 @@
  * - https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
  */
 
+import { createApiActorBinding, createServiceApiActor } from '@yucp/shared/apiActor';
+import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
+import schema from './schema';
 import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
+
+const TEST_INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+
+type ConvexTestModuleMap = Record<string, () => Promise<unknown>>;
+type ImportMetaWithGlob = ImportMeta & {
+  glob: (pattern: string) => ConvexTestModuleMap;
+};
+
+function makeLegacyDataTestConvex(): ReturnType<typeof makeTestConvex> {
+  return convexTest(
+    { ...schema, schemaValidation: false } as typeof schema,
+    (import.meta as ImportMetaWithGlob).glob('./**/*.ts')
+  ) as unknown as ReturnType<typeof makeTestConvex>;
+}
+
+async function createDelegatedTestActor() {
+  const internalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+  if (!internalSecret) {
+    throw new Error('INTERNAL_SERVICE_AUTH_SECRET must be set for delegated actor tests');
+  }
+
+  return await createApiActorBinding(
+    createServiceApiActor({
+      service: 'convex-test',
+      scopes: ['creator:delegate'],
+      now: Date.now(),
+    }),
+    internalSecret
+  );
+}
 
 async function getEntitlementState(t: ReturnType<typeof makeTestConvex>, entitlementId: string) {
   return t.run(async (ctx) => ctx.db.get(entitlementId as never));
@@ -162,6 +195,148 @@ describe('grantEntitlement lifecycle', () => {
     ).rejects.toThrow('Subject is not active: quarantined');
 
     expect(await getSecurityCounts(t)).toEqual(before);
+  });
+});
+
+describe('entitlement read contracts', () => {
+  const originalInternalServiceAuthSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = 'test-secret';
+    process.env.INTERNAL_SERVICE_AUTH_SECRET = TEST_INTERNAL_SERVICE_AUTH_SECRET;
+  });
+
+  afterEach(() => {
+    delete process.env.CONVEX_API_SECRET;
+    if (originalInternalServiceAuthSecret === undefined) {
+      delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+    } else {
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalServiceAuthSecret;
+    }
+  });
+
+  it('normalizes legacy entitlement link fields before returning subject entitlements', async () => {
+    const t = makeLegacyDataTestConvex();
+    const actor = await createDelegatedTestActor();
+    const authUserId = 'auth-entitlement-read-legacy-links';
+    const licenseSubject = 'a'.repeat(64);
+    const now = Date.now();
+
+    const subjectId = await t.run(async (ctx) => {
+      const insertedSubjectId = await ctx.db.insert('subjects', {
+        primaryDiscordUserId: 'discord-entitlement-read-legacy-links',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId: insertedSubjectId,
+        productId: 'product-legacy-links',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'legacy-source-ref',
+        catalogProductId: 'legacy-external-product-id',
+        licenseSubject,
+        expiresAt: null,
+        policySnapshotVersion: null,
+        providerCustomerId: 'legacy-external-customer-id',
+        revokedAt: null,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      } as never);
+      return insertedSubjectId;
+    });
+
+    const result = await t.query(api.entitlements.getEntitlementsBySubject, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      subjectId,
+      includeInactive: false,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      subjectId,
+      productId: 'product-legacy-links',
+      sourceProvider: 'jinxxy',
+      status: 'active',
+      grantedAt: now,
+    });
+    expect('_creationTime' in result[0]).toBe(false);
+    expect('authUserId' in result[0]).toBe(false);
+    expect('sourceReference' in result[0]).toBe(false);
+    expect('licenseSubject' in result[0]).toBe(false);
+    expect('catalogProductId' in result[0]).toBe(false);
+    expect('providerCustomerId' in result[0]).toBe(false);
+    expect('policySnapshotVersion' in result[0]).toBe(false);
+    expect('revokedAt' in result[0]).toBe(false);
+    expect('expiresAt' in result[0]).toBe(false);
+  });
+
+  it('preserves catalog product ids for product entitlement reads', async () => {
+    const t = makeTestConvex();
+    const actor = await createDelegatedTestActor();
+    const authUserId = 'auth-entitlement-read-product-catalog-id';
+    const now = Date.now();
+
+    const { catalogProductId, subjectId } = await t.run(async (ctx) => {
+      const insertedSubjectId = await ctx.db.insert('subjects', {
+        primaryDiscordUserId: 'discord-entitlement-read-product-catalog-id',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const insertedCatalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-read-catalog-id',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-product-read-catalog-id',
+        displayName: 'Product Read Catalog ID',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId: insertedSubjectId,
+        productId: 'product-read-catalog-id',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'source-read-catalog-id',
+        catalogProductId: insertedCatalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      return {
+        catalogProductId: insertedCatalogProductId,
+        subjectId: insertedSubjectId,
+      };
+    });
+
+    const result = await t.query(api.entitlements.getEntitlementsByProduct, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      productId: 'product-read-catalog-id',
+      includeInactive: false,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      subjectId,
+      productId: 'product-read-catalog-id',
+      sourceProvider: 'jinxxy',
+      status: 'active',
+      grantedAt: now,
+      catalogProductId,
+    });
+    expect('authUserId' in result[0]).toBe(false);
+    expect('sourceReference' in result[0]).toBe(false);
+    expect('providerCustomerId' in result[0]).toBe(false);
+    expect('policySnapshotVersion' in result[0]).toBe(false);
   });
 });
 

@@ -94,12 +94,18 @@ async function expectProjectedEntitlement(
   expect(entitlement).toMatchObject({
     found: true,
     entitlement: expect.objectContaining({
-      authUserId: args.creatorAuthUserId,
       subjectId: args.subjectId,
       productId: args.productId,
       sourceProvider: 'gumroad',
-      sourceReference: 'gumroad:historical-order',
     }),
+  });
+  const entitlementId = entitlement.entitlement?._id ?? null;
+  const storedEntitlement = entitlementId
+    ? await t.run(async (ctx) => ctx.db.get(entitlementId))
+    : null;
+  expect(storedEntitlement).toMatchObject({
+    authUserId: args.creatorAuthUserId,
+    sourceReference: 'gumroad:historical-order',
   });
 
   const links = await t.query(api.subjects.listBuyerProviderLinksForAuthUser, {
