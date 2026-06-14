@@ -18,6 +18,8 @@ import type { Doc } from './_generated/dataModel';
 import schema from './schema';
 import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
 
+const TEST_INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+
 type ConvexTestModuleMap = Record<string, () => Promise<unknown>>;
 type ImportMetaWithGlob = ImportMeta & {
   glob: (pattern: string) => ConvexTestModuleMap;
@@ -31,13 +33,18 @@ function makeLegacyDataTestConvex(): ReturnType<typeof makeTestConvex> {
 }
 
 async function createDelegatedTestActor() {
+  const internalSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+  if (!internalSecret) {
+    throw new Error('INTERNAL_SERVICE_AUTH_SECRET must be set for delegated actor tests');
+  }
+
   return await createApiActorBinding(
     createServiceApiActor({
       service: 'convex-test',
       scopes: ['creator:delegate'],
       now: Date.now(),
     }),
-    process.env.INTERNAL_SERVICE_AUTH_SECRET ?? 'test-internal-service-secret'
+    internalSecret
   );
 }
 
@@ -192,12 +199,20 @@ describe('grantEntitlement lifecycle', () => {
 });
 
 describe('entitlement read contracts', () => {
+  const originalInternalServiceAuthSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
+    process.env.INTERNAL_SERVICE_AUTH_SECRET = TEST_INTERNAL_SERVICE_AUTH_SECRET;
   });
 
   afterEach(() => {
     delete process.env.CONVEX_API_SECRET;
+    if (originalInternalServiceAuthSecret === undefined) {
+      delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+    } else {
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalServiceAuthSecret;
+    }
   });
 
   it('normalizes legacy entitlement link fields before returning subject entitlements', async () => {
