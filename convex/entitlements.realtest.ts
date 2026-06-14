@@ -10,10 +10,36 @@
  * - https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
  */
 
+import { createApiActorBinding, createServiceApiActor } from '@yucp/shared/apiActor';
+import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
+import schema from './schema';
 import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
+
+type ConvexTestModuleMap = Record<string, () => Promise<unknown>>;
+type ImportMetaWithGlob = ImportMeta & {
+  glob: (pattern: string) => ConvexTestModuleMap;
+};
+
+function makeLegacyDataTestConvex(): ReturnType<typeof makeTestConvex> {
+  return convexTest(
+    { ...schema, schemaValidation: false } as typeof schema,
+    (import.meta as ImportMetaWithGlob).glob('./**/*.ts')
+  ) as unknown as ReturnType<typeof makeTestConvex>;
+}
+
+async function createDelegatedTestActor() {
+  return await createApiActorBinding(
+    createServiceApiActor({
+      service: 'convex-test',
+      scopes: ['creator:delegate'],
+      now: Date.now(),
+    }),
+    process.env.INTERNAL_SERVICE_AUTH_SECRET ?? 'test-internal-service-secret'
+  );
+}
 
 async function getEntitlementState(t: ReturnType<typeof makeTestConvex>, entitlementId: string) {
   return t.run(async (ctx) => ctx.db.get(entitlementId as never));
@@ -162,6 +188,76 @@ describe('grantEntitlement lifecycle', () => {
     ).rejects.toThrow('Subject is not active: quarantined');
 
     expect(await getSecurityCounts(t)).toEqual(before);
+  });
+});
+
+describe('entitlement read contracts', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  afterEach(() => {
+    delete process.env.CONVEX_API_SECRET;
+  });
+
+  it('normalizes legacy entitlement link fields before returning subject entitlements', async () => {
+    const t = makeLegacyDataTestConvex();
+    const actor = await createDelegatedTestActor();
+    const authUserId = 'auth-entitlement-read-legacy-links';
+    const licenseSubject = 'a'.repeat(64);
+    const now = Date.now();
+
+    const subjectId = await t.run(async (ctx) => {
+      const insertedSubjectId = await ctx.db.insert('subjects', {
+        primaryDiscordUserId: 'discord-entitlement-read-legacy-links',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId: insertedSubjectId,
+        productId: 'product-legacy-links',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'legacy-source-ref',
+        catalogProductId: 'legacy-external-product-id',
+        licenseSubject,
+        expiresAt: null,
+        policySnapshotVersion: null,
+        providerCustomerId: 'legacy-external-customer-id',
+        revokedAt: null,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      } as never);
+      return insertedSubjectId;
+    });
+
+    const result = await t.query(api.entitlements.getEntitlementsBySubject, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      subjectId,
+      includeInactive: false,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      subjectId,
+      productId: 'product-legacy-links',
+      sourceProvider: 'jinxxy',
+      status: 'active',
+      grantedAt: now,
+    });
+    expect('_creationTime' in result[0]).toBe(false);
+    expect('authUserId' in result[0]).toBe(false);
+    expect('sourceReference' in result[0]).toBe(false);
+    expect('licenseSubject' in result[0]).toBe(false);
+    expect('catalogProductId' in result[0]).toBe(false);
+    expect('providerCustomerId' in result[0]).toBe(false);
+    expect('policySnapshotVersion' in result[0]).toBe(false);
+    expect('revokedAt' in result[0]).toBe(false);
+    expect('expiresAt' in result[0]).toBe(false);
   });
 });
 

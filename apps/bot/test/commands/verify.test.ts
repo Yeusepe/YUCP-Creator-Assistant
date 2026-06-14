@@ -13,7 +13,7 @@
  *     call index 2 → getByGuildWithProductNames (only when subject found) → return array
  */
 
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import { buildVerifyStatusReply, handleVerifySpawn } from '../../src/commands/verify';
@@ -31,7 +31,15 @@ type SpawnPayload = {
 type ConvexMockOpts = {
   subjectFound?: boolean;
   linkedAccounts?: Array<{ provider: string; status: string; _id?: string }>;
-  entitlements?: Array<{ productId: string }>;
+  entitlements?: Array<{
+    _id?: string;
+    subjectId?: string;
+    productId: string;
+    sourceProvider?: string;
+    status?: string;
+    grantedAt?: number;
+    revokedAt?: number;
+  }>;
   guildProducts?: Array<{ productId: string; displayName: string | null }>;
   providers?: string[];
   failedRoleSyncJobs?: unknown[];
@@ -110,6 +118,20 @@ function makeConvex(opts: ConvexMockOpts = {}): ConvexHttpClient {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('buildVerifyStatusReply', () => {
+  const originalInternalServiceAuthSecret = process.env.INTERNAL_SERVICE_AUTH_SECRET;
+
+  beforeEach(() => {
+    process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+  });
+
+  afterEach(() => {
+    if (originalInternalServiceAuthSecret === undefined) {
+      delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
+    } else {
+      process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalServiceAuthSecret;
+    }
+  });
+
   it('shows setup-required message when no providers are configured for the guild', async () => {
     const convex = makeConvex({ subjectFound: false, providers: [] });
 
@@ -148,6 +170,39 @@ describe('buildVerifyStatusReply', () => {
     const text = JSON.stringify(reply.components[0].toJSON());
     expect(text).toContain("You're verified!");
     expect(text).toContain('Awesome Course');
+  });
+
+  it('builds verified state from the entitlement read DTO without raw table internals', async () => {
+    const convex = makeConvex({
+      subjectFound: true,
+      linkedAccounts: [{ provider: 'jinxxy', status: 'active', _id: 'acct_jinxxy_1' }],
+      entitlements: [
+        {
+          _id: 'ent_read_dto_1',
+          subjectId: 'subject_test_abc',
+          productId: 'prod_verify_read_contract',
+          sourceProvider: 'jinxxy',
+          status: 'active',
+          grantedAt: Date.now(),
+        },
+      ],
+      guildProducts: [{ productId: 'prod_verify_read_contract', displayName: 'Read DTO Product' }],
+      providers: ['jinxxy'],
+      failedRoleSyncJobs: [],
+    });
+
+    const reply = await buildVerifyStatusReply(
+      'user_verify_read_contract',
+      'auth_verify_read_contract',
+      'guild_verify_read_contract',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const text = JSON.stringify(reply.components[0].toJSON());
+    expect(text).toContain("You're verified!");
+    expect(text).toContain('Read DTO Product');
   });
 
   it('shows license-key verify button when user is unverified but providers are configured', async () => {

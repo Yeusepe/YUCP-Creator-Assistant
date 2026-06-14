@@ -142,12 +142,18 @@ describe('gumroad external storefront backfill', () => {
     expect(entitlement).toMatchObject({
       found: true,
       entitlement: expect.objectContaining({
-        authUserId: creatorAuthUserId,
         subjectId: buyerSubjectId,
         productId: localProductId,
         sourceProvider: 'gumroad',
-        sourceReference: 'gumroad:sale-external-storefront',
       }),
+    });
+    const entitlementId = entitlement.entitlement?._id ?? null;
+    const storedEntitlement = entitlementId
+      ? await t.run(async (ctx) => ctx.db.get(entitlementId))
+      : null;
+    expect(storedEntitlement).toMatchObject({
+      authUserId: creatorAuthUserId,
+      sourceReference: 'gumroad:sale-external-storefront',
     });
   });
 

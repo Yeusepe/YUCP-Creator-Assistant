@@ -86,6 +86,38 @@ export const RevocationReason = v.union(
 
 type EntitlementReaderCtx = MutationCtx | QueryCtx;
 
+const EntitlementReadRecord = v.object({
+  _id: v.id('entitlements'),
+  subjectId: v.id('subjects'),
+  productId: v.string(),
+  sourceProvider: EntitlementProvider,
+  status: EntitlementStatus,
+  grantedAt: v.number(),
+  revokedAt: v.optional(v.number()),
+});
+
+type LegacyEntitlementReadDoc = Doc<'entitlements'> & {
+  revokedAt?: unknown;
+};
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === 'number' ? value : undefined;
+}
+
+export function normalizeEntitlementReadRecord(entitlement: LegacyEntitlementReadDoc) {
+  const revokedAt = optionalNumber(entitlement.revokedAt);
+
+  return {
+    _id: entitlement._id,
+    subjectId: entitlement.subjectId,
+    productId: entitlement.productId,
+    sourceProvider: entitlement.sourceProvider,
+    status: entitlement.status,
+    grantedAt: entitlement.grantedAt,
+    ...(revokedAt === undefined ? {} : { revokedAt }),
+  };
+}
+
 async function requireActiveSubject(
   ctx: EntitlementReaderCtx,
   subjectId: Id<'subjects'>
@@ -144,24 +176,7 @@ export const getEntitlementsBySubject = query({
     subjectId: v.id('subjects'),
     includeInactive: v.optional(v.boolean()),
   },
-  returns: v.array(
-    v.object({
-      _id: v.id('entitlements'),
-      _creationTime: v.number(),
-      authUserId: v.string(),
-      subjectId: v.id('subjects'),
-      productId: v.string(),
-      sourceProvider: EntitlementProvider,
-      sourceReference: v.string(),
-      providerCustomerId: v.optional(v.id('provider_customers')),
-      catalogProductId: v.optional(v.id('product_catalog')),
-      status: EntitlementStatus,
-      policySnapshotVersion: v.optional(v.number()),
-      grantedAt: v.number(),
-      revokedAt: v.optional(v.number()),
-      updatedAt: v.number(),
-    })
-  ),
+  returns: v.array(EntitlementReadRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
@@ -176,7 +191,7 @@ export const getEntitlementsBySubject = query({
     }
 
     const entitlements = await query.order('desc').take(1000);
-    return entitlements;
+    return entitlements.map((entitlement) => normalizeEntitlementReadRecord(entitlement));
   },
 });
 
@@ -192,24 +207,7 @@ export const getEntitlementsByProduct = query({
     productId: v.string(),
     includeInactive: v.optional(v.boolean()),
   },
-  returns: v.array(
-    v.object({
-      _id: v.id('entitlements'),
-      _creationTime: v.number(),
-      authUserId: v.string(),
-      subjectId: v.id('subjects'),
-      productId: v.string(),
-      sourceProvider: EntitlementProvider,
-      sourceReference: v.string(),
-      providerCustomerId: v.optional(v.id('provider_customers')),
-      catalogProductId: v.optional(v.id('product_catalog')),
-      status: EntitlementStatus,
-      policySnapshotVersion: v.optional(v.number()),
-      grantedAt: v.number(),
-      revokedAt: v.optional(v.number()),
-      updatedAt: v.number(),
-    })
-  ),
+  returns: v.array(EntitlementReadRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
@@ -224,7 +222,7 @@ export const getEntitlementsByProduct = query({
     }
 
     const entitlements = await query.order('desc').take(1000);
-    return entitlements;
+    return entitlements.map((entitlement) => normalizeEntitlementReadRecord(entitlement));
   },
 });
 
@@ -243,22 +241,7 @@ export const getActiveEntitlement = query({
   returns: v.union(
     v.object({
       found: v.literal(true),
-      entitlement: v.object({
-        _id: v.id('entitlements'),
-        _creationTime: v.number(),
-        authUserId: v.string(),
-        subjectId: v.id('subjects'),
-        productId: v.string(),
-        sourceProvider: EntitlementProvider,
-        sourceReference: v.string(),
-        providerCustomerId: v.optional(v.id('provider_customers')),
-        catalogProductId: v.optional(v.id('product_catalog')),
-        status: EntitlementStatus,
-        policySnapshotVersion: v.optional(v.number()),
-        grantedAt: v.number(),
-        revokedAt: v.optional(v.number()),
-        updatedAt: v.number(),
-      }),
+      entitlement: EntitlementReadRecord,
     }),
     v.object({
       found: v.literal(false),
@@ -282,7 +265,10 @@ export const getActiveEntitlement = query({
       return { found: false as const, entitlement: null };
     }
 
-    return { found: true as const, entitlement };
+    return {
+      found: true as const,
+      entitlement: normalizeEntitlementReadRecord(entitlement),
+    };
   },
 });
 
@@ -503,22 +489,7 @@ export const getEntitlement = query({
   returns: v.union(
     v.object({
       found: v.literal(true),
-      entitlement: v.object({
-        _id: v.id('entitlements'),
-        _creationTime: v.number(),
-        authUserId: v.string(),
-        subjectId: v.id('subjects'),
-        productId: v.string(),
-        sourceProvider: EntitlementProvider,
-        sourceReference: v.string(),
-        providerCustomerId: v.optional(v.id('provider_customers')),
-        catalogProductId: v.optional(v.id('product_catalog')),
-        status: EntitlementStatus,
-        policySnapshotVersion: v.optional(v.number()),
-        grantedAt: v.number(),
-        revokedAt: v.optional(v.number()),
-        updatedAt: v.number(),
-      }),
+      entitlement: EntitlementReadRecord,
     }),
     v.object({
       found: v.literal(false),
@@ -534,7 +505,10 @@ export const getEntitlement = query({
       return { found: false as const, entitlement: null };
     }
 
-    return { found: true as const, entitlement };
+    return {
+      found: true as const,
+      entitlement: normalizeEntitlementReadRecord(entitlement),
+    };
   },
 });
 
@@ -549,24 +523,7 @@ export const getEntitlementsByProviderCustomer = query({
     authUserId: v.string(),
     providerCustomerId: v.id('provider_customers'),
   },
-  returns: v.array(
-    v.object({
-      _id: v.id('entitlements'),
-      _creationTime: v.number(),
-      authUserId: v.string(),
-      subjectId: v.id('subjects'),
-      productId: v.string(),
-      sourceProvider: EntitlementProvider,
-      sourceReference: v.string(),
-      providerCustomerId: v.optional(v.id('provider_customers')),
-      catalogProductId: v.optional(v.id('product_catalog')),
-      status: EntitlementStatus,
-      policySnapshotVersion: v.optional(v.number()),
-      grantedAt: v.number(),
-      revokedAt: v.optional(v.number()),
-      updatedAt: v.number(),
-    })
-  ),
+  returns: v.array(EntitlementReadRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
@@ -576,7 +533,7 @@ export const getEntitlementsByProviderCustomer = query({
       .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
       .collect();
 
-    return entitlements;
+    return entitlements.map((entitlement) => normalizeEntitlementReadRecord(entitlement));
   },
 });
 
