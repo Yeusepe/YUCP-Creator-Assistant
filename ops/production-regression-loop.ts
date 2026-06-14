@@ -72,10 +72,12 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
+      'convex/outboxJobs.realtest.ts',
       'convex/verificationIntents.realtest.ts',
+      'apps/bot/test/lib/roleSync.test.ts',
       'apps/api/src/routes/connect.user-verify.manual-license.test.ts',
       'apps/api/src/routes/connect.user-verify.provider-link.test.ts',
       'apps/api/src/verification/hostedIntents.test.ts',
@@ -88,7 +90,11 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/bot/test/lib/setupCatalog.test.ts',
       'apps/web/test/unit/purchase-verification-ui-state.test.ts',
     ],
-    remediationHomes: ['convex/entitlements.realtest.ts', 'convex/verificationIntents.realtest.ts'],
+    remediationHomes: [
+      'convex/entitlements.realtest.ts',
+      'convex/outboxJobs.realtest.ts',
+      'convex/verificationIntents.realtest.ts',
+    ],
   },
   {
     id: 'account',
@@ -145,6 +151,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       '--config',
       'convex/vitest.config.ts',
       './convex/entitlements.realtest.ts',
+      './convex/outboxJobs.realtest.ts',
     ],
     covers: ['verification'],
   },
@@ -161,6 +168,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
       './apps/api/src/routes/packages.backstage.test.ts',
+      './apps/bot/test/lib/roleSync.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',
     ],

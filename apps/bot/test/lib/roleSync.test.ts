@@ -171,7 +171,7 @@ describe('role sync service regressions', () => {
 
     expect(updateJobStatusMock.mock.calls as unknown as Array<unknown[]>).toEqual([
       ['job-123', 'in_progress'],
-      ['job-123', 'dead_letter', 'Bot lacks permission to manage roles'],
+      ['job-123', 'dead_letter', 'Bot lacks permission to manage roles', undefined, ['guild-123']],
     ]);
     expect(handleJobFailureMock).not.toHaveBeenCalled();
   });
@@ -217,7 +217,7 @@ describe('role sync service regressions', () => {
 
     expect(updateJobStatusMock.mock.calls as unknown as Array<unknown[]>).toEqual([
       ['job-123', 'in_progress'],
-      ['job-123', 'dead_letter', 'Bot lacks permission to manage roles'],
+      ['job-123', 'dead_letter', 'Bot lacks permission to manage roles', undefined, ['guild-123']],
     ]);
     expect(handleJobFailureMock).not.toHaveBeenCalled();
   });
@@ -352,6 +352,102 @@ describe('role sync service regressions', () => {
         })
       )
     ).rejects.toThrow('catalog tiers unavailable');
+  });
+
+  it('fails role sync jobs when only some configured role ids were satisfied', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+          nonRetriable?: boolean;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{
+        _id: string;
+        productId: string;
+        status: 'active';
+      }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-multi-role',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchActiveCatalogTierIds: (entitlementId: string) => Promise<string[]>;
+      }
+    ).fetchActiveCatalogTierIds = mock(async () => []);
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-ok',
+        verifiedRoleIds: ['role-ok', 'role-fail'],
+      },
+    ]);
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean; error?: string; nonRetriable?: boolean }>;
+      }
+    ).addRoleToMember = mock(async (_guildId, _discordUserId, roleId) =>
+      roleId === 'role-ok'
+        ? { added: true }
+        : {
+            added: false,
+            error: 'Bot lacks permission to manage roles',
+            nonRetriable: true,
+          }
+    );
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.rolesAdded).toEqual(['role-ok']);
+    expect(result.targetGuildIds).toEqual(['guild-123']);
+    expect(result.error).toBe('guild-123: Bot lacks permission to manage roles');
+    expect(result.nonRetriable).toBe(true);
   });
 
   it('skips already-applied plan entries instead of replaying create role rule work', async () => {
