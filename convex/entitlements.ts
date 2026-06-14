@@ -86,7 +86,7 @@ export const RevocationReason = v.union(
 
 type EntitlementReaderCtx = MutationCtx | QueryCtx;
 
-const EntitlementReadRecord = v.object({
+const EntitlementReadFields = {
   _id: v.id('entitlements'),
   subjectId: v.id('subjects'),
   productId: v.string(),
@@ -94,9 +94,17 @@ const EntitlementReadRecord = v.object({
   status: EntitlementStatus,
   grantedAt: v.number(),
   revokedAt: v.optional(v.number()),
+};
+
+const EntitlementReadRecord = v.object(EntitlementReadFields);
+
+const ProductEntitlementReadRecord = v.object({
+  ...EntitlementReadFields,
+  catalogProductId: v.optional(v.id('product_catalog')),
 });
 
-type LegacyEntitlementReadDoc = Doc<'entitlements'> & {
+type LegacyEntitlementReadDoc = Omit<Doc<'entitlements'>, 'catalogProductId' | 'revokedAt'> & {
+  catalogProductId?: unknown;
   revokedAt?: unknown;
 };
 
@@ -115,6 +123,28 @@ export function normalizeEntitlementReadRecord(entitlement: LegacyEntitlementRea
     status: entitlement.status,
     grantedAt: entitlement.grantedAt,
     ...(revokedAt === undefined ? {} : { revokedAt }),
+  };
+}
+
+async function normalizeProductEntitlementReadRecord(
+  ctx: EntitlementReaderCtx,
+  entitlement: LegacyEntitlementReadDoc
+) {
+  let catalogProductId: Id<'product_catalog'> | undefined;
+  if (typeof entitlement.catalogProductId === 'string') {
+    try {
+      const product = await ctx.db.get(entitlement.catalogProductId as Id<'product_catalog'>);
+      if (product) {
+        catalogProductId = product._id;
+      }
+    } catch {
+      catalogProductId = undefined;
+    }
+  }
+
+  return {
+    ...normalizeEntitlementReadRecord(entitlement),
+    ...(catalogProductId ? { catalogProductId } : {}),
   };
 }
 
@@ -207,7 +237,7 @@ export const getEntitlementsByProduct = query({
     productId: v.string(),
     includeInactive: v.optional(v.boolean()),
   },
-  returns: v.array(EntitlementReadRecord),
+  returns: v.array(ProductEntitlementReadRecord),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
@@ -222,7 +252,9 @@ export const getEntitlementsByProduct = query({
     }
 
     const entitlements = await query.order('desc').take(1000);
-    return entitlements.map((entitlement) => normalizeEntitlementReadRecord(entitlement));
+    return await Promise.all(
+      entitlements.map((entitlement) => normalizeProductEntitlementReadRecord(ctx, entitlement))
+    );
   },
 });
 
