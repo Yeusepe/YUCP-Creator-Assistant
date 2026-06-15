@@ -6,11 +6,11 @@ import {
   PUBLIC_API_AUDIENCE,
   PUBLIC_API_KEY_PERMISSION_NAMESPACE,
   PUBLIC_API_KEY_PREFIX,
-  PUBLIC_API_SCOPES,
 } from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { createJwtJwksAdapter } from './jwtAdapter';
+import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 
 export const createSchemaAuthOptions = (): BetterAuthOptions =>
   ({
@@ -45,7 +45,7 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
       oauthProvider({
         loginPage: 'https://example.com/oauth/login',
         consentPage: 'https://example.com/oauth/consent',
-        scopes: [...PUBLIC_API_SCOPES],
+        scopes: [...OAUTH_PROVIDER_SCOPES],
         validAudiences: [PUBLIC_API_AUDIENCE],
         cachedTrustedClients: new Set<string>(),
         allowDynamicClientRegistration: false,

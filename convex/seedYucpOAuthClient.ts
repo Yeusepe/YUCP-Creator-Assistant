@@ -15,15 +15,18 @@
  *     https://datatracker.ietf.org/doc/html/rfc8252
  */
 
-import type { PublicApiScope } from '@yucp/shared';
 import { components } from './_generated/api';
 import { internalMutation } from './_generated/server';
+import {
+  OAUTH_REFRESH_TOKEN_SCOPE,
+  type OAuthProviderScope,
+} from './betterAuth/oauthProviderScopes';
 import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
 
 type UnityOAuthClientDescriptor = {
   clientId: string;
   name: string;
-  scopes: PublicApiScope[];
+  scopes: OAuthProviderScope[];
   authDomain: 'user' | 'creator';
 };
 
@@ -31,13 +34,13 @@ const UNITY_NATIVE_OAUTH_CLIENTS: readonly UnityOAuthClientDescriptor[] = [
   {
     clientId: 'yucp-unity-user',
     name: 'YUCP Unity User',
-    scopes: ['verification:read', 'products:read'],
+    scopes: ['verification:read', 'products:read', OAUTH_REFRESH_TOKEN_SCOPE],
     authDomain: 'user',
   },
   {
     clientId: 'yucp-unity-creator',
     name: 'YUCP Unity Creator',
-    scopes: ['cert:issue', 'profile:read'],
+    scopes: ['cert:issue', 'profile:read', 'products:read', OAUTH_REFRESH_TOKEN_SCOPE],
     authDomain: 'creator',
   },
 ] as const;

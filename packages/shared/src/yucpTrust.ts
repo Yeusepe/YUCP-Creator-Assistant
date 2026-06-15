@@ -21,6 +21,7 @@ export type YucpTrustBundleConfig = Readonly<{
 }>;
 
 const PINNED_ROOT_PUBLIC_KEY_BASE64 = 'y+8Zs9/mS1MFZFeF4CFjwqe0nsLW8lCcwmyvBx6H0Zo=';
+const CREATOR_TOOLING_ROOT_PUBLIC_KEY_BASE64 = 'SQF9r3TkKGwwQ6jGLBOABnq3UeOcHayQS3WbEJeUhnc=';
 
 const BUILTIN_PINNED_ROOTS: readonly YucpPinnedRoot[] = Object.freeze([
   {
@@ -32,6 +33,11 @@ const BUILTIN_PINNED_ROOTS: readonly YucpPinnedRoot[] = Object.freeze([
     keyId: 'yucp-root-2025',
     algorithm: 'Ed25519',
     publicKeyBase64: PINNED_ROOT_PUBLIC_KEY_BASE64,
+  },
+  {
+    keyId: 'CREATOR-TOOLING-2026',
+    algorithm: 'Ed25519',
+    publicKeyBase64: CREATOR_TOOLING_ROOT_PUBLIC_KEY_BASE64,
   },
 ]);
 
