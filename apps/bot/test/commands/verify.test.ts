@@ -172,6 +172,36 @@ describe('buildVerifyStatusReply', () => {
     expect(text).toContain('Awesome Course');
   });
 
+  it('loads linked accounts by buyer subject instead of creator auth user', async () => {
+    const convex = makeConvex({
+      subjectFound: true,
+      linkedAccounts: [{ provider: 'gumroad', status: 'active', _id: 'acct_buyer_scope' }],
+      providers: ['gumroad'],
+      failedRoleSyncJobs: [],
+    });
+
+    await buildVerifyStatusReply(
+      'user_buyer_scope',
+      'creator_auth_scope',
+      'guild_buyer_scope',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const queryMock = convex.query as unknown as {
+      mock: { calls: Array<[unknown, Record<string, unknown>]> };
+    };
+    const accountReadCall = queryMock.mock.calls.find(([, args]) => {
+      return (
+        args && typeof args === 'object' && 'subjectId' in args && !('includeInactive' in args)
+      );
+    });
+
+    expect(accountReadCall).toBeDefined();
+    expect(accountReadCall?.[1]).not.toHaveProperty('authUserId');
+  });
+
   it('shows role-sync permission failures when verification succeeded but role assignment failed', async () => {
     const convex = makeConvex({
       subjectFound: true,

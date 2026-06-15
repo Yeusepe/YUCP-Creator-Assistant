@@ -277,11 +277,13 @@ async function fetchVerifyData(
     }
 
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
+      // Connected accounts are owned by the buyer's canonical authUserId,
+      // not the creator's. Scope this read to the buyer subject so verified
+      // linked accounts remain visible in the panel.
       convex.query(api.subjects.getSubjectWithAccounts, {
         actor,
         apiSecret,
         subjectId: subjectResult.subject._id,
-        authUserId,
       }),
       convex.query(api.entitlements.getEntitlementsBySubject, {
         actor,
