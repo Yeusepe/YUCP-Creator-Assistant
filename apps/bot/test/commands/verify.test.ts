@@ -30,6 +30,7 @@ type SpawnPayload = {
 
 type ConvexMockOpts = {
   subjectFound?: boolean;
+  subjectAuthUserId?: string;
   linkedAccounts?: Array<{ provider: string; status: string; _id?: string }>;
   entitlements?: Array<{
     _id?: string;
@@ -60,6 +61,7 @@ type ConvexMockOpts = {
 function makeConvex(opts: ConvexMockOpts = {}): ConvexHttpClient {
   const {
     subjectFound = false,
+    subjectAuthUserId,
     linkedAccounts = [],
     entitlements = [],
     guildProducts = [],
@@ -76,7 +78,10 @@ function makeConvex(opts: ConvexMockOpts = {}): ConvexHttpClient {
       // getSubjectByDiscordId, has discordUserId but not guildId
       if ('discordUserId' in args && !('guildId' in args)) {
         if (!subjectFound) return { found: false };
-        return { found: true, subject: { _id: 'subject_test_abc' } };
+        return {
+          found: true,
+          subject: { _id: 'subject_test_abc', authUserId: subjectAuthUserId },
+        };
       }
 
       // getVerifyPromptMessageForOwner, has guildLinkId and authUserId, but no guildId
@@ -94,7 +99,7 @@ function makeConvex(opts: ConvexMockOpts = {}): ConvexHttpClient {
         return entitlements;
       }
 
-      // getSubjectWithAccounts, has subjectId only
+      // getSubjectWithAccounts, has subjectId and buyer authUserId
       if ('subjectId' in args) {
         return { found: true, externalAccounts: linkedAccounts };
       }
@@ -151,6 +156,7 @@ describe('buildVerifyStatusReply', () => {
   it('shows verified state with product names when user has active entitlements in this guild', async () => {
     const convex = makeConvex({
       subjectFound: true,
+      subjectAuthUserId: 'buyer_auth_verify_2',
       linkedAccounts: [{ provider: 'gumroad', status: 'active', _id: 'acct_1' }],
       entitlements: [{ productId: 'prod_verify_abc' }],
       guildProducts: [{ productId: 'prod_verify_abc', displayName: 'Awesome Course' }],
@@ -172,9 +178,47 @@ describe('buildVerifyStatusReply', () => {
     expect(text).toContain('Awesome Course');
   });
 
+  it('loads linked accounts by buyer auth user instead of creator auth user', async () => {
+    const convex = makeConvex({
+      subjectFound: true,
+      subjectAuthUserId: 'buyer_auth_scope',
+      linkedAccounts: [{ provider: 'gumroad', status: 'active', _id: 'acct_buyer_scope' }],
+      providers: ['gumroad'],
+      failedRoleSyncJobs: [],
+    });
+
+    await buildVerifyStatusReply(
+      'user_buyer_scope',
+      'creator_auth_scope',
+      'guild_buyer_scope',
+      convex,
+      'api-secret',
+      'https://api.example.com'
+    );
+
+    const queryMock = convex.query as unknown as {
+      mock: { calls: Array<[unknown, Record<string, unknown>]> };
+    };
+    const accountReadCall = queryMock.mock.calls.find(([, args]) => {
+      return (
+        args && typeof args === 'object' && 'subjectId' in args && !('includeInactive' in args)
+      );
+    });
+
+    expect(accountReadCall).toBeDefined();
+    expect(accountReadCall?.[1]).toMatchObject({
+      authUserId: 'buyer_auth_scope',
+      subjectId: 'subject_test_abc',
+    });
+    expect(accountReadCall?.[1]).not.toMatchObject({
+      authUserId: 'creator_auth_scope',
+    });
+  });
+
   it('shows role-sync permission failures when verification succeeded but role assignment failed', async () => {
     const convex = makeConvex({
       subjectFound: true,
+      subjectAuthUserId: 'buyer_auth_verify_roles',
       linkedAccounts: [{ provider: 'gumroad', status: 'active', _id: 'acct_role_sync' }],
       entitlements: [{ productId: 'prod_role_sync' }],
       guildProducts: [{ productId: 'prod_role_sync', displayName: 'Role Product' }],
@@ -200,6 +244,7 @@ describe('buildVerifyStatusReply', () => {
   it('builds verified state from the entitlement read DTO without raw table internals', async () => {
     const convex = makeConvex({
       subjectFound: true,
+      subjectAuthUserId: 'buyer_auth_read_contract',
       linkedAccounts: [{ provider: 'jinxxy', status: 'active', _id: 'acct_jinxxy_1' }],
       entitlements: [
         {
@@ -312,6 +357,7 @@ describe('buildVerifyStatusReply', () => {
   it('shows reconnect guidance instead of a verified state when itch.io is linked but no matching entitlement exists', async () => {
     const convex = makeConvex({
       subjectFound: true,
+      subjectAuthUserId: 'buyer_auth_itch_missing',
       linkedAccounts: [{ provider: 'itchio', status: 'active', _id: 'acct_itch_1' }],
       entitlements: [],
       guildProducts: [{ productId: 'prod_itch_1', displayName: 'itch.io Avatar' }],

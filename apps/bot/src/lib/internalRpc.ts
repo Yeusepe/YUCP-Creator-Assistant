@@ -323,6 +323,7 @@ export async function disconnectVerification(params: {
   provider: string;
   subjectId: string;
   authUserId: string;
+  buyerAccountAuthUserId?: string;
 }): Promise<SuccessResponse> {
   const response = await (await getClients()).verification.disconnectVerification(params);
   return {
