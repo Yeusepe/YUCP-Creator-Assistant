@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
+import { readFile } from 'node:fs/promises';
 import { api, internal } from './_generated/api';
 import type { DataModel, Id } from './_generated/dataModel';
 import betterAuthSchema from './betterAuth/schema';
@@ -1579,6 +1580,65 @@ describe('subject ownership remediation', () => {
 });
 
 describe('role sync redrive migration', () => {
+  it('keeps dead-letter role-removal jobs without entitlement ids out of Workpool redrive', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const jobId = await t.run(async (ctx) => {
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-redrive-missing-entitlement',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        return ctx.db.insert('outbox_jobs', {
+          authUserId: 'auth-redrive-missing-entitlement',
+          jobType: 'role_removal',
+          payload: {
+            subjectId,
+            guildId: 'guild-redrive-missing-entitlement',
+            roleId: 'role-redrive-missing-entitlement',
+            discordUserId: 'discord-redrive-missing-entitlement',
+          },
+          status: 'dead_letter',
+          idempotencyKey: 'redrive-missing-entitlement',
+          targetGuildId: 'guild-redrive-missing-entitlement',
+          targetDiscordUserId: 'discord-redrive-missing-entitlement',
+          retryCount: 5,
+          maxRetries: 5,
+          lastError: 'legacy worker failed',
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+
+      const result = await t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 });
+      const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+
+      expect(result).toEqual({ processed: 0, skipped: 1, remaining: 0 });
+      expect(stored?.status).toBe('dead_letter');
+      expect(stored?.lastError).toBe('legacy worker failed');
+    } finally {
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
+  it('enqueues redriven Workpool work before resetting the projection row', async () => {
+    const source = await readFile(new URL('./migrations.ts', import.meta.url), 'utf8');
+    const redriveStart = source.indexOf('export const redriveDeadLetterRoleSync');
+    const redriveSource = source.slice(redriveStart);
+    const enqueueIndex = redriveSource.indexOf('await roleSyncPool.enqueueAction');
+    const patchIndex = redriveSource.indexOf('await ctx.db.patch(job._id');
+
+    expect(redriveStart).toBeGreaterThanOrEqual(0);
+    expect(enqueueIndex).toBeGreaterThanOrEqual(0);
+    expect(patchIndex).toBeGreaterThanOrEqual(0);
+    expect(enqueueIndex).toBeLessThan(patchIndex);
+  });
+
   it('requires the Workpool rollout flag before redriving dead-lettered role jobs', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     delete process.env.ROLE_SYNC_VIA_WORKPOOL;

@@ -1764,20 +1764,10 @@ export const redriveDeadLetterRoleSync = internalMutation({
           skipped++;
           continue;
         }
-      } else if (!payload.subjectId || !payload.guildId || !payload.roleId) {
+      } else if (!payload.subjectId || !payload.entitlementId || !payload.guildId || !payload.roleId) {
         skipped++;
         continue;
       }
-
-      // Reset the projection row to pending and re-arm the retry budget.
-      await ctx.db.patch(job._id, {
-        status: 'pending',
-        retryCount: 0,
-        lastError: undefined,
-        nextRetryAt: undefined,
-        createdAt: now,
-        updatedAt: now,
-      });
 
       if (job.jobType === 'role_sync') {
         await roleSyncPool.enqueueAction(
@@ -1804,7 +1794,7 @@ export const redriveDeadLetterRoleSync = internalMutation({
             outboxJobId: job._id,
             authUserId: job.authUserId,
             subjectId: payload.subjectId as Id<'subjects'>,
-            entitlementId: payload.entitlementId,
+            entitlementId: payload.entitlementId as Id<'entitlements'>,
             guildId: payload.guildId as string,
             roleId: payload.roleId as string,
             discordUserId: payload.discordUserId,
@@ -1815,6 +1805,16 @@ export const redriveDeadLetterRoleSync = internalMutation({
           }
         );
       }
+
+      // Reset the projection row only after Workpool accepts the durable work.
+      await ctx.db.patch(job._id, {
+        status: 'pending',
+        retryCount: 0,
+        lastError: undefined,
+        nextRetryAt: undefined,
+        createdAt: now,
+        updatedAt: now,
+      });
       processed++;
     }
 

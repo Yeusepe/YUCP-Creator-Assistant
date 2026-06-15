@@ -75,10 +75,7 @@ async function parseDiscordError(res: Response): Promise<{ code?: number; messag
 }
 
 function isAbortError(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    (err.name === 'TimeoutError' || err.name === 'AbortError' || err.name === 'DOMException')
-  );
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
 }
 
 async function fetchDiscord(url: string, init: RequestInit): Promise<Response> {
