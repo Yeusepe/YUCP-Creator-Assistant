@@ -121,6 +121,37 @@ Do not close the incident with a consumer-only test. The contract boundary and t
 
 # DO NOT TOUCH GITHUB UNLESS THE USER INSTRUCTS YOU TO.
 
+## Branch Naming Conventions
+
+Branch names describe the change type and work item so PRs, CI, previews, and branch lists are easy to scan.
+
+Format:
+
+```text
+<type>/<short-kebab-description>
+<type>/<ticket-or-issue>-<short-kebab-description>
+```
+
+Use the smallest accurate type:
+
+- `feat/`: user-facing feature or capability
+- `fix/`: bug fix
+- `hotfix/`: urgent production fix
+- `chore/`: tooling, dependency, configuration, or maintenance work
+- `docs/`: documentation-only change
+- `refactor/`: internal restructuring without intended behavior change
+- `test/`: test coverage or test infrastructure change
+- `ci/`: CI/CD workflow or deployment pipeline change
+- `release/`: release preparation, versioning, or release branch work
+
+Slug rules:
+
+- Use lowercase ASCII words separated by hyphens.
+- Keep the description short, specific, and action-oriented: `fix/verify-panel-account-scope`, `feat/account-recovery-passkeys`, `chore/update-convex-generated-api`.
+- Include a ticket or issue id when one exists: `fix/123-verify-panel-account-scope` or `feat/yucp-456-provider-catalog-sync`.
+- Branch names identify the work item itself: change type, ticket id when available, and a concise description.
+- A user-requested branch name takes precedence when it is a valid Git branch name.
+
 ## NEVER IMPLEMENT WORKAROUNDS:
 
 A workaround is a change that produces the correct output for now but violates the architecture, bypasses the proper system, or creates hidden dependencies that will break later. Workarounds are NEVER acceptable. If you find yourself writing one, stop and design the proper solution.
