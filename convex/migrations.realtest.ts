@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WorkId } from '@convex-dev/workpool';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
 import { api, internal } from './_generated/api';
 import type { DataModel, Id } from './_generated/dataModel';
@@ -8,6 +9,8 @@ import { makeTestConvex } from './testHelpers';
 
 type ComponentMutationCtx = GenericMutationCtx<DataModel> &
   Pick<GenericActionCtx<DataModel>, 'storage'>;
+
+const TEST_WORK_ID = 'test-role-sync-work' as WorkId;
 
 type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
   runInComponent: <Output>(
@@ -1592,7 +1595,7 @@ describe('role sync redrive migration', () => {
   it('redrives role-removal jobs without entitlement ids through Workpool', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
-    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
     try {
       const t = makeTestConvex();
       const now = Date.now();
@@ -1641,7 +1644,7 @@ describe('role sync redrive migration', () => {
   it('pages past non-role dead letters when redriving role jobs', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
-    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
     try {
       const t = makeTestConvex();
       const now = Date.now();
@@ -1711,7 +1714,7 @@ describe('role sync redrive migration', () => {
   it('preserves original creation time when Workpool accepts redrive work', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
-    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
     try {
       const t = makeTestConvex();
       const now = Date.now();
@@ -1771,7 +1774,7 @@ describe('role sync redrive migration', () => {
   it('reports only the bounded page remainder when role redrive backlog exceeds the limit', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
-    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
     try {
       const t = makeTestConvex();
       const now = Date.now();

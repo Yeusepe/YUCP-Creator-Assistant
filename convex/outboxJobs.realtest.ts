@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WorkId } from '@convex-dev/workpool';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { roleSyncPool } from './roleSyncWorkpool';
 import { makeTestConvex } from './testHelpers';
+
+const TEST_WORK_ID = 'test-outbox-work' as WorkId;
 
 describe('outbox_jobs schema compatibility', () => {
   const originalConvexApiSecret = process.env.CONVEX_API_SECRET;
@@ -195,7 +198,7 @@ describe('outbox_jobs schema compatibility', () => {
   it('routes role dead-letter retries through Workpool when the rollout flag is enabled', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
-    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(TEST_WORK_ID);
     try {
       const t = makeTestConvex();
       const now = Date.now();
