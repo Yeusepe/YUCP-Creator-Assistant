@@ -1,6 +1,6 @@
+import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'bun:test';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
 
@@ -20,5 +20,11 @@ describe('Convex Infisical prod helpers', () => {
 
     expect(infisicalConvexRun).toContain("INFISICAL_ENV: isProd ? 'prod'");
     expect(syncConvexEnv).toContain("INFISICAL_ENV: isProd ? 'prod'");
+  });
+
+  it('syncs role-sync Workpool config to Convex', async () => {
+    const syncConvexEnv = await readOpsFile('ops/sync-convex-env.ts');
+    expect(syncConvexEnv).toContain("'ROLE_SYNC_VIA_WORKPOOL'");
+    expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
   });
 });

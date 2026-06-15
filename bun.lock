@@ -10,6 +10,7 @@
         "@better-auth/oauth-provider": "1.6.11",
         "@better-auth/passkey": "1.6.11",
         "@convex-dev/better-auth": "^0.11.0",
+        "@convex-dev/workpool": "0.4.7",
         "@noble/ed25519": "^2.2.3",
         "@noble/hashes": "^2.0.1",
         "@polar-sh/better-auth": "^1.8.3",
@@ -21,6 +22,7 @@
         "better-auth": "1.6.11",
         "buffer": "^6.0.3",
         "convex": "^1.32.0",
+        "convex-helpers": "^0.1.94",
         "dotenv": "^17.3.1",
         "fflate": "^0.8.2",
         "h3-v2": "npm:h3@2.0.1-rc.20",
@@ -476,6 +478,8 @@
     "@convex-dev/better-auth": ["@convex-dev/better-auth@0.11.4", "", { "dependencies": { "@better-fetch/fetch": "^1.1.18", "common-tags": "^1.8.2", "convex-helpers": "^0.1.95", "jose": "^6.1.0", "remeda": "^2.32.0", "semver": "^7.7.3", "type-fest": "^4.39.1", "zod": "^4.0.0" }, "peerDependencies": { "better-auth": ">=1.5.0 <1.6.0", "convex": "^1.25.0", "react": "^18.3.1 || ^19.0.0" } }, "sha512-CsRsM7UaQgQKH1mt4z64QOZUfrhZKNsspkpWjlhqLiIz5THfnM2vaSVMQ3GOddcUvw7AgkNCNR3u8C8HjLQEMA=="],
 
     "@convex-dev/react-query": ["@convex-dev/react-query@0.1.0", "", { "peerDependencies": { "@tanstack/react-query": "^5.0.0", "convex": "^1.29.3" } }, "sha512-ULmBZCtAQDUePdBhUv7hj1Yy4QiCelhi6uEIOtMpjW8db6W9CFKvQwLt9heLngccFyMFfAZdOfSrT+cP4AH0Jw=="],
+
+    "@convex-dev/workpool": ["@convex-dev/workpool@0.4.7", "", { "peerDependencies": { "convex": "^1.31.7", "convex-helpers": "^0.1.94" } }, "sha512-4O3VKcJXqYZ9icDgKdVPxjDGUAFK3oG0hbUwLcyYMYgsvVKlZDhvZRmczqSBZHLyrCGPpf925byh0dBigCfAGA=="],
 
     "@cowasm/memfs": ["@cowasm/memfs@3.5.1", "", { "dependencies": { "fs-monkey": "^1.0.3" } }, "sha512-TSz00K+BdLxAYFQvwHmKgM/eAK6h9OYSQhPTcv/9XSyOF0Q90EtMkJvtwirwAXunfTsZw8R9YMu1UU213ooVKw=="],
 

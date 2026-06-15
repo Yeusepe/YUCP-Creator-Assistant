@@ -1,6 +1,6 @@
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { mutation, query } from './_generated/server';
+import { internalQuery, mutation, type QueryCtx, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
 
@@ -113,6 +113,108 @@ export const getCatalogTier = query({
   },
 });
 
+async function activeCatalogTierIdsForEntitlement(
+  ctx: QueryCtx,
+  entitlementId: Id<'entitlements'>
+): Promise<Array<Id<'catalog_tiers'>>> {
+  const entitlement = await ctx.db.get(entitlementId);
+  if (!entitlement || entitlement.status !== 'active') {
+    return [];
+  }
+
+  const evidenceRows = await ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q
+        .eq('providerKey', entitlement.sourceProvider)
+        .eq('sourceReference', entitlement.sourceReference)
+    )
+    .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .take(20);
+
+  const providerTierRefs = new Set<string>();
+  for (const evidence of evidenceRows) {
+    if (evidence.status !== 'active') {
+      continue;
+    }
+
+    if (evidence.transactionId) {
+      const transaction = await ctx.db.get(evidence.transactionId);
+      if (transaction?.externalVariantId) {
+        providerTierRefs.add(transaction.externalVariantId);
+      }
+    }
+    if (evidence.membershipId) {
+      const membership = await ctx.db.get(evidence.membershipId);
+      if (membership?.externalVariantId) {
+        providerTierRefs.add(membership.externalVariantId);
+      }
+      const membershipTierRefs = membership?.metadata?.activeTierRefs;
+      if (Array.isArray(membershipTierRefs)) {
+        for (const providerTierRef of membershipTierRefs) {
+          if (typeof providerTierRef === 'string' && providerTierRef.trim()) {
+            providerTierRefs.add(providerTierRef.trim());
+          }
+        }
+      }
+    }
+    if (evidence.licenseId) {
+      const license = await ctx.db.get(evidence.licenseId);
+      if (license?.externalVariantId) {
+        providerTierRefs.add(license.externalVariantId);
+      }
+    }
+  }
+
+  if (providerTierRefs.size === 0) {
+    const purchaseRef = parsePurchaseSourceReference(entitlement.sourceReference);
+    if (purchaseRef && purchaseRef.provider === entitlement.sourceProvider) {
+      const purchaseFact = await ctx.db
+        .query('purchase_facts')
+        .withIndex('by_auth_user_provider_order', (q) =>
+          q
+            .eq('authUserId', entitlement.authUserId)
+            .eq('provider', purchaseRef.provider as typeof entitlement.sourceProvider)
+            .eq('externalOrderId', purchaseRef.externalOrderId)
+        )
+        .filter((q) =>
+          purchaseRef.externalLineItemId
+            ? q.eq(q.field('externalLineItemId'), purchaseRef.externalLineItemId)
+            : q.eq(q.field('externalLineItemId'), undefined)
+        )
+        .first();
+      if (purchaseFact?.externalVariantId) {
+        providerTierRefs.add(purchaseFact.externalVariantId);
+      }
+      if (purchaseFact?.providerProductVersionId) {
+        providerTierRefs.add(purchaseFact.providerProductVersionId);
+      }
+    }
+  }
+
+  if (providerTierRefs.size === 0) {
+    return [];
+  }
+
+  const tierIds: Array<Id<'catalog_tiers'>> = [];
+  for (const providerTierRef of providerTierRefs) {
+    const catalogTier = await ctx.db
+      .query('catalog_tiers')
+      .withIndex('by_provider_tier_ref', (q) =>
+        q
+          .eq('authUserId', entitlement.authUserId)
+          .eq('provider', entitlement.sourceProvider)
+          .eq('providerTierRef', providerTierRef)
+      )
+      .first();
+    if (catalogTier?._id && catalogTier.status !== 'archived') {
+      tierIds.push(catalogTier._id);
+    }
+  }
+
+  return tierIds;
+}
+
 export const getActiveCatalogTierIdsForEntitlement = query({
   args: {
     apiSecret: v.string(),
@@ -121,101 +223,19 @@ export const getActiveCatalogTierIdsForEntitlement = query({
   returns: v.array(v.id('catalog_tiers')),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const entitlement = await ctx.db.get(args.entitlementId);
-    if (!entitlement || entitlement.status !== 'active') {
-      return [];
-    }
-
-    const evidenceRows = await ctx.db
-      .query('entitlement_evidence')
-      .withIndex('by_source_reference', (q) =>
-        q
-          .eq('providerKey', entitlement.sourceProvider)
-          .eq('sourceReference', entitlement.sourceReference)
-      )
-      .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
-      .take(20);
-
-    const providerTierRefs = new Set<string>();
-    for (const evidence of evidenceRows) {
-      if (evidence.status !== 'active') {
-        continue;
-      }
-
-      if (evidence.transactionId) {
-        const transaction = await ctx.db.get(evidence.transactionId);
-        if (transaction?.externalVariantId) {
-          providerTierRefs.add(transaction.externalVariantId);
-        }
-      }
-      if (evidence.membershipId) {
-        const membership = await ctx.db.get(evidence.membershipId);
-        if (membership?.externalVariantId) {
-          providerTierRefs.add(membership.externalVariantId);
-        }
-        const membershipTierRefs = membership?.metadata?.activeTierRefs;
-        if (Array.isArray(membershipTierRefs)) {
-          for (const providerTierRef of membershipTierRefs) {
-            if (typeof providerTierRef === 'string' && providerTierRef.trim()) {
-              providerTierRefs.add(providerTierRef.trim());
-            }
-          }
-        }
-      }
-      if (evidence.licenseId) {
-        const license = await ctx.db.get(evidence.licenseId);
-        if (license?.externalVariantId) {
-          providerTierRefs.add(license.externalVariantId);
-        }
-      }
-    }
-
-    if (providerTierRefs.size === 0) {
-      const purchaseRef = parsePurchaseSourceReference(entitlement.sourceReference);
-      if (purchaseRef && purchaseRef.provider === entitlement.sourceProvider) {
-        const purchaseFact = await ctx.db
-          .query('purchase_facts')
-          .withIndex('by_auth_user_provider_order', (q) =>
-            q
-              .eq('authUserId', entitlement.authUserId)
-              .eq('provider', purchaseRef.provider as typeof entitlement.sourceProvider)
-              .eq('externalOrderId', purchaseRef.externalOrderId)
-          )
-          .filter((q) =>
-            purchaseRef.externalLineItemId
-              ? q.eq(q.field('externalLineItemId'), purchaseRef.externalLineItemId)
-              : q.eq(q.field('externalLineItemId'), undefined)
-          )
-          .first();
-        if (purchaseFact?.externalVariantId) {
-          providerTierRefs.add(purchaseFact.externalVariantId);
-        }
-        if (purchaseFact?.providerProductVersionId) {
-          providerTierRefs.add(purchaseFact.providerProductVersionId);
-        }
-      }
-    }
-
-    if (providerTierRefs.size === 0) {
-      return [];
-    }
-
-    const tierIds: Array<Id<'catalog_tiers'>> = [];
-    for (const providerTierRef of providerTierRefs) {
-      const catalogTier = await ctx.db
-        .query('catalog_tiers')
-        .withIndex('by_provider_tier_ref', (q) =>
-          q
-            .eq('authUserId', entitlement.authUserId)
-            .eq('provider', entitlement.sourceProvider)
-            .eq('providerTierRef', providerTierRef)
-        )
-        .first();
-      if (catalogTier?._id && catalogTier.status !== 'archived') {
-        tierIds.push(catalogTier._id);
-      }
-    }
-
-    return tierIds;
+    return activeCatalogTierIdsForEntitlement(ctx, args.entitlementId);
   },
+});
+
+/**
+ * Internal (ungated) variant for the role-sync Workpool action, which runs
+ * inside Convex and cannot pass the API secret/actor binding the public query
+ * requires. Not client-callable.
+ */
+export const getActiveCatalogTierIdsForEntitlementInternal = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  returns: v.array(v.id('catalog_tiers')),
+  handler: async (ctx, args) => activeCatalogTierIdsForEntitlement(ctx, args.entitlementId),
 });

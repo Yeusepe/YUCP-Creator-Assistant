@@ -20,7 +20,7 @@ import {
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { internalQuery, mutation, query } from './_generated/server';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -28,6 +28,7 @@ import {
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
+import { enqueueRoleRemoval, enqueueRoleSync } from './lib/roleSyncEnqueue';
 
 // ============================================================================
 // TYPES
@@ -541,6 +542,26 @@ export const getEntitlement = query({
       found: true as const,
       entitlement: normalizeEntitlementReadRecord(entitlement),
     };
+  },
+});
+
+/**
+ * Internal (ungated) variant of getEntitlement for the role-sync Workpool
+ * action, which runs inside Convex and cannot pass the API secret/service actor.
+ * Not client-callable. Returns the normalized read record (incl. status,
+ * productId) or null.
+ */
+export const getEntitlementInternal = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  returns: v.union(EntitlementReadRecord, v.null()),
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db.get(args.entitlementId);
+    if (!entitlement) {
+      return null;
+    }
+    return normalizeEntitlementReadRecord(entitlement);
   },
 });
 
@@ -1353,10 +1374,20 @@ export const enqueueRoleSyncsForUser = mutation({
       .collect();
 
     let jobsCreated = 0;
+    // Refresh is an explicit "re-apply my roles now" action. Use a unique
+    // idempotency key per refresh so it always creates fresh, executable work
+    // instead of deduping against a prior completed/dead-lettered job (which
+    // would leave a verified-but-roleless user stuck).
     const correlationId = `refresh:${Date.now()}`;
 
     for (const ent of entitlements) {
-      await emitRoleSyncJob(ctx, args.authUserId, subject._id, ent._id, correlationId);
+      await enqueueRoleSync(ctx, {
+        authUserId: args.authUserId,
+        subjectId: subject._id,
+        entitlementId: ent._id,
+        discordUserId: subject.primaryDiscordUserId,
+        idempotencyKey: `role_sync:${args.authUserId}:${subject._id}:${ent._id}:${correlationId}`,
+      });
       jobsCreated++;
     }
 
@@ -1486,31 +1517,18 @@ async function emitRoleSyncJob(
   entitlementId: Id<'entitlements'>,
   _correlationId?: string
 ): Promise<Id<'outbox_jobs'>> {
-  const now = Date.now();
-
   // Get subject to find Discord user ID
   const subject = await ctx.db.get(subjectId);
 
   const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
 
-  const outboxJobId = await ctx.db.insert('outbox_jobs', {
+  return enqueueRoleSync(ctx, {
     authUserId,
-    jobType: 'role_sync',
-    payload: {
-      subjectId,
-      entitlementId,
-      discordUserId: subject?.primaryDiscordUserId,
-    },
-    status: 'pending',
+    subjectId,
+    entitlementId,
+    discordUserId: subject?.primaryDiscordUserId,
     idempotencyKey,
-    targetDiscordUserId: subject?.primaryDiscordUserId,
-    retryCount: 0,
-    maxRetries: 5,
-    createdAt: now,
-    updatedAt: now,
   });
-
-  return outboxJobId;
 }
 
 /**
@@ -1524,7 +1542,6 @@ async function emitRoleRemovalJobs(
   entitlementId: Id<'entitlements'>,
   _correlationId?: string
 ): Promise<Id<'outbox_jobs'>[]> {
-  const now = Date.now();
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
   // Find all role rules for this product
@@ -1545,27 +1562,17 @@ async function emitRoleRemovalJobs(
     for (const roleId of roleIds) {
       const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}`;
 
-      const outboxJobId = await ctx.db.insert('outbox_jobs', {
-        authUserId,
-        jobType: 'role_removal',
-        payload: {
+      outboxJobIds.push(
+        await enqueueRoleRemoval(ctx, {
+          authUserId,
           subjectId,
           entitlementId,
           guildId: rule.guildId,
           roleId,
           discordUserId: subject?.primaryDiscordUserId,
-        },
-        status: 'pending',
-        idempotencyKey,
-        targetGuildId: rule.guildId,
-        targetDiscordUserId: subject?.primaryDiscordUserId,
-        retryCount: 0,
-        maxRetries: 5,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      outboxJobIds.push(outboxJobId);
+          idempotencyKey,
+        })
+      );
     }
   }
 

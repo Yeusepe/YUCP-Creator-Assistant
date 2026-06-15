@@ -72,6 +72,7 @@ import type * as lib_releaseArtifactKeys from "../lib/releaseArtifactKeys.js";
 import type * as lib_roleRules_catalog from "../lib/roleRules/catalog.js";
 import type * as lib_roleRules_discord from "../lib/roleRules/discord.js";
 import type * as lib_roleRules_queries from "../lib/roleRules/queries.js";
+import type * as lib_roleSyncEnqueue from "../lib/roleSyncEnqueue.js";
 import type * as lib_trustedOrigins from "../lib/trustedOrigins.js";
 import type * as lib_verifyPrompt from "../lib/verifyPrompt.js";
 import type * as lib_vrchat_client from "../lib/vrchat/client.js";
@@ -99,6 +100,9 @@ import type * as providers_index from "../providers/index.js";
 import type * as providers_shared from "../providers/shared.js";
 import type * as purgeOrphans from "../purgeOrphans.js";
 import type * as releaseArtifacts from "../releaseArtifacts.js";
+import type * as roleSyncActions from "../roleSyncActions.js";
+import type * as roleSyncOnComplete from "../roleSyncOnComplete.js";
+import type * as roleSyncWorkpool from "../roleSyncWorkpool.js";
 import type * as role_rules from "../role_rules.js";
 import type * as seedYucpOAuthClient from "../seedYucpOAuthClient.js";
 import type * as setupJobs from "../setupJobs.js";
@@ -195,6 +199,7 @@ declare const fullApi: ApiFromModules<{
   "lib/roleRules/catalog": typeof lib_roleRules_catalog;
   "lib/roleRules/discord": typeof lib_roleRules_discord;
   "lib/roleRules/queries": typeof lib_roleRules_queries;
+  "lib/roleSyncEnqueue": typeof lib_roleSyncEnqueue;
   "lib/trustedOrigins": typeof lib_trustedOrigins;
   "lib/verifyPrompt": typeof lib_verifyPrompt;
   "lib/vrchat/client": typeof lib_vrchat_client;
@@ -222,6 +227,9 @@ declare const fullApi: ApiFromModules<{
   "providers/shared": typeof providers_shared;
   purgeOrphans: typeof purgeOrphans;
   releaseArtifacts: typeof releaseArtifacts;
+  roleSyncActions: typeof roleSyncActions;
+  roleSyncOnComplete: typeof roleSyncOnComplete;
+  roleSyncWorkpool: typeof roleSyncWorkpool;
   role_rules: typeof role_rules;
   seedYucpOAuthClient: typeof seedYucpOAuthClient;
   setupJobs: typeof setupJobs;
@@ -2789,6 +2797,104 @@ export declare const components: {
           onUpdateHandle?: string;
         },
         any
+      >;
+    };
+  };
+  roleSyncPool: {
+    config: {
+      update: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          logLevel?: "DEBUG" | "TRACE" | "INFO" | "REPORT" | "WARN" | "ERROR";
+          maxParallelism?: number;
+        },
+        any
+      >;
+    };
+    lib: {
+      cancel: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          id: string;
+          logLevel?: "DEBUG" | "TRACE" | "INFO" | "REPORT" | "WARN" | "ERROR";
+        },
+        any
+      >;
+      cancelAll: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          before?: number;
+          limit?: number;
+          logLevel?: "DEBUG" | "TRACE" | "INFO" | "REPORT" | "WARN" | "ERROR";
+        },
+        any
+      >;
+      enqueue: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          config: {
+            logLevel?: "DEBUG" | "TRACE" | "INFO" | "REPORT" | "WARN" | "ERROR";
+            maxParallelism?: number;
+          };
+          fnArgs: any;
+          fnHandle: string;
+          fnName: string;
+          fnType: "action" | "mutation" | "query";
+          onComplete?: { context?: any; fnHandle: string };
+          retryBehavior?: {
+            base: number;
+            initialBackoffMs: number;
+            maxAttempts: number;
+          };
+          runAt: number;
+        },
+        string
+      >;
+      enqueueBatch: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          config: {
+            logLevel?: "DEBUG" | "TRACE" | "INFO" | "REPORT" | "WARN" | "ERROR";
+            maxParallelism?: number;
+          };
+          items: Array<{
+            fnArgs: any;
+            fnHandle: string;
+            fnName: string;
+            fnType: "action" | "mutation" | "query";
+            onComplete?: { context?: any; fnHandle: string };
+            retryBehavior?: {
+              base: number;
+              initialBackoffMs: number;
+              maxAttempts: number;
+            };
+            runAt: number;
+          }>;
+        },
+        Array<string>
+      >;
+      status: FunctionReference<
+        "query",
+        "internal",
+        { id: string },
+        | { previousAttempts: number; state: "pending" }
+        | { previousAttempts: number; state: "running" }
+        | { state: "finished" }
+      >;
+      statusBatch: FunctionReference<
+        "query",
+        "internal",
+        { ids: Array<string> },
+        Array<
+          | { previousAttempts: number; state: "pending" }
+          | { previousAttempts: number; state: "running" }
+          | { state: "finished" }
+        >
       >;
     };
   };

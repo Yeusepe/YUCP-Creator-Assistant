@@ -20,6 +20,7 @@ import {
 } from './_generated/server';
 import { createServiceActorBinding } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { enqueueRoleSync } from './lib/roleSyncEnqueue';
 
 /** Normalized purchase record for batch ingestion */
 const BackfillPurchaseRecord = v.object({
@@ -950,20 +951,12 @@ export const processRetroactiveRuleSyncJob = mutation({
         continue;
       }
 
-      await ctx.db.insert('outbox_jobs', {
+      await enqueueRoleSync(ctx, {
         authUserId: args.authUserId,
-        jobType: 'role_sync',
-        payload: {
-          subjectId: ent.subjectId,
-          entitlementId: ent._id,
-          discordUserId,
-        },
-        status: 'pending',
+        subjectId: ent.subjectId,
+        entitlementId: ent._id,
+        discordUserId,
         idempotencyKey,
-        retryCount: 0,
-        maxRetries: 5,
-        createdAt: now,
-        updatedAt: now,
       });
       roleSyncJobsCreated++;
     }

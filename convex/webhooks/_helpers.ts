@@ -1,4 +1,5 @@
 import type { Id } from '../_generated/dataModel';
+import { enqueueRoleRemoval, enqueueRoleSync } from '../lib/roleSyncEnqueue';
 
 export { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 
@@ -165,26 +166,13 @@ export async function emitRoleSyncJob(
   discordUserId: string,
   entitlementId: Id<'entitlements'>
 ): Promise<void> {
-  const now = Date.now();
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${now}`;
-
-  const existing = await ctx.db
-    .query('outbox_jobs')
-    .withIndex('by_idempotency', (q: any) => q.eq('idempotencyKey', idempotencyKey))
-    .first();
-  if (existing) return;
-
-  await ctx.db.insert('outbox_jobs', {
+  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${Date.now()}`;
+  await enqueueRoleSync(ctx, {
     authUserId,
-    jobType: 'role_sync',
-    payload: { subjectId, discordUserId, entitlementId },
-    status: 'pending',
+    subjectId,
+    entitlementId,
+    discordUserId,
     idempotencyKey,
-    targetDiscordUserId: discordUserId,
-    retryCount: 0,
-    maxRetries: 5,
-    createdAt: now,
-    updatedAt: now,
   });
 }
 
@@ -203,32 +191,16 @@ export async function emitRoleRemovalJobs(
     .filter((q: any) => q.eq(q.field('removeOnRevoke'), true))
     .collect();
 
-  const now = Date.now();
   for (const rule of roleRules) {
-    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${now}`;
-    const existing = await ctx.db
-      .query('outbox_jobs')
-      .withIndex('by_idempotency', (q: any) => q.eq('idempotencyKey', idempotencyKey))
-      .first();
-    if (existing) continue;
-
-    await ctx.db.insert('outbox_jobs', {
+    if (!rule.verifiedRoleId) continue;
+    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${Date.now()}`;
+    await enqueueRoleRemoval(ctx, {
       authUserId,
-      jobType: 'role_removal',
-      payload: {
-        subjectId,
-        guildId: rule.guildId,
-        roleId: rule.verifiedRoleId,
-        discordUserId,
-      },
-      status: 'pending',
+      subjectId,
+      guildId: rule.guildId,
+      roleId: rule.verifiedRoleId,
+      discordUserId,
       idempotencyKey,
-      targetGuildId: rule.guildId,
-      targetDiscordUserId: discordUserId,
-      retryCount: 0,
-      maxRetries: 5,
-      createdAt: now,
-      updatedAt: now,
     });
   }
 }

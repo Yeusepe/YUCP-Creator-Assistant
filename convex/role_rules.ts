@@ -303,6 +303,27 @@ export const getByProduct = query({
 });
 
 /**
+ * Internal (ungated) variant of getByProduct for the role-sync Workpool action,
+ * which runs inside Convex and cannot pass the API secret. Not client-callable.
+ */
+export const getByProductInternal = internalQuery({
+  args: {
+    authUserId: v.string(),
+    productId: v.string(),
+  },
+  returns: v.array(v.any()),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('role_rules')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('enabled'), true))
+      .order('asc')
+      .take(1000);
+  },
+});
+
+/**
  * Get role rules by guild link.
  */
 export const getByGuildLink = query({
