@@ -100,7 +100,7 @@ async function projectCanonicalEntitlement(
     !discordUserId.startsWith('jinxxy:') &&
     !discordUserId.startsWith('lemonsqueezy:')
   ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, now);
+    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, grantedAt);
   }
 }
 

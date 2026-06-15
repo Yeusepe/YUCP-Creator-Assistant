@@ -424,7 +424,7 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
 
     expect(roleSyncRows).toHaveLength(2);
     expect(freshRow?.idempotencyKey).toBe(
-      `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:3000`
+      `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:${Date.parse('2026-06-15T00:00:00.000Z')}`
     );
   });
 
