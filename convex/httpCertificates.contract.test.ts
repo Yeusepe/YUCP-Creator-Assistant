@@ -21,4 +21,14 @@ describe('/v1/certificates issuance contract', () => {
     expect(httpSource).toContain("return errorResponse('Certificate issuance failed', 500)");
     expect(httpSource).not.toContain('return errorResponse(raw || String(err), 500)');
   });
+
+  it('normalizes trust configuration errors before mapping them to 503', () => {
+    expect(httpSource).toContain('const normalizedError = raw.toLowerCase();');
+    expect(httpSource).toContain("normalizedError.includes('not configured')");
+    expect(httpSource).toContain("normalizedError.includes('not set')");
+    expect(httpSource).toContain("normalizedError.includes('configured yucp trust root')");
+    expect(httpSource).toContain("normalizedError.includes('active trust bundle')");
+    expect(httpSource).toContain("return errorResponse('Certificate service is not available', 503)");
+    expect(httpSource).not.toContain("raw.includes('configured YUCP trust root')");
+  });
 });
