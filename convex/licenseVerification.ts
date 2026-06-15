@@ -22,7 +22,7 @@ import { requireApiSecret } from './lib/apiAuth';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { LicenseProviderV } from './lib/providers';
 import { resolveRoleSyncDiscordUserId } from './lib/roleSyncIdentity';
-import { enqueueRoleSync } from './lib/roleSyncEnqueue';
+import { buildRoleSyncIdempotencyKey, enqueueRoleSync } from './lib/roleSyncEnqueue';
 import { upsertBuyerProviderLinkRecord } from './subjects';
 
 // ============================================================================
@@ -409,7 +409,12 @@ export const completeLicenseVerification = mutation({
               subjectId: buyerSubjectId,
               entitlementId,
               discordUserId,
-              idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
+              idempotencyKey: buildRoleSyncIdempotencyKey({
+                authUserId: creatorAuthUserId,
+                subjectId: buyerSubjectId,
+                entitlementId,
+                lifecycle: { kind: 'grant', at: now },
+              }),
             });
             outboxJobIds.push(jobId);
           }
@@ -447,7 +452,12 @@ export const completeLicenseVerification = mutation({
             subjectId: buyerSubjectId,
             entitlementId,
             discordUserId,
-            idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
+            idempotencyKey: buildRoleSyncIdempotencyKey({
+              authUserId: creatorAuthUserId,
+              subjectId: buyerSubjectId,
+              entitlementId,
+              lifecycle: { kind: 'grant', at: now },
+            }),
           });
           outboxJobIds.push(jobId);
         }

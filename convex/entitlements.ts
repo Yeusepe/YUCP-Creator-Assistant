@@ -28,7 +28,12 @@ import {
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
-import { enqueueRoleRemoval, enqueueRoleSync } from './lib/roleSyncEnqueue';
+import {
+  buildRoleRemovalIdempotencyKey,
+  buildRoleSyncIdempotencyKey,
+  enqueueRoleRemoval,
+  enqueueRoleSync,
+} from './lib/roleSyncEnqueue';
 
 // ============================================================================
 // TYPES
@@ -699,7 +704,8 @@ export const grantEntitlement = mutation({
         args.authUserId,
         args.subjectId,
         existingEntitlement._id,
-        args.correlationId
+        args.correlationId,
+        now
       );
 
       // Create audit event
@@ -752,7 +758,8 @@ export const grantEntitlement = mutation({
       args.authUserId,
       args.subjectId,
       entitlementId,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     // Create audit event
@@ -846,7 +853,8 @@ export const revokeEntitlement = mutation({
       entitlement.subjectId,
       entitlement.productId,
       args.entitlementId,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     // Create audit event
@@ -921,7 +929,8 @@ export const revokeEntitlementBySourceRef = mutation({
       args.subjectId,
       entitlement.productId,
       entitlement._id,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     await createAuditEvent(ctx, {
@@ -985,7 +994,8 @@ export const revokeAllEntitlementsForSubject = mutation({
         args.subjectId,
         entitlement.productId,
         entitlement._id,
-        'disconnect:all'
+        'disconnect:all',
+        now
       );
       outboxJobIds.push(...jobIds);
 
@@ -1055,7 +1065,8 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
         args.subjectId,
         entitlement.productId,
         entitlement._id,
-        `disconnect:${args.provider}`
+        `disconnect:${args.provider}`,
+        now
       );
       outboxJobIds.push(...jobIds);
 
@@ -1139,7 +1150,8 @@ export const revokeEntitlementsByProduct = mutation({
         subject._id,
         args.productId,
         ent._id,
-        `unverify:${Date.now()}`
+        `unverify:${Date.now()}`,
+        now
       );
 
       await createAuditEvent(ctx, {
@@ -1314,7 +1326,8 @@ export const grantEntitlementsForPurchaser = mutation({
         args.authUserId,
         args.subjectId,
         entitlementId,
-        args.correlationId
+        args.correlationId,
+        now
       );
     }
 
@@ -1484,7 +1497,8 @@ export const expireEntitlements = mutation({
           entitlement.subjectId,
           entitlement.productId,
           entitlement._id,
-          undefined
+          undefined,
+          now
         );
       }
     }
@@ -1526,14 +1540,20 @@ async function emitRoleSyncJob(
   authUserId: string,
   subjectId: Id<'subjects'>,
   entitlementId: Id<'entitlements'>,
-  _correlationId?: string
+  _correlationId?: string,
+  lifecycleAt?: number
 ): Promise<Id<'outbox_jobs'>> {
   const subject = await ctx.db.get(subjectId);
   if (!subject) {
     throw new Error(`Subject not found: ${subjectId}`);
   }
 
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
+  const idempotencyKey = buildRoleSyncIdempotencyKey({
+    authUserId,
+    subjectId,
+    entitlementId,
+    ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'grant', at: lifecycleAt } } : {}),
+  });
 
   return enqueueRoleSync(ctx, {
     authUserId,
@@ -1553,7 +1573,8 @@ async function emitRoleRemovalJobs(
   subjectId: Id<'subjects'>,
   productId: string,
   entitlementId: Id<'entitlements'>,
-  _correlationId?: string
+  _correlationId?: string,
+  lifecycleAt?: number
 ): Promise<Id<'outbox_jobs'>[]> {
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
@@ -1573,7 +1594,15 @@ async function emitRoleRemovalJobs(
     const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
     for (const roleId of roleIds) {
-      const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}`;
+      const idempotencyKey = buildRoleRemovalIdempotencyKey({
+        authUserId,
+        subjectId,
+        guildId: rule.guildId,
+        productId,
+        roleId,
+        entitlementId,
+        ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'revoke', at: lifecycleAt } } : {}),
+      });
 
       outboxJobIds.push(
         await enqueueRoleRemoval(ctx, {

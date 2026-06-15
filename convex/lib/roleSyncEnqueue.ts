@@ -20,8 +20,42 @@ const DEFAULT_MAX_RETRIES = 10;
 const MAX_RETRY_BUDGET = 100;
 const DEDUPE_STATUSES = new Set(['pending', 'in_progress', 'failed']);
 
+type RoleSyncLifecycle =
+  | { kind: 'grant'; at: number | string }
+  | { kind: 'revoke'; at: number | string };
+
 export function roleSyncViaWorkpool(): boolean {
   return process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
+}
+
+function lifecycleSuffix(lifecycle?: RoleSyncLifecycle): string {
+  return lifecycle ? `:${lifecycle.kind}:${lifecycle.at}` : '';
+}
+
+export function buildRoleSyncIdempotencyKey(params: {
+  authUserId: string;
+  subjectId: Id<'subjects'>;
+  entitlementId: Id<'entitlements'>;
+  lifecycle?: Extract<RoleSyncLifecycle, { kind: 'grant' }>;
+}): string {
+  return `role_sync:${params.authUserId}:${params.subjectId}:${params.entitlementId}${lifecycleSuffix(
+    params.lifecycle
+  )}`;
+}
+
+export function buildRoleRemovalIdempotencyKey(params: {
+  authUserId: string;
+  subjectId: Id<'subjects'>;
+  guildId: string;
+  productId: string;
+  roleId: string;
+  entitlementId?: Id<'entitlements'>;
+  lifecycle?: Extract<RoleSyncLifecycle, { kind: 'revoke' }>;
+}): string {
+  const entitlementSuffix = params.entitlementId ? `:${params.entitlementId}` : '';
+  return `role_removal:${params.authUserId}:${params.subjectId}:${params.guildId}:${params.productId}:${params.roleId}${entitlementSuffix}${lifecycleSuffix(
+    params.lifecycle
+  )}`;
 }
 
 function requireIdempotencyKey(idempotencyKey: string): string {

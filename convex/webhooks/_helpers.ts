@@ -1,6 +1,11 @@
 import type { Id } from '../_generated/dataModel';
 import { resolveRoleSyncDiscordUserId } from '../lib/roleSyncIdentity';
-import { enqueueRoleRemoval, enqueueRoleSync } from '../lib/roleSyncEnqueue';
+import {
+  buildRoleRemovalIdempotencyKey,
+  buildRoleSyncIdempotencyKey,
+  enqueueRoleRemoval,
+  enqueueRoleSync,
+} from '../lib/roleSyncEnqueue';
 
 export { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 
@@ -112,7 +117,7 @@ export async function projectEntitlementFromPurchaseFact(
     !discordUserId.startsWith('gumroad:') &&
     !discordUserId.startsWith('jinxxy:')
   ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId);
+    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, now);
   }
 }
 
@@ -151,7 +156,8 @@ export async function revokeEntitlementForPurchaseFact(
         purchaseFact.subjectId,
         entitlement.productId,
         discordUserId,
-        entitlement._id
+        entitlement._id,
+        now
       );
     }
   }
@@ -162,9 +168,15 @@ export async function emitRoleSyncJob(
   authUserId: string,
   subjectId: Id<'subjects'>,
   discordUserId: string,
-  entitlementId: Id<'entitlements'>
+  entitlementId: Id<'entitlements'>,
+  lifecycleAt?: number
 ): Promise<void> {
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
+  const idempotencyKey = buildRoleSyncIdempotencyKey({
+    authUserId,
+    subjectId,
+    entitlementId,
+    ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'grant', at: lifecycleAt } } : {}),
+  });
   await enqueueRoleSync(ctx, {
     authUserId,
     subjectId,
@@ -180,7 +192,8 @@ export async function emitRoleRemovalJobs(
   subjectId: Id<'subjects'>,
   productId: string,
   discordUserId: string,
-  entitlementId?: Id<'entitlements'>
+  entitlementId?: Id<'entitlements'>,
+  lifecycleAt?: number
 ): Promise<void> {
   const roleRules = await ctx.db
     .query('role_rules')
@@ -200,7 +213,15 @@ export async function emitRoleRemovalJobs(
       });
       continue;
     }
-    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${rule.verifiedRoleId}`;
+    const idempotencyKey = buildRoleRemovalIdempotencyKey({
+      authUserId,
+      subjectId,
+      guildId: rule.guildId,
+      productId,
+      roleId: rule.verifiedRoleId,
+      entitlementId,
+      ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'revoke', at: lifecycleAt } } : {}),
+    });
     await enqueueRoleRemoval(ctx, {
       authUserId,
       subjectId,

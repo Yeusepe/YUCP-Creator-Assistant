@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Id } from './_generated/dataModel';
 import { enqueueRoleRemoval, enqueueRoleSync } from './lib/roleSyncEnqueue';
-import { makeTestConvex } from './testHelpers';
-import { emitRoleRemovalJobs, emitRoleSyncJob } from './webhooks/_helpers';
+import { makeTestConvex, seedSubject } from './testHelpers';
+import {
+  emitRoleRemovalJobs,
+  emitRoleSyncJob,
+  projectEntitlementFromPurchaseFact,
+  revokeEntitlementForPurchaseFact,
+} from './webhooks/_helpers';
 
 describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
   const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
@@ -163,6 +168,76 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(secondId).not.toBe(firstId);
   });
 
+  it('enqueues fresh webhook grant work when an obsolete pending row uses the previous lifecycle key', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-webhook-sync-stale-pending';
+    const subjectId = await seedSubject(t, {
+      primaryDiscordUserId: 'discord-webhook-sync-stale-pending',
+    });
+    const sourceReference = 'source-webhook-sync-stale-pending';
+    const productId = 'product-webhook-sync-stale-pending';
+
+    const { entitlementId, staleOutboxJobId } = await t.run(async (ctx) => {
+      const now = 1_000;
+      const insertedEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId,
+        sourceProvider: 'gumroad',
+        sourceReference,
+        status: 'revoked',
+        policySnapshotVersion: 1,
+        grantedAt: now,
+        revokedAt: 2_000,
+        updatedAt: 2_000,
+      });
+      const insertedStaleOutboxJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId,
+        jobType: 'role_sync',
+        payload: {
+          subjectId,
+          entitlementId: insertedEntitlementId,
+          discordUserId: 'discord-webhook-sync-stale-pending',
+        },
+        status: 'pending',
+        idempotencyKey: `role_sync:${authUserId}:${subjectId}:${insertedEntitlementId}`,
+        targetDiscordUserId: 'discord-webhook-sync-stale-pending',
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: 1_500,
+        updatedAt: 1_500,
+      });
+      return { entitlementId: insertedEntitlementId, staleOutboxJobId: insertedStaleOutboxJobId };
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    await t.run(async (ctx) =>
+      projectEntitlementFromPurchaseFact(
+        ctx,
+        authUserId,
+        subjectId,
+        productId,
+        sourceReference,
+        1_000
+      )
+    );
+
+    const roleSyncRows = await t.run(async (ctx) =>
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_sync')
+        )
+        .collect()
+    );
+    const freshRow = roleSyncRows.find((row) => row._id !== staleOutboxJobId);
+
+    expect(roleSyncRows).toHaveLength(2);
+    expect(freshRow?.idempotencyKey).toBe(
+      `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:3000`
+    );
+  });
+
   it('dedupes repeated webhook role removal emissions for the same role rule', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-webhook-removal';
@@ -228,7 +303,7 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
         .withIndex('by_idempotency', (q) =>
           q.eq(
             'idempotencyKey',
-            `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:role-webhook-removal`
+            `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:role-webhook-removal:entitlement-webhook-removal`
           )
         )
         .collect()
@@ -237,6 +312,94 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(rows[0]?.jobType).toBe('role_removal');
     expect((rows[0]?.payload as { entitlementId?: string }).entitlementId).toBe(
       'entitlement-webhook-removal'
+    );
+  });
+
+  it('enqueues fresh webhook removal work when an obsolete pending row uses the previous lifecycle key', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-webhook-removal-stale-pending';
+    const subjectId = await seedSubject(t, {
+      primaryDiscordUserId: 'discord-webhook-removal-stale-pending',
+    });
+    const productId = 'product-webhook-removal-stale-pending';
+    const sourceReference = 'source-webhook-removal-stale-pending';
+    const guildId = 'guild-webhook-removal-stale-pending';
+    const roleId = 'role-webhook-removal-stale-pending';
+
+    const { entitlementId, staleOutboxJobId } = await t.run(async (ctx) => {
+      const now = 1_000;
+      const guildLinkId = await ctx.db.insert('guild_links', {
+        authUserId,
+        discordGuildId: guildId,
+        installedByAuthUserId: authUserId,
+        botPresent: true,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId,
+        verifiedRoleId: roleId,
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const insertedEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId,
+        sourceProvider: 'gumroad',
+        sourceReference,
+        status: 'active',
+        policySnapshotVersion: 1,
+        grantedAt: now,
+        updatedAt: now,
+      });
+      const insertedStaleOutboxJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId,
+        jobType: 'role_removal',
+        payload: {
+          subjectId,
+          entitlementId: insertedEntitlementId,
+          guildId,
+          roleId,
+          discordUserId: 'discord-webhook-removal-stale-pending',
+        },
+        status: 'pending',
+        idempotencyKey: `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:${roleId}`,
+        targetGuildId: guildId,
+        targetDiscordUserId: 'discord-webhook-removal-stale-pending',
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: 1_500,
+        updatedAt: 1_500,
+      });
+      return { entitlementId: insertedEntitlementId, staleOutboxJobId: insertedStaleOutboxJobId };
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    await t.run(async (ctx) =>
+      revokeEntitlementForPurchaseFact(ctx, authUserId, { subjectId }, sourceReference)
+    );
+
+    const roleRemovalRows = await t.run(async (ctx) =>
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect()
+    );
+    const freshRow = roleRemovalRows.find((row) => row._id !== staleOutboxJobId);
+
+    expect(roleRemovalRows).toHaveLength(2);
+    expect(freshRow?.idempotencyKey).toBe(
+      `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:${roleId}:${entitlementId}:revoke:3000`
     );
   });
 
