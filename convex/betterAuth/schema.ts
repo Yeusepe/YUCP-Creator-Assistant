@@ -144,6 +144,7 @@ export const tables = {
     authTime: v.optional(v.union(v.null(), v.number())),
     scopes: v.array(v.string()),
   })
+    .index('token', ['token'])
     .index('clientId', ['clientId'])
     .index('sessionId', ['sessionId'])
     .index('userId', ['userId']),
