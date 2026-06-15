@@ -64,7 +64,7 @@ export const roleSyncCompleted = internalMutation({
   ),
   handler: async (ctx, { context, result }) => {
     const job = await ctx.db.get(context.outboxJobId);
-    if (!job) {
+    if (!job || job.status === 'completed' || job.status === 'dead_letter') {
       return;
     }
     const now = Date.now();

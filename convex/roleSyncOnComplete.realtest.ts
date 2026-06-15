@@ -92,6 +92,47 @@ describe('roleSyncOnComplete.roleSyncCompleted', () => {
     expect(notifications[0]?.title).toBe('Roles synced');
   });
 
+  it('ignores duplicate completion callbacks after a role sync job is finalized', async () => {
+    const t = makeTestConvex();
+    const jobId = await seedRoleSyncJob(t);
+    const completion = {
+      workId: 'work-duplicate' as WorkId,
+      context: { outboxJobId: jobId },
+      result: {
+        kind: 'success' as const,
+        returnValue: {
+          success: true,
+          guildId: 'guild-duplicate',
+          targetGuildIds: ['guild-duplicate'],
+          discordUserId: 'discord-oncomplete',
+          rolesAdded: ['role-duplicate'],
+          rolesRemoved: [],
+        },
+      },
+    };
+
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.roleSyncOnComplete.roleSyncCompleted, completion)
+    );
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.roleSyncOnComplete.roleSyncCompleted, completion)
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+    expect(stored?.status).toBe('completed');
+
+    const audits = await t.run(async (ctx) =>
+      ctx.db
+        .query('audit_events')
+        .filter((q) => q.eq(q.field('eventType'), 'discord.role.sync.completed'))
+        .collect()
+    );
+    expect(audits).toHaveLength(1);
+
+    const notifications = await t.run(async (ctx) => ctx.db.query('admin_notifications').collect());
+    expect(notifications).toHaveLength(1);
+  });
+
   it('dead-letters a structured permanent failure with lastError + targetGuildIds, surfaced by the verify banner', async () => {
     const t = makeTestConvex();
     const jobId = await seedRoleSyncJob(t);
