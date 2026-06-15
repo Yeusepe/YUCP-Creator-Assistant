@@ -14,9 +14,10 @@ import { Workpool } from '@convex-dev/workpool';
 import { components } from './_generated/api';
 
 export const roleSyncPool = new Workpool(components.roleSyncPool, {
-  // Global concurrency cap. Discord rate limits are per-route (per guild member),
-  // and the action additionally honors `429 Retry-After`, so a modest global cap
-  // is enough to avoid hammering any single bucket.
+  // Global concurrency cap. Workpool actions do not share the bot process'
+  // in-memory Discord limiter, so this stays conservative and every action
+  // treats Discord `429 Retry-After` as retriable backpressure. If role-sync
+  // volume grows past this cap, add a shared global limiter before raising it.
   maxParallelism: 5,
   retryActionsByDefault: true,
   defaultRetryBehavior: {

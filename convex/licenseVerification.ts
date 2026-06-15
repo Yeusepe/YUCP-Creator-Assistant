@@ -66,6 +66,14 @@ function buildExternalAccountProviderMetadata(
   return Object.values(value).some((entry) => entry !== undefined) ? value : undefined;
 }
 
+function resolveRoleSyncDiscordUserId(subject: { primaryDiscordUserId?: string | null }) {
+  const discordUserId = subject.primaryDiscordUserId?.trim();
+  if (!discordUserId || discordUserId.includes(':')) {
+    return undefined;
+  }
+  return discordUserId;
+}
+
 async function resolveVerificationActors(
   ctx: Pick<MutationCtx, 'db'>,
   args: {
@@ -401,14 +409,17 @@ export const completeLicenseVerification = mutation({
               args.licenseSubjectLink?.licenseSubject ?? existingEntitlement.licenseSubject,
           });
           // Emit role sync for reactivated entitlement
-          const jobId = await enqueueRoleSync(ctx, {
-            authUserId: creatorAuthUserId,
-            subjectId: buyerSubjectId,
-            entitlementId,
-            discordUserId: subject.primaryDiscordUserId,
-            idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
-          });
-          outboxJobIds.push(jobId);
+          const discordUserId = resolveRoleSyncDiscordUserId(subject);
+          if (discordUserId) {
+            const jobId = await enqueueRoleSync(ctx, {
+              authUserId: creatorAuthUserId,
+              subjectId: buyerSubjectId,
+              entitlementId,
+              discordUserId,
+              idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
+            });
+            outboxJobIds.push(jobId);
+          }
         }
       } else {
         // Create new entitlement
@@ -436,14 +447,17 @@ export const completeLicenseVerification = mutation({
         });
 
         // Emit role sync job
-        const jobId = await enqueueRoleSync(ctx, {
-          authUserId: creatorAuthUserId,
-          subjectId: buyerSubjectId,
-          entitlementId,
-          discordUserId: subject.primaryDiscordUserId,
-          idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
-        });
-        outboxJobIds.push(jobId);
+        const discordUserId = resolveRoleSyncDiscordUserId(subject);
+        if (discordUserId) {
+          const jobId = await enqueueRoleSync(ctx, {
+            authUserId: creatorAuthUserId,
+            subjectId: buyerSubjectId,
+            entitlementId,
+            discordUserId,
+            idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
+          });
+          outboxJobIds.push(jobId);
+        }
 
         // Audit event
         await ctx.db.insert('audit_events', {
