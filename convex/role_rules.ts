@@ -18,6 +18,7 @@ import { internalQuery, mutation, query } from './_generated/server';
 import { addCatalogProductImpl } from './lib/roleRules/catalog';
 import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
 import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
+import { normalizeWritableVerifiedRoleIds } from './lib/roleRules/roleIds';
 import { enqueueVerifyPromptRefreshJob } from './lib/verifyPrompt';
 
 const roleRuleDocumentValidator = v.object({
@@ -477,10 +478,7 @@ export const createRoleRule = mutation({
       }
     }
     const now = Date.now();
-    const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
-    if (roleIds.length === 0) {
-      throw new Error('At least one verified role is required');
-    }
+    const roleIds = normalizeWritableVerifiedRoleIds(args);
     const verifiedRoleId = roleIds[0];
 
     const ruleId = await ctx.db.insert('role_rules', {
@@ -557,11 +555,9 @@ export const updateRoleRule = mutation({
     };
 
     if (args.verifiedRoleIds !== undefined) {
-      if (args.verifiedRoleIds.length === 0) {
-        throw new Error('At least one verified role is required');
-      }
-      update.verifiedRoleId = args.verifiedRoleIds[0];
-      update.verifiedRoleIds = args.verifiedRoleIds.length > 1 ? args.verifiedRoleIds : undefined;
+      const roleIds = normalizeWritableVerifiedRoleIds({ verifiedRoleIds: args.verifiedRoleIds });
+      update.verifiedRoleId = roleIds[0];
+      update.verifiedRoleIds = roleIds.length > 1 ? roleIds : undefined;
     } else if (args.verifiedRoleId !== undefined) {
       update.verifiedRoleId = args.verifiedRoleId;
       update.verifiedRoleIds = undefined;

@@ -18,6 +18,13 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction } from './_generated/server';
+import {
+  getConfiguredVerifiedRoleIds,
+  MAX_ROLE_SYNC_DISCORD_OPERATIONS_PER_JOB,
+  MAX_VERIFIED_ROLE_IDS_PER_RULE,
+  ROLE_SYNC_OPERATION_LIMIT_ERROR,
+  STORED_ROLE_RULE_ROLE_LIMIT_ERROR,
+} from './lib/roleRules/roleIds';
 
 // Discord guild member role endpoints:
 // https://docs.discord.com/developers/resources/guild#add-guild-member-role
@@ -48,6 +55,11 @@ const roleSyncActionResultValidator = v.object({
   error: v.optional(v.string()),
   skipped: v.optional(v.boolean()),
 });
+
+interface RoleGrantOperation {
+  guildId: string;
+  roleId: string;
+}
 
 class RetriableRoleSyncError extends Error {}
 
@@ -249,7 +261,7 @@ export const runRoleSync = internalAction({
         discordUserId,
         rolesAdded: [],
         rolesRemoved: [],
-        error: `Entitlement not found: ${args.entitlementId}`,
+        error: 'Entitlement not found',
       };
     }
     if (entitlement.authUserId !== args.authUserId) {
@@ -317,7 +329,7 @@ export const runRoleSync = internalAction({
     const errors: string[] = [];
     const enabledGuildIds = new Set<string>();
     const failedGuildIds = new Set<string>();
-    let expectedRoleGrantCount = 0;
+    const roleGrantOperations: RoleGrantOperation[] = [];
     let hasRetriable = false;
 
     for (const rule of roleRules) {
@@ -325,27 +337,28 @@ export const runRoleSync = internalAction({
         continue;
       }
       enabledGuildIds.add(rule.guildId);
-      const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
+      const roleIds = getConfiguredVerifiedRoleIds(rule);
+      if (roleIds.length > MAX_VERIFIED_ROLE_IDS_PER_RULE) {
+        failedGuildIds.add(rule.guildId);
+        return {
+          success: false,
+          guildId: rule.guildId,
+          targetGuildIds: Array.from(enabledGuildIds),
+          discordUserId,
+          rolesAdded: [],
+          rolesRemoved: [],
+          error: STORED_ROLE_RULE_ROLE_LIMIT_ERROR,
+        };
+      }
 
       for (const roleId of roleIds) {
-        expectedRoleGrantCount++;
-        const result = await addRoleToMember(rule.guildId, discordUserId, roleId);
-        if (result.added) {
-          rolesAdded.push(roleId);
-        }
-        if (result.error) {
-          errors.push(`${rule.guildId}: ${result.error}`);
-          failedGuildIds.add(rule.guildId);
-          if (result.retriable) {
-            hasRetriable = true;
-          }
-        }
+        roleGrantOperations.push({ guildId: rule.guildId, roleId });
       }
     }
 
     const enabledRoleRuleCount = roleRules.filter((r) => r.enabled).length;
     const missingRoleConfiguration =
-      enabledRoleRuleCount > 0 && expectedRoleGrantCount === 0
+      enabledRoleRuleCount > 0 && roleGrantOperations.length === 0
         ? 'No verified role ids configured for enabled role rules'
         : undefined;
     if (missingRoleConfiguration) {
@@ -354,11 +367,40 @@ export const runRoleSync = internalAction({
       }
     }
 
+    if (roleGrantOperations.length > MAX_ROLE_SYNC_DISCORD_OPERATIONS_PER_JOB) {
+      for (const guildId of enabledGuildIds) {
+        failedGuildIds.add(guildId);
+      }
+      return {
+        success: false,
+        guildId: '',
+        targetGuildIds: Array.from(enabledGuildIds),
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved: [],
+        error: ROLE_SYNC_OPERATION_LIMIT_ERROR,
+      };
+    }
+
+    for (const operation of roleGrantOperations) {
+      const result = await addRoleToMember(operation.guildId, discordUserId, operation.roleId);
+      if (result.added) {
+        rolesAdded.push(operation.roleId);
+      }
+      if (result.error) {
+        errors.push(`${operation.guildId}: ${result.error}`);
+        failedGuildIds.add(operation.guildId);
+        if (result.retriable) {
+          hasRetriable = true;
+        }
+      }
+    }
+
     const success =
       enabledRoleRuleCount === 0 ||
-      (expectedRoleGrantCount > 0 &&
+      (roleGrantOperations.length > 0 &&
         errors.length === 0 &&
-        rolesAdded.length === expectedRoleGrantCount);
+        rolesAdded.length === roleGrantOperations.length);
     const error = errors.length > 0 ? errors.join('; ') : missingRoleConfiguration;
 
     // Any transient failure => retry the whole job (idempotent PUTs make this safe).

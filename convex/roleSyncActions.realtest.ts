@@ -47,7 +47,7 @@ async function seed(
       grantedAt: now,
       updatedAt: now,
     });
-    await ctx.db.insert('role_rules', {
+    const roleRuleId = await ctx.db.insert('role_rules', {
       authUserId: AUTH_USER,
       guildId,
       guildLinkId,
@@ -70,7 +70,7 @@ async function seed(
       createdAt: now,
       updatedAt: now,
     });
-    return { subjectId, entitlementId, outboxJobId };
+    return { subjectId, entitlementId, outboxJobId, roleRuleId };
   });
 }
 
@@ -178,6 +178,96 @@ describe('roleSyncActions.runRoleSync', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Entitlement\/authUser mismatch/);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('redacts entitlement ids when a sync job references a deleted entitlement', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      await ctx.db.delete(entitlementId);
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Entitlement not found');
+    expect(result.error).not.toContain(entitlementId);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized legacy multi-role rules before calling Discord', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, roleRuleId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roleRuleId, {
+        verifiedRoleId: 'role-oversized-0',
+        verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-oversized-${index}`),
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Role rule exceeds the maximum of 10 verified roles');
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('rejects role sync jobs with too many Discord role operations before calling Discord', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const guildLinkId = await ctx.db.insert('guild_links', {
+        authUserId: AUTH_USER,
+        discordGuildId: 'guild-action-bulk',
+        installedByAuthUserId: AUTH_USER,
+        botPresent: true,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (let index = 0; index < 100; index++) {
+        await ctx.db.insert('role_rules', {
+          authUserId: AUTH_USER,
+          guildId: 'guild-action-bulk',
+          guildLinkId,
+          productId: PRODUCT_ID,
+          verifiedRoleId: `role-action-bulk-${index}`,
+          removeOnRevoke: true,
+          priority: index,
+          enabled: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Role sync exceeds the maximum of 100 Discord role operations');
     expect(fetchFn).not.toHaveBeenCalled();
   });
 

@@ -9,6 +9,7 @@ import type { GenericMutationCtx } from 'convex/server';
 import type { DataModel, Id } from '../../_generated/dataModel';
 import { enqueueVerifyPromptRefreshJob } from '../verifyPrompt';
 import { requireApiSecret } from './queries';
+import { normalizeWritableVerifiedRoleIds } from './roleIds';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
 
@@ -84,10 +85,7 @@ export async function addProductFromDiscordRoleImpl(
     return { productId, ruleId: existing._id };
   }
 
-  const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
-  if (roleIds.length === 0) {
-    throw new Error('At least one verified role is required');
-  }
+  const roleIds = normalizeWritableVerifiedRoleIds(args);
   const verifiedRoleId = roleIds[0];
 
   const ruleId = await ctx.db.insert('role_rules', {
