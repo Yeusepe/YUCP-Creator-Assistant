@@ -42,6 +42,12 @@ const LicenseSubjectLink = v.object({
   providerProductId: v.optional(v.string()),
 });
 
+const PROVIDER_SCOPED_SUBJECT_ID_PATTERN = /^[a-z][a-z0-9_-]*:/i;
+
+function isProviderScopedSubjectId(value: string) {
+  return PROVIDER_SCOPED_SUBJECT_ID_PATTERN.test(value);
+}
+
 function buildExternalAccountProviderMetadata(
   providerMetadata:
     | {
@@ -68,7 +74,7 @@ function buildExternalAccountProviderMetadata(
 
 function resolveRoleSyncDiscordUserId(subject: { primaryDiscordUserId?: string | null }) {
   const discordUserId = subject.primaryDiscordUserId?.trim();
-  if (!discordUserId || discordUserId.includes(':')) {
+  if (!discordUserId || isProviderScopedSubjectId(discordUserId)) {
     return undefined;
   }
   return discordUserId;

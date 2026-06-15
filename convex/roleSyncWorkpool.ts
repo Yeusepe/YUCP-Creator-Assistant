@@ -16,8 +16,11 @@ import { components } from './_generated/api';
 export const roleSyncPool = new Workpool(components.roleSyncPool, {
   // Global concurrency cap. Workpool actions do not share the bot process'
   // in-memory Discord limiter, so this stays conservative and every action
-  // treats Discord `429 Retry-After` as retriable backpressure. If role-sync
-  // volume grows past this cap, add a shared global limiter before raising it.
+  // treats Discord `429 Retry-After` as retriable backpressure. Discord rate
+  // limits are bucketed per route and documented via 429 response metadata:
+  // https://discord.com/developers/docs/topics/rate-limits. A five-action burst
+  // can still fill one route bucket if every action targets the same role API,
+  // so add a shared global limiter before raising this cap.
   maxParallelism: 5,
   retryActionsByDefault: true,
   defaultRetryBehavior: {

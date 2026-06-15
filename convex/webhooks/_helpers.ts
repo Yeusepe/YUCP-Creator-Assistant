@@ -197,7 +197,6 @@ export async function emitRoleRemovalJobs(
         roleRuleId: rule._id,
         authUserId,
         guildId: rule.guildId,
-        productId,
         reason: 'missing_verified_role_id',
       });
       continue;

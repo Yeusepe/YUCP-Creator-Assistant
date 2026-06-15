@@ -227,9 +227,9 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
       expect.objectContaining({
         authUserId,
         guildId,
-        productId,
         reason: 'missing_verified_role_id',
       })
     );
+    expect(warnSpy.mock.calls[0]?.[1]).not.toHaveProperty('productId');
   });
 });
