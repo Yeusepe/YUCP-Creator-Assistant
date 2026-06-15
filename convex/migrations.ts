@@ -1812,7 +1812,6 @@ export const redriveDeadLetterRoleSync = internalMutation({
         retryCount: 0,
         lastError: undefined,
         nextRetryAt: undefined,
-        createdAt: now,
         updatedAt: now,
       });
       processed++;

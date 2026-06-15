@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
-import { readFile } from 'node:fs/promises';
 import { api, internal } from './_generated/api';
 import type { DataModel, Id } from './_generated/dataModel';
 import betterAuthSchema from './betterAuth/schema';
+import { roleSyncPool } from './roleSyncWorkpool';
 import { makeTestConvex } from './testHelpers';
 
 type ComponentMutationCtx = GenericMutationCtx<DataModel> &
@@ -1626,17 +1626,129 @@ describe('role sync redrive migration', () => {
     }
   });
 
-  it('enqueues redriven Workpool work before resetting the projection row', async () => {
-    const source = await readFile(new URL('./migrations.ts', import.meta.url), 'utf8');
-    const redriveStart = source.indexOf('export const redriveDeadLetterRoleSync');
-    const redriveSource = source.slice(redriveStart);
-    const enqueueIndex = redriveSource.indexOf('await roleSyncPool.enqueueAction');
-    const patchIndex = redriveSource.indexOf('await ctx.db.patch(job._id');
+  it('preserves original creation time when Workpool accepts redrive work', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const originalCreatedAt = now - 10_000;
+      const originalUpdatedAt = now - 5_000;
+      const jobId = await t.run(async (ctx) => {
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-redrive-preserve-created',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const entitlementId = await ctx.db.insert('entitlements', {
+          authUserId: 'auth-redrive-preserve-created',
+          subjectId,
+          productId: 'product-redrive-preserve-created',
+          sourceProvider: 'gumroad',
+          sourceReference: 'order-redrive-preserve-created',
+          status: 'active',
+          grantedAt: now,
+          updatedAt: now,
+        });
+        return ctx.db.insert('outbox_jobs', {
+          authUserId: 'auth-redrive-preserve-created',
+          jobType: 'role_sync',
+          payload: {
+            subjectId,
+            entitlementId,
+            discordUserId: 'discord-redrive-preserve-created',
+          },
+          status: 'dead_letter',
+          idempotencyKey: 'redrive-preserve-created',
+          targetDiscordUserId: 'discord-redrive-preserve-created',
+          retryCount: 5,
+          maxRetries: 5,
+          lastError: 'legacy worker failed',
+          createdAt: originalCreatedAt,
+          updatedAt: originalUpdatedAt,
+        });
+      });
 
-    expect(redriveStart).toBeGreaterThanOrEqual(0);
-    expect(enqueueIndex).toBeGreaterThanOrEqual(0);
-    expect(patchIndex).toBeGreaterThanOrEqual(0);
-    expect(enqueueIndex).toBeLessThan(patchIndex);
+      const result = await t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 });
+      const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+
+      expect(result).toEqual({ processed: 1, skipped: 0, remaining: 0 });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored?.status).toBe('pending');
+      expect(stored?.createdAt).toBe(originalCreatedAt);
+      expect(stored?.updatedAt).toBeGreaterThanOrEqual(now);
+    } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
+  it('leaves dead-letter rows untouched when Workpool redrive enqueue fails', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi
+      .spyOn(roleSyncPool, 'enqueueAction')
+      .mockRejectedValue(new Error('workpool unavailable'));
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const originalCreatedAt = now - 10_000;
+      const originalUpdatedAt = now - 5_000;
+      const jobId = await t.run(async (ctx) => {
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-redrive-enqueue-fails',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const entitlementId = await ctx.db.insert('entitlements', {
+          authUserId: 'auth-redrive-enqueue-fails',
+          subjectId,
+          productId: 'product-redrive-enqueue-fails',
+          sourceProvider: 'gumroad',
+          sourceReference: 'order-redrive-enqueue-fails',
+          status: 'active',
+          grantedAt: now,
+          updatedAt: now,
+        });
+        return ctx.db.insert('outbox_jobs', {
+          authUserId: 'auth-redrive-enqueue-fails',
+          jobType: 'role_sync',
+          payload: {
+            subjectId,
+            entitlementId,
+            discordUserId: 'discord-redrive-enqueue-fails',
+          },
+          status: 'dead_letter',
+          idempotencyKey: 'redrive-enqueue-fails',
+          targetDiscordUserId: 'discord-redrive-enqueue-fails',
+          retryCount: 5,
+          maxRetries: 5,
+          lastError: 'legacy worker failed',
+          createdAt: originalCreatedAt,
+          updatedAt: originalUpdatedAt,
+        });
+      });
+
+      await expect(
+        t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 })
+      ).rejects.toThrow('workpool unavailable');
+      const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored?.status).toBe('dead_letter');
+      expect(stored?.retryCount).toBe(5);
+      expect(stored?.lastError).toBe('legacy worker failed');
+      expect(stored?.createdAt).toBe(originalCreatedAt);
+      expect(stored?.updatedAt).toBe(originalUpdatedAt);
+    } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
   });
 
   it('requires the Workpool rollout flag before redriving dead-lettered role jobs', async () => {
