@@ -17,7 +17,6 @@
 
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Id } from './_generated/dataModel';
 import { internalAction } from './_generated/server';
 
 // Discord guild member role endpoints:
@@ -27,14 +26,6 @@ import { internalAction } from './_generated/server';
 // https://docs.discord.com/developers/topics/opcodes-and-status-codes#json
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_FETCH_TIMEOUT_MS = 30_000;
-
-interface RoleRule {
-  guildId: string;
-  verifiedRoleId?: string;
-  verifiedRoleIds?: string[];
-  catalogTierId?: Id<'catalog_tiers'>;
-  enabled: boolean;
-}
 
 export interface RoleSyncActionResult {
   success: boolean;
@@ -283,10 +274,10 @@ export const runRoleSync = internalAction({
       { entitlementId: args.entitlementId }
     );
 
-    let roleRules = (await ctx.runQuery(internal.role_rules.getByProductInternal, {
+    let roleRules = await ctx.runQuery(internal.role_rules.getByProductInternal, {
       authUserId: args.authUserId,
       productId: entitlement.productId,
-    })) as RoleRule[];
+    });
 
     if (activeCatalogTierIds.length > 0) {
       const activeTierIdSet = new Set<string>(activeCatalogTierIds);

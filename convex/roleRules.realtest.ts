@@ -12,6 +12,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
+import { getByProductInternal } from './role_rules';
 import { makeTestConvex, seedGuildLink } from './testHelpers';
 
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
@@ -30,6 +31,25 @@ async function getOutboxJobTypes(t: ReturnType<typeof makeTestConvex>) {
 describe('role rules CRUD and isolation', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  it('declares a structured return validator for internal product role rules', () => {
+    const exportedReturns = JSON.parse(
+      (
+        getByProductInternal as unknown as {
+          exportReturns: () => string;
+        }
+      ).exportReturns()
+    );
+
+    expect(exportedReturns).toMatchObject({
+      type: 'array',
+      value: {
+        type: 'object',
+      },
+    });
+    expect(JSON.stringify(exportedReturns)).toContain('verifiedRoleIds');
+    expect(JSON.stringify(exportedReturns)).toContain('catalogTierId');
   });
 
   it('given new product rule created, then correct fields stored', async () => {

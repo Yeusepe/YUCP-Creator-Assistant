@@ -20,6 +20,31 @@ import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
 import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
 import { enqueueVerifyPromptRefreshJob } from './lib/verifyPrompt';
 
+const roleRuleDocumentValidator = v.object({
+  _id: v.id('role_rules'),
+  _creationTime: v.number(),
+  authUserId: v.string(),
+  tenantId: v.optional(v.any()),
+  guildId: v.string(),
+  guildLinkId: v.id('guild_links'),
+  productId: v.string(),
+  catalogProductId: v.optional(v.id('product_catalog')),
+  catalogTierId: v.optional(v.id('catalog_tiers')),
+  verifiedRoleId: v.string(),
+  verifiedRoleIds: v.optional(v.array(v.string())),
+  removeOnRevoke: v.boolean(),
+  priority: v.number(),
+  enabled: v.boolean(),
+  sourceGuildId: v.optional(v.string()),
+  sourceGuildName: v.optional(v.string()),
+  requiredRoleId: v.optional(v.string()),
+  requiredRoleIds: v.optional(v.array(v.string())),
+  requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
+  displayName: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
+
 // ============================================================================
 // QUERIES
 // ============================================================================
@@ -311,7 +336,7 @@ export const getByProductInternal = internalQuery({
     authUserId: v.string(),
     productId: v.string(),
   },
-  returns: v.array(v.any()),
+  returns: v.array(roleRuleDocumentValidator),
   handler: async (ctx, args) => {
     return await ctx.db
       .query('role_rules')

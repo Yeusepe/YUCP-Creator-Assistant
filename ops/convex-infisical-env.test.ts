@@ -27,7 +27,8 @@ describe('Convex Infisical prod helpers', () => {
       readOpsFile('ops/sync-convex-env.ts'),
       readOpsFile('ops/infisical/secrets.template.yaml'),
     ]);
-    // Both vars must sync to Convex; ROLE_SYNC_VIA_WORKPOOL is the new template entry.
+    // Both vars must sync to Convex. ROLE_SYNC_VIA_WORKPOOL is newly added to the template;
+    // DISCORD_BOT_TOKEN already exists there.
     expect(syncConvexEnv).toContain("'ROLE_SYNC_VIA_WORKPOOL'");
     expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
     expect(secretsTemplate).toContain('ROLE_SYNC_VIA_WORKPOOL');
