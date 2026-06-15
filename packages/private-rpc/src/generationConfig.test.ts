@@ -32,4 +32,18 @@ describe('private-rpc generation config', () => {
       '// @ts-nocheck\nexport const value = 1;\nexport const other = 2;\n'
     );
   });
+
+  it('normalizes generated TypeScript with bare CR line endings', () => {
+    const source = 'export const value = 1;\rexport const other = 2;\r';
+
+    expect(normalizeGeneratedSource(source)).toBe(
+      '// @ts-nocheck\nexport const value = 1;\nexport const other = 2;\n'
+    );
+  });
+
+  it('does not duplicate an existing ts-nocheck banner', () => {
+    const source = '// @ts-nocheck\r\nexport const value = 1;\r\n';
+
+    expect(normalizeGeneratedSource(source)).toBe('// @ts-nocheck\nexport const value = 1;\n');
+  });
 });

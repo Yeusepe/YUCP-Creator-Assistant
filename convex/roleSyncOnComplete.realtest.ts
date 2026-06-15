@@ -1,11 +1,10 @@
 import type { WorkId } from '@convex-dev/workpool';
+import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import { makeTestConvex } from './testHelpers';
 
 const API_SECRET = 'test-convex-api-secret';
-
-let seedCounter = 0;
 
 async function seedRoleSyncJob(
   t: ReturnType<typeof makeTestConvex>,
@@ -15,7 +14,7 @@ async function seedRoleSyncJob(
   }
 ) {
   const now = Date.now();
-  seedCounter += 1;
+  const uniqueSuffix = randomUUID();
   return t.run(async (ctx) => {
     const subjectId = await ctx.db.insert('subjects', {
       primaryDiscordUserId: 'discord-oncomplete',
@@ -32,7 +31,7 @@ async function seedRoleSyncJob(
         discordUserId: 'discord-oncomplete',
       },
       status: overrides?.status ?? 'pending',
-      idempotencyKey: `oncomplete-${now}-${seedCounter}`,
+      idempotencyKey: `oncomplete-${now}-${uniqueSuffix}`,
       targetDiscordUserId: 'discord-oncomplete',
       retryCount: 0,
       maxRetries: 10,
@@ -147,5 +146,25 @@ describe('roleSyncOnComplete.roleSyncCompleted', () => {
     const stored = await t.run(async (ctx) => ctx.db.get(jobId));
     expect(stored?.status).toBe('dead_letter');
     expect(stored?.lastError).toBe('Member not found in guild');
+  });
+
+  it('dead-letters malformed success payloads without throwing from onComplete', async () => {
+    const t = makeTestConvex();
+    const jobId = await seedRoleSyncJob(t);
+
+    await t.run(async (ctx) =>
+      ctx.runMutation(internal.roleSyncOnComplete.roleSyncCompleted, {
+        workId: 'work-4' as WorkId,
+        context: { outboxJobId: jobId },
+        result: {
+          kind: 'success',
+          returnValue: { invalid: true },
+        },
+      })
+    );
+
+    const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+    expect(stored?.status).toBe('dead_letter');
+    expect(stored?.lastError).toBe('Invalid role sync action result');
   });
 });

@@ -26,6 +26,7 @@ import { internalAction } from './_generated/server';
 // Discord JSON error shape:
 // https://docs.discord.com/developers/topics/opcodes-and-status-codes#json
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
+const DISCORD_FETCH_TIMEOUT_MS = 30_000;
 
 interface RoleRule {
   guildId: string;
@@ -71,6 +72,20 @@ async function parseDiscordError(res: Response): Promise<{ code?: number; messag
   }
 }
 
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === 'TimeoutError' || err.name === 'AbortError' || err.name === 'DOMException')
+  );
+}
+
+async function fetchDiscord(url: string, init: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(DISCORD_FETCH_TIMEOUT_MS),
+  });
+}
+
 /**
  * Idempotent role add. PUT returns 204 whether or not the member already had the
  * role. Returns { added } on success, { error, retriable } on failure.
@@ -80,13 +95,21 @@ async function addRoleToMember(
   discordUserId: string,
   roleId: string
 ): Promise<{ added: boolean; error?: string; retriable?: boolean }> {
-  const res = await fetch(
-    `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
-    {
-      method: 'PUT',
-      headers: { ...botAuthHeaders(), 'X-Audit-Log-Reason': 'Entitlement sync - role granted' },
+  let res: Response;
+  try {
+    res = await fetchDiscord(
+      `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
+      {
+        method: 'PUT',
+        headers: { ...botAuthHeaders(), 'X-Audit-Log-Reason': 'Entitlement sync - role granted' },
+      }
+    );
+  } catch (err) {
+    if (isAbortError(err)) {
+      return { added: false, retriable: true, error: 'Discord API request timed out' };
     }
-  );
+    throw err;
+  }
 
   if (res.ok) {
     return { added: true };
@@ -138,13 +161,24 @@ async function removeRoleFromMember(
   discordUserId: string,
   roleId: string
 ): Promise<{ removed: boolean; error?: string; retriable?: boolean }> {
-  const res = await fetch(
-    `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
-    {
-      method: 'DELETE',
-      headers: { ...botAuthHeaders(), 'X-Audit-Log-Reason': 'Entitlement revoked - role removed' },
+  let res: Response;
+  try {
+    res = await fetchDiscord(
+      `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          ...botAuthHeaders(),
+          'X-Audit-Log-Reason': 'Entitlement revoked - role removed',
+        },
+      }
+    );
+  } catch (err) {
+    if (isAbortError(err)) {
+      return { removed: false, retriable: true, error: 'Discord API request timed out' };
     }
-  );
+    throw err;
+  }
 
   if (res.ok) {
     return { removed: true };

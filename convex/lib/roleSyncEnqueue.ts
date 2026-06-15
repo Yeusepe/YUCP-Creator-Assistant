@@ -17,18 +17,36 @@ import { roleSyncPool } from '../roleSyncWorkpool';
 
 /** Default retry budget for new jobs (~17 min of Workpool backoff at maxAttempts:10). */
 const DEFAULT_MAX_RETRIES = 10;
+const MAX_RETRY_BUDGET = 100;
 
 export function roleSyncViaWorkpool(): boolean {
   return process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
+}
+
+function requireIdempotencyKey(idempotencyKey: string): string {
+  const normalized = idempotencyKey.trim();
+  if (normalized.length === 0) {
+    throw new Error('idempotencyKey must be a non-empty string');
+  }
+  return normalized;
+}
+
+function resolveMaxRetries(maxRetries: number | undefined): number {
+  const resolved = maxRetries ?? DEFAULT_MAX_RETRIES;
+  if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_RETRY_BUDGET) {
+    throw new Error(`maxRetries must be an integer between 0 and ${MAX_RETRY_BUDGET}`);
+  }
+  return resolved;
 }
 
 async function findByIdempotencyKey(
   ctx: MutationCtx,
   idempotencyKey: string
 ): Promise<Id<'outbox_jobs'> | null> {
+  const normalized = requireIdempotencyKey(idempotencyKey);
   const existing = await ctx.db
     .query('outbox_jobs')
-    .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+    .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', normalized))
     .first();
   return existing?._id ?? null;
 }
@@ -45,7 +63,12 @@ export async function enqueueRoleSync(
     maxRetries?: number;
   }
 ): Promise<Id<'outbox_jobs'>> {
-  const existing = await findByIdempotencyKey(ctx, params.idempotencyKey);
+  const idempotencyKey = requireIdempotencyKey(params.idempotencyKey);
+  const maxRetries = resolveMaxRetries(params.maxRetries);
+  // Convex mutations use serializable optimistic concurrency. If another
+  // mutation inserts this indexed key before commit, this mutation is retried
+  // against the new value instead of committing a duplicate projection row.
+  const existing = await findByIdempotencyKey(ctx, idempotencyKey);
   if (existing) {
     return existing;
   }
@@ -61,11 +84,11 @@ export async function enqueueRoleSync(
       ...(params.targetGuildId ? { targetGuildId: params.targetGuildId } : {}),
     },
     status: 'pending',
-    idempotencyKey: params.idempotencyKey,
+    idempotencyKey,
     ...(params.targetGuildId ? { targetGuildId: params.targetGuildId } : {}),
     ...(params.discordUserId ? { targetDiscordUserId: params.discordUserId } : {}),
     retryCount: 0,
-    maxRetries: params.maxRetries ?? DEFAULT_MAX_RETRIES,
+    maxRetries,
     createdAt: now,
     updatedAt: now,
   });
@@ -105,7 +128,9 @@ export async function enqueueRoleRemoval(
     maxRetries?: number;
   }
 ): Promise<Id<'outbox_jobs'>> {
-  const existing = await findByIdempotencyKey(ctx, params.idempotencyKey);
+  const idempotencyKey = requireIdempotencyKey(params.idempotencyKey);
+  const maxRetries = resolveMaxRetries(params.maxRetries);
+  const existing = await findByIdempotencyKey(ctx, idempotencyKey);
   if (existing) {
     return existing;
   }
@@ -122,11 +147,11 @@ export async function enqueueRoleRemoval(
       ...(params.discordUserId ? { discordUserId: params.discordUserId } : {}),
     },
     status: 'pending',
-    idempotencyKey: params.idempotencyKey,
+    idempotencyKey,
     targetGuildId: params.guildId,
     ...(params.discordUserId ? { targetDiscordUserId: params.discordUserId } : {}),
     retryCount: 0,
-    maxRetries: params.maxRetries ?? DEFAULT_MAX_RETRIES,
+    maxRetries,
     createdAt: now,
     updatedAt: now,
   });

@@ -1577,3 +1577,19 @@ describe('subject ownership remediation', () => {
     });
   });
 });
+
+describe('role sync redrive migration', () => {
+  it('requires the Workpool rollout flag before redriving dead-lettered role jobs', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+    try {
+      const t = makeTestConvex();
+      await expect(
+        t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 })
+      ).rejects.toThrow(/ROLE_SYNC_VIA_WORKPOOL/);
+    } finally {
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+});

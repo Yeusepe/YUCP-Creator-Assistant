@@ -23,8 +23,12 @@ describe('Convex Infisical prod helpers', () => {
   });
 
   it('syncs role-sync Workpool config to Convex', async () => {
-    const syncConvexEnv = await readOpsFile('ops/sync-convex-env.ts');
+    const [syncConvexEnv, secretsTemplate] = await Promise.all([
+      readOpsFile('ops/sync-convex-env.ts'),
+      readOpsFile('ops/infisical/secrets.template.yaml'),
+    ]);
     expect(syncConvexEnv).toContain("'ROLE_SYNC_VIA_WORKPOOL'");
     expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
+    expect(secretsTemplate).toContain('ROLE_SYNC_VIA_WORKPOOL');
   });
 });

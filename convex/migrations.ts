@@ -1730,6 +1730,10 @@ export const redriveDeadLetterRoleSync = internalMutation({
     remaining: v.number(),
   }),
   handler: async (ctx, args) => {
+    if (process.env.ROLE_SYNC_VIA_WORKPOOL !== 'true') {
+      throw new Error('ROLE_SYNC_VIA_WORKPOOL must be enabled to redrive role sync jobs');
+    }
+
     const limit = Math.min(args.limit ?? 100, 500);
     const deadLetters = await ctx.db
       .query('outbox_jobs')

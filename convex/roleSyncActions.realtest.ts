@@ -105,6 +105,10 @@ describe('roleSyncActions.runRoleSync', () => {
     expect(result.targetGuildIds).toEqual([GUILD_ID]);
     const url = fetchFn.mock.calls[0]?.[0];
     expect(url).toContain(`/guilds/${GUILD_ID}/members/${DISCORD_USER}/roles/${ROLE_ID}`);
+    expect(fetchFn.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+    expect((fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>).Authorization).toBe(
+      'Bot test-bot-token'
+    );
   });
 
   it('throws (retriable) when the member is not in the guild yet (10007)', async () => {
@@ -174,7 +178,7 @@ describe('roleSyncActions.runRoleRemoval', () => {
   it('treats Unknown Member/Role as already-removed success (idempotent)', async () => {
     const t = makeTestConvex();
     const { subjectId, outboxJobId } = await seed(t, 'revoked');
-    mockFetch(404, { code: 10011, message: 'Unknown Role' });
+    const fetchFn = mockFetch(404, { code: 10011, message: 'Unknown Role' });
 
     const result = await t.action(internal.roleSyncActions.runRoleRemoval, {
       outboxJobId,
@@ -186,5 +190,6 @@ describe('roleSyncActions.runRoleRemoval', () => {
     });
 
     expect(result.success).toBe(true);
+    expect(fetchFn.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
   });
 });

@@ -1517,8 +1517,10 @@ async function emitRoleSyncJob(
   entitlementId: Id<'entitlements'>,
   _correlationId?: string
 ): Promise<Id<'outbox_jobs'>> {
-  // Get subject to find Discord user ID
   const subject = await ctx.db.get(subjectId);
+  if (!subject) {
+    throw new Error(`Subject not found: ${subjectId}`);
+  }
 
   const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
 
@@ -1526,7 +1528,7 @@ async function emitRoleSyncJob(
     authUserId,
     subjectId,
     entitlementId,
-    discordUserId: subject?.primaryDiscordUserId,
+    discordUserId: subject.primaryDiscordUserId,
     idempotencyKey,
   });
 }

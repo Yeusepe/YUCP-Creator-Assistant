@@ -166,7 +166,7 @@ export async function emitRoleSyncJob(
   discordUserId: string,
   entitlementId: Id<'entitlements'>
 ): Promise<void> {
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${Date.now()}`;
+  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
   await enqueueRoleSync(ctx, {
     authUserId,
     subjectId,
@@ -193,7 +193,7 @@ export async function emitRoleRemovalJobs(
 
   for (const rule of roleRules) {
     if (!rule.verifiedRoleId) continue;
-    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${Date.now()}`;
+    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${rule.verifiedRoleId}`;
     await enqueueRoleRemoval(ctx, {
       authUserId,
       subjectId,

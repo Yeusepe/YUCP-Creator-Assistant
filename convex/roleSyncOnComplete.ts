@@ -13,10 +13,48 @@
 
 import { vOnCompleteValidator } from '@convex-dev/workpool';
 import { v } from 'convex/values';
+import type { Id } from './_generated/dataModel';
 import { internalMutation } from './_generated/server';
 import type { RoleSyncActionResult } from './roleSyncActions';
 
 const NOTIFICATION_TTL_MS = 60_000;
+
+type RoleSyncPayload = {
+  subjectId?: Id<'subjects'>;
+  discordUserId?: string;
+};
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+function isRoleSyncActionResult(value: unknown): value is RoleSyncActionResult {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Partial<RoleSyncActionResult>;
+  return (
+    typeof candidate.success === 'boolean' &&
+    typeof candidate.guildId === 'string' &&
+    isStringArray(candidate.targetGuildIds) &&
+    typeof candidate.discordUserId === 'string' &&
+    isStringArray(candidate.rolesAdded) &&
+    isStringArray(candidate.rolesRemoved) &&
+    (candidate.error === undefined || typeof candidate.error === 'string') &&
+    (candidate.skipped === undefined || typeof candidate.skipped === 'boolean')
+  );
+}
+
+function readRoleSyncPayload(payload: unknown): RoleSyncPayload {
+  if (!payload || typeof payload !== 'object') {
+    return {};
+  }
+  const record = payload as Record<string, unknown>;
+  return {
+    subjectId: typeof record.subjectId === 'string' ? (record.subjectId as Id<'subjects'>) : undefined,
+    discordUserId: typeof record.discordUserId === 'string' ? record.discordUserId : undefined,
+  };
+}
 
 export const roleSyncCompleted = internalMutation({
   args: vOnCompleteValidator(
@@ -30,10 +68,18 @@ export const roleSyncCompleted = internalMutation({
       return;
     }
     const now = Date.now();
-    const payload = (job.payload ?? {}) as { subjectId?: string; discordUserId?: string };
+    const payload = readRoleSyncPayload(job.payload);
 
     if (result.kind === 'success') {
-      const r = result.returnValue as RoleSyncActionResult;
+      if (!isRoleSyncActionResult(result.returnValue)) {
+        await ctx.db.patch(context.outboxJobId, {
+          status: 'dead_letter',
+          updatedAt: now,
+          lastError: 'Invalid role sync action result',
+        });
+        return;
+      }
+      const r = result.returnValue;
 
       if (r.success) {
         await ctx.db.patch(context.outboxJobId, {
@@ -55,7 +101,7 @@ export const roleSyncCompleted = internalMutation({
               : 'discord.role.removal.completed',
           actorType: 'system',
           actorId: 'role-sync-workpool',
-          subjectId: payload.subjectId as never,
+          ...(payload.subjectId ? { subjectId: payload.subjectId } : {}),
           metadata: {
             jobId: context.outboxJobId,
             jobType: job.jobType,
