@@ -47,6 +47,17 @@ export interface RoleSyncActionResult {
   skipped?: boolean;
 }
 
+const roleSyncActionResultValidator = v.object({
+  success: v.boolean(),
+  guildId: v.string(),
+  targetGuildIds: v.array(v.string()),
+  discordUserId: v.string(),
+  rolesAdded: v.array(v.string()),
+  rolesRemoved: v.array(v.string()),
+  error: v.optional(v.string()),
+  skipped: v.optional(v.boolean()),
+});
+
 class RetriableRoleSyncError extends Error {}
 
 function botAuthHeaders(): Record<string, string> {
@@ -223,7 +234,7 @@ export const runRoleSync = internalAction({
     discordUserId: v.optional(v.string()),
     targetGuildId: v.optional(v.string()),
   },
-  returns: v.any(),
+  returns: roleSyncActionResultValidator,
   handler: async (ctx, args): Promise<RoleSyncActionResult> => {
     const discordUserId = args.discordUserId;
     if (!discordUserId) {
@@ -378,7 +389,7 @@ export const runRoleRemoval = internalAction({
     roleId: v.string(),
     discordUserId: v.optional(v.string()),
   },
-  returns: v.any(),
+  returns: roleSyncActionResultValidator,
   handler: async (ctx, args): Promise<RoleSyncActionResult> => {
     const discordUserId = args.discordUserId;
     if (!discordUserId) {

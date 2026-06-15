@@ -4,6 +4,13 @@ const queryMock = mock(async () => undefined);
 const mutationMock = mock(async () => undefined);
 const actionMock = mock(async () => undefined);
 const sendDashboardNotificationMock = mock(() => undefined);
+const loggerMock = {
+  child: mock(() => loggerMock),
+  debug: mock(() => undefined),
+  info: mock(() => undefined),
+  warn: mock(() => undefined),
+  error: mock(() => undefined),
+};
 
 mock.module('convex/browser', () => ({
   ConvexHttpClient: class {
@@ -14,16 +21,7 @@ mock.module('convex/browser', () => ({
 }));
 
 mock.module('@yucp/shared', () => ({
-  createStructuredLogger: () => {
-    const logger = {
-      child: mock(() => logger),
-      debug: mock(() => undefined),
-      info: mock(() => undefined),
-      warn: mock(() => undefined),
-      error: mock(() => undefined),
-    };
-    return logger;
-  },
+  createStructuredLogger: () => loggerMock,
 }));
 
 mock.module('../../src/lib/notifications', () => ({
@@ -130,6 +128,43 @@ describe('role sync service regressions', () => {
     mutationMock.mockReset();
     actionMock.mockReset();
     sendDashboardNotificationMock.mockReset();
+    loggerMock.child.mockReset();
+    loggerMock.debug.mockReset();
+    loggerMock.info.mockReset();
+    loggerMock.warn.mockReset();
+    loggerMock.error.mockReset();
+  });
+
+  it('logs Workpool polling mode once while excluding role jobs from bot polling', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    try {
+      const service = createService();
+      (queryMock as unknown as { mockResolvedValue(value: unknown): void }).mockResolvedValue([]);
+
+      await (
+        service as unknown as {
+          fetchPendingJobs: () => Promise<OutboxJob[]>;
+        }
+      ).fetchPendingJobs();
+      await (
+        service as unknown as {
+          fetchPendingJobs: () => Promise<OutboxJob[]>;
+        }
+      ).fetchPendingJobs();
+
+      const calls = queryMock.mock.calls as unknown as Array<[unknown, { jobTypes: string[] }]>;
+      expect(calls[0]?.[1].jobTypes).not.toContain('role_sync');
+      expect(calls[0]?.[1].jobTypes).not.toContain('role_removal');
+      expect(loggerMock.info).toHaveBeenCalledTimes(1);
+      expect(loggerMock.info).toHaveBeenCalledWith('Role sync polling mode selected', {
+        roleSyncViaWorkpool: true,
+        roleJobPolling: 'convex-workpool',
+      });
+    } finally {
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
   });
 
   it('dead-letters non-retriable role sync failures returned as job results', async () => {

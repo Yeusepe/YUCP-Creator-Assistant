@@ -77,6 +77,7 @@ export async function enqueueRoleSync(
   const outboxJobId = await ctx.db.insert('outbox_jobs', {
     authUserId: params.authUserId,
     jobType: 'role_sync',
+    // Payload fields are consumed by the Workpool action handler.
     payload: {
       subjectId: params.subjectId,
       entitlementId: params.entitlementId,
@@ -85,6 +86,7 @@ export async function enqueueRoleSync(
     },
     status: 'pending',
     idempotencyKey,
+    // Top-level targeting fields keep the legacy bot poller and UI projection normalized.
     ...(params.targetGuildId ? { targetGuildId: params.targetGuildId } : {}),
     ...(params.discordUserId ? { targetDiscordUserId: params.discordUserId } : {}),
     retryCount: 0,
@@ -139,6 +141,7 @@ export async function enqueueRoleRemoval(
   const outboxJobId = await ctx.db.insert('outbox_jobs', {
     authUserId: params.authUserId,
     jobType: 'role_removal',
+    // Payload fields are consumed by the Workpool action handler.
     payload: {
       subjectId: params.subjectId,
       ...(params.entitlementId ? { entitlementId: params.entitlementId } : {}),
@@ -148,6 +151,7 @@ export async function enqueueRoleRemoval(
     },
     status: 'pending',
     idempotencyKey,
+    // Top-level targeting fields keep the legacy bot poller and UI projection normalized.
     targetGuildId: params.guildId,
     ...(params.discordUserId ? { targetDiscordUserId: params.discordUserId } : {}),
     retryCount: 0,

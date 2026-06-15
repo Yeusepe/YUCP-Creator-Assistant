@@ -332,6 +332,7 @@ export class RoleSyncService {
   private readonly apiSecret: string;
   private readonly encryptionSecret?: string;
   private isRunning = false;
+  private lastLoggedRoleSyncViaWorkpool?: boolean;
   private pollIntervalMs: number;
 
   constructor(options: {
@@ -2093,6 +2094,13 @@ export class RoleSyncService {
             'setup_generate_plan',
             'verify_prompt_refresh',
           ];
+          if (this.lastLoggedRoleSyncViaWorkpool !== viaWorkpool) {
+            this.lastLoggedRoleSyncViaWorkpool = viaWorkpool;
+            this.logger.info('Role sync polling mode selected', {
+              roleSyncViaWorkpool: viaWorkpool,
+              roleJobPolling: viaWorkpool ? 'convex-workpool' : 'bot-poller',
+            });
+          }
           const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
             apiSecret: this.apiSecret,
             jobTypes,
