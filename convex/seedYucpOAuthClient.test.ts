@@ -3,6 +3,7 @@ import {
   buildUnityOAuthClientMetadata,
   getUnityOAuthClientDescriptors,
 } from './seedYucpOAuthClient';
+import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
 
 describe('buildUnityOAuthClientMetadata', () => {
   it('serializes Unity OAuth client metadata as a JSON string for Better Auth storage', () => {
@@ -40,5 +41,15 @@ describe('getUnityOAuthClientDescriptors', () => {
     expect(creatorClient?.scopes).toContain('cert:issue');
     expect(creatorClient?.scopes).toContain('profile:read');
     expect(creatorClient?.scopes).toContain('products:read');
+  });
+
+  it('keeps every Unity client scope registered with the Better Auth provider', () => {
+    const providerScopes = new Set<string>(OAUTH_PROVIDER_SCOPES);
+
+    for (const descriptor of getUnityOAuthClientDescriptors()) {
+      for (const scope of descriptor.scopes) {
+        expect(providerScopes.has(scope)).toBe(true);
+      }
+    }
   });
 });

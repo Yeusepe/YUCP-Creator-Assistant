@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createAuthOptions } from '../auth';
+import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 import { createSchemaAuthOptions } from './options';
 import { tables } from './schema';
 
@@ -64,6 +65,26 @@ describe('createSchemaAuthOptions', () => {
     expect(jwtPlugin?.options?.jwt?.issuer).toBe('https://example.convex.site/api/auth');
     expect(jwtPlugin?.options?.jwt?.audience).toBe('yucp-public-api');
     expect(convexPlugin).toBeDefined();
+  });
+
+  it('registers refresh-token OAuth scopes in runtime and schema auth options', () => {
+    const schemaOptions = createSchemaAuthOptions();
+    const runtimeOptions = createAuthOptions({} as never);
+
+    for (const options of [schemaOptions, runtimeOptions]) {
+      const oauthPlugin = options.plugins?.find((plugin) => plugin.id === 'oauth-provider') as
+        | {
+            options?: {
+              grantTypes?: readonly string[];
+              scopes?: readonly string[];
+            };
+          }
+        | undefined;
+
+      expect(oauthPlugin?.options?.scopes).toEqual([...OAUTH_PROVIDER_SCOPES]);
+      expect(oauthPlugin?.options?.scopes).toContain('offline_access');
+      expect(oauthPlugin?.options?.grantTypes).toContain('refresh_token');
+    }
   });
 
   it('adds the Polar billing plugin when certificate billing env is configured', () => {

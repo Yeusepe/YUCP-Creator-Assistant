@@ -12,6 +12,7 @@ import type * as adapter from "../adapter.js";
 import type * as auth from "../auth.js";
 import type * as jwks from "../jwks.js";
 import type * as jwtAdapter from "../jwtAdapter.js";
+import type * as oauthProviderScopes from "../oauthProviderScopes.js";
 import type * as options from "../options.js";
 
 import type {
@@ -26,6 +27,7 @@ const fullApi: ApiFromModules<{
   auth: typeof auth;
   jwks: typeof jwks;
   jwtAdapter: typeof jwtAdapter;
+  oauthProviderScopes: typeof oauthProviderScopes;
   options: typeof options;
 }> = anyApi as any;
 

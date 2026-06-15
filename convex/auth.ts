@@ -22,7 +22,6 @@ import {
   PUBLIC_API_AUDIENCE,
   PUBLIC_API_KEY_PERMISSION_NAMESPACE,
   PUBLIC_API_KEY_PREFIX,
-  PUBLIC_API_SCOPES,
   verifyRecoveryPasskeyContext,
 } from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth';
@@ -32,6 +31,7 @@ import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
+import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
 import authSchema from './betterAuth/schema';
 import { BETTER_AUTH_BACKUP_CODE_OPTIONS } from './lib/accountSecurityConfig';
 import { sendEmailOtpEmail } from './lib/accountSecurityEmail';
@@ -309,7 +309,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       oauthProvider({
         loginPage: `${siteUrl.replace(/\/$/, '')}/oauth/login`,
         consentPage: `${siteUrl.replace(/\/$/, '')}/oauth/consent`,
-        scopes: [...PUBLIC_API_SCOPES],
+        scopes: [...OAUTH_PROVIDER_SCOPES],
         validAudiences: [PUBLIC_API_AUDIENCE],
         cachedTrustedClients,
         allowDynamicClientRegistration: false,
