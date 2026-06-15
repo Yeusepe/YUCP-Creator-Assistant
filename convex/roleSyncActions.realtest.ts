@@ -10,19 +10,27 @@ const ROLE_ID = 'role-action-test';
 
 async function seed(
   t: ReturnType<typeof makeTestConvex>,
-  entitlementStatus: 'active' | 'revoked' = 'active'
+  entitlementStatus: 'active' | 'revoked' = 'active',
+  overrides?: {
+    discordUserId?: string;
+    guildId?: string;
+    roleId?: string;
+  }
 ) {
   const now = Date.now();
+  const discordUserId = overrides?.discordUserId ?? DISCORD_USER;
+  const guildId = overrides?.guildId ?? GUILD_ID;
+  const roleId = overrides?.roleId ?? ROLE_ID;
   return t.run(async (ctx) => {
     const subjectId = await ctx.db.insert('subjects', {
-      primaryDiscordUserId: DISCORD_USER,
+      primaryDiscordUserId: discordUserId,
       status: 'active',
       createdAt: now,
       updatedAt: now,
     });
     const guildLinkId = await ctx.db.insert('guild_links', {
       authUserId: AUTH_USER,
-      discordGuildId: GUILD_ID,
+      discordGuildId: guildId,
       installedByAuthUserId: AUTH_USER,
       botPresent: true,
       status: 'active',
@@ -41,10 +49,10 @@ async function seed(
     });
     await ctx.db.insert('role_rules', {
       authUserId: AUTH_USER,
-      guildId: GUILD_ID,
+      guildId,
       guildLinkId,
       productId: PRODUCT_ID,
-      verifiedRoleId: ROLE_ID,
+      verifiedRoleId: roleId,
       removeOnRevoke: true,
       priority: 0,
       enabled: true,
@@ -54,7 +62,7 @@ async function seed(
     const outboxJobId = await ctx.db.insert('outbox_jobs', {
       authUserId: AUTH_USER,
       jobType: 'role_sync',
-      payload: { subjectId, entitlementId, discordUserId: DISCORD_USER },
+      payload: { subjectId, entitlementId, discordUserId },
       status: 'pending',
       idempotencyKey: `action-test-${now}`,
       retryCount: 0,
@@ -108,6 +116,31 @@ describe('roleSyncActions.runRoleSync', () => {
     expect(fetchFn.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect((fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>).Authorization).toBe(
       'Bot test-bot-token'
+    );
+  });
+
+  it('URL-encodes Discord role path params before calling the API', async () => {
+    const t = makeTestConvex();
+    const discordUserId = 'discord/action user';
+    const guildId = 'guild/action test';
+    const roleId = 'role/action test';
+    const { subjectId, entitlementId, outboxJobId } = await seed(t, 'active', {
+      discordUserId,
+      guildId,
+      roleId,
+    });
+    const fetchFn = mockFetch(204);
+
+    await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId,
+    });
+
+    expect(fetchFn.mock.calls[0]?.[0]).toContain(
+      `/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`
     );
   });
 
@@ -191,5 +224,31 @@ describe('roleSyncActions.runRoleRemoval', () => {
 
     expect(result.success).toBe(true);
     expect(fetchFn.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('URL-encodes Discord role removal path params before calling the API', async () => {
+    const t = makeTestConvex();
+    const discordUserId = 'discord/remove user';
+    const guildId = 'guild/remove test';
+    const roleId = 'role/remove test';
+    const { subjectId, outboxJobId } = await seed(t, 'revoked', {
+      discordUserId,
+      guildId,
+      roleId,
+    });
+    const fetchFn = mockFetch(204);
+
+    await t.action(internal.roleSyncActions.runRoleRemoval, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      guildId,
+      roleId,
+      discordUserId,
+    });
+
+    expect(fetchFn.mock.calls[0]?.[0]).toContain(
+      `/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`
+    );
   });
 });

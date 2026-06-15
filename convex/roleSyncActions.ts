@@ -97,6 +97,12 @@ async function fetchDiscord(url: string, init: RequestInit): Promise<Response> {
   });
 }
 
+function discordRoleUrl(guildId: string, discordUserId: string, roleId: string): string {
+  return `${DISCORD_API_BASE}/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(
+    discordUserId
+  )}/roles/${encodeURIComponent(roleId)}`;
+}
+
 /**
  * Idempotent role add. PUT returns 204 whether or not the member already had the
  * role. Returns { added } on success, { error, retriable } on failure.
@@ -108,13 +114,10 @@ async function addRoleToMember(
 ): Promise<{ added: boolean; error?: string; retriable?: boolean }> {
   let res: Response;
   try {
-    res = await fetchDiscord(
-      `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
-      {
-        method: 'PUT',
-        headers: { ...botAuthHeaders(), 'X-Audit-Log-Reason': 'Entitlement sync - role granted' },
-      }
-    );
+    res = await fetchDiscord(discordRoleUrl(guildId, discordUserId, roleId), {
+      method: 'PUT',
+      headers: { ...botAuthHeaders(), 'X-Audit-Log-Reason': 'Entitlement sync - role granted' },
+    });
   } catch (err) {
     if (isAbortError(err)) {
       return { added: false, retriable: true, error: 'Discord API request timed out' };
@@ -174,16 +177,13 @@ async function removeRoleFromMember(
 ): Promise<{ removed: boolean; error?: string; retriable?: boolean }> {
   let res: Response;
   try {
-    res = await fetchDiscord(
-      `${DISCORD_API_BASE}/guilds/${guildId}/members/${discordUserId}/roles/${roleId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          ...botAuthHeaders(),
-          'X-Audit-Log-Reason': 'Entitlement revoked - role removed',
-        },
-      }
-    );
+    res = await fetchDiscord(discordRoleUrl(guildId, discordUserId, roleId), {
+      method: 'DELETE',
+      headers: {
+        ...botAuthHeaders(),
+        'X-Audit-Log-Reason': 'Entitlement revoked - role removed',
+      },
+    });
   } catch (err) {
     if (isAbortError(err)) {
       return { removed: false, retriable: true, error: 'Discord API request timed out' };

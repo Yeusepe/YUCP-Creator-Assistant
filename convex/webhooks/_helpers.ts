@@ -192,7 +192,16 @@ export async function emitRoleRemovalJobs(
     .collect();
 
   for (const rule of roleRules) {
-    if (!rule.verifiedRoleId) continue;
+    if (!rule.verifiedRoleId) {
+      console.warn('[convex] Skipping role removal for misconfigured role rule', {
+        roleRuleId: rule._id,
+        authUserId,
+        guildId: rule.guildId,
+        productId,
+        reason: 'missing_verified_role_id',
+      });
+      continue;
+    }
     const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${rule.verifiedRoleId}`;
     await enqueueRoleRemoval(ctx, {
       authUserId,

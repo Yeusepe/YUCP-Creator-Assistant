@@ -182,4 +182,54 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.jobType).toBe('role_removal');
   });
+
+  it('warns and skips role removal rules missing a verified role id', async () => {
+    const t = makeTestConvex();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const authUserId = 'auth-webhook-misconfigured-removal';
+    const subjectId = 'subject-webhook-misconfigured-removal' as Id<'subjects'>;
+    const productId = 'product-webhook-misconfigured-removal';
+    const guildId = 'guild-webhook-misconfigured-removal';
+    const now = 1_000;
+
+    await t.run(async (ctx) => {
+      const guildLinkId = await ctx.db.insert('guild_links', {
+        authUserId,
+        discordGuildId: guildId,
+        installedByAuthUserId: authUserId,
+        botPresent: true,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId,
+        verifiedRoleId: '',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    await t.run(async (ctx) =>
+      emitRoleRemovalJobs(ctx, authUserId, subjectId, productId, 'discord-webhook-removal')
+    );
+
+    const rows = await t.run(async (ctx) => ctx.db.query('outbox_jobs').collect());
+    expect(rows).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[convex] Skipping role removal for misconfigured role rule',
+      expect.objectContaining({
+        authUserId,
+        guildId,
+        productId,
+        reason: 'missing_verified_role_id',
+      })
+    );
+  });
 });

@@ -20,6 +20,7 @@ export const CONVEX_ENV_VARS = [
   'DISCORD_CLIENT_ID',
   'DISCORD_CLIENT_SECRET',
   // Role-sync Workpool actions call the Discord REST API directly from Convex.
+  // DISCORD_BOT_TOKEN is sensitive: it grants bot authentication to Discord's API.
   'ROLE_SYNC_VIA_WORKPOOL',
   'DISCORD_BOT_TOKEN',
   'FRONTEND_URL',
