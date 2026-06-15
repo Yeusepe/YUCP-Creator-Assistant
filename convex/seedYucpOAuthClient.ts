@@ -20,10 +20,20 @@ import { components } from './_generated/api';
 import { internalMutation } from './_generated/server';
 import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
 
+// `offline_access` is the standard OIDC scope that makes Better Auth issue a
+// refresh token.
+// References:
+// - https://better-auth.com/docs/plugins/oauth-provider
+// - https://openid.net/specs/openid-connect-basic-1_0.html#Scopes
+// It is not a YUCP public-API scope, so the descriptor type widens to allow it.
+// The provider already supports it globally and rotates refresh tokens on use;
+// adding it to the client's allow-list is all that's required to enable refresh.
+type UnityOAuthClientScope = PublicApiScope | 'offline_access';
+
 type UnityOAuthClientDescriptor = {
   clientId: string;
   name: string;
-  scopes: PublicApiScope[];
+  scopes: UnityOAuthClientScope[];
   authDomain: 'user' | 'creator';
 };
 
@@ -31,13 +41,13 @@ const UNITY_NATIVE_OAUTH_CLIENTS: readonly UnityOAuthClientDescriptor[] = [
   {
     clientId: 'yucp-unity-user',
     name: 'YUCP Unity User',
-    scopes: ['verification:read', 'products:read'],
+    scopes: ['verification:read', 'products:read', 'offline_access'],
     authDomain: 'user',
   },
   {
     clientId: 'yucp-unity-creator',
     name: 'YUCP Unity Creator',
-    scopes: ['cert:issue', 'profile:read'],
+    scopes: ['cert:issue', 'profile:read', 'products:read', 'offline_access'],
     authDomain: 'creator',
   },
 ] as const;

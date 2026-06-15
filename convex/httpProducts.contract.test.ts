@@ -17,6 +17,10 @@ describe('/v1/products fast path contract', () => {
     expect(httpSource).toContain("name: 'total'");
   });
 
+  it('requires the catalog read scope instead of certificate issuance scope', () => {
+    expect(httpSource).toContain("verifyOAuthToken(token, siteUrl, 'products:read')");
+  });
+
   it('imports Convex polyfills before using runtime timing APIs in the HTTP router', () => {
     expect(httpSource).toContain("import './polyfills';");
   });

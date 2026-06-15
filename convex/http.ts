@@ -776,7 +776,7 @@ http.route({
     if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
 
     const authStart = performance.now();
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const tokenResult = await verifyOAuthToken(token, siteUrl, 'products:read');
     const authDuration = performance.now() - authStart;
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'products-list', {

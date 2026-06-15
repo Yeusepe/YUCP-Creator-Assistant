@@ -23,6 +23,11 @@ describe('yucpTrust', () => {
       algorithm: 'Ed25519',
       publicKeyBase64: 'y+8Zs9/mS1MFZFeF4CFjwqe0nsLW8lCcwmyvBx6H0Zo=',
     });
+    expect(getPinnedYucpRootByKeyId('CREATOR-TOOLING-2026')).toEqual({
+      keyId: 'CREATOR-TOOLING-2026',
+      algorithm: 'Ed25519',
+      publicKeyBase64: 'SQF9r3TkKGwwQ6jGLBOABnq3UeOcHayQS3WbEJeUhnc=',
+    });
   });
 
   it('can swap in deterministic fixture roots for tests without mutating production defaults', () => {

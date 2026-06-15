@@ -31,4 +31,14 @@ describe('getUnityOAuthClientDescriptors', () => {
     expect(userClient?.scopes).toContain('verification:read');
     expect(userClient?.scopes).toContain('products:read');
   });
+
+  it('allows the Unity creator tools to read product catalog entries', () => {
+    const creatorClient = getUnityOAuthClientDescriptors().find(
+      (client) => client.clientId === 'yucp-unity-creator'
+    );
+
+    expect(creatorClient?.scopes).toContain('cert:issue');
+    expect(creatorClient?.scopes).toContain('profile:read');
+    expect(creatorClient?.scopes).toContain('products:read');
+  });
 });
