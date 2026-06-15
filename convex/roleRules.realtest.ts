@@ -400,6 +400,29 @@ describe('role rules CRUD and isolation', () => {
     expect(rule?.verifiedRoleIds).toBeUndefined();
   });
 
+  it('normalizes duplicate verified role ids before storing role rules', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-role-dedupe',
+      discordGuildId: 'guild-role-dedupe',
+    });
+
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-role-dedupe',
+      guildId: 'guild-role-dedupe',
+      guildLinkId,
+      productId: 'prod-role-dedupe',
+      verifiedRoleIds: ['role-dedupe-primary', 'role-dedupe-primary', 'role-dedupe-secondary'],
+    });
+
+    const rule = await t.run(async (ctx) => ctx.db.get(ruleId));
+
+    expect(rule?.verifiedRoleId).toBe('role-dedupe-primary');
+    expect(rule?.verifiedRoleIds).toEqual(['role-dedupe-primary', 'role-dedupe-secondary']);
+  });
+
   it('rejects discord cross-server rules that grant too many verified roles', async () => {
     const t = makeTestConvex();
 

@@ -227,6 +227,30 @@ describe('roleSyncActions.runRoleSync', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it('dedupes repeated verified role ids before calling Discord', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, roleRuleId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(roleRuleId, {
+        verifiedRoleId: 'role-duplicate-a',
+        verifiedRoleIds: ['role-duplicate-a', 'role-duplicate-a', 'role-duplicate-b'],
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(['role-duplicate-a', 'role-duplicate-b']);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it('rejects role sync jobs with too many Discord role operations before calling Discord', async () => {
     const t = makeTestConvex();
     const { subjectId, entitlementId, outboxJobId } = await seed(t);

@@ -11,7 +11,15 @@ interface VerifiedRoleIdInput {
 }
 
 export function getConfiguredVerifiedRoleIds(input: VerifiedRoleIdInput): string[] {
-  return input.verifiedRoleIds ?? (input.verifiedRoleId ? [input.verifiedRoleId] : []);
+  const roleIds = input.verifiedRoleIds ?? (input.verifiedRoleId ? [input.verifiedRoleId] : []);
+  const seen = new Set<string>();
+  return roleIds.filter((roleId) => {
+    if (seen.has(roleId)) {
+      return false;
+    }
+    seen.add(roleId);
+    return true;
+  });
 }
 
 export function assertWritableVerifiedRoleIds(roleIds: string[]): void {
