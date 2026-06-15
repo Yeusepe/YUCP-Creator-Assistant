@@ -100,7 +100,7 @@ async function projectCanonicalEntitlement(
     !discordUserId.startsWith('jinxxy:') &&
     !discordUserId.startsWith('lemonsqueezy:')
   ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId);
+    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, now);
   }
 }
 
@@ -137,7 +137,15 @@ async function revokeCanonicalEntitlementBySource(
     !discordUserId.startsWith('jinxxy:') &&
     !discordUserId.startsWith('lemonsqueezy:')
   ) {
-    await emitRoleRemovalJobs(ctx, authUserId, subjectId, entitlement.productId, discordUserId);
+    await emitRoleRemovalJobs(
+      ctx,
+      authUserId,
+      subjectId,
+      entitlement.productId,
+      discordUserId,
+      entitlement._id,
+      now
+    );
   }
 }
 

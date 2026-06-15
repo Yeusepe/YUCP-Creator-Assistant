@@ -7,7 +7,9 @@ import {
   emitRoleSyncJob,
   projectEntitlementFromPurchaseFact,
   revokeEntitlementForPurchaseFact,
+  sha256Hex,
 } from './webhooks/_helpers';
+import { processLemonEvent } from './webhooks/lemonsqueezy';
 
 describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
   const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
@@ -21,6 +23,105 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
     else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
   });
+
+  async function seedLemonBuyer(
+    t: ReturnType<typeof makeTestConvex>,
+    params: {
+      authUserId: string;
+      email: string;
+      discordUserId: string;
+    }
+  ) {
+    const subjectId = await seedSubject(t, {
+      authUserId: params.authUserId,
+      primaryDiscordUserId: params.discordUserId,
+    });
+    const emailHash = await sha256Hex(params.email);
+    const providerConnectionId = await t.run(async (ctx) => {
+      const externalAccountId = await ctx.db.insert('external_accounts', {
+        provider: 'lemonsqueezy',
+        providerUserId: `lemon-buyer-${params.discordUserId}`,
+        emailHash,
+        status: 'active',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+      await ctx.db.insert('bindings', {
+        authUserId: params.authUserId,
+        subjectId,
+        externalAccountId,
+        bindingType: 'verification',
+        status: 'active',
+        version: 1,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+      return await ctx.db.insert('provider_connections', {
+        authUserId: params.authUserId,
+        provider: 'lemonsqueezy',
+        providerKey: 'lemonsqueezy',
+        status: 'active',
+        webhookConfigured: true,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+    });
+    return { subjectId, providerConnectionId };
+  }
+
+  function lemonOrderPayload(params: {
+    orderId: string;
+    email: string;
+    variantId: string;
+    eventName: string;
+    refunded?: boolean;
+  }) {
+    return {
+      meta: { event_name: params.eventName },
+      data: {
+        id: params.orderId,
+        attributes: {
+          user_email: params.email,
+          first_order_item: {
+            id: `item-${params.orderId}`,
+            variant_id: params.variantId,
+            product_id: `product-${params.variantId}`,
+          },
+          created_at: '2026-06-15T00:00:00.000Z',
+          refunded: params.refunded,
+          refunded_at: params.refunded ? '2026-06-15T00:00:00.000Z' : undefined,
+        },
+      },
+    };
+  }
+
+  async function seedLemonWebhookEvent(
+    t: ReturnType<typeof makeTestConvex>,
+    params: {
+      authUserId: string;
+      providerConnectionId: Id<'provider_connections'>;
+      providerEventId: string;
+      eventType: string;
+      payload: Record<string, unknown>;
+    }
+  ): Promise<Id<'webhook_events'>> {
+    return await t.run(async (ctx) =>
+      ctx.db.insert('webhook_events', {
+        provider: 'lemonsqueezy',
+        providerKey: 'lemonsqueezy',
+        providerConnectionId: params.providerConnectionId,
+        providerEventId: params.providerEventId,
+        eventType: params.eventType,
+        rawPayload: params.payload,
+        signatureValid: true,
+        verificationMethod: 'hmac',
+        authenticated: true,
+        status: 'pending',
+        authUserId: params.authUserId,
+        receivedAt: 1_000,
+      })
+    );
+  }
 
   it('inserts one row and dedupes a repeat enqueue with the same idempotency key', async () => {
     const t = makeTestConvex();
@@ -238,6 +339,95 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     );
   });
 
+  it('enqueues fresh Lemon grant work when an obsolete pending row uses the previous lifecycle key', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-lemon-sync-stale-pending';
+    const email = 'lemon-sync-stale@example.com';
+    const discordUserId = 'discord-lemon-sync-stale-pending';
+    const variantId = 'variant-lemon-sync-stale-pending';
+    const sourceReference = 'lemonsqueezy:order:order-lemon-sync-stale-pending';
+    const { subjectId, providerConnectionId } = await seedLemonBuyer(t, {
+      authUserId,
+      email,
+      discordUserId,
+    });
+
+    const { entitlementId, staleOutboxJobId } = await t.run(async (ctx) => {
+      const insertedEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: variantId,
+        sourceProvider: 'lemonsqueezy',
+        sourceReference,
+        status: 'revoked',
+        policySnapshotVersion: 1,
+        grantedAt: 1_000,
+        revokedAt: 2_000,
+        updatedAt: 2_000,
+      });
+      const insertedStaleOutboxJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId,
+        jobType: 'role_sync',
+        payload: {
+          subjectId,
+          entitlementId: insertedEntitlementId,
+          discordUserId,
+        },
+        status: 'pending',
+        idempotencyKey: `role_sync:${authUserId}:${subjectId}:${insertedEntitlementId}`,
+        targetDiscordUserId: discordUserId,
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: 1_500,
+        updatedAt: 1_500,
+      });
+      return { entitlementId: insertedEntitlementId, staleOutboxJobId: insertedStaleOutboxJobId };
+    });
+
+    const payload = lemonOrderPayload({
+      orderId: 'order-lemon-sync-stale-pending',
+      email,
+      variantId,
+      eventName: 'order_created',
+    });
+    const webhookEventId = await seedLemonWebhookEvent(t, {
+      authUserId,
+      providerConnectionId,
+      providerEventId: 'order-lemon-sync-stale-pending:order_created',
+      eventType: 'order_created',
+      payload,
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    await t.run(async (ctx) =>
+      processLemonEvent(
+        ctx,
+        authUserId,
+        {
+          _id: webhookEventId,
+          providerConnectionId,
+          eventType: 'order_created',
+        },
+        payload
+      )
+    );
+
+    const roleSyncRows = await t.run(async (ctx) =>
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_sync')
+        )
+        .collect()
+    );
+    const freshRow = roleSyncRows.find((row) => row._id !== staleOutboxJobId);
+
+    expect(roleSyncRows).toHaveLength(2);
+    expect(freshRow?.idempotencyKey).toBe(
+      `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:3000`
+    );
+  });
+
   it('dedupes repeated webhook role removal emissions for the same role rule', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-webhook-removal';
@@ -400,6 +590,124 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(roleRemovalRows).toHaveLength(2);
     expect(freshRow?.idempotencyKey).toBe(
       `role_removal:${authUserId}:${subjectId}:${guildId}:${productId}:${roleId}:${entitlementId}:revoke:3000`
+    );
+  });
+
+  it('enqueues fresh Lemon removal work with entitlement guard when an obsolete pending row uses the previous lifecycle key', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-lemon-removal-stale-pending';
+    const email = 'lemon-removal-stale@example.com';
+    const discordUserId = 'discord-lemon-removal-stale-pending';
+    const variantId = 'variant-lemon-removal-stale-pending';
+    const sourceReference = 'lemonsqueezy:order:order-lemon-removal-stale-pending';
+    const guildId = 'guild-lemon-removal-stale-pending';
+    const roleId = 'role-lemon-removal-stale-pending';
+    const { subjectId, providerConnectionId } = await seedLemonBuyer(t, {
+      authUserId,
+      email,
+      discordUserId,
+    });
+
+    const { entitlementId, staleOutboxJobId } = await t.run(async (ctx) => {
+      const guildLinkId = await ctx.db.insert('guild_links', {
+        authUserId,
+        discordGuildId: guildId,
+        installedByAuthUserId: authUserId,
+        botPresent: true,
+        status: 'active',
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId: variantId,
+        verifiedRoleId: roleId,
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      });
+      const insertedEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: variantId,
+        sourceProvider: 'lemonsqueezy',
+        sourceReference,
+        status: 'active',
+        policySnapshotVersion: 1,
+        grantedAt: 1_000,
+        updatedAt: 1_000,
+      });
+      const insertedStaleOutboxJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId,
+        jobType: 'role_removal',
+        payload: {
+          subjectId,
+          entitlementId: insertedEntitlementId,
+          guildId,
+          roleId,
+          discordUserId,
+        },
+        status: 'pending',
+        idempotencyKey: `role_removal:${authUserId}:${subjectId}:${guildId}:${variantId}:${roleId}`,
+        targetGuildId: guildId,
+        targetDiscordUserId: discordUserId,
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: 1_500,
+        updatedAt: 1_500,
+      });
+      return { entitlementId: insertedEntitlementId, staleOutboxJobId: insertedStaleOutboxJobId };
+    });
+
+    const payload = lemonOrderPayload({
+      orderId: 'order-lemon-removal-stale-pending',
+      email,
+      variantId,
+      eventName: 'order_refunded',
+      refunded: true,
+    });
+    const webhookEventId = await seedLemonWebhookEvent(t, {
+      authUserId,
+      providerConnectionId,
+      providerEventId: 'order-lemon-removal-stale-pending:order_refunded',
+      eventType: 'order_refunded',
+      payload,
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    await t.run(async (ctx) =>
+      processLemonEvent(
+        ctx,
+        authUserId,
+        {
+          _id: webhookEventId,
+          providerConnectionId,
+          eventType: 'order_refunded',
+        },
+        payload
+      )
+    );
+
+    const roleRemovalRows = await t.run(async (ctx) =>
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect()
+    );
+    const freshRow = roleRemovalRows.find((row) => row._id !== staleOutboxJobId);
+
+    expect(roleRemovalRows).toHaveLength(2);
+    expect(freshRow?.idempotencyKey).toBe(
+      `role_removal:${authUserId}:${subjectId}:${guildId}:${variantId}:${roleId}:${entitlementId}:revoke:3000`
+    );
+    expect((freshRow?.payload as { entitlementId?: string } | undefined)?.entitlementId).toBe(
+      entitlementId
     );
   });
 
