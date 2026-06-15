@@ -329,7 +329,7 @@ export const issueCertificate = internalAction({
     if (!rootPrivateKey) throw new Error('YUCP_ROOT_PRIVATE_KEY not configured');
     const signingRoot = await resolvePinnedYucpSigningRoot(
       rootPrivateKey,
-      process.env.YUCP_KEY_ID ?? process.env.YUCP_ROOT_KEY_ID ?? null
+      process.env.YUCP_ROOT_KEY_ID ?? process.env.YUCP_KEY_ID ?? null
     );
 
     // Rate limit: same-key renewals (same machine) are always free.

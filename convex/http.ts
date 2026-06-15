@@ -1181,7 +1181,12 @@ http.route({
       const raw = err instanceof Error ? err.message : '';
       // Sanitize Convex-wrapped errors, never expose stack traces or internal paths.
       // Map known failure modes to appropriate HTTP status codes.
-      if (raw.includes('not configured') || raw.includes('not set')) {
+      if (
+        raw.includes('not configured') ||
+        raw.includes('not set') ||
+        raw.includes('configured YUCP trust root') ||
+        raw.includes('active trust bundle')
+      ) {
         return errorResponse('Certificate service is not available', 503);
       }
       if (raw.includes('Rate limit')) {
