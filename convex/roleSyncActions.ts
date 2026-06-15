@@ -17,7 +17,8 @@
 
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { internalAction } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { type ActionCtx, internalAction } from './_generated/server';
 import {
   getConfiguredVerifiedRoleIds,
   MAX_ROLE_SYNC_DISCORD_OPERATIONS_PER_JOB,
@@ -223,6 +224,36 @@ async function removeRoleFromMember(
     return { removed: false, retriable: true, error: `Discord error: ${message}` };
   }
   return { removed: false, error: `Discord error: ${message}` };
+}
+
+async function runDiscordRoleRemoval(
+  ctx: Pick<ActionCtx, 'runMutation'>,
+  args: {
+    outboxJobId: Id<'outbox_jobs'>;
+    guildId: string;
+    roleId: string;
+  },
+  discordUserId: string
+): Promise<RoleSyncActionResult> {
+  const result = await removeRoleFromMember(args.guildId, discordUserId, args.roleId);
+  if (!result.removed && result.retriable) {
+    await ctx.runMutation(internal.roleSyncOnComplete.recordRoleSyncAttemptContext, {
+      outboxJobId: args.outboxJobId,
+      targetGuildIds: [args.guildId],
+      lastError: result.error,
+    });
+    throw new RetriableRoleSyncError(result.error ?? 'Role removal transient failure');
+  }
+
+  return {
+    success: result.removed,
+    guildId: args.guildId,
+    targetGuildIds: [args.guildId],
+    discordUserId,
+    rolesAdded: [],
+    rolesRemoved: result.removed ? [args.roleId] : [],
+    error: result.error,
+  };
 }
 
 export const runRoleSync = internalAction({
@@ -451,8 +482,9 @@ export const runRoleRemoval = internalAction({
       };
     }
 
-    // Grant-then-revoke ordering guard: if the entitlement is active again, the
-    // role should stay. Skip the removal.
+    // Grant-then-revoke ordering guard: if the entitlement is active again for
+    // the same Discord identity, the role should stay. A queued removal for a
+    // previous Discord account still has to run after reconnect.
     if (args.entitlementId) {
       const entitlement = await ctx.runQuery(internal.entitlements.getEntitlementInternal, {
         entitlementId: args.entitlementId,
@@ -469,6 +501,12 @@ export const runRoleRemoval = internalAction({
         };
       }
       if (entitlement && entitlement.status === 'active') {
+        const subject = await ctx.runQuery(internal.subjects.getSubjectIdentityById, {
+          subjectId: args.subjectId,
+        });
+        if (subject?.primaryDiscordUserId !== discordUserId) {
+          return await runDiscordRoleRemoval(ctx, args, discordUserId);
+        }
         return {
           success: true,
           skipped: true,
@@ -482,24 +520,6 @@ export const runRoleRemoval = internalAction({
       }
     }
 
-    const result = await removeRoleFromMember(args.guildId, discordUserId, args.roleId);
-    if (!result.removed && result.retriable) {
-      await ctx.runMutation(internal.roleSyncOnComplete.recordRoleSyncAttemptContext, {
-        outboxJobId: args.outboxJobId,
-        targetGuildIds: [args.guildId],
-        lastError: result.error,
-      });
-      throw new RetriableRoleSyncError(result.error ?? 'Role removal transient failure');
-    }
-
-    return {
-      success: result.removed,
-      guildId: args.guildId,
-      targetGuildIds: [args.guildId],
-      discordUserId,
-      rolesAdded: [],
-      rolesRemoved: result.removed ? [args.roleId] : [],
-      error: result.error,
-    };
+    return await runDiscordRoleRemoval(ctx, args, discordUserId);
   },
 });

@@ -406,4 +406,31 @@ describe('roleSyncActions.runRoleRemoval', () => {
     expect(result.error).toMatch(/Entitlement\/authUser mismatch/);
     expect(fetchFn).not.toHaveBeenCalled();
   });
+
+  it('removes stale roles from the queued Discord user after the subject reconnects', async () => {
+    const t = makeTestConvex();
+    const oldDiscordUserId = 'discord-action-old-user';
+    const newDiscordUserId = 'discord-action-new-user';
+    const { subjectId, entitlementId, outboxJobId } = await seed(t, 'active', {
+      discordUserId: newDiscordUserId,
+    });
+    const fetchFn = mockFetch(204);
+
+    const result = await t.action(internal.roleSyncActions.runRoleRemoval, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      guildId: GUILD_ID,
+      roleId: ROLE_ID,
+      discordUserId: oldDiscordUserId,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.rolesRemoved).toEqual([ROLE_ID]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]?.[0]).toContain(
+      `/members/${encodeURIComponent(oldDiscordUserId)}/roles/`
+    );
+  });
 });

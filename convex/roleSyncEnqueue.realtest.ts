@@ -95,6 +95,28 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     };
   }
 
+  function lemonSubscriptionPayload(params: {
+    subscriptionId: string;
+    email: string;
+    variantId: number;
+    eventName: string;
+    createdAt: string;
+  }) {
+    return {
+      meta: { event_name: params.eventName },
+      data: {
+        id: params.subscriptionId,
+        attributes: {
+          user_email: params.email,
+          variant_id: params.variantId,
+          product_id: params.variantId,
+          status: 'active',
+          created_at: params.createdAt,
+        },
+      },
+    };
+  }
+
   async function seedLemonWebhookEvent(
     t: ReturnType<typeof makeTestConvex>,
     params: {
@@ -425,6 +447,96 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(roleSyncRows).toHaveLength(2);
     expect(freshRow?.idempotencyKey).toBe(
       `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:${Date.parse('2026-06-15T00:00:00.000Z')}`
+    );
+  });
+
+  it('enqueues fresh Lemon subscription grant work using the webhook observation time', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-lemon-subscription-sync-observed-at';
+    const email = 'lemon-subscription-sync-observed-at@example.test';
+    const discordUserId = 'discord-lemon-subscription-sync-observed-at';
+    const variantId = 942;
+    const subscriptionId = 'sub-lemon-sync-observed-at';
+    const subscriptionStartedAt = '2026-01-01T00:00:00.000Z';
+    const { subjectId, providerConnectionId } = await seedLemonBuyer(t, {
+      authUserId,
+      email,
+      discordUserId,
+    });
+    const { entitlementId, staleOutboxJobId } = await t.run(async (ctx) => {
+      const insertedEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: String(variantId),
+        sourceProvider: 'lemonsqueezy',
+        sourceReference: `lemonsqueezy:subscription:${subscriptionId}`,
+        status: 'revoked',
+        policySnapshotVersion: 1,
+        grantedAt: Date.parse(subscriptionStartedAt),
+        revokedAt: 2_000,
+        updatedAt: 2_000,
+      });
+      const insertedStaleOutboxJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId,
+        jobType: 'role_sync',
+        payload: {
+          subjectId,
+          entitlementId: insertedEntitlementId,
+          discordUserId,
+        },
+        status: 'pending',
+        idempotencyKey: `role_sync:${authUserId}:${subjectId}:${insertedEntitlementId}:grant:${Date.parse(subscriptionStartedAt)}`,
+        targetDiscordUserId: discordUserId,
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: 1_500,
+        updatedAt: 1_500,
+      });
+      return { entitlementId: insertedEntitlementId, staleOutboxJobId: insertedStaleOutboxJobId };
+    });
+
+    const payload = lemonSubscriptionPayload({
+      subscriptionId,
+      email,
+      variantId,
+      eventName: 'subscription_updated',
+      createdAt: subscriptionStartedAt,
+    });
+    const webhookEventId = await seedLemonWebhookEvent(t, {
+      authUserId,
+      providerConnectionId,
+      providerEventId: `${subscriptionId}:subscription_updated`,
+      eventType: 'subscription_updated',
+      payload,
+    });
+
+    vi.spyOn(Date, 'now').mockReturnValue(3_000);
+    await t.run(async (ctx) =>
+      processLemonEvent(
+        ctx,
+        authUserId,
+        {
+          _id: webhookEventId,
+          providerConnectionId,
+          eventType: 'subscription_updated',
+        },
+        payload
+      )
+    );
+
+    const roleSyncRows = await t.run(async (ctx) =>
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_sync')
+        )
+        .collect()
+    );
+    const freshRow = roleSyncRows.find((row) => row._id !== staleOutboxJobId);
+
+    expect(roleSyncRows).toHaveLength(2);
+    expect(freshRow?.idempotencyKey).toBe(
+      `role_sync:${authUserId}:${subjectId}:${entitlementId}:grant:3000`
     );
   });
 

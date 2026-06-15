@@ -54,7 +54,8 @@ async function projectCanonicalEntitlement(
   sourceRef: string,
   productId: string,
   catalogProductId: Id<'product_catalog'> | undefined,
-  grantedAt: number
+  grantedAt: number,
+  roleSyncLifecycleAt = grantedAt
 ): Promise<void> {
   const existing = await ctx.db
     .query('entitlements')
@@ -100,7 +101,14 @@ async function projectCanonicalEntitlement(
     !discordUserId.startsWith('jinxxy:') &&
     !discordUserId.startsWith('lemonsqueezy:')
   ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, grantedAt);
+    await emitRoleSyncJob(
+      ctx,
+      authUserId,
+      subjectId,
+      discordUserId,
+      entitlementId,
+      roleSyncLifecycleAt
+    );
   }
 }
 
@@ -473,6 +481,8 @@ export async function processLemonEvent(
     }
 
     if (subjectId && resolved.productId && evidenceStatus === 'active') {
+      const grantedAt =
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now;
       await projectCanonicalEntitlement(
         ctx,
         authUserId,
@@ -481,7 +491,8 @@ export async function processLemonEvent(
         sourceRef,
         resolved.productId,
         resolved.catalogProductId,
-        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+        grantedAt,
+        now
       );
     } else if (evidenceStatus === 'revoked') {
       await revokeCanonicalEntitlementBySource(ctx, authUserId, subjectId, sourceRef);
