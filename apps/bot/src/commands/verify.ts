@@ -1260,6 +1260,7 @@ export async function handleVerifyDisconnectButton(
     const result = await disconnectVerification({
       subjectId: subjectResult.subject._id,
       authUserId: guildLink.authUserId,
+      buyerAccountAuthUserId: subjectResult.subject.authUserId ?? guildLink.authUserId,
       provider,
     });
 

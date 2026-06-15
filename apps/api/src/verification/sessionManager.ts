@@ -1054,6 +1054,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       | {
           apiSecret?: string;
           authUserId?: string;
+          buyerAccountAuthUserId?: string;
           subjectId?: string;
           provider?: string;
         }
@@ -1078,6 +1079,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         convexUrl: config.convexUrl,
       });
       const authUserId = body.authUserId as string;
+      const accountAuthUserId = body.buyerAccountAuthUserId || authUserId;
       const subjectId = body.subjectId as Id<'subjects'>;
 
       let vrchatUserIdToClear: string | undefined;
@@ -1085,7 +1087,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
         const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts, {
           apiSecret: config.convexApiSecret,
           subjectId,
-          authUserId,
+          authUserId: accountAuthUserId,
         });
         const vrchatAccount = accountsResult.found
           ? accountsResult.externalAccounts?.find(
@@ -1107,7 +1109,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
 
       const disconnected = await convex.mutation(api.providerConnections.removeAccountForSubject, {
         apiSecret: config.convexApiSecret,
-        authUserId,
+        authUserId: accountAuthUserId,
         subjectId,
         provider: body.provider,
       });
@@ -1138,7 +1140,7 @@ export function createVerificationRoutes(config: VerificationConfig) {
       const accountsResult = await convex.query(api.subjects.getSubjectWithAccounts, {
         apiSecret: config.convexApiSecret,
         subjectId,
-        authUserId,
+        authUserId: accountAuthUserId,
       });
       const hasRemainingAccounts =
         accountsResult.found && accountsResult.externalAccounts?.length > 0;

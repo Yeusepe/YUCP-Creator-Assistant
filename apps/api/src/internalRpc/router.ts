@@ -634,6 +634,7 @@ function registerServices(deps: InternalRpcDependencies): TempoServiceRegistry {
             createJsonRequest(`${deps.config.apiBaseUrl}/api/verification/disconnect`, {
               apiSecret: deps.config.convexApiSecret,
               authUserId: request.authUserId ?? '',
+              buyerAccountAuthUserId: request.buyerAccountAuthUserId ?? '',
               subjectId: request.subjectId ?? '',
               provider: request.provider ?? '',
             })
