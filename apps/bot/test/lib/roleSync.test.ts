@@ -170,6 +170,35 @@ describe('role sync service regressions', () => {
     }
   });
 
+  it('keeps Workpool-owned role jobs excluded during rollback polling', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'false';
+    try {
+      const service = createService();
+      (queryMock as unknown as { mockResolvedValue(value: unknown): void }).mockResolvedValue([]);
+
+      await (
+        service as unknown as {
+          fetchPendingJobs: () => Promise<OutboxJob[]>;
+        }
+      ).fetchPendingJobs();
+
+      const calls = queryMock.mock.calls as unknown as Array<
+        [unknown, { jobTypes: string[]; excludeWorkpoolRoleJobs?: boolean }]
+      >;
+      expect(calls[0]?.[1].jobTypes).toContain('role_sync');
+      expect(calls[0]?.[1].jobTypes).toContain('role_removal');
+      expect(calls[0]?.[1].excludeWorkpoolRoleJobs).toBe(true);
+      expect(loggerMock.info).toHaveBeenCalledWith('Role sync polling mode selected', {
+        roleSyncViaWorkpool: false,
+        roleJobPolling: 'bot-poller',
+      });
+    } finally {
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
   it('dead-letters non-retriable role sync failures returned as job results', async () => {
     const service = createService();
     const updateJobStatusMock = mock(async () => undefined);

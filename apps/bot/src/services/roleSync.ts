@@ -2105,7 +2105,7 @@ export class RoleSyncService {
           const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
             apiSecret: this.apiSecret,
             jobTypes,
-            excludeWorkpoolRoleJobs: viaWorkpool,
+            excludeWorkpoolRoleJobs: true,
             limit: 10,
           });
 

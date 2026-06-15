@@ -1768,6 +1768,74 @@ describe('role sync redrive migration', () => {
     }
   });
 
+  it('reports only the bounded page remainder when role redrive backlog exceeds the limit', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const jobIds = await t.run(async (ctx) => {
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-redrive-bounded-page',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const entitlementId = await ctx.db.insert('entitlements', {
+          authUserId: 'auth-redrive-bounded-page',
+          subjectId,
+          productId: 'product-redrive-bounded-page',
+          sourceProvider: 'gumroad',
+          sourceReference: 'order-redrive-bounded-page',
+          status: 'active',
+          grantedAt: now,
+          updatedAt: now,
+        });
+        const inserted = [];
+        for (let index = 0; index < 3; index++) {
+          inserted.push(
+            await ctx.db.insert('outbox_jobs', {
+              authUserId: 'auth-redrive-bounded-page',
+              jobType: 'role_sync',
+              payload: {
+                subjectId,
+                entitlementId,
+                discordUserId: `discord-redrive-bounded-page-${index}`,
+              },
+              status: 'dead_letter',
+              idempotencyKey: `redrive-bounded-page-${index}`,
+              targetDiscordUserId: `discord-redrive-bounded-page-${index}`,
+              retryCount: 5,
+              maxRetries: 5,
+              lastError: 'legacy worker failed',
+              createdAt: now + index,
+              updatedAt: now + index,
+            })
+          );
+        }
+        return inserted;
+      });
+
+      const result = await t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 });
+      const storedRows = await t.run(async (ctx) =>
+        Promise.all(jobIds.map(async (jobId) => ctx.db.get(jobId)))
+      );
+
+      expect(result).toEqual({ processed: 1, skipped: 0, remaining: 1 });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(storedRows.map((row) => row?.status)).toEqual([
+        'pending',
+        'dead_letter',
+        'dead_letter',
+      ]);
+    } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
   it('leaves dead-letter rows untouched when Workpool redrive enqueue fails', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';

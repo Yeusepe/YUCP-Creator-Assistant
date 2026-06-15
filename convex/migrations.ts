@@ -1734,19 +1734,20 @@ export const redriveDeadLetterRoleSync = internalMutation({
       throw new Error('ROLE_SYNC_VIA_WORKPOOL must be enabled to redrive role sync jobs');
     }
 
-    const limit = Math.min(args.limit ?? 100, 500);
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const pageSize = limit + 1;
     const roleSyncTargets = await ctx.db
       .query('outbox_jobs')
       .withIndex('by_status_job_type', (q) =>
         q.eq('status', 'dead_letter').eq('jobType', 'role_sync')
       )
-      .collect();
+      .take(pageSize);
     const roleRemovalTargets = await ctx.db
       .query('outbox_jobs')
       .withIndex('by_status_job_type', (q) =>
         q.eq('status', 'dead_letter').eq('jobType', 'role_removal')
       )
-      .collect();
+      .take(pageSize);
     const targets = [...roleSyncTargets, ...roleRemovalTargets].sort(
       (a, b) => a.createdAt - b.createdAt
     );
@@ -1778,6 +1779,7 @@ export const redriveDeadLetterRoleSync = internalMutation({
     return {
       processed,
       skipped,
+      // This is a bounded page signal, not a full backlog count. Keep re-running until it is 0.
       remaining: Math.max(targets.length - processed - skipped, 0),
     };
   },
