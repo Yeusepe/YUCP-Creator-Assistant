@@ -1,4 +1,11 @@
 import type { Id } from '../_generated/dataModel';
+import { resolveRoleSyncDiscordUserId } from '../lib/roleSyncIdentity';
+import {
+  buildRoleRemovalIdempotencyKey,
+  buildRoleSyncIdempotencyKey,
+  enqueueRoleRemoval,
+  enqueueRoleSync,
+} from '../lib/roleSyncEnqueue';
 
 export { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 
@@ -110,7 +117,7 @@ export async function projectEntitlementFromPurchaseFact(
     !discordUserId.startsWith('gumroad:') &&
     !discordUserId.startsWith('jinxxy:')
   ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId);
+    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, now);
   }
 }
 
@@ -141,18 +148,16 @@ export async function revokeEntitlementForPurchaseFact(
     });
 
     const subject = await ctx.db.get(purchaseFact.subjectId);
-    const discordUserId = subject?.primaryDiscordUserId;
-    if (
-      discordUserId &&
-      !discordUserId.startsWith('gumroad:') &&
-      !discordUserId.startsWith('jinxxy:')
-    ) {
+    const discordUserId = resolveRoleSyncDiscordUserId(subject ?? {});
+    if (discordUserId) {
       await emitRoleRemovalJobs(
         ctx,
         authUserId,
         purchaseFact.subjectId,
         entitlement.productId,
-        discordUserId
+        discordUserId,
+        entitlement._id,
+        now
       );
     }
   }
@@ -163,28 +168,21 @@ export async function emitRoleSyncJob(
   authUserId: string,
   subjectId: Id<'subjects'>,
   discordUserId: string,
-  entitlementId: Id<'entitlements'>
+  entitlementId: Id<'entitlements'>,
+  lifecycleAt?: number
 ): Promise<void> {
-  const now = Date.now();
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}:${now}`;
-
-  const existing = await ctx.db
-    .query('outbox_jobs')
-    .withIndex('by_idempotency', (q: any) => q.eq('idempotencyKey', idempotencyKey))
-    .first();
-  if (existing) return;
-
-  await ctx.db.insert('outbox_jobs', {
+  const idempotencyKey = buildRoleSyncIdempotencyKey({
     authUserId,
-    jobType: 'role_sync',
-    payload: { subjectId, discordUserId, entitlementId },
-    status: 'pending',
+    subjectId,
+    entitlementId,
+    ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'grant', at: lifecycleAt } } : {}),
+  });
+  await enqueueRoleSync(ctx, {
+    authUserId,
+    subjectId,
+    entitlementId,
+    discordUserId,
     idempotencyKey,
-    targetDiscordUserId: discordUserId,
-    retryCount: 0,
-    maxRetries: 5,
-    createdAt: now,
-    updatedAt: now,
   });
 }
 
@@ -193,7 +191,9 @@ export async function emitRoleRemovalJobs(
   authUserId: string,
   subjectId: Id<'subjects'>,
   productId: string,
-  discordUserId: string
+  discordUserId: string,
+  entitlementId?: Id<'entitlements'>,
+  lifecycleAt?: number
 ): Promise<void> {
   const roleRules = await ctx.db
     .query('role_rules')
@@ -203,32 +203,33 @@ export async function emitRoleRemovalJobs(
     .filter((q: any) => q.eq(q.field('removeOnRevoke'), true))
     .collect();
 
-  const now = Date.now();
   for (const rule of roleRules) {
-    const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${now}`;
-    const existing = await ctx.db
-      .query('outbox_jobs')
-      .withIndex('by_idempotency', (q: any) => q.eq('idempotencyKey', idempotencyKey))
-      .first();
-    if (existing) continue;
-
-    await ctx.db.insert('outbox_jobs', {
-      authUserId,
-      jobType: 'role_removal',
-      payload: {
-        subjectId,
+    if (!rule.verifiedRoleId) {
+      console.warn('[convex] Skipping role removal for misconfigured role rule', {
+        roleRuleId: rule._id,
+        authUserId,
         guildId: rule.guildId,
-        roleId: rule.verifiedRoleId,
-        discordUserId,
-      },
-      status: 'pending',
+        reason: 'missing_verified_role_id',
+      });
+      continue;
+    }
+    const idempotencyKey = buildRoleRemovalIdempotencyKey({
+      authUserId,
+      subjectId,
+      guildId: rule.guildId,
+      productId,
+      roleId: rule.verifiedRoleId,
+      entitlementId,
+      ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'revoke', at: lifecycleAt } } : {}),
+    });
+    await enqueueRoleRemoval(ctx, {
+      authUserId,
+      subjectId,
+      entitlementId,
+      guildId: rule.guildId,
+      roleId: rule.verifiedRoleId,
+      discordUserId,
       idempotencyKey,
-      targetGuildId: rule.guildId,
-      targetDiscordUserId: discordUserId,
-      retryCount: 0,
-      maxRetries: 5,
-      createdAt: now,
-      updatedAt: now,
     });
   }
 }

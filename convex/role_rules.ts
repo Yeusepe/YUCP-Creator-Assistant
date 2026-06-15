@@ -18,7 +18,33 @@ import { internalQuery, mutation, query } from './_generated/server';
 import { addCatalogProductImpl } from './lib/roleRules/catalog';
 import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
 import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
+import { normalizeWritableVerifiedRoleIds } from './lib/roleRules/roleIds';
 import { enqueueVerifyPromptRefreshJob } from './lib/verifyPrompt';
+
+const roleRuleDocumentValidator = v.object({
+  _id: v.id('role_rules'),
+  _creationTime: v.number(),
+  authUserId: v.string(),
+  tenantId: v.optional(v.any()),
+  guildId: v.string(),
+  guildLinkId: v.id('guild_links'),
+  productId: v.string(),
+  catalogProductId: v.optional(v.id('product_catalog')),
+  catalogTierId: v.optional(v.id('catalog_tiers')),
+  verifiedRoleId: v.string(),
+  verifiedRoleIds: v.optional(v.array(v.string())),
+  removeOnRevoke: v.boolean(),
+  priority: v.number(),
+  enabled: v.boolean(),
+  sourceGuildId: v.optional(v.string()),
+  sourceGuildName: v.optional(v.string()),
+  requiredRoleId: v.optional(v.string()),
+  requiredRoleIds: v.optional(v.array(v.string())),
+  requiredRoleMatchMode: v.optional(v.union(v.literal('any'), v.literal('all'))),
+  displayName: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+});
 
 // ============================================================================
 // QUERIES
@@ -303,6 +329,27 @@ export const getByProduct = query({
 });
 
 /**
+ * Internal (ungated) variant of getByProduct for the role-sync Workpool action,
+ * which runs inside Convex and cannot pass the API secret. Not client-callable.
+ */
+export const getByProductInternal = internalQuery({
+  args: {
+    authUserId: v.string(),
+    productId: v.string(),
+  },
+  returns: v.array(roleRuleDocumentValidator),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query('role_rules')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('enabled'), true))
+      .order('asc')
+      .take(1000);
+  },
+});
+
+/**
  * Get role rules by guild link.
  */
 export const getByGuildLink = query({
@@ -431,10 +478,7 @@ export const createRoleRule = mutation({
       }
     }
     const now = Date.now();
-    const roleIds = args.verifiedRoleIds ?? (args.verifiedRoleId ? [args.verifiedRoleId] : []);
-    if (roleIds.length === 0) {
-      throw new Error('At least one verified role is required');
-    }
+    const roleIds = normalizeWritableVerifiedRoleIds(args);
     const verifiedRoleId = roleIds[0];
 
     const ruleId = await ctx.db.insert('role_rules', {
@@ -511,11 +555,9 @@ export const updateRoleRule = mutation({
     };
 
     if (args.verifiedRoleIds !== undefined) {
-      if (args.verifiedRoleIds.length === 0) {
-        throw new Error('At least one verified role is required');
-      }
-      update.verifiedRoleId = args.verifiedRoleIds[0];
-      update.verifiedRoleIds = args.verifiedRoleIds.length > 1 ? args.verifiedRoleIds : undefined;
+      const roleIds = normalizeWritableVerifiedRoleIds({ verifiedRoleIds: args.verifiedRoleIds });
+      update.verifiedRoleId = roleIds[0];
+      update.verifiedRoleIds = roleIds.length > 1 ? roleIds : undefined;
     } else if (args.verifiedRoleId !== undefined) {
       update.verifiedRoleId = args.verifiedRoleId;
       update.verifiedRoleIds = undefined;

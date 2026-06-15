@@ -1099,6 +1099,8 @@ const outbox_jobs = defineTable({
   targetGuildIds: v.optional(v.array(v.string())),
   // Target Discord user (if applicable)
   targetDiscordUserId: v.optional(v.string()),
+  // Set when a role_sync / role_removal row has durable Workpool work enqueued.
+  workpoolEnqueuedAt: v.optional(v.number()),
   // Number of retry attempts
   retryCount: v.number(),
   // Maximum retries allowed
@@ -1114,6 +1116,8 @@ const outbox_jobs = defineTable({
 })
   .index('by_auth_user', ['authUserId'])
   .index('by_status', ['status'])
+  .index('by_status_job_type', ['status', 'jobType'])
+  .index('by_status_job_type_workpool', ['status', 'jobType', 'workpoolEnqueuedAt'])
   .index('by_status_next_retry', ['status', 'nextRetryAt'])
   .index('by_idempotency', ['idempotencyKey'])
   .index('by_auth_user_type', ['authUserId', 'jobType'])

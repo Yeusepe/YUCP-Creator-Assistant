@@ -331,6 +331,66 @@ describe('license verification account linking', () => {
     ]);
   });
 
+  it('skips Discord role sync for provider-prefixed subject ids on new and reactivated grants', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-provider-subject-creator';
+    const buyerAuthUserId = 'auth-license-verification-provider-subject-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'gumroad:provider-subject-id',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-provider-subject-creator',
+    });
+
+    const grantArgs = {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'gumroad',
+      providerUserId: 'gumroad-provider-subject-user',
+      providerUsername: 'ProviderSubjectBuyer',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-provider-subject',
+          sourceReference: 'order-license-verification-provider-subject',
+        },
+      ],
+    } as const;
+
+    const firstResult = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      ...grantArgs,
+    } as never);
+
+    expect(firstResult.success).toBe(true);
+    expect(firstResult.entitlementIds).toHaveLength(1);
+    expect(firstResult.outboxJobIds).toEqual([]);
+
+    const [entitlementId] = firstResult.entitlementIds;
+    if (!entitlementId) {
+      throw new Error('Expected entitlement to be created');
+    }
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(entitlementId, {
+        status: 'revoked',
+        revokedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const secondResult = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      ...grantArgs,
+    } as never);
+
+    expect(secondResult.success).toBe(true);
+    expect(secondResult.entitlementIds).toEqual(firstResult.entitlementIds);
+    expect(secondResult.outboxJobIds).toEqual([]);
+  });
+
   it('rejects explicit buyer attribution when the subject belongs to a different auth user', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-license-verification-creator-mismatch';

@@ -16,11 +16,13 @@
 import { canReactivate } from '@yucp/shared/entitlement/service';
 import { ConvexError, v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { mutation } from './_generated/server';
 import type { MutationCtx } from './_generated/server';
+import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { LicenseProviderV } from './lib/providers';
+import { resolveRoleSyncDiscordUserId } from './lib/roleSyncIdentity';
+import { buildRoleSyncIdempotencyKey, enqueueRoleSync } from './lib/roleSyncEnqueue';
 import { upsertBuyerProviderLinkRecord } from './subjects';
 
 // ============================================================================
@@ -68,11 +70,11 @@ function buildExternalAccountProviderMetadata(
 async function resolveVerificationActors(
   ctx: Pick<MutationCtx, 'db'>,
   args: {
-  authUserId?: string;
-  creatorAuthUserId?: string;
-  buyerAuthUserId?: string;
-  subjectId: Id<'subjects'>;
-}
+    authUserId?: string;
+    creatorAuthUserId?: string;
+    buyerAuthUserId?: string;
+    subjectId: Id<'subjects'>;
+  }
 ) {
   const subject = await ctx.db.get(args.subjectId);
   if (!subject) {
@@ -400,23 +402,22 @@ export const completeLicenseVerification = mutation({
               args.licenseSubjectLink?.licenseSubject ?? existingEntitlement.licenseSubject,
           });
           // Emit role sync for reactivated entitlement
-          const jobId = await ctx.db.insert('outbox_jobs', {
-            authUserId: creatorAuthUserId,
-            jobType: 'role_sync',
-            payload: {
+          const discordUserId = resolveRoleSyncDiscordUserId(subject);
+          if (discordUserId) {
+            const jobId = await enqueueRoleSync(ctx, {
+              authUserId: creatorAuthUserId,
               subjectId: buyerSubjectId,
               entitlementId,
-              discordUserId: subject.primaryDiscordUserId,
-            },
-            status: 'pending',
-            idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
-            targetDiscordUserId: subject.primaryDiscordUserId,
-            retryCount: 0,
-            maxRetries: 5,
-            createdAt: now,
-            updatedAt: now,
-          });
-          outboxJobIds.push(jobId);
+              discordUserId,
+              idempotencyKey: buildRoleSyncIdempotencyKey({
+                authUserId: creatorAuthUserId,
+                subjectId: buyerSubjectId,
+                entitlementId,
+                lifecycle: { kind: 'grant', at: now },
+              }),
+            });
+            outboxJobIds.push(jobId);
+          }
         }
       } else {
         // Create new entitlement
@@ -444,23 +445,22 @@ export const completeLicenseVerification = mutation({
         });
 
         // Emit role sync job
-        const jobId = await ctx.db.insert('outbox_jobs', {
-          authUserId: creatorAuthUserId,
-          jobType: 'role_sync',
-          payload: {
+        const discordUserId = resolveRoleSyncDiscordUserId(subject);
+        if (discordUserId) {
+          const jobId = await enqueueRoleSync(ctx, {
+            authUserId: creatorAuthUserId,
             subjectId: buyerSubjectId,
             entitlementId,
-            discordUserId: subject.primaryDiscordUserId,
-          },
-          status: 'pending',
-          idempotencyKey: `role_sync:${creatorAuthUserId}:${buyerSubjectId}:${entitlementId}`,
-          targetDiscordUserId: subject.primaryDiscordUserId,
-          retryCount: 0,
-          maxRetries: 5,
-          createdAt: now,
-          updatedAt: now,
-        });
-        outboxJobIds.push(jobId);
+            discordUserId,
+            idempotencyKey: buildRoleSyncIdempotencyKey({
+              authUserId: creatorAuthUserId,
+              subjectId: buyerSubjectId,
+              entitlementId,
+              lifecycle: { kind: 'grant', at: now },
+            }),
+          });
+          outboxJobIds.push(jobId);
+        }
 
         // Audit event
         await ctx.db.insert('audit_events', {

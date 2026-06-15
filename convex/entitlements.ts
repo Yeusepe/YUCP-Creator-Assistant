@@ -20,7 +20,7 @@ import {
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { mutation, query } from './_generated/server';
+import { internalQuery, mutation, query } from './_generated/server';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -28,6 +28,12 @@ import {
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
+import {
+  buildRoleRemovalIdempotencyKey,
+  buildRoleSyncIdempotencyKey,
+  enqueueRoleRemoval,
+  enqueueRoleSync,
+} from './lib/roleSyncEnqueue';
 
 // ============================================================================
 // TYPES
@@ -97,6 +103,10 @@ const EntitlementReadFields = {
 };
 
 const EntitlementReadRecord = v.object(EntitlementReadFields);
+const InternalEntitlementReadRecord = v.object({
+  ...EntitlementReadFields,
+  authUserId: v.string(),
+});
 
 const ProductEntitlementReadRecord = v.object({
   ...EntitlementReadFields,
@@ -123,6 +133,13 @@ export function normalizeEntitlementReadRecord(entitlement: LegacyEntitlementRea
     status: entitlement.status,
     grantedAt: entitlement.grantedAt,
     ...(revokedAt === undefined ? {} : { revokedAt }),
+  };
+}
+
+function normalizeInternalEntitlementReadRecord(entitlement: LegacyEntitlementReadDoc) {
+  return {
+    ...normalizeEntitlementReadRecord(entitlement),
+    authUserId: entitlement.authUserId,
   };
 }
 
@@ -545,6 +562,26 @@ export const getEntitlement = query({
 });
 
 /**
+ * Internal (ungated) variant of getEntitlement for the role-sync Workpool
+ * action, which runs inside Convex and cannot pass the API secret/service actor.
+ * Not client-callable. Returns the normalized read record (incl. status,
+ * productId) or null.
+ */
+export const getEntitlementInternal = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  returns: v.union(InternalEntitlementReadRecord, v.null()),
+  handler: async (ctx, args) => {
+    const entitlement = await ctx.db.get(args.entitlementId);
+    if (!entitlement) {
+      return null;
+    }
+    return normalizeInternalEntitlementReadRecord(entitlement);
+  },
+});
+
+/**
  * Get entitlements by provider customer.
  * Used for purchaser memory lookup to find supported products.
  */
@@ -667,7 +704,8 @@ export const grantEntitlement = mutation({
         args.authUserId,
         args.subjectId,
         existingEntitlement._id,
-        args.correlationId
+        args.correlationId,
+        now
       );
 
       // Create audit event
@@ -720,7 +758,8 @@ export const grantEntitlement = mutation({
       args.authUserId,
       args.subjectId,
       entitlementId,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     // Create audit event
@@ -814,7 +853,8 @@ export const revokeEntitlement = mutation({
       entitlement.subjectId,
       entitlement.productId,
       args.entitlementId,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     // Create audit event
@@ -889,7 +929,8 @@ export const revokeEntitlementBySourceRef = mutation({
       args.subjectId,
       entitlement.productId,
       entitlement._id,
-      args.correlationId
+      args.correlationId,
+      now
     );
 
     await createAuditEvent(ctx, {
@@ -953,7 +994,8 @@ export const revokeAllEntitlementsForSubject = mutation({
         args.subjectId,
         entitlement.productId,
         entitlement._id,
-        'disconnect:all'
+        'disconnect:all',
+        now
       );
       outboxJobIds.push(...jobIds);
 
@@ -1023,7 +1065,8 @@ export const revokeEntitlementsForProviderDisconnect = mutation({
         args.subjectId,
         entitlement.productId,
         entitlement._id,
-        `disconnect:${args.provider}`
+        `disconnect:${args.provider}`,
+        now
       );
       outboxJobIds.push(...jobIds);
 
@@ -1107,7 +1150,8 @@ export const revokeEntitlementsByProduct = mutation({
         subject._id,
         args.productId,
         ent._id,
-        `unverify:${Date.now()}`
+        `unverify:${Date.now()}`,
+        now
       );
 
       await createAuditEvent(ctx, {
@@ -1282,7 +1326,8 @@ export const grantEntitlementsForPurchaser = mutation({
         args.authUserId,
         args.subjectId,
         entitlementId,
-        args.correlationId
+        args.correlationId,
+        now
       );
     }
 
@@ -1353,10 +1398,20 @@ export const enqueueRoleSyncsForUser = mutation({
       .collect();
 
     let jobsCreated = 0;
+    // Refresh is an explicit "re-apply my roles now" action. Use a unique
+    // idempotency key per refresh so it always creates fresh, executable work
+    // instead of deduping against a prior completed/dead-lettered job (which
+    // would leave a verified-but-roleless user stuck).
     const correlationId = `refresh:${Date.now()}`;
 
     for (const ent of entitlements) {
-      await emitRoleSyncJob(ctx, args.authUserId, subject._id, ent._id, correlationId);
+      await enqueueRoleSync(ctx, {
+        authUserId: args.authUserId,
+        subjectId: subject._id,
+        entitlementId: ent._id,
+        discordUserId: subject.primaryDiscordUserId,
+        idempotencyKey: `role_sync:${args.authUserId}:${subject._id}:${ent._id}:${correlationId}`,
+      });
       jobsCreated++;
     }
 
@@ -1442,7 +1497,8 @@ export const expireEntitlements = mutation({
           entitlement.subjectId,
           entitlement.productId,
           entitlement._id,
-          undefined
+          undefined,
+          now
         );
       }
     }
@@ -1484,33 +1540,28 @@ async function emitRoleSyncJob(
   authUserId: string,
   subjectId: Id<'subjects'>,
   entitlementId: Id<'entitlements'>,
-  _correlationId?: string
+  _correlationId?: string,
+  lifecycleAt?: number
 ): Promise<Id<'outbox_jobs'>> {
-  const now = Date.now();
-
-  // Get subject to find Discord user ID
   const subject = await ctx.db.get(subjectId);
+  if (!subject) {
+    throw new Error(`Subject not found: ${subjectId}`);
+  }
 
-  const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
-
-  const outboxJobId = await ctx.db.insert('outbox_jobs', {
+  const idempotencyKey = buildRoleSyncIdempotencyKey({
     authUserId,
-    jobType: 'role_sync',
-    payload: {
-      subjectId,
-      entitlementId,
-      discordUserId: subject?.primaryDiscordUserId,
-    },
-    status: 'pending',
-    idempotencyKey,
-    targetDiscordUserId: subject?.primaryDiscordUserId,
-    retryCount: 0,
-    maxRetries: 5,
-    createdAt: now,
-    updatedAt: now,
+    subjectId,
+    entitlementId,
+    ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'grant', at: lifecycleAt } } : {}),
   });
 
-  return outboxJobId;
+  return enqueueRoleSync(ctx, {
+    authUserId,
+    subjectId,
+    entitlementId,
+    discordUserId: subject.primaryDiscordUserId,
+    idempotencyKey,
+  });
 }
 
 /**
@@ -1522,9 +1573,9 @@ async function emitRoleRemovalJobs(
   subjectId: Id<'subjects'>,
   productId: string,
   entitlementId: Id<'entitlements'>,
-  _correlationId?: string
+  _correlationId?: string,
+  lifecycleAt?: number
 ): Promise<Id<'outbox_jobs'>[]> {
-  const now = Date.now();
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
   // Find all role rules for this product
@@ -1543,29 +1594,27 @@ async function emitRoleRemovalJobs(
     const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
 
     for (const roleId of roleIds) {
-      const idempotencyKey = `role_removal:${authUserId}:${subjectId}:${rule.guildId}:${productId}:${roleId}`;
-
-      const outboxJobId = await ctx.db.insert('outbox_jobs', {
+      const idempotencyKey = buildRoleRemovalIdempotencyKey({
         authUserId,
-        jobType: 'role_removal',
-        payload: {
+        subjectId,
+        guildId: rule.guildId,
+        productId,
+        roleId,
+        entitlementId,
+        ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'revoke', at: lifecycleAt } } : {}),
+      });
+
+      outboxJobIds.push(
+        await enqueueRoleRemoval(ctx, {
+          authUserId,
           subjectId,
           entitlementId,
           guildId: rule.guildId,
           roleId,
           discordUserId: subject?.primaryDiscordUserId,
-        },
-        status: 'pending',
-        idempotencyKey,
-        targetGuildId: rule.guildId,
-        targetDiscordUserId: subject?.primaryDiscordUserId,
-        retryCount: 0,
-        maxRetries: 5,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      outboxJobIds.push(outboxJobId);
+          idempotencyKey,
+        })
+      );
     }
   }
 

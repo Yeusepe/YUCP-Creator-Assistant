@@ -12,6 +12,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
+import { getByProductInternal } from './role_rules';
 import { makeTestConvex, seedGuildLink } from './testHelpers';
 
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
@@ -30,6 +31,25 @@ async function getOutboxJobTypes(t: ReturnType<typeof makeTestConvex>) {
 describe('role rules CRUD and isolation', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  it('declares a structured return validator for internal product role rules', () => {
+    const exportedReturns = JSON.parse(
+      (
+        getByProductInternal as unknown as {
+          exportReturns: () => string;
+        }
+      ).exportReturns()
+    );
+
+    expect(exportedReturns).toMatchObject({
+      type: 'array',
+      value: {
+        type: 'object',
+      },
+    });
+    expect(JSON.stringify(exportedReturns)).toContain('verifiedRoleIds');
+    expect(JSON.stringify(exportedReturns)).toContain('catalogTierId');
   });
 
   it('given new product rule created, then correct fields stored', async () => {
@@ -324,6 +344,105 @@ describe('role rules CRUD and isolation', () => {
         verifiedRoleId: 'role-e-1',
       })
     ).rejects.toThrow();
+
+    expect(await getRoleRuleCounts(t)).toEqual(before);
+  });
+
+  it('rejects role rules that grant too many verified roles on create', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-role-limit-create',
+      discordGuildId: 'guild-role-limit-create',
+    });
+    const before = await getRoleRuleCounts(t);
+
+    await expect(
+      t.mutation(api.role_rules.createRoleRule, {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-creator-role-limit-create',
+        guildId: 'guild-role-limit-create',
+        guildLinkId,
+        productId: 'prod-role-limit-create',
+        verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-create-${index}`),
+      })
+    ).rejects.toThrow('A role rule can grant at most 10 verified roles');
+
+    expect(await getRoleRuleCounts(t)).toEqual(before);
+  });
+
+  it('rejects role rule updates that grant too many verified roles', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-role-limit-update',
+      discordGuildId: 'guild-role-limit-update',
+    });
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-role-limit-update',
+      guildId: 'guild-role-limit-update',
+      guildLinkId,
+      productId: 'prod-role-limit-update',
+      verifiedRoleId: 'role-limit-update-original',
+    });
+
+    await expect(
+      t.mutation(api.role_rules.updateRoleRule, {
+        apiSecret: 'test-secret',
+        ruleId,
+        verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-update-${index}`),
+      })
+    ).rejects.toThrow('A role rule can grant at most 10 verified roles');
+
+    const rule = await t.run(async (ctx) => ctx.db.get(ruleId));
+    expect(rule?.verifiedRoleId).toBe('role-limit-update-original');
+    expect(rule?.verifiedRoleIds).toBeUndefined();
+  });
+
+  it('normalizes duplicate verified role ids before storing role rules', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-role-dedupe',
+      discordGuildId: 'guild-role-dedupe',
+    });
+
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-creator-role-dedupe',
+      guildId: 'guild-role-dedupe',
+      guildLinkId,
+      productId: 'prod-role-dedupe',
+      verifiedRoleIds: ['role-dedupe-primary', 'role-dedupe-primary', 'role-dedupe-secondary'],
+    });
+
+    const rule = await t.run(async (ctx) => ctx.db.get(ruleId));
+
+    expect(rule?.verifiedRoleId).toBe('role-dedupe-primary');
+    expect(rule?.verifiedRoleIds).toEqual(['role-dedupe-primary', 'role-dedupe-secondary']);
+  });
+
+  it('rejects discord cross-server rules that grant too many verified roles', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-role-limit-discord',
+      discordGuildId: 'guild-role-limit-discord',
+    });
+    const before = await getRoleRuleCounts(t);
+
+    await expect(
+      t.mutation(api.role_rules.addProductFromDiscordRole, {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-creator-role-limit-discord',
+        sourceGuildId: 'source-guild-role-limit-discord',
+        requiredRoleId: 'source-role-role-limit-discord',
+        guildId: 'guild-role-limit-discord',
+        guildLinkId,
+        verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-discord-${index}`),
+      })
+    ).rejects.toThrow('A role rule can grant at most 10 verified roles');
 
     expect(await getRoleRuleCounts(t)).toEqual(before);
   });

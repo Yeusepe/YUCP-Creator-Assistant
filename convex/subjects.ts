@@ -843,6 +843,7 @@ export const getSubjectIdentityById = internalQuery({
     v.object({
       _id: v.id('subjects'),
       authUserId: v.optional(v.string()),
+      primaryDiscordUserId: v.string(),
     })
   ),
   handler: async (ctx, args) => {
@@ -854,6 +855,7 @@ export const getSubjectIdentityById = internalQuery({
     return {
       _id: subject._id,
       authUserId: subject.authUserId,
+      primaryDiscordUserId: subject.primaryDiscordUserId,
     };
   },
 });

@@ -332,6 +332,7 @@ export class RoleSyncService {
   private readonly apiSecret: string;
   private readonly encryptionSecret?: string;
   private isRunning = false;
+  private lastLoggedRoleSyncViaWorkpool?: boolean;
   private pollIntervalMs: number;
 
   constructor(options: {
@@ -2080,18 +2081,31 @@ export class RoleSyncService {
       },
       async () => {
         try {
+          // role_sync / role_removal move to the Convex Workpool when enabled.
+          // The bot still drains legacy rows that predate the rollout marker,
+          // while getPendingJobs excludes rows that already have Workpool work.
+          const viaWorkpool = process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
+          const jobTypes = [
+            'role_sync',
+            'role_removal',
+            'creator_alert',
+            'retroactive_rule_sync',
+            'migration_analyze',
+            'setup_apply',
+            'setup_generate_plan',
+            'verify_prompt_refresh',
+          ];
+          if (this.lastLoggedRoleSyncViaWorkpool !== viaWorkpool) {
+            this.lastLoggedRoleSyncViaWorkpool = viaWorkpool;
+            this.logger.info('Role sync polling mode selected', {
+              roleSyncViaWorkpool: viaWorkpool,
+              roleJobPolling: viaWorkpool ? 'convex-workpool' : 'bot-poller',
+            });
+          }
           const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
             apiSecret: this.apiSecret,
-            jobTypes: [
-              'role_sync',
-              'role_removal',
-              'creator_alert',
-              'retroactive_rule_sync',
-              'migration_analyze',
-              'setup_apply',
-              'setup_generate_plan',
-              'verify_prompt_refresh',
-            ],
+            jobTypes,
+            excludeWorkpoolRoleJobs: true,
             limit: 10,
           });
 

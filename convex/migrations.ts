@@ -10,14 +10,16 @@
  * Re-run until the relevant migration returns 0 remaining records.
  */
 
+import { getYucpAliasPackageContract, mergeYucpAliasPackageMetadata } from '@yucp/shared';
 import { v } from 'convex/values';
-import type { Doc, Id } from './_generated/dataModel';
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
 import { internal } from './_generated/api';
+import type { Doc, Id } from './_generated/dataModel';
 import {
-  getYucpAliasPackageContract,
-  mergeYucpAliasPackageMetadata,
-} from '@yucp/shared';
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+  type QueryCtx,
+} from './_generated/server';
 import {
   buildSyntheticAliasMetadataSeed,
   type CatalogProductAliasSource,
@@ -26,6 +28,7 @@ import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
+import { enqueueExistingRoleOutboxJobInWorkpool } from './lib/roleSyncWorkpoolDispatch';
 import {
   detectCanonicalAuthResolutionForSubject,
   ensureCanonicalAuthUserIdForSubject,
@@ -225,12 +228,17 @@ async function listRelatedVerificationBindings(
 ): Promise<SubjectOwnershipRelatedBinding[]> {
   const bindings = (await ctx.db
     .query('bindings')
-    .withIndex('by_auth_user_subject', (q) => q.eq('authUserId', authUserId).eq('subjectId', subjectId))
+    .withIndex('by_auth_user_subject', (q) =>
+      q.eq('authUserId', authUserId).eq('subjectId', subjectId)
+    )
     .collect()) as Doc<'bindings'>[];
 
   const relatedBindings: SubjectOwnershipRelatedBinding[] = [];
   for (const binding of bindings) {
-    if (binding.bindingType !== 'verification' || !REPORTABLE_BINDING_STATUSES.has(binding.status)) {
+    if (
+      binding.bindingType !== 'verification' ||
+      !REPORTABLE_BINDING_STATUSES.has(binding.status)
+    ) {
       continue;
     }
 
@@ -514,7 +522,8 @@ async function buildSubjectOwnershipCandidate(
     discordUserId: subject.primaryDiscordUserId,
     subjectDisplayName: subject.displayName,
     expectedAuthUserId: resolution.kind === 'resolved' ? resolution.authUserId : undefined,
-    expectedLightAuthMarker: resolution.kind === 'materialize_light' ? resolution.marker : undefined,
+    expectedLightAuthMarker:
+      resolution.kind === 'materialize_light' ? resolution.marker : undefined,
     ambiguousAuthUserIds: resolution.kind === 'ambiguous' ? resolution.authUserIds : undefined,
     resolution:
       resolution.kind === 'resolved'
@@ -604,13 +613,10 @@ async function buildBackstageAliasMetadataCandidate(
   };
 }
 
-async function listBackstageAliasMetadataCandidates(
-  ctx: Pick<QueryCtx, 'db'>,
-  limit: number
-) {
-  const releases = (await ctx.db.query('delivery_package_releases').collect()) as Doc<
-    'delivery_package_releases'
-  >[];
+async function listBackstageAliasMetadataCandidates(ctx: Pick<QueryCtx, 'db'>, limit: number) {
+  const releases = (await ctx.db
+    .query('delivery_package_releases')
+    .collect()) as Doc<'delivery_package_releases'>[];
   const deliveryPackageIds = Array.from(
     new Set(releases.map((release) => String(release.deliveryPackageId)))
   );
@@ -620,15 +626,21 @@ async function listBackstageAliasMetadataCandidates(
         return await ctx.db.get(deliveryPackageId as Id<'delivery_packages'>);
       })
     )
-  ).filter((deliveryPackage): deliveryPackage is Doc<'delivery_packages'> => deliveryPackage !== null);
+  ).filter(
+    (deliveryPackage): deliveryPackage is Doc<'delivery_packages'> => deliveryPackage !== null
+  );
   const deliveryPackagesById = new Map(
     deliveryPackages.map((deliveryPackage) => [String(deliveryPackage._id), deliveryPackage])
   );
 
-  const activeLinks = ((await ctx.db.query('delivery_package_products').collect()) as Doc<
-    'delivery_package_products'
-  >[]).filter((link) => link.status === 'active');
-  const catalogProductIds = Array.from(new Set(activeLinks.map((link) => String(link.catalogProductId))));
+  const activeLinks = (
+    (await ctx.db
+      .query('delivery_package_products')
+      .collect()) as Doc<'delivery_package_products'>[]
+  ).filter((link) => link.status === 'active');
+  const catalogProductIds = Array.from(
+    new Set(activeLinks.map((link) => String(link.catalogProductId)))
+  );
   const catalogProducts = (
     await Promise.all(
       catalogProductIds.map(async (catalogProductId) => {
@@ -645,24 +657,28 @@ async function listBackstageAliasMetadataCandidates(
     if (!linkedCatalogProduct) {
       continue;
     }
-    const existingProducts = catalogProductsByDeliveryPackageId.get(String(link.deliveryPackageId)) ?? [];
+    const existingProducts =
+      catalogProductsByDeliveryPackageId.get(String(link.deliveryPackageId)) ?? [];
     existingProducts.push(linkedCatalogProduct);
     catalogProductsByDeliveryPackageId.set(String(link.deliveryPackageId), existingProducts);
   }
 
   const candidates = (
     await Promise.all(
-      releases.map(async (release) =>
-        await buildBackstageAliasMetadataCandidate(
-          ctx,
-          release,
-          deliveryPackagesById.get(String(release.deliveryPackageId)) ?? null,
-          catalogProductsByDeliveryPackageId.get(String(release.deliveryPackageId)) ?? []
-        )
+      releases.map(
+        async (release) =>
+          await buildBackstageAliasMetadataCandidate(
+            ctx,
+            release,
+            deliveryPackagesById.get(String(release.deliveryPackageId)) ?? null,
+            catalogProductsByDeliveryPackageId.get(String(release.deliveryPackageId)) ?? []
+          )
       )
     )
   )
-    .filter((candidate): candidate is BackstageAliasMetadataRemediationCandidate => candidate !== null)
+    .filter(
+      (candidate): candidate is BackstageAliasMetadataRemediationCandidate => candidate !== null
+    )
     .sort(
       (left, right) =>
         left.packageId.localeCompare(right.packageId) ||
@@ -810,12 +826,14 @@ async function listBackstageCdngineDeliveryVariantCandidates(
   ctx: Pick<QueryCtx, 'db'>,
   limit: number
 ) {
-  const artifacts = (await ctx.db.query('delivery_release_artifacts').collect()) as Doc<
-    'delivery_release_artifacts'
-  >[];
+  const artifacts = (await ctx.db
+    .query('delivery_release_artifacts')
+    .collect()) as Doc<'delivery_release_artifacts'>[];
   const candidates = (
     await Promise.all(
-      artifacts.map(async (artifact) => await buildBackstageCdngineDeliveryVariantCandidate(ctx, artifact))
+      artifacts.map(
+        async (artifact) => await buildBackstageCdngineDeliveryVariantCandidate(ctx, artifact)
+      )
     )
   )
     .filter(
@@ -844,9 +862,9 @@ async function listBackstageRawUploadSourceFieldCandidates(
   ctx: Pick<QueryCtx, 'db'>,
   limit: number
 ) {
-  const artifacts = (await ctx.db.query('delivery_release_artifacts').collect()) as Doc<
-    'delivery_release_artifacts'
-  >[];
+  const artifacts = (await ctx.db
+    .query('delivery_release_artifacts')
+    .collect()) as Doc<'delivery_release_artifacts'>[];
   const candidates = (
     await Promise.all(
       artifacts.map(
@@ -890,7 +908,10 @@ async function repairBuyerAttributionBindingIds(
 
   for (const bindingId of uniqueBindingIds) {
     const binding = (await ctx.db.get(bindingId)) as Doc<'bindings'> | null;
-    initialCandidates.set(bindingId, binding ? await buildBuyerAttributionCandidate(ctx, binding) : null);
+    initialCandidates.set(
+      bindingId,
+      binding ? await buildBuyerAttributionCandidate(ctx, binding) : null
+    );
   }
 
   for (const bindingId of uniqueBindingIds) {
@@ -954,11 +975,16 @@ async function repairBuyerAttributionBindingIds(
     }
 
     for (const relatedLicenseLink of candidate.relatedLicenseSubjectLinks) {
-      if (!relatedLicenseLink.repairable || repairedLicenseLinkIds.has(String(relatedLicenseLink.id))) {
+      if (
+        !relatedLicenseLink.repairable ||
+        repairedLicenseLinkIds.has(String(relatedLicenseLink.id))
+      ) {
         continue;
       }
 
-      const source = (await ctx.db.get(relatedLicenseLink.id)) as Doc<'license_subject_links'> | null;
+      const source = (await ctx.db.get(
+        relatedLicenseLink.id
+      )) as Doc<'license_subject_links'> | null;
       if (!source) {
         continue;
       }
@@ -1210,8 +1236,7 @@ export const listBackstageRawUploadSourceFieldRemediationCandidates = internalQu
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const requestedLimit =
-      args.limit ?? DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT;
+    const requestedLimit = args.limit ?? DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT;
     const limit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(500, Math.trunc(requestedLimit)))
       : DEFAULT_BACKSTAGE_RAW_UPLOAD_SOURCE_FIELD_REPORT_LIMIT;
@@ -1305,26 +1330,31 @@ export const repairBackstageAliasMetadataCandidates = internalMutation({
         continue;
       }
 
-      const activeLinks = ((await ctx.db
-        .query('delivery_package_products')
-        .withIndex('by_auth_user', (q) => q.eq('authUserId', release.authUserId))
-        .collect()) as Doc<'delivery_package_products'>[]).filter(
+      const activeLinks = (
+        (await ctx.db
+          .query('delivery_package_products')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', release.authUserId))
+          .collect()) as Doc<'delivery_package_products'>[]
+      ).filter(
         (link) =>
-          link.status === 'active' && String(link.deliveryPackageId) === String(release.deliveryPackageId)
+          link.status === 'active' &&
+          String(link.deliveryPackageId) === String(release.deliveryPackageId)
       );
       const linkedCatalogProducts = (
         await Promise.all(activeLinks.map(async (link) => await ctx.db.get(link.catalogProductId)))
       ).filter((product): product is Doc<'product_catalog'> => product !== null);
-      const aliasMetadataSeed = buildSyntheticAliasMetadataSeed(linkedCatalogProducts, release.channel);
+      const aliasMetadataSeed = buildSyntheticAliasMetadataSeed(
+        linkedCatalogProducts,
+        release.channel
+      );
       if (!aliasMetadataSeed) {
         skippedReleases.push({
           deliveryPackageReleaseId: releaseId,
-          reason:
-            linkedCatalogProducts.some(
-              (product) => (product.canonicalSlug ?? product.providerProductRef)?.trim()
-            )
-              ? 'Linked catalog products resolve to different alias ids'
-              : 'No linked catalog product exposes a canonical slug or provider product reference',
+          reason: linkedCatalogProducts.some((product) =>
+            (product.canonicalSlug ?? product.providerProductRef)?.trim()
+          )
+            ? 'Linked catalog products resolve to different alias ids'
+            : 'No linked catalog product exposes a canonical slug or provider product reference',
         });
         continue;
       }
@@ -1521,7 +1551,10 @@ export const repairSubjectOwnershipCandidates = internalMutation({
         )
         .collect()) as Doc<'bindings'>[];
       for (const binding of relatedBindings) {
-        if (binding.bindingType !== 'verification' || !REPORTABLE_BINDING_STATUSES.has(binding.status)) {
+        if (
+          binding.bindingType !== 'verification' ||
+          !REPORTABLE_BINDING_STATUSES.has(binding.status)
+        ) {
           continue;
         }
         followUpBindingIds.add(binding._id);
@@ -1673,6 +1706,81 @@ export const dangerouslyResetProviderDataForAuthUser = internalMutation({
       providerLicenses: providerLicenses.length,
       entitlementEvidence: deletedEntitlementEvidence,
       webhookEvents: deletedWebhookEvents,
+    };
+  },
+});
+
+/**
+ * Re-drive dead-lettered role_sync / role_removal jobs through the Workpool.
+ *
+ * The legacy bot poller burned these into dead_letter in ~22s by ignoring
+ * backoff. This resets each row to pending and re-enqueues it so it runs again
+ * with proper retry handling. Run with:
+ *   npx convex run migrations:redriveDeadLetterRoleSync --prod
+ * Re-run until `remaining` reaches 0. Idempotent: only re-picks rows that are
+ * still in dead_letter.
+ */
+export const redriveDeadLetterRoleSync = internalMutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    processed: v.number(),
+    skipped: v.number(),
+    remaining: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    if (process.env.ROLE_SYNC_VIA_WORKPOOL !== 'true') {
+      throw new Error('ROLE_SYNC_VIA_WORKPOOL must be enabled to redrive role sync jobs');
+    }
+
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const pageSize = limit + 1;
+    const roleSyncTargets = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_status_job_type', (q) =>
+        q.eq('status', 'dead_letter').eq('jobType', 'role_sync')
+      )
+      .take(pageSize);
+    const roleRemovalTargets = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_status_job_type', (q) =>
+        q.eq('status', 'dead_letter').eq('jobType', 'role_removal')
+      )
+      .take(pageSize);
+    const targets = [...roleSyncTargets, ...roleRemovalTargets].sort(
+      (a, b) => a.createdAt - b.createdAt
+    );
+    const batch = targets.slice(0, limit);
+
+    let processed = 0;
+    let skipped = 0;
+    const now = Date.now();
+
+    for (const job of batch) {
+      const dispatch = await enqueueExistingRoleOutboxJobInWorkpool(ctx, job);
+      if (!dispatch.enqueued) {
+        skipped++;
+        continue;
+      }
+
+      // Reset the projection row only after Workpool accepts the durable work.
+      await ctx.db.patch(job._id, {
+        status: 'pending',
+        retryCount: 0,
+        lastError: undefined,
+        nextRetryAt: undefined,
+        workpoolEnqueuedAt: now,
+        updatedAt: now,
+      });
+      processed++;
+    }
+
+    return {
+      processed,
+      skipped,
+      // This is a bounded page signal, not a full backlog count. Keep re-running until it is 0.
+      remaining: Math.max(targets.length - processed - skipped, 0),
     };
   },
 });

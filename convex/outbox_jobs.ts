@@ -11,6 +11,10 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import {
+  enqueueExistingRoleOutboxJobInWorkpool,
+  isRoleOutboxJob,
+} from './lib/roleSyncWorkpoolDispatch';
 
 /** Outbox job status values */
 export const OutboxJobStatus = v.union(
@@ -49,6 +53,7 @@ export const getPendingJobs = query({
   args: {
     apiSecret: v.string(),
     jobTypes: v.optional(v.array(OutboxJobType)),
+    excludeWorkpoolRoleJobs: v.optional(v.boolean()),
     limit: v.optional(v.number()),
   },
   returns: v.array(v.any()),
@@ -57,22 +62,41 @@ export const getPendingJobs = query({
     const limit = Math.min(args.limit ?? 10, 100);
     const now = Date.now();
 
-    // Get pending jobs
-    const pendingQuery = ctx.db
-      .query('outbox_jobs')
-      .withIndex('by_status', (q) => q.eq('status', 'pending'));
-
-    // Filter by job types if specified
     if (args.jobTypes && args.jobTypes.length > 0) {
-      // We need to filter after fetching since we can't combine index filters
-      const allPending = await pendingQuery.take(1000);
-      const filtered = allPending.filter((job) =>
-        args.jobTypes?.some((jobType) => jobType === job.jobType)
-      );
-      return filtered.slice(0, limit);
+      const pendingByType = [];
+      for (const jobType of args.jobTypes) {
+        if (
+          args.excludeWorkpoolRoleJobs &&
+          (jobType === 'role_sync' || jobType === 'role_removal')
+        ) {
+          pendingByType.push(
+            ...(await ctx.db
+              .query('outbox_jobs')
+              .withIndex('by_status_job_type_workpool', (q) =>
+                q.eq('status', 'pending').eq('jobType', jobType).eq('workpoolEnqueuedAt', undefined)
+              )
+              .take(limit))
+          );
+          continue;
+        }
+
+        pendingByType.push(
+          ...(await ctx.db
+            .query('outbox_jobs')
+            .withIndex('by_status_job_type', (q) =>
+              q.eq('status', 'pending').eq('jobType', jobType)
+            )
+            .take(limit))
+        );
+      }
+
+      return pendingByType.sort((a, b) => a.createdAt - b.createdAt).slice(0, limit);
     }
 
-    const pendingJobs = await pendingQuery.take(limit);
+    const pendingJobs = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_status', (q) => q.eq('status', 'pending'))
+      .take(limit);
 
     // Also get jobs ready for retry (in_progress with nextRetryAt in the past)
     const retryJobs = await ctx.db
@@ -373,6 +397,29 @@ export const retryDeadLetterJob = mutation({
     }
 
     const now = Date.now();
+    const shouldRetryViaWorkpool =
+      process.env.ROLE_SYNC_VIA_WORKPOOL === 'true' && isRoleOutboxJob(job);
+
+    if (shouldRetryViaWorkpool) {
+      const dispatch = await enqueueExistingRoleOutboxJobInWorkpool(ctx, job);
+      if (!dispatch.enqueued) {
+        return {
+          success: false,
+          error: dispatch.reason,
+        };
+      }
+
+      await ctx.db.patch(args.jobId, {
+        status: 'pending',
+        retryCount: 0,
+        lastError: undefined,
+        nextRetryAt: now,
+        workpoolEnqueuedAt: now,
+        updatedAt: now,
+      });
+
+      return { success: true };
+    }
 
     await ctx.db.patch(args.jobId, {
       status: 'pending',

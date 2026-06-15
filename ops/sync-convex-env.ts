@@ -4,8 +4,8 @@
  * or non-interactive `CONVEX_DEPLOY_KEY` in CI/remote environments.
  *
  * Usage:
- *   bun run sync:convex:env          → sync to dev
- *   bun run sync:convex:env --prod   → sync to prod
+ *   bun run sync:convex:env          -> sync to dev
+ *   bun run sync:convex:env --prod   -> sync to prod
  */
 
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
@@ -19,6 +19,12 @@ export const CONVEX_ENV_VARS = [
   'API_BASE_URL',
   'DISCORD_CLIENT_ID',
   'DISCORD_CLIENT_SECRET',
+  // Role-sync Workpool actions call the Discord REST API directly from Convex.
+  // DISCORD_BOT_TOKEN is sensitive and is intentionally synced only because
+  // durable Workpool actions must authenticate to Discord without proxying
+  // through the bot runtime.
+  'ROLE_SYNC_VIA_WORKPOOL',
+  'DISCORD_BOT_TOKEN',
   'FRONTEND_URL',
   'SITE_URL',
   'BACKFILL_API_URL',
@@ -69,7 +75,7 @@ async function runConvexEnvSet(
 async function main() {
   const secrets = await fetchInfisicalSecrets({
     ...process.env,
-    INFISICAL_ENV: isProd ? 'prod' : process.env.INFISICAL_ENV ?? 'dev',
+    INFISICAL_ENV: isProd ? 'prod' : (process.env.INFISICAL_ENV ?? 'dev'),
   });
   if (Object.keys(secrets).length === 0) {
     if (isProd) {

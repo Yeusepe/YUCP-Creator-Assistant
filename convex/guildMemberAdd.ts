@@ -8,6 +8,7 @@
 import { v } from 'convex/values';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
+import { enqueueRoleSync } from './lib/roleSyncEnqueue';
 
 /**
  * Handle guild member join: queue role_sync jobs if user has entitlements.
@@ -78,7 +79,6 @@ export const handleGuildMemberJoin = mutation({
       return { queued: false, jobCount: 0, reason: 'No active entitlements' };
     }
 
-    const now = Date.now();
     let jobCount = 0;
 
     for (const ent of entitlements) {
@@ -89,23 +89,13 @@ export const handleGuildMemberJoin = mutation({
         .first();
       if (existing) continue;
 
-      await ctx.db.insert('outbox_jobs', {
+      await enqueueRoleSync(ctx, {
         authUserId: guildLink.authUserId,
-        jobType: 'role_sync',
-        payload: {
-          subjectId: subject._id,
-          entitlementId: ent._id,
-          discordUserId: args.discordUserId,
-          targetGuildId: args.discordGuildId,
-        },
-        status: 'pending',
-        idempotencyKey,
+        subjectId: subject._id,
+        entitlementId: ent._id,
+        discordUserId: args.discordUserId,
         targetGuildId: args.discordGuildId,
-        targetDiscordUserId: args.discordUserId,
-        retryCount: 0,
-        maxRetries: 5,
-        createdAt: now,
-        updatedAt: now,
+        idempotencyKey,
       });
       jobCount++;
     }
