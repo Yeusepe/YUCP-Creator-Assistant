@@ -13,7 +13,7 @@
  * binding is filtered out -> found:false -> panel renders "nothing connected".
  *
  * This test seeds the exact post-verification records and asserts both the
- * legacy creator-scoped read and the correct buyer/subject-scoped read.
+ * legacy creator-scoped read and the correct buyer-scoped read.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -87,13 +87,13 @@ describe('verify panel connected-accounts scoping', () => {
     expect(result.externalAccounts).toHaveLength(0);
   });
 
-  it('returns linked accounts when scoped to the buyer subject', async () => {
+  it('documents that an unfiltered service read can see subject-linked accounts', async () => {
     const t = makeTestConvex();
     const { subjectId } = await seedVerifiedBuyer(t);
 
-    // The fixed panel read scopes to the buyer's subject, not the creator's
-    // authUserId. The test helper supplies a subjects:service actor, so the
-    // no-filter query returns the buyer subject's active accounts.
+    // Service actors can read the subject's active accounts without an owner
+    // filter. The bot avoids this path for the verify panel because ambiguous
+    // subjects can have bindings from multiple auth users.
     const result = await t.query(api.subjects.getSubjectWithAccounts, {
       apiSecret: API_SECRET,
       subjectId,

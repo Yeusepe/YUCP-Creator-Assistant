@@ -261,30 +261,41 @@ async function fetchVerifyData(
   let inGuildCount = 0;
 
   if (subjectResult.found) {
-    try {
-      await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject, {
-        apiSecret,
-        subjectId: subjectResult.subject._id,
-        authUserId,
-      });
-    } catch (error) {
-      logger.warn('Failed to clean up duplicate linked accounts before rendering verify panel', {
+    const buyerAccountAuthUserId = subjectResult.subject.authUserId?.trim();
+
+    if (buyerAccountAuthUserId) {
+      try {
+        await convex.mutation(api.providerConnections.cleanupDuplicateAccountsForSubject, {
+          apiSecret,
+          subjectId: subjectResult.subject._id,
+          authUserId: buyerAccountAuthUserId,
+        });
+      } catch (error) {
+        logger.warn('Failed to clean up duplicate linked accounts before rendering verify panel', {
+          discordUserId: userId,
+          error: error instanceof Error ? error.message : String(error),
+          subjectId: subjectResult.subject._id,
+          authUserId: buyerAccountAuthUserId,
+        });
+      }
+    } else {
+      logger.warn('Verify panel subject has no canonical buyer auth user for account lookup', {
         discordUserId: userId,
-        error: error instanceof Error ? error.message : String(error),
         subjectId: subjectResult.subject._id,
-        authUserId,
       });
     }
 
+    const accountsPromise = buyerAccountAuthUserId
+      ? convex.query(api.subjects.getSubjectWithAccounts, {
+          actor,
+          apiSecret,
+          subjectId: subjectResult.subject._id,
+          authUserId: buyerAccountAuthUserId,
+        })
+      : Promise.resolve({ found: false as const, subject: null, externalAccounts: [] });
+
     const [accountsResult, entitlements, guildProducts] = await Promise.all([
-      // Connected accounts are owned by the buyer's canonical authUserId,
-      // not the creator's. Scope this read to the buyer subject so verified
-      // linked accounts remain visible in the panel.
-      convex.query(api.subjects.getSubjectWithAccounts, {
-        actor,
-        apiSecret,
-        subjectId: subjectResult.subject._id,
-      }),
+      accountsPromise,
       convex.query(api.entitlements.getEntitlementsBySubject, {
         actor,
         apiSecret,
