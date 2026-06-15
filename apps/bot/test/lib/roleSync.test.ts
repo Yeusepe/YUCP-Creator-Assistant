@@ -135,7 +135,7 @@ describe('role sync service regressions', () => {
     loggerMock.error.mockReset();
   });
 
-  it('logs Workpool polling mode once while excluding role jobs from bot polling', async () => {
+  it('logs Workpool polling mode once while excluding Workpool-owned role jobs from bot polling', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
     try {
@@ -153,9 +153,12 @@ describe('role sync service regressions', () => {
         }
       ).fetchPendingJobs();
 
-      const calls = queryMock.mock.calls as unknown as Array<[unknown, { jobTypes: string[] }]>;
-      expect(calls[0]?.[1].jobTypes).not.toContain('role_sync');
-      expect(calls[0]?.[1].jobTypes).not.toContain('role_removal');
+      const calls = queryMock.mock.calls as unknown as Array<
+        [unknown, { jobTypes: string[]; excludeWorkpoolRoleJobs?: boolean }]
+      >;
+      expect(calls[0]?.[1].jobTypes).toContain('role_sync');
+      expect(calls[0]?.[1].jobTypes).toContain('role_removal');
+      expect(calls[0]?.[1].excludeWorkpoolRoleJobs).toBe(true);
       expect(loggerMock.info).toHaveBeenCalledTimes(1);
       expect(loggerMock.info).toHaveBeenCalledWith('Role sync polling mode selected', {
         roleSyncViaWorkpool: true,

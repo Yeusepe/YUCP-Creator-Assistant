@@ -18,6 +18,7 @@ import { roleSyncPool } from '../roleSyncWorkpool';
 /** Default retry budget for new jobs (~17 min of Workpool backoff at maxAttempts:10). */
 const DEFAULT_MAX_RETRIES = 10;
 const MAX_RETRY_BUDGET = 100;
+const DEDUPE_STATUSES = new Set(['pending', 'in_progress', 'failed']);
 
 export function roleSyncViaWorkpool(): boolean {
   return process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
@@ -44,10 +45,12 @@ async function findByIdempotencyKey(
   idempotencyKey: string
 ): Promise<Id<'outbox_jobs'> | null> {
   const normalized = requireIdempotencyKey(idempotencyKey);
-  const existing = await ctx.db
-    .query('outbox_jobs')
-    .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', normalized))
-    .first();
+  const existing = (
+    await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', normalized))
+      .collect()
+  ).find((job) => DEDUPE_STATUSES.has(job.status));
   return existing?._id ?? null;
 }
 
@@ -112,6 +115,7 @@ export async function enqueueRoleSync(
         context: { outboxJobId },
       }
     );
+    await ctx.db.patch(outboxJobId, { workpoolEnqueuedAt: now, updatedAt: now });
   }
 
   return outboxJobId;
@@ -178,6 +182,7 @@ export async function enqueueRoleRemoval(
         context: { outboxJobId },
       }
     );
+    await ctx.db.patch(outboxJobId, { workpoolEnqueuedAt: now, updatedAt: now });
   }
 
   return outboxJobId;

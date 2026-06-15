@@ -18,11 +18,13 @@ function runPostprocess(source: string) {
   const scriptsDir = join(tempRoot, 'scripts');
   const srcDir = join(tempRoot, 'src');
   const scriptPath = join(scriptsDir, 'postprocess-generated.ts');
+  const helperPath = join(srcDir, 'generatedPostprocess.ts');
   const generatedPath = join(srcDir, 'generated.ts');
 
   mkdirSync(scriptsDir, { recursive: true });
   mkdirSync(srcDir, { recursive: true });
   copyFileSync(resolve(import.meta.dir, '../scripts/postprocess-generated.ts'), scriptPath);
+  copyFileSync(resolve(import.meta.dir, './generatedPostprocess.ts'), helperPath);
   writeFileSync(generatedPath, source, 'utf8');
 
   const result = Bun.spawnSync({
@@ -37,10 +39,10 @@ function runPostprocess(source: string) {
 }
 
 describe('postprocess-generated script', () => {
-  it('preserves CRLF line endings when prepending the ts-nocheck banner', () => {
+  it('normalizes CRLF line endings to LF when prepending the ts-nocheck banner', () => {
     const output = runPostprocess('export const first = 1;\r\nexport const second = 2;\r\n');
-    expect(output.startsWith('// @ts-nocheck\r\n')).toBe(true);
-    expect(/(^|[^\r])\n/.test(output)).toBe(false);
+    expect(output.startsWith('// @ts-nocheck\n')).toBe(true);
+    expect(output.includes('\r\n')).toBe(false);
   });
 
   it('preserves LF line endings when prepending the ts-nocheck banner', () => {

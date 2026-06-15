@@ -1,4 +1,5 @@
 import type { Id } from '../_generated/dataModel';
+import { resolveRoleSyncDiscordUserId } from '../lib/roleSyncIdentity';
 import { enqueueRoleRemoval, enqueueRoleSync } from '../lib/roleSyncEnqueue';
 
 export { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
@@ -142,18 +143,15 @@ export async function revokeEntitlementForPurchaseFact(
     });
 
     const subject = await ctx.db.get(purchaseFact.subjectId);
-    const discordUserId = subject?.primaryDiscordUserId;
-    if (
-      discordUserId &&
-      !discordUserId.startsWith('gumroad:') &&
-      !discordUserId.startsWith('jinxxy:')
-    ) {
+    const discordUserId = resolveRoleSyncDiscordUserId(subject ?? {});
+    if (discordUserId) {
       await emitRoleRemovalJobs(
         ctx,
         authUserId,
         purchaseFact.subjectId,
         entitlement.productId,
-        discordUserId
+        discordUserId,
+        entitlement._id
       );
     }
   }
@@ -181,7 +179,8 @@ export async function emitRoleRemovalJobs(
   authUserId: string,
   subjectId: Id<'subjects'>,
   productId: string,
-  discordUserId: string
+  discordUserId: string,
+  entitlementId?: Id<'entitlements'>
 ): Promise<void> {
   const roleRules = await ctx.db
     .query('role_rules')
@@ -205,6 +204,7 @@ export async function emitRoleRemovalJobs(
     await enqueueRoleRemoval(ctx, {
       authUserId,
       subjectId,
+      entitlementId,
       guildId: rule.guildId,
       roleId: rule.verifiedRoleId,
       discordUserId,

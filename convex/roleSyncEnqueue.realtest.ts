@@ -123,6 +123,46 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     expect(rows[0]?.jobType).toBe('role_sync');
   });
 
+  it('enqueues fresh lifecycle role sync work after a previous row is finalized', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-webhook-sync-lifecycle';
+    const subjectId = 'subject-webhook-sync-lifecycle' as Id<'subjects'>;
+    const entitlementId = 'entitlement-webhook-sync-lifecycle' as Id<'entitlements'>;
+    const idempotencyKey = `role_sync:${authUserId}:${subjectId}:${entitlementId}`;
+
+    const firstId = await t.run(async (ctx) => {
+      await emitRoleSyncJob(ctx, authUserId, subjectId, 'discord-webhook-sync', entitlementId);
+      const first = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+        .first();
+      if (!first) {
+        throw new Error('Expected initial role sync row');
+      }
+      await ctx.db.patch(first._id, {
+        status: 'completed',
+        completedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return first._id;
+    });
+
+    const secondId = await t.run(async (ctx) => {
+      await emitRoleSyncJob(ctx, authUserId, subjectId, 'discord-webhook-sync', entitlementId);
+      const rows = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_idempotency', (q) => q.eq('idempotencyKey', idempotencyKey))
+        .collect();
+      const pending = rows.find((row) => row.status === 'pending');
+      if (!pending) {
+        throw new Error('Expected fresh pending role sync row');
+      }
+      return pending._id;
+    });
+
+    expect(secondId).not.toBe(firstId);
+  });
+
   it('dedupes repeated webhook role removal emissions for the same role rule', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-webhook-removal';
@@ -162,10 +202,24 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
       .mockReturnValueOnce(3_001);
 
     await t.run(async (ctx) =>
-      emitRoleRemovalJobs(ctx, authUserId, subjectId, productId, 'discord-webhook-removal')
+      emitRoleRemovalJobs(
+        ctx,
+        authUserId,
+        subjectId,
+        productId,
+        'discord-webhook-removal',
+        'entitlement-webhook-removal' as Id<'entitlements'>
+      )
     );
     await t.run(async (ctx) =>
-      emitRoleRemovalJobs(ctx, authUserId, subjectId, productId, 'discord-webhook-removal')
+      emitRoleRemovalJobs(
+        ctx,
+        authUserId,
+        subjectId,
+        productId,
+        'discord-webhook-removal',
+        'entitlement-webhook-removal' as Id<'entitlements'>
+      )
     );
 
     const rows = await t.run(async (ctx) =>
@@ -181,6 +235,9 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.jobType).toBe('role_removal');
+    expect((rows[0]?.payload as { entitlementId?: string }).entitlementId).toBe(
+      'entitlement-webhook-removal'
+    );
   });
 
   it('warns and skips role removal rules missing a verified role id', async () => {

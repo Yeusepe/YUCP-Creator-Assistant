@@ -21,6 +21,7 @@ import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { LicenseProviderV } from './lib/providers';
+import { resolveRoleSyncDiscordUserId } from './lib/roleSyncIdentity';
 import { enqueueRoleSync } from './lib/roleSyncEnqueue';
 import { upsertBuyerProviderLinkRecord } from './subjects';
 
@@ -41,12 +42,6 @@ const LicenseSubjectLink = v.object({
   licenseKeyEncrypted: v.string(),
   providerProductId: v.optional(v.string()),
 });
-
-const PROVIDER_SCOPED_SUBJECT_ID_PATTERN = /^[a-z][a-z0-9_-]*:/i;
-
-function isProviderScopedSubjectId(value: string) {
-  return PROVIDER_SCOPED_SUBJECT_ID_PATTERN.test(value);
-}
 
 function buildExternalAccountProviderMetadata(
   providerMetadata:
@@ -70,14 +65,6 @@ function buildExternalAccountProviderMetadata(
   };
 
   return Object.values(value).some((entry) => entry !== undefined) ? value : undefined;
-}
-
-function resolveRoleSyncDiscordUserId(subject: { primaryDiscordUserId?: string | null }) {
-  const discordUserId = subject.primaryDiscordUserId?.trim();
-  if (!discordUserId || isProviderScopedSubjectId(discordUserId)) {
-    return undefined;
-  }
-  return discordUserId;
 }
 
 async function resolveVerificationActors(

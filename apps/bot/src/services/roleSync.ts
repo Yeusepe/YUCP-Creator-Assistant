@@ -2081,12 +2081,13 @@ export class RoleSyncService {
       },
       async () => {
         try {
-          // role_sync / role_removal move to the Convex Workpool when enabled;
-          // the bot stops claiming them to avoid double-execution. The remaining
-          // gateway-heavy job types still run here.
+          // role_sync / role_removal move to the Convex Workpool when enabled.
+          // The bot still drains legacy rows that predate the rollout marker,
+          // while getPendingJobs excludes rows that already have Workpool work.
           const viaWorkpool = process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
           const jobTypes = [
-            ...(viaWorkpool ? [] : (['role_sync', 'role_removal'] as const)),
+            'role_sync',
+            'role_removal',
             'creator_alert',
             'retroactive_rule_sync',
             'migration_analyze',
@@ -2104,6 +2105,7 @@ export class RoleSyncService {
           const jobs = await this.convexClient.query(api.outbox_jobs.getPendingJobs, {
             apiSecret: this.apiSecret,
             jobTypes,
+            excludeWorkpoolRoleJobs: viaWorkpool,
             limit: 10,
           });
 

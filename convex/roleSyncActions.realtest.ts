@@ -158,6 +158,27 @@ describe('roleSyncActions.runRoleSync', () => {
         discordUserId: DISCORD_USER,
       })
     ).rejects.toThrow(/Member not found/);
+
+    const stored = await t.run(async (ctx) => ctx.db.get(outboxJobId));
+    expect(stored?.targetGuildIds).toEqual([GUILD_ID]);
+  });
+
+  it('rejects entitlement/auth user mismatches before calling Discord', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId } = await seed(t);
+    const fetchFn = mockFetch(204);
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: 'auth-action-intruder',
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Entitlement\/authUser mismatch/);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('returns a permanent failure (no throw) on missing permissions (50013)', async () => {
@@ -250,5 +271,25 @@ describe('roleSyncActions.runRoleRemoval', () => {
     expect(fetchFn.mock.calls[0]?.[0]).toContain(
       `/guilds/${encodeURIComponent(guildId)}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`
     );
+  });
+
+  it('rejects removal entitlement/auth user mismatches before calling Discord', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId } = await seed(t, 'revoked');
+    const fetchFn = mockFetch(204);
+
+    const result = await t.action(internal.roleSyncActions.runRoleRemoval, {
+      outboxJobId,
+      authUserId: 'auth-action-intruder',
+      subjectId,
+      entitlementId,
+      guildId: GUILD_ID,
+      roleId: ROLE_ID,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Entitlement\/authUser mismatch/);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });

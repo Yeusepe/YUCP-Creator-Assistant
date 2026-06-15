@@ -51,10 +51,30 @@ function readRoleSyncPayload(payload: unknown): RoleSyncPayload {
   }
   const record = payload as Record<string, unknown>;
   return {
-    subjectId: typeof record.subjectId === 'string' ? (record.subjectId as Id<'subjects'>) : undefined,
+    subjectId:
+      typeof record.subjectId === 'string' ? (record.subjectId as Id<'subjects'>) : undefined,
     discordUserId: typeof record.discordUserId === 'string' ? record.discordUserId : undefined,
   };
 }
+
+export const recordRoleSyncAttemptContext = internalMutation({
+  args: {
+    outboxJobId: v.id('outbox_jobs'),
+    targetGuildIds: v.array(v.string()),
+    lastError: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.outboxJobId);
+    if (!job || job.status === 'completed' || job.status === 'dead_letter') {
+      return;
+    }
+    await ctx.db.patch(args.outboxJobId, {
+      ...(args.targetGuildIds.length > 0 ? { targetGuildIds: args.targetGuildIds } : {}),
+      ...(args.lastError ? { lastError: args.lastError } : {}),
+      updatedAt: Date.now(),
+    });
+  },
+});
 
 export const roleSyncCompleted = internalMutation({
   args: vOnCompleteValidator(

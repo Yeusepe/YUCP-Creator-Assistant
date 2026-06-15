@@ -98,6 +98,10 @@ const EntitlementReadFields = {
 };
 
 const EntitlementReadRecord = v.object(EntitlementReadFields);
+const InternalEntitlementReadRecord = v.object({
+  ...EntitlementReadFields,
+  authUserId: v.string(),
+});
 
 const ProductEntitlementReadRecord = v.object({
   ...EntitlementReadFields,
@@ -124,6 +128,13 @@ export function normalizeEntitlementReadRecord(entitlement: LegacyEntitlementRea
     status: entitlement.status,
     grantedAt: entitlement.grantedAt,
     ...(revokedAt === undefined ? {} : { revokedAt }),
+  };
+}
+
+function normalizeInternalEntitlementReadRecord(entitlement: LegacyEntitlementReadDoc) {
+  return {
+    ...normalizeEntitlementReadRecord(entitlement),
+    authUserId: entitlement.authUserId,
   };
 }
 
@@ -555,13 +566,13 @@ export const getEntitlementInternal = internalQuery({
   args: {
     entitlementId: v.id('entitlements'),
   },
-  returns: v.union(EntitlementReadRecord, v.null()),
+  returns: v.union(InternalEntitlementReadRecord, v.null()),
   handler: async (ctx, args) => {
     const entitlement = await ctx.db.get(args.entitlementId);
     if (!entitlement) {
       return null;
     }
-    return normalizeEntitlementReadRecord(entitlement);
+    return normalizeInternalEntitlementReadRecord(entitlement);
   },
 });
 

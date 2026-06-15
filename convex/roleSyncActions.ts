@@ -252,6 +252,17 @@ export const runRoleSync = internalAction({
         error: `Entitlement not found: ${args.entitlementId}`,
       };
     }
+    if (entitlement.authUserId !== args.authUserId) {
+      return {
+        success: false,
+        guildId: args.targetGuildId ?? '',
+        targetGuildIds: args.targetGuildId ? [args.targetGuildId] : [],
+        discordUserId,
+        rolesAdded: [],
+        rolesRemoved: [],
+        error: 'Entitlement/authUser mismatch',
+      };
+    }
     if (entitlement.status !== 'active') {
       // Not an error: nothing to grant for an inactive entitlement.
       return {
@@ -352,6 +363,12 @@ export const runRoleSync = internalAction({
 
     // Any transient failure => retry the whole job (idempotent PUTs make this safe).
     if (!success && hasRetriable) {
+      const targetGuildIds = Array.from(failedGuildIds);
+      await ctx.runMutation(internal.roleSyncOnComplete.recordRoleSyncAttemptContext, {
+        outboxJobId: args.outboxJobId,
+        targetGuildIds,
+        lastError: error,
+      });
       throw new RetriableRoleSyncError(error ?? 'Role sync transient failure');
     }
 
@@ -398,6 +415,17 @@ export const runRoleRemoval = internalAction({
       const entitlement = await ctx.runQuery(internal.entitlements.getEntitlementInternal, {
         entitlementId: args.entitlementId,
       });
+      if (entitlement && entitlement.authUserId !== args.authUserId) {
+        return {
+          success: false,
+          guildId: args.guildId,
+          targetGuildIds: [args.guildId],
+          discordUserId,
+          rolesAdded: [],
+          rolesRemoved: [],
+          error: 'Entitlement/authUser mismatch',
+        };
+      }
       if (entitlement && entitlement.status === 'active') {
         return {
           success: true,
@@ -414,6 +442,11 @@ export const runRoleRemoval = internalAction({
 
     const result = await removeRoleFromMember(args.guildId, discordUserId, args.roleId);
     if (!result.removed && result.retriable) {
+      await ctx.runMutation(internal.roleSyncOnComplete.recordRoleSyncAttemptContext, {
+        outboxJobId: args.outboxJobId,
+        targetGuildIds: [args.guildId],
+        lastError: result.error,
+      });
       throw new RetriableRoleSyncError(result.error ?? 'Role removal transient failure');
     }
 

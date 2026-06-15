@@ -28,7 +28,7 @@ import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
-import { roleSyncPool } from './roleSyncWorkpool';
+import { enqueueExistingRoleOutboxJobInWorkpool } from './lib/roleSyncWorkpoolDispatch';
 import {
   detectCanonicalAuthResolutionForSubject,
   ensureCanonicalAuthUserIdForSubject,
@@ -1735,13 +1735,20 @@ export const redriveDeadLetterRoleSync = internalMutation({
     }
 
     const limit = Math.min(args.limit ?? 100, 500);
-    const deadLetters = await ctx.db
+    const roleSyncTargets = await ctx.db
       .query('outbox_jobs')
-      .withIndex('by_status', (q) => q.eq('status', 'dead_letter'))
-      .take(1000);
-
-    const targets = deadLetters.filter(
-      (job) => job.jobType === 'role_sync' || job.jobType === 'role_removal'
+      .withIndex('by_status_job_type', (q) =>
+        q.eq('status', 'dead_letter').eq('jobType', 'role_sync')
+      )
+      .collect();
+    const roleRemovalTargets = await ctx.db
+      .query('outbox_jobs')
+      .withIndex('by_status_job_type', (q) =>
+        q.eq('status', 'dead_letter').eq('jobType', 'role_removal')
+      )
+      .collect();
+    const targets = [...roleSyncTargets, ...roleRemovalTargets].sort(
+      (a, b) => a.createdAt - b.createdAt
     );
     const batch = targets.slice(0, limit);
 
@@ -1750,60 +1757,10 @@ export const redriveDeadLetterRoleSync = internalMutation({
     const now = Date.now();
 
     for (const job of batch) {
-      const payload = (job.payload ?? {}) as {
-        subjectId?: Id<'subjects'>;
-        entitlementId?: Id<'entitlements'>;
-        discordUserId?: string;
-        targetGuildId?: string;
-        guildId?: string;
-        roleId?: string;
-      };
-
-      if (job.jobType === 'role_sync') {
-        if (!payload.subjectId || !payload.entitlementId) {
-          skipped++;
-          continue;
-        }
-      } else if (!payload.subjectId || !payload.entitlementId || !payload.guildId || !payload.roleId) {
+      const dispatch = await enqueueExistingRoleOutboxJobInWorkpool(ctx, job);
+      if (!dispatch.enqueued) {
         skipped++;
         continue;
-      }
-
-      if (job.jobType === 'role_sync') {
-        await roleSyncPool.enqueueAction(
-          ctx,
-          internal.roleSyncActions.runRoleSync,
-          {
-            outboxJobId: job._id,
-            authUserId: job.authUserId,
-            subjectId: payload.subjectId as Id<'subjects'>,
-            entitlementId: payload.entitlementId as Id<'entitlements'>,
-            discordUserId: payload.discordUserId,
-            targetGuildId: payload.targetGuildId,
-          },
-          {
-            onComplete: internal.roleSyncOnComplete.roleSyncCompleted,
-            context: { outboxJobId: job._id },
-          }
-        );
-      } else {
-        await roleSyncPool.enqueueAction(
-          ctx,
-          internal.roleSyncActions.runRoleRemoval,
-          {
-            outboxJobId: job._id,
-            authUserId: job.authUserId,
-            subjectId: payload.subjectId as Id<'subjects'>,
-            entitlementId: payload.entitlementId as Id<'entitlements'>,
-            guildId: payload.guildId as string,
-            roleId: payload.roleId as string,
-            discordUserId: payload.discordUserId,
-          },
-          {
-            onComplete: internal.roleSyncOnComplete.roleSyncCompleted,
-            context: { outboxJobId: job._id },
-          }
-        );
       }
 
       // Reset the projection row only after Workpool accepts the durable work.
@@ -1812,6 +1769,7 @@ export const redriveDeadLetterRoleSync = internalMutation({
         retryCount: 0,
         lastError: undefined,
         nextRetryAt: undefined,
+        workpoolEnqueuedAt: now,
         updatedAt: now,
       });
       processed++;

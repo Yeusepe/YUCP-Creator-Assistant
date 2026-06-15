@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
+import { roleSyncPool } from './roleSyncWorkpool';
 import { makeTestConvex } from './testHelpers';
 
 describe('outbox_jobs schema compatibility', () => {
@@ -115,5 +117,124 @@ describe('outbox_jobs schema compatibility', () => {
 
     const stored = await t.run(async (ctx) => ctx.db.get(jobId));
     expect(stored?.targetGuildIds).toEqual(['guild-role-sync']);
+  });
+
+  it('fetches requested pending job types without being front-blocked by Workpool-owned role rows', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    const ids = await t.run(async (ctx) => {
+      const insertedWorkpoolIds: Id<'outbox_jobs'>[] = [];
+      for (let index = 0; index < 1000; index++) {
+        insertedWorkpoolIds.push(
+          await ctx.db.insert('outbox_jobs', {
+            authUserId: 'auth-outbox-front-blocked',
+            jobType: 'role_sync',
+            payload: {
+              subjectId: `subject-workpool-${index}`,
+              entitlementId: `entitlement-workpool-${index}`,
+              discordUserId: `discord-workpool-${index}`,
+            },
+            status: 'pending',
+            idempotencyKey: `front-blocked-workpool-role-${index}`,
+            targetDiscordUserId: `discord-workpool-${index}`,
+            workpoolEnqueuedAt: now,
+            retryCount: 0,
+            maxRetries: 10,
+            createdAt: now + index,
+            updatedAt: now + index,
+          })
+        );
+      }
+
+      const legacyRoleJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId: 'auth-outbox-front-blocked',
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-legacy-role',
+          entitlementId: 'entitlement-legacy-role',
+          discordUserId: 'discord-legacy-role',
+        },
+        status: 'pending',
+        idempotencyKey: 'front-blocked-legacy-role',
+        targetDiscordUserId: 'discord-legacy-role',
+        retryCount: 0,
+        maxRetries: 10,
+        createdAt: now + 1001,
+        updatedAt: now + 1001,
+      });
+
+      const creatorAlertJobId = await ctx.db.insert('outbox_jobs', {
+        authUserId: 'auth-outbox-front-blocked',
+        jobType: 'creator_alert',
+        payload: { message: 'bot-owned job must not starve' },
+        status: 'pending',
+        idempotencyKey: 'front-blocked-creator-alert',
+        retryCount: 0,
+        maxRetries: 3,
+        createdAt: now + 1002,
+        updatedAt: now + 1002,
+      });
+
+      return { insertedWorkpoolIds, legacyRoleJobId, creatorAlertJobId };
+    });
+
+    const jobs = await t.query(api.outbox_jobs.getPendingJobs, {
+      apiSecret: 'test-convex-api-secret',
+      jobTypes: ['role_sync', 'creator_alert'],
+      excludeWorkpoolRoleJobs: true,
+      limit: 10,
+    } as never);
+
+    const returnedIds = jobs.map((job) => job._id);
+    expect(returnedIds).toContain(ids.legacyRoleJobId);
+    expect(returnedIds).toContain(ids.creatorAlertJobId);
+    expect(returnedIds).not.toContain(ids.insertedWorkpoolIds[0]);
+  });
+
+  it('routes role dead-letter retries through Workpool when the rollout flag is enabled', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const jobId = await t.run(async (ctx) =>
+        ctx.db.insert('outbox_jobs', {
+          authUserId: 'auth-outbox-retry-workpool',
+          jobType: 'role_sync',
+          payload: {
+            subjectId: 'subject-outbox-retry-workpool',
+            entitlementId: 'entitlement-outbox-retry-workpool',
+            discordUserId: 'discord-outbox-retry-workpool',
+          },
+          status: 'dead_letter',
+          idempotencyKey: 'retry-workpool-role-sync',
+          targetDiscordUserId: 'discord-outbox-retry-workpool',
+          retryCount: 10,
+          maxRetries: 10,
+          lastError: 'legacy worker failed',
+          createdAt: now,
+          updatedAt: now,
+        })
+      );
+
+      const result = await t.mutation(api.outbox_jobs.retryDeadLetterJob, {
+        apiSecret: 'test-convex-api-secret',
+        jobId,
+      });
+      const stored = await t.run(async (ctx) => ctx.db.get(jobId));
+
+      expect(result).toEqual({ success: true });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored?.status).toBe('pending');
+      expect(
+        (stored as { workpoolEnqueuedAt?: number } | null)?.workpoolEnqueuedAt
+      ).toBeGreaterThanOrEqual(now);
+    } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
   });
 });

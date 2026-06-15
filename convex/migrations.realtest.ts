@@ -183,11 +183,15 @@ describe('legacy license subject link hardening', () => {
 describe('backstage alias metadata remediation', () => {
   it('detects published releases that are missing alias metadata but can be repaired from linked products', async () => {
     const t = makeTestConvex();
-    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t);
+    const { catalogProductId, deliveryPackageReleaseId } =
+      await seedBackstageAliasMetadataCandidate(t);
 
-    const report = await t.query(internal.migrations.listBackstageAliasMetadataRemediationCandidates, {
-      limit: 10,
-    });
+    const report = await t.query(
+      internal.migrations.listBackstageAliasMetadataRemediationCandidates,
+      {
+        limit: 10,
+      }
+    );
 
     expect(report.summary).toMatchObject({
       candidateReleases: 1,
@@ -211,12 +215,13 @@ describe('backstage alias metadata remediation', () => {
   it('repairs a selected published release by backfilling the alias metadata contract', async () => {
     vi.useFakeTimers();
     const t = makeTestConvex();
-    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
-      packageId: 'com.yucp.backstage.legacy-repair',
-      productId: 'product-legacy-repair',
-      providerProductRef: 'gumroad-product-legacy-repair',
-      version: '2.0.0',
-    });
+    const { catalogProductId, deliveryPackageReleaseId } =
+      await seedBackstageAliasMetadataCandidate(t, {
+        packageId: 'com.yucp.backstage.legacy-repair',
+        productId: 'product-legacy-repair',
+        providerProductRef: 'gumroad-product-legacy-repair',
+        version: '2.0.0',
+      });
 
     const result = await t.mutation(internal.migrations.repairBackstageAliasMetadataCandidates, {
       releaseIds: [deliveryPackageReleaseId],
@@ -246,12 +251,13 @@ describe('backstage alias metadata remediation', () => {
 
   it('marks multi-product releases with conflicting alias ids as review-only and skips repair', async () => {
     const t = makeTestConvex();
-    const { catalogProductId, deliveryPackageReleaseId } = await seedBackstageAliasMetadataCandidate(t, {
-      packageId: 'com.yucp.backstage.legacy-conflict',
-      productId: 'product-legacy-conflict-a',
-      providerProductRef: 'gumroad-product-legacy-conflict-a',
-      version: '4.0.0',
-    });
+    const { catalogProductId, deliveryPackageReleaseId } =
+      await seedBackstageAliasMetadataCandidate(t, {
+        packageId: 'com.yucp.backstage.legacy-conflict',
+        productId: 'product-legacy-conflict-a',
+        providerProductRef: 'gumroad-product-legacy-conflict-a',
+        version: '4.0.0',
+      });
     const secondCatalogProductId = await t.run(async (ctx) => {
       return await ctx.db.insert('product_catalog', {
         authUserId: 'auth-user-1',
@@ -275,9 +281,12 @@ describe('backstage alias metadata remediation', () => {
       defaultChannel: 'stable',
     });
 
-    const report = await t.query(internal.migrations.listBackstageAliasMetadataRemediationCandidates, {
-      limit: 10,
-    });
+    const report = await t.query(
+      internal.migrations.listBackstageAliasMetadataRemediationCandidates,
+      {
+        limit: 10,
+      }
+    );
 
     expect(report.summary).toMatchObject({
       candidateReleases: 1,
@@ -1580,9 +1589,10 @@ describe('subject ownership remediation', () => {
 });
 
 describe('role sync redrive migration', () => {
-  it('keeps dead-letter role-removal jobs without entitlement ids out of Workpool redrive', async () => {
+  it('redrives role-removal jobs without entitlement ids through Workpool', async () => {
     const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
     process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
     try {
       const t = makeTestConvex();
       const now = Date.now();
@@ -1617,10 +1627,82 @@ describe('role sync redrive migration', () => {
       const result = await t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 });
       const stored = await t.run(async (ctx) => ctx.db.get(jobId));
 
-      expect(result).toEqual({ processed: 0, skipped: 1, remaining: 0 });
-      expect(stored?.status).toBe('dead_letter');
-      expect(stored?.lastError).toBe('legacy worker failed');
+      expect(result).toEqual({ processed: 1, skipped: 0, remaining: 0 });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored?.status).toBe('pending');
+      expect(stored?.lastError).toBeUndefined();
     } finally {
+      enqueueSpy.mockRestore();
+      if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+      else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
+    }
+  });
+
+  it('pages past non-role dead letters when redriving role jobs', async () => {
+    const original = process.env.ROLE_SYNC_VIA_WORKPOOL;
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+    const enqueueSpy = vi.spyOn(roleSyncPool, 'enqueueAction').mockResolvedValue(undefined);
+    try {
+      const t = makeTestConvex();
+      const now = Date.now();
+      const roleJobId = await t.run(async (ctx) => {
+        for (let index = 0; index < 1000; index++) {
+          await ctx.db.insert('outbox_jobs', {
+            authUserId: 'auth-redrive-non-role-window',
+            jobType: 'creator_alert',
+            payload: { index },
+            status: 'dead_letter',
+            idempotencyKey: `redrive-non-role-window-${index}`,
+            retryCount: 5,
+            maxRetries: 5,
+            lastError: 'non-role failure',
+            createdAt: now + index,
+            updatedAt: now + index,
+          });
+        }
+        const subjectId = await ctx.db.insert('subjects', {
+          primaryDiscordUserId: 'discord-redrive-window',
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        const entitlementId = await ctx.db.insert('entitlements', {
+          authUserId: 'auth-redrive-window',
+          subjectId,
+          productId: 'product-redrive-window',
+          sourceProvider: 'gumroad',
+          sourceReference: 'order-redrive-window',
+          status: 'active',
+          grantedAt: now,
+          updatedAt: now,
+        });
+        return ctx.db.insert('outbox_jobs', {
+          authUserId: 'auth-redrive-window',
+          jobType: 'role_sync',
+          payload: {
+            subjectId,
+            entitlementId,
+            discordUserId: 'discord-redrive-window',
+          },
+          status: 'dead_letter',
+          idempotencyKey: 'redrive-window-role-sync',
+          targetDiscordUserId: 'discord-redrive-window',
+          retryCount: 5,
+          maxRetries: 5,
+          lastError: 'legacy worker failed',
+          createdAt: now + 1001,
+          updatedAt: now + 1001,
+        });
+      });
+
+      const result = await t.mutation(internal.migrations.redriveDeadLetterRoleSync, { limit: 1 });
+      const stored = await t.run(async (ctx) => ctx.db.get(roleJobId));
+
+      expect(result).toEqual({ processed: 1, skipped: 0, remaining: 0 });
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(stored?.status).toBe('pending');
+    } finally {
+      enqueueSpy.mockRestore();
       if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
       else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
     }
