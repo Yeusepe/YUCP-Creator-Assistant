@@ -167,4 +167,27 @@ describe('coupling forensics archive extraction limits', () => {
       })
     ).rejects.toThrow('Archive entry exceeds the extracted size limit');
   });
+
+  it('rejects unitypackage archives that exceed the total extracted budget', async () => {
+    workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-unity-total-test-'));
+    const archivePath = await writeArchive(
+      workspaceDir,
+      'bundle.unitypackage',
+      buildGzippedTar([
+        createTarEntry('asset-a/pathname', strToU8('Assets/Character/body.png')),
+        createTarEntry('asset-a/asset', new Uint8Array(50)),
+        createTarEntry('asset-b/pathname', strToU8('Assets/Character/hair.png')),
+        createTarEntry('asset-b/asset', new Uint8Array(50)),
+        createTarEntry('asset-c/pathname', strToU8('Assets/Character/outfit.png')),
+        createTarEntry('asset-c/asset', new Uint8Array(50)),
+      ])
+    );
+
+    await expect(
+      extractCouplingForensicsArchive(archivePath, 'bundle.unitypackage', workspaceDir, {
+        maxExtractedEntryBytes: 100,
+        maxExtractedTotalBytes: 100,
+      })
+    ).rejects.toThrow('Archive exceeds the extracted size limit');
+  });
 });
