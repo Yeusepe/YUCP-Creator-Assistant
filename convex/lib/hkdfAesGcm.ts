@@ -1,12 +1,20 @@
+const MAX_CIPHERTEXT_B64_LENGTH = 100 * 1024;
+
+function toExactArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 async function hmacSha256(keyBytes: Uint8Array, message: Uint8Array): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     'raw',
-    keyBytes.buffer as ArrayBuffer,
+    toExactArrayBuffer(keyBytes),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, message.buffer as ArrayBuffer));
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, toExactArrayBuffer(message)));
 }
 
 async function deriveHkdfAesGcmKey(secret: string, purpose: string): Promise<CryptoKey> {
@@ -19,7 +27,7 @@ async function deriveHkdfAesGcmKey(secret: string, purpose: string): Promise<Cry
   const okm = await hmacSha256(prk, expandInput);
   return await crypto.subtle.importKey(
     'raw',
-    okm.buffer as ArrayBuffer,
+    toExactArrayBuffer(okm),
     { name: 'AES-GCM', length: 256 },
     false,
     ['decrypt']
@@ -31,8 +39,14 @@ export async function decryptHkdfAesGcm(
   secret: string,
   purpose: string
 ): Promise<string> {
+  if (ciphertextB64.length > MAX_CIPHERTEXT_B64_LENGTH) {
+    throw new Error('Encrypted value exceeds maximum supported size.');
+  }
   const key = await deriveHkdfAesGcmKey(secret, purpose);
   const combined = Uint8Array.from(atob(ciphertextB64), (char) => char.charCodeAt(0));
+  if (combined.byteLength <= 12) {
+    throw new Error('Encrypted value is malformed.');
+  }
   const iv = combined.slice(0, 12);
   const data = combined.slice(12);
   const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
