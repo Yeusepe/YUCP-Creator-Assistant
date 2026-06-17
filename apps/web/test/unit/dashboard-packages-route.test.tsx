@@ -20,6 +20,10 @@ type MockLinkProps = ComponentPropsWithoutRef<'a'> & {
   to?: unknown;
 };
 
+const routeState = vi.hoisted(() => ({
+  search: {} as Record<string, unknown>,
+}));
+
 async function findMoreToolsTrigger() {
   const [trigger] = await screen.findAllByText(/^More tools$/);
   if (!trigger) {
@@ -54,7 +58,10 @@ vi.mock('@tanstack/react-router', () => ({
     <a {...props}>{children}</a>
   ),
   createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({}) }),
-  createLazyFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({}) }),
+  createLazyFileRoute: () => (options: unknown) => ({
+    options,
+    useSearch: () => routeState.search,
+  }),
 }));
 
 vi.mock('@heroui/react', () => {
@@ -580,8 +587,16 @@ vi.mock('@/lib/packages', () => ({
   uploadBackstageReleaseMedia: vi.fn(),
 }));
 
+vi.mock('@/lib/couplingForensics', () => ({
+  isCouplingTraceabilityRequiredError: vi.fn(() => false),
+  listCouplingForensicsPackages: vi.fn(),
+  revealCouplingLicenseKey: vi.fn(),
+  runCouplingForensicsLookup: vi.fn(),
+}));
+
 import { buildProductLanes } from '@/components/dashboard/PackageRegistryPanel';
 import * as certificateApi from '@/lib/certificates';
+import * as couplingForensicsApi from '@/lib/couplingForensics';
 import * as packagesApi from '@/lib/packages';
 import { Route as PackagesRoute } from '@/routes/_authenticated/dashboard/packages.lazy';
 
@@ -592,6 +607,8 @@ const listCreatorBackstageProductsMock = packagesApi.listCreatorBackstageProduct
   typeof vi.fn
 >;
 const listCreatorPackagesMock = packagesApi.listCreatorPackages as ReturnType<typeof vi.fn>;
+const listCouplingForensicsPackagesMock =
+  couplingForensicsApi.listCouplingForensicsPackages as ReturnType<typeof vi.fn>;
 const renameCreatorPackageMock = packagesApi.renameCreatorPackage as ReturnType<typeof vi.fn>;
 const archiveCreatorBackstageReleaseMock = packagesApi.archiveCreatorBackstageRelease as ReturnType<
   typeof vi.fn
@@ -640,6 +657,7 @@ function createWrapper({ privateVpmEnabled = true }: { privateVpmEnabled?: boole
 describe('dashboard packages route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    routeState.search = {};
     listCreatorCertificatesMock.mockResolvedValue({
       workspaceKey: 'creator-profile:profile-1',
       creatorProfileId: 'profile-1',
@@ -888,6 +906,16 @@ describe('dashboard packages route', () => {
     deleteCreatorBackstageReleaseMock.mockResolvedValue({
       deleted: true,
       deliveryPackageReleaseId: 'release_old',
+    });
+    listCouplingForensicsPackagesMock.mockResolvedValue({
+      packages: [
+        {
+          packageId: 'pkg.creator.bundle',
+          packageName: 'Creator Bundle',
+          registeredAt: 1_710_000_000_000,
+          updatedAt: 1_710_000_100_000,
+        },
+      ],
     });
   });
 
@@ -1659,6 +1687,51 @@ describe('dashboard packages route', () => {
 
     await waitFor(() => expect(screen.getByText('Custom VPM repo required')).toBeInTheDocument());
     expect(screen.getByText('Upgrade billing')).toBeInTheDocument();
+    expect(listCreatorPackagesMock).not.toHaveBeenCalled();
+  });
+
+  it('lets leak forensics bypass the custom VPM repo gate when traceability is active', async () => {
+    routeState.search = { view: 'forensics' };
+    listCreatorCertificatesMock.mockResolvedValue({
+      workspaceKey: 'creator-profile:profile-1',
+      creatorProfileId: 'profile-1',
+      billing: {
+        billingEnabled: true,
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        planKey: 'studio-plus',
+        productId: 'prod_studio_plus',
+        deviceCap: 5,
+        activeDeviceCount: 1,
+        signQuotaPerPeriod: null,
+        auditRetentionDays: 90,
+        supportTier: 'premium',
+        currentPeriodEnd: null,
+        graceUntil: null,
+        reason: null,
+        capabilities: [
+          {
+            capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
+            status: 'active',
+          },
+        ],
+      },
+      devices: [],
+      availablePlans: [],
+      meters: [],
+    });
+
+    const Component = PackagesRoute.options.component;
+    if (!Component) {
+      throw new Error('Packages route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper({ privateVpmEnabled: true }) });
+
+    await waitFor(() => expect(screen.getByText('Leak Tracer')).toBeInTheDocument());
+    expect(screen.queryByText('Custom VPM repo required')).toBeNull();
+    expect(listCouplingForensicsPackagesMock).toHaveBeenCalled();
     expect(listCreatorPackagesMock).not.toHaveBeenCalled();
   });
 

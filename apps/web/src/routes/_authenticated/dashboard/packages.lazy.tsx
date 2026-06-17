@@ -147,7 +147,7 @@ export default function DashboardPackages() {
     return <DashboardPackagesLoadingShell />;
   }
 
-  if (hasCapabilityQueryError) {
+  if (activeView === 'registry' && hasCapabilityQueryError) {
     return (
       <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
         <div className="bento-grid">
@@ -163,7 +163,7 @@ export default function DashboardPackages() {
     );
   }
 
-  if (!hasVpmRepoCapability) {
+  if (activeView === 'registry' && !hasVpmRepoCapability) {
     return (
       <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
         <div className="bento-grid">
