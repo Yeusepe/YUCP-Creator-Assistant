@@ -112,8 +112,7 @@ vi.mock('@/lib/packages', () => ({
 
 import * as certificateApi from '@/lib/certificates';
 import * as packagesApi from '@/lib/packages';
-import DashboardBilling from '@/routes/_authenticated/dashboard/billing.lazy';
-import DashboardCertificates from '@/routes/_authenticated/dashboard/certificates.lazy';
+import DashboardBilling from '@/routes/_authenticated/account/billing.lazy';
 
 function createWrapper({ privateVpmEnabled = true }: { privateVpmEnabled?: boolean } = {}) {
   const queryClient = new QueryClient({
@@ -160,7 +159,7 @@ function createMockCheckout() {
   };
 }
 
-describe('dashboard billing and certificates routes', () => {
+describe('account billing route', () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -233,14 +232,14 @@ describe('dashboard billing and certificates routes', () => {
       meters: [],
     });
     vi.mocked(certificateApi.createCreatorCertificateCheckout).mockResolvedValue({
-      url: 'https://polar.example.test/checkout',
+      url: 'https://polar.sh/checkout',
       redirect: false,
       workspaceKey: 'creator-profile:profile-1',
       planKey: 'starter',
       productId: 'prod_starter',
     });
     vi.mocked(certificateApi.getCreatorCertificatePortal).mockResolvedValue({
-      url: 'https://polar.example.test/portal',
+      url: 'https://polar.sh/portal',
       redirect: false,
     });
     vi.mocked(certificateApi.reconcileCreatorCertificateBilling).mockResolvedValue({
@@ -345,6 +344,35 @@ describe('dashboard billing and certificates routes', () => {
     });
   });
 
+  it('ignores billing auto-launch query flags without a trusted source', async () => {
+    searchState.checkout = '1';
+    searchState.plan = 'starter';
+    searchState.portal = '1';
+
+    render(<DashboardBilling />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Starter')).toBeInTheDocument());
+    expect(certificateApi.createCreatorCertificateCheckout).not.toHaveBeenCalled();
+    expect(certificateApi.getCreatorCertificatePortal).not.toHaveBeenCalled();
+  });
+
+  it('keeps trusted Unity checkout handoffs working', async () => {
+    const checkout = createMockCheckout();
+    createEmbedCheckoutMock.mockResolvedValue(checkout);
+    searchState.checkout = '1';
+    searchState.plan = 'starter';
+    searchState.source = 'unity';
+
+    render(<DashboardBilling />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(certificateApi.createCreatorCertificateCheckout).toHaveBeenCalledWith({
+        productId: 'prod_starter',
+        planKey: 'starter',
+      })
+    );
+  });
+
   it('keeps the billing route branded for the creator suite instead of only code signing', async () => {
     render(<DashboardBilling />, { wrapper: createWrapper() });
 
@@ -355,66 +383,5 @@ describe('dashboard billing and certificates routes', () => {
     expect(screen.queryByText('Code Signing Billing')).not.toBeInTheDocument();
     expect(screen.getAllByText('Protected exports').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Moderation lookup').length).toBeGreaterThan(0);
-  });
-
-  it('keeps billing purchase actions off the certificates route', async () => {
-    render(<DashboardCertificates />, { wrapper: createWrapper() });
-
-    await waitFor(() => expect(screen.getByText('Code Signing Certificates')).toBeInTheDocument());
-
-    expect(screen.queryByRole('button', { name: /subscribe via polar/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('Choose a Plan')).not.toBeInTheDocument();
-    expect(screen.queryByText('Available Plans')).not.toBeInTheDocument();
-  });
-
-  it('renders the package registry inside the certificates route', async () => {
-    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: true }) });
-
-    await waitFor(() => expect(screen.getByText('Package Registry')).toBeInTheDocument());
-    expect(
-      screen.getByText(
-        'Package identity lives beside certificates. Keep stable package IDs, rename them for humans, and reuse them across Unity projects.'
-      )
-    ).toBeInTheDocument();
-  });
-
-  it('hides the package registry when the private VPM feature flag is disabled', async () => {
-    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: false }) });
-
-    await waitFor(() => expect(screen.getByText('Code Signing Certificates')).toBeInTheDocument());
-    expect(screen.queryByText('Package Registry')).not.toBeInTheDocument();
-    expect(screen.queryByText('Custom VPM repo required')).not.toBeInTheDocument();
-  });
-
-  it('hides the package registry behind the Polar feature flag when the VPM repo benefit is absent', async () => {
-    vi.mocked(certificateApi.listCreatorCertificates).mockResolvedValue({
-      workspaceKey: 'creator-profile:profile-1',
-      creatorProfileId: 'profile-1',
-      billing: {
-        billingEnabled: true,
-        status: 'inactive',
-        allowEnrollment: false,
-        allowSigning: false,
-        planKey: null,
-        productId: null,
-        deviceCap: null,
-        activeDeviceCount: 0,
-        signQuotaPerPeriod: null,
-        auditRetentionDays: null,
-        supportTier: null,
-        currentPeriodEnd: null,
-        graceUntil: null,
-        reason: 'Certificate subscription required',
-        capabilities: [],
-      },
-      devices: [],
-      availablePlans: [],
-      meters: [],
-    });
-
-    render(<DashboardCertificates />, { wrapper: createWrapper({ privateVpmEnabled: true }) });
-
-    await waitFor(() => expect(screen.getByText('Custom VPM repo required')).toBeInTheDocument());
-    expect(screen.queryByText('Package Registry')).not.toBeInTheDocument();
   });
 });

@@ -48,6 +48,14 @@ const lazyRoutePairs = [
     '../../src/routes/_authenticated/account/authorized-apps.lazy.tsx',
   ],
   [
+    '../../src/routes/_authenticated/account/billing.tsx',
+    '../../src/routes/_authenticated/account/billing.lazy.tsx',
+  ],
+  [
+    '../../src/routes/_authenticated/account/machines.tsx',
+    '../../src/routes/_authenticated/account/machines.lazy.tsx',
+  ],
+  [
     '../../src/routes/_authenticated/account/certificates.tsx',
     '../../src/routes/_authenticated/account/certificates.lazy.tsx',
   ],

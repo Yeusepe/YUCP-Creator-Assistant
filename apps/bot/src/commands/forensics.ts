@@ -38,7 +38,7 @@ function buildDashboardForensicsUrl(): string | null {
   if (!baseUrl) {
     return null;
   }
-  return new URL('/dashboard/forensics', baseUrl).toString();
+  return new URL('/dashboard/packages?view=forensics', baseUrl).toString();
 }
 
 function sanitizeUploadFileName(input: string): string {

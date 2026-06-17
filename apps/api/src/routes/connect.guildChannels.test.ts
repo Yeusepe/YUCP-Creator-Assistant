@@ -1408,8 +1408,9 @@ describe('POST /api/connect/user/certificates/checkout', () => {
       referenceId: 'creator-profile:checkout-1',
       externalCustomerId: 'session-user-2',
       embedOrigin: 'http://localhost:3000',
-      successUrl: 'http://localhost:3000/dashboard/billing',
-      returnUrl: 'http://localhost:3000/dashboard/billing',
+      successUrl: 'http://localhost:3000/account/billing',
+      returnUrl: 'http://localhost:3000/account/billing',
+      redirect: false,
       metadata: {
         workspace_key: 'creator-profile:checkout-1',
         product_id: 'prod_starter',

@@ -1,6 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ComponentPropsWithoutRef, PropsWithChildren, ReactNode } from 'react';
+import {
+  Children,
+  type ComponentPropsWithoutRef,
+  createContext,
+  isValidElement,
+  type PropsWithChildren,
+  type ReactNode,
+  useContext,
+  useState,
+} from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/api/client';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
@@ -19,34 +28,228 @@ vi.mock('@tanstack/react-router', () => ({
   createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
-vi.mock('@/components/ui/Select', () => ({
-  Select: ({
-    id,
-    value,
-    options,
-    onChange,
-    disabled,
-  }: {
-    id: string;
-    value: string;
-    options: Array<{ value: string; label: string }>;
-    onChange: (value: string) => void;
-    disabled?: boolean;
-  }) => (
-    <select
-      id={id}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
+// The real HeroUI Autocomplete/SearchField render options in a portal that
+// jsdom doesn't open, so mock the pieces the panel uses. Mirrors the package
+// registry route test's HeroUI mock.
+vi.mock('@heroui/react', () => {
+  type AutocompleteCtx = {
+    placeholder?: string;
+    searchValue: string;
+    selectedText: string | null;
+    setSearchValue: (value: string) => void;
+    selectItem: (key: string, text: string) => void;
+    clear: () => void;
+  };
+  const AutocompleteContext = createContext<AutocompleteCtx | null>(null);
+
+  function getNodeText(children: ReactNode): string {
+    return Children.toArray(children)
+      .map((child) => {
+        if (typeof child === 'string' || typeof child === 'number') return String(child);
+        if (!isValidElement(child)) return '';
+        return getNodeText((child.props as { children?: ReactNode }).children);
+      })
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  const Div = ({
+    children,
+    isDisabled: _isDisabled,
+    isIconOnly: _isIconOnly,
+    selectionMode: _selectionMode,
+    ...props
+  }: PropsWithChildren<Record<string, unknown>>) => <div {...props}>{children}</div>;
+
+  const Button = ({
+    children,
+    isDisabled,
+    isIconOnly: _isIconOnly,
+    isPending: _isPending,
+    onPress,
+    type = 'button',
+    ...props
+  }: PropsWithChildren<Record<string, unknown>>) => (
+    <button
+      type={typeof type === 'string' ? type : 'button'}
+      disabled={Boolean(isDisabled)}
+      onClick={() => {
+        if (typeof onPress === 'function') onPress();
+      }}
+      {...props}
     >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  ),
-}));
+      {children}
+    </button>
+  );
+
+  const Chip = ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+    <span {...props}>{children}</span>
+  );
+
+  const ListBox = Object.assign(
+    ({
+      children,
+      renderEmptyState,
+      ...props
+    }: PropsWithChildren<Record<string, unknown> & { renderEmptyState?: () => ReactNode }>) => {
+      const ac = useContext(AutocompleteContext);
+      const items = Children.toArray(children).filter(Boolean);
+      const visible = ac
+        ? items.filter((child) => {
+            if (!isValidElement(child)) return true;
+            const tv = String(
+              (child.props as { textValue?: string }).textValue ??
+                getNodeText((child.props as { children?: ReactNode }).children)
+            ).toLowerCase();
+            return tv.includes(ac.searchValue.toLowerCase());
+          })
+        : items;
+      if (visible.length === 0 && typeof renderEmptyState === 'function') {
+        return <div {...props}>{renderEmptyState()}</div>;
+      }
+      return <div {...props}>{visible}</div>;
+    },
+    {
+      Item: ({
+        children,
+        id,
+        textValue: _textValue,
+        ...props
+      }: PropsWithChildren<Record<string, unknown> & { id?: string; textValue?: string }>) => {
+        const ac = useContext(AutocompleteContext);
+        const label = getNodeText(children);
+        if (!ac) return <div {...props}>{children}</div>;
+        return (
+          <button
+            type="button"
+            onClick={() => ac.selectItem(String(id ?? label), label)}
+            {...props}
+          >
+            {children}
+          </button>
+        );
+      },
+      ItemIndicator: Div,
+    }
+  );
+
+  const Autocomplete = Object.assign(
+    ({
+      children,
+      onChange,
+      onClear,
+      placeholder,
+      selectionMode: _selectionMode,
+      value,
+      isDisabled: _isDisabled,
+      ...props
+    }: PropsWithChildren<Record<string, unknown>>) => {
+      const [searchValue, setSearchValue] = useState('');
+      const [selectedText, setSelectedText] = useState<string | null>(null);
+      return (
+        <AutocompleteContext.Provider
+          value={{
+            placeholder: typeof placeholder === 'string' ? placeholder : undefined,
+            searchValue,
+            selectedText,
+            setSearchValue,
+            selectItem: (key, text) => {
+              setSelectedText(text);
+              setSearchValue('');
+              if (typeof onChange === 'function') onChange(key);
+            },
+            clear: () => {
+              setSelectedText(null);
+              setSearchValue('');
+              if (typeof onClear === 'function') onClear();
+              if (typeof onChange === 'function') onChange(null);
+            },
+          }}
+        >
+          <div data-selected-key={typeof value === 'string' ? value : undefined} {...props}>
+            {children}
+          </div>
+        </AutocompleteContext.Provider>
+      );
+    },
+    {
+      Trigger: Div,
+      Value: (props: PropsWithChildren<Record<string, unknown>>) => {
+        const ac = useContext(AutocompleteContext);
+        return <div {...props}>{ac?.selectedText ?? ac?.placeholder ?? null}</div>;
+      },
+      ClearButton: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const ac = useContext(AutocompleteContext);
+        return (
+          <button type="button" onClick={() => ac?.clear()} {...props}>
+            {children}
+          </button>
+        );
+      },
+      Indicator: Div,
+      Popover: Div,
+      Filter: ({
+        children,
+        filter: _filter,
+        ...props
+      }: PropsWithChildren<Record<string, unknown>>) => <div {...props}>{children}</div>,
+    }
+  );
+
+  const SearchField = Object.assign(
+    ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => (
+      <div {...props}>{children}</div>
+    ),
+    {
+      Group: Div,
+      SearchIcon: Div,
+      ClearButton: ({ children, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const ac = useContext(AutocompleteContext);
+        return (
+          <button type="button" onClick={() => ac?.setSearchValue('')} {...props}>
+            {children}
+          </button>
+        );
+      },
+      Input: ({ onChange, ...props }: PropsWithChildren<Record<string, unknown>>) => {
+        const ac = useContext(AutocompleteContext);
+        return (
+          <input
+            value={ac?.searchValue ?? ''}
+            onChange={(event) => {
+              ac?.setSearchValue(event.target.value);
+              if (typeof onChange === 'function') onChange(event);
+            }}
+            {...props}
+          />
+        );
+      },
+    }
+  );
+
+  const Card = Object.assign(Div, {
+    Header: Div,
+    Content: Div,
+    Footer: Div,
+    Title: Div,
+    Description: Div,
+  });
+  const Skeleton = Div;
+
+  return {
+    Autocomplete,
+    Button,
+    Card,
+    Chip,
+    ListBox,
+    SearchField,
+    Skeleton,
+    useFilter: () => ({
+      contains: (text: string, input: string) => text.toLowerCase().includes(input.toLowerCase()),
+    }),
+  };
+});
 
 vi.mock('@/components/ui/Toast', () => ({
   useToast: vi.fn(() => ({
@@ -98,9 +301,9 @@ vi.mock('@/lib/couplingForensics', () => ({
   runCouplingForensicsLookup: vi.fn(),
 }));
 
+import { CouplingForensicsPanel } from '@/components/dashboard/CouplingForensicsPanel';
 import * as certificateApi from '@/lib/certificates';
 import * as forensicsApi from '@/lib/couplingForensics';
-import { Route as ForensicsRoute } from '@/routes/_authenticated/dashboard/forensics.lazy';
 
 const listCreatorCertificatesMock = certificateApi.listCreatorCertificates as ReturnType<
   typeof vi.fn
@@ -185,7 +388,7 @@ describe('dashboard forensics route', () => {
       new ApiError(400, { error: 'certificate lookup failed' })
     );
 
-    const Component = ForensicsRoute.options.component;
+    const Component = CouplingForensicsPanel;
     if (!Component) {
       throw new Error('Forensics route component is not defined');
     }
@@ -209,7 +412,7 @@ describe('dashboard forensics route', () => {
         })
     );
 
-    const Component = ForensicsRoute.options.component;
+    const Component = CouplingForensicsPanel;
     if (!Component) {
       throw new Error('Forensics route component is not defined');
     }
@@ -264,6 +467,58 @@ describe('dashboard forensics route', () => {
     });
   });
 
+  it('rejects unsupported upload types before starting a scan', async () => {
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    const upload = new File(['plain text'], 'leak.txt', { type: 'text/plain' });
+    fireEvent.change(fileInput, { target: { files: [upload] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Unsupported file type. Upload a .unitypackage or .zip file.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText('leak.txt')).not.toBeInTheDocument();
+    expect(forensicsApi.runCouplingForensicsLookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized uploads before starting a scan', async () => {
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    const upload = new File(['placeholder'], 'huge.zip', { type: 'application/zip' });
+    Object.defineProperty(upload, 'size', {
+      value: 100 * 1024 * 1024 + 1,
+    });
+
+    fireEvent.change(fileInput, { target: { files: [upload] } });
+
+    await waitFor(() =>
+      expect(screen.getByText('File is too large. Maximum size is 100 MB.')).toBeInTheDocument()
+    );
+    expect(screen.queryByText('huge.zip')).not.toBeInTheDocument();
+    expect(forensicsApi.runCouplingForensicsLookup).not.toHaveBeenCalled();
+  });
+
   it('surfaces an unresolved trace state when a trace matches but no buyer identity is available', async () => {
     runCouplingForensicsLookupMock.mockResolvedValue({
       packageId: 'pkg.creator.bundle',
@@ -295,7 +550,7 @@ describe('dashboard forensics route', () => {
       ],
     });
 
-    const Component = ForensicsRoute.options.component;
+    const Component = CouplingForensicsPanel;
     if (!Component) {
       throw new Error('Forensics route component is not defined');
     }
@@ -360,7 +615,7 @@ describe('dashboard forensics route', () => {
       ],
     });
 
-    const Component = ForensicsRoute.options.component;
+    const Component = CouplingForensicsPanel;
     if (!Component) {
       throw new Error('Forensics route component is not defined');
     }
@@ -392,7 +647,7 @@ describe('dashboard forensics route', () => {
   it('renders the human package name instead of a raw package id in the selector', async () => {
     listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
 
-    const Component = ForensicsRoute.options.component;
+    const Component = CouplingForensicsPanel;
     if (!Component) {
       throw new Error('Forensics route component is not defined');
     }

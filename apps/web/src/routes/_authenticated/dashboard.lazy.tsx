@@ -480,13 +480,13 @@ function Sidebar({
     enabled: canRunPanelQueries && _isPersonalDashboard,
   });
 
-  const hasForensicsCapability = hasActiveCreatorBillingCapability(
-    certificatesQuery.data?.billing.capabilities,
-    BILLING_CAPABILITY_KEYS.couplingTraceability
-  );
   const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
     certificatesQuery.data?.billing.capabilities,
     BILLING_CAPABILITY_KEYS.vpmRepo
+  );
+  const hasCouplingTraceabilityCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
   );
 
   return (
@@ -526,65 +526,6 @@ function Sidebar({
             </div>
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Developer</span>
-              <Link
-                id="tab-btn-billing"
-                to="/dashboard/billing"
-                search={(prev) => ({
-                  ...prev,
-                  guild_id: undefined,
-                  tenant_id: undefined,
-                })}
-                className="sidebar-nav-btn"
-                activeProps={{ className: 'sidebar-nav-btn is-active' }}
-                role="tab"
-                aria-selected={false}
-                aria-controls="tab-panel-billing"
-              >
-                <svg
-                  className="sidebar-nav-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="2.5" y="5" width="19" height="14" rx="3" />
-                  <path d="M2.5 10h19" />
-                  <path d="M6.5 15h4" />
-                </svg>
-                Billing
-              </Link>
-              <Link
-                id="tab-btn-certificates"
-                to="/dashboard/certificates"
-                search={(prev) => ({
-                  ...prev,
-                  guild_id: undefined,
-                  tenant_id: undefined,
-                })}
-                className="sidebar-nav-btn"
-                activeProps={{ className: 'sidebar-nav-btn is-active' }}
-                role="tab"
-                aria-selected={false}
-                aria-controls="tab-panel-certificates"
-              >
-                <svg
-                  className="sidebar-nav-icon"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
-                  <path d="M9 12l2 2 4-4" />
-                </svg>
-                Certificates
-              </Link>
               {privateVpmEnabled && hasVpmRepoCapability ? (
                 <Link
                   id="tab-btn-packages"
@@ -593,6 +534,7 @@ function Sidebar({
                     ...prev,
                     guild_id: undefined,
                     tenant_id: undefined,
+                    view: undefined,
                   })}
                   className="sidebar-nav-btn"
                   activeProps={{ className: 'sidebar-nav-btn is-active' }}
@@ -618,40 +560,37 @@ function Sidebar({
                   Custom VPM repo
                 </Link>
               ) : null}
-              {hasForensicsCapability ? (
-                <div className="sidebar-nav-reveal" key="sidebar-nav-forensics">
-                  <Link
-                    id="tab-btn-forensics"
-                    to="/dashboard/forensics"
-                    search={(prev) => ({
-                      ...prev,
-                      guild_id: undefined,
-                      tenant_id: undefined,
-                    })}
-                    className="sidebar-nav-btn"
-                    activeProps={{ className: 'sidebar-nav-btn is-active' }}
-                    role="tab"
-                    aria-selected={false}
-                    aria-controls="tab-panel-forensics"
+              {privateVpmEnabled && hasCouplingTraceabilityCapability ? (
+                <Link
+                  id="tab-btn-package-forensics"
+                  to="/dashboard/packages"
+                  search={(prev) => ({
+                    ...prev,
+                    guild_id: undefined,
+                    tenant_id: undefined,
+                    view: 'forensics',
+                  })}
+                  className="sidebar-nav-btn"
+                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                  role="tab"
+                  aria-selected={false}
+                  aria-controls="tab-panel-forensics"
+                >
+                  <svg
+                    className="sidebar-nav-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
                   >
-                    <svg
-                      className="sidebar-nav-icon"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <circle cx="11" cy="11" r="7" />
-                      <path d="M21 21l-4.35-4.35" />
-                      <path d="M11 8v6" />
-                      <path d="M8 11h6" />
-                    </svg>
-                    Coupling Forensics
-                  </Link>
-                </div>
+                    <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
+                    <path d="M9 12l2 2 4-4" />
+                  </svg>
+                  Leak Tracer
+                </Link>
               ) : null}
               <Link
                 to="/dashboard/integrations"
@@ -1197,6 +1136,10 @@ function SidebarLogoArea({
 }
 
 function DashboardRouteErrorComponent({ error }: { error: Error }) {
+  const dashboardRouteErrorDetail = import.meta.env.DEV
+    ? error.message
+    : 'Dashboard failed to load.';
+
   return (
     <div className="dashboard-page">
       <CloudBackground variant="default" />
@@ -1222,7 +1165,7 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
                   color: 'rgba(255,255,255,0.72)',
                 }}
               >
-                {error.message}
+                {dashboardRouteErrorDetail}
               </pre>
             </section>
           </div>

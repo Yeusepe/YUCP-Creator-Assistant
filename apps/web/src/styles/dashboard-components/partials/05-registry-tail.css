@@ -1316,3 +1316,248 @@ html:not(.dark) .btn-show-more:hover {
 .pkg-row--skeleton {
   pointer-events: none;
 }
+
+/* ── Private VPM workspace header + Registry/Forensics segmented control ── */
+.pm-workspace-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.pm-workspace-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pm-workspace-title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--foreground, #0f172a);
+}
+
+.dark .pm-workspace-title {
+  color: #f1f5f9;
+}
+
+.pm-workspace-subtitle {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: rgba(100, 116, 139, 0.95);
+  max-width: 58ch;
+}
+
+.dark .pm-workspace-subtitle {
+  color: rgba(148, 163, 184, 0.9);
+}
+
+/* Detached toggle group (design taste: light binary mode switch). */
+.pm-workspace-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.dark .pm-workspace-segment {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pm-segment-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  color: rgba(71, 85, 105, 0.95);
+  cursor: var(--cursor-interactive, pointer);
+}
+
+.dark .pm-segment-btn {
+  color: rgba(203, 213, 225, 0.85);
+}
+
+.pm-segment-btn.is-active {
+  background: #fff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+.dark .pm-segment-btn.is-active {
+  background: rgba(30, 41, 59, 0.95);
+  color: #f1f5f9;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.pm-segment-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(234, 179, 8, 0.16);
+  color: #a16207;
+}
+
+.dark .pm-segment-badge {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+}
+
+/* ── Leak Forensics surfaces — glass insets to match the dashboard cards ── */
+.fx-pane {
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.dark .fx-pane {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.fx-dropzone {
+  border-radius: 16px;
+  border: 1.5px dashed rgba(15, 23, 42, 0.2);
+  background: rgba(15, 23, 42, 0.02);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.dark .fx-dropzone {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.fx-dropzone:hover {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.dark .fx-dropzone:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.fx-dropzone.is-dragover {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+.fx-icon-chip {
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.dark .fx-icon-chip {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Leak Forensics inline notes (clean tinted banners, replaces raw Alert) ── */
+.fx-note {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border-radius: 14px;
+  padding: 13px 15px;
+  border: 1px solid transparent;
+}
+
+.fx-note-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.fx-note-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.fx-note-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.fx-note-desc {
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.fx-note-title + .fx-note-desc {
+  margin-top: 3px;
+}
+
+.fx-note--danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #b91c1c;
+}
+.dark .fx-note--danger {
+  color: #fca5a5;
+}
+.fx-note--danger .fx-note-icon {
+  color: #dc2626;
+}
+.dark .fx-note--danger .fx-note-icon {
+  color: #f87171;
+}
+
+.fx-note--warning {
+  background: rgba(234, 179, 8, 0.1);
+  border-color: rgba(234, 179, 8, 0.3);
+  color: #a16207;
+}
+.dark .fx-note--warning {
+  color: #fcd34d;
+}
+.fx-note--warning .fx-note-icon {
+  color: #d97706;
+}
+.dark .fx-note--warning .fx-note-icon {
+  color: #fbbf24;
+}
+
+.fx-note--success {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #15803d;
+}
+.dark .fx-note--success {
+  color: #86efac;
+}
+.fx-note--success .fx-note-icon {
+  color: #16a34a;
+}
+.dark .fx-note--success .fx-note-icon {
+  color: #4ade80;
+}
+
+.fx-note--info {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.26);
+  color: #0369a1;
+}
+.dark .fx-note--info {
+  color: #7dd3fc;
+}
+.fx-note--info .fx-note-icon {
+  color: #0284c7;
+}
+.dark .fx-note--info .fx-note-icon {
+  color: #38bdf8;
+}

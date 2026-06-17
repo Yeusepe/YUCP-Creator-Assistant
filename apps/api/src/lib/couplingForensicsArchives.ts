@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { unzipSync } from 'fflate';
+import { type UnzipFileInfo, unzipSync } from 'fflate';
 import * as tar from 'tar';
 
 export type ExtractedForensicsAsset = {
@@ -14,8 +14,39 @@ export type ForensicsArchiveExtraction = {
   declaredPackageIds: string[];
 };
 
+export type ForensicsArchiveExtractionLimits = {
+  maxExtractedEntryBytes: number;
+  maxExtractedTotalBytes: number;
+};
+
 const METADATA_FILE_NAMES = new Set(['yucp_packageinfo.json', 'packagemanifest.json']);
 const MAX_CANDIDATE_ASSETS = 512;
+const DEFAULT_MAX_EXTRACTED_ENTRY_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MAX_EXTRACTED_TOTAL_BYTES = 500 * 1024 * 1024;
+
+function resolveExtractionLimits(
+  options?: Partial<ForensicsArchiveExtractionLimits>
+): ForensicsArchiveExtractionLimits {
+  return {
+    maxExtractedEntryBytes: options?.maxExtractedEntryBytes ?? DEFAULT_MAX_EXTRACTED_ENTRY_BYTES,
+    maxExtractedTotalBytes: options?.maxExtractedTotalBytes ?? DEFAULT_MAX_EXTRACTED_TOTAL_BYTES,
+  };
+}
+
+function createExtractionBudget(limits: ForensicsArchiveExtractionLimits) {
+  let totalExtractedBytes = 0;
+  return {
+    include(entryBytes: number) {
+      if (entryBytes > limits.maxExtractedEntryBytes) {
+        throw new Error('Archive entry exceeds the extracted size limit');
+      }
+      if (totalExtractedBytes + entryBytes > limits.maxExtractedTotalBytes) {
+        throw new Error('Archive exceeds the extracted size limit');
+      }
+      totalExtractedBytes += entryBytes;
+    },
+  };
+}
 
 function normalizeRelativeArchivePath(input: string): string {
   return input.replace(/\\/g, '/').replace(/^\/+/, '').trim();
@@ -77,14 +108,31 @@ async function recordCandidateAsset(
 
 async function extractZipCandidates(
   archivePath: string,
-  workspaceDir: string
+  workspaceDir: string,
+  limits: ForensicsArchiveExtractionLimits
 ): Promise<ForensicsArchiveExtraction> {
   const candidatesDir = path.join(workspaceDir, 'candidates');
   await mkdir(candidatesDir, { recursive: true });
   const extractedDir = path.join(workspaceDir, 'zip');
   await mkdir(extractedDir, { recursive: true });
+  const declaredBudget = createExtractionBudget(limits);
+  const extractedBudget = createExtractionBudget(limits);
 
-  const directory = unzipSync(new Uint8Array(await readFile(archivePath)));
+  const shouldExtractEntry = (file: UnzipFileInfo) => {
+    const entryPath = normalizeRelativeArchivePath(file.name);
+    if (!isSafeRelativeArchivePath(entryPath)) {
+      return false;
+    }
+    if (!isMetadataPath(entryPath) && !getAssetTypeFromPath(entryPath)) {
+      return false;
+    }
+    declaredBudget.include(file.originalSize);
+    return true;
+  };
+
+  const directory = unzipSync(new Uint8Array(await readFile(archivePath)), {
+    filter: shouldExtractEntry,
+  });
   const assets: ExtractedForensicsAsset[] = [];
   const declaredPackageIds = new Set<string>();
 
@@ -96,6 +144,7 @@ async function extractZipCandidates(
     if (!isSafeRelativeArchivePath(entryPath)) {
       continue;
     }
+    extractedBudget.include(entryBytes.byteLength);
 
     const destinationPath = path.join(extractedDir, entryPath);
     await mkdir(path.dirname(destinationPath), { recursive: true });
@@ -131,12 +180,16 @@ async function extractZipCandidates(
 
 async function extractUnityPackageCandidates(
   archivePath: string,
-  workspaceDir: string
+  workspaceDir: string,
+  limits: ForensicsArchiveExtractionLimits
 ): Promise<ForensicsArchiveExtraction> {
   const extractedDir = path.join(workspaceDir, 'unitypackage');
   const candidatesDir = path.join(workspaceDir, 'candidates');
   await mkdir(extractedDir, { recursive: true });
   await mkdir(candidatesDir, { recursive: true });
+  const declaredBudget = createExtractionBudget(limits);
+  const extractedBudget = createExtractionBudget(limits);
+  let extractionError: Error | null = null;
 
   await tar.x({
     file: archivePath,
@@ -144,7 +197,10 @@ async function extractUnityPackageCandidates(
     gzip: true,
     preservePaths: false,
     noMtime: true,
-    filter: (entryPath) => {
+    filter: (entryPath, entry) => {
+      if (extractionError) {
+        return false;
+      }
       if (!isSafeRelativeArchivePath(entryPath)) {
         return false;
       }
@@ -152,9 +208,23 @@ async function extractUnityPackageCandidates(
       // Skipping asset.meta, preview.png, etc. avoids Windows chmod/utimes failures on
       // tar entries with non-standard mode bits and keeps the temp directory lean.
       const basename = path.posix.basename(entryPath);
-      return basename === 'asset' || basename === 'pathname';
+      if (basename !== 'asset' && basename !== 'pathname') {
+        return false;
+      }
+      try {
+        declaredBudget.include(entry.size);
+      } catch (error) {
+        extractionError =
+          error instanceof Error ? error : new Error('Archive exceeds the extracted size limit');
+        return false;
+      }
+      return true;
     },
   });
+
+  if (extractionError) {
+    throw extractionError;
+  }
 
   const assets: ExtractedForensicsAsset[] = [];
   const declaredPackageIds = new Set<string>();
@@ -171,6 +241,12 @@ async function extractUnityPackageCandidates(
     const assetFile = path.join(fullDir, 'asset');
     const pathnameStats = await stat(pathnameFile).catch(() => null);
     const assetStats = await stat(assetFile).catch(() => null);
+    if (pathnameStats?.isFile()) {
+      extractedBudget.include(pathnameStats.size);
+    }
+    if (assetStats?.isFile()) {
+      extractedBudget.include(assetStats.size);
+    }
     if (!pathnameStats?.isFile() || !assetStats?.isFile()) {
       continue;
     }
@@ -211,14 +287,16 @@ async function extractUnityPackageCandidates(
 export async function extractCouplingForensicsArchive(
   archivePath: string,
   originalFilename: string,
-  workspaceDir: string
+  workspaceDir: string,
+  options?: Partial<ForensicsArchiveExtractionLimits>
 ): Promise<ForensicsArchiveExtraction> {
+  const limits = resolveExtractionLimits(options);
   const normalizedName = originalFilename.trim().toLowerCase();
   if (normalizedName.endsWith('.unitypackage')) {
-    return await extractUnityPackageCandidates(archivePath, workspaceDir);
+    return await extractUnityPackageCandidates(archivePath, workspaceDir, limits);
   }
   if (normalizedName.endsWith('.zip')) {
-    return await extractZipCandidates(archivePath, workspaceDir);
+    return await extractZipCandidates(archivePath, workspaceDir, limits);
   }
   throw new Error('Unsupported upload type. Upload a .unitypackage or .zip file.');
 }

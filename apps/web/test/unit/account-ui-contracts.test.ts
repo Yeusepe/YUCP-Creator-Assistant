@@ -18,16 +18,32 @@ const accountCertificatesRouteSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/account/certificates.tsx'),
   'utf8'
 );
-const dashboardCertificatesRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.lazy.tsx'),
+const dashboardCertificatesRedirectSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/certificates.tsx'),
   'utf8'
 );
-const dashboardBillingRouteRefSource = readFileSync(
+const dashboardBillingRedirectSource = readFileSync(
   resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.tsx'),
   'utf8'
 );
-const dashboardBillingRouteSource = readFileSync(
-  resolve(__dirname, '../../src/routes/_authenticated/dashboard/billing.lazy.tsx'),
+const dashboardForensicsRedirectSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/forensics.tsx'),
+  'utf8'
+);
+const accountBillingRouteRefSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account/billing.tsx'),
+  'utf8'
+);
+const accountBillingRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account/billing.lazy.tsx'),
+  'utf8'
+);
+const accountMachinesRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/account/machines.lazy.tsx'),
+  'utf8'
+);
+const dashboardPackagesRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard/packages.lazy.tsx'),
   'utf8'
 );
 const dashboardPrefetchSource = readFileSync(
@@ -39,6 +55,10 @@ const accountVerifyRouteSource = readFileSync(
   'utf8'
 );
 const dashboardSource = readFileSync(resolve(__dirname, '../../src/lib/dashboard.ts'), 'utf8');
+const dashboardLazyRouteSource = readFileSync(
+  resolve(__dirname, '../../src/routes/_authenticated/dashboard.lazy.tsx'),
+  'utf8'
+);
 const connectUserVerificationRouteSource = readFileSync(
   resolve(__dirname, '../../../api/src/routes/connectUserVerification.ts'),
   'utf8'
@@ -93,43 +113,75 @@ describe('account UI contracts', () => {
     expect(accountComponentSource).toContain('className="account-inline-error"');
   });
 
-  it('routes certificate billing through the creator dashboard instead of account space', () => {
+  it('hosts billing and authorized machines inside the account area', () => {
     expect(accountRouteSource).not.toContain('/account/certificates');
-    expect(accountIndexRouteSource).toContain('/dashboard/certificates');
+    expect(accountIndexRouteSource).toContain('/account/billing');
+    expect(accountIndexRouteSource).not.toContain('/dashboard/certificates');
+
+    // Account billing route is the canonical billing surface.
+    expect(accountBillingRouteSource).toContain(
+      "createLazyFileRoute('/_authenticated/account/billing')"
+    );
+    expect(accountBillingRouteSource).toContain('Polar');
+    expect(accountBillingRouteSource).not.toContain('useActiveDashboardContext');
+
+    // Authorized machines live in the account area, not a dashboard certificates page.
+    expect(accountMachinesRouteSource).toContain(
+      "createLazyFileRoute('/_authenticated/account/machines')"
+    );
+    expect(accountMachinesRouteSource).toContain('Authorized Machines');
+    expect(accountMachinesRouteSource).toContain('CertificateDeviceRow');
+
+    // The legacy account/certificates and dashboard certificate/billing paths redirect.
     expect(accountCertificatesRouteSource).toContain(
       "createFileRoute('/_authenticated/account/certificates')"
     );
     expect(accountCertificatesRouteSource).toContain('beforeLoad');
     expect(accountCertificatesRouteSource).toContain(
-      "to: hasBillingSearch ? '/dashboard/billing' : '/dashboard/certificates'"
+      "to: hasBillingSearch ? '/account/billing' : '/account/machines'"
     );
-    expect(dashboardCertificatesRouteSource).toContain(
-      "createLazyFileRoute('/_authenticated/dashboard/certificates')"
-    );
-    expect(dashboardCertificatesRouteSource).toContain('Open Billing');
-    expect(dashboardCertificatesRouteSource).toContain('PackageRegistryPanel');
-    expect(dashboardCertificatesRouteSource).toContain("queryKey: ['creator-certificates']");
-    expect(dashboardCertificatesRouteSource).not.toContain('ensureQueryData(');
-    expect(dashboardBillingRouteSource).toContain(
-      "createLazyFileRoute('/_authenticated/dashboard/billing')"
-    );
-    expect(dashboardBillingRouteSource).toContain('Polar Portal');
+    expect(dashboardBillingRedirectSource).toContain("to: '/account/billing'");
+    expect(dashboardCertificatesRedirectSource).toContain("to: '/account/machines'");
+
     expect(dashboardPrefetchSource).toContain("queryKey: ['creator-certificates']");
     expect(dashboardPrefetchSource).toContain('prefetchQuery(');
   });
 
-  it('supports creator-scoped plan and portal deep links for Unity billing handoff', () => {
-    expect(dashboardBillingRouteRefSource).toContain('validateSearch:');
-    expect(dashboardBillingRouteSource).toContain("search.checkout === '1'");
-    expect(dashboardBillingRouteSource).toContain("search.portal === '1'");
-    expect(dashboardBillingRouteSource).toContain('checkoutMut.mutate(target)');
-    expect(dashboardBillingRouteSource).toContain('portalMut.mutate()');
-    expect(dashboardBillingRouteSource).toContain('dashboard-tab-panel');
+  it('supports plan and portal deep links for Unity billing handoff', () => {
+    expect(accountBillingRouteRefSource).toContain('validateSearch:');
+    expect(accountBillingRouteSource).toContain("search.checkout === '1'");
+    expect(accountBillingRouteSource).toContain("search.portal === '1'");
+    expect(accountBillingRouteSource).toContain('isTrustedBillingAutoLaunchSource(search.source)');
+    expect(accountBillingRouteSource).toContain('checkoutMut.mutate(target)');
+    expect(accountBillingRouteSource).toContain('portalMut.mutate()');
+    expect(accountBillingRouteSource).toContain('navigateToTrustedPolarUrl(result.url)');
   });
 
-  it('keeps package management inside certificates instead of a separate sidebar tab', () => {
-    expect(dashboardSource).not.toContain('id="tab-btn-packages"');
-    expect(dashboardSource).not.toContain('aria-controls="tab-panel-packages"');
+  it('integrates coupling forensics inside the private VPM package workspace', () => {
+    // Forensics is no longer a standalone sidebar tab; it redirects into packages.
+    expect(dashboardForensicsRedirectSource).toContain("to: '/dashboard/packages'");
+    expect(dashboardForensicsRedirectSource).toContain("view: 'forensics'");
+    expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
+    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
+    expect(dashboardLazyRouteSource).toContain("view: 'forensics'");
+
+    // The package workspace switches between the registry and the leak forensics panel.
+    expect(dashboardPackagesRouteSource).toContain('CouplingForensicsPanel');
+    expect(dashboardPackagesRouteSource).toContain('Leak Forensics');
+    expect(dashboardPackagesRouteSource).toContain('Package Registry');
+  });
+
+  it('shows unavailable recovery metrics as pending instead of zero', () => {
+    expect(accountIndexRouteSource).toContain("securityOverview?.passkeyCount ?? '...'");
+    expect(accountIndexRouteSource).toContain("securityOverview?.backupCodeCount ?? '...'");
+    expect(accountIndexRouteSource).toContain(
+      "securityOverview?.verifiedRecoveryEmailCount ?? '...'"
+    );
+  });
+
+  it('removes billing and certificates from the developer sidebar group', () => {
+    expect(dashboardLazyRouteSource).not.toContain('id="tab-btn-billing"');
+    expect(dashboardLazyRouteSource).not.toContain('id="tab-btn-certificates"');
   });
 
   it('keeps buyer provider linking inside the hosted verification flow', () => {

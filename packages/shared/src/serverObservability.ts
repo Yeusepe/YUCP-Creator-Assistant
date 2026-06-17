@@ -1,7 +1,12 @@
+import { context, propagation, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
-import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import {
+  CompositePropagator,
+  W3CBaggagePropagator,
+  W3CTraceContextPropagator,
+} from '@opentelemetry/core';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import {
   applyNodeHyperdxDefaults,
@@ -75,22 +80,24 @@ export function initBunServerObservability({
   }
 
   const provider = new BasicTracerProvider({
-    resource: new Resource(createResourceAttributes(serviceName, resourceAttributes)),
+    resource: resourceFromAttributes(createResourceAttributes(serviceName, resourceAttributes)),
+    spanProcessors: [
+      new BatchSpanProcessor(
+        new OTLPTraceExporter({
+          url: buildOtlpSignalUrl(resolved.otelExporterEndpoint, 'traces'),
+          headers: parseOtelExporterHeaders(resolved.otelExporterHeaders),
+        })
+      ),
+    ],
   });
 
-  provider.addSpanProcessor(
-    new BatchSpanProcessor(
-      new OTLPTraceExporter({
-        url: buildOtlpSignalUrl(resolved.otelExporterEndpoint, 'traces'),
-        headers: parseOtelExporterHeaders(resolved.otelExporterHeaders),
-      })
-    )
+  trace.setGlobalTracerProvider(provider);
+  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+  propagation.setGlobalPropagator(
+    new CompositePropagator({
+      propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],
+    })
   );
-
-  provider.register({
-    contextManager: new AsyncLocalStorageContextManager(),
-    propagator: new W3CTraceContextPropagator(),
-  });
 
   bunProvider = provider;
   bunProviderServiceName = serviceName;

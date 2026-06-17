@@ -140,6 +140,6 @@ describe('forensics command', () => {
 
     const reply = interaction.editReply.mock.calls[0]?.[0];
     expect(reply?.content).toContain('coupling traceability');
-    expect(reply?.content).toContain('https://web.example.test/dashboard/forensics');
+    expect(reply?.content).toContain('https://web.example.test/dashboard/packages?view=forensics');
   });
 });

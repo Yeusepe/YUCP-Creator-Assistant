@@ -22,7 +22,7 @@ export const Route = createFileRoute('/_authenticated/account/certificates')({
       Boolean(search.source);
 
     throw redirect({
-      to: hasBillingSearch ? '/dashboard/billing' : '/dashboard/certificates',
+      to: hasBillingSearch ? '/account/billing' : '/account/machines',
       search: hasBillingSearch ? search : undefined,
       replace: true,
     });

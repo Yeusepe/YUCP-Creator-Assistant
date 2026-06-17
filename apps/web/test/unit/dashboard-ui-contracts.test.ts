@@ -117,7 +117,11 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
     expect(dashboardLazyRouteSource).toContain('privateVpmEnabled && hasVpmRepoCapability');
+    expect(dashboardLazyRouteSource).toContain(
+      'privateVpmEnabled && hasCouplingTraceabilityCapability'
+    );
     expect(dashboardLazyRouteSource).toContain('Custom VPM repo');
+    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
     expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 
@@ -171,6 +175,11 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('DashboardSessionProvider');
     expect(dashboardLazyRouteSource).toContain('<Sidebar');
     expect(dashboardLazyRouteSource).toContain('<Outlet />');
+  });
+
+  it('does not render raw dashboard route errors in the production fallback', () => {
+    expect(dashboardLazyRouteSource).not.toContain('{error.message}');
+    expect(dashboardLazyRouteSource).toContain('Dashboard failed to load.');
   });
 
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
