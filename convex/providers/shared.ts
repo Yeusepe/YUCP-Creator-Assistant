@@ -3,6 +3,7 @@ import { symmetricDecrypt } from 'better-auth/crypto';
 import { internal } from '../_generated/api';
 import type { ActionCtx } from '../_generated/server';
 import { AUTH_MODE_CREDENTIAL_KEY } from '../lib/credentialKeys';
+import { decryptHkdfAesGcm } from '../lib/hkdfAesGcm';
 
 type StoredProviderConnection = {
   credentials: Record<string, string>;
@@ -38,45 +39,13 @@ function getCredentialEncryptionSecret(): string {
   return secret;
 }
 
-async function deriveCredentialKey(secret: string, purpose: string): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
-    'deriveKey',
-  ]);
-  return await crypto.subtle.deriveKey(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: new Uint8Array(0),
-      info: encoder.encode(purpose),
-    },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt']
-  );
-}
-
-async function decryptHkdfCredential(
-  ciphertextB64: string,
-  secret: string,
-  purpose: string
-): Promise<string> {
-  const key = await deriveCredentialKey(secret, purpose);
-  const combined = Uint8Array.from(atob(ciphertextB64), (char) => char.charCodeAt(0));
-  const iv = combined.slice(0, 12);
-  const data = combined.slice(12);
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-  return new TextDecoder().decode(decrypted);
-}
-
 export async function decryptStoredCredential(
   encryptedCredential: string,
   purpose: string
 ): Promise<string | null> {
   const secret = getCredentialEncryptionSecret();
   try {
-    return await decryptHkdfCredential(encryptedCredential, secret, purpose);
+    return await decryptHkdfAesGcm(encryptedCredential, secret, purpose);
   } catch {
     const legacySecret = process.env.BETTER_AUTH_SECRET?.trim();
     if (!legacySecret) {
