@@ -117,7 +117,11 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
     expect(dashboardLazyRouteSource).toContain('privateVpmEnabled && hasVpmRepoCapability');
+    expect(dashboardLazyRouteSource).toContain(
+      'privateVpmEnabled && hasCouplingTraceabilityCapability'
+    );
     expect(dashboardLazyRouteSource).toContain('Custom VPM repo');
+    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
     expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 

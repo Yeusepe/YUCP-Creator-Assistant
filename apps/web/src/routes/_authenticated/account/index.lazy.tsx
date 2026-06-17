@@ -260,19 +260,19 @@ function AccountProfile() {
           <li className="account-recovery-metric">
             <span>Passkeys</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.passkeyCount ?? '0'}
+              {securityOverview?.passkeyCount ?? '...'}
             </span>
           </li>
           <li className="account-recovery-metric">
             <span>Backup codes</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.backupCodeCount ?? '0'}
+              {securityOverview?.backupCodeCount ?? '...'}
             </span>
           </li>
           <li className="account-recovery-metric">
             <span>Recovery inboxes</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.verifiedRecoveryEmailCount ?? '0'}
+              {securityOverview?.verifiedRecoveryEmailCount ?? '...'}
             </span>
           </li>
           <li className="account-recovery-metric account-recovery-metric--policy">

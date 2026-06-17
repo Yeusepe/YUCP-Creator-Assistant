@@ -484,6 +484,10 @@ function Sidebar({
     certificatesQuery.data?.billing.capabilities,
     BILLING_CAPABILITY_KEYS.vpmRepo
   );
+  const hasCouplingTraceabilityCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
+  );
 
   return (
     <aside id="sidebar" className="sidebar" aria-label="Main navigation">
@@ -530,6 +534,7 @@ function Sidebar({
                     ...prev,
                     guild_id: undefined,
                     tenant_id: undefined,
+                    view: undefined,
                   })}
                   className="sidebar-nav-btn"
                   activeProps={{ className: 'sidebar-nav-btn is-active' }}
@@ -553,6 +558,38 @@ function Sidebar({
                     <path d="M3.27 6.96 3 17l9 5 9-5-.27-10.04" />
                   </svg>
                   Custom VPM repo
+                </Link>
+              ) : null}
+              {privateVpmEnabled && hasCouplingTraceabilityCapability ? (
+                <Link
+                  id="tab-btn-package-forensics"
+                  to="/dashboard/packages"
+                  search={(prev) => ({
+                    ...prev,
+                    guild_id: undefined,
+                    tenant_id: undefined,
+                    view: 'forensics',
+                  })}
+                  className="sidebar-nav-btn"
+                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                  role="tab"
+                  aria-selected={false}
+                  aria-controls="tab-panel-forensics"
+                >
+                  <svg
+                    className="sidebar-nav-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 2l7 4v6c0 5-3.2 9.4-7 10-3.8-.6-7-5-7-10V6z" />
+                    <path d="M9 12l2 2 4-4" />
+                  </svg>
+                  Leak Tracer
                 </Link>
               ) : null}
               <Link

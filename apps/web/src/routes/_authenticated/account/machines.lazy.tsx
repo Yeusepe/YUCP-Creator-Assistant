@@ -59,6 +59,9 @@ export default function AccountMachines() {
   const devices = overview?.devices ?? [];
 
   const handleRevoke = (certNonce: string) => {
+    if (revokeMut.isPending) {
+      return;
+    }
     setPendingCertNonce(certNonce);
     revokeMut.mutate(certNonce);
   };

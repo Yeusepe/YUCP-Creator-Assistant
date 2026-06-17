@@ -23,6 +23,23 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const MAX_FORENSICS_UPLOAD_BYTES = 100 * 1024 * 1024;
+const SUPPORTED_FORENSICS_UPLOAD_EXTENSIONS = ['.unitypackage', '.zip'] as const;
+
+function getForensicsFileValidationError(file: File): string | null {
+  const normalizedName = file.name.trim().toLowerCase();
+  const hasSupportedExtension = SUPPORTED_FORENSICS_UPLOAD_EXTENSIONS.some((extension) =>
+    normalizedName.endsWith(extension)
+  );
+  if (!hasSupportedExtension) {
+    return 'Unsupported file type. Upload a .unitypackage or .zip file.';
+  }
+  if (file.size > MAX_FORENSICS_UPLOAD_BYTES) {
+    return 'File is too large. Maximum size is 100 MB.';
+  }
+  return null;
+}
+
 function formatBuyerDate(timestamp: number) {
   return new Date(timestamp).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -191,10 +208,22 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
 
-  const handleFilePick = (file: File | null) => {
-    if (lookupMutation.isPending) return;
+  const handleFilePick = (file: File | null): boolean => {
+    if (lookupMutation.isPending) return false;
+    if (!file) {
+      setSelectedFile(null);
+      setInlineError(null);
+      return true;
+    }
+    const validationError = getForensicsFileValidationError(file);
+    if (validationError) {
+      setSelectedFile(null);
+      setInlineError(validationError);
+      return false;
+    }
     setSelectedFile(file);
     setInlineError(null);
+    return true;
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -531,6 +560,12 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                     setInlineError('Choose a product and upload a file to scan.');
                     return;
                   }
+                  const validationError = getForensicsFileValidationError(selectedFile);
+                  if (validationError) {
+                    setSelectedFile(null);
+                    setInlineError(validationError);
+                    return;
+                  }
                   lookupMutation.mutate({ packageId: selectedPackageId, file: selectedFile });
                 }}
               >
@@ -663,7 +698,9 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         className="hidden"
                         onChange={(e) => {
                           if (lookupMutation.isPending) return;
-                          handleFilePick(e.target.files?.[0] ?? null);
+                          if (!handleFilePick(e.target.files?.[0] ?? null)) {
+                            e.currentTarget.value = '';
+                          }
                         }}
                       />
                     </div>
@@ -687,7 +724,9 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         disabled={lookupMutation.isPending}
                         onChange={(e) => {
                           if (lookupMutation.isPending) return;
-                          handleFilePick(e.target.files?.[0] ?? null);
+                          if (!handleFilePick(e.target.files?.[0] ?? null)) {
+                            e.currentTarget.value = '';
+                          }
                         }}
                       />
                       <span className="fx-icon-chip text-muted flex size-11 items-center justify-center rounded-full">

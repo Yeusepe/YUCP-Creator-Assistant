@@ -151,20 +151,32 @@ describe('account UI contracts', () => {
     expect(accountBillingRouteRefSource).toContain('validateSearch:');
     expect(accountBillingRouteSource).toContain("search.checkout === '1'");
     expect(accountBillingRouteSource).toContain("search.portal === '1'");
+    expect(accountBillingRouteSource).toContain('isTrustedBillingAutoLaunchSource(search.source)');
     expect(accountBillingRouteSource).toContain('checkoutMut.mutate(target)');
     expect(accountBillingRouteSource).toContain('portalMut.mutate()');
+    expect(accountBillingRouteSource).toContain('navigateToTrustedPolarUrl(result.url)');
   });
 
   it('integrates coupling forensics inside the private VPM package workspace', () => {
     // Forensics is no longer a standalone sidebar tab; it redirects into packages.
     expect(dashboardForensicsRedirectSource).toContain("to: '/dashboard/packages'");
     expect(dashboardForensicsRedirectSource).toContain("view: 'forensics'");
-    expect(dashboardLazyRouteSource).not.toContain('id="tab-btn-forensics"');
+    expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
+    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
+    expect(dashboardLazyRouteSource).toContain("view: 'forensics'");
 
     // The package workspace switches between the registry and the leak forensics panel.
     expect(dashboardPackagesRouteSource).toContain('CouplingForensicsPanel');
     expect(dashboardPackagesRouteSource).toContain('Leak Forensics');
     expect(dashboardPackagesRouteSource).toContain('Package Registry');
+  });
+
+  it('shows unavailable recovery metrics as pending instead of zero', () => {
+    expect(accountIndexRouteSource).toContain("securityOverview?.passkeyCount ?? '...'");
+    expect(accountIndexRouteSource).toContain("securityOverview?.backupCodeCount ?? '...'");
+    expect(accountIndexRouteSource).toContain(
+      "securityOverview?.verifiedRecoveryEmailCount ?? '...'"
+    );
   });
 
   it('removes billing and certificates from the developer sidebar group', () => {

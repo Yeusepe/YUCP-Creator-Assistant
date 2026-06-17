@@ -23,6 +23,37 @@ import {
   reconcileCreatorCertificateBilling,
 } from '@/lib/certificates';
 
+// Polar checkout and customer portal session APIs return customer-facing Polar URLs.
+// https://polar.sh/docs/api-reference/checkouts/create-session
+// https://polar.sh/docs/api-reference/customer-portal/sessions/create
+const TRUSTED_POLAR_HOSTS = new Set(['polar.sh', 'sandbox.polar.sh']);
+const TRUSTED_BILLING_AUTO_LAUNCH_SOURCES = new Set(['unity', 'dashboard', 'account', 'bot']);
+
+function isTrustedPolarHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return TRUSTED_POLAR_HOSTS.has(normalized) || normalized.endsWith('.polar.sh');
+}
+
+function getTrustedPolarUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'https:' && isTrustedPolarHostname(parsed.hostname)) {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall through to the shared untrusted URL error below.
+  }
+  throw new Error('Untrusted Polar redirect URL');
+}
+
+function navigateToTrustedPolarUrl(rawUrl: string) {
+  window.location.assign(getTrustedPolarUrl(rawUrl));
+}
+
+function isTrustedBillingAutoLaunchSource(source: string | undefined): boolean {
+  return typeof source === 'string' && TRUSTED_BILLING_AUTO_LAUNCH_SOURCES.has(source);
+}
+
 function DashboardBillingPending() {
   return (
     <div id="tab-panel-billing" className="dashboard-tab-panel is-active" role="tabpanel">
@@ -90,7 +121,7 @@ export default function DashboardBilling() {
         }
 
         const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
-        const checkout = await PolarEmbedCheckout.create(result.url, { theme });
+        const checkout = await PolarEmbedCheckout.create(getTrustedPolarUrl(result.url), { theme });
         embedCheckoutRef.current = checkout;
 
         checkout.addEventListener(
@@ -149,7 +180,13 @@ export default function DashboardBilling() {
           { once: true }
         );
       } catch {
-        window.location.href = result.url;
+        try {
+          navigateToTrustedPolarUrl(result.url);
+        } catch {
+          toast.error('Could not open Polar checkout', {
+            description: 'Polar returned an unexpected checkout URL.',
+          });
+        }
         clearCheckoutState();
       }
     },
@@ -169,7 +206,13 @@ export default function DashboardBilling() {
   const portalMut = useMutation({
     mutationFn: () => getCreatorCertificatePortal(),
     onSuccess: (result) => {
-      window.location.href = result.url;
+      try {
+        navigateToTrustedPolarUrl(result.url);
+      } catch {
+        toast.error('Could not open billing portal', {
+          description: 'Polar returned an unexpected portal URL.',
+        });
+      }
     },
     onError: (error) => {
       if (isDashboardAuthError(error)) {
@@ -185,6 +228,10 @@ export default function DashboardBilling() {
 
   useEffect(() => {
     if (!overview || query.isLoading) {
+      return;
+    }
+
+    if (!isTrustedBillingAutoLaunchSource(search.source)) {
       return;
     }
 
@@ -213,6 +260,7 @@ export default function DashboardBilling() {
     search.checkout,
     search.plan,
     search.portal,
+    search.source,
   ]);
 
   const handleCheckout = (plan: CreatorCertificatePlan) => {

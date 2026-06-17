@@ -232,14 +232,14 @@ describe('account billing route', () => {
       meters: [],
     });
     vi.mocked(certificateApi.createCreatorCertificateCheckout).mockResolvedValue({
-      url: 'https://polar.example.test/checkout',
+      url: 'https://polar.sh/checkout',
       redirect: false,
       workspaceKey: 'creator-profile:profile-1',
       planKey: 'starter',
       productId: 'prod_starter',
     });
     vi.mocked(certificateApi.getCreatorCertificatePortal).mockResolvedValue({
-      url: 'https://polar.example.test/portal',
+      url: 'https://polar.sh/portal',
       redirect: false,
     });
     vi.mocked(certificateApi.reconcileCreatorCertificateBilling).mockResolvedValue({
@@ -342,6 +342,35 @@ describe('account billing route', () => {
       expect(starterButton).not.toBeDisabled();
       expect(proButton).not.toBeDisabled();
     });
+  });
+
+  it('ignores billing auto-launch query flags without a trusted source', async () => {
+    searchState.checkout = '1';
+    searchState.plan = 'starter';
+    searchState.portal = '1';
+
+    render(<DashboardBilling />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Starter')).toBeInTheDocument());
+    expect(certificateApi.createCreatorCertificateCheckout).not.toHaveBeenCalled();
+    expect(certificateApi.getCreatorCertificatePortal).not.toHaveBeenCalled();
+  });
+
+  it('keeps trusted Unity checkout handoffs working', async () => {
+    const checkout = createMockCheckout();
+    createEmbedCheckoutMock.mockResolvedValue(checkout);
+    searchState.checkout = '1';
+    searchState.plan = 'starter';
+    searchState.source = 'unity';
+
+    render(<DashboardBilling />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(certificateApi.createCreatorCertificateCheckout).toHaveBeenCalledWith({
+        productId: 'prod_starter',
+        planKey: 'starter',
+      })
+    );
   });
 
   it('keeps the billing route branded for the creator suite instead of only code signing', async () => {

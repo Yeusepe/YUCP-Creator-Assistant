@@ -467,6 +467,58 @@ describe('dashboard forensics route', () => {
     });
   });
 
+  it('rejects unsupported upload types before starting a scan', async () => {
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    const upload = new File(['plain text'], 'leak.txt', { type: 'text/plain' });
+    fireEvent.change(fileInput, { target: { files: [upload] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('Unsupported file type. Upload a .unitypackage or .zip file.')
+      ).toBeInTheDocument()
+    );
+    expect(screen.queryByText('leak.txt')).not.toBeInTheDocument();
+    expect(forensicsApi.runCouplingForensicsLookup).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized uploads before starting a scan', async () => {
+    listCreatorCertificatesMock.mockResolvedValue(createCertificatesOverview(true));
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    const upload = new File(['placeholder'], 'huge.zip', { type: 'application/zip' });
+    Object.defineProperty(upload, 'size', {
+      value: 100 * 1024 * 1024 + 1,
+    });
+
+    fireEvent.change(fileInput, { target: { files: [upload] } });
+
+    await waitFor(() =>
+      expect(screen.getByText('File is too large. Maximum size is 100 MB.')).toBeInTheDocument()
+    );
+    expect(screen.queryByText('huge.zip')).not.toBeInTheDocument();
+    expect(forensicsApi.runCouplingForensicsLookup).not.toHaveBeenCalled();
+  });
+
   it('surfaces an unresolved trace state when a trace matches but no buyer identity is available', async () => {
     runCouplingForensicsLookupMock.mockResolvedValue({
       packageId: 'pkg.creator.bundle',
