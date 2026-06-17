@@ -48,9 +48,9 @@ test('supported unitypackage is analyzed instead of being reported as having no 
     },
   ]);
 
-  await page.goto('/dashboard/forensics');
+  await page.goto('/dashboard/packages?view=forensics');
   await page.waitForLoadState('networkidle');
-  await expect(page).toHaveURL(/\/dashboard\/forensics(?:\?.*)?$/);
+  await expect(page).toHaveURL(/\/dashboard\/packages(?:\?.*)?$/);
   expect(pageErrors, `Page errors: ${pageErrors.join('\n')}`).toEqual([]);
   expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
 

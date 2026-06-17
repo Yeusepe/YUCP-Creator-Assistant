@@ -190,7 +190,7 @@ function AccountProfile() {
         leading={<ShieldCheck strokeWidth={1.75} aria-hidden />}
         eyebrow="Account recovery"
         title="Can you get back in if Discord breaks?"
-        description="Discord is your normal sign-in. Add backups—passkeys, one-time codes, or a spare inbox—so you are never stuck."
+        description="Discord is your normal sign-in. Add backups like passkeys, one-time codes, or a spare inbox so you are never stuck."
         actions={
           <Link to="/account/security" className="account-btn account-btn--primary">
             Manage recovery
@@ -260,19 +260,19 @@ function AccountProfile() {
           <li className="account-recovery-metric">
             <span>Passkeys</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.passkeyCount ?? '—'}
+              {securityOverview?.passkeyCount ?? '0'}
             </span>
           </li>
           <li className="account-recovery-metric">
             <span>Backup codes</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.backupCodeCount ?? '—'}
+              {securityOverview?.backupCodeCount ?? '0'}
             </span>
           </li>
           <li className="account-recovery-metric">
             <span>Recovery inboxes</span>
             <span className="account-recovery-metric-value">
-              {securityOverview?.verifiedRecoveryEmailCount ?? '—'}
+              {securityOverview?.verifiedRecoveryEmailCount ?? '0'}
             </span>
           </li>
           <li className="account-recovery-metric account-recovery-metric--policy">
@@ -311,7 +311,7 @@ function AccountProfile() {
             </a>
           ) : null}
           {isCreator ? (
-            <Link to="/dashboard/certificates" className="account-btn account-btn--secondary">
+            <Link to="/account/billing" className="account-btn account-btn--secondary">
               Manage billing
             </Link>
           ) : null}

@@ -43,8 +43,7 @@ export function PackageRegistryAccessGate({
         </YucpButton>
       ) : (
         <Link
-          to="/dashboard/billing"
-          search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
+          to="/account/billing"
           className="account-btn account-btn--primary"
           style={{ alignSelf: 'flex-start', borderRadius: '999px' }}
         >

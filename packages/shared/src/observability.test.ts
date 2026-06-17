@@ -17,8 +17,9 @@ describe('observability', () => {
 
   it('adds operation taxonomy and success outcome to completed spans', async () => {
     const exporter = new InMemorySpanExporter();
-    const provider = new BasicTracerProvider();
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    const provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
     const tracer = provider.getTracer('test');
 
     await withObservedSpan(
@@ -41,8 +42,9 @@ describe('observability', () => {
 
   it('marks failed spans with error outcome and error type', async () => {
     const exporter = new InMemorySpanExporter();
-    const provider = new BasicTracerProvider();
-    provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
+    const provider = new BasicTracerProvider({
+      spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
     const tracer = provider.getTracer('test');
 
     await expect(

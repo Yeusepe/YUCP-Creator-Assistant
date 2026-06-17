@@ -53,8 +53,8 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, search: _search, to: _to, ...props }: MockLinkProps) => (
     <a {...props}>{children}</a>
   ),
-  createFileRoute: () => (options: unknown) => ({ options }),
-  createLazyFileRoute: () => (options: unknown) => ({ options }),
+  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({}) }),
+  createLazyFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({}) }),
 }));
 
 vi.mock('@heroui/react', () => {

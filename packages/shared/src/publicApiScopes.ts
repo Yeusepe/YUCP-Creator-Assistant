@@ -205,6 +205,68 @@ export const DEFAULT_OAUTH_APP_SCOPES = PUBLIC_API_SCOPE_DEFINITIONS.filter(
   (definition) => definition.defaultForOAuthApps
 ).map((definition) => definition.scope);
 
+/** Display copy for a single scope on the OAuth consent screen. */
+export interface OAuthScopeDisplay {
+  label: string;
+  description: string;
+  badge: string;
+}
+
+/**
+ * Standard OpenID Connect / OAuth 2.0 scopes that are not YUCP API scopes but may
+ * still be requested by clients (e.g. the Unity editor requests `offline_access` to
+ * stay signed in). Kept separate from PublicApiScope so they never appear as
+ * assignable API-key permissions, but still render with proper copy on consent.
+ * Reference: https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims
+ */
+export const STANDARD_OAUTH_SCOPE_DEFINITIONS: Record<string, OAuthScopeDisplay> = {
+  offline_access: {
+    label: 'Stay signed in',
+    description:
+      'Keep your session active so you do not have to sign in again when it expires. Grants a refresh token the app rotates automatically; it can be revoked any time.',
+    badge: 'Session',
+  },
+  openid: {
+    label: 'Confirm your identity',
+    description: 'Sign you in by confirming your YUCP identity.',
+    badge: 'Identity',
+  },
+  profile: {
+    label: 'Read basic profile',
+    description: 'View your YUCP display name and avatar.',
+    badge: 'Profile',
+  },
+  email: {
+    label: 'Read your email address',
+    description: 'View the email address on your YUCP account.',
+    badge: 'Email',
+  },
+};
+
+const PUBLIC_API_SCOPE_DISPLAY: Record<string, OAuthScopeDisplay> = Object.fromEntries(
+  PUBLIC_API_SCOPE_DEFINITIONS.map((definition) => [
+    definition.scope,
+    { label: definition.label, description: definition.description, badge: definition.badge },
+  ])
+);
+
+/**
+ * Single source of truth for how any requested scope is presented to users.
+ * Resolves YUCP API scopes first, then standard OIDC scopes, then a generic
+ * fallback for unknown scopes. UI surfaces (consent screen, dashboards) should
+ * use this instead of maintaining their own scope copy.
+ */
+export function getOAuthScopeDisplay(scope: string): OAuthScopeDisplay {
+  return (
+    PUBLIC_API_SCOPE_DISPLAY[scope] ??
+    STANDARD_OAUTH_SCOPE_DEFINITIONS[scope] ?? {
+      label: scope,
+      description: 'Custom permission scope',
+      badge: 'Access',
+    }
+  );
+}
+
 const PUBLIC_API_SCOPE_SET = new Set<string>(PUBLIC_API_SCOPES);
 
 export function isPublicApiScope(scope: string): scope is PublicApiScope {

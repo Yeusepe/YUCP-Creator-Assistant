@@ -180,7 +180,7 @@ async function reconcileCertificateBillingCustomerStateForAuthUser(
 }
 
 function buildCertificateDashboardUrl(config: ConnectConfig): string {
-  return new URL('/dashboard/billing', `${config.frontendBaseUrl.replace(/\/$/, '')}/`).toString();
+  return new URL('/account/billing', `${config.frontendBaseUrl.replace(/\/$/, '')}/`).toString();
 }
 
 function getCertificateCheckoutEmbedOrigin(config: ConnectConfig): string {

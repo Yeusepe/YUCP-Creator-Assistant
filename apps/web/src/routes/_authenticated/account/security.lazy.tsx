@@ -367,7 +367,7 @@ function AccountSecurityPage() {
         className="bento-col-12"
         eyebrow="Backup sign-in methods"
         title="Pick what works for you"
-        description="You do not need everything here—choose what you can keep safe. Passkeys are the smoothest; codes and a spare email are great fallbacks."
+        description="You do not need everything here. Choose what you can keep safe. Passkeys are the smoothest; codes and a spare email are great fallbacks."
       >
         <p className="account-recovery-intro">
           Each option below is independent. Turn on one now, then layer more over time.
@@ -452,7 +452,7 @@ function AccountSecurityPage() {
               <p className="account-feature-copy">
                 {securityOverview.hasBackupCodes
                   ? `${securityOverview.backupCodeCount} codes left. Regenerating creates a fresh list and voids the old one.`
-                  : 'Turn on backup codes once—we will generate a set you can print or store in a password manager.'}
+                  : 'Turn on backup codes once and we will generate a set you can print or store in a password manager.'}
               </p>
               {freshBackupCodes.length > 0 ? (
                 <div className="account-security-code-grid">

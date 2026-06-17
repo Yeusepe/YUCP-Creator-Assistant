@@ -1,4 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { getOAuthScopeDisplay } from '@yucp/shared';
 import { useCallback, useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { authClient } from '@/lib/auth-client';
@@ -8,58 +9,47 @@ export const Route = createLazyFileRoute('/oauth/consent')({
   component: OAuthConsentPage,
 });
 
-interface ScopeInfo {
-  label: string;
-  desc: string;
-  badge: string;
-  icon: React.ReactNode;
-}
-
-const SCOPE_INFO: Record<string, ScopeInfo> = {
-  'verification:read': {
-    label: 'Read verification status',
-    desc: 'Check if a user is verified on your server',
-    badge: 'Read',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-        <polyline points="9 12 11 14 15 10" />
-      </svg>
-    ),
-  },
-  'subjects:read': {
-    label: 'Read subject data',
-    desc: 'Access verified users and their purchase records',
-    badge: 'Read',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="8" r="4" />
-        <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
-      </svg>
-    ),
-  },
-  'cert:issue': {
-    label: 'Issue signing certificate',
-    desc: 'Request a YUCP code-signing certificate for your developer key',
-    badge: 'Sign',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-      </svg>
-    ),
-  },
-  'profile:read': {
-    label: 'Read basic profile',
-    desc: 'View your YUCP display name and avatar so Package Exporter can show your account properly',
-    badge: 'Profile',
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 20a8 8 0 0 1 16 0" />
-      </svg>
-    ),
-  },
+// Scope copy (label/description/badge) lives in @yucp/shared so it never drifts.
+// Icons are presentation-only and stay here, keyed by scope.
+const SCOPE_ICONS: Record<string, React.ReactNode> = {
+  'verification:read': (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <polyline points="9 12 11 14 15 10" />
+    </svg>
+  ),
+  'subjects:read': (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M6 20v-2a6 6 0 0 1 12 0v2" />
+    </svg>
+  ),
+  'cert:issue': (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  ),
+  'profile:read': (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20a8 8 0 0 1 16 0" />
+    </svg>
+  ),
+  'products:read': (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  ),
+  offline_access: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  ),
 };
 
 const DEFAULT_SCOPE_ICON = (
@@ -146,20 +136,16 @@ function OAuthConsentPage() {
           <p className="permissions-label">Permissions requested</p>
           <ul className="permissions-list" id="permissions-list">
             {rawScopes.map((scope) => {
-              const info = SCOPE_INFO[scope] || {
-                label: scope,
-                desc: 'Custom permission scope',
-                badge: 'Access',
-                icon: DEFAULT_SCOPE_ICON,
-              };
+              const display = getOAuthScopeDisplay(scope);
+              const icon = SCOPE_ICONS[scope] ?? DEFAULT_SCOPE_ICON;
               return (
                 <li key={scope} className="permission-item">
-                  <div className="permission-icon">{info.icon}</div>
+                  <div className="permission-icon">{icon}</div>
                   <div className="permission-text">
-                    <div className="permission-name">{info.label}</div>
-                    <div className="permission-desc">{info.desc}</div>
+                    <div className="permission-name">{display.label}</div>
+                    <div className="permission-desc">{display.description}</div>
                   </div>
-                  <span className="permission-badge">{info.badge}</span>
+                  <span className="permission-badge">{display.badge}</span>
                 </li>
               );
             })}

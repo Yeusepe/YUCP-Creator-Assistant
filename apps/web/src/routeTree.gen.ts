@@ -52,9 +52,11 @@ import { Route as AuthenticatedDashboardAuditLogsRouteImport } from './routes/_a
 import { Route as AuthenticatedAccountVerifyRouteImport } from './routes/_authenticated/account/verify'
 import { Route as AuthenticatedAccountSecurityRouteImport } from './routes/_authenticated/account/security'
 import { Route as AuthenticatedAccountPrivacyRouteImport } from './routes/_authenticated/account/privacy'
+import { Route as AuthenticatedAccountMachinesRouteImport } from './routes/_authenticated/account/machines'
 import { Route as AuthenticatedAccountLicensesRouteImport } from './routes/_authenticated/account/licenses'
 import { Route as AuthenticatedAccountConnectionsRouteImport } from './routes/_authenticated/account/connections'
 import { Route as AuthenticatedAccountCertificatesRouteImport } from './routes/_authenticated/account/certificates'
+import { Route as AuthenticatedAccountBillingRouteImport } from './routes/_authenticated/account/billing'
 import { Route as AuthenticatedAccountAuthorizedAppsRouteImport } from './routes/_authenticated/account/authorized-apps'
 
 const SignInRedirectRoute = SignInRedirectRouteImport.update({
@@ -345,6 +347,16 @@ const AuthenticatedAccountPrivacyRoute =
   } as any).lazy(() =>
     import('./routes/_authenticated/account/privacy.lazy').then((d) => d.Route),
   )
+const AuthenticatedAccountMachinesRoute =
+  AuthenticatedAccountMachinesRouteImport.update({
+    id: '/machines',
+    path: '/machines',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/machines.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AuthenticatedAccountLicensesRoute =
   AuthenticatedAccountLicensesRouteImport.update({
     id: '/licenses',
@@ -374,6 +386,14 @@ const AuthenticatedAccountCertificatesRoute =
     import('./routes/_authenticated/account/certificates.lazy').then(
       (d) => d.Route,
     ),
+  )
+const AuthenticatedAccountBillingRoute =
+  AuthenticatedAccountBillingRouteImport.update({
+    id: '/billing',
+    path: '/billing',
+    getParentRoute: () => AuthenticatedAccountRoute,
+  } as any).lazy(() =>
+    import('./routes/_authenticated/account/billing.lazy').then((d) => d.Route),
   )
 const AuthenticatedAccountAuthorizedAppsRoute =
   AuthenticatedAccountAuthorizedAppsRouteImport.update({
@@ -412,9 +432,11 @@ export interface FileRoutesByFullPath {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/account/billing': typeof AuthenticatedAccountBillingRoute
   '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/account/connections': typeof AuthenticatedAccountConnectionsRoute
   '/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/account/machines': typeof AuthenticatedAccountMachinesRoute
   '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/account/security': typeof AuthenticatedAccountSecurityRoute
   '/account/verify': typeof AuthenticatedAccountVerifyRoute
@@ -458,9 +480,11 @@ export interface FileRoutesByTo {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/account/billing': typeof AuthenticatedAccountBillingRoute
   '/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/account/connections': typeof AuthenticatedAccountConnectionsRoute
   '/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/account/machines': typeof AuthenticatedAccountMachinesRoute
   '/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/account/security': typeof AuthenticatedAccountSecurityRoute
   '/account/verify': typeof AuthenticatedAccountVerifyRoute
@@ -508,9 +532,11 @@ export interface FileRoutesById {
   '/verify/error': typeof VerifyErrorRoute
   '/verify/success': typeof VerifySuccessRoute
   '/_authenticated/account/authorized-apps': typeof AuthenticatedAccountAuthorizedAppsRoute
+  '/_authenticated/account/billing': typeof AuthenticatedAccountBillingRoute
   '/_authenticated/account/certificates': typeof AuthenticatedAccountCertificatesRoute
   '/_authenticated/account/connections': typeof AuthenticatedAccountConnectionsRoute
   '/_authenticated/account/licenses': typeof AuthenticatedAccountLicensesRoute
+  '/_authenticated/account/machines': typeof AuthenticatedAccountMachinesRoute
   '/_authenticated/account/privacy': typeof AuthenticatedAccountPrivacyRoute
   '/_authenticated/account/security': typeof AuthenticatedAccountSecurityRoute
   '/_authenticated/account/verify': typeof AuthenticatedAccountVerifyRoute
@@ -558,9 +584,11 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/account/authorized-apps'
+    | '/account/billing'
     | '/account/certificates'
     | '/account/connections'
     | '/account/licenses'
+    | '/account/machines'
     | '/account/privacy'
     | '/account/security'
     | '/account/verify'
@@ -604,9 +632,11 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/account/authorized-apps'
+    | '/account/billing'
     | '/account/certificates'
     | '/account/connections'
     | '/account/licenses'
+    | '/account/machines'
     | '/account/privacy'
     | '/account/security'
     | '/account/verify'
@@ -653,9 +683,11 @@ export interface FileRouteTypes {
     | '/verify/error'
     | '/verify/success'
     | '/_authenticated/account/authorized-apps'
+    | '/_authenticated/account/billing'
     | '/_authenticated/account/certificates'
     | '/_authenticated/account/connections'
     | '/_authenticated/account/licenses'
+    | '/_authenticated/account/machines'
     | '/_authenticated/account/privacy'
     | '/_authenticated/account/security'
     | '/_authenticated/account/verify'
@@ -1008,6 +1040,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountPrivacyRouteImport
       parentRoute: typeof AuthenticatedAccountRoute
     }
+    '/_authenticated/account/machines': {
+      id: '/_authenticated/account/machines'
+      path: '/machines'
+      fullPath: '/account/machines'
+      preLoaderRoute: typeof AuthenticatedAccountMachinesRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
     '/_authenticated/account/licenses': {
       id: '/_authenticated/account/licenses'
       path: '/licenses'
@@ -1029,6 +1068,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountCertificatesRouteImport
       parentRoute: typeof AuthenticatedAccountRoute
     }
+    '/_authenticated/account/billing': {
+      id: '/_authenticated/account/billing'
+      path: '/billing'
+      fullPath: '/account/billing'
+      preLoaderRoute: typeof AuthenticatedAccountBillingRouteImport
+      parentRoute: typeof AuthenticatedAccountRoute
+    }
     '/_authenticated/account/authorized-apps': {
       id: '/_authenticated/account/authorized-apps'
       path: '/authorized-apps'
@@ -1041,9 +1087,11 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedAccountRouteChildren {
   AuthenticatedAccountAuthorizedAppsRoute: typeof AuthenticatedAccountAuthorizedAppsRoute
+  AuthenticatedAccountBillingRoute: typeof AuthenticatedAccountBillingRoute
   AuthenticatedAccountCertificatesRoute: typeof AuthenticatedAccountCertificatesRoute
   AuthenticatedAccountConnectionsRoute: typeof AuthenticatedAccountConnectionsRoute
   AuthenticatedAccountLicensesRoute: typeof AuthenticatedAccountLicensesRoute
+  AuthenticatedAccountMachinesRoute: typeof AuthenticatedAccountMachinesRoute
   AuthenticatedAccountPrivacyRoute: typeof AuthenticatedAccountPrivacyRoute
   AuthenticatedAccountSecurityRoute: typeof AuthenticatedAccountSecurityRoute
   AuthenticatedAccountVerifyRoute: typeof AuthenticatedAccountVerifyRoute
@@ -1053,9 +1101,11 @@ interface AuthenticatedAccountRouteChildren {
 const AuthenticatedAccountRouteChildren: AuthenticatedAccountRouteChildren = {
   AuthenticatedAccountAuthorizedAppsRoute:
     AuthenticatedAccountAuthorizedAppsRoute,
+  AuthenticatedAccountBillingRoute: AuthenticatedAccountBillingRoute,
   AuthenticatedAccountCertificatesRoute: AuthenticatedAccountCertificatesRoute,
   AuthenticatedAccountConnectionsRoute: AuthenticatedAccountConnectionsRoute,
   AuthenticatedAccountLicensesRoute: AuthenticatedAccountLicensesRoute,
+  AuthenticatedAccountMachinesRoute: AuthenticatedAccountMachinesRoute,
   AuthenticatedAccountPrivacyRoute: AuthenticatedAccountPrivacyRoute,
   AuthenticatedAccountSecurityRoute: AuthenticatedAccountSecurityRoute,
   AuthenticatedAccountVerifyRoute: AuthenticatedAccountVerifyRoute,

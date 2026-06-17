@@ -3,6 +3,7 @@ import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useEffect } from 'react';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { CouplingForensicsPanel } from '@/components/dashboard/CouplingForensicsPanel';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
@@ -59,6 +60,8 @@ function noRetryOn4xx(failureCount: number, error: unknown): boolean {
 }
 
 export default function DashboardPackages() {
+  const { view } = Route.useSearch();
+  const activeView = view === 'forensics' ? 'forensics' : 'registry';
   const { isPersonalDashboard } = useActiveDashboardContext();
   const { canRunPanelQueries, isAuthResolved, markSessionExpired, status } = useDashboardSession();
   const { privateVpmEnabled = false } = useRuntimeConfig();
@@ -78,6 +81,10 @@ export default function DashboardPackages() {
   const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
     certificatesQuery.data?.billing.capabilities,
     BILLING_CAPABILITY_KEYS.vpmRepo
+  );
+  const hasForensicsCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
   );
   const isLoading =
     !isAuthResolved || (canRunPanelQueries && isPersonalDashboard && certificatesQuery.isLoading);
@@ -123,7 +130,7 @@ export default function DashboardPackages() {
               </div>
             </div>
             <Link
-              to="/dashboard/certificates"
+              to="/dashboard"
               search={(prev) => ({ ...prev, guild_id: undefined, tenant_id: undefined })}
               className="account-btn account-btn--primary"
               style={{ borderRadius: '999px', alignSelf: 'flex-start' }}
@@ -168,9 +175,57 @@ export default function DashboardPackages() {
 
   return (
     <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
-      <div className="bento-grid">
-        <PackageRegistryPanel />
-      </div>
+      <PackageWorkspaceHeader
+        activeView={activeView}
+        hasForensicsCapability={hasForensicsCapability}
+      />
+      {activeView === 'forensics' ? (
+        // ponytail: the panel brings its own bento-grid wrapper; no extra grid here.
+        <CouplingForensicsPanel />
+      ) : (
+        <div className="bento-grid">
+          <PackageRegistryPanel />
+        </div>
+      )}
     </div>
+  );
+}
+
+function PackageWorkspaceHeader({
+  activeView,
+  hasForensicsCapability,
+}: {
+  activeView: 'registry' | 'forensics';
+  hasForensicsCapability: boolean;
+}) {
+  return (
+    <header className="pm-workspace-header">
+      <div className="pm-workspace-heading">
+        <h1 className="pm-workspace-title">Private VPM Registry</h1>
+        <p className="pm-workspace-subtitle">
+          Publish package updates to your Unity (VCC) repo and trace leaked files back to a buyer,
+          all from one workspace.
+        </p>
+      </div>
+      <nav className="pm-workspace-segment" aria-label="VPM workspace views">
+        <Link
+          to="/dashboard/packages"
+          search={(prev) => ({ ...prev, view: undefined })}
+          className={`pm-segment-btn${activeView === 'registry' ? ' is-active' : ''}`}
+          aria-current={activeView === 'registry' ? 'page' : undefined}
+        >
+          Package Registry
+        </Link>
+        <Link
+          to="/dashboard/packages"
+          search={(prev) => ({ ...prev, view: 'forensics' })}
+          className={`pm-segment-btn${activeView === 'forensics' ? ' is-active' : ''}`}
+          aria-current={activeView === 'forensics' ? 'page' : undefined}
+        >
+          Leak Forensics
+          {!hasForensicsCapability ? <span className="pm-segment-badge">Studio+</span> : null}
+        </Link>
+      </nav>
+    </header>
   );
 }

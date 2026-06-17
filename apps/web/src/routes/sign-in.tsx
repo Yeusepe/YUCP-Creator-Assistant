@@ -420,7 +420,7 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
                     <div className="recovery-enroll-card">
                       <p className="recovery-panel-title">Finish recovery with a new passkey</p>
                       <p className="recovery-panel-copy">
-                        Your recovery proof is verified. Register a fresh passkey now—we will
+                        Your recovery proof is verified. Register a fresh passkey now and we will
                         complete sign-in with that passkey right after.
                       </p>
                       <button

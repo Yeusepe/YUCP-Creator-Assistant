@@ -195,12 +195,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
             }),
             use: [
               checkout({
-                successUrl: `${siteUrl.replace(/\/$/, '')}/dashboard/certificates?checkout_id={CHECKOUT_ID}`,
-                returnUrl: `${siteUrl.replace(/\/$/, '')}/dashboard/certificates`,
+                successUrl: `${siteUrl.replace(/\/$/, '')}/account/billing?checkout_id={CHECKOUT_ID}`,
+                returnUrl: `${siteUrl.replace(/\/$/, '')}/account/billing`,
                 authenticatedUsersOnly: true,
               }),
               portal({
-                returnUrl: `${siteUrl.replace(/\/$/, '')}/dashboard/certificates`,
+                returnUrl: `${siteUrl.replace(/\/$/, '')}/account/billing`,
               }),
               usage(),
               webhooks({

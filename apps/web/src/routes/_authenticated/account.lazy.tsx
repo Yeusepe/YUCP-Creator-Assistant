@@ -3,6 +3,7 @@ import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useAccountShell } from '@/hooks/useAccountShell';
 import { useAuth } from '@/hooks/useAuth';
+import { DashboardSessionProvider } from '@/hooks/useDashboardSession';
 
 export const Route = createLazyFileRoute('/_authenticated/account')({
   component: AccountLayout,
@@ -101,6 +102,56 @@ const NAV_GROUPS = [
             aria-hidden="true"
           >
             <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
+          </svg>
+        ),
+      },
+      {
+        to: '/account/machines' as const,
+        exact: false,
+        label: 'Authorized Machines',
+        headerTitle: 'Authorized Machines',
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="2" y="4" width="20" height="13" rx="2" />
+            <path d="M2 20h20" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
+    label: 'Billing',
+    items: [
+      {
+        to: '/account/billing' as const,
+        exact: false,
+        label: 'Billing & Plans',
+        headerTitle: 'Billing',
+        icon: (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="2.5" y="5" width="19" height="14" rx="3" />
+            <path d="M2.5 10h19" />
+            <path d="M6.5 15h4" />
           </svg>
         ),
       },
@@ -229,115 +280,117 @@ function AccountLayout() {
   const footerLabel = isCreator ? 'Creator Dashboard' : 'Add a Server';
 
   return (
-    <div className="dashboard-page">
-      <CloudBackground variant="default" />
-      <div className="app-shell">
-        <div
-          id="sidebar-overlay"
-          className="sidebar-overlay"
-          aria-hidden="true"
-          onClick={closeAccountSidebar}
-        />
+    <DashboardSessionProvider>
+      <div className="dashboard-page">
+        <CloudBackground variant="default" />
+        <div className="app-shell">
+          <div
+            id="sidebar-overlay"
+            className="sidebar-overlay"
+            aria-hidden="true"
+            onClick={closeAccountSidebar}
+          />
 
-        <aside id="sidebar" className="sidebar" aria-label="Account navigation">
-          <div className="sidebar-logo-area">
-            <div className="sidebar-brand">
-              <img
-                src="/Icons/MainLogo.png"
-                alt="Creator Assistant Logo"
-                className="sidebar-logo-img"
-              />
+          <aside id="sidebar" className="sidebar" aria-label="Account navigation">
+            <div className="sidebar-logo-area">
+              <div className="sidebar-brand">
+                <img
+                  src="/Icons/MainLogo.png"
+                  alt="Creator Assistant Logo"
+                  className="sidebar-logo-img"
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="sidebar-scroll">
-            <nav className="sidebar-nav" aria-label="Account sections">
-              {NAV_GROUPS.map((group) => (
-                <div key={group.label} className="sidebar-nav-group">
-                  <span className="sidebar-nav-label">{group.label}</span>
-                  {group.items.map((item) => (
-                    <Link
-                      key={item.to}
-                      to={item.to}
-                      onClick={closeAccountSidebar}
-                      className={`sidebar-nav-btn${isNavItemActive(item, currentPath) ? ' is-active' : ''}`}
-                    >
-                      <span className="sidebar-nav-icon">{item.icon}</span>
-                      {item.label}
-                    </Link>
-                  ))}
-                </div>
-              ))}
-            </nav>
-          </div>
+            <div className="sidebar-scroll">
+              <nav className="sidebar-nav" aria-label="Account sections">
+                {NAV_GROUPS.map((group) => (
+                  <div key={group.label} className="sidebar-nav-group">
+                    <span className="sidebar-nav-label">{group.label}</span>
+                    {group.items.map((item) => (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        onClick={closeAccountSidebar}
+                        className={`sidebar-nav-btn${isNavItemActive(item, currentPath) ? ' is-active' : ''}`}
+                      >
+                        <span className="sidebar-nav-icon">{item.icon}</span>
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+              </nav>
+            </div>
 
-          <div className="sidebar-footer">
-            <a href={footerHref} className="sidebar-account-btn">
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+            <div className="sidebar-footer">
+              <a href={footerHref} className="sidebar-account-btn">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  {isCreator ? (
+                    <>
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <rect x="14" y="14" width="7" height="7" rx="1" />
+                    </>
+                  ) : (
+                    <>
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </>
+                  )}
+                </svg>
+                {footerLabel}
+              </a>
+              <button
+                type="button"
+                className="sidebar-account-btn"
+                onClick={() => {
+                  void signOut();
+                }}
               >
-                {isCreator ? (
-                  <>
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                  </>
-                ) : (
-                  <>
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </>
-                )}
-              </svg>
-              {footerLabel}
-            </a>
-            <button
-              type="button"
-              className="sidebar-account-btn"
-              onClick={() => {
-                void signOut();
-              }}
-            >
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-              Sign out
-            </button>
-          </div>
-        </aside>
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+                Sign out
+              </button>
+            </div>
+          </aside>
 
-        <main className="content-area">
-          <div className="content-area-inner">
-            <DashboardHeader
-              title={getAccountHeaderTitle(currentPath)}
-              homeHref="/account"
-              homeLabel="Back to account home"
-            />
-            <Outlet />
-          </div>
-        </main>
+          <main className="content-area">
+            <div className="content-area-inner">
+              <DashboardHeader
+                title={getAccountHeaderTitle(currentPath)}
+                homeHref="/account"
+                homeLabel="Back to account home"
+              />
+              <Outlet />
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </DashboardSessionProvider>
   );
 }
