@@ -54,12 +54,14 @@ test('supported unitypackage is analyzed instead of being reported as having no 
   expect(pageErrors, `Page errors: ${pageErrors.join('\n')}`).toEqual([]);
   expect(consoleErrors, `Console errors: ${consoleErrors.join('\n')}`).toEqual([]);
 
-  await expect(page.getByRole('heading', { name: 'Coupling Forensics' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Private VPM Registry' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Leak Forensics' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Leak Tracer' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Novaspil Test Package/i })).toBeVisible();
 
   await page.locator('#forensics-file').setInputFiles(uploadPath);
-  await page.getByRole('button', { name: 'Scan upload' }).click();
+  await page.getByRole('button', { name: 'Find buyer' }).click();
 
-  await expect(page.getByText('No coupling signals found')).toBeVisible();
-  await expect(page.getByText('No eligible assets found')).toHaveCount(0);
+  await expect(page.getByText('No match found')).toBeVisible();
+  await expect(page.getByText('No trackable files found')).toHaveCount(0);
 });
