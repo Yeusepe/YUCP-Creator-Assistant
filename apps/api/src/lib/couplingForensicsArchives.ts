@@ -115,7 +115,8 @@ async function extractZipCandidates(
   await mkdir(candidatesDir, { recursive: true });
   const extractedDir = path.join(workspaceDir, 'zip');
   await mkdir(extractedDir, { recursive: true });
-  const extractionBudget = createExtractionBudget(limits);
+  const declaredBudget = createExtractionBudget(limits);
+  const extractedBudget = createExtractionBudget(limits);
 
   const shouldExtractEntry = (file: UnzipFileInfo) => {
     const entryPath = normalizeRelativeArchivePath(file.name);
@@ -125,7 +126,7 @@ async function extractZipCandidates(
     if (!isMetadataPath(entryPath) && !getAssetTypeFromPath(entryPath)) {
       return false;
     }
-    extractionBudget.include(file.originalSize);
+    declaredBudget.include(file.originalSize);
     return true;
   };
 
@@ -143,6 +144,7 @@ async function extractZipCandidates(
     if (!isSafeRelativeArchivePath(entryPath)) {
       continue;
     }
+    extractedBudget.include(entryBytes.byteLength);
 
     const destinationPath = path.join(extractedDir, entryPath);
     await mkdir(path.dirname(destinationPath), { recursive: true });
@@ -185,7 +187,8 @@ async function extractUnityPackageCandidates(
   const candidatesDir = path.join(workspaceDir, 'candidates');
   await mkdir(extractedDir, { recursive: true });
   await mkdir(candidatesDir, { recursive: true });
-  const extractionBudget = createExtractionBudget(limits);
+  const declaredBudget = createExtractionBudget(limits);
+  const extractedBudget = createExtractionBudget(limits);
   let extractionError: Error | null = null;
 
   await tar.x({
@@ -209,7 +212,7 @@ async function extractUnityPackageCandidates(
         return false;
       }
       try {
-        extractionBudget.include(entry.size);
+        declaredBudget.include(entry.size);
       } catch (error) {
         extractionError =
           error instanceof Error ? error : new Error('Archive exceeds the extracted size limit');
@@ -238,6 +241,12 @@ async function extractUnityPackageCandidates(
     const assetFile = path.join(fullDir, 'asset');
     const pathnameStats = await stat(pathnameFile).catch(() => null);
     const assetStats = await stat(assetFile).catch(() => null);
+    if (pathnameStats?.isFile()) {
+      extractedBudget.include(pathnameStats.size);
+    }
+    if (assetStats?.isFile()) {
+      extractedBudget.include(assetStats.size);
+    }
     if (!pathnameStats?.isFile() || !assetStats?.isFile()) {
       continue;
     }

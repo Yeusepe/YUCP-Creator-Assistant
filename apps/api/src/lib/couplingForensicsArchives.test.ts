@@ -58,6 +58,21 @@ function buildGzippedTar(entries: Uint8Array[]): Uint8Array {
   return gzipSync(tarBytes);
 }
 
+function rewriteZipDeclaredUncompressedSize(bytes: Uint8Array, declaredSize: number): Uint8Array {
+  const rewritten = new Uint8Array(bytes);
+  const view = new DataView(rewritten.buffer, rewritten.byteOffset, rewritten.byteLength);
+  for (let index = 0; index < rewritten.byteLength - 4; index += 1) {
+    const signature = view.getUint32(index, true);
+    if (signature === 0x04034b50) {
+      view.setUint32(index + 22, declaredSize, true);
+    }
+    if (signature === 0x02014b50) {
+      view.setUint32(index + 24, declaredSize, true);
+    }
+  }
+  return rewritten;
+}
+
 async function writeArchive(workspaceDir: string, name: string, bytes: Uint8Array) {
   const archivePath = path.join(workspaceDir, name);
   await writeFile(archivePath, bytes);
@@ -89,6 +104,49 @@ describe('coupling forensics archive extraction limits', () => {
         maxExtractedEntryBytes: 1,
       })
     ).rejects.toThrow('Archive entry exceeds the extracted size limit');
+  });
+
+  it('rejects stored zip entries whose declared size understates extracted bytes', async () => {
+    workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-zip-understated-test-'));
+    const archivePath = await writeArchive(
+      workspaceDir,
+      'bundle.zip',
+      rewriteZipDeclaredUncompressedSize(
+        zipSync(
+          {
+            'Assets/Character/body.png': new Uint8Array(100),
+          },
+          { level: 0 }
+        ),
+        1
+      )
+    );
+
+    await expect(
+      extractCouplingForensicsArchive(archivePath, 'bundle.zip', workspaceDir, {
+        maxExtractedEntryBytes: 50,
+      })
+    ).rejects.toThrow('Archive entry exceeds the extracted size limit');
+  });
+
+  it('rejects zip archives that exceed the total extracted budget', async () => {
+    workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-zip-total-test-'));
+    const archivePath = await writeArchive(
+      workspaceDir,
+      'bundle.zip',
+      zipSync({
+        'Assets/Character/body.png': new Uint8Array(50),
+        'Assets/Character/hair.png': new Uint8Array(50),
+        'Assets/Character/outfit.png': new Uint8Array(50),
+      })
+    );
+
+    await expect(
+      extractCouplingForensicsArchive(archivePath, 'bundle.zip', workspaceDir, {
+        maxExtractedEntryBytes: 100,
+        maxExtractedTotalBytes: 100,
+      })
+    ).rejects.toThrow('Archive exceeds the extracted size limit');
   });
 
   it('rejects unitypackage entries that exceed the extracted entry budget', async () => {

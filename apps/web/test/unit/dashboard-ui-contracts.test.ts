@@ -177,6 +177,11 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('<Outlet />');
   });
 
+  it('does not render raw dashboard route errors in the production fallback', () => {
+    expect(dashboardLazyRouteSource).not.toContain('{error.message}');
+    expect(dashboardLazyRouteSource).toContain('Dashboard failed to load.');
+  });
+
   it('uses the home icon for the personal dashboard selector trigger and no longer renders blob backgrounds', () => {
     expect(dashboardLazyRouteSource).toContain(
       '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />'

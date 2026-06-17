@@ -1136,6 +1136,10 @@ function SidebarLogoArea({
 }
 
 function DashboardRouteErrorComponent({ error }: { error: Error }) {
+  const dashboardRouteErrorDetail = import.meta.env.DEV
+    ? error.message
+    : 'Dashboard failed to load.';
+
   return (
     <div className="dashboard-page">
       <CloudBackground variant="default" />
@@ -1161,7 +1165,7 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
                   color: 'rgba(255,255,255,0.72)',
                 }}
               >
-                {error.message}
+                {dashboardRouteErrorDetail}
               </pre>
             </section>
           </div>
