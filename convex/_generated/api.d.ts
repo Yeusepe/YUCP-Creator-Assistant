@@ -54,6 +54,7 @@ import type * as lib_couplingRuntimePackageConfig from "../lib/couplingRuntimePa
 import type * as lib_couplingServiceRuntimeArtifacts from "../lib/couplingServiceRuntimeArtifacts.js";
 import type * as lib_credentialKeys from "../lib/credentialKeys.js";
 import type * as lib_externalAccountIdentity from "../lib/externalAccountIdentity.js";
+import type * as lib_hkdfAesGcm from "../lib/hkdfAesGcm.js";
 import type * as lib_httpRateLimit from "../lib/httpRateLimit.js";
 import type * as lib_licenseSubjectLink from "../lib/licenseSubjectLink.js";
 import type * as lib_logger from "../lib/logger.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/couplingServiceRuntimeArtifacts": typeof lib_couplingServiceRuntimeArtifacts;
   "lib/credentialKeys": typeof lib_credentialKeys;
   "lib/externalAccountIdentity": typeof lib_externalAccountIdentity;
+  "lib/hkdfAesGcm": typeof lib_hkdfAesGcm;
   "lib/httpRateLimit": typeof lib_httpRateLimit;
   "lib/licenseSubjectLink": typeof lib_licenseSubjectLink;
   "lib/logger": typeof lib_logger;

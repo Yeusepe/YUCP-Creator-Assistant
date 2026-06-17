@@ -14,6 +14,7 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalAction } from './_generated/server';
+import { decryptHkdfAesGcm } from './lib/hkdfAesGcm';
 
 // ---------------------------------------------------------------------------
 // Crypto helpers
@@ -24,22 +25,7 @@ async function decryptSecret(
   secret: string,
   purpose: string
 ): Promise<string> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, [
-    'deriveKey',
-  ]);
-  const key = await crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: encoder.encode(purpose) },
-    keyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt']
-  );
-  const combined = Uint8Array.from(atob(ciphertextB64), (c) => c.charCodeAt(0));
-  const iv = combined.slice(0, 12);
-  const data = combined.slice(12);
-  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
-  return new TextDecoder().decode(decrypted);
+  return await decryptHkdfAesGcm(ciphertextB64, secret, purpose);
 }
 
 async function computeHmacSha256(payload: string, secret: string): Promise<string> {
