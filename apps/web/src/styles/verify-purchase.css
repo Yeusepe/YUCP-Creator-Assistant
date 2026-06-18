@@ -42,7 +42,8 @@
 
 /* Tall verification cards stay scrollable from the top instead of flex-centering off-screen. */
 .vp-wrapper.vp-wrapper--verify-scroll {
-  align-items: flex-start;
+  /* ponytail: safe center — centers short cards, falls back to start only when the tall pending card would overflow */
+  align-items: safe center;
   justify-content: center;
   padding-top: max(1rem, env(safe-area-inset-top, 0px));
   padding-bottom: max(1.75rem, env(safe-area-inset-bottom, 0px));
