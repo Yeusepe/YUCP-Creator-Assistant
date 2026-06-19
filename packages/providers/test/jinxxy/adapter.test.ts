@@ -368,6 +368,7 @@ describe('Types and Normalization', () => {
       expect(evidence.observedAt).toBe('2026-04-10T12:00:00Z');
       expect(evidence.refunded).toBe(false);
       expect(evidence.licenseKey).toBe('LICENSE-KEY-123');
+      expect(evidence.providerTierRefs).toEqual(['version-advanced']);
       expect(evidence.email).toBe('buyer@example.com');
     });
 
@@ -397,6 +398,51 @@ describe('Types and Normalization', () => {
       const evidence = normalizeOrderToEvidence(order);
 
       expect(evidence.licenseKey).toBe('license-from-order-item');
+    });
+
+    it('should preserve unique order item target version ids as provider tier refs', () => {
+      const order: JinxxyOrder = {
+        id: 'order-item-version-refs',
+        object: 'Order',
+        email: 'buyer@example.com',
+        paid_at: '2026-04-10T12:00:00Z',
+        payment_status: 'PAID',
+        payout_total: 999,
+        checkout_fields: [],
+        order_items: [
+          {
+            id: 'order-item-1',
+            object: 'OrderItem',
+            name: 'Creator Pack',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: ' version-advanced ',
+            seller: null,
+          },
+          {
+            id: 'order-item-2',
+            object: 'OrderItem',
+            name: 'Creator Pack Duplicate',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-advanced',
+            seller: null,
+          },
+          {
+            id: 'order-item-3',
+            object: 'OrderItem',
+            name: 'Creator Pack Blank Version',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: '   ',
+            seller: null,
+          },
+        ],
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.providerTierRefs).toEqual(['version-advanced']);
     });
   });
 

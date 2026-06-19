@@ -426,6 +426,8 @@ export interface JinxxyEvidence {
   email?: string;
   /** Discord ID if available */
   discordId?: string;
+  /** Provider tier/version refs if available */
+  providerTierRefs?: string[];
 }
 
 /**
@@ -551,6 +553,13 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     orderItemWithLicense?.license?.key ??
     orderItemWithLicense?.license_id ??
     undefined;
+  const providerTierRefs = Array.from(
+    new Set(
+      (order.order_items ?? [])
+        .map((item) => item.target_version_id?.trim())
+        .filter((providerTierRef): providerTierRef is string => Boolean(providerTierRef))
+    )
+  );
 
   return {
     provider: 'jinxxy',
@@ -561,6 +570,7 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     rawRef: order.id,
     refunded: getOrderStatus(order) === 'refunded',
     licenseKey,
+    providerTierRefs: providerTierRefs.length > 0 ? providerTierRefs : undefined,
     email: order.email,
     discordId: order.discord_id,
   };

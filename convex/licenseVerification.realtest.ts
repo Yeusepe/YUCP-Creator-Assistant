@@ -192,6 +192,71 @@ describe('license verification account linking', () => {
     });
   });
 
+  it('does not reuse another provider entitlement when raw order ids collide', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-provider-collision-creator';
+    const buyerAuthUserId = 'auth-license-verification-provider-collision-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-provider-collision-buyer',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-provider-collision-creator',
+    });
+
+    const otherProviderEntitlementId = await seedEntitlement(t, buyerSubjectId, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-license-verification-provider-collision',
+      sourceProvider: 'gumroad',
+      sourceReference: 'order-license-verification-provider-collision',
+      status: 'active',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-provider-collision',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-provider-collision',
+          sourceReference:
+            'jinxxy:order-license-verification-provider-collision:license-provider-collision',
+          providerTierRefs: ['version-provider-collision'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(result.entitlementIds).not.toEqual([otherProviderEntitlementId]);
+
+    const entitlements = await t.run(async (ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect()
+    );
+
+    expect(entitlements).toHaveLength(2);
+    expect(entitlements.find((entitlement) => entitlement._id === otherProviderEntitlementId))
+      .toMatchObject({
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-license-verification-provider-collision',
+      });
+    expect(entitlements.find((entitlement) => entitlement.sourceProvider === 'jinxxy'))
+      .toMatchObject({
+        productId: 'product-license-verification-provider-collision',
+        sourceReference:
+          'jinxxy:order-license-verification-provider-collision:license-provider-collision',
+      });
+  });
+
   it('keeps manual-license buyer links symmetric across account reads, disconnect, and reconcile', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-license-verification-account-symmetry';

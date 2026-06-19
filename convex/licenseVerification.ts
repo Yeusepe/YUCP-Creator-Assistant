@@ -175,6 +175,7 @@ async function findExistingEntitlementForGrant(
   args: {
     authUserId: string;
     subjectId: Id<'subjects'>;
+    provider: Doc<'entitlements'>['sourceProvider'];
     productId: string;
     sourceReferences: string[];
   }
@@ -186,6 +187,7 @@ async function findExistingEntitlementForGrant(
         q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
       )
       .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('sourceProvider'), args.provider))
       .filter((q) => q.eq(q.field('sourceReference'), sourceReference))
       .first();
     if (entitlement) {
@@ -440,6 +442,7 @@ export const completeLicenseVerification = mutation({
       const existingForGrant = await findExistingEntitlementForGrant(ctx, {
         authUserId: creatorAuthUserId,
         subjectId: buyerSubjectId,
+        provider: args.provider,
         productId: product.productId,
         sourceReferences,
       });
@@ -501,6 +504,7 @@ export const completeLicenseVerification = mutation({
       const existingEntitlement = await findExistingEntitlementForGrant(ctx, {
         authUserId: creatorAuthUserId,
         subjectId: buyerSubjectId,
+        provider: args.provider,
         productId: product.productId,
         sourceReferences: sourceReferencesForGrantIdentity(args.provider, product.sourceReference),
       });

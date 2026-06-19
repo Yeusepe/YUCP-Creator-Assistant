@@ -193,6 +193,114 @@ describe('roleSyncActions.runRoleSync', () => {
     );
   });
 
+  it('preserves product-wide rules in guilds without tier-scoped overrides', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId } = await seed(t);
+    const fetchFn = mockFetch(204);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: AUTH_USER,
+        productId: PRODUCT_ID,
+        provider: 'gumroad',
+        providerProductRef: PRODUCT_ID,
+        displayName: 'Multi Guild Tiered Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const advancedTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: AUTH_USER,
+        provider: 'gumroad',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerProductRef: PRODUCT_ID,
+        providerTierRef: 'version-advanced',
+        displayName: 'Advanced',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: AUTH_USER,
+        subjectId,
+        providerKey: 'gumroad',
+        sourceReference: 'order-action-test',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerTierRefs: ['version-advanced'],
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      const tieredGuildLinkId = await ctx.db.insert('guild_links', {
+        authUserId: AUTH_USER,
+        discordGuildId: 'guild-action-tiered',
+        installedByAuthUserId: AUTH_USER,
+        botPresent: true,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: 'guild-action-tiered',
+        guildLinkId: tieredGuildLinkId,
+        productId: PRODUCT_ID,
+        verifiedRoleId: 'role-action-tiered-fallback',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: 'guild-action-tiered',
+        guildLinkId: tieredGuildLinkId,
+        productId: PRODUCT_ID,
+        catalogTierId: advancedTierId,
+        verifiedRoleId: 'role-action-advanced',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(expect.arrayContaining([ROLE_ID, 'role-action-advanced']));
+    expect(result.rolesAdded).toHaveLength(2);
+    expect(result.targetGuildIds).toEqual(
+      expect.arrayContaining([GUILD_ID, 'guild-action-tiered'])
+    );
+    const roleUrls = fetchFn.mock.calls.map((call) => String(call[0]));
+    expect(roleUrls).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`/guilds/${GUILD_ID}/members/${DISCORD_USER}/roles/${ROLE_ID}`),
+        expect.stringContaining(
+          `/guilds/guild-action-tiered/members/${DISCORD_USER}/roles/role-action-advanced`
+        ),
+      ])
+    );
+    expect(roleUrls).not.toEqual(
+      expect.arrayContaining([expect.stringContaining('role-action-tiered-fallback')])
+    );
+  });
+
   it('fails visibly when tier-scoped rules exist but the entitlement has no tier evidence', async () => {
     const t = makeTestConvex();
     const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);

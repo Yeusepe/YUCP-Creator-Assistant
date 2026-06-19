@@ -243,6 +243,33 @@ interface RateLimitInfo {
 const TIER_EVIDENCE_MISSING_ERROR =
   'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
 
+function enabledTierScopedGuildIdsForRules<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[]): string[] {
+  return Array.from(
+    new Set(
+      roleRules.filter((rule) => rule.enabled && rule.catalogTierId).map((rule) => rule.guildId)
+    )
+  );
+}
+
+function selectRoleRulesForActiveTiers<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[], activeCatalogTierIds: string[]): TRoleRule[] {
+  const tierScopedGuildIds = new Set(enabledTierScopedGuildIdsForRules(roleRules));
+  if (tierScopedGuildIds.size === 0) {
+    return roleRules.filter((rule) => !rule.catalogTierId);
+  }
+
+  const activeTierIdSet = new Set(activeCatalogTierIds);
+  return roleRules.filter((rule) => {
+    if (rule.catalogTierId) {
+      return activeTierIdSet.has(rule.catalogTierId);
+    }
+    return !tierScopedGuildIds.has(rule.guildId);
+  });
+}
+
 // ============================================================================
 // RATE LIMIT HANDLER
 // ============================================================================
@@ -616,11 +643,8 @@ export class RoleSyncService {
       roleRules = roleRules.filter((r) => r.guildId === payload.targetGuildId);
     }
 
-    const enabledTierScopedRules = roleRules.filter((rule) => rule.enabled && rule.catalogTierId);
-    if (enabledTierScopedRules.length > 0) {
-      const tierScopedGuildIds = Array.from(
-        new Set(enabledTierScopedRules.map((rule) => rule.guildId))
-      );
+    const tierScopedGuildIds = enabledTierScopedGuildIdsForRules(roleRules);
+    if (tierScopedGuildIds.length > 0) {
       if (activeCatalogTierIds.length === 0) {
         return {
           success: false,
@@ -633,10 +657,7 @@ export class RoleSyncService {
           nonRetriable: true,
         };
       }
-      const activeTierIdSet = new Set(activeCatalogTierIds);
-      roleRules = roleRules.filter(
-        (rule) => rule.catalogTierId && activeTierIdSet.has(rule.catalogTierId)
-      );
+      roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
     } else {
       roleRules = roleRules.filter((rule) => !rule.catalogTierId);
     }
