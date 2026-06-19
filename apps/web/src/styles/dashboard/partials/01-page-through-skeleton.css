@@ -1214,56 +1214,6 @@ img.collab-avatar {
   margin-top: 2px;
 }
 
-/* Copy button in invite rows, same shape as collab-remove-btn but neutral hover */
-.collab-copy-btn {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 700;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  border-radius: 10px;
-  padding: 6px 14px;
-  min-height: 32px;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-family: var(--font-display), sans-serif;
-  flex-shrink: 0;
-}
-
-.collab-copy-btn:hover {
-  background: #0ea5e9;
-  border-color: #0ea5e9;
-  color: #ffffff;
-}
-
-.collab-copy-btn.copied {
-  background: #22c55e;
-  border-color: #22c55e;
-  color: #ffffff;
-}
-
-.dark .collab-copy-btn {
-  border-color: rgba(255, 255, 255, 0.18);
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.dark .collab-copy-btn:hover {
-  background: #0ea5e9;
-  border-color: #0ea5e9;
-  color: #ffffff;
-}
-
-.dark .collab-copy-btn.copied {
-  background: #22c55e;
-  border-color: #22c55e;
-  color: #ffffff;
-}
-
 /*  Animations */
 
 @keyframes fadeInUp {

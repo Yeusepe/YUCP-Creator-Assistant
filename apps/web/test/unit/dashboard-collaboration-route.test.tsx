@@ -60,6 +60,12 @@ function createWrapper() {
   };
 }
 
+function createPortalRoot() {
+  const portalRoot = document.createElement('div');
+  portalRoot.id = 'portal-root';
+  document.body.appendChild(portalRoot);
+}
+
 describe('dashboard collaboration route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -84,6 +90,7 @@ describe('dashboard collaboration route', () => {
   afterEach(() => {
     vi.useRealTimers();
     cleanup();
+    document.body.innerHTML = '';
   });
 
   it('cancels store removal when the hold is released early', async () => {
@@ -126,5 +133,40 @@ describe('dashboard collaboration route', () => {
       'user-123',
       'conn-1'
     );
+  });
+
+  it('does not synthesize share links from pending invite ids', async () => {
+    vi.mocked(dashboardApi.listCollabProviders).mockResolvedValue([
+      { key: 'jinxxy', label: 'Jinxxy' },
+    ]);
+    vi.mocked(dashboardApi.listCollabInvites).mockResolvedValue([
+      {
+        id: 'invite-id-only',
+        providerKey: 'jinxxy',
+        ownerDisplayName: 'Creator Store',
+        expiresAt: Date.now() + 86_400_000,
+        createdAt: Date.now(),
+      },
+    ]);
+
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+
+    createPortalRoot();
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Pending Invites')).toBeInTheDocument());
+
+    expect(screen.queryByRole('button', { name: /^copy link$/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /invite a creator/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /generate invite link/i })).toBeInTheDocument()
+    );
+    expect(screen.queryByText(/\/collab-invite\?id=invite-id-only/)).not.toBeInTheDocument();
   });
 });

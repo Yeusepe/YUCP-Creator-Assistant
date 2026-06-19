@@ -237,7 +237,6 @@ function MyCollaboratorsSection({
   const [generatedInvite, setGeneratedInvite] = useState<{ url: string; expiresAt: number } | null>(
     null
   );
-  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
   const providersQuery = useQuery(
     dashboardPanelQueryOptions<CollabProviderSummary[]>({
@@ -319,44 +318,19 @@ function MyCollaboratorsSection({
 
   const handleProviderChange = (key: string) => {
     setSelectedProvider(key);
-    const existing = invites.find((i) => i.providerKey === key);
-    if (existing) {
-      setGeneratedInvite({
-        url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existing.id)}`,
-        expiresAt: existing.expiresAt,
-      });
-    } else {
-      setGeneratedInvite(null);
-    }
+    setGeneratedInvite(null);
   };
 
   const openInvitePanel = () => {
     const providerKey = selectedProvider || providers[0]?.key || '';
     setSelectedProvider(providerKey);
     setInvitePanelOpen(true);
-
-    const existingInvite = invites.find((i) => i.providerKey === providerKey);
-    if (existingInvite) {
-      setGeneratedInvite({
-        url: `${window.location.origin}/collab-invite?id=${encodeURIComponent(existingInvite.id)}`,
-        expiresAt: existingInvite.expiresAt,
-      });
-    } else {
-      setGeneratedInvite(null);
-    }
+    setGeneratedInvite(null);
   };
 
   const closeInvitePanel = () => {
     setInvitePanelOpen(false);
   };
-
-  const handleCopyInviteLink = (url: string, inviteId: string) => {
-    void copyToClipboard(url);
-    setCopiedInviteId(inviteId);
-    setTimeout(() => setCopiedInviteId(null), 1500);
-  };
-
-  const currentInviteId = invites.find((i) => i.providerKey === selectedProvider)?.id;
 
   if (hasAuthError) {
     return (
@@ -531,26 +505,6 @@ function MyCollaboratorsSection({
                     >
                       Copy Invite Link
                     </button>
-                    {currentInviteId ? (
-                      <button
-                        type="button"
-                        className={`collab-remove-btn${revokeInviteMutation.isPending ? ' btn-loading' : ''}`}
-                        style={{ marginLeft: 0, width: '100%', justifyContent: 'center' }}
-                        disabled={revokeInviteMutation.isPending}
-                        onClick={() =>
-                          currentInviteId && revokeInviteMutation.mutate(currentInviteId)
-                        }
-                      >
-                        {revokeInviteMutation.isPending ? (
-                          <>
-                            <span className="btn-loading-spinner" aria-hidden="true" />
-                            Revoking...
-                          </>
-                        ) : (
-                          'Revoke Invite'
-                        )}
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               ) : (
@@ -595,18 +549,6 @@ function MyCollaboratorsSection({
                       {formatRelativeDate(invite.expiresAt)}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className={`collab-copy-btn${copiedInviteId === invite.id ? ' copied' : ''}`}
-                    onClick={() =>
-                      handleCopyInviteLink(
-                        `${window.location.origin}/collab-invite?id=${encodeURIComponent(invite.id)}`,
-                        invite.id
-                      )
-                    }
-                  >
-                    {copiedInviteId === invite.id ? 'Copied!' : 'Copy link'}
-                  </button>
                   <button
                     type="button"
                     className={`collab-remove-btn${revokeInviteMutation.isPending && revokeInviteMutation.variables === invite.id ? ' btn-loading' : ''}`}
