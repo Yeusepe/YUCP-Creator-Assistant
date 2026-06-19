@@ -426,6 +426,82 @@ describe('roleSyncActions.runRoleSync', () => {
     );
   });
 
+  it('skips tier-scoped sync when tier evidence does not match an active configured tier', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);
+    const fetchFn = mockFetch(204);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: AUTH_USER,
+        productId: PRODUCT_ID,
+        provider: 'gumroad',
+        providerProductRef: PRODUCT_ID,
+        displayName: 'Tiered Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const advancedTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: AUTH_USER,
+        provider: 'gumroad',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerProductRef: PRODUCT_ID,
+        providerTierRef: 'version-advanced',
+        displayName: 'Advanced',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: AUTH_USER,
+        subjectId,
+        providerKey: 'gumroad',
+        sourceReference: 'order-action-test',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerTierRefs: ['version-basic-unconfigured'],
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: GUILD_ID,
+        guildLinkId,
+        productId: PRODUCT_ID,
+        catalogTierId: advancedTierId,
+        verifiedRoleId: 'role-action-advanced',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.skipped).toBe(true);
+    expect(result.rolesAdded).toEqual([]);
+    expect(result.targetGuildIds).toEqual([]);
+    expect(result.error).toBe('No role rules configured for product');
+    expect(result.nonRetriable).toBeUndefined();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('URL-encodes Discord role path params before calling the API', async () => {
     const t = makeTestConvex();
     const discordUserId = 'discord/action user';

@@ -4,6 +4,11 @@ import { internalQuery, mutation, type QueryCtx, query } from './_generated/serv
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
 
+const catalogTierEvidenceStateValidator = v.object({
+  activeCatalogTierIds: v.array(v.id('catalog_tiers')),
+  hasTierEvidence: v.boolean(),
+});
+
 function parsePurchaseSourceReference(sourceReference: string): {
   provider: string;
   externalOrderId: string;
@@ -133,9 +138,17 @@ async function activeCatalogTierIdsForEntitlement(
   ctx: QueryCtx,
   entitlementId: Id<'entitlements'>
 ): Promise<Array<Id<'catalog_tiers'>>> {
+  const state = await catalogTierEvidenceStateForEntitlement(ctx, entitlementId);
+  return state.activeCatalogTierIds;
+}
+
+async function catalogTierEvidenceStateForEntitlement(
+  ctx: QueryCtx,
+  entitlementId: Id<'entitlements'>
+): Promise<{ activeCatalogTierIds: Array<Id<'catalog_tiers'>>; hasTierEvidence: boolean }> {
   const entitlement = await ctx.db.get(entitlementId);
   if (!entitlement || entitlement.status !== 'active') {
-    return [];
+    return { activeCatalogTierIds: [], hasTierEvidence: false };
   }
 
   const evidenceRows = await ctx.db
@@ -230,7 +243,7 @@ async function activeCatalogTierIdsForEntitlement(
   }
 
   if (providerTierRefs.size === 0) {
-    return [];
+    return { activeCatalogTierIds: [], hasTierEvidence: false };
   }
 
   const tierIds: Array<Id<'catalog_tiers'>> = [];
@@ -249,7 +262,7 @@ async function activeCatalogTierIdsForEntitlement(
     }
   }
 
-  return tierIds;
+  return { activeCatalogTierIds: tierIds, hasTierEvidence: true };
 }
 
 export const getActiveCatalogTierIdsForEntitlement = query({
@@ -264,6 +277,18 @@ export const getActiveCatalogTierIdsForEntitlement = query({
   },
 });
 
+export const getCatalogTierEvidenceStateForEntitlement = query({
+  args: {
+    apiSecret: v.string(),
+    entitlementId: v.id('entitlements'),
+  },
+  returns: catalogTierEvidenceStateValidator,
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return catalogTierEvidenceStateForEntitlement(ctx, args.entitlementId);
+  },
+});
+
 /**
  * Internal (ungated) variant for the role-sync Workpool action, which runs
  * inside Convex and cannot pass the API secret/actor binding the public query
@@ -275,4 +300,12 @@ export const getActiveCatalogTierIdsForEntitlementInternal = internalQuery({
   },
   returns: v.array(v.id('catalog_tiers')),
   handler: async (ctx, args) => activeCatalogTierIdsForEntitlement(ctx, args.entitlementId),
+});
+
+export const getCatalogTierEvidenceStateForEntitlementInternal = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  returns: catalogTierEvidenceStateValidator,
+  handler: async (ctx, args) => catalogTierEvidenceStateForEntitlement(ctx, args.entitlementId),
 });

@@ -240,6 +240,11 @@ interface RateLimitInfo {
   remaining: number;
 }
 
+interface CatalogTierEvidenceState {
+  activeCatalogTierIds: Array<Id<'catalog_tiers'>>;
+  hasTierEvidence: boolean;
+}
+
 const TIER_EVIDENCE_MISSING_ERROR =
   'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
 
@@ -640,7 +645,10 @@ export class RoleSyncService {
       };
     }
 
-    const activeCatalogTierIds = await this.fetchActiveCatalogTierIds(payload.entitlementId);
+    const catalogTierEvidenceState = await this.fetchCatalogTierEvidenceState(
+      payload.entitlementId
+    );
+    const activeCatalogTierIds = catalogTierEvidenceState.activeCatalogTierIds;
 
     // Get all role rules for this product
     let roleRules = await this.fetchRoleRules(job.authUserId, entitlement.productId);
@@ -653,20 +661,24 @@ export class RoleSyncService {
     const tierScopedGuildIds = enabledTierScopedGuildIdsForRules(roleRules);
     if (tierScopedGuildIds.length > 0) {
       if (activeCatalogTierIds.length === 0) {
-        const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
-        if (roleRulesWithoutTierEvidence.length === 0) {
-          return {
-            success: false,
-            guildId: tierScopedGuildIds[0] ?? '',
-            targetGuildIds: tierScopedGuildIds,
-            discordUserId,
-            rolesAdded: [],
-            rolesRemoved: [],
-            error: TIER_EVIDENCE_MISSING_ERROR,
-            nonRetriable: true,
-          };
+        if (!catalogTierEvidenceState.hasTierEvidence) {
+          const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
+          if (roleRulesWithoutTierEvidence.length === 0) {
+            return {
+              success: false,
+              guildId: tierScopedGuildIds[0] ?? '',
+              targetGuildIds: tierScopedGuildIds,
+              discordUserId,
+              rolesAdded: [],
+              rolesRemoved: [],
+              error: TIER_EVIDENCE_MISSING_ERROR,
+              nonRetriable: true,
+            };
+          }
+          roleRules = roleRulesWithoutTierEvidence;
+        } else {
+          roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
         }
-        roleRules = roleRulesWithoutTierEvidence;
       } else {
         roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
       }
@@ -2278,26 +2290,26 @@ export class RoleSyncService {
     );
   }
 
-  private async fetchActiveCatalogTierIds(
+  private async fetchCatalogTierEvidenceState(
     entitlementId: Id<'entitlements'>
-  ): Promise<Array<Id<'catalog_tiers'>>> {
+  ): Promise<CatalogTierEvidenceState> {
     return withBotStageSpan(
-      'catalog_tiers.fetch_active',
+      'catalog_tiers.fetch_evidence_state',
       {
         entitlementId,
       },
       async () => {
         try {
-          const tierIds = await this.convexClient.query(
-            api.catalogTiers.getActiveCatalogTierIdsForEntitlement,
+          const state = await this.convexClient.query(
+            api.catalogTiers.getCatalogTierEvidenceStateForEntitlement,
             {
               apiSecret: this.apiSecret,
               entitlementId,
             }
           );
-          return tierIds as Array<Id<'catalog_tiers'>>;
+          return state as CatalogTierEvidenceState;
         } catch (error) {
-          this.logger.error('Failed to fetch active catalog tiers for entitlement', {
+          this.logger.error('Failed to fetch catalog tier evidence state for entitlement', {
             entitlementId,
             error: error instanceof Error ? error.message : String(error),
           });

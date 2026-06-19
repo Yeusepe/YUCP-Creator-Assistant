@@ -360,10 +360,11 @@ export const runRoleSync = internalAction({
       };
     }
 
-    const activeCatalogTierIds = await ctx.runQuery(
-      internal.catalogTiers.getActiveCatalogTierIdsForEntitlementInternal,
+    const catalogTierEvidenceState = await ctx.runQuery(
+      internal.catalogTiers.getCatalogTierEvidenceStateForEntitlementInternal,
       { entitlementId: args.entitlementId }
     );
+    const activeCatalogTierIds = catalogTierEvidenceState.activeCatalogTierIds;
 
     let roleRules = await ctx.runQuery(internal.role_rules.getByProductInternal, {
       authUserId: args.authUserId,
@@ -377,20 +378,24 @@ export const runRoleSync = internalAction({
     const tierScopedGuildIds = enabledTierScopedGuildIdsForRules(roleRules);
     if (tierScopedGuildIds.length > 0) {
       if (activeCatalogTierIds.length === 0) {
-        const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
-        if (roleRulesWithoutTierEvidence.length === 0) {
-          return {
-            success: false,
-            guildId: tierScopedGuildIds[0] ?? '',
-            targetGuildIds: tierScopedGuildIds,
-            discordUserId,
-            rolesAdded: [],
-            rolesRemoved: [],
-            error: TIER_EVIDENCE_MISSING_ERROR,
-            nonRetriable: true,
-          };
+        if (!catalogTierEvidenceState.hasTierEvidence) {
+          const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
+          if (roleRulesWithoutTierEvidence.length === 0) {
+            return {
+              success: false,
+              guildId: tierScopedGuildIds[0] ?? '',
+              targetGuildIds: tierScopedGuildIds,
+              discordUserId,
+              rolesAdded: [],
+              rolesRemoved: [],
+              error: TIER_EVIDENCE_MISSING_ERROR,
+              nonRetriable: true,
+            };
+          }
+          roleRules = roleRulesWithoutTierEvidence;
+        } else {
+          roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
         }
-        roleRules = roleRulesWithoutTierEvidence;
       } else {
         roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
       }
