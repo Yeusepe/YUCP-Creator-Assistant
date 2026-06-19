@@ -152,6 +152,50 @@ function normalizeProviderTierRefs(providerTierRefs: string[] | undefined): stri
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function sourceReferencesForGrantIdentity(
+  provider: Doc<'entitlements'>['sourceProvider'],
+  sourceReference: string
+): string[] {
+  const trimmed = sourceReference.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const references = new Set<string>([trimmed]);
+  const [sourceProvider, externalOrderId] = trimmed.split(':');
+  if (sourceProvider === provider && externalOrderId?.trim()) {
+    references.add(externalOrderId.trim());
+  }
+
+  return Array.from(references);
+}
+
+async function findExistingEntitlementForGrant(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    productId: string;
+    sourceReferences: string[];
+  }
+): Promise<Doc<'entitlements'> | null> {
+  for (const sourceReference of args.sourceReferences) {
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('sourceReference'), sourceReference))
+      .first();
+    if (entitlement) {
+      return entitlement;
+    }
+  }
+
+  return null;
+}
+
 async function upsertLicenseVerificationEntitlementEvidence(
   ctx: Pick<MutationCtx, 'db'>,
   args: {
@@ -389,6 +433,17 @@ export const completeLicenseVerification = mutation({
     // Check for duplicate verification (user already owns product)
     const duplicateProductIds: string[] = [];
     for (const product of args.productsToGrant) {
+      const sourceReferences = sourceReferencesForGrantIdentity(args.provider, product.sourceReference);
+      const existingForGrant = await findExistingEntitlementForGrant(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        productId: product.productId,
+        sourceReferences,
+      });
+      if (existingForGrant?.status === 'active') {
+        continue;
+      }
+
       const existingForProduct = await ctx.db
         .query('entitlements')
         .withIndex('by_auth_user_subject', (q) =>
@@ -440,23 +495,41 @@ export const completeLicenseVerification = mutation({
 
     for (const product of args.productsToGrant) {
       // Check for existing entitlement (idempotency)
-      const existingEntitlement = await ctx.db
-        .query('entitlements')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
-        )
-        .filter((q) => q.eq(q.field('productId'), product.productId))
-        .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
-        .first();
+      const existingEntitlement = await findExistingEntitlementForGrant(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        productId: product.productId,
+        sourceReferences: sourceReferencesForGrantIdentity(args.provider, product.sourceReference),
+      });
 
       let entitlementId: Id<'entitlements'>;
       if (existingEntitlement) {
         entitlementId = existingEntitlement._id;
+        const refreshPatch: {
+          sourceReference?: string;
+          licenseSubject?: string;
+          providerCustomerId?: Id<'provider_customers'>;
+          catalogProductId?: Id<'product_catalog'>;
+        } = {};
+        if (existingEntitlement.sourceReference !== product.sourceReference) {
+          refreshPatch.sourceReference = product.sourceReference;
+        }
+        if (args.licenseSubjectLink?.licenseSubject && !existingEntitlement.licenseSubject) {
+          refreshPatch.licenseSubject = args.licenseSubjectLink.licenseSubject;
+        }
+        if (providerCustomerId && existingEntitlement.providerCustomerId !== providerCustomerId) {
+          refreshPatch.providerCustomerId = providerCustomerId;
+        }
+        if (product.catalogProductId && existingEntitlement.catalogProductId !== product.catalogProductId) {
+          refreshPatch.catalogProductId = product.catalogProductId;
+        }
+
         if (existingEntitlement.status !== 'active') {
           if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
             throw new ConvexError('Cannot reactivate a refunded or disputed entitlement');
           }
           await ctx.db.patch(entitlementId, {
+            ...refreshPatch,
             status: 'active',
             revokedAt: undefined,
             updatedAt: now,
@@ -482,6 +555,11 @@ export const completeLicenseVerification = mutation({
             });
             outboxJobIds.push(jobId);
           }
+        } else if (Object.keys(refreshPatch).length > 0) {
+          await ctx.db.patch(entitlementId, {
+            ...refreshPatch,
+            updatedAt: now,
+          });
         }
       } else {
         // Create new entitlement
