@@ -211,13 +211,15 @@ async function activeCatalogTierIdsForEntitlement(
             : q.eq(q.field('externalLineItemId'), undefined)
         )
         .take(20);
-      const purchaseFact = purchaseFacts.find((candidate) =>
+      const matchingPurchaseFacts = purchaseFacts.filter((candidate) =>
         purchaseFactMatchesEntitlementProduct({
           purchaseFact: candidate,
           entitlement,
           catalogProduct,
         })
       );
+      const purchaseFact =
+        matchingPurchaseFacts.length === 1 ? matchingPurchaseFacts[0] : null;
       if (purchaseFact?.externalVariantId) {
         providerTierRefs.add(purchaseFact.externalVariantId);
       }

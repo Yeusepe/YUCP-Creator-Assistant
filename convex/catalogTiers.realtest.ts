@@ -247,6 +247,101 @@ describe('catalog tier entitlement resolution', () => {
     expect(tierIds).toEqual([]);
   });
 
+  it('does not resolve ambiguous order-level purchase facts into active catalog tiers', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-jinxxy-ambiguous-order-tier';
+    const buyerAuthUserId = 'buyer-jinxxy-ambiguous-order-tier';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-jinxxy-ambiguous-order-tier',
+    });
+
+    const { entitlementId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-jinxxy-ambiguous-product',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-ambiguous-product',
+        displayName: 'Ambiguous Order Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('catalog_tiers', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        productId: 'local-jinxxy-ambiguous-product',
+        catalogProductId,
+        providerProductRef: 'provider-ambiguous-product',
+        providerTierRef: 'version-ambiguous-basic',
+        displayName: 'Ambiguous Basic Tier',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('catalog_tiers', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        productId: 'local-jinxxy-ambiguous-product',
+        catalogProductId,
+        providerProductRef: 'provider-ambiguous-product',
+        providerTierRef: 'version-ambiguous-premium',
+        displayName: 'Ambiguous Premium Tier',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const entitlementId = await ctx.db.insert('entitlements', {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        productId: 'local-jinxxy-ambiguous-product',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:ambiguous-order',
+        catalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        externalOrderId: 'ambiguous-order',
+        providerProductId: 'provider-ambiguous-product',
+        providerProductVersionId: 'version-ambiguous-basic',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: now - 60_000,
+        subjectId: buyerSubjectId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('purchase_facts', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        externalOrderId: 'ambiguous-order',
+        providerProductId: 'provider-ambiguous-product',
+        providerProductVersionId: 'version-ambiguous-premium',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: now - 30_000,
+        subjectId: buyerSubjectId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      return { entitlementId };
+    });
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId,
+    });
+
+    expect(tierIds).toEqual([]);
+  });
+
   it('resolves Gumroad purchase fact external variant ids into active catalog tiers', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'creator-gumroad-tier';
