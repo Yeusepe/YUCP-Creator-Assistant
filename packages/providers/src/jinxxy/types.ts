@@ -528,6 +528,10 @@ export function normalizeLicenseToEvidence(
  * Normalize a Jinxxy order into evidence
  */
 export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
+  const observedAt =
+    [order.created_at, order.paid_at]
+      .map((timestamp) => timestamp?.trim())
+      .find((timestamp): timestamp is string => Boolean(timestamp)) ?? new Date(0).toISOString();
   const productRefs = order.product_id
     ? [order.product_id]
     : Array.from(
@@ -553,7 +557,7 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     providerAccountRef: order.customer_id ?? order.user?.id ?? order.email ?? 'unknown',
     productRefs,
     evidenceType: 'purchase',
-    observedAt: order.created_at ?? order.paid_at ?? new Date(0).toISOString(),
+    observedAt,
     rawRef: order.id,
     refunded: getOrderStatus(order) === 'refunded',
     licenseKey,

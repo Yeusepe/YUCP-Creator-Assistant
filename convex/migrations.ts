@@ -1710,7 +1710,7 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
     const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
     const page = await ctx.db
       .query('entitlements')
-      .filter((q) => q.eq(q.field('status'), 'active'))
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
       .paginate({ cursor: args.cursor ?? null, numItems: limit });
     const now = Date.now();
 

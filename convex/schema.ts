@@ -827,7 +827,8 @@ const entitlements = defineTable({
   .index('by_subject', ['subjectId'])
   .index('by_provider_customer', ['providerCustomerId'])
   .index('by_catalog_product', ['catalogProductId'])
-  .index('by_auth_user_status', ['authUserId', 'status']);
+  .index('by_auth_user_status', ['authUserId', 'status'])
+  .index('by_status', ['status']);
 
 /**
  * Guild Links - Per-creator guild configuration and bot install state

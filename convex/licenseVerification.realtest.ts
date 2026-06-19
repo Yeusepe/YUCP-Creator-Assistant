@@ -157,6 +157,7 @@ describe('license verification account linking', () => {
 
     expect(result.success).toBe(true);
     expect(result.entitlementIds).toEqual([legacyEntitlementId]);
+    expect(result.outboxJobIds).toHaveLength(1);
 
     const { entitlements, evidence } = await t.run(async (ctx) => {
       const entitlements = await ctx.db

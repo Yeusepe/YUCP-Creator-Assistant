@@ -506,6 +506,7 @@ export const completeLicenseVerification = mutation({
       });
 
       let entitlementId: Id<'entitlements'>;
+      let shouldEnqueueActiveRefreshRoleSync = false;
       if (existingEntitlement) {
         entitlementId = existingEntitlement._id;
         const refreshPatch: {
@@ -526,6 +527,8 @@ export const completeLicenseVerification = mutation({
         if (product.catalogProductId && existingEntitlement.catalogProductId !== product.catalogProductId) {
           refreshPatch.catalogProductId = product.catalogProductId;
         }
+        const hasRefreshPatch = Object.keys(refreshPatch).length > 0;
+        const hasTierEvidenceRefresh = normalizeProviderTierRefs(product.providerTierRefs) !== undefined;
 
         if (existingEntitlement.status !== 'active') {
           if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
@@ -558,11 +561,14 @@ export const completeLicenseVerification = mutation({
             });
             outboxJobIds.push(jobId);
           }
-        } else if (Object.keys(refreshPatch).length > 0) {
-          await ctx.db.patch(entitlementId, {
-            ...refreshPatch,
-            updatedAt: now,
-          });
+        } else {
+          if (hasRefreshPatch) {
+            await ctx.db.patch(entitlementId, {
+              ...refreshPatch,
+              updatedAt: now,
+            });
+          }
+          shouldEnqueueActiveRefreshRoleSync = hasRefreshPatch || hasTierEvidenceRefresh;
         }
       } else {
         // Create new entitlement
@@ -636,6 +642,24 @@ export const completeLicenseVerification = mutation({
         providerTierRefs: product.providerTierRefs,
         observedAt: now,
       });
+      if (shouldEnqueueActiveRefreshRoleSync) {
+        const discordUserId = resolveRoleSyncDiscordUserId(subject);
+        if (discordUserId) {
+          const jobId = await enqueueRoleSync(ctx, {
+            authUserId: creatorAuthUserId,
+            subjectId: buyerSubjectId,
+            entitlementId,
+            discordUserId,
+            idempotencyKey: buildRoleSyncIdempotencyKey({
+              authUserId: creatorAuthUserId,
+              subjectId: buyerSubjectId,
+              entitlementId,
+              lifecycle: { kind: 'grant', at: now },
+            }),
+          });
+          outboxJobIds.push(jobId);
+        }
+      }
     }
 
     // Audit event for license verification

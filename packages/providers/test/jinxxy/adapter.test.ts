@@ -307,6 +307,23 @@ describe('Types and Normalization', () => {
       expect(evidence.providerAccountRef).toBe('buyer@example.com');
     });
 
+    it('should normalize blank order timestamps to an epoch ISO timestamp', () => {
+      const order: JinxxyOrder = {
+        id: 'order-blank-timestamp',
+        product_id: 'product-456',
+        status: 'completed',
+        total: 999,
+        currency: 'USD',
+        created_at: '   ',
+        paid_at: '',
+        quantity: 1,
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.observedAt).toBe(new Date(0).toISOString());
+    });
+
     it('should normalize documented order responses to evidence', () => {
       const order: JinxxyOrder = {
         id: 'order-123',
