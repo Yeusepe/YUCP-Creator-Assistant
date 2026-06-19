@@ -279,7 +279,9 @@ function selectRoleRulesWithoutTierEvidence<
   TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
 >(roleRules: TRoleRule[]): TRoleRule[] {
   const tierScopedGuildIds = new Set(enabledTierScopedGuildIdsForRules(roleRules));
-  return roleRules.filter((rule) => !rule.catalogTierId && !tierScopedGuildIds.has(rule.guildId));
+  return roleRules.filter(
+    (rule) => rule.enabled && !rule.catalogTierId && !tierScopedGuildIds.has(rule.guildId)
+  );
 }
 
 // ============================================================================

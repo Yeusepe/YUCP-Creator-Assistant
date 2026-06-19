@@ -349,6 +349,76 @@ describe('roleSyncActions.runRoleSync', () => {
     expect(fetchFn).not.toHaveBeenCalled();
   });
 
+  it('ignores disabled fallback rules when failing closed for missing tier evidence', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);
+    const fetchFn = mockFetch(204);
+
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const disabledFallbackGuildLinkId = await ctx.db.insert('guild_links', {
+        authUserId: AUTH_USER,
+        discordGuildId: 'guild-action-disabled-fallback',
+        installedByAuthUserId: AUTH_USER,
+        botPresent: true,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const advancedTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: AUTH_USER,
+        provider: 'gumroad',
+        productId: PRODUCT_ID,
+        providerProductRef: PRODUCT_ID,
+        providerTierRef: 'version-disabled-fallback-advanced',
+        displayName: 'Advanced Disabled Fallback',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: GUILD_ID,
+        guildLinkId,
+        productId: PRODUCT_ID,
+        catalogTierId: advancedTierId,
+        verifiedRoleId: 'role-action-disabled-fallback-advanced',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: 'guild-action-disabled-fallback',
+        guildLinkId: disabledFallbackGuildLinkId,
+        productId: PRODUCT_ID,
+        verifiedRoleId: 'role-action-disabled-fallback-product',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Tier evidence missing/);
+    expect(result.nonRetriable).toBe(true);
+    expect(result.targetGuildIds).toEqual([GUILD_ID]);
+    expect(result.rolesAdded).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it('preserves product-wide sync in guilds without tier-scoped rules when tier evidence is missing', async () => {
     const t = makeTestConvex();
     const { subjectId, entitlementId, outboxJobId } = await seed(t);
