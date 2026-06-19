@@ -444,6 +444,81 @@ describe('Types and Normalization', () => {
 
       expect(evidence.providerTierRefs).toEqual(['version-advanced']);
     });
+
+    it('should scope order item target version ids to the normalized product', () => {
+      const order: JinxxyOrder = {
+        id: 'order-product-scoped-version-refs',
+        object: 'Order',
+        product_id: 'product-456',
+        email: 'buyer@example.com',
+        paid_at: '2026-04-10T12:00:00Z',
+        payment_status: 'PAID',
+        payout_total: 1998,
+        checkout_fields: [],
+        order_items: [
+          {
+            id: 'order-item-1',
+            object: 'OrderItem',
+            name: 'Creator Pack',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-advanced',
+            seller: null,
+          },
+          {
+            id: 'order-item-2',
+            object: 'OrderItem',
+            name: 'Sibling Pack',
+            target_id: 'product-sibling',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-sibling',
+            seller: null,
+          },
+        ],
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.productRefs).toEqual(['product-456']);
+      expect(evidence.providerTierRefs).toEqual(['version-advanced']);
+    });
+
+    it('should omit target version ids for ambiguous multi-product order evidence', () => {
+      const order: JinxxyOrder = {
+        id: 'order-ambiguous-version-refs',
+        object: 'Order',
+        email: 'buyer@example.com',
+        paid_at: '2026-04-10T12:00:00Z',
+        payment_status: 'PAID',
+        payout_total: 1998,
+        checkout_fields: [],
+        order_items: [
+          {
+            id: 'order-item-1',
+            object: 'OrderItem',
+            name: 'Creator Pack',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-advanced',
+            seller: null,
+          },
+          {
+            id: 'order-item-2',
+            object: 'OrderItem',
+            name: 'Sibling Pack',
+            target_id: 'product-sibling',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-sibling',
+            seller: null,
+          },
+        ],
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.productRefs).toEqual(['product-456', 'product-sibling']);
+      expect(evidence.providerTierRefs).toBeUndefined();
+    });
   });
 
   describe('isLicenseValid', () => {

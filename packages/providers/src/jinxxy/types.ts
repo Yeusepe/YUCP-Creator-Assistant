@@ -534,28 +534,38 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     [order.created_at, order.paid_at]
       .map((timestamp) => timestamp?.trim())
       .find((timestamp): timestamp is string => Boolean(timestamp)) ?? new Date(0).toISOString();
-  const productRefs = order.product_id
-    ? [order.product_id]
+  const orderItems = order.order_items ?? [];
+  const normalizedOrderProductId = order.product_id?.trim();
+  const productRefs = normalizedOrderProductId
+    ? [normalizedOrderProductId]
     : Array.from(
         new Set(
-          (order.order_items ?? [])
-            .map((item) => item.target_id)
-            .filter(
-              (targetId): targetId is string => typeof targetId === 'string' && targetId !== ''
-            )
+          orderItems
+            .map((item) => item.target_id?.trim())
+            .filter((targetId): targetId is string => Boolean(targetId))
         )
       );
-  const orderItemWithLicense = order.order_items?.find(
-    (item) => item.license?.key || item.license_id
-  );
+  const orderItemWithLicense = orderItems.find((item) => item.license?.key || item.license_id);
   const licenseKey =
     order.license_id ??
     orderItemWithLicense?.license?.key ??
     orderItemWithLicense?.license_id ??
     undefined;
+  const uniqueItemProductIds = Array.from(
+    new Set(
+      orderItems
+        .map((item) => item.target_id?.trim())
+        .filter((targetId): targetId is string => Boolean(targetId))
+    )
+  );
+  const tierScopedItems = normalizedOrderProductId
+    ? orderItems.filter((item) => item.target_id?.trim() === normalizedOrderProductId)
+    : uniqueItemProductIds.length === 1
+      ? orderItems
+      : [];
   const providerTierRefs = Array.from(
     new Set(
-      (order.order_items ?? [])
+      tierScopedItems
         .map((item) => item.target_version_id?.trim())
         .filter((providerTierRef): providerTierRef is string => Boolean(providerTierRef))
     )
