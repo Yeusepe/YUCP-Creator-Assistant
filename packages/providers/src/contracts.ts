@@ -72,8 +72,10 @@ export interface DisconnectContext {
 export interface LicenseVerificationResult {
   valid: boolean;
   externalOrderId?: string;
+  externalLicenseId?: string;
   providerUserId?: string;
   providerProductId?: string;
+  providerTierRef?: string;
   error?: string;
 }
 

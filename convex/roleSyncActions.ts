@@ -34,6 +34,8 @@ import {
 // https://docs.discord.com/developers/topics/opcodes-and-status-codes#json
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_FETCH_TIMEOUT_MS = 30_000;
+const TIER_EVIDENCE_MISSING_ERROR =
+  'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
 
 export interface RoleSyncActionResult {
   success: boolean;
@@ -44,6 +46,7 @@ export interface RoleSyncActionResult {
   rolesRemoved: string[];
   error?: string;
   skipped?: boolean;
+  nonRetriable?: boolean;
 }
 
 const roleSyncActionResultValidator = v.object({
@@ -55,11 +58,50 @@ const roleSyncActionResultValidator = v.object({
   rolesRemoved: v.array(v.string()),
   error: v.optional(v.string()),
   skipped: v.optional(v.boolean()),
+  nonRetriable: v.optional(v.boolean()),
 });
 
 interface RoleGrantOperation {
   guildId: string;
   roleId: string;
+}
+
+function enabledTierScopedGuildIdsForRules<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[]): string[] {
+  return Array.from(
+    new Set(
+      roleRules
+        .filter((rule) => rule.enabled && rule.catalogTierId)
+        .map((rule) => rule.guildId)
+    )
+  );
+}
+
+function selectRoleRulesForActiveTiers<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[], activeCatalogTierIds: string[]): TRoleRule[] {
+  const tierScopedGuildIds = new Set(enabledTierScopedGuildIdsForRules(roleRules));
+  if (tierScopedGuildIds.size === 0) {
+    return roleRules.filter((rule) => !rule.catalogTierId);
+  }
+
+  const activeTierIdSet = new Set(activeCatalogTierIds);
+  return roleRules.filter((rule) => {
+    if (rule.catalogTierId) {
+      return activeTierIdSet.has(rule.catalogTierId);
+    }
+    return !tierScopedGuildIds.has(rule.guildId);
+  });
+}
+
+function selectRoleRulesWithoutTierEvidence<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[]): TRoleRule[] {
+  const tierScopedGuildIds = new Set(enabledTierScopedGuildIdsForRules(roleRules));
+  return roleRules.filter(
+    (rule) => rule.enabled && !rule.catalogTierId && !tierScopedGuildIds.has(rule.guildId)
+  );
 }
 
 class RetriableRoleSyncError extends Error {}
@@ -320,27 +362,47 @@ export const runRoleSync = internalAction({
       };
     }
 
-    const activeCatalogTierIds = await ctx.runQuery(
-      internal.catalogTiers.getActiveCatalogTierIdsForEntitlementInternal,
+    const catalogTierEvidenceState = await ctx.runQuery(
+      internal.catalogTiers.getCatalogTierEvidenceStateForEntitlementInternal,
       { entitlementId: args.entitlementId }
     );
+    const activeCatalogTierIds = catalogTierEvidenceState.activeCatalogTierIds;
 
     let roleRules = await ctx.runQuery(internal.role_rules.getByProductInternal, {
       authUserId: args.authUserId,
       productId: entitlement.productId,
     });
 
-    if (activeCatalogTierIds.length > 0) {
-      const activeTierIdSet = new Set<string>(activeCatalogTierIds);
-      roleRules = roleRules.filter(
-        (rule) => !rule.catalogTierId || activeTierIdSet.has(rule.catalogTierId)
-      );
-    } else {
-      roleRules = roleRules.filter((rule) => !rule.catalogTierId);
-    }
-
     if (args.targetGuildId) {
       roleRules = roleRules.filter((rule) => rule.guildId === args.targetGuildId);
+    }
+
+    const tierScopedGuildIds = enabledTierScopedGuildIdsForRules(roleRules);
+    if (tierScopedGuildIds.length > 0) {
+      if (activeCatalogTierIds.length === 0) {
+        if (!catalogTierEvidenceState.hasTierEvidence) {
+          const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
+          if (roleRulesWithoutTierEvidence.length === 0) {
+            return {
+              success: false,
+              guildId: tierScopedGuildIds[0] ?? '',
+              targetGuildIds: tierScopedGuildIds,
+              discordUserId,
+              rolesAdded: [],
+              rolesRemoved: [],
+              error: TIER_EVIDENCE_MISSING_ERROR,
+              nonRetriable: true,
+            };
+          }
+          roleRules = roleRulesWithoutTierEvidence;
+        } else {
+          roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
+        }
+      } else {
+        roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
+      }
+    } else {
+      roleRules = roleRules.filter((rule) => !rule.catalogTierId);
     }
 
     if (roleRules.length === 0) {

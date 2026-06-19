@@ -30,7 +30,9 @@ export type ProviderLicenseVerificationResult = {
   valid: boolean;
   providerUserId?: string;
   externalOrderId?: string;
+  externalLicenseId?: string;
   providerProductId?: string;
+  providerTierRef?: string;
   reason?: string;
 };
 
@@ -70,7 +72,9 @@ function toProviderVerificationResult(
     valid: result.valid,
     providerUserId: result.providerUserId,
     externalOrderId: result.externalOrderId,
+    externalLicenseId: result.externalLicenseId,
     providerProductId: result.providerProductId,
+    providerTierRef: result.providerTierRef,
     reason: result.error,
   };
 }

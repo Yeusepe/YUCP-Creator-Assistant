@@ -5,7 +5,9 @@ const verificationPlugin = {
   verifyLicense: mock(async () => ({
     valid: true,
     externalOrderId: 'order_123',
+    externalLicenseId: 'license_abc',
     providerProductId: 'provider_product_123',
+    providerTierRef: 'version_advanced',
   })),
 };
 
@@ -94,6 +96,13 @@ describe('license verification handler registry', () => {
           licenseKeyEncrypted: expect.any(String),
           providerProductId: 'provider_product_123',
         },
+        productsToGrant: [
+          {
+            productId: 'provider_product_123',
+            sourceReference: 'with-verification:order_123:license_abc',
+            providerTierRefs: ['version_advanced'],
+          },
+        ],
       })
     );
   });

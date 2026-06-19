@@ -252,14 +252,20 @@ export interface JinxxyLicensesResponse {
  */
 export interface JinxxyLicenseRaw {
   id: string;
+  object?: string;
   key: string;
   short_key: string;
-  user?: { id: string };
+  user?: JinxxyOrderUser;
   inventory_item?: {
+    id?: string;
+    object?: string;
     target_id: string;
     target_version_id?: string;
+    target_type?: string;
+    grant_id?: string | null;
+    grant_type?: string | null;
     item?: { name: string };
-    order?: { id: string; payment_status?: string };
+    order?: { id: string; object?: string; payment_status?: string };
   };
   activations?: { total_count: number };
 }
@@ -292,20 +298,53 @@ export interface JinxxyActivationsResponse {
 /**
  * Jinxxy order resource
  */
+export interface JinxxyOrderUser {
+  id: string;
+  object?: string;
+  name?: string;
+  username?: string;
+  profile_image?: unknown;
+  updated_at?: string;
+}
+
+export interface JinxxyOrderItem {
+  id: string;
+  object?: string;
+  name?: string;
+  target_id?: string | null;
+  target_type?: string;
+  target_version_id?: string | null;
+  seller?: JinxxyOrderUser | null;
+  license_id?: string | null;
+  license?: {
+    id: string;
+    object?: string;
+    key?: string;
+    short_key?: string;
+  } | null;
+}
+
 export interface JinxxyOrder {
   id: string;
+  object?: string;
+  email?: string;
+  paid_at?: string;
+  user?: JinxxyOrderUser;
+  payment_status?: string;
+  payout_total?: number;
+  checkout_fields?: Array<{ object?: string; answer: string; label: string }>;
+  order_items?: JinxxyOrderItem[];
   customer_id?: string;
-  product_id: string;
-  status: 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled';
-  total: number;
-  currency: string;
-  created_at: string;
+  product_id?: string;
+  status?: 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' | string;
+  total?: number;
+  currency?: string;
+  created_at?: string;
   updated_at?: string;
   refunded_at?: string;
-  email?: string;
   discord_id?: string;
   license_id?: string;
-  quantity: number;
+  quantity?: number;
   discount_code?: string;
   metadata?: Record<string, unknown>;
 }
@@ -314,9 +353,13 @@ export interface JinxxyOrder {
  * Jinxxy API response wrapper for order list
  */
 export interface JinxxyOrdersResponse {
-  success: boolean;
+  success?: boolean;
   orders?: JinxxyOrder[];
+  results?: JinxxyOrder[];
   pagination?: JinxxyPagination;
+  page?: number;
+  page_count?: number;
+  cursor_count?: number;
   error?: string;
   message?: string;
 }
@@ -325,7 +368,7 @@ export interface JinxxyOrdersResponse {
  * Jinxxy API response wrapper for single order
  */
 export interface JinxxyOrderResponse {
-  success: boolean;
+  success?: boolean;
   order?: JinxxyOrder;
   error?: string;
   message?: string;
@@ -383,6 +426,8 @@ export interface JinxxyEvidence {
   email?: string;
   /** Discord ID if available */
   discordId?: string;
+  /** Provider tier/version refs if available */
+  providerTierRefs?: string[];
 }
 
 /**
@@ -432,14 +477,19 @@ export interface JinxxyAdapterConfig {
 export function getOrderStatus(
   order: JinxxyOrder
 ): 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' {
-  return order.status;
+  const status = (order.status ?? order.payment_status ?? '').toLowerCase();
+  if (status === 'paid' || status === 'completed') return 'completed';
+  if (status === 'refunded' || status === 'partially_refunded') return 'refunded';
+  if (status === 'disputed') return 'disputed';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  return 'pending';
 }
 
 /**
  * Check if an order is still valid (completed and not refunded/disputed)
  */
 export function isOrderValid(order: JinxxyOrder): boolean {
-  return order.status === 'completed';
+  return getOrderStatus(order) === 'completed';
 }
 
 /**
@@ -480,15 +530,57 @@ export function normalizeLicenseToEvidence(
  * Normalize a Jinxxy order into evidence
  */
 export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
+  const observedAt =
+    [order.created_at, order.paid_at]
+      .map((timestamp) => timestamp?.trim())
+      .find((timestamp): timestamp is string => Boolean(timestamp)) ?? new Date(0).toISOString();
+  const orderItems = order.order_items ?? [];
+  const normalizedOrderProductId = order.product_id?.trim();
+  const productRefs = normalizedOrderProductId
+    ? [normalizedOrderProductId]
+    : Array.from(
+        new Set(
+          orderItems
+            .map((item) => item.target_id?.trim())
+            .filter((targetId): targetId is string => Boolean(targetId))
+        )
+      );
+  const orderItemWithLicense = orderItems.find((item) => item.license?.key || item.license_id);
+  const licenseKey =
+    order.license_id ??
+    orderItemWithLicense?.license?.key ??
+    orderItemWithLicense?.license_id ??
+    undefined;
+  const uniqueItemProductIds = Array.from(
+    new Set(
+      orderItems
+        .map((item) => item.target_id?.trim())
+        .filter((targetId): targetId is string => Boolean(targetId))
+    )
+  );
+  const tierScopedItems = normalizedOrderProductId
+    ? orderItems.filter((item) => item.target_id?.trim() === normalizedOrderProductId)
+    : uniqueItemProductIds.length === 1
+      ? orderItems
+      : [];
+  const providerTierRefs = Array.from(
+    new Set(
+      tierScopedItems
+        .map((item) => item.target_version_id?.trim())
+        .filter((providerTierRef): providerTierRef is string => Boolean(providerTierRef))
+    )
+  );
+
   return {
     provider: 'jinxxy',
-    providerAccountRef: order.customer_id ?? order.email ?? 'unknown',
-    productRefs: [order.product_id],
+    providerAccountRef: order.customer_id ?? order.user?.id ?? order.email ?? 'unknown',
+    productRefs,
     evidenceType: 'purchase',
-    observedAt: order.created_at,
+    observedAt,
     rawRef: order.id,
-    refunded: order.status === 'refunded',
-    licenseKey: order.license_id,
+    refunded: getOrderStatus(order) === 'refunded',
+    licenseKey,
+    providerTierRefs: providerTierRefs.length > 0 ? providerTierRefs : undefined,
     email: order.email,
     discordId: order.discord_id,
   };

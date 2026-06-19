@@ -82,12 +82,15 @@ interface JinxxyClientLike {
     error?: string;
     providerUserId?: string;
     externalOrderId?: string;
+    externalLicenseId?: string;
     providerProductId?: string;
+    providerTierRef?: string;
     license?: {
       id?: string;
       customer_id?: string;
       order_id?: string;
       product_id?: string;
+      product_version_id?: string;
     } | null;
   }>;
   verifyLicenseWithBuyerByKey?(licenseKey: string): Promise<{
@@ -95,12 +98,15 @@ interface JinxxyClientLike {
     error?: string;
     providerUserId?: string;
     externalOrderId?: string;
+    externalLicenseId?: string;
     providerProductId?: string;
+    providerTierRef?: string;
     license?: {
       id?: string;
       customer_id?: string;
       order_id?: string;
       product_id?: string;
+      product_version_id?: string;
     } | null;
   }>;
 }
@@ -133,12 +139,15 @@ type JinxxyVerificationClientResult = {
   error?: string;
   providerUserId?: string;
   externalOrderId?: string;
+  externalLicenseId?: string;
   providerProductId?: string;
+  providerTierRef?: string;
   license?: {
     id?: string;
     customer_id?: string;
     order_id?: string;
     product_id?: string;
+    product_version_id?: string;
   } | null;
 };
 
@@ -262,8 +271,10 @@ function mapJinxxyVerificationResult(
     valid: result.valid,
     externalOrderId:
       result.externalOrderId ?? result.license?.order_id ?? result.license?.id ?? undefined,
+    externalLicenseId: result.externalLicenseId ?? result.license?.id ?? undefined,
     providerUserId: result.providerUserId ?? result.license?.customer_id ?? undefined,
     providerProductId: result.providerProductId ?? result.license?.product_id ?? undefined,
+    providerTierRef: result.providerTierRef ?? result.license?.product_version_id ?? undefined,
     error: result.error ?? undefined,
   };
 }

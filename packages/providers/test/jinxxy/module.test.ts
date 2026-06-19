@@ -295,6 +295,7 @@ describe('createJinxxyLicenseVerification', () => {
                     customer_id: 'customer-collab',
                     order_id: 'order-collab',
                     product_id: 'product-collab',
+                    product_version_id: 'version-collab',
                   },
                 };
           },
@@ -311,6 +312,7 @@ describe('createJinxxyLicenseVerification', () => {
                     customer_id: 'customer-collab',
                     order_id: 'order-collab',
                     product_id: 'product-collab',
+                    product_version_id: 'version-collab',
                   },
                 };
           },
@@ -321,8 +323,10 @@ describe('createJinxxyLicenseVerification', () => {
     expect(await verification.verifyLicense('KEY', undefined, 'user-1', makeCtx())).toEqual({
       valid: true,
       externalOrderId: 'order-collab',
+      externalLicenseId: 'license-collab',
       providerUserId: 'customer-collab',
       providerProductId: 'product-collab',
+      providerTierRef: 'version-collab',
       error: undefined,
     });
   });
@@ -355,6 +359,7 @@ describe('createJinxxyLicenseVerification', () => {
                 customer_id: 'customer-1',
                 order_id: 'order-1',
                 product_id: 'product-1',
+                product_version_id: 'version-advanced',
               },
             };
           },
@@ -366,6 +371,7 @@ describe('createJinxxyLicenseVerification', () => {
                 customer_id: 'customer-1',
                 order_id: 'order-1',
                 product_id: 'product-1',
+                product_version_id: 'version-advanced',
               },
             };
           },
@@ -376,8 +382,10 @@ describe('createJinxxyLicenseVerification', () => {
     expect(await verification.verifyLicense('KEY', undefined, 'user-1', makeCtx())).toEqual({
       valid: true,
       externalOrderId: 'order-1',
+      externalLicenseId: 'license-1',
       providerUserId: 'customer-1',
       providerProductId: 'product-1',
+      providerTierRef: 'version-advanced',
       error: undefined,
     });
   });
@@ -426,6 +434,7 @@ describe('createJinxxyLicenseVerification', () => {
                 customer_id: 'customer-collab',
                 order_id: 'order-collab',
                 product_id: 'collab-product',
+                product_version_id: 'version-collab',
               },
             };
           },
@@ -445,10 +454,13 @@ describe('createJinxxyLicenseVerification', () => {
                 customer_id: 'customer-collab',
                 order_id: 'order-collab',
                 product_id: 'collab-product',
+                product_version_id: 'version-collab',
               },
               providerUserId: 'customer-collab',
               externalOrderId: 'order-collab',
+              externalLicenseId: 'license-collab',
               providerProductId: 'collab-product',
+              providerTierRef: 'version-collab',
             };
           },
         };
@@ -460,8 +472,10 @@ describe('createJinxxyLicenseVerification', () => {
     ).resolves.toEqual({
       valid: true,
       externalOrderId: 'order-collab',
+      externalLicenseId: 'license-collab',
       providerUserId: 'customer-collab',
       providerProductId: 'collab-product',
+      providerTierRef: 'version-collab',
       error: undefined,
     });
     expect(calls).toEqual([

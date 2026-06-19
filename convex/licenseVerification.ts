@@ -15,7 +15,7 @@
 
 import { canReactivate } from '@yucp/shared/entitlement/service';
 import { ConvexError, v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
@@ -35,6 +35,7 @@ const ProductToGrant = v.object({
   productId: v.string(),
   sourceReference: v.string(),
   catalogProductId: v.optional(v.id('product_catalog')),
+  providerTierRefs: v.optional(v.array(v.string())),
 });
 
 const LicenseSubjectLink = v.object({
@@ -138,6 +139,120 @@ async function hashForStorage(value: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function normalizeProviderTierRefs(providerTierRefs: string[] | undefined): string[] | undefined {
+  const normalized = Array.from(
+    new Set(
+      (providerTierRefs ?? [])
+        .map((providerTierRef) => providerTierRef.trim())
+        .filter((providerTierRef) => providerTierRef.length > 0)
+    )
+  );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function sourceReferencesForGrantIdentity(
+  provider: Doc<'entitlements'>['sourceProvider'],
+  sourceReference: string
+): string[] {
+  const trimmed = sourceReference.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const references = new Set<string>([trimmed]);
+  const [sourceProvider, externalOrderId] = trimmed.split(':');
+  if (sourceProvider === provider && externalOrderId?.trim()) {
+    const orderId = externalOrderId.trim();
+    references.add(orderId);
+    references.add(`${provider}:${orderId}`);
+  }
+
+  return Array.from(references);
+}
+
+async function findExistingEntitlementForGrant(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    provider: Doc<'entitlements'>['sourceProvider'];
+    productId: string;
+    sourceReferences: string[];
+  }
+): Promise<Doc<'entitlements'> | null> {
+  for (const sourceReference of args.sourceReferences) {
+    const entitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('sourceProvider'), args.provider))
+      .filter((q) => q.eq(q.field('sourceReference'), sourceReference))
+      .first();
+    if (entitlement) {
+      return entitlement;
+    }
+  }
+
+  return null;
+}
+
+async function upsertLicenseVerificationEntitlementEvidence(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    provider: Doc<'entitlements'>['sourceProvider'];
+    productId: string;
+    catalogProductId?: Id<'product_catalog'>;
+    sourceReference: string;
+    providerTierRefs?: string[];
+    observedAt: number;
+  }
+): Promise<Id<'entitlement_evidence'>> {
+  const providerTierRefs = normalizeProviderTierRefs(args.providerTierRefs);
+  const existing = await ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q.eq('providerKey', args.provider).eq('sourceReference', args.sourceReference)
+    )
+    .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), args.subjectId))
+    .filter((q) => q.eq(q.field('productId'), args.productId))
+    .filter((q) => q.eq(q.field('evidenceType'), 'license_verification'))
+    .first();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      subjectId: args.subjectId,
+      evidenceType: 'license_verification',
+      status: 'active',
+      productId: args.productId,
+      catalogProductId: args.catalogProductId ?? existing.catalogProductId,
+      providerTierRefs: providerTierRefs ?? existing.providerTierRefs,
+      observedAt: args.observedAt,
+      updatedAt: args.observedAt,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert('entitlement_evidence', {
+    authUserId: args.authUserId,
+    subjectId: args.subjectId,
+    providerKey: args.provider,
+    sourceReference: args.sourceReference,
+    evidenceType: 'license_verification',
+    status: 'active',
+    productId: args.productId,
+    catalogProductId: args.catalogProductId,
+    providerTierRefs,
+    observedAt: args.observedAt,
+    createdAt: args.observedAt,
+    updatedAt: args.observedAt,
+  });
 }
 
 /**
@@ -325,6 +440,18 @@ export const completeLicenseVerification = mutation({
     // Check for duplicate verification (user already owns product)
     const duplicateProductIds: string[] = [];
     for (const product of args.productsToGrant) {
+      const sourceReferences = sourceReferencesForGrantIdentity(args.provider, product.sourceReference);
+      const existingForGrant = await findExistingEntitlementForGrant(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        provider: args.provider,
+        productId: product.productId,
+        sourceReferences,
+      });
+      if (existingForGrant?.status === 'active') {
+        continue;
+      }
+
       const existingForProduct = await ctx.db
         .query('entitlements')
         .withIndex('by_auth_user_subject', (q) =>
@@ -376,23 +503,45 @@ export const completeLicenseVerification = mutation({
 
     for (const product of args.productsToGrant) {
       // Check for existing entitlement (idempotency)
-      const existingEntitlement = await ctx.db
-        .query('entitlements')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
-        )
-        .filter((q) => q.eq(q.field('productId'), product.productId))
-        .filter((q) => q.eq(q.field('sourceReference'), product.sourceReference))
-        .first();
+      const existingEntitlement = await findExistingEntitlementForGrant(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        provider: args.provider,
+        productId: product.productId,
+        sourceReferences: sourceReferencesForGrantIdentity(args.provider, product.sourceReference),
+      });
 
       let entitlementId: Id<'entitlements'>;
+      let shouldEnqueueActiveRefreshRoleSync = false;
       if (existingEntitlement) {
         entitlementId = existingEntitlement._id;
+        const refreshPatch: {
+          sourceReference?: string;
+          licenseSubject?: string;
+          providerCustomerId?: Id<'provider_customers'>;
+          catalogProductId?: Id<'product_catalog'>;
+        } = {};
+        if (existingEntitlement.sourceReference !== product.sourceReference) {
+          refreshPatch.sourceReference = product.sourceReference;
+        }
+        if (args.licenseSubjectLink?.licenseSubject && !existingEntitlement.licenseSubject) {
+          refreshPatch.licenseSubject = args.licenseSubjectLink.licenseSubject;
+        }
+        if (providerCustomerId && existingEntitlement.providerCustomerId !== providerCustomerId) {
+          refreshPatch.providerCustomerId = providerCustomerId;
+        }
+        if (product.catalogProductId && existingEntitlement.catalogProductId !== product.catalogProductId) {
+          refreshPatch.catalogProductId = product.catalogProductId;
+        }
+        const hasRefreshPatch = Object.keys(refreshPatch).length > 0;
+        const hasTierEvidenceRefresh = normalizeProviderTierRefs(product.providerTierRefs) !== undefined;
+
         if (existingEntitlement.status !== 'active') {
           if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
             throw new ConvexError('Cannot reactivate a refunded or disputed entitlement');
           }
           await ctx.db.patch(entitlementId, {
+            ...refreshPatch,
             status: 'active',
             revokedAt: undefined,
             updatedAt: now,
@@ -418,6 +567,14 @@ export const completeLicenseVerification = mutation({
             });
             outboxJobIds.push(jobId);
           }
+        } else {
+          if (hasRefreshPatch) {
+            await ctx.db.patch(entitlementId, {
+              ...refreshPatch,
+              updatedAt: now,
+            });
+          }
+          shouldEnqueueActiveRefreshRoleSync = hasRefreshPatch || hasTierEvidenceRefresh;
         }
       } else {
         // Create new entitlement
@@ -481,6 +638,34 @@ export const completeLicenseVerification = mutation({
         });
       }
       entitlementIds.push(entitlementId);
+      await upsertLicenseVerificationEntitlementEvidence(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        provider: args.provider,
+        productId: product.productId,
+        catalogProductId: product.catalogProductId,
+        sourceReference: product.sourceReference,
+        providerTierRefs: product.providerTierRefs,
+        observedAt: now,
+      });
+      if (shouldEnqueueActiveRefreshRoleSync) {
+        const discordUserId = resolveRoleSyncDiscordUserId(subject);
+        if (discordUserId) {
+          const jobId = await enqueueRoleSync(ctx, {
+            authUserId: creatorAuthUserId,
+            subjectId: buyerSubjectId,
+            entitlementId,
+            discordUserId,
+            idempotencyKey: buildRoleSyncIdempotencyKey({
+              authUserId: creatorAuthUserId,
+              subjectId: buyerSubjectId,
+              entitlementId,
+              lifecycle: { kind: 'grant', at: now },
+            }),
+          });
+          outboxJobIds.push(jobId);
+        }
+      }
     }
 
     // Audit event for license verification

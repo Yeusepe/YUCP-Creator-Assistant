@@ -827,7 +827,8 @@ const entitlements = defineTable({
   .index('by_subject', ['subjectId'])
   .index('by_provider_customer', ['providerCustomerId'])
   .index('by_catalog_product', ['catalogProductId'])
-  .index('by_auth_user_status', ['authUserId', 'status']);
+  .index('by_auth_user_status', ['authUserId', 'status'])
+  .index('by_status', ['status']);
 
 /**
  * Guild Links - Per-creator guild configuration and bot install state
@@ -1771,6 +1772,7 @@ const entitlement_evidence = defineTable({
   status: EntitlementEvidenceStatus,
   productId: v.optional(v.string()),
   catalogProductId: v.optional(v.id('product_catalog')),
+  providerTierRefs: v.optional(v.array(v.string())),
   rawWebhookEventId: v.optional(v.id('webhook_events')),
   metadata: v.optional(v.any()),
   observedAt: v.number(),

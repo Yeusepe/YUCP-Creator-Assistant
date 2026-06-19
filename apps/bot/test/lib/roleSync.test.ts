@@ -80,6 +80,8 @@ mock.module('../../../../convex/_generated/api', () => ({
     },
     catalogTiers: {
       getActiveCatalogTierIdsForEntitlement: 'catalogTiers:getActiveCatalogTierIdsForEntitlement',
+      getCatalogTierEvidenceStateForEntitlement:
+        'catalogTiers:getCatalogTierEvidenceStateForEntitlement',
     },
     audit_events: {
       createAuditEvent: 'audit_events:createAuditEvent',
@@ -421,6 +423,608 @@ describe('role sync service regressions', () => {
     ).rejects.toThrow('catalog tiers unavailable');
   });
 
+  it('uses matching tier-scoped role rules instead of product-wide fallback rules', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: ['catalog-tier-advanced'],
+      hasTierEvidence: true,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-product-wide',
+      },
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-advanced',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(['role-advanced']);
+    expect(addRoleToMemberMock.mock.calls as unknown as Array<[string, string, string]>).toEqual([
+      ['guild-123', 'user-123', 'role-advanced'],
+    ]);
+  });
+
+  it('keeps product-wide role rules for guilds without tier-scoped overrides', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: ['catalog-tier-advanced'],
+      hasTierEvidence: true,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-untiered',
+        verifiedRoleId: 'role-product-wide',
+      },
+      {
+        enabled: true,
+        guildId: 'guild-tiered',
+        verifiedRoleId: 'role-tiered-fallback',
+      },
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-tiered',
+        verifiedRoleId: 'role-advanced',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(
+      expect.arrayContaining(['role-product-wide', 'role-advanced'])
+    );
+    expect(result.rolesAdded).toHaveLength(2);
+    expect(result.targetGuildIds).toEqual(
+      expect.arrayContaining(['guild-untiered', 'guild-tiered'])
+    );
+    expect(addRoleToMemberMock.mock.calls as unknown as Array<[string, string, string]>).toEqual([
+      ['guild-untiered', 'user-123', 'role-product-wide'],
+      ['guild-tiered', 'user-123', 'role-advanced'],
+    ]);
+  });
+
+  it('does not grant product-wide fallback roles when tier-scoped rules lack entitlement evidence', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+          nonRetriable?: boolean;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: [],
+      hasTierEvidence: false,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-product-wide',
+      },
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-advanced',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.rolesAdded).toEqual([]);
+    expect(result.targetGuildIds).toEqual(['guild-123']);
+    expect(result.error).toMatch(/Tier evidence missing/);
+    expect(result.nonRetriable).toBe(true);
+    expect(addRoleToMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores disabled fallback rules when tier-scoped rules lack entitlement evidence', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+          nonRetriable?: boolean;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: [],
+      hasTierEvidence: false,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-advanced',
+      },
+      {
+        enabled: false,
+        guildId: 'guild-disabled-fallback',
+        verifiedRoleId: 'role-product-wide',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.rolesAdded).toEqual([]);
+    expect(result.targetGuildIds).toEqual(['guild-123']);
+    expect(result.error).toMatch(/Tier evidence missing/);
+    expect(result.nonRetriable).toBe(true);
+    expect(addRoleToMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('skips tier-scoped rules when tier evidence does not match an active configured tier', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+          nonRetriable?: boolean;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: [],
+      hasTierEvidence: true,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-product-wide',
+      },
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-123',
+        verifiedRoleId: 'role-advanced',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual([]);
+    expect(result.targetGuildIds).toBeUndefined();
+    expect(result.error).toBe('No role rules configured for product');
+    expect(result.nonRetriable).not.toBe(true);
+    expect(addRoleToMemberMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps product-wide role rules for guilds without tier-scoped overrides when tier evidence is missing', async () => {
+    const service = createService();
+    const processRoleSyncJob = (
+      service as unknown as {
+        processRoleSyncJob: (job: OutboxJob) => Promise<{
+          success: boolean;
+          rolesAdded: string[];
+          targetGuildIds?: string[];
+          error?: string;
+          nonRetriable?: boolean;
+        }>;
+      }
+    ).processRoleSyncJob.bind(service);
+
+    (
+      service as unknown as {
+        fetchEntitlement: (entitlementId: string) => Promise<{
+          _id: string;
+          productId: string;
+          status: 'active';
+        }>;
+      }
+    ).fetchEntitlement = mock(
+      async (): Promise<{ _id: string; productId: string; status: 'active' }> => ({
+        _id: 'entitlement-123',
+        productId: 'product-tiered',
+        status: 'active',
+      })
+    );
+    (
+      service as unknown as {
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
+      }
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: [],
+      hasTierEvidence: false,
+    }));
+    (
+      service as unknown as {
+        fetchRoleRules: (
+          authUserId: string,
+          productId: string
+        ) => Promise<
+          Array<{
+            catalogTierId?: string;
+            enabled: boolean;
+            guildId: string;
+            verifiedRoleId?: string;
+            verifiedRoleIds?: string[];
+          }>
+        >;
+      }
+    ).fetchRoleRules = mock(async () => [
+      {
+        enabled: true,
+        guildId: 'guild-untiered',
+        verifiedRoleId: 'role-product-wide',
+      },
+      {
+        enabled: true,
+        guildId: 'guild-tiered',
+        verifiedRoleId: 'role-tiered-fallback',
+      },
+      {
+        catalogTierId: 'catalog-tier-advanced',
+        enabled: true,
+        guildId: 'guild-tiered',
+        verifiedRoleId: 'role-advanced',
+      },
+    ]);
+    const addRoleToMemberMock = mock(async () => ({ added: true }));
+    (
+      service as unknown as {
+        addRoleToMember: (
+          guildId: string,
+          discordUserId: string,
+          roleId: string
+        ) => Promise<{ added: boolean }>;
+      }
+    ).addRoleToMember = addRoleToMemberMock;
+
+    const result = await processRoleSyncJob(
+      createJob({
+        jobType: 'role_sync',
+        payload: {
+          subjectId: 'subject-123' as never,
+          entitlementId: 'entitlement-123' as never,
+          discordUserId: 'user-123',
+        },
+      })
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(['role-product-wide']);
+    expect(result.targetGuildIds).toEqual(['guild-untiered']);
+    expect(result.nonRetriable).toBe(false);
+    expect(addRoleToMemberMock.mock.calls as unknown as Array<[string, string, string]>).toEqual([
+      ['guild-untiered', 'user-123', 'role-product-wide'],
+    ]);
+  });
+
   it('fails role sync jobs when only some configured role ids were satisfied', async () => {
     const service = createService();
     const processRoleSyncJob = (
@@ -456,9 +1060,15 @@ describe('role sync service regressions', () => {
     );
     (
       service as unknown as {
-        fetchActiveCatalogTierIds: (entitlementId: string) => Promise<string[]>;
+        fetchCatalogTierEvidenceState: (entitlementId: string) => Promise<{
+          activeCatalogTierIds: string[];
+          hasTierEvidence: boolean;
+        }>;
       }
-    ).fetchActiveCatalogTierIds = mock(async () => []);
+    ).fetchCatalogTierEvidenceState = mock(async () => ({
+      activeCatalogTierIds: [],
+      hasTierEvidence: false,
+    }));
     (
       service as unknown as {
         fetchRoleRules: (

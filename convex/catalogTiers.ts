@@ -1,8 +1,13 @@
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery, mutation, type QueryCtx, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
+
+const catalogTierEvidenceStateValidator = v.object({
+  activeCatalogTierIds: v.array(v.id('catalog_tiers')),
+  hasTierEvidence: v.boolean(),
+});
 
 function parsePurchaseSourceReference(sourceReference: string): {
   provider: string;
@@ -18,6 +23,22 @@ function parsePurchaseSourceReference(sourceReference: string): {
     externalOrderId,
     externalLineItemId: externalLineItemId || undefined,
   };
+}
+
+function purchaseFactMatchesEntitlementProduct(args: {
+  purchaseFact: Doc<'purchase_facts'>;
+  entitlement: Doc<'entitlements'>;
+  catalogProduct: Doc<'product_catalog'> | null;
+}): boolean {
+  const allowedProviderProductRefs = new Set<string>();
+  allowedProviderProductRefs.add(args.entitlement.productId);
+  if (args.catalogProduct?.providerProductRef) {
+    allowedProviderProductRefs.add(args.catalogProduct.providerProductRef);
+  }
+  if (args.catalogProduct?.productId) {
+    allowedProviderProductRefs.add(args.catalogProduct.productId);
+  }
+  return allowedProviderProductRefs.has(args.purchaseFact.providerProductId);
 }
 
 export const upsertCatalogTier = mutation({
@@ -117,9 +138,17 @@ async function activeCatalogTierIdsForEntitlement(
   ctx: QueryCtx,
   entitlementId: Id<'entitlements'>
 ): Promise<Array<Id<'catalog_tiers'>>> {
+  const state = await catalogTierEvidenceStateForEntitlement(ctx, entitlementId);
+  return state.activeCatalogTierIds;
+}
+
+async function catalogTierEvidenceStateForEntitlement(
+  ctx: QueryCtx,
+  entitlementId: Id<'entitlements'>
+): Promise<{ activeCatalogTierIds: Array<Id<'catalog_tiers'>>; hasTierEvidence: boolean }> {
   const entitlement = await ctx.db.get(entitlementId);
   if (!entitlement || entitlement.status !== 'active') {
-    return [];
+    return { activeCatalogTierIds: [], hasTierEvidence: false };
   }
 
   const evidenceRows = await ctx.db
@@ -130,6 +159,8 @@ async function activeCatalogTierIdsForEntitlement(
         .eq('sourceReference', entitlement.sourceReference)
     )
     .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+    .filter((q) => q.eq(q.field('productId'), entitlement.productId))
     .take(20);
 
   const providerTierRefs = new Set<string>();
@@ -138,6 +169,13 @@ async function activeCatalogTierIdsForEntitlement(
       continue;
     }
 
+    if (Array.isArray(evidence.providerTierRefs)) {
+      for (const providerTierRef of evidence.providerTierRefs) {
+        if (typeof providerTierRef === 'string' && providerTierRef.trim()) {
+          providerTierRefs.add(providerTierRef.trim());
+        }
+      }
+    }
     if (evidence.transactionId) {
       const transaction = await ctx.db.get(evidence.transactionId);
       if (transaction?.externalVariantId) {
@@ -169,7 +207,10 @@ async function activeCatalogTierIdsForEntitlement(
   if (providerTierRefs.size === 0) {
     const purchaseRef = parsePurchaseSourceReference(entitlement.sourceReference);
     if (purchaseRef && purchaseRef.provider === entitlement.sourceProvider) {
-      const purchaseFact = await ctx.db
+      const catalogProduct = entitlement.catalogProductId
+        ? await ctx.db.get(entitlement.catalogProductId)
+        : null;
+      const purchaseFacts = await ctx.db
         .query('purchase_facts')
         .withIndex('by_auth_user_provider_order', (q) =>
           q
@@ -182,7 +223,16 @@ async function activeCatalogTierIdsForEntitlement(
             ? q.eq(q.field('externalLineItemId'), purchaseRef.externalLineItemId)
             : q.eq(q.field('externalLineItemId'), undefined)
         )
-        .first();
+        .take(20);
+      const matchingPurchaseFacts = purchaseFacts.filter((candidate) =>
+        purchaseFactMatchesEntitlementProduct({
+          purchaseFact: candidate,
+          entitlement,
+          catalogProduct,
+        })
+      );
+      const purchaseFact =
+        matchingPurchaseFacts.length === 1 ? matchingPurchaseFacts[0] : null;
       if (purchaseFact?.externalVariantId) {
         providerTierRefs.add(purchaseFact.externalVariantId);
       }
@@ -193,7 +243,7 @@ async function activeCatalogTierIdsForEntitlement(
   }
 
   if (providerTierRefs.size === 0) {
-    return [];
+    return { activeCatalogTierIds: [], hasTierEvidence: false };
   }
 
   const tierIds: Array<Id<'catalog_tiers'>> = [];
@@ -212,7 +262,7 @@ async function activeCatalogTierIdsForEntitlement(
     }
   }
 
-  return tierIds;
+  return { activeCatalogTierIds: tierIds, hasTierEvidence: true };
 }
 
 export const getActiveCatalogTierIdsForEntitlement = query({
@@ -227,6 +277,18 @@ export const getActiveCatalogTierIdsForEntitlement = query({
   },
 });
 
+export const getCatalogTierEvidenceStateForEntitlement = query({
+  args: {
+    apiSecret: v.string(),
+    entitlementId: v.id('entitlements'),
+  },
+  returns: catalogTierEvidenceStateValidator,
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    return catalogTierEvidenceStateForEntitlement(ctx, args.entitlementId);
+  },
+});
+
 /**
  * Internal (ungated) variant for the role-sync Workpool action, which runs
  * inside Convex and cannot pass the API secret/actor binding the public query
@@ -238,4 +300,12 @@ export const getActiveCatalogTierIdsForEntitlementInternal = internalQuery({
   },
   returns: v.array(v.id('catalog_tiers')),
   handler: async (ctx, args) => activeCatalogTierIdsForEntitlement(ctx, args.entitlementId),
+});
+
+export const getCatalogTierEvidenceStateForEntitlementInternal = internalQuery({
+  args: {
+    entitlementId: v.id('entitlements'),
+  },
+  returns: catalogTierEvidenceStateValidator,
+  handler: async (ctx, args) => catalogTierEvidenceStateForEntitlement(ctx, args.entitlementId),
 });

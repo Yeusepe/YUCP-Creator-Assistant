@@ -33,6 +33,39 @@ import {
   normalizeOrderToEvidence,
 } from './types';
 
+function orderObservedAt(order: JinxxyOrder): string | undefined {
+  return order.created_at ?? order.paid_at;
+}
+
+function orderTimestamp(order: JinxxyOrder): number {
+  const observedAt = orderObservedAt(order);
+  if (!observedAt) return 0;
+  const timestamp = new Date(observedAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function orderDate(order: JinxxyOrder): Date {
+  return new Date(orderTimestamp(order));
+}
+
+function primaryOrderProductId(order: JinxxyOrder): string | undefined {
+  return (
+    order.product_id ??
+    order.order_items?.find((item) => typeof item.target_id === 'string' && item.target_id !== '')
+      ?.target_id ??
+    undefined
+  );
+}
+
+function orderLicenseKey(order: JinxxyOrder): string | undefined {
+  return (
+    order.license_id ??
+    order.order_items?.find((item) => item.license?.key || item.license_id)?.license?.key ??
+    order.order_items?.find((item) => item.license_id)?.license_id ??
+    undefined
+  );
+}
+
 /**
  * Jinxxy provider adapter implementing ProviderAdapter interface
  */
@@ -84,16 +117,14 @@ export class JinxxyAdapter implements ProviderAdapter {
       }
 
       // Return verification for the most recent valid order
-      const latestOrder = validOrders.sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )[0];
+      const latestOrder = validOrders.sort((a, b) => orderTimestamp(b) - orderTimestamp(a))[0];
 
       return {
         id: `jinxxy-${latestOrder.id}`,
         userId: emailOrId,
         provider: 'jinxxy',
         status: 'verified',
-        createdAt: new Date(latestOrder.created_at),
+        createdAt: orderDate(latestOrder),
       };
     } catch (error) {
       if (error instanceof JinxxyApiError) {
@@ -118,13 +149,19 @@ export class JinxxyAdapter implements ProviderAdapter {
     return orders
       .filter(isOrderValid)
       .slice(0, limit)
-      .map((order) => ({
-        buyerEmail: order.email,
-        buyerDiscordId: order.discord_id,
-        productId: order.product_id,
-        purchaseDate: new Date(order.created_at),
-        licenseKey: order.license_id,
-      }));
+      .flatMap((order) => {
+        const productId = primaryOrderProductId(order);
+        if (!productId) return [];
+        return [
+          {
+            buyerEmail: order.email,
+            buyerDiscordId: order.discord_id,
+            productId,
+            purchaseDate: orderDate(order),
+            licenseKey: orderLicenseKey(order),
+          },
+        ];
+      });
   }
 
   // ============================================================================

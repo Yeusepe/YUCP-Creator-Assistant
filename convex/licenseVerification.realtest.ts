@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
-import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
+import { makeTestConvex, seedCreatorProfile, seedEntitlement, seedSubject } from './testHelpers';
 
 const API_SECRET = 'test-secret';
 
@@ -51,6 +51,276 @@ describe('license verification account linking', () => {
       providerUsername: 'LinkedBuyer',
       status: 'active',
     });
+  });
+
+  it('writes typed entitlement evidence with provider tier refs for verified licenses', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-license-verification-tier-evidence';
+    const subjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-license-verification-tier-evidence',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId,
+      ownerDiscordUserId: 'discord-license-verification-tier-evidence',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      authUserId,
+      subjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-tier-evidence',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-tier-evidence',
+          sourceReference: 'jinxxy:order-tier-evidence:license-tier-evidence',
+          providerTierRefs: ['version-advanced'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', 'jinxxy')
+            .eq('sourceReference', 'jinxxy:order-tier-evidence:license-tier-evidence')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), authUserId))
+        .first()
+    );
+
+    expect(evidence).toMatchObject({
+      authUserId,
+      subjectId,
+      providerKey: 'jinxxy',
+      evidenceType: 'license_verification',
+      status: 'active',
+      productId: 'product-license-verification-tier-evidence',
+      providerTierRefs: ['version-advanced'],
+    });
+  });
+
+  it('reuses and migrates legacy raw-order entitlements when canonical license source refs are verified', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-legacy-ref-creator';
+    const buyerAuthUserId = 'auth-license-verification-legacy-ref-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-legacy-ref-buyer',
+    });
+
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-legacy-ref-creator',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(creatorProfileId, {
+        policy: { duplicateVerificationBehavior: 'block' },
+        updatedAt: Date.now(),
+      });
+    });
+
+    const legacyEntitlementId = await seedEntitlement(t, buyerSubjectId, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-license-verification-legacy-ref',
+      sourceProvider: 'jinxxy',
+      sourceReference: 'order-license-verification-legacy-ref',
+      status: 'active',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-legacy-ref',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-legacy-ref',
+          sourceReference: 'jinxxy:order-license-verification-legacy-ref:license-legacy-ref',
+          providerTierRefs: ['version-legacy-ref'],
+        },
+      ],
+      licenseSubjectLink: {
+        licenseSubject: 'legacy-ref-license-subject',
+        licenseKeyEncrypted: 'encrypted-legacy-ref-license-key',
+        providerProductId: 'product-license-verification-legacy-ref',
+      },
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(result.entitlementIds).toEqual([legacyEntitlementId]);
+    expect(result.outboxJobIds).toHaveLength(1);
+
+    const { entitlements, evidence } = await t.run(async (ctx) => {
+      const entitlements = await ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect();
+      const evidence = await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', 'jinxxy')
+            .eq('sourceReference', 'jinxxy:order-license-verification-legacy-ref:license-legacy-ref')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), creatorAuthUserId))
+        .first();
+      return { entitlements, evidence };
+    });
+
+    expect(entitlements).toHaveLength(1);
+    expect(entitlements[0]).toMatchObject({
+      _id: legacyEntitlementId,
+      sourceReference: 'jinxxy:order-license-verification-legacy-ref:license-legacy-ref',
+      licenseSubject: 'legacy-ref-license-subject',
+      status: 'active',
+    });
+    expect(evidence).toMatchObject({
+      providerTierRefs: ['version-legacy-ref'],
+      status: 'active',
+      productId: 'product-license-verification-legacy-ref',
+    });
+  });
+
+  it('reuses order-only canonical entitlements when canonical license source refs are verified', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-order-ref-creator';
+    const buyerAuthUserId = 'auth-license-verification-order-ref-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-order-ref-buyer',
+    });
+
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-order-ref-creator',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(creatorProfileId, {
+        policy: { duplicateVerificationBehavior: 'block' },
+        updatedAt: Date.now(),
+      });
+    });
+
+    const existingEntitlementId = await seedEntitlement(t, buyerSubjectId, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-license-verification-order-ref',
+      sourceProvider: 'jinxxy',
+      sourceReference: 'jinxxy:order-license-verification-order-ref',
+      status: 'active',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-order-ref',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-order-ref',
+          sourceReference: 'jinxxy:order-license-verification-order-ref:license-order-ref',
+          providerTierRefs: ['version-order-ref'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(result.entitlementIds).toEqual([existingEntitlementId]);
+
+    const entitlements = await t.run(async (ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect()
+    );
+
+    expect(entitlements).toHaveLength(1);
+    expect(entitlements[0]).toMatchObject({
+      _id: existingEntitlementId,
+      sourceProvider: 'jinxxy',
+      sourceReference: 'jinxxy:order-license-verification-order-ref:license-order-ref',
+      productId: 'product-license-verification-order-ref',
+      status: 'active',
+    });
+  });
+
+  it('does not reuse another provider entitlement when raw order ids collide', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-provider-collision-creator';
+    const buyerAuthUserId = 'auth-license-verification-provider-collision-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-provider-collision-buyer',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-provider-collision-creator',
+    });
+
+    const otherProviderEntitlementId = await seedEntitlement(t, buyerSubjectId, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-license-verification-provider-collision',
+      sourceProvider: 'gumroad',
+      sourceReference: 'order-license-verification-provider-collision',
+      status: 'active',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-provider-collision',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-provider-collision',
+          sourceReference:
+            'jinxxy:order-license-verification-provider-collision:license-provider-collision',
+          providerTierRefs: ['version-provider-collision'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(result.entitlementIds).not.toEqual([otherProviderEntitlementId]);
+
+    const entitlements = await t.run(async (ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect()
+    );
+
+    expect(entitlements).toHaveLength(2);
+    expect(entitlements.find((entitlement) => entitlement._id === otherProviderEntitlementId))
+      .toMatchObject({
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-license-verification-provider-collision',
+      });
+    expect(entitlements.find((entitlement) => entitlement.sourceProvider === 'jinxxy'))
+      .toMatchObject({
+        productId: 'product-license-verification-provider-collision',
+        sourceReference:
+          'jinxxy:order-license-verification-provider-collision:license-provider-collision',
+      });
   });
 
   it('keeps manual-license buyer links symmetric across account reads, disconnect, and reconcile', async () => {
@@ -326,6 +596,21 @@ describe('license verification account linking', () => {
     );
 
     expect(entitlements.map((e) => e.productId).sort()).toEqual([
+      'product-license-verification-shared-order-a',
+      'product-license-verification-shared-order-b',
+    ]);
+
+    const evidenceRows = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', 'jinxxy-order-shared-by-multiple-licenses')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), creatorAuthUserId))
+        .collect()
+    );
+
+    expect(evidenceRows.map((evidence) => evidence.productId).sort()).toEqual([
       'product-license-verification-shared-order-a',
       'product-license-verification-shared-order-b',
     ]);
