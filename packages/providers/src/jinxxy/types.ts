@@ -539,9 +539,14 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
             )
         )
       );
-  const license = order.license_id
-    ? { id: order.license_id, key: undefined as string | undefined }
-    : order.order_items?.find((item) => item.license_id || item.license)?.license;
+  const orderItemWithLicense = order.order_items?.find(
+    (item) => item.license?.key || item.license_id
+  );
+  const licenseKey =
+    order.license_id ??
+    orderItemWithLicense?.license?.key ??
+    orderItemWithLicense?.license_id ??
+    undefined;
 
   return {
     provider: 'jinxxy',
@@ -551,7 +556,7 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     observedAt: order.created_at ?? order.paid_at ?? new Date(0).toISOString(),
     rawRef: order.id,
     refunded: getOrderStatus(order) === 'refunded',
-    licenseKey: license?.key ?? order.license_id,
+    licenseKey,
     email: order.email,
     discordId: order.discord_id,
   };

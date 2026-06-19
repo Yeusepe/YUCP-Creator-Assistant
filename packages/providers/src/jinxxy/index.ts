@@ -45,8 +45,7 @@ function orderTimestamp(order: JinxxyOrder): number {
 }
 
 function orderDate(order: JinxxyOrder): Date {
-  const observedAt = orderObservedAt(order);
-  return observedAt ? new Date(observedAt) : new Date(0);
+  return new Date(orderTimestamp(order));
 }
 
 function primaryOrderProductId(order: JinxxyOrder): string | undefined {

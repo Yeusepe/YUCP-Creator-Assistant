@@ -216,6 +216,9 @@ async function upsertLicenseVerificationEntitlementEvidence(
       q.eq('providerKey', args.provider).eq('sourceReference', args.sourceReference)
     )
     .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), args.subjectId))
+    .filter((q) => q.eq(q.field('productId'), args.productId))
+    .filter((q) => q.eq(q.field('evidenceType'), 'license_verification'))
     .first();
 
   if (existing) {

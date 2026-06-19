@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkId } from '@convex-dev/workpool';
 import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
 import { api, internal } from './_generated/api';
@@ -184,8 +184,19 @@ describe('legacy license subject link hardening', () => {
 });
 
 describe('entitlement evidence tier remediation', () => {
+  let previousConvexApiSecret: string | undefined;
+
   beforeEach(() => {
+    previousConvexApiSecret = process.env.CONVEX_API_SECRET;
     process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  afterEach(() => {
+    if (previousConvexApiSecret === undefined) {
+      delete process.env.CONVEX_API_SECRET;
+    } else {
+      process.env.CONVEX_API_SECRET = previousConvexApiSecret;
+    }
   });
 
   it('repairs active entitlements with raw order ids and license source refs from purchase fact version evidence', async () => {
@@ -346,6 +357,74 @@ describe('entitlement evidence tier remediation', () => {
     });
 
     expect(licenseRefTierIds).toEqual([catalogTierId]);
+  });
+
+  it('skips raw order remediation when multiple purchase facts can supply different tiers', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-remediate-ambiguous-tier-evidence',
+        primaryDiscordUserId: 'discord-remediate-ambiguous-tier-evidence',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const [externalLineItemId, providerProductVersionId] of [
+        ['line-item-basic', 'version-basic'],
+        ['line-item-advanced', 'version-advanced'],
+      ] as const) {
+        await ctx.db.insert('purchase_facts', {
+          authUserId: 'creator-remediate-ambiguous-tier-evidence',
+          provider: 'jinxxy',
+          externalOrderId: 'ambiguous-order',
+          externalLineItemId,
+          providerProductId: 'product-remediate-ambiguous-tier-evidence',
+          providerProductVersionId,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: now - 60_000,
+          subjectId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-ambiguous-tier-evidence',
+        subjectId,
+        productId: 'product-remediate-ambiguous-tier-evidence',
+        sourceProvider: 'jinxxy',
+        sourceReference: 'ambiguous-order',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({
+      scanned: 1,
+      repaired: 0,
+      skipped: 1,
+      remaining: 0,
+      isDone: true,
+    });
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', 'ambiguous-order')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), 'creator-remediate-ambiguous-tier-evidence'))
+        .first()
+    );
+
+    expect(evidence).toBeNull();
   });
 });
 

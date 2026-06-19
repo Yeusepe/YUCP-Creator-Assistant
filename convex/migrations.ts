@@ -285,25 +285,25 @@ async function findRepairPurchaseFactForEntitlement(
     )
     .collect();
 
-  return (
-    purchaseFacts.find((purchaseFact) => {
-      if (purchaseFact.lifecycleStatus !== 'active') {
-        return false;
-      }
-      if (
-        entitlement.subjectId &&
-        purchaseFact.subjectId &&
-        purchaseFact.subjectId !== entitlement.subjectId
-      ) {
-        return false;
-      }
-      return purchaseFactMatchesEntitlementProduct({
-        purchaseFact,
-        entitlement,
-        catalogProduct,
-      });
-    }) ?? null
-  );
+  const matchingPurchaseFacts = purchaseFacts.filter((purchaseFact) => {
+    if (purchaseFact.lifecycleStatus !== 'active') {
+      return false;
+    }
+    if (
+      entitlement.subjectId &&
+      purchaseFact.subjectId &&
+      purchaseFact.subjectId !== entitlement.subjectId
+    ) {
+      return false;
+    }
+    return purchaseFactMatchesEntitlementProduct({
+      purchaseFact,
+      entitlement,
+      catalogProduct,
+    });
+  });
+
+  return matchingPurchaseFacts.length === 1 ? matchingPurchaseFacts[0] : null;
 }
 
 async function listRelatedBuyerProviderLinks(

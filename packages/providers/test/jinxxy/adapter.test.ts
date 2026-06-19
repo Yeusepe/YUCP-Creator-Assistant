@@ -95,6 +95,27 @@ describe('JinxxyAdapter', () => {
       const result = await testAdapter.verifyPurchase(testEmail);
       expect(result === null || (result && result.provider === 'jinxxy')).toBe(true);
     });
+
+    it('falls back to an epoch purchase date when the provider timestamp is malformed', async () => {
+      const client = adapter.getClient() as JinxxyApiClient & {
+        getOrdersByEmail(email: string): Promise<JinxxyOrder[]>;
+      };
+      client.getOrdersByEmail = async () => [
+        {
+          id: 'order-invalid-date',
+          product_id: 'product-invalid-date',
+          status: 'completed',
+          total: 999,
+          currency: 'USD',
+          created_at: 'not-a-date',
+          quantity: 1,
+        },
+      ];
+
+      const result = await adapter.verifyPurchase('buyer@example.com');
+
+      expect(result?.createdAt.getTime()).toBe(0);
+    });
   });
 
   describe('getRecentPurchases', () => {
@@ -331,6 +352,34 @@ describe('Types and Normalization', () => {
       expect(evidence.refunded).toBe(false);
       expect(evidence.licenseKey).toBe('LICENSE-KEY-123');
       expect(evidence.email).toBe('buyer@example.com');
+    });
+
+    it('should preserve order item license ids when the expanded license object is absent', () => {
+      const order: JinxxyOrder = {
+        id: 'order-item-license-only',
+        object: 'Order',
+        email: 'buyer@example.com',
+        paid_at: '2026-04-10T12:00:00Z',
+        payment_status: 'PAID',
+        payout_total: 999,
+        checkout_fields: [],
+        order_items: [
+          {
+            id: 'order-item-1',
+            object: 'OrderItem',
+            name: 'Creator Pack',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-advanced',
+            seller: null,
+            license_id: 'license-from-order-item',
+          },
+        ],
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.licenseKey).toBe('license-from-order-item');
     });
   });
 

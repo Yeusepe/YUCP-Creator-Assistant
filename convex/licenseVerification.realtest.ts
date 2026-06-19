@@ -467,6 +467,21 @@ describe('license verification account linking', () => {
       'product-license-verification-shared-order-a',
       'product-license-verification-shared-order-b',
     ]);
+
+    const evidenceRows = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', 'jinxxy-order-shared-by-multiple-licenses')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), creatorAuthUserId))
+        .collect()
+    );
+
+    expect(evidenceRows.map((evidence) => evidence.productId).sort()).toEqual([
+      'product-license-verification-shared-order-a',
+      'product-license-verification-shared-order-b',
+    ]);
   });
 
   it('skips Discord role sync for provider-prefixed subject ids on new and reactivated grants', async () => {
