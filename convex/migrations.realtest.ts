@@ -188,11 +188,11 @@ describe('entitlement evidence tier remediation', () => {
     process.env.CONVEX_API_SECRET = 'test-secret';
   });
 
-  it('repairs active entitlements with raw Jinxxy order ids from purchase fact version evidence', async () => {
+  it('repairs active entitlements with raw order ids and license source refs from purchase fact version evidence', async () => {
     const t = makeTestConvex();
     const now = Date.now();
 
-    const { entitlementId, catalogTierId } = await t.run(async (ctx) => {
+    const { entitlementId, licenseRefEntitlementId, catalogTierId } = await t.run(async (ctx) => {
       const subjectId = await ctx.db.insert('subjects', {
         authUserId: 'buyer-remediate-tier-evidence',
         primaryDiscordUserId: 'discord-remediate-tier-evidence',
@@ -237,6 +237,20 @@ describe('entitlement evidence tier remediation', () => {
         createdAt: now,
         updatedAt: now,
       });
+      await ctx.db.insert('purchase_facts', {
+        authUserId: 'creator-remediate-tier-evidence',
+        provider: 'jinxxy',
+        externalOrderId: 'order-with-license-ref',
+        externalLineItemId: 'line-item-not-license-id',
+        providerProductId: '3376661448741619269',
+        providerProductVersionId: '3376663199720932937',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: now - 30_000,
+        subjectId,
+        createdAt: now,
+        updatedAt: now,
+      });
       const entitlementId = await ctx.db.insert('entitlements', {
         authUserId: 'creator-remediate-tier-evidence',
         subjectId,
@@ -248,34 +262,73 @@ describe('entitlement evidence tier remediation', () => {
         grantedAt: now,
         updatedAt: now,
       });
+      const licenseRefEntitlementId = await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-tier-evidence',
+        subjectId,
+        productId: '3376661448741619269',
+        catalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:order-with-license-ref:license-id-not-line-item',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
 
-      return { entitlementId, catalogTierId };
+      return { entitlementId, licenseRefEntitlementId, catalogTierId };
     });
 
-    const result = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+    const firstResult = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      limit: 1,
+    });
+
+    expect(firstResult).toMatchObject({
+      scanned: 1,
+      repaired: 1,
+      skipped: 0,
+      remaining: 1,
+      isDone: false,
+    });
+    expect(typeof firstResult.continueCursor).toBe('string');
+
+    const secondResult = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      cursor: firstResult.continueCursor,
       limit: 10,
     });
 
-    expect(result).toMatchObject({
+    expect(secondResult).toMatchObject({
       scanned: 1,
       repaired: 1,
       skipped: 0,
       remaining: 0,
+      isDone: true,
     });
 
-    const evidence = await t.run((ctx) =>
-      ctx.db
+    const { rawEvidence, licenseRefEvidence } = await t.run(async (ctx) => {
+      const rawEvidence = await ctx.db
         .query('entitlement_evidence')
         .withIndex('by_source_reference', (q) =>
           q.eq('providerKey', 'jinxxy').eq('sourceReference', '3923103452166620798')
         )
-        .filter((q) =>
-          q.eq(q.field('authUserId'), 'creator-remediate-tier-evidence')
+        .filter((q) => q.eq(q.field('authUserId'), 'creator-remediate-tier-evidence'))
+        .first();
+      const licenseRefEvidence = await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', 'jinxxy')
+            .eq('sourceReference', 'jinxxy:order-with-license-ref:license-id-not-line-item')
         )
-        .first()
-    );
+        .filter((q) => q.eq(q.field('authUserId'), 'creator-remediate-tier-evidence'))
+        .first();
+      return { rawEvidence, licenseRefEvidence };
+    });
 
-    expect(evidence).toMatchObject({
+    expect(rawEvidence).toMatchObject({
+      providerTierRefs: ['3376663199720932937'],
+      status: 'active',
+      productId: '3376661448741619269',
+    });
+    expect(licenseRefEvidence).toMatchObject({
       providerTierRefs: ['3376663199720932937'],
       status: 'active',
       productId: '3376661448741619269',
@@ -287,6 +340,12 @@ describe('entitlement evidence tier remediation', () => {
     });
 
     expect(tierIds).toEqual([catalogTierId]);
+    const licenseRefTierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: 'test-secret',
+      entitlementId: licenseRefEntitlementId,
+    });
+
+    expect(licenseRefTierIds).toEqual([catalogTierId]);
   });
 });
 

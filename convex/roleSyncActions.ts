@@ -46,6 +46,7 @@ export interface RoleSyncActionResult {
   rolesRemoved: string[];
   error?: string;
   skipped?: boolean;
+  nonRetriable?: boolean;
 }
 
 const roleSyncActionResultValidator = v.object({
@@ -57,6 +58,7 @@ const roleSyncActionResultValidator = v.object({
   rolesRemoved: v.array(v.string()),
   error: v.optional(v.string()),
   skipped: v.optional(v.boolean()),
+  nonRetriable: v.optional(v.boolean()),
 });
 
 interface RoleGrantOperation {
@@ -350,6 +352,7 @@ export const runRoleSync = internalAction({
           rolesAdded: [],
           rolesRemoved: [],
           error: TIER_EVIDENCE_MISSING_ERROR,
+          nonRetriable: true,
         };
       }
       const activeTierIdSet = new Set<string>(activeCatalogTierIds);

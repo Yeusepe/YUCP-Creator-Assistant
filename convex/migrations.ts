@@ -206,7 +206,7 @@ function normalizeProviderTierRefs(providerTierRefs: Array<string | undefined>):
 function parseEntitlementPurchaseReference(
   provider: Doc<'entitlements'>['sourceProvider'],
   sourceReference: string
-): { externalOrderId: string; externalLineItemId?: string } | null {
+): { externalOrderId: string } | null {
   const trimmed = sourceReference.trim();
   if (!trimmed) {
     return null;
@@ -216,7 +216,6 @@ function parseEntitlementPurchaseReference(
   if (parts.length >= 2 && parts[0] === provider && parts[1]) {
     return {
       externalOrderId: parts[1],
-      externalLineItemId: parts[2] || undefined,
     };
   }
 
@@ -289,12 +288,6 @@ async function findRepairPurchaseFactForEntitlement(
   return (
     purchaseFacts.find((purchaseFact) => {
       if (purchaseFact.lifecycleStatus !== 'active') {
-        return false;
-      }
-      if (
-        purchaseRef.externalLineItemId &&
-        purchaseFact.externalLineItemId !== purchaseRef.externalLineItemId
-      ) {
         return false;
       }
       if (
@@ -1702,6 +1695,7 @@ export const repairSubjectOwnershipCandidates = internalMutation({
 
 export const repairEntitlementEvidenceTierRefs = internalMutation({
   args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
     limit: v.optional(v.number()),
   },
   returns: v.object({
@@ -1709,27 +1703,23 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
     repaired: v.number(),
     skipped: v.number(),
     remaining: v.number(),
+    continueCursor: v.optional(v.union(v.string(), v.null())),
+    isDone: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
-    const activeEntitlements = await ctx.db
+    const page = await ctx.db
       .query('entitlements')
       .filter((q) => q.eq(q.field('status'), 'active'))
-      .collect();
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
     const now = Date.now();
 
     let scanned = 0;
     let repaired = 0;
     let skipped = 0;
-    let remaining = 0;
 
-    for (const entitlement of activeEntitlements) {
+    for (const entitlement of page.page) {
       if (await entitlementHasActiveTierEvidence(ctx, entitlement)) {
-        continue;
-      }
-
-      if (scanned >= limit) {
-        remaining++;
         continue;
       }
 
@@ -1789,7 +1779,14 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
       repaired++;
     }
 
-    return { scanned, repaired, skipped, remaining };
+    return {
+      scanned,
+      repaired,
+      skipped,
+      remaining: page.isDone ? 0 : 1,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });
 

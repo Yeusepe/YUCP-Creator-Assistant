@@ -548,7 +548,7 @@ export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
     providerAccountRef: order.customer_id ?? order.user?.id ?? order.email ?? 'unknown',
     productRefs,
     evidenceType: 'purchase',
-    observedAt: order.created_at ?? order.paid_at ?? '',
+    observedAt: order.created_at ?? order.paid_at ?? new Date(0).toISOString(),
     rawRef: order.id,
     refunded: getOrderStatus(order) === 'refunded',
     licenseKey: license?.key ?? order.license_id,

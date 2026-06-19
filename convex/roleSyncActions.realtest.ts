@@ -235,6 +235,7 @@ describe('roleSyncActions.runRoleSync', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Tier evidence missing/);
+    expect(result.nonRetriable).toBe(true);
     expect(result.targetGuildIds).toEqual([GUILD_ID]);
     expect(result.rolesAdded).toEqual([]);
     expect(fetchFn).not.toHaveBeenCalled();

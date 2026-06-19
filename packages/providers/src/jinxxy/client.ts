@@ -557,9 +557,6 @@ export class JinxxyApiClient {
       if (orderCustomerId) {
         customerIds.add(orderCustomerId);
       }
-      if (order?.customer_id) {
-        customerIds.add(order.customer_id);
-      }
     }
 
     if (license.customer_id) {
