@@ -234,6 +234,8 @@ async function entitlementHasActiveTierEvidence(
         .eq('sourceReference', entitlement.sourceReference)
     )
     .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+    .filter((q) => q.eq(q.field('productId'), entitlement.productId))
     .collect();
 
   return evidenceRows.some(
@@ -1747,6 +1749,8 @@ export const repairEntitlementEvidenceTierRefs = internalMutation({
             .eq('sourceReference', entitlement.sourceReference)
         )
         .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+        .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+        .filter((q) => q.eq(q.field('productId'), entitlement.productId))
         .first();
 
       if (existing) {

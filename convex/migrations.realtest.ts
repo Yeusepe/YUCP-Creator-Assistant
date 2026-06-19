@@ -359,6 +359,133 @@ describe('entitlement evidence tier remediation', () => {
     expect(licenseRefTierIds).toEqual([catalogTierId]);
   });
 
+  it('repairs shared-order entitlement evidence by product without patching sibling rows', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    await t.run(async (ctx) => {
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-remediate-shared-order-tier-evidence',
+        primaryDiscordUserId: 'discord-remediate-shared-order-tier-evidence',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const firstCatalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-remediate-shared-order-tier-evidence',
+        productId: 'provider-shared-first',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-shared-first',
+        displayName: 'Shared First Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const secondCatalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-remediate-shared-order-tier-evidence',
+        productId: 'provider-shared-second',
+        provider: 'jinxxy',
+        providerProductRef: 'provider-shared-second',
+        displayName: 'Shared Second Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const [providerProductId, providerProductVersionId, externalLineItemId] of [
+        ['provider-shared-first', 'version-shared-first', 'line-shared-first'],
+        ['provider-shared-second', 'version-shared-second', 'line-shared-second'],
+      ] as const) {
+        await ctx.db.insert('purchase_facts', {
+          authUserId: 'creator-remediate-shared-order-tier-evidence',
+          provider: 'jinxxy',
+          externalOrderId: 'shared-remediation-order',
+          externalLineItemId,
+          providerProductId,
+          providerProductVersionId,
+          paymentStatus: 'paid',
+          lifecycleStatus: 'active',
+          purchasedAt: now - 60_000,
+          subjectId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-shared-order-tier-evidence',
+        subjectId,
+        productId: 'provider-shared-first',
+        catalogProductId: firstCatalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: 'shared-remediation-order',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-shared-order-tier-evidence',
+        subjectId,
+        productId: 'provider-shared-second',
+        catalogProductId: secondCatalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: 'shared-remediation-order',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: 'creator-remediate-shared-order-tier-evidence',
+        subjectId,
+        providerKey: 'jinxxy',
+        sourceReference: 'shared-remediation-order',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: 'provider-shared-second',
+        catalogProductId: secondCatalogProductId,
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    });
+
+    const result = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({
+      scanned: 2,
+      repaired: 2,
+      skipped: 0,
+      remaining: 0,
+      isDone: true,
+    });
+
+    const evidenceRows = await t.run(async (ctx) => {
+      const rows = await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', 'shared-remediation-order')
+        )
+        .filter((q) =>
+          q.eq(q.field('authUserId'), 'creator-remediate-shared-order-tier-evidence')
+        )
+        .collect();
+      return rows.map((row) => ({
+        productId: row.productId,
+        providerTierRefs: row.providerTierRefs,
+      }));
+    });
+
+    expect(evidenceRows).toHaveLength(2);
+    expect(evidenceRows).toEqual(
+      expect.arrayContaining([
+        { productId: 'provider-shared-first', providerTierRefs: ['version-shared-first'] },
+        { productId: 'provider-shared-second', providerTierRefs: ['version-shared-second'] },
+      ])
+    );
+  });
+
   it('skips raw order remediation when multiple purchase facts can supply different tiers', async () => {
     const t = makeTestConvex();
     const now = Date.now();

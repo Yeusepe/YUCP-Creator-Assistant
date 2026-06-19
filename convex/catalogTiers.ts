@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery, mutation, type QueryCtx, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
@@ -18,6 +18,22 @@ function parsePurchaseSourceReference(sourceReference: string): {
     externalOrderId,
     externalLineItemId: externalLineItemId || undefined,
   };
+}
+
+function purchaseFactMatchesEntitlementProduct(args: {
+  purchaseFact: Doc<'purchase_facts'>;
+  entitlement: Doc<'entitlements'>;
+  catalogProduct: Doc<'product_catalog'> | null;
+}): boolean {
+  const allowedProviderProductRefs = new Set<string>();
+  allowedProviderProductRefs.add(args.entitlement.productId);
+  if (args.catalogProduct?.providerProductRef) {
+    allowedProviderProductRefs.add(args.catalogProduct.providerProductRef);
+  }
+  if (args.catalogProduct?.productId) {
+    allowedProviderProductRefs.add(args.catalogProduct.productId);
+  }
+  return allowedProviderProductRefs.has(args.purchaseFact.providerProductId);
 }
 
 export const upsertCatalogTier = mutation({
@@ -130,6 +146,8 @@ async function activeCatalogTierIdsForEntitlement(
         .eq('sourceReference', entitlement.sourceReference)
     )
     .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+    .filter((q) => q.eq(q.field('productId'), entitlement.productId))
     .take(20);
 
   const providerTierRefs = new Set<string>();
@@ -176,7 +194,10 @@ async function activeCatalogTierIdsForEntitlement(
   if (providerTierRefs.size === 0) {
     const purchaseRef = parsePurchaseSourceReference(entitlement.sourceReference);
     if (purchaseRef && purchaseRef.provider === entitlement.sourceProvider) {
-      const purchaseFact = await ctx.db
+      const catalogProduct = entitlement.catalogProductId
+        ? await ctx.db.get(entitlement.catalogProductId)
+        : null;
+      const purchaseFacts = await ctx.db
         .query('purchase_facts')
         .withIndex('by_auth_user_provider_order', (q) =>
           q
@@ -189,7 +210,14 @@ async function activeCatalogTierIdsForEntitlement(
             ? q.eq(q.field('externalLineItemId'), purchaseRef.externalLineItemId)
             : q.eq(q.field('externalLineItemId'), undefined)
         )
-        .first();
+        .take(20);
+      const purchaseFact = purchaseFacts.find((candidate) =>
+        purchaseFactMatchesEntitlementProduct({
+          purchaseFact: candidate,
+          entitlement,
+          catalogProduct,
+        })
+      );
       if (purchaseFact?.externalVariantId) {
         providerTierRefs.add(purchaseFact.externalVariantId);
       }
