@@ -183,6 +183,113 @@ describe('legacy license subject link hardening', () => {
   });
 });
 
+describe('entitlement evidence tier remediation', () => {
+  beforeEach(() => {
+    process.env.CONVEX_API_SECRET = 'test-secret';
+  });
+
+  it('repairs active entitlements with raw Jinxxy order ids from purchase fact version evidence', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+
+    const { entitlementId, catalogTierId } = await t.run(async (ctx) => {
+      const subjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-remediate-tier-evidence',
+        primaryDiscordUserId: 'discord-remediate-tier-evidence',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-remediate-tier-evidence',
+        productId: '3376661448741619269',
+        provider: 'jinxxy',
+        providerProductRef: '3376661448741619269',
+        displayName: 'Tiered Jinxxy Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const catalogTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: 'creator-remediate-tier-evidence',
+        provider: 'jinxxy',
+        productId: '3376661448741619269',
+        catalogProductId,
+        providerProductRef: '3376661448741619269',
+        providerTierRef: '3376663199720932937',
+        displayName: 'Advanced Features',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('purchase_facts', {
+        authUserId: 'creator-remediate-tier-evidence',
+        provider: 'jinxxy',
+        externalOrderId: '3923103452166620798',
+        externalLineItemId: '3923103452175009407',
+        providerProductId: '3376661448741619269',
+        providerProductVersionId: '3376663199720932937',
+        paymentStatus: 'paid',
+        lifecycleStatus: 'active',
+        purchasedAt: now - 60_000,
+        subjectId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const entitlementId = await ctx.db.insert('entitlements', {
+        authUserId: 'creator-remediate-tier-evidence',
+        subjectId,
+        productId: '3376661448741619269',
+        catalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: '3923103452166620798',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+
+      return { entitlementId, catalogTierId };
+    });
+
+    const result = await t.mutation(internal.migrations.repairEntitlementEvidenceTierRefs, {
+      limit: 10,
+    });
+
+    expect(result).toMatchObject({
+      scanned: 1,
+      repaired: 1,
+      skipped: 0,
+      remaining: 0,
+    });
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'jinxxy').eq('sourceReference', '3923103452166620798')
+        )
+        .filter((q) =>
+          q.eq(q.field('authUserId'), 'creator-remediate-tier-evidence')
+        )
+        .first()
+    );
+
+    expect(evidence).toMatchObject({
+      providerTierRefs: ['3376663199720932937'],
+      status: 'active',
+      productId: '3376661448741619269',
+    });
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: 'test-secret',
+      entitlementId,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+  });
+});
+
 describe('backstage alias metadata remediation', () => {
   it('detects published releases that are missing alias metadata but can be repaired from linked products', async () => {
     const t = makeTestConvex();

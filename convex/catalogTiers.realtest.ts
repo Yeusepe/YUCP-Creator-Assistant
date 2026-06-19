@@ -94,6 +94,77 @@ describe('catalog tier entitlement resolution', () => {
     expect(tierIds).toEqual([catalogTierId]);
   });
 
+  it('resolves active entitlement evidence provider tier refs before sourceReference parsing', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'creator-jinxxy-evidence-tier';
+    const buyerAuthUserId = 'buyer-jinxxy-evidence-tier';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-jinxxy-evidence-tier',
+    });
+
+    const { entitlementId, catalogTierId } = await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'local-jinxxy-evidence-product',
+        provider: 'jinxxy',
+        providerProductRef: 'product-evidence',
+        displayName: 'Evidence Avatar Package',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const tierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: creatorAuthUserId,
+        provider: 'jinxxy',
+        productId: 'local-jinxxy-evidence-product',
+        catalogProductId,
+        providerProductRef: 'product-evidence',
+        providerTierRef: 'version-evidence-advanced',
+        displayName: 'Advanced License',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const entitlementId = await ctx.db.insert('entitlements', {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        productId: 'local-jinxxy-evidence-product',
+        sourceProvider: 'jinxxy',
+        sourceReference: '3923103452166620798',
+        catalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        providerKey: 'jinxxy',
+        sourceReference: '3923103452166620798',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: 'local-jinxxy-evidence-product',
+        catalogProductId,
+        providerTierRefs: ['version-evidence-advanced'],
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+
+      return { entitlementId, catalogTierId: tierId };
+    });
+
+    const tierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
+      apiSecret: API_SECRET,
+      entitlementId,
+    });
+
+    expect(tierIds).toEqual([catalogTierId]);
+  });
+
   it('resolves Gumroad purchase fact external variant ids into active catalog tiers', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'creator-gumroad-tier';

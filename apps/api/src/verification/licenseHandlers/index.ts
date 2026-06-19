@@ -44,6 +44,21 @@ function resolveHandlerActors(input: CompleteLicenseInput): {
   };
 }
 
+function buildProviderSourceReference(args: {
+  provider: string;
+  externalOrderId?: string;
+  externalLicenseId?: string;
+  fallbackDigest: string;
+}): string {
+  if (args.externalOrderId && args.externalLicenseId) {
+    return `${args.provider}:${args.externalOrderId}:${args.externalLicenseId}`;
+  }
+  if (args.externalOrderId) {
+    return `${args.provider}:${args.externalOrderId}`;
+  }
+  return `${args.provider}:${args.fallbackDigest.slice(0, 16)}`;
+}
+
 export interface LicenseVerificationHandler {
   verify(
     input: CompleteLicenseInput,
@@ -96,8 +111,12 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
       const providerUserId =
         result.providerUserId ??
         `${provider}:${productId ?? 'noproduct'}:${licenseKeyDigest.slice(0, 16)}`;
-      const sourceReference =
-        result.externalOrderId ?? `${provider}:${licenseKeyDigest.slice(0, 16)}`;
+      const sourceReference = buildProviderSourceReference({
+        provider,
+        externalOrderId: result.externalOrderId,
+        externalLicenseId: result.externalLicenseId,
+        fallbackDigest: licenseKeyDigest,
+      });
       const encryptedLicenseKey = await encryptForensicsLicenseKey(
         licenseKey,
         config.encryptionSecret ?? ''
@@ -122,7 +141,11 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
             provider,
             providerUserId,
             productsToGrant: [
-              { productId: result.providerProductId ?? productId ?? '', sourceReference },
+              {
+                productId: result.providerProductId ?? productId ?? '',
+                sourceReference,
+                providerTierRefs: result.providerTierRef ? [result.providerTierRef] : undefined,
+              },
             ],
             licenseSubjectLink: {
               licenseSubject: licenseKeyDigest,

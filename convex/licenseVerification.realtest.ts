@@ -53,6 +53,59 @@ describe('license verification account linking', () => {
     });
   });
 
+  it('writes typed entitlement evidence with provider tier refs for verified licenses', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-license-verification-tier-evidence';
+    const subjectId = await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-license-verification-tier-evidence',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId,
+      ownerDiscordUserId: 'discord-license-verification-tier-evidence',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      authUserId,
+      subjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-tier-evidence',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-tier-evidence',
+          sourceReference: 'jinxxy:order-tier-evidence:license-tier-evidence',
+          providerTierRefs: ['version-advanced'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', 'jinxxy')
+            .eq('sourceReference', 'jinxxy:order-tier-evidence:license-tier-evidence')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), authUserId))
+        .first()
+    );
+
+    expect(evidence).toMatchObject({
+      authUserId,
+      subjectId,
+      providerKey: 'jinxxy',
+      evidenceType: 'license_verification',
+      status: 'active',
+      productId: 'product-license-verification-tier-evidence',
+      providerTierRefs: ['version-advanced'],
+    });
+  });
+
   it('keeps manual-license buyer links symmetric across account reads, disconnect, and reconcile', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-license-verification-account-symmetry';

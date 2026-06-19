@@ -15,7 +15,7 @@
 
 import { canReactivate } from '@yucp/shared/entitlement/service';
 import { ConvexError, v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { mutation } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
@@ -35,6 +35,7 @@ const ProductToGrant = v.object({
   productId: v.string(),
   sourceReference: v.string(),
   catalogProductId: v.optional(v.id('product_catalog')),
+  providerTierRefs: v.optional(v.array(v.string())),
 });
 
 const LicenseSubjectLink = v.object({
@@ -138,6 +139,69 @@ async function hashForStorage(value: string): Promise<string> {
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+function normalizeProviderTierRefs(providerTierRefs: string[] | undefined): string[] | undefined {
+  const normalized = Array.from(
+    new Set(
+      (providerTierRefs ?? [])
+        .map((providerTierRef) => providerTierRef.trim())
+        .filter((providerTierRef) => providerTierRef.length > 0)
+    )
+  );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+async function upsertLicenseVerificationEntitlementEvidence(
+  ctx: Pick<MutationCtx, 'db'>,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    provider: Doc<'entitlements'>['sourceProvider'];
+    productId: string;
+    catalogProductId?: Id<'product_catalog'>;
+    sourceReference: string;
+    providerTierRefs?: string[];
+    observedAt: number;
+  }
+): Promise<Id<'entitlement_evidence'>> {
+  const providerTierRefs = normalizeProviderTierRefs(args.providerTierRefs);
+  const existing = await ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q.eq('providerKey', args.provider).eq('sourceReference', args.sourceReference)
+    )
+    .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
+    .first();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      subjectId: args.subjectId,
+      evidenceType: 'license_verification',
+      status: 'active',
+      productId: args.productId,
+      catalogProductId: args.catalogProductId ?? existing.catalogProductId,
+      providerTierRefs: providerTierRefs ?? existing.providerTierRefs,
+      observedAt: args.observedAt,
+      updatedAt: args.observedAt,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert('entitlement_evidence', {
+    authUserId: args.authUserId,
+    subjectId: args.subjectId,
+    providerKey: args.provider,
+    sourceReference: args.sourceReference,
+    evidenceType: 'license_verification',
+    status: 'active',
+    productId: args.productId,
+    catalogProductId: args.catalogProductId,
+    providerTierRefs,
+    observedAt: args.observedAt,
+    createdAt: args.observedAt,
+    updatedAt: args.observedAt,
+  });
 }
 
 /**
@@ -481,6 +545,16 @@ export const completeLicenseVerification = mutation({
         });
       }
       entitlementIds.push(entitlementId);
+      await upsertLicenseVerificationEntitlementEvidence(ctx, {
+        authUserId: creatorAuthUserId,
+        subjectId: buyerSubjectId,
+        provider: args.provider,
+        productId: product.productId,
+        catalogProductId: product.catalogProductId,
+        sourceReference: product.sourceReference,
+        providerTierRefs: product.providerTierRefs,
+        observedAt: now,
+      });
     }
 
     // Audit event for license verification

@@ -285,6 +285,53 @@ describe('Types and Normalization', () => {
 
       expect(evidence.providerAccountRef).toBe('buyer@example.com');
     });
+
+    it('should normalize documented order responses to evidence', () => {
+      const order: JinxxyOrder = {
+        id: 'order-123',
+        object: 'Order',
+        email: 'buyer@example.com',
+        paid_at: '2026-04-10T12:00:00Z',
+        user: {
+          id: 'customer-789',
+          object: 'User',
+          name: 'Buyer Example',
+          username: 'buyer-example',
+          profile_image: null,
+          updated_at: '2026-04-09T12:00:00Z',
+        },
+        payment_status: 'PAID',
+        payout_total: 999,
+        checkout_fields: [],
+        order_items: [
+          {
+            id: 'order-item-1',
+            object: 'OrderItem',
+            name: 'Creator Pack',
+            target_id: 'product-456',
+            target_type: 'DIGITAL_PRODUCT',
+            target_version_id: 'version-advanced',
+            seller: null,
+            license_id: 'license-456',
+            license: {
+              id: 'license-456',
+              object: 'UserLicense',
+              key: 'LICENSE-KEY-123',
+              short_key: 'ABCD-1234567890ab',
+            },
+          },
+        ],
+      };
+
+      const evidence = normalizeOrderToEvidence(order);
+
+      expect(evidence.providerAccountRef).toBe('customer-789');
+      expect(evidence.productRefs).toEqual(['product-456']);
+      expect(evidence.observedAt).toBe('2026-04-10T12:00:00Z');
+      expect(evidence.refunded).toBe(false);
+      expect(evidence.licenseKey).toBe('LICENSE-KEY-123');
+      expect(evidence.email).toBe('buyer@example.com');
+    });
   });
 
   describe('isLicenseValid', () => {
@@ -360,6 +407,15 @@ describe('Types and Normalization', () => {
         currency: 'USD',
         created_at: '2024-01-15T10:30:00Z',
         quantity: 1,
+      };
+
+      expect(isOrderValid(order)).toBe(true);
+    });
+
+    it('should return true for documented paid orders', () => {
+      const order: JinxxyOrder = {
+        id: 'order-123',
+        payment_status: 'PAID',
       };
 
       expect(isOrderValid(order)).toBe(true);

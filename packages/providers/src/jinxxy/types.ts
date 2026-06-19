@@ -252,14 +252,20 @@ export interface JinxxyLicensesResponse {
  */
 export interface JinxxyLicenseRaw {
   id: string;
+  object?: string;
   key: string;
   short_key: string;
-  user?: { id: string };
+  user?: JinxxyOrderUser;
   inventory_item?: {
+    id?: string;
+    object?: string;
     target_id: string;
     target_version_id?: string;
+    target_type?: string;
+    grant_id?: string | null;
+    grant_type?: string | null;
     item?: { name: string };
-    order?: { id: string; payment_status?: string };
+    order?: { id: string; object?: string; payment_status?: string };
   };
   activations?: { total_count: number };
 }
@@ -292,20 +298,53 @@ export interface JinxxyActivationsResponse {
 /**
  * Jinxxy order resource
  */
+export interface JinxxyOrderUser {
+  id: string;
+  object?: string;
+  name?: string;
+  username?: string;
+  profile_image?: unknown;
+  updated_at?: string;
+}
+
+export interface JinxxyOrderItem {
+  id: string;
+  object?: string;
+  name?: string;
+  target_id?: string | null;
+  target_type?: string;
+  target_version_id?: string | null;
+  seller?: JinxxyOrderUser | null;
+  license_id?: string | null;
+  license?: {
+    id: string;
+    object?: string;
+    key?: string;
+    short_key?: string;
+  } | null;
+}
+
 export interface JinxxyOrder {
   id: string;
+  object?: string;
+  email?: string;
+  paid_at?: string;
+  user?: JinxxyOrderUser;
+  payment_status?: string;
+  payout_total?: number;
+  checkout_fields?: Array<{ object?: string; answer: string; label: string }>;
+  order_items?: JinxxyOrderItem[];
   customer_id?: string;
-  product_id: string;
-  status: 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled';
-  total: number;
-  currency: string;
-  created_at: string;
+  product_id?: string;
+  status?: 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' | string;
+  total?: number;
+  currency?: string;
+  created_at?: string;
   updated_at?: string;
   refunded_at?: string;
-  email?: string;
   discord_id?: string;
   license_id?: string;
-  quantity: number;
+  quantity?: number;
   discount_code?: string;
   metadata?: Record<string, unknown>;
 }
@@ -314,9 +353,13 @@ export interface JinxxyOrder {
  * Jinxxy API response wrapper for order list
  */
 export interface JinxxyOrdersResponse {
-  success: boolean;
+  success?: boolean;
   orders?: JinxxyOrder[];
+  results?: JinxxyOrder[];
   pagination?: JinxxyPagination;
+  page?: number;
+  page_count?: number;
+  cursor_count?: number;
   error?: string;
   message?: string;
 }
@@ -325,7 +368,7 @@ export interface JinxxyOrdersResponse {
  * Jinxxy API response wrapper for single order
  */
 export interface JinxxyOrderResponse {
-  success: boolean;
+  success?: boolean;
   order?: JinxxyOrder;
   error?: string;
   message?: string;
@@ -432,14 +475,19 @@ export interface JinxxyAdapterConfig {
 export function getOrderStatus(
   order: JinxxyOrder
 ): 'completed' | 'refunded' | 'disputed' | 'pending' | 'cancelled' {
-  return order.status;
+  const status = (order.status ?? order.payment_status ?? '').toLowerCase();
+  if (status === 'paid' || status === 'completed') return 'completed';
+  if (status === 'refunded' || status === 'partially_refunded') return 'refunded';
+  if (status === 'disputed') return 'disputed';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  return 'pending';
 }
 
 /**
  * Check if an order is still valid (completed and not refunded/disputed)
  */
 export function isOrderValid(order: JinxxyOrder): boolean {
-  return order.status === 'completed';
+  return getOrderStatus(order) === 'completed';
 }
 
 /**
@@ -480,15 +528,30 @@ export function normalizeLicenseToEvidence(
  * Normalize a Jinxxy order into evidence
  */
 export function normalizeOrderToEvidence(order: JinxxyOrder): JinxxyEvidence {
+  const productRefs = order.product_id
+    ? [order.product_id]
+    : Array.from(
+        new Set(
+          (order.order_items ?? [])
+            .map((item) => item.target_id)
+            .filter(
+              (targetId): targetId is string => typeof targetId === 'string' && targetId !== ''
+            )
+        )
+      );
+  const license = order.license_id
+    ? { id: order.license_id, key: undefined as string | undefined }
+    : order.order_items?.find((item) => item.license_id || item.license)?.license;
+
   return {
     provider: 'jinxxy',
-    providerAccountRef: order.customer_id ?? order.email ?? 'unknown',
-    productRefs: [order.product_id],
+    providerAccountRef: order.customer_id ?? order.user?.id ?? order.email ?? 'unknown',
+    productRefs,
     evidenceType: 'purchase',
-    observedAt: order.created_at,
+    observedAt: order.created_at ?? order.paid_at ?? '',
     rawRef: order.id,
-    refunded: order.status === 'refunded',
-    licenseKey: order.license_id,
+    refunded: getOrderStatus(order) === 'refunded',
+    licenseKey: license?.key ?? order.license_id,
     email: order.email,
     discordId: order.discord_id,
   };

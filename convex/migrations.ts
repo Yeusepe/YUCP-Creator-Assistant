@@ -193,6 +193,126 @@ function isProviderScopedSubjectIdentity(primaryDiscordUserId: string): boolean 
   return primaryDiscordUserId.includes(':');
 }
 
+function normalizeProviderTierRefs(providerTierRefs: Array<string | undefined>): string[] {
+  return Array.from(
+    new Set(
+      providerTierRefs
+        .map((providerTierRef) => providerTierRef?.trim())
+        .filter((providerTierRef): providerTierRef is string => Boolean(providerTierRef))
+    )
+  );
+}
+
+function parseEntitlementPurchaseReference(
+  provider: Doc<'entitlements'>['sourceProvider'],
+  sourceReference: string
+): { externalOrderId: string; externalLineItemId?: string } | null {
+  const trimmed = sourceReference.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parts = trimmed.split(':');
+  if (parts.length >= 2 && parts[0] === provider && parts[1]) {
+    return {
+      externalOrderId: parts[1],
+      externalLineItemId: parts[2] || undefined,
+    };
+  }
+
+  return { externalOrderId: trimmed };
+}
+
+async function entitlementHasActiveTierEvidence(
+  ctx: Pick<QueryCtx, 'db'>,
+  entitlement: Doc<'entitlements'>
+): Promise<boolean> {
+  const evidenceRows = await ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q
+        .eq('providerKey', entitlement.sourceProvider)
+        .eq('sourceReference', entitlement.sourceReference)
+    )
+    .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .collect();
+
+  return evidenceRows.some(
+    (evidence) =>
+      evidence.status === 'active' &&
+      Array.isArray(evidence.providerTierRefs) &&
+      evidence.providerTierRefs.some((providerTierRef) => providerTierRef.trim().length > 0)
+  );
+}
+
+function purchaseFactMatchesEntitlementProduct(args: {
+  purchaseFact: Doc<'purchase_facts'>;
+  entitlement: Doc<'entitlements'>;
+  catalogProduct: Doc<'product_catalog'> | null;
+}): boolean {
+  const allowedProviderProductRefs = new Set<string>();
+  allowedProviderProductRefs.add(args.entitlement.productId);
+  if (args.catalogProduct?.providerProductRef) {
+    allowedProviderProductRefs.add(args.catalogProduct.providerProductRef);
+  }
+  if (args.catalogProduct?.productId) {
+    allowedProviderProductRefs.add(args.catalogProduct.productId);
+  }
+  return allowedProviderProductRefs.has(args.purchaseFact.providerProductId);
+}
+
+async function findRepairPurchaseFactForEntitlement(
+  ctx: Pick<QueryCtx, 'db'>,
+  entitlement: Doc<'entitlements'>
+): Promise<Doc<'purchase_facts'> | null> {
+  const purchaseRef = parseEntitlementPurchaseReference(
+    entitlement.sourceProvider,
+    entitlement.sourceReference
+  );
+  if (!purchaseRef) {
+    return null;
+  }
+
+  const catalogProduct = entitlement.catalogProductId
+    ? await ctx.db.get(entitlement.catalogProductId)
+    : null;
+  const purchaseFacts = await ctx.db
+    .query('purchase_facts')
+    .withIndex('by_auth_user_provider_order', (q) =>
+      q
+        .eq('authUserId', entitlement.authUserId)
+        .eq('provider', entitlement.sourceProvider)
+        .eq('externalOrderId', purchaseRef.externalOrderId)
+    )
+    .collect();
+
+  return (
+    purchaseFacts.find((purchaseFact) => {
+      if (purchaseFact.lifecycleStatus !== 'active') {
+        return false;
+      }
+      if (
+        purchaseRef.externalLineItemId &&
+        purchaseFact.externalLineItemId !== purchaseRef.externalLineItemId
+      ) {
+        return false;
+      }
+      if (
+        entitlement.subjectId &&
+        purchaseFact.subjectId &&
+        purchaseFact.subjectId !== entitlement.subjectId
+      ) {
+        return false;
+      }
+      return purchaseFactMatchesEntitlementProduct({
+        purchaseFact,
+        entitlement,
+        catalogProduct,
+      });
+    }) ?? null
+  );
+}
+
 async function listRelatedBuyerProviderLinks(
   ctx: Pick<QueryCtx, 'db'>,
   subjectId: Id<'subjects'>,
@@ -1577,6 +1697,99 @@ export const repairSubjectOwnershipCandidates = internalMutation({
       skippedSubjects,
       ...bindingRepairResult,
     };
+  },
+});
+
+export const repairEntitlementEvidenceTierRefs = internalMutation({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    repaired: v.number(),
+    skipped: v.number(),
+    remaining: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const activeEntitlements = await ctx.db
+      .query('entitlements')
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .collect();
+    const now = Date.now();
+
+    let scanned = 0;
+    let repaired = 0;
+    let skipped = 0;
+    let remaining = 0;
+
+    for (const entitlement of activeEntitlements) {
+      if (await entitlementHasActiveTierEvidence(ctx, entitlement)) {
+        continue;
+      }
+
+      if (scanned >= limit) {
+        remaining++;
+        continue;
+      }
+
+      scanned++;
+      const purchaseFact = await findRepairPurchaseFactForEntitlement(ctx, entitlement);
+      if (!purchaseFact) {
+        skipped++;
+        continue;
+      }
+
+      const providerTierRefs = normalizeProviderTierRefs([
+        purchaseFact.providerProductVersionId,
+        purchaseFact.externalVariantId,
+      ]);
+      if (providerTierRefs.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      const existing = await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', entitlement.sourceProvider)
+            .eq('sourceReference', entitlement.sourceReference)
+        )
+        .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+        .first();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          subjectId: entitlement.subjectId,
+          status: 'active',
+          productId: entitlement.productId,
+          catalogProductId: entitlement.catalogProductId ?? existing.catalogProductId,
+          providerTierRefs,
+          observedAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert('entitlement_evidence', {
+          authUserId: entitlement.authUserId,
+          subjectId: entitlement.subjectId,
+          providerKey: entitlement.sourceProvider,
+          sourceReference: entitlement.sourceReference,
+          evidenceType: 'purchase_fact_remediation',
+          status: 'active',
+          productId: entitlement.productId,
+          catalogProductId: entitlement.catalogProductId,
+          providerTierRefs,
+          observedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      repaired++;
+    }
+
+    return { scanned, repaired, skipped, remaining };
   },
 });
 

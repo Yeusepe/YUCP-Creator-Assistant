@@ -34,6 +34,8 @@ import {
 // https://docs.discord.com/developers/topics/opcodes-and-status-codes#json
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_FETCH_TIMEOUT_MS = 30_000;
+const TIER_EVIDENCE_MISSING_ERROR =
+  'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
 
 export interface RoleSyncActionResult {
   success: boolean;
@@ -330,17 +332,32 @@ export const runRoleSync = internalAction({
       productId: entitlement.productId,
     });
 
-    if (activeCatalogTierIds.length > 0) {
+    if (args.targetGuildId) {
+      roleRules = roleRules.filter((rule) => rule.guildId === args.targetGuildId);
+    }
+
+    const enabledTierScopedRules = roleRules.filter((rule) => rule.enabled && rule.catalogTierId);
+    if (enabledTierScopedRules.length > 0) {
+      const tierScopedGuildIds = Array.from(
+        new Set(enabledTierScopedRules.map((rule) => rule.guildId))
+      );
+      if (activeCatalogTierIds.length === 0) {
+        return {
+          success: false,
+          guildId: tierScopedGuildIds[0] ?? '',
+          targetGuildIds: tierScopedGuildIds,
+          discordUserId,
+          rolesAdded: [],
+          rolesRemoved: [],
+          error: TIER_EVIDENCE_MISSING_ERROR,
+        };
+      }
       const activeTierIdSet = new Set<string>(activeCatalogTierIds);
       roleRules = roleRules.filter(
-        (rule) => !rule.catalogTierId || activeTierIdSet.has(rule.catalogTierId)
+        (rule) => rule.catalogTierId && activeTierIdSet.has(rule.catalogTierId)
       );
     } else {
       roleRules = roleRules.filter((rule) => !rule.catalogTierId);
-    }
-
-    if (args.targetGuildId) {
-      roleRules = roleRules.filter((rule) => rule.guildId === args.targetGuildId);
     }
 
     if (roleRules.length === 0) {

@@ -138,6 +138,13 @@ async function activeCatalogTierIdsForEntitlement(
       continue;
     }
 
+    if (Array.isArray(evidence.providerTierRefs)) {
+      for (const providerTierRef of evidence.providerTierRefs) {
+        if (typeof providerTierRef === 'string' && providerTierRef.trim()) {
+          providerTierRefs.add(providerTierRef.trim());
+        }
+      }
+    }
     if (evidence.transactionId) {
       const transaction = await ctx.db.get(evidence.transactionId);
       if (transaction?.externalVariantId) {

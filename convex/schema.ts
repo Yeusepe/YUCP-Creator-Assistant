@@ -1771,6 +1771,7 @@ const entitlement_evidence = defineTable({
   status: EntitlementEvidenceStatus,
   productId: v.optional(v.string()),
   catalogProductId: v.optional(v.id('product_catalog')),
+  providerTierRefs: v.optional(v.array(v.string())),
   rawWebhookEventId: v.optional(v.id('webhook_events')),
   metadata: v.optional(v.any()),
   observedAt: v.number(),

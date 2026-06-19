@@ -1074,6 +1074,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
             productId: match.productId,
             catalogProductId: match.catalogProductId,
             sourceReference: `lemonsqueezy:license:${license.id}`,
+            providerTierRefs: license.variantId ? [String(license.variantId)] : undefined,
           },
         ],
       }
@@ -1102,6 +1103,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       status: 'active',
       productId: match.productId,
       catalogProductId: match.catalogProductId,
+      providerTierRefs: license.variantId ? [String(license.variantId)] : undefined,
       observedAt: Date.now(),
       metadata: validation,
     });

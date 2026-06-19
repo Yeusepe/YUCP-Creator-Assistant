@@ -240,6 +240,9 @@ interface RateLimitInfo {
   remaining: number;
 }
 
+const TIER_EVIDENCE_MISSING_ERROR =
+  'Tier evidence missing for tier-scoped role rules. Refresh entitlement evidence before syncing tier roles.';
+
 // ============================================================================
 // RATE LIMIT HANDLER
 // ============================================================================
@@ -607,18 +610,35 @@ export class RoleSyncService {
 
     // Get all role rules for this product
     let roleRules = await this.fetchRoleRules(job.authUserId, entitlement.productId);
-    if (activeCatalogTierIds.length > 0) {
-      const activeTierIdSet = new Set(activeCatalogTierIds);
-      roleRules = roleRules.filter(
-        (rule) => !rule.catalogTierId || activeTierIdSet.has(rule.catalogTierId)
-      );
-    } else {
-      roleRules = roleRules.filter((rule) => !rule.catalogTierId);
-    }
 
     // When targetGuildId is set (e.g. from guild member add), only sync in that guild
     if (payload.targetGuildId) {
       roleRules = roleRules.filter((r) => r.guildId === payload.targetGuildId);
+    }
+
+    const enabledTierScopedRules = roleRules.filter((rule) => rule.enabled && rule.catalogTierId);
+    if (enabledTierScopedRules.length > 0) {
+      const tierScopedGuildIds = Array.from(
+        new Set(enabledTierScopedRules.map((rule) => rule.guildId))
+      );
+      if (activeCatalogTierIds.length === 0) {
+        return {
+          success: false,
+          guildId: tierScopedGuildIds[0] ?? '',
+          targetGuildIds: tierScopedGuildIds,
+          discordUserId,
+          rolesAdded: [],
+          rolesRemoved: [],
+          error: TIER_EVIDENCE_MISSING_ERROR,
+          nonRetriable: true,
+        };
+      }
+      const activeTierIdSet = new Set(activeCatalogTierIds);
+      roleRules = roleRules.filter(
+        (rule) => rule.catalogTierId && activeTierIdSet.has(rule.catalogTierId)
+      );
+    } else {
+      roleRules = roleRules.filter((rule) => !rule.catalogTierId);
     }
 
     if (roleRules.length === 0) {

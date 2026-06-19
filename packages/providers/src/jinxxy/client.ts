@@ -509,7 +509,9 @@ export class JinxxyApiClient {
     purchaserEmail?: string;
     providerUserId?: string;
     externalOrderId?: string;
+    externalLicenseId?: string;
     providerProductId?: string;
+    providerTierRef?: string;
     error?: string;
   }> {
     const result = await this.verifyLicenseByKey(licenseKey);
@@ -523,7 +525,9 @@ export class JinxxyApiClient {
       purchaserEmail: resolvedIdentity.purchaserEmail,
       providerUserId: resolvedIdentity.providerUserId,
       externalOrderId: result.license.order_id ?? result.license.id ?? undefined,
+      externalLicenseId: result.license.id ?? undefined,
       providerProductId: result.license.product_id ?? undefined,
+      providerTierRef: result.license.product_version_id ?? undefined,
     };
   }
 
@@ -542,12 +546,16 @@ export class JinxxyApiClient {
     if (license.order_id) {
       const order = await this.getOrder(license.order_id);
       const orderEmail = this.normalizeEmail(order?.email);
-      providerUserId ??= order?.customer_id;
+      providerUserId ??= order?.customer_id ?? order?.user?.id;
       if (orderEmail) {
         return {
           purchaserEmail: orderEmail,
           providerUserId,
         };
+      }
+      const orderCustomerId = order?.customer_id ?? order?.user?.id;
+      if (orderCustomerId) {
+        customerIds.add(orderCustomerId);
       }
       if (order?.customer_id) {
         customerIds.add(order.customer_id);
@@ -628,27 +636,44 @@ export class JinxxyApiClient {
   }> {
     const response = await this.request<JinxxyOrdersResponse>('GET', '/orders', {
       page: params?.page ?? 1,
-      per_page: params?.per_page ?? DEFAULT_PAGE_SIZE,
+      limit: params?.per_page ?? DEFAULT_PAGE_SIZE,
       product_id: params?.product_id,
       customer_id: params?.customer_id,
       status: params?.status,
-      email: params?.email,
+      search_query: params?.email,
     });
 
+    const hasNext =
+      response.page_count != null
+        ? (response.page ?? 1) < response.page_count
+        : (response.pagination?.has_next ?? false);
+
     return {
-      orders: response.orders ?? [],
-      pagination: response.pagination ?? this.getDefaultPagination(),
+      orders: response.results ?? response.orders ?? [],
+      pagination: response.pagination ?? {
+        ...this.getDefaultPagination(),
+        page: response.page ?? 1,
+        total_pages: response.page_count ?? 1,
+        total: response.cursor_count ?? 0,
+        has_next: hasNext,
+      },
     };
   }
 
   /**
-   * Get a specific order by ID
+   * Get a specific order by ID.
+   * Jinxxy docs: https://api.creators.jinxxy.com/v1/openapi.json
+   * GET /orders/{id} returns the Order object directly.
    */
   async getOrder(orderId: string): Promise<JinxxyOrder | null> {
     try {
-      const response = await this.request<JinxxyOrderResponse>('GET', `/orders/${orderId}`);
+      const response = await this.request<JinxxyOrderResponse | JinxxyOrder>(
+        'GET',
+        `/orders/${orderId}`
+      );
 
-      return response.order ?? null;
+      const order = (response as JinxxyOrderResponse).order ?? (response as JinxxyOrder);
+      return order?.id ? order : null;
     } catch (error) {
       if (error instanceof JinxxyApiError && error.statusCode === 404) {
         return null;

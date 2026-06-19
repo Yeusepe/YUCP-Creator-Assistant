@@ -70,7 +70,7 @@ async function seed(
       createdAt: now,
       updatedAt: now,
     });
-    return { subjectId, entitlementId, outboxJobId, roleRuleId };
+    return { subjectId, entitlementId, outboxJobId, roleRuleId, guildLinkId };
   });
 }
 
@@ -117,6 +117,127 @@ describe('roleSyncActions.runRoleSync', () => {
     expect((fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>).Authorization).toBe(
       'Bot test-bot-token'
     );
+  });
+
+  it('uses matching tier-scoped rules instead of product-level fallback rules', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: AUTH_USER,
+        productId: PRODUCT_ID,
+        provider: 'gumroad',
+        providerProductRef: PRODUCT_ID,
+        displayName: 'Tiered Product',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const advancedTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: AUTH_USER,
+        provider: 'gumroad',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerProductRef: PRODUCT_ID,
+        providerTierRef: 'version-advanced',
+        displayName: 'Advanced',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('entitlement_evidence', {
+        authUserId: AUTH_USER,
+        subjectId,
+        providerKey: 'gumroad',
+        sourceReference: 'order-action-test',
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: PRODUCT_ID,
+        catalogProductId,
+        providerTierRefs: ['version-advanced'],
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: GUILD_ID,
+        guildLinkId,
+        productId: PRODUCT_ID,
+        catalogTierId: advancedTierId,
+        verifiedRoleId: 'role-action-advanced',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.rolesAdded).toEqual(['role-action-advanced']);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(fetchFn.mock.calls[0]?.[0]).toContain(
+      `/guilds/${GUILD_ID}/members/${DISCORD_USER}/roles/role-action-advanced`
+    );
+  });
+
+  it('fails visibly when tier-scoped rules exist but the entitlement has no tier evidence', async () => {
+    const t = makeTestConvex();
+    const { subjectId, entitlementId, outboxJobId, guildLinkId } = await seed(t);
+    const fetchFn = mockFetch(204);
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      const advancedTierId = await ctx.db.insert('catalog_tiers', {
+        authUserId: AUTH_USER,
+        provider: 'gumroad',
+        productId: PRODUCT_ID,
+        providerProductRef: PRODUCT_ID,
+        providerTierRef: 'version-advanced',
+        displayName: 'Advanced',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId: AUTH_USER,
+        guildId: GUILD_ID,
+        guildLinkId,
+        productId: PRODUCT_ID,
+        catalogTierId: advancedTierId,
+        verifiedRoleId: 'role-action-advanced',
+        removeOnRevoke: true,
+        priority: 1,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.action(internal.roleSyncActions.runRoleSync, {
+      outboxJobId,
+      authUserId: AUTH_USER,
+      subjectId,
+      entitlementId,
+      discordUserId: DISCORD_USER,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Tier evidence missing/);
+    expect(result.targetGuildIds).toEqual([GUILD_ID]);
+    expect(result.rolesAdded).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 
   it('URL-encodes Discord role path params before calling the API', async () => {
