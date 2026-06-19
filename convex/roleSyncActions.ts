@@ -95,6 +95,13 @@ function selectRoleRulesForActiveTiers<
   });
 }
 
+function selectRoleRulesWithoutTierEvidence<
+  TRoleRule extends { enabled: boolean; guildId: string; catalogTierId?: string },
+>(roleRules: TRoleRule[]): TRoleRule[] {
+  const tierScopedGuildIds = new Set(enabledTierScopedGuildIdsForRules(roleRules));
+  return roleRules.filter((rule) => !rule.catalogTierId && !tierScopedGuildIds.has(rule.guildId));
+}
+
 class RetriableRoleSyncError extends Error {}
 
 function botAuthHeaders(): Record<string, string> {
@@ -370,18 +377,23 @@ export const runRoleSync = internalAction({
     const tierScopedGuildIds = enabledTierScopedGuildIdsForRules(roleRules);
     if (tierScopedGuildIds.length > 0) {
       if (activeCatalogTierIds.length === 0) {
-        return {
-          success: false,
-          guildId: tierScopedGuildIds[0] ?? '',
-          targetGuildIds: tierScopedGuildIds,
-          discordUserId,
-          rolesAdded: [],
-          rolesRemoved: [],
-          error: TIER_EVIDENCE_MISSING_ERROR,
-          nonRetriable: true,
-        };
+        const roleRulesWithoutTierEvidence = selectRoleRulesWithoutTierEvidence(roleRules);
+        if (roleRulesWithoutTierEvidence.length === 0) {
+          return {
+            success: false,
+            guildId: tierScopedGuildIds[0] ?? '',
+            targetGuildIds: tierScopedGuildIds,
+            discordUserId,
+            rolesAdded: [],
+            rolesRemoved: [],
+            error: TIER_EVIDENCE_MISSING_ERROR,
+            nonRetriable: true,
+          };
+        }
+        roleRules = roleRulesWithoutTierEvidence;
+      } else {
+        roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
       }
-      roleRules = selectRoleRulesForActiveTiers(roleRules, activeCatalogTierIds);
     } else {
       roleRules = roleRules.filter((rule) => !rule.catalogTierId);
     }

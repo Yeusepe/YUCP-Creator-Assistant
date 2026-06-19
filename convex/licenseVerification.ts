@@ -164,7 +164,9 @@ function sourceReferencesForGrantIdentity(
   const references = new Set<string>([trimmed]);
   const [sourceProvider, externalOrderId] = trimmed.split(':');
   if (sourceProvider === provider && externalOrderId?.trim()) {
-    references.add(externalOrderId.trim());
+    const orderId = externalOrderId.trim();
+    references.add(orderId);
+    references.add(`${provider}:${orderId}`);
   }
 
   return Array.from(references);

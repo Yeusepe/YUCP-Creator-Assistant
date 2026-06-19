@@ -192,6 +192,72 @@ describe('license verification account linking', () => {
     });
   });
 
+  it('reuses order-only canonical entitlements when canonical license source refs are verified', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-license-verification-order-ref-creator';
+    const buyerAuthUserId = 'auth-license-verification-order-ref-buyer';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-license-verification-order-ref-buyer',
+    });
+
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-license-verification-order-ref-creator',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(creatorProfileId, {
+        policy: { duplicateVerificationBehavior: 'block' },
+        updatedAt: Date.now(),
+      });
+    });
+
+    const existingEntitlementId = await seedEntitlement(t, buyerSubjectId, {
+      authUserId: creatorAuthUserId,
+      productId: 'product-license-verification-order-ref',
+      sourceProvider: 'jinxxy',
+      sourceReference: 'jinxxy:order-license-verification-order-ref',
+      status: 'active',
+    });
+
+    const result = await t.mutation(api.licenseVerification.completeLicenseVerification, {
+      apiSecret: API_SECRET,
+      creatorAuthUserId,
+      buyerAuthUserId,
+      subjectId: buyerSubjectId,
+      provider: 'jinxxy',
+      providerUserId: 'jinxxy-user-order-ref',
+      productsToGrant: [
+        {
+          productId: 'product-license-verification-order-ref',
+          sourceReference: 'jinxxy:order-license-verification-order-ref:license-order-ref',
+          providerTierRefs: ['version-order-ref'],
+        },
+      ],
+    } as never);
+
+    expect(result.success).toBe(true);
+    expect(result.entitlementIds).toEqual([existingEntitlementId]);
+
+    const entitlements = await t.run(async (ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+        )
+        .collect()
+    );
+
+    expect(entitlements).toHaveLength(1);
+    expect(entitlements[0]).toMatchObject({
+      _id: existingEntitlementId,
+      sourceProvider: 'jinxxy',
+      sourceReference: 'jinxxy:order-license-verification-order-ref:license-order-ref',
+      productId: 'product-license-verification-order-ref',
+      status: 'active',
+    });
+  });
+
   it('does not reuse another provider entitlement when raw order ids collide', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-license-verification-provider-collision-creator';
