@@ -29,8 +29,14 @@ async function sha256Hex(input: string): Promise<string> {
 
 describe('coupling job + license reveal', () => {
   let rootPrivateKey = '';
+  let originalFetch: typeof fetch;
+  let originalCouplingServiceBaseUrl: string | undefined;
+  let originalCouplingServiceSecret: string | undefined;
 
   beforeEach(async () => {
+    originalFetch = globalThis.fetch;
+    originalCouplingServiceBaseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL;
+    originalCouplingServiceSecret = process.env.COUPLING_SERVICE_SECRET;
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-coupling-job-flow';
     process.env.API_BASE_URL = issuerBaseUrl;
@@ -46,7 +52,32 @@ describe('coupling job + license reveal', () => {
 
   afterEach(() => {
     setPinnedYucpRootsForTests(null);
+    globalThis.fetch = originalFetch;
+    if (originalCouplingServiceBaseUrl === undefined) {
+      delete process.env.YUCP_COUPLING_SERVICE_BASE_URL;
+    } else {
+      process.env.YUCP_COUPLING_SERVICE_BASE_URL = originalCouplingServiceBaseUrl;
+    }
+    if (originalCouplingServiceSecret === undefined) {
+      delete process.env.COUPLING_SERVICE_SECRET;
+    } else {
+      process.env.COUPLING_SERVICE_SECRET = originalCouplingServiceSecret;
+    }
   });
+
+  function mockSeedRelay(seedHex = '1'.repeat(64)) {
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = 'seed-secret';
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+  }
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
     await t.run(async (ctx) => {
@@ -167,6 +198,7 @@ describe('coupling job + license reveal', () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     await seedActiveCouplingRuntime(t);
+    mockSeedRelay();
     const licenseToken = await mintLicenseToken();
     const assetPaths = ['Assets/Character/body.png', 'Assets/Model/model.fbx'];
 
@@ -183,6 +215,7 @@ describe('coupling job + license reveal', () => {
     expect(result.runtimeToken).toBeTruthy();
     expect(result.runtimeSha256).toBe(runtimePlaintextSha256);
     expect(result.files).toHaveLength(2);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['1'.repeat(64), '1'.repeat(64)]);
 
     // The runtime token round-trips and is bound to the same artifact.
     const runtimeClaims = await yucpCrypto.verifyCouplingRuntimeJwtAgainstPinnedRoots(

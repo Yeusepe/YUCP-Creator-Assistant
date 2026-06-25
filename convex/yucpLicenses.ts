@@ -1194,6 +1194,49 @@ export const recordCouplingTraces = internalMutation({
  * Self-guarding: if no coupling-runtime artifact is active, returns success with no files
  * (skipReason) so the importer skips coupling instead of failing the install.
  */
+
+/**
+ * Asks the closed coupling service to derive the per-(asset, buyer) placement seeds. Returns a
+ * map of assetPath -> seedHex, or null when the service is unconfigured/unreachable (caller then
+ * skips coupling rather than blocking the install). The watermark master never lives in this
+ * open-source server.
+ */
+async function deriveCouplingSeeds(
+  licenseSubject: string,
+  assetPaths: string[]
+): Promise<Record<string, string> | null> {
+  const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
+  const secret = (
+    process.env.COUPLING_SERVICE_SECRET ?? process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET
+  )?.trim();
+  if (!baseUrl || !secret) {
+    return null;
+  }
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/coupling/internal/derive-seeds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ licenseSubject, assetPaths }),
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = (await res.json()) as { seeds?: { assetPath: string; seedHex: string }[] };
+    if (!Array.isArray(data?.seeds)) {
+      return null;
+    }
+    const map: Record<string, string> = {};
+    for (const seed of data.seeds) {
+      if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed?.seedHex ?? '')) {
+        map[seed.assetPath] = seed.seedHex.toLowerCase();
+      }
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
 export const issueCouplingJob = internalAction({
   args: {
     packageId: v.string(),
@@ -1211,7 +1254,7 @@ export const issueCouplingJob = internalAction({
     skipReason: v.optional(v.string()),
     error: v.optional(v.string()),
     files: v.optional(
-      v.array(v.object({ assetPath: v.string(), tokenHex: v.string() }))
+      v.array(v.object({ assetPath: v.string(), tokenHex: v.string(), seedHex: v.string() }))
     ),
   }),
   handler: async (
@@ -1224,7 +1267,7 @@ export const issueCouplingJob = internalAction({
     expiresAt?: number;
     skipReason?: string;
     error?: string;
-    files?: { assetPath: string; tokenHex: string }[];
+    files?: { assetPath: string; tokenHex: string; seedHex: string }[];
   }> => {
     if (!PACKAGE_ID_RE.test(args.packageId)) {
       return { success: false, error: 'Invalid packageId format' };
@@ -1277,19 +1320,38 @@ export const issueCouplingJob = internalAction({
       return { success: true, files: [], skipReason: 'no_runtime' };
     }
 
-    const files: { assetPath: string; tokenHex: string }[] = [];
+    // The per-asset placement seed is derived in the closed coupling service (the watermark master
+    // never lives here). Without seeds the client cannot place a v2 mark, so coupling is skipped
+    // rather than failing the install.
+    const seedMap = await deriveCouplingSeeds(claims.sub, args.assetPaths);
+    if (!seedMap) {
+      return { success: true, files: [], skipReason: 'seed_unavailable' };
+    }
+
+    const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
     const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
+    // Both v2 encoders (image xg_0122, FBX mesh xg_0124) carry a 64-bit (8-byte) token — broad
+    // low-poly/low-resolution coverage, exact recovery via ECC+CRC. Token length is recorded per
+    // asset so the forensic decoder reconstructs the exact hex before hashing.
     for (const assetPath of args.assetPaths) {
-      const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+      const seedHex = seedMap[assetPath];
+      if (!seedHex) {
+        continue; // no seed for this asset → cannot place a mark → skip it (never blocks)
+      }
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(8));
       const tokenHex = Array.from(tokenBytes)
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
-      files.push({ assetPath, tokenHex });
+      files.push({ assetPath, tokenHex, seedHex });
       entries.push({
         assetPath,
         tokenHash: await sha256Hex(tokenHex),
         tokenLength: tokenBytes.length,
       });
+    }
+
+    if (files.length === 0) {
+      return { success: true, files: [], skipReason: 'seed_unavailable' };
     }
 
     const correlationId = crypto.randomUUID();
@@ -1382,6 +1444,16 @@ export const issueProtectedUnlock = internalAction({
     }
     if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
       return { success: false, error: 'License token machine mismatch' };
+    }
+
+    // Anti-ripper gate: refuse the unlock if this buyer resolves to an identity node that a confirmed
+    // trace blocked. Keyed on the license subject (and, when present, the attested VRChat id anchor),
+    // so a new account on the same blocked hardware or payment instrument inherits the block.
+    const blockCheck = await ctx.runQuery(internal.attestation.isIdentityBlocked, {
+      licenseSubject: licenseClaims.sub,
+    });
+    if (blockCheck.blocked) {
+      return { success: false, error: 'This purchase is not eligible for unlock on this account' };
     }
 
     const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {

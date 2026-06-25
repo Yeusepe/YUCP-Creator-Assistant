@@ -1866,6 +1866,156 @@ http.route({
   }),
 });
 
+// Attestation relay endpoints (internal). Hardware attestation TERMINATES in the closed
+// coupling-service, which holds the TPM verification, channel decryption, salting, weighting, and
+// block policy. This open server is a blind store: it only mints opaque challenge nonces and persists
+// already-hashed anchors plus an opaque verdict the closed service computed. Both endpoints require
+// CONVEX_API_SECRET so only the closed service can reach them; no attestation logic lives here.
+
+// POST /v1/attestation/internal/challenge, mint a single-use challenge nonce (anti-replay primitive).
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/challenge',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: { correlationId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const correlationId = body?.correlationId;
+    if (!correlationId || typeof correlationId !== 'string' || correlationId.length > 128) {
+      return errorResponse('correlationId is required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.issueChallenge, { correlationId });
+    return jsonResponse({ nonce: result.nonce, expiresAt: result.expiresAt });
+  }),
+});
+
+// POST /v1/attestation/internal/record, consume the challenge and persist the opaque resolution the
+// closed service produced. The body carries only salted hashes and an opaque verdict; never raw data.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/record',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: {
+      nonce?: string;
+      anchors?: Array<{ anchorType: string; anchorHash: string }>;
+      attestation?: unknown;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body?.nonce || !Array.isArray(body.anchors) || !body.attestation) {
+      return errorResponse('nonce, anchors, and attestation are required', 400);
+    }
+
+    try {
+      await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: body.nonce });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid challenge';
+      return errorResponse(message, 422);
+    }
+
+    const result = await ctx.runMutation(internal.attestation.recordResolution, {
+      anchors: body.anchors as never,
+      attestation: body.attestation as never,
+    });
+    return jsonResponse({ success: true, blocked: result.blocked, nodeId: result.nodeId });
+  }),
+});
+
+// POST /v1/attestation/internal/coupling-record, consume the challenge nonce (anti-replay) and
+// persist a coupling proof the closed service verified. Opaque hashes only; never raw paths or bytes.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/coupling-record',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: {
+      nonce?: string;
+      proof?: {
+        correlationId?: string;
+        tpmVerified?: boolean;
+        flags?: Array<string>;
+        assets?: Array<{ pathHash: string; contentSha256: string }>;
+        selfHashRef?: string;
+        licenseSubject?: string;
+      };
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body?.nonce || !body.proof || typeof body.proof.correlationId !== 'string') {
+      return errorResponse('nonce and proof are required', 400);
+    }
+
+    try {
+      await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: body.nonce });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Invalid challenge';
+      return errorResponse(message, 422);
+    }
+
+    const result = await ctx.runMutation(internal.attestation.recordCouplingProof, {
+      correlationId: body.proof.correlationId,
+      tpmVerified: body.proof.tpmVerified === true,
+      flags: (body.proof.flags ?? []) as never,
+      assets: (body.proof.assets ?? []) as never,
+      selfHashRef: body.proof.selfHashRef,
+      licenseSubject: body.proof.licenseSubject,
+    });
+    return jsonResponse({ success: true, proofId: result.proofId });
+  }),
+});
+
+// POST /v1/attestation/internal/payment-anchor, attach an opaque payment fingerprint hash (the
+// closed service salted it) as a durable anchor on the node behind a licenseSubject. Lets a new
+// machine that reuses the same card collapse into the existing identity node.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/payment-anchor',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: { licenseSubject?: string; paymentFingerprintHash?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!body?.licenseSubject || !body?.paymentFingerprintHash) {
+      return errorResponse('licenseSubject and paymentFingerprintHash are required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.attachPaymentAnchor, {
+      licenseSubject: body.licenseSubject,
+      paymentFingerprintHash: body.paymentFingerprintHash,
+    });
+    return jsonResponse({ success: true, attached: result.attached });
+  }),
+});
+
 // POST /v1/licenses/revoke-grant, revoke a protected materialization grant (admin/CONVEX_API_SECRET)
 // NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
 http.route({
