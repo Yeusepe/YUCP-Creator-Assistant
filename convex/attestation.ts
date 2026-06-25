@@ -51,6 +51,13 @@ async function absorbNode(
   for (const att of atts) {
     await ctx.db.patch(att._id, { identityNodeId: intoId });
   }
+  const proofs = await ctx.db
+    .query('coupling_proofs')
+    .withIndex('by_identity_node', (q) => q.eq('identityNodeId', fromId))
+    .collect();
+  for (const proof of proofs) {
+    await ctx.db.patch(proof._id, { identityNodeId: intoId });
+  }
   const blocks = await ctx.db
     .query('blocked_identities')
     .withIndex('by_identity_node', (q) => q.eq('identityNodeId', fromId))
@@ -91,6 +98,22 @@ async function getLatestAttestationForLicenseSubject(
     .withIndex('by_license_subject_created_at', (q) => q.eq('licenseSubject', licenseSubject))
     .order('desc')
     .first();
+}
+
+async function linkPendingCouplingProofsForLicenseSubject(
+  ctx: GenericMutationCtx<DataModel>,
+  licenseSubject: string,
+  identityNodeId: Id<'identity_nodes'>
+): Promise<void> {
+  const proofs = await ctx.db
+    .query('coupling_proofs')
+    .withIndex('by_license_subject', (q) => q.eq('licenseSubject', licenseSubject))
+    .collect();
+  for (const proof of proofs) {
+    if (!proof.identityNodeId) {
+      await ctx.db.patch(proof._id, { identityNodeId });
+    }
+  }
 }
 
 /** Mint a fresh single-use challenge nonce. Generic anti-replay; carries no attestation secret. */
@@ -172,6 +195,7 @@ export const recordResolution = internalMutation({
       paymentFingerprintHash: v.optional(v.string()),
       usrIdHash: v.optional(v.string()),
       licenseSubject: v.optional(v.string()),
+      machineFingerprintHash: v.optional(v.string()),
       authUserId: v.optional(v.string()),
       usrIdConfidence: v.optional(v.string()),
       correlationId: v.string(),
@@ -260,12 +284,16 @@ export const recordResolution = internalMutation({
       paymentFingerprintHash: args.attestation.paymentFingerprintHash,
       usrIdHash: args.attestation.usrIdHash,
       licenseSubject: args.attestation.licenseSubject,
+      machineFingerprintHash: args.attestation.machineFingerprintHash,
       authUserId: args.attestation.authUserId,
       identityNodeId: nodeId,
       usrIdConfidence: args.attestation.usrIdConfidence,
       correlationId: args.attestation.correlationId,
       createdAt: now,
     });
+    if (args.attestation.licenseSubject) {
+      await linkPendingCouplingProofsForLicenseSubject(ctx, args.attestation.licenseSubject, nodeId);
+    }
 
     const node = await ctx.db.get(nodeId);
     return { nodeId, blocked: node?.status === 'blocked', durableAnchorCount };
@@ -278,7 +306,7 @@ export const recordResolution = internalMutation({
  * Resolves licenseSubject -> attestation -> node and reports an active block.
  */
 export const isIdentityBlocked = internalQuery({
-  args: { licenseSubject: v.optional(v.string()) },
+  args: { licenseSubject: v.optional(v.string()), machineFingerprintHash: v.optional(v.string()) },
   handler: async (ctx, args) => {
     if (!args.licenseSubject) {
       return { blocked: false, attested: false };
@@ -287,6 +315,9 @@ export const isIdentityBlocked = internalQuery({
       .query('machine_attestations')
       .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
       .collect();
+    const currentMachineAttested = args.machineFingerprintHash
+      ? attestations.some((att) => att.machineFingerprintHash === args.machineFingerprintHash)
+      : attestations.length > 0;
     for (const att of attestations) {
       if (!att.identityNodeId) {
         continue;
@@ -296,7 +327,7 @@ export const isIdentityBlocked = internalQuery({
         return { blocked: true, attested: true };
       }
     }
-    return { blocked: false, attested: attestations.length > 0 };
+    return { blocked: false, attested: currentMachineAttested };
   },
 });
 
@@ -381,6 +412,7 @@ export const recordCouplingProof = internalMutation({
       flags: args.flags,
       assets: args.assets,
       selfHashRef: args.selfHashRef,
+      licenseSubject: args.licenseSubject,
       identityNodeId,
       createdAt: Date.now(),
     });

@@ -1909,6 +1909,7 @@ type RelayAttestation = {
   paymentFingerprintHash?: string;
   usrIdHash?: string;
   licenseSubject?: string;
+  machineFingerprintHash?: string;
   authUserId?: string;
   usrIdConfidence?: string;
   correlationId: string;
@@ -2060,13 +2061,15 @@ function parseAttestationRecordBody(
   const paymentFingerprintHash = parseOptionalHash(rawAttestation.paymentFingerprintHash);
   const usrIdHash = parseOptionalHash(rawAttestation.usrIdHash);
   const licenseSubject = parseOptionalHash(rawAttestation.licenseSubject);
+  const machineFingerprintHash = parseOptionalHash(rawAttestation.machineFingerprintHash);
   if (
     ekHash === null ||
     akPubHash === null ||
     networkAnchorHash === null ||
     paymentFingerprintHash === null ||
     usrIdHash === null ||
-    licenseSubject === null
+    licenseSubject === null ||
+    machineFingerprintHash === null
   ) {
     return { ok: false };
   }
@@ -2101,6 +2104,7 @@ function parseAttestationRecordBody(
       ...(paymentFingerprintHash === undefined ? {} : { paymentFingerprintHash }),
       ...(usrIdHash === undefined ? {} : { usrIdHash }),
       ...(licenseSubject === undefined ? {} : { licenseSubject }),
+      ...(machineFingerprintHash === undefined ? {} : { machineFingerprintHash }),
       ...(authUserId === undefined ? {} : { authUserId }),
       ...(usrIdConfidence === undefined ? {} : { usrIdConfidence }),
       correlationId: rawAttestation.correlationId,

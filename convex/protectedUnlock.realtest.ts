@@ -23,6 +23,11 @@ describe('protected unlock issuance', () => {
 
   let rootPrivateKey = '';
 
+  async function sha256Hex(input: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+    return Buffer.from(new Uint8Array(digest)).toString('hex');
+  }
+
   beforeEach(async () => {
     rootPrivateKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
     process.env.YUCP_ROOT_PRIVATE_KEY = rootPrivateKey;
@@ -74,7 +79,7 @@ describe('protected unlock issuance', () => {
     });
   }
 
-  async function mintLicenseToken() {
+  async function mintLicenseToken(overrides?: Partial<{ machine_fingerprint: string }>) {
     const nowSeconds = Math.floor(Date.now() / 1000);
     return await signLicenseJwt(
       {
@@ -83,7 +88,7 @@ describe('protected unlock issuance', () => {
         sub: licenseSubject,
         jti: 'nonce-protected-unlock',
         package_id: packageId,
-        machine_fingerprint: machineFingerprint,
+        machine_fingerprint: overrides?.machine_fingerprint ?? machineFingerprint,
         provider: 'gumroad',
         iat: nowSeconds,
         exp: nowSeconds + 3600,
@@ -103,6 +108,7 @@ describe('protected unlock issuance', () => {
         osAnchorHashes: [],
         correlationId: 'corr-protected-unlock-clean',
         licenseSubject,
+        machineFingerprintHash: await sha256Hex(machineFingerprint),
       },
     });
   }
@@ -117,6 +123,7 @@ describe('protected unlock issuance', () => {
         osAnchorHashes: [],
         correlationId: 'corr-protected-unlock-block',
         licenseSubject,
+        machineFingerprintHash: await sha256Hex(machineFingerprint),
       },
     });
     await t.mutation(internal.attestation.flagIdentityForReview, {
@@ -148,6 +155,29 @@ describe('protected unlock issuance', () => {
       packageId,
       protectedAssetId,
       machineFingerprint,
+      projectId,
+      licenseToken,
+      issuerBaseUrl,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Attestation is required before protected unlock',
+    });
+  });
+
+  it('requires attestation for the same machine as the protected unlock token', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedProtectedAsset(t);
+    await attestLicenseSubject(t);
+    const otherMachineFingerprint = 'c'.repeat(64);
+    const licenseToken = await mintLicenseToken({ machine_fingerprint: otherMachineFingerprint });
+
+    const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint: otherMachineFingerprint,
       projectId,
       licenseToken,
       issuerBaseUrl,

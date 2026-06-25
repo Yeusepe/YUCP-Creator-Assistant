@@ -2663,6 +2663,8 @@ const machine_attestations = defineTable({
   usrIdHash: v.optional(v.string()),
   /** SHA-256 of the raw license key (shared join key with coupling_trace_records.licenseSubject). */
   licenseSubject: v.optional(v.string()),
+  /** SHA-256 of the unlock/request machine fingerprint, used to bind attestation to current unlock. */
+  machineFingerprintHash: v.optional(v.string()),
   /** Creator/account the unlock authenticated as. */
   authUserId: v.optional(v.string()),
   /** Resolved identity node this submit was attached to. */
@@ -2678,6 +2680,7 @@ const machine_attestations = defineTable({
   .index('by_identity_node', ['identityNodeId'])
   .index('by_license_subject', ['licenseSubject'])
   .index('by_license_subject_created_at', ['licenseSubject', 'createdAt'])
+  .index('by_license_subject_machine', ['licenseSubject', 'machineFingerprintHash'])
   .index('by_correlation', ['correlationId']);
 
 /**
@@ -2763,11 +2766,14 @@ const coupling_proofs = defineTable({
   ),
   /** Salted hash of the runtime self-integrity hash that produced this proof. */
   selfHashRef: v.optional(v.string()),
+  /** SHA-256 license subject, retained so proofs submitted before attestation can relink later. */
+  licenseSubject: v.optional(v.string()),
   /** Resolved identity node, when the proof carried a resolvable license subject. */
   identityNodeId: v.optional(v.id('identity_nodes')),
   createdAt: v.number(),
 })
   .index('by_correlation', ['correlationId'])
+  .index('by_license_subject', ['licenseSubject'])
   .index('by_identity_node', ['identityNodeId']);
 
 /**

@@ -1515,19 +1515,7 @@ export const issueProtectedUnlock = internalAction({
     if (licenseClaims.machine_fingerprint !== args.machineFingerprint) {
       return { success: false, error: 'License token machine mismatch' };
     }
-
-    // Anti-ripper gate: refuse the unlock if this buyer resolves to an identity node that a confirmed
-    // trace blocked. Keyed on the license subject (and, when present, the attested VRChat id anchor),
-    // so a new account on the same blocked hardware or payment instrument inherits the block.
-    const blockCheck = await ctx.runQuery(internal.attestation.isIdentityBlocked, {
-      licenseSubject: licenseClaims.sub,
-    });
-    if (!blockCheck.attested) {
-      return { success: false, error: 'Attestation is required before protected unlock' };
-    }
-    if (blockCheck.blocked) {
-      return { success: false, error: 'This purchase is not eligible for unlock on this account' };
-    }
+    const machineFingerprintHash = await sha256Hex(args.machineFingerprint);
 
     const protectedAsset = await ctx.runQuery(internal.yucpLicenses.getProtectedAsset, {
       packageId: args.packageId,
@@ -1545,6 +1533,20 @@ export const issueProtectedUnlock = internalAction({
     }
     if (!CONTENT_HASH_RE.test(protectedAsset.contentHash)) {
       return { success: false, error: 'Protected asset content hash is invalid' };
+    }
+
+    // Anti-ripper gate: refuse the unlock if this buyer resolves to an identity node that a confirmed
+    // trace blocked. The attestation must be for the same machine fingerprint as this unlock token,
+    // so a clean helper machine cannot satisfy the gate for a blocked current machine.
+    const blockCheck = await ctx.runQuery(internal.attestation.isIdentityBlocked, {
+      licenseSubject: licenseClaims.sub,
+      machineFingerprintHash,
+    });
+    if (blockCheck.blocked) {
+      return { success: false, error: 'This purchase is not eligible for unlock on this account' };
+    }
+    if (!blockCheck.attested) {
+      return { success: false, error: 'Attestation is required before protected unlock' };
     }
 
     await ctx.runMutation(internal.yucpLicenses.recordProtectedUnlockIssuance, {

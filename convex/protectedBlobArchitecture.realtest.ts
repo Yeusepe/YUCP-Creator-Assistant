@@ -173,6 +173,7 @@ describe('protected blob package-first architecture', () => {
         osAnchorHashes: [],
         correlationId: 'corr-protected-ticket-clean',
         licenseSubject,
+        machineFingerprintHash: await sha256Hex(machineFingerprint),
       },
     });
   }

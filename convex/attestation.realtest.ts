@@ -467,6 +467,27 @@ describe('coupling proof record', () => {
     expect(result.identityNodeId).not.toBe(oldNode.nodeId);
   });
 
+  it('relinks coupling proofs that arrive before the matching attestation', async () => {
+    const t = makeTestConvex();
+    const proof = await t.mutation(internal.attestation.recordCouplingProof, {
+      correlationId: 'corr-proof-before-attestation',
+      tpmVerified: true,
+      flags: [],
+      assets: [{ pathHash: 'p-hash', contentSha256: 'b'.repeat(64) }],
+      licenseSubject: 'lic-proof-delayed',
+    });
+
+    const before = await t.run(async (ctx) => ctx.db.get(proof.proofId));
+    expect(before?.identityNodeId).toBeUndefined();
+    expect((before as { licenseSubject?: string } | null)?.licenseSubject).toBe(
+      'lic-proof-delayed'
+    );
+
+    const node = await record(t, { ekHash: 'ek-proof-delayed', licenseSubject: 'lic-proof-delayed' });
+    const after = await t.run(async (ctx) => ctx.db.get(proof.proofId));
+    expect(after?.identityNodeId).toBe(node.nodeId);
+  });
+
   it('enforces single-use nonce so a captured coupling proof cannot be replayed', async () => {
     const t = makeTestConvex();
     const { nonce } = await t.mutation(internal.attestation.issueChallenge, {
