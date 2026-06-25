@@ -1209,8 +1209,8 @@ async function deriveCouplingSeeds(
 ): Promise<Record<string, string> | null> {
   const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
   const secret =
-    process.env.COUPLING_SERVICE_SECRET?.trim() ||
-    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim();
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ||
+    process.env.COUPLING_SERVICE_SECRET?.trim();
   if (!baseUrl || !secret) {
     return null;
   }
@@ -1473,6 +1473,9 @@ export const issueProtectedUnlock = internalAction({
     const blockCheck = await ctx.runQuery(internal.attestation.isIdentityBlocked, {
       licenseSubject: licenseClaims.sub,
     });
+    if (!blockCheck.attested) {
+      return { success: false, error: 'Attestation is required before protected unlock' };
+    }
     if (blockCheck.blocked) {
       return { success: false, error: 'This purchase is not eligible for unlock on this account' };
     }

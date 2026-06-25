@@ -112,6 +112,30 @@ describe('coupling job + license reveal', () => {
     }) as typeof fetch;
   }
 
+  function mockPreferredSeedRelay(seedHex = '3'.repeat(64)) {
+    const expectedSecret = 'test-preferred-coupling-relay-token';
+    let observedAuthorization: string | null = null;
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = 'stale-legacy-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      const headers = new Headers(init?.headers);
+      observedAuthorization = headers.get('Authorization');
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    return {
+      expectedAuthorization: `Bearer ${expectedSecret}`,
+      getObservedAuthorization: () => observedAuthorization,
+    };
+  }
+
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
     await t.run(async (ctx) => {
       await ctx.db.insert('package_registry', {
@@ -300,6 +324,27 @@ describe('coupling job + license reveal', () => {
 
     expect(result.success).toBe(true);
     expect(result.files?.map((file) => file.seedHex)).toEqual(['2'.repeat(64)]);
+  });
+
+  it('prefers the YUCP coupling relay secret when both secret env vars are present', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    const relay = mockPreferredSeedRelay();
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['3'.repeat(64)]);
+    expect(relay.getObservedAuthorization()).toBe(relay.expectedAuthorization);
   });
 
   // ── Reveal ────────────────────────────────────────────────────────────────

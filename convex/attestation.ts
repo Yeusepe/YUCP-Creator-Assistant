@@ -55,11 +55,18 @@ async function absorbNode(
     .query('blocked_identities')
     .withIndex('by_identity_node', (q) => q.eq('identityNodeId', fromId))
     .collect();
+  const existingIntoBlocks = await ctx.db
+    .query('blocked_identities')
+    .withIndex('by_identity_node', (q) => q.eq('identityNodeId', intoId))
+    .collect();
+  const hasActiveBlock =
+    blocks.some((block) => block.status === 'active') ||
+    existingIntoBlocks.some((block) => block.status === 'active');
   for (const block of blocks) {
     await ctx.db.patch(block._id, { identityNodeId: intoId, updatedAt: now });
   }
   await ctx.db.patch(fromId, { status: 'active', mergedFromNodeId: intoId, updatedAt: now });
-  if (fromNode?.status === 'blocked' || intoNode?.status === 'blocked') {
+  if (fromNode?.status === 'blocked' || intoNode?.status === 'blocked' || hasActiveBlock) {
     await ctx.db.patch(intoId, { status: 'blocked', updatedAt: now });
   }
 }
@@ -285,7 +292,7 @@ export const isIdentityBlocked = internalQuery({
   args: { licenseSubject: v.optional(v.string()) },
   handler: async (ctx, args) => {
     if (!args.licenseSubject) {
-      return { blocked: false };
+      return { blocked: false, attested: false };
     }
     const attestations = await ctx.db
       .query('machine_attestations')
@@ -297,10 +304,10 @@ export const isIdentityBlocked = internalQuery({
       }
       const node = await ctx.db.get(att.identityNodeId);
       if (node?.status === 'blocked') {
-        return { blocked: true };
+        return { blocked: true, attested: true };
       }
     }
-    return { blocked: false };
+    return { blocked: false, attested: attestations.length > 0 };
   },
 });
 

@@ -16,6 +16,7 @@ const projectId = '0123456789abcdef0123456789abcdef';
 const creatorAuthUserId = 'auth-protected-ticket';
 const publisherId = 'publisher-protected-ticket';
 const certNonce = 'cert-protected-ticket';
+const licenseSubject = 'license-subject-protected-ticket';
 const couplingRuntimeVersion = '2026.03.26.1';
 const couplingRuntimePlaintextSha256 = 'b'.repeat(64);
 const contentKeyBase64 = Buffer.from('protected-blob-content-key').toString('base64');
@@ -130,7 +131,7 @@ describe('protected blob package-first architecture', () => {
       {
         iss: buildPublicAuthIssuer(issuerBaseUrl),
         aud: 'yucp-license-gate',
-        sub: 'license-subject-protected-ticket',
+        sub: licenseSubject,
         jti: 'nonce-protected-ticket',
         package_id: packageId,
         machine_fingerprint: machineFingerprint,
@@ -162,10 +163,25 @@ describe('protected blob package-first architecture', () => {
     });
   }
 
+  async function attestLicenseSubject(t: ReturnType<typeof makeTestConvex>) {
+    await t.mutation(internal.attestation.recordResolution, {
+      anchors: [{ anchorType: 'tpm_ek', anchorHash: 'ek-protected-ticket-clean' }],
+      attestation: {
+        tpmVerified: true,
+        flags: [],
+        fingerprintVector: [],
+        osAnchorHashes: [],
+        correlationId: 'corr-protected-ticket-clean',
+        licenseSubject,
+      },
+    });
+  }
+
   it('requires a matching package registration before issuing protected unlock tickets', async () => {
     const t = makeTestConvex();
     await seedProtectedAsset(t);
     const licenseToken = await mintLicenseToken();
+    await attestLicenseSubject(t);
 
     const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
       packageId,
@@ -187,6 +203,7 @@ describe('protected blob package-first architecture', () => {
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
     const licenseToken = await mintLicenseToken();
+    await attestLicenseSubject(t);
 
     const firstIssue = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
       packageId,

@@ -106,6 +106,36 @@ describe('attestation identity graph', () => {
     expect(b.nodeId).not.toBe(a.nodeId);
   });
 
+  it('keeps the merge survivor blocked when moved block rows are active', async () => {
+    const t = makeTestConvex();
+    const survivor = await record(t, { ekHash: 'ek-survivor', licenseSubject: 'lic-survivor' });
+    const absorbed = await record(t, { ekHash: 'ek-stale-block', licenseSubject: 'lic-stale-block' });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('blocked_identities', {
+        identityNodeId: absorbed.nodeId,
+        status: 'active',
+        reason: 'active block on stale node status',
+        evidenceRef: 'trace-stale-node-status',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    const merged = await recordWithAnchors(t, {
+      anchors: [
+        { anchorType: 'tpm_ek', anchorHash: 'ek-survivor' },
+        { anchorType: 'tpm_ek', anchorHash: 'ek-stale-block' },
+      ],
+      licenseSubject: 'lic-merged-stale-block',
+    });
+
+    expect(merged.nodeId).toBe(survivor.nodeId);
+    const lookup = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-merged-stale-block',
+    });
+    expect(lookup.blocked).toBe(true);
+  });
+
   it('is not blocked before review and is blocked after review promotes the node', async () => {
     const t = makeTestConvex();
     const { nodeId } = await record(t, { ekHash: 'ek-1', licenseSubject: 'lic-block' });

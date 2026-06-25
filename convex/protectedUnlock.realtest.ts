@@ -93,6 +93,20 @@ describe('protected unlock issuance', () => {
     );
   }
 
+  async function attestLicenseSubject(t: ReturnType<typeof makeTestConvex>) {
+    await t.mutation(internal.attestation.recordResolution, {
+      anchors: [{ anchorType: 'tpm_ek', anchorHash: 'ek-protected-unlock-clean' }],
+      attestation: {
+        tpmVerified: true,
+        flags: [],
+        fingerprintVector: [],
+        osAnchorHashes: [],
+        correlationId: 'corr-protected-unlock-clean',
+        licenseSubject,
+      },
+    });
+  }
+
   async function blockLicenseSubject(t: ReturnType<typeof makeTestConvex>) {
     const resolved = await t.mutation(internal.attestation.recordResolution, {
       anchors: [{ anchorType: 'tpm_ek', anchorHash: 'ek-protected-unlock-block' }],
@@ -124,10 +138,32 @@ describe('protected unlock issuance', () => {
     });
   }
 
+  it('refuses protected unlock tickets until the license subject has an attestation', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedProtectedAsset(t);
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+      issuerBaseUrl,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'Attestation is required before protected unlock',
+    });
+  });
+
   it('binds protected unlock tokens to the protected asset hash with a short ttl', async () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     await seedProtectedAsset(t);
+    await attestLicenseSubject(t);
     const licenseToken = await mintLicenseToken();
 
     const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
