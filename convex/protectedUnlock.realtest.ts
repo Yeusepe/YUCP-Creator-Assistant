@@ -113,17 +113,22 @@ describe('protected unlock issuance', () => {
     });
   }
 
-  async function blockLicenseSubject(t: ReturnType<typeof makeTestConvex>) {
+  async function blockLicenseSubject(
+    t: ReturnType<typeof makeTestConvex>,
+    overrides?: Partial<{ machineFingerprint: string; anchorHash: string; correlationId: string }>
+  ) {
     const resolved = await t.mutation(internal.attestation.recordResolution, {
-      anchors: [{ anchorType: 'tpm_ek', anchorHash: 'ek-protected-unlock-block' }],
+      anchors: [
+        { anchorType: 'tpm_ek', anchorHash: overrides?.anchorHash ?? 'ek-protected-unlock-block' },
+      ],
       attestation: {
         tpmVerified: true,
         flags: [],
         fingerprintVector: [],
         osAnchorHashes: [],
-        correlationId: 'corr-protected-unlock-block',
+        correlationId: overrides?.correlationId ?? 'corr-protected-unlock-block',
         licenseSubject,
-        machineFingerprintHash: await sha256Hex(machineFingerprint),
+        machineFingerprintHash: await sha256Hex(overrides?.machineFingerprint ?? machineFingerprint),
       },
     });
     await t.mutation(internal.attestation.flagIdentityForReview, {
@@ -253,5 +258,30 @@ describe('protected unlock issuance', () => {
       success: false,
       error: 'This purchase is not eligible for unlock on this account',
     });
+  });
+
+  it('does not inherit a block from a different attested machine on the same license', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedProtectedAsset(t);
+    await attestLicenseSubject(t);
+    await blockLicenseSubject(t, {
+      machineFingerprint: 'd'.repeat(64),
+      anchorHash: 'ek-protected-unlock-other-machine-block',
+      correlationId: 'corr-protected-unlock-other-machine-block',
+    });
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+      issuerBaseUrl,
+    });
+
+    expect(result).toMatchObject({ success: true });
+    expect(result.unlockToken).toBeTruthy();
   });
 });

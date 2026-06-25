@@ -311,13 +311,20 @@ export const isIdentityBlocked = internalQuery({
     if (!args.licenseSubject) {
       return { blocked: false, attested: false };
     }
-    const attestations = await ctx.db
-      .query('machine_attestations')
-      .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
-      .collect();
-    const currentMachineAttested = args.machineFingerprintHash
-      ? attestations.some((att) => att.machineFingerprintHash === args.machineFingerprintHash)
-      : attestations.length > 0;
+    const attestations = args.machineFingerprintHash
+      ? await ctx.db
+          .query('machine_attestations')
+          .withIndex('by_license_subject_machine', (q) =>
+            q
+              .eq('licenseSubject', args.licenseSubject)
+              .eq('machineFingerprintHash', args.machineFingerprintHash)
+          )
+          .collect()
+      : await ctx.db
+          .query('machine_attestations')
+          .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
+          .collect();
+    const currentMachineAttested = attestations.length > 0;
     for (const att of attestations) {
       if (!att.identityNodeId) {
         continue;
