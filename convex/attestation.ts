@@ -51,6 +51,13 @@ async function absorbNode(
   for (const att of atts) {
     await ctx.db.patch(att._id, { identityNodeId: intoId });
   }
+  const blocks = await ctx.db
+    .query('blocked_identities')
+    .withIndex('by_identity_node', (q) => q.eq('identityNodeId', fromId))
+    .collect();
+  for (const block of blocks) {
+    await ctx.db.patch(block._id, { identityNodeId: intoId, updatedAt: now });
+  }
   await ctx.db.patch(fromId, { status: 'active', mergedFromNodeId: intoId, updatedAt: now });
   if (fromNode?.status === 'blocked' || intoNode?.status === 'blocked') {
     await ctx.db.patch(intoId, { status: 'blocked', updatedAt: now });
@@ -253,15 +260,20 @@ export const isIdentityBlocked = internalQuery({
     if (!args.licenseSubject) {
       return { blocked: false };
     }
-    const att = await ctx.db
+    const attestations = await ctx.db
       .query('machine_attestations')
       .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
-      .first();
-    if (!att?.identityNodeId) {
-      return { blocked: false };
+      .collect();
+    for (const att of attestations) {
+      if (!att.identityNodeId) {
+        continue;
+      }
+      const node = await ctx.db.get(att.identityNodeId);
+      if (node?.status === 'blocked') {
+        return { blocked: true };
+      }
     }
-    const node = await ctx.db.get(att.identityNodeId);
-    return { blocked: node?.status === 'blocked' };
+    return { blocked: false };
   },
 });
 
@@ -395,15 +407,23 @@ export const reviewIdentityBlock = internalMutation({
     if (!block) {
       throw new ConvexError('Unknown block record');
     }
+    const now = Date.now();
+    const nodeBlocks = await ctx.db
+      .query('blocked_identities')
+      .withIndex('by_identity_node', (q) => q.eq('identityNodeId', block.identityNodeId))
+      .collect();
+    const hasOtherActiveBlock = nodeBlocks.some(
+      (candidate) => candidate._id !== args.blockId && candidate.status === 'active'
+    );
     await ctx.db.patch(block.identityNodeId, {
-      status: args.decision === 'active' ? 'blocked' : 'active',
-      updatedAt: Date.now(),
+      status: args.decision === 'active' || hasOtherActiveBlock ? 'blocked' : 'active',
+      updatedAt: now,
     });
     await ctx.db.patch(args.blockId, {
       status: args.decision,
       reviewedByUserId: args.reviewedByUserId,
       appeal: args.appeal,
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
   },
 });

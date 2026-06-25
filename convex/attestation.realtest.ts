@@ -41,24 +41,33 @@ async function record(
   });
 }
 
-async function blockNode(t: TestConvex, nodeId: Id<'identity_nodes'>): Promise<void> {
+async function flagBlock(t: TestConvex, nodeId: Id<'identity_nodes'>): Promise<Id<'blocked_identities'>> {
   await t.mutation(internal.attestation.flagIdentityForReview, {
     identityNodeId: nodeId,
     reason: 'confirmed coupling trace',
     evidenceRef: 'trace-1',
   });
-  const blockId = await t.run(async (ctx) => {
-    const block = await ctx.db
+  return await t.run(async (ctx) => {
+    const blocks = await ctx.db
       .query('blocked_identities')
       .withIndex('by_identity_node', (q) => q.eq('identityNodeId', nodeId))
-      .first();
+      .collect();
+    const block = blocks.find((candidate) => candidate.status === 'pending');
     return block?._id as Id<'blocked_identities'>;
   });
+}
+
+async function blockNode(
+  t: TestConvex,
+  nodeId: Id<'identity_nodes'>
+): Promise<Id<'blocked_identities'>> {
+  const blockId = await flagBlock(t, nodeId);
   await t.mutation(internal.attestation.reviewIdentityBlock, {
     blockId,
     decision: 'active',
     reviewedByUserId: 'reviewer-1',
   });
+  return blockId;
 }
 
 describe('attestation identity graph', () => {
@@ -109,6 +118,18 @@ describe('attestation identity graph', () => {
     expect(lookup.blocked).toBe(true);
   });
 
+  it('blocks a license subject if any of its attestations resolve to a blocked node', async () => {
+    const t = makeTestConvex();
+    await record(t, { ekHash: 'ek-before-block', licenseSubject: 'lic-reused' });
+    const blocked = await record(t, { ekHash: 'ek-after-block', licenseSubject: 'lic-reused' });
+    await blockNode(t, blocked.nodeId);
+
+    const lookup = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-reused',
+    });
+    expect(lookup.blocked).toBe(true);
+  });
+
   it('reverses a block on appeal', async () => {
     const t = makeTestConvex();
     const { nodeId } = await record(t, { ekHash: 'ek-appeal', licenseSubject: 'lic-appeal' });
@@ -132,6 +153,42 @@ describe('attestation identity graph', () => {
       licenseSubject: 'lic-appeal',
     });
     expect(after.blocked).toBe(false);
+  });
+
+  it('keeps a node blocked while another active block record remains', async () => {
+    const t = makeTestConvex();
+    const { nodeId } = await record(t, { ekHash: 'ek-multi-block', licenseSubject: 'lic-multi-block' });
+    const firstBlockId = await blockNode(t, nodeId);
+    const secondBlockId = await flagBlock(t, nodeId);
+    await t.mutation(internal.attestation.reviewIdentityBlock, {
+      blockId: secondBlockId,
+      decision: 'active',
+      reviewedByUserId: 'reviewer-2',
+    });
+
+    await t.mutation(internal.attestation.reviewIdentityBlock, {
+      blockId: firstBlockId,
+      decision: 'reversed',
+      reviewedByUserId: 'reviewer-1',
+      appeal: 'first evidence reversed',
+    });
+
+    const afterFirstReversal = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-multi-block',
+    });
+    expect(afterFirstReversal.blocked).toBe(true);
+
+    await t.mutation(internal.attestation.reviewIdentityBlock, {
+      blockId: secondBlockId,
+      decision: 'reversed',
+      reviewedByUserId: 'reviewer-2',
+      appeal: 'second evidence reversed',
+    });
+
+    const afterAllReversed = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-multi-block',
+    });
+    expect(afterAllReversed.blocked).toBe(false);
   });
 
   it('reports no block for an unknown licenseSubject', async () => {
@@ -234,6 +291,37 @@ describe('attestation payment anchor', () => {
       licenseSubject: 'lic-b2',
     });
     expect(lookup.blocked).toBe(true);
+  });
+
+  it('moves active block records to the surviving node during a payment merge', async () => {
+    const t = makeTestConvex();
+    const blocked = await record(t, { ekHash: 'ek-merge-blocked', licenseSubject: 'lic-merge-blocked' });
+    const blockId = await blockNode(t, blocked.nodeId);
+    await t.mutation(internal.attestation.attachPaymentAnchor, {
+      licenseSubject: 'lic-merge-blocked',
+      paymentFingerprintHash: 'card-merge-review',
+    });
+    const survivor = await record(t, { ekHash: 'ek-merge-survivor', licenseSubject: 'lic-merge-survivor' });
+
+    await t.mutation(internal.attestation.attachPaymentAnchor, {
+      licenseSubject: 'lic-merge-survivor',
+      paymentFingerprintHash: 'card-merge-review',
+    });
+
+    const movedBlock = await t.run(async (ctx) => ctx.db.get(blockId));
+    expect(movedBlock?.identityNodeId).toBe(survivor.nodeId);
+
+    await t.mutation(internal.attestation.reviewIdentityBlock, {
+      blockId,
+      decision: 'reversed',
+      reviewedByUserId: 'reviewer-1',
+      appeal: 'merged block reviewed',
+    });
+
+    const lookup = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-merge-survivor',
+    });
+    expect(lookup.blocked).toBe(false);
   });
 });
 
