@@ -60,6 +60,8 @@ const internalMock = {
     recordResolution: 'internal.attestation.recordResolution',
     recordCouplingProof: 'internal.attestation.recordCouplingProof',
     attachPaymentAnchor: 'internal.attestation.attachPaymentAnchor',
+    flagIdentityForReview: 'internal.attestation.flagIdentityForReview',
+    reviewIdentityBlock: 'internal.attestation.reviewIdentityBlock',
   },
 } as const;
 
@@ -548,5 +550,79 @@ describe('Convex HTTP surface hardening', () => {
 
     expect(response.status).toBe(400);
     expect(runMutationMock.mock.calls).toHaveLength(0);
+  });
+
+  it('exposes confirmed identity block creation through the authenticated internal surface', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown, args: unknown) => {
+      if (reference === internalMock.attestation.flagIdentityForReview) {
+        expect(args).toEqual({
+          identityNodeId: 'identity-node-1',
+          reason: 'confirmed leaked trace',
+          evidenceRef: 'trace:release:asset',
+        });
+        return { blockId: 'block-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/identity-blocks');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/identity-blocks', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identityNodeId: 'identity-node-1',
+          reason: 'confirmed leaked trace',
+          evidenceRef: 'trace:release:asset',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true, blockId: 'block-1' });
+    expect(runMutationMock.mock.calls).toHaveLength(1);
+  });
+
+  it('exposes identity block review through the authenticated internal surface', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown, args: unknown) => {
+      if (reference === internalMock.attestation.reviewIdentityBlock) {
+        expect(args).toEqual({
+          blockId: 'block-1',
+          decision: 'active',
+          reviewedByUserId: 'reviewer-1',
+          appeal: 'confirmed by closed-service threshold',
+        });
+        return undefined;
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/identity-block-reviews');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/identity-block-reviews', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          blockId: 'block-1',
+          decision: 'active',
+          reviewedByUserId: 'reviewer-1',
+          appeal: 'confirmed by closed-service threshold',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(runMutationMock.mock.calls).toHaveLength(1);
   });
 });

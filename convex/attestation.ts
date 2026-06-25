@@ -442,7 +442,7 @@ export const flagIdentityForReview = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ctx.db.insert('blocked_identities', {
+    const blockId = await ctx.db.insert('blocked_identities', {
       identityNodeId: args.identityNodeId,
       status: 'pending',
       reason: args.reason,
@@ -450,6 +450,7 @@ export const flagIdentityForReview = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
+    return { blockId };
   },
 });
 

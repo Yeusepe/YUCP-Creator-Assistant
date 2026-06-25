@@ -48,6 +48,12 @@
  *        Revoke a certificate by nonce.
  *        Body: { certNonce, reason }
  *
+ *   POST /v1/attestation/internal/identity-blocks
+ *        Flag a resolved identity node for review from closed-service evidence.
+ *
+ *   POST /v1/attestation/internal/identity-block-reviews
+ *        Apply a review decision to a pending identity block.
+ *
  * OAuth infrastructure (not public API, these are part of the PKCE flow):
  *   GET  /api/yucp/oauth/authorize , loopback port proxy (RFC 8252)
  *   GET  /api/yucp/oauth/callback  , restores original loopback port
@@ -62,6 +68,7 @@
 import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
 import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
 import { buildPublicJwks } from './betterAuth/jwks';
@@ -1943,6 +1950,17 @@ function parseOptionalHash(value: unknown): string | undefined | null {
   return isHashString(value) ? value.toLowerCase() : null;
 }
 
+function parseOptionalBoundedString(value: unknown, maxLength: number): string | undefined | null {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= maxLength ? trimmed : null;
+}
+
 function parseFlags(value: unknown): AttestationFlag[] | null {
   if (!Array.isArray(value) || value.length > ATTESTATION_FLAGS.size) {
     return null;
@@ -2176,6 +2194,63 @@ function parsePaymentAnchorBody(
   };
 }
 
+function parseIdentityBlockBody(
+  body: unknown
+):
+  | { ok: true; identityNodeId: string; reason: string; evidenceRef?: string }
+  | { ok: false } {
+  if (!isRecord(body)) {
+    return { ok: false };
+  }
+  const identityNodeId = parseOptionalBoundedString(body.identityNodeId, 256);
+  const reason = parseOptionalBoundedString(body.reason, 512);
+  const evidenceRef = parseOptionalBoundedString(body.evidenceRef, 512);
+  if (!identityNodeId || !reason || evidenceRef === null) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    identityNodeId,
+    reason,
+    ...(evidenceRef === undefined ? {} : { evidenceRef }),
+  };
+}
+
+function parseIdentityBlockReviewBody(
+  body: unknown
+):
+  | {
+      ok: true;
+      blockId: string;
+      decision: 'active' | 'reversed';
+      reviewedByUserId: string;
+      appeal?: string;
+    }
+  | { ok: false } {
+  if (!isRecord(body)) {
+    return { ok: false };
+  }
+  const blockId = parseOptionalBoundedString(body.blockId, 256);
+  const reviewedByUserId = parseOptionalBoundedString(body.reviewedByUserId, 256);
+  const appeal = parseOptionalBoundedString(body.appeal, 2048);
+  const decision = body.decision;
+  if (
+    !blockId ||
+    !reviewedByUserId ||
+    appeal === null ||
+    (decision !== 'active' && decision !== 'reversed')
+  ) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    blockId,
+    decision,
+    reviewedByUserId,
+    ...(appeal === undefined ? {} : { appeal }),
+  };
+}
+
 // POST /v1/attestation/internal/challenge, mint a single-use challenge nonce (anti-replay primitive).
 http.route({
   method: 'POST',
@@ -2305,6 +2380,68 @@ http.route({
       paymentFingerprintHash: parsed.paymentFingerprintHash,
     });
     return jsonResponse({ success: true, attached: result.attached });
+  }),
+});
+
+// POST /v1/attestation/internal/identity-blocks, create a pending block from opaque closed-service
+// evidence. This gives the production forensics/admin path a bearer-protected way to reach the
+// identity block ledger without exposing raw trace data to the open Convex surface.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/identity-blocks',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseIdentityBlockBody(body);
+    if (!parsed.ok) {
+      return errorResponse('identityNodeId and reason are required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.flagIdentityForReview, {
+      identityNodeId: parsed.identityNodeId as Id<'identity_nodes'>,
+      reason: parsed.reason,
+      ...(parsed.evidenceRef === undefined ? {} : { evidenceRef: parsed.evidenceRef }),
+    });
+    return jsonResponse({ success: true, blockId: result.blockId });
+  }),
+});
+
+// POST /v1/attestation/internal/identity-block-reviews, promote or reverse a pending block after the
+// closed service/admin side has applied the review policy.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/identity-block-reviews',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseIdentityBlockReviewBody(body);
+    if (!parsed.ok) {
+      return errorResponse('blockId, decision, and reviewedByUserId are required', 400);
+    }
+    await ctx.runMutation(internal.attestation.reviewIdentityBlock, {
+      blockId: parsed.blockId as Id<'blocked_identities'>,
+      decision: parsed.decision,
+      reviewedByUserId: parsed.reviewedByUserId,
+      ...(parsed.appeal === undefined ? {} : { appeal: parsed.appeal }),
+    });
+    return jsonResponse({ success: true });
   }),
 });
 
