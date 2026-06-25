@@ -29,8 +29,16 @@ async function sha256Hex(input: string): Promise<string> {
 
 describe('coupling job + license reveal', () => {
   let rootPrivateKey = '';
+  let originalFetch: typeof fetch;
+  let originalCouplingServiceBaseUrl: string | undefined;
+  let originalCouplingServiceSecret: string | undefined;
+  let originalCouplingServiceSharedSecret: string | undefined;
 
   beforeEach(async () => {
+    originalFetch = globalThis.fetch;
+    originalCouplingServiceBaseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL;
+    originalCouplingServiceSecret = process.env.COUPLING_SERVICE_SECRET;
+    originalCouplingServiceSharedSecret = process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET;
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-coupling-job-flow';
     process.env.API_BASE_URL = issuerBaseUrl;
@@ -46,7 +54,115 @@ describe('coupling job + license reveal', () => {
 
   afterEach(() => {
     setPinnedYucpRootsForTests(null);
+    globalThis.fetch = originalFetch;
+    if (originalCouplingServiceBaseUrl === undefined) {
+      delete process.env.YUCP_COUPLING_SERVICE_BASE_URL;
+    } else {
+      process.env.YUCP_COUPLING_SERVICE_BASE_URL = originalCouplingServiceBaseUrl;
+    }
+    if (originalCouplingServiceSecret === undefined) {
+      delete process.env.COUPLING_SERVICE_SECRET;
+    } else {
+      process.env.COUPLING_SERVICE_SECRET = originalCouplingServiceSecret;
+    }
+    if (originalCouplingServiceSharedSecret === undefined) {
+      delete process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET;
+    } else {
+      process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = originalCouplingServiceSharedSecret;
+    }
   });
+
+  function mockSeedRelay(seedHex = '1'.repeat(64)) {
+    const expectedSecret = 'test-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      expect(init?.method).toBe('POST');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe(`Bearer ${expectedSecret}`);
+      expect(headers.get('Content-Type')).toBe('application/json');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+  }
+
+  function mockFallbackSeedRelay(seedHex = '2'.repeat(64)) {
+    const expectedSecret = 'test-fallback-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = '';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe(`Bearer ${expectedSecret}`);
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+  }
+
+  function mockPreferredSeedRelay(seedHex = '3'.repeat(64)) {
+    const expectedSecret = 'test-preferred-coupling-relay-token';
+    let observedAuthorization: string | null = null;
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = 'stale-legacy-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      const headers = new Headers(init?.headers);
+      observedAuthorization = headers.get('Authorization');
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    return {
+      expectedAuthorization: `Bearer ${expectedSecret}`,
+      getObservedAuthorization: () => observedAuthorization,
+    };
+  }
+
+  function mockStreamingSeedRelay(seedHex = '4'.repeat(64)) {
+    const expectedSecret = 'test-streaming-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe(`Bearer ${expectedSecret}`);
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      const payload = JSON.stringify({
+        seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+      });
+      const bytes = new TextEncoder().encode(payload);
+      return {
+        ok: true,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+        }),
+        text: async () => {
+          throw new Error('seed relay responses must use the bounded stream reader');
+        },
+      } as Response;
+    }) as typeof fetch;
+  }
 
   async function seedPackageRegistration(t: ReturnType<typeof makeTestConvex>) {
     await t.run(async (ctx) => {
@@ -167,6 +283,7 @@ describe('coupling job + license reveal', () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     await seedActiveCouplingRuntime(t);
+    mockSeedRelay();
     const licenseToken = await mintLicenseToken();
     const assetPaths = ['Assets/Character/body.png', 'Assets/Model/model.fbx'];
 
@@ -183,6 +300,7 @@ describe('coupling job + license reveal', () => {
     expect(result.runtimeToken).toBeTruthy();
     expect(result.runtimeSha256).toBe(runtimePlaintextSha256);
     expect(result.files).toHaveLength(2);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['1'.repeat(64), '1'.repeat(64)]);
 
     // The runtime token round-trips and is bound to the same artifact.
     const runtimeClaims = await yucpCrypto.verifyCouplingRuntimeJwtAgainstPinnedRoots(
@@ -214,6 +332,136 @@ describe('coupling job + license reveal', () => {
       const expectedHash = await sha256Hex(file.tokenHex);
       expect(traces.some((trace) => trace.tokenHash === expectedHash)).toBe(true);
     }
+  });
+
+  it('uses the fallback coupling relay secret when the primary secret is blank', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    mockFallbackSeedRelay();
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['2'.repeat(64)]);
+  });
+
+  it('prefers the YUCP coupling relay secret when both secret env vars are present', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    const relay = mockPreferredSeedRelay();
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['3'.repeat(64)]);
+    expect(relay.getObservedAuthorization()).toBe(relay.expectedAuthorization);
+  });
+
+  it('preserves private coupling relay base paths when deriving seeds', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test/private/coupling';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'test-prefixed-coupling-relay-token';
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        'https://coupling-service.test/private/coupling/v1/coupling/internal/derive-seeds'
+      );
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({
+            assetPath,
+            seedHex: '5'.repeat(64),
+          })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['5'.repeat(64)]);
+  });
+
+  it('does not send the relay bearer secret to non-loopback HTTP endpoints', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'http://coupling-service.test';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'test-coupling-relay-token';
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response(
+        JSON.stringify({
+          seeds: [{ assetPath: 'Assets/Character/body.png', seedHex: '4'.repeat(64) }],
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.skipReason).toBe('seed_unavailable');
+    expect(result.files).toEqual([]);
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('reads coupling relay responses through the bounded stream reader', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    mockStreamingSeedRelay();
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['4'.repeat(64)]);
   });
 
   // ── Reveal ────────────────────────────────────────────────────────────────

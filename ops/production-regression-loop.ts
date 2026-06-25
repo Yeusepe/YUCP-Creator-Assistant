@@ -7,7 +7,8 @@ export type ProductionRegressionSurfaceId =
   | 'identity'
   | 'verification'
   | 'account'
-  | 'backfill';
+  | 'backfill'
+  | 'attestation';
 
 export interface ProductionRegressionSurface {
   id: ProductionRegressionSurfaceId;
@@ -48,6 +49,17 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/bot/test/commands/autosetup.test.ts',
     ],
     remediationHomes: ['apps/api/test/providers', 'convex/packageRegistry.realtest.ts'],
+  },
+  {
+    id: 'attestation',
+    label: 'Hardware-attested anti-ripper identity',
+    invariant:
+      'A protected unlock must be refused when the buyer resolves to an identity node carrying an active block, an attestation challenge nonce must be single-use and fresh so a captured submit cannot be replayed, a claimed TPM that fails endorsement-chain or challenge-signature verification must be flagged rather than silently trusted, an identity block must require at least two durable anchors (TPM and/or payment) so a reused or forged soft label alone cannot ban a real customer, and only salted hashes (never raw identifiers) may be persisted.',
+    primaryRegressionHomes: [
+      'convex/attestation.realtest.ts',
+    ],
+    secondaryRegressionHomes: ['convex/couplingJobAndReveal.realtest.ts'],
+    remediationHomes: ['convex/attestation.realtest.ts'],
   },
   {
     id: 'identity',
@@ -128,7 +140,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
 export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
   {
     id: 'convex-identity-ownership-realtests',
-    description: 'Convex identity ownership regressions for provider-linked account incidents',
+    description: 'Convex identity ownership and attestation regressions',
     cwdRelativeToRepoRoot: '.',
     args: [
       'x',
@@ -137,8 +149,9 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       '--config',
       'convex/vitest.config.ts',
       './convex/identitySync.realtest.ts',
+      './convex/attestation.realtest.ts',
     ],
-    covers: ['identity'],
+    covers: ['identity', 'attestation'],
   },
   {
     id: 'convex-verification-entitlement-realtests',

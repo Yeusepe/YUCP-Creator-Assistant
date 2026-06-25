@@ -9,6 +9,7 @@ describe('production-regression-loop', () => {
   it('locks the repo to the expected production incident surfaces', () => {
     expect(PRODUCTION_REGRESSION_SURFACES.map((surface) => surface.id)).toEqual([
       'provider',
+      'attestation',
       'identity',
       'verification',
       'account',

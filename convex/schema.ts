@@ -2595,6 +2595,188 @@ const coupling_trace_records = defineTable({
   .index('by_grant_id', ['grantId']);
 
 /**
+ * Hardware-attested anti-ripper identity (TPM + HWID constellation + VRChat id).
+ * Stores only salted hashes, never raw identifiers, per the Stripe-aligned security rules.
+ * See ops/production-regression-loop.ts surface 'attestation' for the invariants.
+ */
+
+/** Flags raised during a single attestation submit. A submit can carry several. */
+const AttestationFlag = v.union(
+  v.literal('no_tpm'),
+  v.literal('spoof_suspected'),
+  v.literal('vm'),
+  v.literal('low_confidence')
+);
+
+/** A person node is active until a confirmed trace blocks it. */
+const IdentityNodeStatus = v.union(v.literal('active'), v.literal('blocked'));
+
+/** A block starts pending (awaiting manual review) before it becomes active, and can be reversed on appeal. */
+const BlockStatus = v.union(
+  v.literal('pending'),
+  v.literal('active'),
+  v.literal('reversed')
+);
+
+/**
+ * Anchor kinds attached to an identity node. Durable anchors (tpm_ek, payment) are the only
+ * ones a block may rest on; soft anchors (usr, email, auth_user, os_machine) corroborate only.
+ */
+const IdentityAnchorType = v.union(
+  v.literal('tpm_ek'),
+  v.literal('payment'),
+  v.literal('usr'),
+  v.literal('email'),
+  v.literal('auth_user'),
+  v.literal('os_machine')
+);
+
+/**
+ * Raw attestation submit record (the evidence). One row per buyer unlock attempt.
+ * Hashes only. fingerprintVector holds the per-component salted hash + weight so the
+ * server can run the N-of-M weighted match without ever seeing a raw serial.
+ */
+const machine_attestations = defineTable({
+  /** Salted hash of the TPM endorsement key public, when a manufacturer-chained TPM is present. */
+  ekHash: v.optional(v.string()),
+  /** Salted hash of the attestation key public used to sign the server challenge. */
+  akPubHash: v.optional(v.string()),
+  /** True only when a manufacturer-signed EK chained and the AK signed this challenge. */
+  tpmVerified: v.boolean(),
+  /** Flags raised this submit (no_tpm, spoof_suspected, vm, low_confidence). */
+  flags: v.array(AttestationFlag),
+  /** Weighted HWID constellation: each component contributes a salted hash and a weight. */
+  fingerprintVector: v.array(
+    v.object({
+      component: v.string(),
+      hash: v.string(),
+      weight: v.number(),
+    })
+  ),
+  /** Salted hashes of OS-account anchors (SID, MachineGuid, ...). Soft corroborators. */
+  osAnchorHashes: v.array(v.string()),
+  /** Salted hash of the network anchor (IP/ASN bucket) observed at submit. Soft corroborator. */
+  networkAnchorHash: v.optional(v.string()),
+  /** Salted hash of the payment instrument fingerprint, when resolvable from the purchase. */
+  paymentFingerprintHash: v.optional(v.string()),
+  /** Salted hash of the corroborated VRChat usr id, when available. */
+  usrIdHash: v.optional(v.string()),
+  /** SHA-256 of the raw license key (shared join key with coupling_trace_records.licenseSubject). */
+  licenseSubject: v.optional(v.string()),
+  /** SHA-256 of the unlock/request machine fingerprint, used to bind attestation to current unlock. */
+  machineFingerprintHash: v.optional(v.string()),
+  /** Creator/account the unlock authenticated as. */
+  authUserId: v.optional(v.string()),
+  /** Resolved identity node this submit was attached to. */
+  identityNodeId: v.optional(v.id('identity_nodes')),
+  /** Confidence of the VRChat id corroboration (>=2 sources agree, etc.). */
+  usrIdConfidence: v.optional(v.string()),
+  /** Trace correlation id spanning challenge, submit, and unlock. */
+  correlationId: v.string(),
+  createdAt: v.number(),
+})
+  .index('by_ek', ['ekHash'])
+  .index('by_payment', ['paymentFingerprintHash'])
+  .index('by_identity_node', ['identityNodeId'])
+  .index('by_license_subject', ['licenseSubject'])
+  .index('by_license_subject_created_at', ['licenseSubject', 'createdAt'])
+  .index('by_license_subject_machine', ['licenseSubject', 'machineFingerprintHash'])
+  .index('by_correlation', ['correlationId']);
+
+/**
+ * The resolved person. Accounts and usr ids are labels (edges in identity_node_anchors);
+ * this row holds only the durable identity status and bookkeeping.
+ */
+const identity_nodes = defineTable({
+  status: IdentityNodeStatus,
+  /** Count of durable anchors (tpm_ek/payment) attached. A block needs >=2 durable corroborating. */
+  durableAnchorCount: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+  /** When two nodes merge (a submit links a TPM and a card seen on separate nodes), record the source. */
+  mergedFromNodeId: v.optional(v.id('identity_nodes')),
+}).index('by_status', ['status']);
+
+/**
+ * Edges of the identity graph: (anchorType, anchorHash) -> nodeId. Indexable resolution so a
+ * new account on the same TPM or card collapses into the existing node in O(1).
+ */
+const identity_node_anchors = defineTable({
+  nodeId: v.id('identity_nodes'),
+  anchorType: IdentityAnchorType,
+  /** Salted hash of the anchor value. Never the raw value. */
+  anchorHash: v.string(),
+  /** tpm_ek and payment are durable; everything else corroborates only. */
+  isDurable: v.boolean(),
+  createdAt: v.number(),
+})
+  .index('by_type_hash', ['anchorType', 'anchorHash'])
+  .index('by_node', ['nodeId']);
+
+/**
+ * Block records against an identity node. Flag -> manual review -> active -> (appeal) reversed.
+ * Shared across all creators: an active block on a node refuses unlock everywhere.
+ */
+const blocked_identities = defineTable({
+  identityNodeId: v.id('identity_nodes'),
+  status: BlockStatus,
+  reason: v.string(),
+  /** Coupling trace record that evidences the leak (the confirmed-trace evidence threshold). */
+  evidenceRef: v.optional(v.string()),
+  /** authUserId of the reviewer who promoted pending -> active. */
+  reviewedByUserId: v.optional(v.string()),
+  /** Free-form appeal note captured when status becomes reversed. */
+  appeal: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_identity_node', ['identityNodeId'])
+  .index('by_status', ['status']);
+
+/**
+ * Short-lived attestation challenges. The server issues a fresh nonce; the client TPM signs it.
+ * Single-use and TTL-bound so a captured submit cannot be replayed.
+ */
+const attestation_challenges = defineTable({
+  nonce: v.string(),
+  correlationId: v.string(),
+  /** Unix ms when issued. Verified within a freshness window and consumed on submit. */
+  issuedAt: v.number(),
+  expiresAt: v.number(),
+  consumedAt: v.optional(v.number()),
+}).index('by_nonce', ['nonce']);
+
+/**
+ * Recorded coupling proofs (forensic integrity). The closed service verifies the sealed proof from
+ * the native runtime, then persists ONLY opaque hashes here: it reveals what was coupled (asset
+ * content hashes + salted path hashes), never how the watermark works. One row per verified import.
+ */
+const coupling_proofs = defineTable({
+  correlationId: v.string(),
+  /** True only when the TPM AK signed this nonce and the EK chained to a pinned root. */
+  tpmVerified: v.boolean(),
+  /** Detection flags raised by the closed service (no_tpm / spoof_suspected / vm). */
+  flags: v.array(AttestationFlag),
+  /** Per-asset: salted hash of the path + SHA-256 of the resulting (watermarked) bytes. */
+  assets: v.array(
+    v.object({
+      pathHash: v.string(),
+      contentSha256: v.string(),
+    })
+  ),
+  /** Salted hash of the runtime self-integrity hash that produced this proof. */
+  selfHashRef: v.optional(v.string()),
+  /** SHA-256 license subject, retained so proofs submitted before attestation can relink later. */
+  licenseSubject: v.optional(v.string()),
+  /** Resolved identity node, when the proof carried a resolvable license subject. */
+  identityNodeId: v.optional(v.id('identity_nodes')),
+  createdAt: v.number(),
+})
+  .index('by_correlation', ['correlationId'])
+  .index('by_license_subject', ['licenseSubject'])
+  .index('by_identity_node', ['identityNodeId']);
+
+/**
  * License subject links for forensics rehydration.
  * Written at license verification time so coupling lookups can resolve
  * the buyer account, order, and raw license key without requiring email.
@@ -2983,6 +3165,12 @@ export default defineSchema({
   signed_release_artifacts,
   delivery_release_artifacts,
   coupling_trace_records,
+  machine_attestations,
+  identity_nodes,
+  identity_node_anchors,
+  blocked_identities,
+  attestation_challenges,
+  coupling_proofs,
   license_subject_links,
   revoked_grants,
   yucp_manifests,

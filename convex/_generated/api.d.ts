@@ -10,6 +10,7 @@
 
 import type * as accountSecurity from "../accountSecurity.js";
 import type * as adminNotifications from "../adminNotifications.js";
+import type * as attestation from "../attestation.js";
 import type * as audit_events from "../audit_events.js";
 import type * as auth from "../auth.js";
 import type * as authViewer from "../authViewer.js";
@@ -141,6 +142,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   accountSecurity: typeof accountSecurity;
   adminNotifications: typeof adminNotifications;
+  attestation: typeof attestation;
   audit_events: typeof audit_events;
   auth: typeof auth;
   authViewer: typeof authViewer;

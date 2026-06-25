@@ -48,6 +48,12 @@
  *        Revoke a certificate by nonce.
  *        Body: { certNonce, reason }
  *
+ *   POST /v1/attestation/internal/identity-blocks
+ *        Flag a resolved identity node for review from closed-service evidence.
+ *
+ *   POST /v1/attestation/internal/identity-block-reviews
+ *        Apply a review decision to a pending identity block.
+ *
  * OAuth infrastructure (not public API, these are part of the PKCE flow):
  *   GET  /api/yucp/oauth/authorize , loopback port proxy (RFC 8252)
  *   GET  /api/yucp/oauth/callback  , restores original loopback port
@@ -62,6 +68,7 @@
 import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
 import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import { httpAction } from './_generated/server';
 import { authComponent, createAuth } from './auth';
 import { buildPublicJwks } from './betterAuth/jwks';
@@ -1863,6 +1870,578 @@ http.route({
       unlockToken: result.unlockToken,
       expiresAt: result.expiresAt,
     });
+  }),
+});
+
+// Attestation relay endpoints (internal). Hardware attestation TERMINATES in the closed
+// coupling-service, which holds the TPM verification, channel decryption, salting, weighting, and
+// block policy. This open server is a blind store: it only mints opaque challenge nonces and persists
+// already-hashed anchors plus an opaque verdict the closed service computed. Both endpoints require
+// CONVEX_API_SECRET so only the closed service can reach them; no attestation logic lives here.
+
+const ATTESTATION_HASH_RE = /^[0-9a-f]{64}$/i;
+const ATTESTATION_NONCE_RE = /^[0-9a-f]{64}$/i;
+const ATTESTATION_ANCHOR_TYPES = new Set([
+  'tpm_ek',
+  'payment',
+  'usr',
+  'email',
+  'auth_user',
+  'os_machine',
+]);
+const ATTESTATION_FLAGS = new Set(['no_tpm', 'spoof_suspected', 'vm', 'low_confidence']);
+const MAX_ATTESTATION_ANCHORS = 32;
+const MAX_FINGERPRINT_COMPONENTS = 64;
+const MAX_OS_ANCHORS = 32;
+const MAX_COUPLING_PROOF_ASSETS = 100;
+const MAX_ATTESTATION_LABEL_LENGTH = 128;
+const MAX_ATTESTATION_COMPONENT_LENGTH = 64;
+
+type AttestationFlag = 'no_tpm' | 'spoof_suspected' | 'vm' | 'low_confidence';
+type AttestationAnchorType = 'tpm_ek' | 'payment' | 'usr' | 'email' | 'auth_user' | 'os_machine';
+
+type RelayAnchor = {
+  anchorType: AttestationAnchorType;
+  anchorHash: string;
+};
+
+type RelayAttestation = {
+  ekHash?: string;
+  akPubHash?: string;
+  tpmVerified: boolean;
+  flags: AttestationFlag[];
+  fingerprintVector: Array<{ component: string; hash: string; weight: number }>;
+  osAnchorHashes: string[];
+  networkAnchorHash?: string;
+  paymentFingerprintHash?: string;
+  usrIdHash?: string;
+  licenseSubject?: string;
+  machineFingerprintHash: string;
+  authUserId?: string;
+  usrIdConfidence?: string;
+  correlationId: string;
+};
+
+type RelayCouplingProof = {
+  correlationId: string;
+  tpmVerified: boolean;
+  flags: AttestationFlag[];
+  assets: Array<{ pathHash: string; contentSha256: string }>;
+  selfHashRef?: string;
+  licenseSubject?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
+}
+
+function isHashString(value: unknown): value is string {
+  return typeof value === 'string' && ATTESTATION_HASH_RE.test(value);
+}
+
+function parseOptionalHash(value: unknown): string | undefined | null {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  return isHashString(value) ? value.toLowerCase() : null;
+}
+
+function parseOptionalBoundedString(value: unknown, maxLength: number): string | undefined | null {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= maxLength ? trimmed : null;
+}
+
+function parseFlags(value: unknown): AttestationFlag[] | null {
+  if (!Array.isArray(value) || value.length > ATTESTATION_FLAGS.size) {
+    return null;
+  }
+  const flags: AttestationFlag[] = [];
+  for (const flag of value) {
+    if (typeof flag !== 'string' || !ATTESTATION_FLAGS.has(flag)) {
+      return null;
+    }
+    if (!flags.includes(flag as AttestationFlag)) {
+      flags.push(flag as AttestationFlag);
+    }
+  }
+  return flags;
+}
+
+function parseHashArray(value: unknown, maxLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxLength) {
+    return null;
+  }
+  const hashes: string[] = [];
+  for (const item of value) {
+    if (!isHashString(item)) {
+      return null;
+    }
+    hashes.push(item.toLowerCase());
+  }
+  return hashes;
+}
+
+function parseRelayAnchors(value: unknown): RelayAnchor[] | null {
+  if (!Array.isArray(value) || value.length > MAX_ATTESTATION_ANCHORS) {
+    return null;
+  }
+  const anchors: RelayAnchor[] = [];
+  for (const anchor of value) {
+    if (!isRecord(anchor)) {
+      return null;
+    }
+    const anchorType = anchor.anchorType;
+    if (typeof anchorType !== 'string' || !ATTESTATION_ANCHOR_TYPES.has(anchorType)) {
+      return null;
+    }
+    if (!isHashString(anchor.anchorHash)) {
+      return null;
+    }
+    anchors.push({
+      anchorType: anchorType as AttestationAnchorType,
+      anchorHash: anchor.anchorHash.toLowerCase(),
+    });
+  }
+  return anchors;
+}
+
+function parseFingerprintVector(
+  value: unknown
+): Array<{ component: string; hash: string; weight: number }> | null {
+  if (!Array.isArray(value) || value.length > MAX_FINGERPRINT_COMPONENTS) {
+    return null;
+  }
+  const vector: Array<{ component: string; hash: string; weight: number }> = [];
+  for (const component of value) {
+    if (!isRecord(component)) {
+      return null;
+    }
+    if (!isBoundedString(component.component, MAX_ATTESTATION_COMPONENT_LENGTH)) {
+      return null;
+    }
+    if (!isHashString(component.hash)) {
+      return null;
+    }
+    if (
+      typeof component.weight !== 'number' ||
+      !Number.isFinite(component.weight) ||
+      component.weight < 0 ||
+      component.weight > 100
+    ) {
+      return null;
+    }
+    vector.push({
+      component: component.component,
+      hash: component.hash.toLowerCase(),
+      weight: component.weight,
+    });
+  }
+  return vector;
+}
+
+function parseAttestationRecordBody(
+  body: unknown
+): { ok: true; nonce: string; anchors: RelayAnchor[]; attestation: RelayAttestation } | { ok: false } {
+  if (!isRecord(body) || typeof body.nonce !== 'string' || !ATTESTATION_NONCE_RE.test(body.nonce)) {
+    return { ok: false };
+  }
+  const anchors = parseRelayAnchors(body.anchors);
+  if (!anchors) {
+    return { ok: false };
+  }
+  const rawAttestation = body.attestation;
+  if (!isRecord(rawAttestation) || typeof rawAttestation.tpmVerified !== 'boolean') {
+    return { ok: false };
+  }
+  const flags = parseFlags(rawAttestation.flags);
+  const fingerprintVector = parseFingerprintVector(rawAttestation.fingerprintVector);
+  const osAnchorHashes = parseHashArray(rawAttestation.osAnchorHashes, MAX_OS_ANCHORS);
+  if (!flags || !fingerprintVector || !osAnchorHashes) {
+    return { ok: false };
+  }
+  if (!isBoundedString(rawAttestation.correlationId, MAX_ATTESTATION_LABEL_LENGTH)) {
+    return { ok: false };
+  }
+
+  const ekHash = parseOptionalHash(rawAttestation.ekHash);
+  const akPubHash = parseOptionalHash(rawAttestation.akPubHash);
+  const networkAnchorHash = parseOptionalHash(rawAttestation.networkAnchorHash);
+  const paymentFingerprintHash = parseOptionalHash(rawAttestation.paymentFingerprintHash);
+  const usrIdHash = parseOptionalHash(rawAttestation.usrIdHash);
+  const licenseSubject = parseOptionalHash(rawAttestation.licenseSubject);
+  const machineFingerprintHash = parseOptionalHash(rawAttestation.machineFingerprintHash);
+  if (
+    ekHash === null ||
+    akPubHash === null ||
+    networkAnchorHash === null ||
+    paymentFingerprintHash === null ||
+    usrIdHash === null ||
+    licenseSubject === null ||
+    machineFingerprintHash === undefined ||
+    machineFingerprintHash === null
+  ) {
+    return { ok: false };
+  }
+  const authUserId =
+    rawAttestation.authUserId === undefined
+      ? undefined
+      : isBoundedString(rawAttestation.authUserId, MAX_ATTESTATION_LABEL_LENGTH)
+        ? rawAttestation.authUserId
+        : null;
+  const usrIdConfidence =
+    rawAttestation.usrIdConfidence === undefined
+      ? undefined
+      : isBoundedString(rawAttestation.usrIdConfidence, MAX_ATTESTATION_LABEL_LENGTH)
+        ? rawAttestation.usrIdConfidence
+        : null;
+  if (authUserId === null || usrIdConfidence === null) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    nonce: body.nonce.toLowerCase(),
+    anchors,
+    attestation: {
+      ...(ekHash === undefined ? {} : { ekHash }),
+      ...(akPubHash === undefined ? {} : { akPubHash }),
+      tpmVerified: rawAttestation.tpmVerified,
+      flags,
+      fingerprintVector,
+      osAnchorHashes,
+      ...(networkAnchorHash === undefined ? {} : { networkAnchorHash }),
+      ...(paymentFingerprintHash === undefined ? {} : { paymentFingerprintHash }),
+      ...(usrIdHash === undefined ? {} : { usrIdHash }),
+      ...(licenseSubject === undefined ? {} : { licenseSubject }),
+      machineFingerprintHash,
+      ...(authUserId === undefined ? {} : { authUserId }),
+      ...(usrIdConfidence === undefined ? {} : { usrIdConfidence }),
+      correlationId: rawAttestation.correlationId,
+    },
+  };
+}
+
+function parseCouplingRecordBody(
+  body: unknown
+): { ok: true; nonce: string; proof: RelayCouplingProof } | { ok: false } {
+  if (!isRecord(body) || typeof body.nonce !== 'string' || !ATTESTATION_NONCE_RE.test(body.nonce)) {
+    return { ok: false };
+  }
+  const rawProof = body.proof;
+  if (
+    !isRecord(rawProof) ||
+    !isBoundedString(rawProof.correlationId, MAX_ATTESTATION_LABEL_LENGTH) ||
+    typeof rawProof.tpmVerified !== 'boolean'
+  ) {
+    return { ok: false };
+  }
+  const flags = parseFlags(rawProof.flags);
+  if (!flags) {
+    return { ok: false };
+  }
+  if (!Array.isArray(rawProof.assets) || rawProof.assets.length > MAX_COUPLING_PROOF_ASSETS) {
+    return { ok: false };
+  }
+  const assets: Array<{ pathHash: string; contentSha256: string }> = [];
+  for (const asset of rawProof.assets) {
+    if (!isRecord(asset) || !isHashString(asset.pathHash) || !isHashString(asset.contentSha256)) {
+      return { ok: false };
+    }
+    assets.push({
+      pathHash: asset.pathHash.toLowerCase(),
+      contentSha256: asset.contentSha256.toLowerCase(),
+    });
+  }
+  const selfHashRef = parseOptionalHash(rawProof.selfHashRef);
+  const licenseSubject = parseOptionalHash(rawProof.licenseSubject);
+  if (selfHashRef === null || licenseSubject === null) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    nonce: body.nonce.toLowerCase(),
+    proof: {
+      correlationId: rawProof.correlationId,
+      tpmVerified: rawProof.tpmVerified,
+      flags,
+      assets,
+      ...(selfHashRef === undefined ? {} : { selfHashRef }),
+      ...(licenseSubject === undefined ? {} : { licenseSubject }),
+    },
+  };
+}
+
+function parsePaymentAnchorBody(
+  body: unknown
+): { ok: true; licenseSubject: string; paymentFingerprintHash: string } | { ok: false } {
+  if (!isRecord(body) || !isHashString(body.licenseSubject) || !isHashString(body.paymentFingerprintHash)) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    licenseSubject: body.licenseSubject.toLowerCase(),
+    paymentFingerprintHash: body.paymentFingerprintHash.toLowerCase(),
+  };
+}
+
+function parseIdentityBlockBody(
+  body: unknown
+):
+  | { ok: true; identityNodeId: string; reason: string; evidenceRef?: string }
+  | { ok: false } {
+  if (!isRecord(body)) {
+    return { ok: false };
+  }
+  const identityNodeId = parseOptionalBoundedString(body.identityNodeId, 256);
+  const reason = parseOptionalBoundedString(body.reason, 512);
+  const evidenceRef = parseOptionalBoundedString(body.evidenceRef, 512);
+  if (!identityNodeId || !reason || evidenceRef === null) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    identityNodeId,
+    reason,
+    ...(evidenceRef === undefined ? {} : { evidenceRef }),
+  };
+}
+
+function parseIdentityBlockReviewBody(
+  body: unknown
+):
+  | {
+      ok: true;
+      blockId: string;
+      decision: 'active' | 'reversed';
+      reviewedByUserId: string;
+      appeal?: string;
+    }
+  | { ok: false } {
+  if (!isRecord(body)) {
+    return { ok: false };
+  }
+  const blockId = parseOptionalBoundedString(body.blockId, 256);
+  const reviewedByUserId = parseOptionalBoundedString(body.reviewedByUserId, 256);
+  const appeal = parseOptionalBoundedString(body.appeal, 2048);
+  const decision = body.decision;
+  if (
+    !blockId ||
+    !reviewedByUserId ||
+    appeal === null ||
+    (decision !== 'active' && decision !== 'reversed')
+  ) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    blockId,
+    decision,
+    reviewedByUserId,
+    ...(appeal === undefined ? {} : { appeal }),
+  };
+}
+
+// POST /v1/attestation/internal/challenge, mint a single-use challenge nonce (anti-replay primitive).
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/challenge',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: { correlationId?: string };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const correlationId = body?.correlationId;
+    if (!correlationId || typeof correlationId !== 'string' || correlationId.length > 128) {
+      return errorResponse('correlationId is required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.issueChallenge, { correlationId });
+    return jsonResponse({ nonce: result.nonce, expiresAt: result.expiresAt });
+  }),
+});
+
+// POST /v1/attestation/internal/record, consume the challenge and persist the opaque resolution the
+// closed service produced. The body carries only salted hashes and an opaque verdict; never raw data.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/record',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseAttestationRecordBody(body);
+    if (!parsed.ok) {
+      return errorResponse('nonce, anchors, and attestation are required', 400);
+    }
+
+    let challenge: { correlationId: string };
+    try {
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+    } catch {
+      return errorResponse('Invalid challenge', 422);
+    }
+    if (!constantTimeEqual(challenge.correlationId, parsed.attestation.correlationId)) {
+      return errorResponse('Invalid challenge', 422);
+    }
+
+    const result = await ctx.runMutation(internal.attestation.recordResolution, {
+      anchors: parsed.anchors,
+      attestation: parsed.attestation,
+    });
+    return jsonResponse({ success: true, blocked: result.blocked });
+  }),
+});
+
+// POST /v1/attestation/internal/coupling-record, consume the challenge nonce (anti-replay) and
+// persist a coupling proof the closed service verified. Opaque hashes only; never raw paths or bytes.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/coupling-record',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseCouplingRecordBody(body);
+    if (!parsed.ok) {
+      return errorResponse('nonce and proof are required', 400);
+    }
+
+    let challenge: { correlationId: string };
+    try {
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+    } catch {
+      return errorResponse('Invalid challenge', 422);
+    }
+    if (!constantTimeEqual(challenge.correlationId, parsed.proof.correlationId)) {
+      return errorResponse('Invalid challenge', 422);
+    }
+
+    await ctx.runMutation(internal.attestation.recordCouplingProof, parsed.proof);
+    return jsonResponse({ success: true });
+  }),
+});
+
+// POST /v1/attestation/internal/payment-anchor, attach an opaque payment fingerprint hash (the
+// closed service salted it) as a durable anchor on the node behind a licenseSubject. Lets a new
+// machine that reuses the same card collapse into the existing identity node.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/payment-anchor',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parsePaymentAnchorBody(body);
+    if (!parsed.ok) {
+      return errorResponse('licenseSubject and paymentFingerprintHash are required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.attachPaymentAnchor, {
+      licenseSubject: parsed.licenseSubject,
+      paymentFingerprintHash: parsed.paymentFingerprintHash,
+    });
+    return jsonResponse({ success: true, attached: result.attached });
+  }),
+});
+
+// POST /v1/attestation/internal/identity-blocks, create a pending block from opaque closed-service
+// evidence. This gives the production forensics/admin path a bearer-protected way to reach the
+// identity block ledger without exposing raw trace data to the open Convex surface.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/identity-blocks',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseIdentityBlockBody(body);
+    if (!parsed.ok) {
+      return errorResponse('identityNodeId and reason are required', 400);
+    }
+    const result = await ctx.runMutation(internal.attestation.flagIdentityForReview, {
+      identityNodeId: parsed.identityNodeId as Id<'identity_nodes'>,
+      reason: parsed.reason,
+      ...(parsed.evidenceRef === undefined ? {} : { evidenceRef: parsed.evidenceRef }),
+    });
+    return jsonResponse({ success: true, blockId: result.blockId });
+  }),
+});
+
+// POST /v1/attestation/internal/identity-block-reviews, promote or reverse a pending block after the
+// closed service/admin side has applied the review policy.
+http.route({
+  method: 'POST',
+  path: '/v1/attestation/internal/identity-block-reviews',
+  handler: httpAction(async (ctx, request) => {
+    const apiSecret = process.env.CONVEX_API_SECRET;
+    const auth = request.headers.get('Authorization');
+    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
+      return errorResponse('Unauthorized', 401);
+    }
+    let body: unknown;
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    const parsed = parseIdentityBlockReviewBody(body);
+    if (!parsed.ok) {
+      return errorResponse('blockId, decision, and reviewedByUserId are required', 400);
+    }
+    await ctx.runMutation(internal.attestation.reviewIdentityBlock, {
+      blockId: parsed.blockId as Id<'blocked_identities'>,
+      decision: parsed.decision,
+      reviewedByUserId: parsed.reviewedByUserId,
+      ...(parsed.appeal === undefined ? {} : { appeal: parsed.appeal }),
+    });
+    return jsonResponse({ success: true });
   }),
 });
 

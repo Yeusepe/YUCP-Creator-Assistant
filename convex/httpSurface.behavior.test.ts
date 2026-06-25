@@ -54,6 +54,15 @@ const internalMock = {
   yucpLicenses: {
     checkAndConsumeNonce: 'internal.yucpLicenses.checkAndConsumeNonce',
   },
+  attestation: {
+    issueChallenge: 'internal.attestation.issueChallenge',
+    consumeChallenge: 'internal.attestation.consumeChallenge',
+    recordResolution: 'internal.attestation.recordResolution',
+    recordCouplingProof: 'internal.attestation.recordCouplingProof',
+    attachPaymentAnchor: 'internal.attestation.attachPaymentAnchor',
+    flagIdentityForReview: 'internal.attestation.flagIdentityForReview',
+    reviewIdentityBlock: 'internal.attestation.reviewIdentityBlock',
+  },
 } as const;
 
 mock.module('./_generated/api', () => ({
@@ -104,11 +113,16 @@ mock.module('./lib/yucpCrypto', () => ({
   base64ToBytes: (_value: string) => new Uint8Array(),
   getConfiguredYucpJwkSet: () => ({ keys: [] }),
   resolvePinnedYucpSigningRoot: resolvePinnedYucpSigningRootMock,
+  signCouplingRuntimeJwt: mock(async () => 'signed-runtime-jwt'),
   signLicenseJwt: mock(async () => 'signed-license-jwt'),
+  signProtectedUnlockJwt: mock(async () => 'signed-protected-unlock-jwt'),
   signPackageCertificateData: mock(async () => 'signed-certificate'),
   signYucpTrustBundleJwt: mock(async () => 'signed-trust-bundle'),
   verifyCertEnvelope: mock(async () => true),
   verifyCertEnvelopeAgainstPinnedRoots: verifyCertEnvelopeAgainstPinnedRootsMock,
+  verifyCouplingRuntimeJwtAgainstPinnedRoots: mock(async () => null),
+  verifyLicenseJwtAgainstPinnedRoots: mock(async () => null),
+  verifyProtectedUnlockJwtAgainstPinnedRoots: mock(async () => null),
 }));
 
 mock.module('./oauthDiscovery', () => ({
@@ -133,6 +147,7 @@ await import('./http');
 const originalFetch = globalThis.fetch;
 const originalRootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
 const originalRootKeyId = process.env.YUCP_ROOT_KEY_ID;
+const originalConvexApiSecret = process.env.CONVEX_API_SECRET;
 
 function getRoute(method: string, path: string): RegisteredRoute {
   const route = registeredRoutes.find(
@@ -166,8 +181,21 @@ describe('Convex HTTP surface hardening', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    process.env.YUCP_ROOT_PRIVATE_KEY = originalRootPrivateKey;
-    process.env.YUCP_ROOT_KEY_ID = originalRootKeyId;
+    if (originalRootPrivateKey === undefined) {
+      delete process.env.YUCP_ROOT_PRIVATE_KEY;
+    } else {
+      process.env.YUCP_ROOT_PRIVATE_KEY = originalRootPrivateKey;
+    }
+    if (originalRootKeyId === undefined) {
+      delete process.env.YUCP_ROOT_KEY_ID;
+    } else {
+      process.env.YUCP_ROOT_KEY_ID = originalRootKeyId;
+    }
+    if (originalConvexApiSecret === undefined) {
+      delete process.env.CONVEX_API_SECRET;
+    } else {
+      process.env.CONVEX_API_SECRET = originalConvexApiSecret;
+    }
   });
 
   it('returns sanitized package lookup payloads without leaking owner identifiers or raw cert envelopes', async () => {
@@ -305,5 +333,296 @@ describe('Convex HTTP surface hardening', () => {
       error: 'PACKAGE_OWNERSHIP_CONFLICT',
       message: 'Package ownership conflict detected.',
     });
+  });
+
+  it('rejects malformed attestation record payloads before consuming a nonce', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async () => ({
+      correlationId: 'corr-1',
+      blocked: false,
+      nodeId: 'identity-node-1',
+    }));
+
+    const route = getRoute('POST', '/v1/attestation/internal/record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'a'.repeat(64),
+          anchors: [{ anchorType: 'tpm_ek', anchorHash: 'not-a-hash' }],
+          attestation: {
+            tpmVerified: true,
+            flags: [],
+            fingerprintVector: [],
+            osAnchorHashes: [],
+            correlationId: 'corr-1',
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(runMutationMock.mock.calls).toHaveLength(0);
+  });
+
+  it('rejects attestation records whose consumed nonce belongs to a different correlationId', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown) => {
+      if (reference === internalMock.attestation.consumeChallenge) {
+        return { correlationId: 'corr-issued' };
+      }
+      if (reference === internalMock.attestation.recordResolution) {
+        return { blocked: false, nodeId: 'identity-node-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'b'.repeat(64),
+          anchors: [{ anchorType: 'tpm_ek', anchorHash: 'c'.repeat(64) }],
+          attestation: {
+            ekHash: 'c'.repeat(64),
+            tpmVerified: true,
+            flags: [],
+            fingerprintVector: [],
+            osAnchorHashes: [],
+            machineFingerprintHash: 'd'.repeat(64),
+            correlationId: 'corr-submitted',
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(
+      runMutationMock.mock.calls.some(
+        ([reference]) => reference === internalMock.attestation.recordResolution
+      )
+    ).toBe(false);
+  });
+
+  it('rejects attestation records without a machine fingerprint hash', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown) => {
+      if (reference === internalMock.attestation.consumeChallenge) {
+        return { correlationId: 'corr-1' };
+      }
+      if (reference === internalMock.attestation.recordResolution) {
+        return { blocked: false, nodeId: 'identity-node-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'c'.repeat(64),
+          anchors: [{ anchorType: 'tpm_ek', anchorHash: 'c'.repeat(64) }],
+          attestation: {
+            ekHash: 'c'.repeat(64),
+            tpmVerified: true,
+            flags: [],
+            fingerprintVector: [],
+            osAnchorHashes: [],
+            correlationId: 'corr-1',
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(runMutationMock.mock.calls).toHaveLength(0);
+  });
+
+  it('rejects malformed coupling proofs before consuming a nonce', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async () => ({
+      correlationId: 'corr-proof',
+      proofId: 'proof-1',
+    }));
+
+    const route = getRoute('POST', '/v1/attestation/internal/coupling-record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/coupling-record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'd'.repeat(64),
+          proof: {
+            correlationId: 'corr-proof',
+            tpmVerified: true,
+            flags: [],
+            assets: [{ pathHash: 'e'.repeat(64), contentSha256: 'bad-sha' }],
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(runMutationMock.mock.calls).toHaveLength(0);
+  });
+
+  it('rejects coupling proofs whose consumed nonce belongs to a different correlationId', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown) => {
+      if (reference === internalMock.attestation.consumeChallenge) {
+        return { correlationId: 'corr-issued' };
+      }
+      if (reference === internalMock.attestation.recordCouplingProof) {
+        return { proofId: 'proof-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/coupling-record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/coupling-record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'e'.repeat(64),
+          proof: {
+            correlationId: 'corr-submitted',
+            tpmVerified: true,
+            flags: [],
+            assets: [{ pathHash: 'f'.repeat(64), contentSha256: 'a'.repeat(64) }],
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(422);
+    expect(
+      runMutationMock.mock.calls.some(
+        ([reference]) => reference === internalMock.attestation.recordCouplingProof
+      )
+    ).toBe(false);
+  });
+
+  it('rejects malformed payment anchors before mutation', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async () => ({ attached: true }));
+
+    const route = getRoute('POST', '/v1/attestation/internal/payment-anchor');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/payment-anchor', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          licenseSubject: 'a'.repeat(64),
+          paymentFingerprintHash: 'not-a-hash',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(runMutationMock.mock.calls).toHaveLength(0);
+  });
+
+  it('exposes confirmed identity block creation through the authenticated internal surface', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown, args: unknown) => {
+      if (reference === internalMock.attestation.flagIdentityForReview) {
+        expect(args).toEqual({
+          identityNodeId: 'identity-node-1',
+          reason: 'confirmed leaked trace',
+          evidenceRef: 'trace:release:asset',
+        });
+        return { blockId: 'block-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/identity-blocks');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/identity-blocks', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          identityNodeId: 'identity-node-1',
+          reason: 'confirmed leaked trace',
+          evidenceRef: 'trace:release:asset',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true, blockId: 'block-1' });
+    expect(runMutationMock.mock.calls).toHaveLength(1);
+  });
+
+  it('exposes identity block review through the authenticated internal surface', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown, args: unknown) => {
+      if (reference === internalMock.attestation.reviewIdentityBlock) {
+        expect(args).toEqual({
+          blockId: 'block-1',
+          decision: 'active',
+          reviewedByUserId: 'reviewer-1',
+          appeal: 'confirmed by closed-service threshold',
+        });
+        return undefined;
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/identity-block-reviews');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/identity-block-reviews', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          blockId: 'block-1',
+          decision: 'active',
+          reviewedByUserId: 'reviewer-1',
+          appeal: 'confirmed by closed-service threshold',
+        }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ success: true });
+    expect(runMutationMock.mock.calls).toHaveLength(1);
   });
 });
