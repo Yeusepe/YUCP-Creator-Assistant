@@ -149,7 +149,7 @@ describe('coupling job + license reveal', () => {
         seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
       });
       const bytes = new TextEncoder().encode(payload);
-      return new Response(
+      const response = new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
             controller.enqueue(bytes);
@@ -158,6 +158,10 @@ describe('coupling job + license reveal', () => {
         }),
         { status: 200 }
       );
+      response.text = async () => {
+        throw new Error('seed relay responses must use the bounded stream reader');
+      };
+      return response;
     }) as typeof fetch;
   }
 
