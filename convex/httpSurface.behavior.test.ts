@@ -179,9 +179,21 @@ describe('Convex HTTP surface hardening', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    process.env.YUCP_ROOT_PRIVATE_KEY = originalRootPrivateKey;
-    process.env.YUCP_ROOT_KEY_ID = originalRootKeyId;
-    process.env.CONVEX_API_SECRET = originalConvexApiSecret;
+    if (originalRootPrivateKey === undefined) {
+      delete process.env.YUCP_ROOT_PRIVATE_KEY;
+    } else {
+      process.env.YUCP_ROOT_PRIVATE_KEY = originalRootPrivateKey;
+    }
+    if (originalRootKeyId === undefined) {
+      delete process.env.YUCP_ROOT_KEY_ID;
+    } else {
+      process.env.YUCP_ROOT_KEY_ID = originalRootKeyId;
+    }
+    if (originalConvexApiSecret === undefined) {
+      delete process.env.CONVEX_API_SECRET;
+    } else {
+      process.env.CONVEX_API_SECRET = originalConvexApiSecret;
+    }
   });
 
   it('returns sanitized package lookup payloads without leaking owner identifiers or raw cert envelopes', async () => {

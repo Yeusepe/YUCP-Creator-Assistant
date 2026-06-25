@@ -2677,6 +2677,7 @@ const machine_attestations = defineTable({
   .index('by_payment', ['paymentFingerprintHash'])
   .index('by_identity_node', ['identityNodeId'])
   .index('by_license_subject', ['licenseSubject'])
+  .index('by_license_subject_created_at', ['licenseSubject', 'createdAt'])
   .index('by_correlation', ['correlationId']);
 
 /**

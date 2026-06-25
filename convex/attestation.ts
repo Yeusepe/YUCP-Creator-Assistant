@@ -86,22 +86,11 @@ async function getLatestAttestationForLicenseSubject(
   ctx: GenericMutationCtx<DataModel>,
   licenseSubject: string
 ): Promise<Doc<'machine_attestations'> | null> {
-  const attestations = await ctx.db
+  return await ctx.db
     .query('machine_attestations')
-    .withIndex('by_license_subject', (q) => q.eq('licenseSubject', licenseSubject))
-    .collect();
-  let latest: Doc<'machine_attestations'> | null = null;
-  for (const attestation of attestations) {
-    if (
-      !latest ||
-      attestation.createdAt > latest.createdAt ||
-      (attestation.createdAt === latest.createdAt &&
-        attestation._creationTime > latest._creationTime)
-    ) {
-      latest = attestation;
-    }
-  }
-  return latest;
+    .withIndex('by_license_subject_created_at', (q) => q.eq('licenseSubject', licenseSubject))
+    .order('desc')
+    .first();
 }
 
 /** Mint a fresh single-use challenge nonce. Generic anti-replay; carries no attestation secret. */

@@ -1203,6 +1203,55 @@ export const recordCouplingTraces = internalMutation({
  * skips coupling rather than blocking the install). The watermark master never lives in this
  * open-source server.
  */
+const COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+]);
+
+function isAllowedCouplingSeedRelayEndpoint(endpoint: URL): boolean {
+  if (endpoint.username || endpoint.password) {
+    return false;
+  }
+  if (endpoint.protocol === 'https:') {
+    return true;
+  }
+  return (
+    endpoint.protocol === 'http:' && COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS.has(endpoint.hostname)
+  );
+}
+
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string | null> {
+  if (!response.body) {
+    const text = await response.text();
+    return text.length <= maxBytes ? text : null;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+  let bytesRead = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+    chunks.push(decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
+  const text = chunks.join('');
+  return text.length <= maxBytes ? text : null;
+}
+
 async function deriveCouplingSeeds(
   licenseSubject: string,
   assetPaths: string[]
@@ -1220,7 +1269,7 @@ async function deriveCouplingSeeds(
   } catch {
     return null;
   }
-  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+  if (!isAllowedCouplingSeedRelayEndpoint(endpoint)) {
     return null;
   }
   const controller = new AbortController();
@@ -1236,8 +1285,8 @@ async function deriveCouplingSeeds(
     if (!res.ok) {
       return null;
     }
-    const text = await res.text();
-    if (text.length > COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS) {
+    const text = await readBoundedResponseText(res, COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS);
+    if (!text) {
       return null;
     }
     const data = JSON.parse(text) as { seeds?: { assetPath: string; seedHex: string }[] };
