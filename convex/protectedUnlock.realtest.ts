@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import { buildPublicAuthIssuer } from './lib/publicAuthIssuer';
 import {
   getPublicKeyFromPrivate,
@@ -16,6 +17,7 @@ describe('protected unlock issuance', () => {
   const machineFingerprint = 'a604eb0948054b9acb9f40da80a6a4c8e711b98c59e54a11089fea3a2b77dc1c';
   const projectId = '0123456789abcdef0123456789abcdef';
   const creatorAuthUserId = 'auth-protected-unlock';
+  const licenseSubject = 'license-subject-protected-unlock';
   const outerPackageHash = 'a'.repeat(64);
   const blobHash = 'b'.repeat(64);
 
@@ -78,7 +80,7 @@ describe('protected unlock issuance', () => {
       {
         iss: buildPublicAuthIssuer(issuerBaseUrl),
         aud: 'yucp-license-gate',
-        sub: 'license-subject-protected-unlock',
+        sub: licenseSubject,
         jti: 'nonce-protected-unlock',
         package_id: packageId,
         machine_fingerprint: machineFingerprint,
@@ -89,6 +91,37 @@ describe('protected unlock issuance', () => {
       rootPrivateKey,
       'yucp-root'
     );
+  }
+
+  async function blockLicenseSubject(t: ReturnType<typeof makeTestConvex>) {
+    const resolved = await t.mutation(internal.attestation.recordResolution, {
+      anchors: [{ anchorType: 'tpm_ek', anchorHash: 'ek-protected-unlock-block' }],
+      attestation: {
+        tpmVerified: true,
+        flags: [],
+        fingerprintVector: [],
+        osAnchorHashes: [],
+        correlationId: 'corr-protected-unlock-block',
+        licenseSubject,
+      },
+    });
+    await t.mutation(internal.attestation.flagIdentityForReview, {
+      identityNodeId: resolved.nodeId,
+      reason: 'confirmed coupling trace',
+      evidenceRef: 'trace-protected-unlock-block',
+    });
+    const blockId = await t.run(async (ctx) => {
+      const block = await ctx.db
+        .query('blocked_identities')
+        .withIndex('by_identity_node', (q) => q.eq('identityNodeId', resolved.nodeId))
+        .first();
+      return block?._id as Id<'blocked_identities'>;
+    });
+    await t.mutation(internal.attestation.reviewIdentityBlock, {
+      blockId,
+      decision: 'active',
+      reviewedByUserId: 'reviewer-protected-unlock',
+    });
   }
 
   it('binds protected unlock tokens to the protected asset hash with a short ttl', async () => {
@@ -132,5 +165,27 @@ describe('protected unlock issuance', () => {
     expect(claims?.content_key_b64).toBeTruthy();
     expect(claims?.wrapped_content_key).toBeUndefined();
     expect((claims?.exp ?? 0) - (claims?.iat ?? 0)).toBeLessThanOrEqual(10 * 60);
+  });
+
+  it('refuses protected unlock tickets for an actively blocked identity', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedProtectedAsset(t);
+    await blockLicenseSubject(t);
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueProtectedUnlock, {
+      packageId,
+      protectedAssetId,
+      machineFingerprint,
+      projectId,
+      licenseToken,
+      issuerBaseUrl,
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: 'This purchase is not eligible for unlock on this account',
+    });
   });
 });

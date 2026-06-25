@@ -1872,6 +1872,305 @@ http.route({
 // already-hashed anchors plus an opaque verdict the closed service computed. Both endpoints require
 // CONVEX_API_SECRET so only the closed service can reach them; no attestation logic lives here.
 
+const ATTESTATION_HASH_RE = /^[0-9a-f]{64}$/i;
+const ATTESTATION_NONCE_RE = /^[0-9a-f]{64}$/i;
+const ATTESTATION_ANCHOR_TYPES = new Set([
+  'tpm_ek',
+  'payment',
+  'usr',
+  'email',
+  'auth_user',
+  'os_machine',
+]);
+const ATTESTATION_FLAGS = new Set(['no_tpm', 'spoof_suspected', 'vm', 'low_confidence']);
+const MAX_ATTESTATION_ANCHORS = 32;
+const MAX_FINGERPRINT_COMPONENTS = 64;
+const MAX_OS_ANCHORS = 32;
+const MAX_COUPLING_PROOF_ASSETS = 100;
+const MAX_ATTESTATION_LABEL_LENGTH = 128;
+const MAX_ATTESTATION_COMPONENT_LENGTH = 64;
+
+type AttestationFlag = 'no_tpm' | 'spoof_suspected' | 'vm' | 'low_confidence';
+type AttestationAnchorType = 'tpm_ek' | 'payment' | 'usr' | 'email' | 'auth_user' | 'os_machine';
+
+type RelayAnchor = {
+  anchorType: AttestationAnchorType;
+  anchorHash: string;
+};
+
+type RelayAttestation = {
+  ekHash?: string;
+  akPubHash?: string;
+  tpmVerified: boolean;
+  flags: AttestationFlag[];
+  fingerprintVector: Array<{ component: string; hash: string; weight: number }>;
+  osAnchorHashes: string[];
+  networkAnchorHash?: string;
+  paymentFingerprintHash?: string;
+  usrIdHash?: string;
+  licenseSubject?: string;
+  authUserId?: string;
+  usrIdConfidence?: string;
+  correlationId: string;
+};
+
+type RelayCouplingProof = {
+  correlationId: string;
+  tpmVerified: boolean;
+  flags: AttestationFlag[];
+  assets: Array<{ pathHash: string; contentSha256: string }>;
+  selfHashRef?: string;
+  licenseSubject?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
+}
+
+function isHashString(value: unknown): value is string {
+  return typeof value === 'string' && ATTESTATION_HASH_RE.test(value);
+}
+
+function parseOptionalHash(value: unknown): string | undefined | null {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  return isHashString(value) ? value.toLowerCase() : null;
+}
+
+function parseFlags(value: unknown): AttestationFlag[] | null {
+  if (!Array.isArray(value) || value.length > ATTESTATION_FLAGS.size) {
+    return null;
+  }
+  const flags: AttestationFlag[] = [];
+  for (const flag of value) {
+    if (typeof flag !== 'string' || !ATTESTATION_FLAGS.has(flag)) {
+      return null;
+    }
+    if (!flags.includes(flag as AttestationFlag)) {
+      flags.push(flag as AttestationFlag);
+    }
+  }
+  return flags;
+}
+
+function parseHashArray(value: unknown, maxLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxLength) {
+    return null;
+  }
+  const hashes: string[] = [];
+  for (const item of value) {
+    if (!isHashString(item)) {
+      return null;
+    }
+    hashes.push(item.toLowerCase());
+  }
+  return hashes;
+}
+
+function parseRelayAnchors(value: unknown): RelayAnchor[] | null {
+  if (!Array.isArray(value) || value.length > MAX_ATTESTATION_ANCHORS) {
+    return null;
+  }
+  const anchors: RelayAnchor[] = [];
+  for (const anchor of value) {
+    if (!isRecord(anchor)) {
+      return null;
+    }
+    const anchorType = anchor.anchorType;
+    if (typeof anchorType !== 'string' || !ATTESTATION_ANCHOR_TYPES.has(anchorType)) {
+      return null;
+    }
+    if (!isHashString(anchor.anchorHash)) {
+      return null;
+    }
+    anchors.push({
+      anchorType: anchorType as AttestationAnchorType,
+      anchorHash: anchor.anchorHash.toLowerCase(),
+    });
+  }
+  return anchors;
+}
+
+function parseFingerprintVector(
+  value: unknown
+): Array<{ component: string; hash: string; weight: number }> | null {
+  if (!Array.isArray(value) || value.length > MAX_FINGERPRINT_COMPONENTS) {
+    return null;
+  }
+  const vector: Array<{ component: string; hash: string; weight: number }> = [];
+  for (const component of value) {
+    if (!isRecord(component)) {
+      return null;
+    }
+    if (!isBoundedString(component.component, MAX_ATTESTATION_COMPONENT_LENGTH)) {
+      return null;
+    }
+    if (!isHashString(component.hash)) {
+      return null;
+    }
+    if (
+      typeof component.weight !== 'number' ||
+      !Number.isFinite(component.weight) ||
+      component.weight < 0 ||
+      component.weight > 100
+    ) {
+      return null;
+    }
+    vector.push({
+      component: component.component,
+      hash: component.hash.toLowerCase(),
+      weight: component.weight,
+    });
+  }
+  return vector;
+}
+
+function parseAttestationRecordBody(
+  body: unknown
+): { ok: true; nonce: string; anchors: RelayAnchor[]; attestation: RelayAttestation } | { ok: false } {
+  if (!isRecord(body) || typeof body.nonce !== 'string' || !ATTESTATION_NONCE_RE.test(body.nonce)) {
+    return { ok: false };
+  }
+  const anchors = parseRelayAnchors(body.anchors);
+  if (!anchors) {
+    return { ok: false };
+  }
+  const rawAttestation = body.attestation;
+  if (!isRecord(rawAttestation) || typeof rawAttestation.tpmVerified !== 'boolean') {
+    return { ok: false };
+  }
+  const flags = parseFlags(rawAttestation.flags);
+  const fingerprintVector = parseFingerprintVector(rawAttestation.fingerprintVector);
+  const osAnchorHashes = parseHashArray(rawAttestation.osAnchorHashes, MAX_OS_ANCHORS);
+  if (!flags || !fingerprintVector || !osAnchorHashes) {
+    return { ok: false };
+  }
+  if (!isBoundedString(rawAttestation.correlationId, MAX_ATTESTATION_LABEL_LENGTH)) {
+    return { ok: false };
+  }
+
+  const ekHash = parseOptionalHash(rawAttestation.ekHash);
+  const akPubHash = parseOptionalHash(rawAttestation.akPubHash);
+  const networkAnchorHash = parseOptionalHash(rawAttestation.networkAnchorHash);
+  const paymentFingerprintHash = parseOptionalHash(rawAttestation.paymentFingerprintHash);
+  const usrIdHash = parseOptionalHash(rawAttestation.usrIdHash);
+  const licenseSubject = parseOptionalHash(rawAttestation.licenseSubject);
+  if (
+    ekHash === null ||
+    akPubHash === null ||
+    networkAnchorHash === null ||
+    paymentFingerprintHash === null ||
+    usrIdHash === null ||
+    licenseSubject === null
+  ) {
+    return { ok: false };
+  }
+  const authUserId =
+    rawAttestation.authUserId === undefined
+      ? undefined
+      : isBoundedString(rawAttestation.authUserId, MAX_ATTESTATION_LABEL_LENGTH)
+        ? rawAttestation.authUserId
+        : null;
+  const usrIdConfidence =
+    rawAttestation.usrIdConfidence === undefined
+      ? undefined
+      : isBoundedString(rawAttestation.usrIdConfidence, MAX_ATTESTATION_LABEL_LENGTH)
+        ? rawAttestation.usrIdConfidence
+        : null;
+  if (authUserId === null || usrIdConfidence === null) {
+    return { ok: false };
+  }
+
+  return {
+    ok: true,
+    nonce: body.nonce.toLowerCase(),
+    anchors,
+    attestation: {
+      ...(ekHash === undefined ? {} : { ekHash }),
+      ...(akPubHash === undefined ? {} : { akPubHash }),
+      tpmVerified: rawAttestation.tpmVerified,
+      flags,
+      fingerprintVector,
+      osAnchorHashes,
+      ...(networkAnchorHash === undefined ? {} : { networkAnchorHash }),
+      ...(paymentFingerprintHash === undefined ? {} : { paymentFingerprintHash }),
+      ...(usrIdHash === undefined ? {} : { usrIdHash }),
+      ...(licenseSubject === undefined ? {} : { licenseSubject }),
+      ...(authUserId === undefined ? {} : { authUserId }),
+      ...(usrIdConfidence === undefined ? {} : { usrIdConfidence }),
+      correlationId: rawAttestation.correlationId,
+    },
+  };
+}
+
+function parseCouplingRecordBody(
+  body: unknown
+): { ok: true; nonce: string; proof: RelayCouplingProof } | { ok: false } {
+  if (!isRecord(body) || typeof body.nonce !== 'string' || !ATTESTATION_NONCE_RE.test(body.nonce)) {
+    return { ok: false };
+  }
+  const rawProof = body.proof;
+  if (
+    !isRecord(rawProof) ||
+    !isBoundedString(rawProof.correlationId, MAX_ATTESTATION_LABEL_LENGTH) ||
+    typeof rawProof.tpmVerified !== 'boolean'
+  ) {
+    return { ok: false };
+  }
+  const flags = parseFlags(rawProof.flags);
+  if (!flags) {
+    return { ok: false };
+  }
+  if (!Array.isArray(rawProof.assets) || rawProof.assets.length > MAX_COUPLING_PROOF_ASSETS) {
+    return { ok: false };
+  }
+  const assets: Array<{ pathHash: string; contentSha256: string }> = [];
+  for (const asset of rawProof.assets) {
+    if (!isRecord(asset) || !isHashString(asset.pathHash) || !isHashString(asset.contentSha256)) {
+      return { ok: false };
+    }
+    assets.push({
+      pathHash: asset.pathHash.toLowerCase(),
+      contentSha256: asset.contentSha256.toLowerCase(),
+    });
+  }
+  const selfHashRef = parseOptionalHash(rawProof.selfHashRef);
+  const licenseSubject = parseOptionalHash(rawProof.licenseSubject);
+  if (selfHashRef === null || licenseSubject === null) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    nonce: body.nonce.toLowerCase(),
+    proof: {
+      correlationId: rawProof.correlationId,
+      tpmVerified: rawProof.tpmVerified,
+      flags,
+      assets,
+      ...(selfHashRef === undefined ? {} : { selfHashRef }),
+      ...(licenseSubject === undefined ? {} : { licenseSubject }),
+    },
+  };
+}
+
+function parsePaymentAnchorBody(
+  body: unknown
+): { ok: true; licenseSubject: string; paymentFingerprintHash: string } | { ok: false } {
+  if (!isRecord(body) || !isHashString(body.licenseSubject) || !isHashString(body.paymentFingerprintHash)) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    licenseSubject: body.licenseSubject.toLowerCase(),
+    paymentFingerprintHash: body.paymentFingerprintHash.toLowerCase(),
+  };
+}
+
 // POST /v1/attestation/internal/challenge, mint a single-use challenge nonce (anti-replay primitive).
 http.route({
   method: 'POST',
@@ -1908,32 +2207,32 @@ http.route({
     if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
       return errorResponse('Unauthorized', 401);
     }
-    let body: {
-      nonce?: string;
-      anchors?: Array<{ anchorType: string; anchorHash: string }>;
-      attestation?: unknown;
-    };
+    let body: unknown;
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    if (!body?.nonce || !Array.isArray(body.anchors) || !body.attestation) {
+    const parsed = parseAttestationRecordBody(body);
+    if (!parsed.ok) {
       return errorResponse('nonce, anchors, and attestation are required', 400);
     }
 
+    let challenge: { correlationId: string };
     try {
-      await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: body.nonce });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Invalid challenge';
-      return errorResponse(message, 422);
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+    } catch {
+      return errorResponse('Invalid challenge', 422);
+    }
+    if (!constantTimeEqual(challenge.correlationId, parsed.attestation.correlationId)) {
+      return errorResponse('Invalid challenge', 422);
     }
 
     const result = await ctx.runMutation(internal.attestation.recordResolution, {
-      anchors: body.anchors as never,
-      attestation: body.attestation as never,
+      anchors: parsed.anchors,
+      attestation: parsed.attestation,
     });
-    return jsonResponse({ success: true, blocked: result.blocked, nodeId: result.nodeId });
+    return jsonResponse({ success: true, blocked: result.blocked });
   }),
 });
 
@@ -1948,42 +2247,29 @@ http.route({
     if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
       return errorResponse('Unauthorized', 401);
     }
-    let body: {
-      nonce?: string;
-      proof?: {
-        correlationId?: string;
-        tpmVerified?: boolean;
-        flags?: Array<string>;
-        assets?: Array<{ pathHash: string; contentSha256: string }>;
-        selfHashRef?: string;
-        licenseSubject?: string;
-      };
-    };
+    let body: unknown;
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    if (!body?.nonce || !body.proof || typeof body.proof.correlationId !== 'string') {
+    const parsed = parseCouplingRecordBody(body);
+    if (!parsed.ok) {
       return errorResponse('nonce and proof are required', 400);
     }
 
+    let challenge: { correlationId: string };
     try {
-      await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: body.nonce });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Invalid challenge';
-      return errorResponse(message, 422);
+      challenge = await ctx.runMutation(internal.attestation.consumeChallenge, { nonce: parsed.nonce });
+    } catch {
+      return errorResponse('Invalid challenge', 422);
+    }
+    if (!constantTimeEqual(challenge.correlationId, parsed.proof.correlationId)) {
+      return errorResponse('Invalid challenge', 422);
     }
 
-    const result = await ctx.runMutation(internal.attestation.recordCouplingProof, {
-      correlationId: body.proof.correlationId,
-      tpmVerified: body.proof.tpmVerified === true,
-      flags: (body.proof.flags ?? []) as never,
-      assets: (body.proof.assets ?? []) as never,
-      selfHashRef: body.proof.selfHashRef,
-      licenseSubject: body.proof.licenseSubject,
-    });
-    return jsonResponse({ success: true, proofId: result.proofId });
+    await ctx.runMutation(internal.attestation.recordCouplingProof, parsed.proof);
+    return jsonResponse({ success: true });
   }),
 });
 
@@ -1999,18 +2285,19 @@ http.route({
     if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
       return errorResponse('Unauthorized', 401);
     }
-    let body: { licenseSubject?: string; paymentFingerprintHash?: string };
+    let body: unknown;
     try {
       body = (await request.json()) as typeof body;
     } catch {
       return errorResponse('Invalid JSON body', 400);
     }
-    if (!body?.licenseSubject || !body?.paymentFingerprintHash) {
+    const parsed = parsePaymentAnchorBody(body);
+    if (!parsed.ok) {
       return errorResponse('licenseSubject and paymentFingerprintHash are required', 400);
     }
     const result = await ctx.runMutation(internal.attestation.attachPaymentAnchor, {
-      licenseSubject: body.licenseSubject,
-      paymentFingerprintHash: body.paymentFingerprintHash,
+      licenseSubject: parsed.licenseSubject,
+      paymentFingerprintHash: parsed.paymentFingerprintHash,
     });
     return jsonResponse({ success: true, attached: result.attached });
   }),

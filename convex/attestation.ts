@@ -17,7 +17,7 @@
 
 import type { GenericMutationCtx } from 'convex/server';
 import { ConvexError, v } from 'convex/values';
-import type { DataModel, Id } from './_generated/dataModel';
+import type { DataModel, Doc, Id } from './_generated/dataModel';
 import { internalMutation, internalQuery } from './_generated/server';
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -74,6 +74,28 @@ function randomHex(byteLength: number): string {
 
 /** Durable anchor types. Kept here only so resolution can tag edges; the closed service decides policy. */
 const DURABLE_ANCHOR_TYPES = new Set(['tpm_ek', 'payment']);
+
+async function getLatestAttestationForLicenseSubject(
+  ctx: GenericMutationCtx<DataModel>,
+  licenseSubject: string
+): Promise<Doc<'machine_attestations'> | null> {
+  const attestations = await ctx.db
+    .query('machine_attestations')
+    .withIndex('by_license_subject', (q) => q.eq('licenseSubject', licenseSubject))
+    .collect();
+  let latest: Doc<'machine_attestations'> | null = null;
+  for (const attestation of attestations) {
+    if (
+      !latest ||
+      attestation.createdAt > latest.createdAt ||
+      (attestation.createdAt === latest.createdAt &&
+        attestation._creationTime > latest._creationTime)
+    ) {
+      latest = attestation;
+    }
+  }
+  return latest;
+}
 
 /** Mint a fresh single-use challenge nonce. Generic anti-replay; carries no attestation secret. */
 export const issueChallenge = internalMutation({
@@ -163,7 +185,6 @@ export const recordResolution = internalMutation({
     const now = Date.now();
 
     const durableMatches = new Set<Id<'identity_nodes'>>();
-    const anyMatches = new Set<Id<'identity_nodes'>>();
     for (const anchor of args.anchors) {
       const existing = await ctx.db
         .query('identity_node_anchors')
@@ -171,17 +192,13 @@ export const recordResolution = internalMutation({
           q.eq('anchorType', anchor.anchorType).eq('anchorHash', anchor.anchorHash)
         )
         .first();
-      if (existing) {
-        anyMatches.add(existing.nodeId);
-        if (DURABLE_ANCHOR_TYPES.has(anchor.anchorType)) {
-          durableMatches.add(existing.nodeId);
-        }
+      if (existing && DURABLE_ANCHOR_TYPES.has(anchor.anchorType)) {
+        durableMatches.add(existing.nodeId);
       }
     }
 
     let nodeId: Id<'identity_nodes'>;
-    const matchPool = durableMatches.size > 0 ? durableMatches : anyMatches;
-    if (matchPool.size === 0) {
+    if (durableMatches.size === 0) {
       nodeId = await ctx.db.insert('identity_nodes', {
         status: 'active',
         durableAnchorCount: 0,
@@ -189,7 +206,7 @@ export const recordResolution = internalMutation({
         updatedAt: now,
       });
     } else {
-      const ids = Array.from(matchPool);
+      const ids = Array.from(durableMatches);
       nodeId = ids[0];
       for (let i = 1; i < ids.length; i++) {
         await absorbNode(ctx, ids[i], nodeId, now);
@@ -207,7 +224,17 @@ export const recordResolution = internalMutation({
         continue;
       }
       if (present && present.nodeId !== nodeId) {
-        await ctx.db.patch(present._id, { nodeId });
+        if (DURABLE_ANCHOR_TYPES.has(anchor.anchorType)) {
+          await ctx.db.patch(present._id, { nodeId });
+        } else {
+          await ctx.db.insert('identity_node_anchors', {
+            nodeId,
+            anchorType: anchor.anchorType,
+            anchorHash: anchor.anchorHash,
+            isDurable: false,
+            createdAt: now,
+          });
+        }
         continue;
       }
       await ctx.db.insert('identity_node_anchors', {
@@ -286,10 +313,7 @@ export const isIdentityBlocked = internalQuery({
 export const attachPaymentAnchor = internalMutation({
   args: { licenseSubject: v.string(), paymentFingerprintHash: v.string() },
   handler: async (ctx, args) => {
-    const att = await ctx.db
-      .query('machine_attestations')
-      .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
-      .first();
+    const att = await getLatestAttestationForLicenseSubject(ctx, args.licenseSubject);
     if (!att?.identityNodeId) {
       return { attached: false };
     }
@@ -352,10 +376,7 @@ export const recordCouplingProof = internalMutation({
   handler: async (ctx, args) => {
     let identityNodeId: Id<'identity_nodes'> | undefined;
     if (args.licenseSubject) {
-      const att = await ctx.db
-        .query('machine_attestations')
-        .withIndex('by_license_subject', (q) => q.eq('licenseSubject', args.licenseSubject))
-        .first();
+      const att = await getLatestAttestationForLicenseSubject(ctx, args.licenseSubject);
       identityNodeId = att?.identityNodeId ?? undefined;
     }
     const proofId = await ctx.db.insert('coupling_proofs', {
@@ -408,21 +429,19 @@ export const reviewIdentityBlock = internalMutation({
       throw new ConvexError('Unknown block record');
     }
     const now = Date.now();
-    const nodeBlocks = await ctx.db
-      .query('blocked_identities')
-      .withIndex('by_identity_node', (q) => q.eq('identityNodeId', block.identityNodeId))
-      .collect();
-    const hasOtherActiveBlock = nodeBlocks.some(
-      (candidate) => candidate._id !== args.blockId && candidate.status === 'active'
-    );
-    await ctx.db.patch(block.identityNodeId, {
-      status: args.decision === 'active' || hasOtherActiveBlock ? 'blocked' : 'active',
-      updatedAt: now,
-    });
     await ctx.db.patch(args.blockId, {
       status: args.decision,
       reviewedByUserId: args.reviewedByUserId,
       appeal: args.appeal,
+      updatedAt: now,
+    });
+    const nodeBlocks = await ctx.db
+      .query('blocked_identities')
+      .withIndex('by_identity_node', (q) => q.eq('identityNodeId', block.identityNodeId))
+      .collect();
+    const hasActiveBlock = nodeBlocks.some((candidate) => candidate.status === 'active');
+    await ctx.db.patch(block.identityNodeId, {
+      status: hasActiveBlock ? 'blocked' : 'active',
       updatedAt: now,
     });
   },

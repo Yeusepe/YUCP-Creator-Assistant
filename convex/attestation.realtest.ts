@@ -41,6 +41,26 @@ async function record(
   });
 }
 
+async function recordWithAnchors(
+  t: TestConvex,
+  opts: {
+    anchors: Array<{
+      anchorType: 'tpm_ek' | 'payment' | 'usr' | 'email' | 'auth_user' | 'os_machine';
+      anchorHash: string;
+    }>;
+    licenseSubject?: string;
+    correlationId?: string;
+  }
+): Promise<{ nodeId: Id<'identity_nodes'>; blocked: boolean; durableAnchorCount: number }> {
+  return await t.mutation(internal.attestation.recordResolution, {
+    anchors: opts.anchors,
+    attestation: minimalAttestation({
+      licenseSubject: opts.licenseSubject,
+      correlationId: opts.correlationId,
+    }),
+  });
+}
+
 async function flagBlock(t: TestConvex, nodeId: Id<'identity_nodes'>): Promise<Id<'blocked_identities'>> {
   await t.mutation(internal.attestation.flagIdentityForReview, {
     identityNodeId: nodeId,
@@ -128,6 +148,21 @@ describe('attestation identity graph', () => {
       licenseSubject: 'lic-reused',
     });
     expect(lookup.blocked).toBe(true);
+  });
+
+  it('does not merge identities on a shared soft anchor alone', async () => {
+    const t = makeTestConvex();
+    const first = await recordWithAnchors(t, {
+      anchors: [{ anchorType: 'usr', anchorHash: 'shared-soft-usr' }],
+      licenseSubject: 'lic-soft-a',
+    });
+    const second = await recordWithAnchors(t, {
+      anchors: [{ anchorType: 'usr', anchorHash: 'shared-soft-usr' }],
+      licenseSubject: 'lic-soft-b',
+    });
+
+    expect(second.nodeId).not.toBe(first.nodeId);
+    expect(second.durableAnchorCount).toBe(0);
   });
 
   it('reverses a block on appeal', async () => {
@@ -293,6 +328,21 @@ describe('attestation payment anchor', () => {
     expect(lookup.blocked).toBe(true);
   });
 
+  it('attaches payment anchors to the latest node for a reused license subject', async () => {
+    const t = makeTestConvex();
+    const oldNode = await record(t, { ekHash: 'ek-pay-old', licenseSubject: 'lic-pay-reused' });
+    const latestNode = await record(t, { ekHash: 'ek-pay-latest', licenseSubject: 'lic-pay-reused' });
+
+    const result = await t.mutation(internal.attestation.attachPaymentAnchor, {
+      licenseSubject: 'lic-pay-reused',
+      paymentFingerprintHash: 'card-reused-license',
+    });
+
+    expect(result.attached).toBe(true);
+    expect(result.nodeId).toBe(latestNode.nodeId);
+    expect(result.nodeId).not.toBe(oldNode.nodeId);
+  });
+
   it('moves active block records to the surviving node during a payment merge', async () => {
     const t = makeTestConvex();
     const blocked = await record(t, { ekHash: 'ek-merge-blocked', licenseSubject: 'lic-merge-blocked' });
@@ -365,6 +415,26 @@ describe('coupling proof record', () => {
     expect(stored?.assets[0]?.contentSha256).toBe('a'.repeat(64));
     // Only hashes are stored - no raw path/bytes.
     expect(stored?.assets[0]?.pathHash).toBe('p-hash');
+  });
+
+  it('links coupling proofs to the latest node for a reused license subject', async () => {
+    const t = makeTestConvex();
+    const oldNode = await record(t, { ekHash: 'ek-proof-old', licenseSubject: 'lic-proof-reused' });
+    const latestNode = await record(t, {
+      ekHash: 'ek-proof-latest',
+      licenseSubject: 'lic-proof-reused',
+    });
+
+    const result = await t.mutation(internal.attestation.recordCouplingProof, {
+      correlationId: 'corr-proof-reused',
+      tpmVerified: true,
+      flags: [],
+      assets: [{ pathHash: 'p-hash', contentSha256: 'a'.repeat(64) }],
+      licenseSubject: 'lic-proof-reused',
+    });
+
+    expect(result.identityNodeId).toBe(latestNode.nodeId);
+    expect(result.identityNodeId).not.toBe(oldNode.nodeId);
   });
 
   it('enforces single-use nonce so a captured coupling proof cannot be replayed', async () => {

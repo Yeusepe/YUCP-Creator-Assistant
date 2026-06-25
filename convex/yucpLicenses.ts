@@ -71,6 +71,8 @@ const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offl
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
+const COUPLING_SEED_RELAY_TIMEOUT_MS = 5_000;
+const COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS = 256 * 1024;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
@@ -1206,22 +1208,39 @@ async function deriveCouplingSeeds(
   assetPaths: string[]
 ): Promise<Record<string, string> | null> {
   const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
-  const secret = (
-    process.env.COUPLING_SERVICE_SECRET ?? process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET
-  )?.trim();
+  const secret =
+    process.env.COUPLING_SERVICE_SECRET?.trim() ||
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim();
   if (!baseUrl || !secret) {
     return null;
   }
+  let endpoint: URL;
   try {
-    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/v1/coupling/internal/derive-seeds`, {
+    endpoint = new URL('/v1/coupling/internal/derive-seeds', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+  } catch {
+    return null;
+  }
+  if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), COUPLING_SEED_RELAY_TIMEOUT_MS);
+  try {
+    const res = await fetch(endpoint.toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },
       body: JSON.stringify({ licenseSubject, assetPaths }),
+      redirect: 'error',
+      signal: controller.signal,
     });
     if (!res.ok) {
       return null;
     }
-    const data = (await res.json()) as { seeds?: { assetPath: string; seedHex: string }[] };
+    const text = await res.text();
+    if (text.length > COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS) {
+      return null;
+    }
+    const data = JSON.parse(text) as { seeds?: { assetPath: string; seedHex: string }[] };
     if (!Array.isArray(data?.seeds)) {
       return null;
     }
@@ -1234,6 +1253,8 @@ async function deriveCouplingSeeds(
     return map;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -1330,7 +1351,7 @@ export const issueCouplingJob = internalAction({
 
     const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
     const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
-    // Both v2 encoders (image xg_0122, FBX mesh xg_0124) carry a 64-bit (8-byte) token — broad
+    // Both v2 encoders (image xg_0122, FBX mesh xg_0124) carry a 64-bit (8-byte) token - broad
     // low-poly/low-resolution coverage, exact recovery via ECC+CRC. Token length is recorded per
     // asset so the forensic decoder reconstructs the exact hex before hashing.
     for (const assetPath of args.assetPaths) {

@@ -32,11 +32,13 @@ describe('coupling job + license reveal', () => {
   let originalFetch: typeof fetch;
   let originalCouplingServiceBaseUrl: string | undefined;
   let originalCouplingServiceSecret: string | undefined;
+  let originalCouplingServiceSharedSecret: string | undefined;
 
   beforeEach(async () => {
     originalFetch = globalThis.fetch;
     originalCouplingServiceBaseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL;
     originalCouplingServiceSecret = process.env.COUPLING_SERVICE_SECRET;
+    originalCouplingServiceSharedSecret = process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET;
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-coupling-job-flow';
     process.env.API_BASE_URL = issuerBaseUrl;
@@ -63,12 +65,43 @@ describe('coupling job + license reveal', () => {
     } else {
       process.env.COUPLING_SERVICE_SECRET = originalCouplingServiceSecret;
     }
+    if (originalCouplingServiceSharedSecret === undefined) {
+      delete process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET;
+    } else {
+      process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = originalCouplingServiceSharedSecret;
+    }
   });
 
   function mockSeedRelay(seedHex = '1'.repeat(64)) {
+    const expectedSecret = 'test-coupling-relay-token';
     process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
-    process.env.COUPLING_SERVICE_SECRET = 'seed-secret';
-    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    process.env.COUPLING_SERVICE_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      expect(init?.method).toBe('POST');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe(`Bearer ${expectedSecret}`);
+      expect(headers.get('Content-Type')).toBe('application/json');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({ assetPath, seedHex })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+  }
+
+  function mockFallbackSeedRelay(seedHex = '2'.repeat(64)) {
+    const expectedSecret = 'test-fallback-coupling-relay-token';
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
+    process.env.COUPLING_SERVICE_SECRET = '';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('Authorization')).toBe(`Bearer ${expectedSecret}`);
       const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
       return new Response(
         JSON.stringify({
@@ -247,6 +280,26 @@ describe('coupling job + license reveal', () => {
       const expectedHash = await sha256Hex(file.tokenHex);
       expect(traces.some((trace) => trace.tokenHash === expectedHash)).toBe(true);
     }
+  });
+
+  it('uses the fallback coupling relay secret when the primary secret is blank', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    mockFallbackSeedRelay();
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['2'.repeat(64)]);
   });
 
   // ── Reveal ────────────────────────────────────────────────────────────────
