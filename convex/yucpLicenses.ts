@@ -1265,7 +1265,7 @@ async function deriveCouplingSeeds(
   }
   let endpoint: URL;
   try {
-    endpoint = new URL('/v1/coupling/internal/derive-seeds', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+    endpoint = new URL('v1/coupling/internal/derive-seeds', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
   } catch {
     return null;
   }

@@ -1909,7 +1909,7 @@ type RelayAttestation = {
   paymentFingerprintHash?: string;
   usrIdHash?: string;
   licenseSubject?: string;
-  machineFingerprintHash?: string;
+  machineFingerprintHash: string;
   authUserId?: string;
   usrIdConfidence?: string;
   correlationId: string;
@@ -2069,6 +2069,7 @@ function parseAttestationRecordBody(
     paymentFingerprintHash === null ||
     usrIdHash === null ||
     licenseSubject === null ||
+    machineFingerprintHash === undefined ||
     machineFingerprintHash === null
   ) {
     return { ok: false };
@@ -2104,7 +2105,7 @@ function parseAttestationRecordBody(
       ...(paymentFingerprintHash === undefined ? {} : { paymentFingerprintHash }),
       ...(usrIdHash === undefined ? {} : { usrIdHash }),
       ...(licenseSubject === undefined ? {} : { licenseSubject }),
-      ...(machineFingerprintHash === undefined ? {} : { machineFingerprintHash }),
+      machineFingerprintHash,
       ...(authUserId === undefined ? {} : { authUserId }),
       ...(usrIdConfidence === undefined ? {} : { usrIdConfidence }),
       correlationId: rawAttestation.correlationId,

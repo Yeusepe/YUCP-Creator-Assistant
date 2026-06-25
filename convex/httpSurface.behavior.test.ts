@@ -398,6 +398,7 @@ describe('Convex HTTP surface hardening', () => {
             flags: [],
             fingerprintVector: [],
             osAnchorHashes: [],
+            machineFingerprintHash: 'd'.repeat(64),
             correlationId: 'corr-submitted',
           },
         }),
@@ -410,6 +411,46 @@ describe('Convex HTTP surface hardening', () => {
         ([reference]) => reference === internalMock.attestation.recordResolution
       )
     ).toBe(false);
+  });
+
+  it('rejects attestation records without a machine fingerprint hash', async () => {
+    process.env.CONVEX_API_SECRET = 'relay-test-secret';
+    const runMutationMock = mock(async (reference: unknown) => {
+      if (reference === internalMock.attestation.consumeChallenge) {
+        return { correlationId: 'corr-1' };
+      }
+      if (reference === internalMock.attestation.recordResolution) {
+        return { blocked: false, nodeId: 'identity-node-1' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+
+    const route = getRoute('POST', '/v1/attestation/internal/record');
+    const response = await route.handler(
+      { runMutation: runMutationMock },
+      new Request('https://convex.example.com/v1/attestation/internal/record', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer relay-test-secret',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          nonce: 'c'.repeat(64),
+          anchors: [{ anchorType: 'tpm_ek', anchorHash: 'c'.repeat(64) }],
+          attestation: {
+            ekHash: 'c'.repeat(64),
+            tpmVerified: true,
+            flags: [],
+            fingerprintVector: [],
+            osAnchorHashes: [],
+            correlationId: 'corr-1',
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(runMutationMock.mock.calls).toHaveLength(0);
   });
 
   it('rejects malformed coupling proofs before consuming a nonce', async () => {

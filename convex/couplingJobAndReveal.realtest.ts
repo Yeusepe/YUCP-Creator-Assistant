@@ -375,6 +375,42 @@ describe('coupling job + license reveal', () => {
     expect(relay.getObservedAuthorization()).toBe(relay.expectedAuthorization);
   });
 
+  it('preserves private coupling relay base paths when deriving seeds', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    await seedActiveCouplingRuntime(t);
+    process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test/private/coupling';
+    process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = 'test-prefixed-coupling-relay-token';
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe(
+        'https://coupling-service.test/private/coupling/v1/coupling/internal/derive-seeds'
+      );
+      const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
+      return new Response(
+        JSON.stringify({
+          seeds: (body.assetPaths ?? []).map((assetPath) => ({
+            assetPath,
+            seedHex: '5'.repeat(64),
+          })),
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(internal.yucpLicenses.issueCouplingJob, {
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['Assets/Character/body.png'],
+      issuerBaseUrl,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['5'.repeat(64)]);
+  });
+
   it('does not send the relay bearer secret to non-loopback HTTP endpoints', async () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);

@@ -103,14 +103,15 @@ async function getLatestAttestationForLicenseSubject(
 async function linkPendingCouplingProofsForLicenseSubject(
   ctx: GenericMutationCtx<DataModel>,
   licenseSubject: string,
+  correlationId: string,
   identityNodeId: Id<'identity_nodes'>
 ): Promise<void> {
   const proofs = await ctx.db
     .query('coupling_proofs')
-    .withIndex('by_license_subject', (q) => q.eq('licenseSubject', licenseSubject))
+    .withIndex('by_correlation', (q) => q.eq('correlationId', correlationId))
     .collect();
   for (const proof of proofs) {
-    if (!proof.identityNodeId) {
+    if (!proof.identityNodeId && proof.licenseSubject === licenseSubject) {
       await ctx.db.patch(proof._id, { identityNodeId });
     }
   }
@@ -292,7 +293,12 @@ export const recordResolution = internalMutation({
       createdAt: now,
     });
     if (args.attestation.licenseSubject) {
-      await linkPendingCouplingProofsForLicenseSubject(ctx, args.attestation.licenseSubject, nodeId);
+      await linkPendingCouplingProofsForLicenseSubject(
+        ctx,
+        args.attestation.licenseSubject,
+        args.attestation.correlationId,
+        nodeId
+      );
     }
 
     const node = await ctx.db.get(nodeId);

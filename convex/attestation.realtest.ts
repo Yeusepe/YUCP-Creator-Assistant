@@ -483,9 +483,42 @@ describe('coupling proof record', () => {
       'lic-proof-delayed'
     );
 
-    const node = await record(t, { ekHash: 'ek-proof-delayed', licenseSubject: 'lic-proof-delayed' });
+    const node = await record(t, {
+      ekHash: 'ek-proof-delayed',
+      licenseSubject: 'lic-proof-delayed',
+      correlationId: 'corr-proof-before-attestation',
+    });
     const after = await t.run(async (ctx) => ctx.db.get(proof.proofId));
     expect(after?.identityNodeId).toBe(node.nodeId);
+  });
+
+  it('does not relink unrelated pending proofs for the same license subject', async () => {
+    const t = makeTestConvex();
+    const matchingProof = await t.mutation(internal.attestation.recordCouplingProof, {
+      correlationId: 'corr-proof-matching-attestation',
+      tpmVerified: true,
+      flags: [],
+      assets: [{ pathHash: 'p-hash', contentSha256: 'c'.repeat(64) }],
+      licenseSubject: 'lic-proof-shared',
+    });
+    const unrelatedProof = await t.mutation(internal.attestation.recordCouplingProof, {
+      correlationId: 'corr-proof-unrelated-attestation',
+      tpmVerified: true,
+      flags: [],
+      assets: [{ pathHash: 'p-hash', contentSha256: 'd'.repeat(64) }],
+      licenseSubject: 'lic-proof-shared',
+    });
+
+    const node = await record(t, {
+      ekHash: 'ek-proof-shared',
+      licenseSubject: 'lic-proof-shared',
+      correlationId: 'corr-proof-matching-attestation',
+    });
+
+    const afterMatching = await t.run(async (ctx) => ctx.db.get(matchingProof.proofId));
+    const afterUnrelated = await t.run(async (ctx) => ctx.db.get(unrelatedProof.proofId));
+    expect(afterMatching?.identityNodeId).toBe(node.nodeId);
+    expect(afterUnrelated?.identityNodeId).toBeUndefined();
   });
 
   it('enforces single-use nonce so a captured coupling proof cannot be replayed', async () => {
