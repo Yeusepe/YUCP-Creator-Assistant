@@ -61,6 +61,19 @@ async function recordWithAnchors(
   });
 }
 
+async function recordBlockEligible(
+  t: TestConvex,
+  opts: { ekHash: string; paymentFingerprintHash: string; licenseSubject: string }
+): Promise<{ nodeId: Id<'identity_nodes'>; blocked: boolean; durableAnchorCount: number }> {
+  return await recordWithAnchors(t, {
+    anchors: [
+      { anchorType: 'tpm_ek', anchorHash: opts.ekHash },
+      { anchorType: 'payment', anchorHash: opts.paymentFingerprintHash },
+    ],
+    licenseSubject: opts.licenseSubject,
+  });
+}
+
 async function flagBlock(t: TestConvex, nodeId: Id<'identity_nodes'>): Promise<Id<'blocked_identities'>> {
   await t.mutation(internal.attestation.flagIdentityForReview, {
     identityNodeId: nodeId,
@@ -138,7 +151,11 @@ describe('attestation identity graph', () => {
 
   it('is not blocked before review and is blocked after review promotes the node', async () => {
     const t = makeTestConvex();
-    const { nodeId } = await record(t, { ekHash: 'ek-1', licenseSubject: 'lic-block' });
+    const { nodeId } = await recordBlockEligible(t, {
+      ekHash: 'ek-1',
+      paymentFingerprintHash: 'card-1',
+      licenseSubject: 'lic-block',
+    });
 
     const before = await t.query(internal.attestation.isIdentityBlocked, {
       licenseSubject: 'lic-block',
@@ -155,7 +172,11 @@ describe('attestation identity graph', () => {
 
   it('inherits the block for a new account on the same blocked hardware', async () => {
     const t = makeTestConvex();
-    const { nodeId } = await record(t, { ekHash: 'ek-same', licenseSubject: 'lic-old' });
+    const { nodeId } = await recordBlockEligible(t, {
+      ekHash: 'ek-same',
+      paymentFingerprintHash: 'card-same',
+      licenseSubject: 'lic-old',
+    });
     await blockNode(t, nodeId);
 
     // New account (new licenseSubject) on the same TPM resolves to the same blocked node.
@@ -171,7 +192,11 @@ describe('attestation identity graph', () => {
   it('blocks a license subject if any of its attestations resolve to a blocked node', async () => {
     const t = makeTestConvex();
     await record(t, { ekHash: 'ek-before-block', licenseSubject: 'lic-reused' });
-    const blocked = await record(t, { ekHash: 'ek-after-block', licenseSubject: 'lic-reused' });
+    const blocked = await recordBlockEligible(t, {
+      ekHash: 'ek-after-block',
+      paymentFingerprintHash: 'card-after-block',
+      licenseSubject: 'lic-reused',
+    });
     await blockNode(t, blocked.nodeId);
 
     const lookup = await t.query(internal.attestation.isIdentityBlocked, {
@@ -197,7 +222,11 @@ describe('attestation identity graph', () => {
 
   it('reverses a block on appeal', async () => {
     const t = makeTestConvex();
-    const { nodeId } = await record(t, { ekHash: 'ek-appeal', licenseSubject: 'lic-appeal' });
+    const { nodeId } = await recordBlockEligible(t, {
+      ekHash: 'ek-appeal',
+      paymentFingerprintHash: 'card-appeal',
+      licenseSubject: 'lic-appeal',
+    });
     await blockNode(t, nodeId);
 
     const blockId = await t.run(async (ctx) => {
@@ -222,7 +251,11 @@ describe('attestation identity graph', () => {
 
   it('keeps a node blocked while another active block record remains', async () => {
     const t = makeTestConvex();
-    const { nodeId } = await record(t, { ekHash: 'ek-multi-block', licenseSubject: 'lic-multi-block' });
+    const { nodeId } = await recordBlockEligible(t, {
+      ekHash: 'ek-multi-block',
+      paymentFingerprintHash: 'card-multi-block',
+      licenseSubject: 'lic-multi-block',
+    });
     const firstBlockId = await blockNode(t, nodeId);
     const secondBlockId = await flagBlock(t, nodeId);
     await t.mutation(internal.attestation.reviewIdentityBlock, {
@@ -254,6 +287,44 @@ describe('attestation identity graph', () => {
       licenseSubject: 'lic-multi-block',
     });
     expect(afterAllReversed.blocked).toBe(false);
+  });
+
+  it('rejects block flags for identity nodes that no longer exist', async () => {
+    const t = makeTestConvex();
+    const { nodeId } = await record(t, { ekHash: 'ek-stale-node', licenseSubject: 'lic-stale-node' });
+    await t.run(async (ctx) => {
+      await ctx.db.delete(nodeId);
+    });
+
+    await expect(
+      t.mutation(internal.attestation.flagIdentityForReview, {
+        identityNodeId: nodeId,
+        reason: 'confirmed coupling trace',
+        evidenceRef: 'trace-stale-node',
+      })
+    ).rejects.toThrow('Unknown identity node');
+  });
+
+  it('does not promote a block unless the identity has two durable anchors', async () => {
+    const t = makeTestConvex();
+    const { nodeId } = await record(t, {
+      ekHash: 'ek-single-durable',
+      licenseSubject: 'lic-single-durable',
+    });
+    const blockId = await flagBlock(t, nodeId);
+
+    await expect(
+      t.mutation(internal.attestation.reviewIdentityBlock, {
+        blockId,
+        decision: 'active',
+        reviewedByUserId: 'reviewer-1',
+      })
+    ).rejects.toThrow('Identity block requires at least two durable anchors');
+
+    const lookup = await t.query(internal.attestation.isIdentityBlocked, {
+      licenseSubject: 'lic-single-durable',
+    });
+    expect(lookup.blocked).toBe(false);
   });
 
   it('reports no block for an unknown licenseSubject', async () => {
@@ -339,13 +410,13 @@ describe('attestation payment anchor', () => {
   it('propagates an existing block across a payment merge', async () => {
     const t = makeTestConvex();
     const { nodeId } = await record(t, { ekHash: 'ek-b1', licenseSubject: 'lic-b1' });
-    await blockNode(t, nodeId);
-    await record(t, { ekHash: 'ek-b2', licenseSubject: 'lic-b2' });
-
     await t.mutation(internal.attestation.attachPaymentAnchor, {
       licenseSubject: 'lic-b1',
       paymentFingerprintHash: 'card-block',
     });
+    await blockNode(t, nodeId);
+    await record(t, { ekHash: 'ek-b2', licenseSubject: 'lic-b2' });
+
     await t.mutation(internal.attestation.attachPaymentAnchor, {
       licenseSubject: 'lic-b2',
       paymentFingerprintHash: 'card-block',
@@ -376,11 +447,11 @@ describe('attestation payment anchor', () => {
   it('moves active block records to the surviving node during a payment merge', async () => {
     const t = makeTestConvex();
     const blocked = await record(t, { ekHash: 'ek-merge-blocked', licenseSubject: 'lic-merge-blocked' });
-    const blockId = await blockNode(t, blocked.nodeId);
     await t.mutation(internal.attestation.attachPaymentAnchor, {
       licenseSubject: 'lic-merge-blocked',
       paymentFingerprintHash: 'card-merge-review',
     });
+    const blockId = await blockNode(t, blocked.nodeId);
     const survivor = await record(t, { ekHash: 'ek-merge-survivor', licenseSubject: 'lic-merge-survivor' });
 
     await t.mutation(internal.attestation.attachPaymentAnchor, {

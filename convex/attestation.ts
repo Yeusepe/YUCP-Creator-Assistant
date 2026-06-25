@@ -2,8 +2,8 @@
  * Hardware-attested anti-ripper identity: OPEN-SERVER storage only.
  *
  * This file is part of the open-source server, so it deliberately contains NO attestation secrets:
- * no TPM verification, no channel decryption, no salting, no component weighting, and no block
- * thresholds. All of that lives in the closed coupling-service. Here we only:
+ * no TPM verification, no channel decryption, no salting, and no component weighting. All of that
+ * lives in the closed coupling-service. Here we only:
  *   - issue and consume opaque challenge nonces (a generic anti-replay primitive),
  *   - persist already-hashed anchors and an opaque verdict the closed service computed,
  *   - resolve those opaque anchor hashes to an identity node by exact-equality lookup,
@@ -442,6 +442,10 @@ export const flagIdentityForReview = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const node = await ctx.db.get(args.identityNodeId);
+    if (!node) {
+      throw new ConvexError('Unknown identity node');
+    }
     const blockId = await ctx.db.insert('blocked_identities', {
       identityNodeId: args.identityNodeId,
       status: 'pending',
@@ -455,8 +459,8 @@ export const flagIdentityForReview = internalMutation({
 });
 
 /**
- * Apply a review decision. The eligibility policy (durable-anchor threshold) is enforced by the
- * closed service before this is called; here we only flip status so the open server holds no policy.
+ * Apply a review decision. The closed service decides the evidence threshold, while the open server
+ * still enforces the stored durable-anchor precondition before refusing unlocks for the node.
  */
 export const reviewIdentityBlock = internalMutation({
   args: {
@@ -471,6 +475,13 @@ export const reviewIdentityBlock = internalMutation({
       throw new ConvexError('Unknown block record');
     }
     const now = Date.now();
+    const node = await ctx.db.get(block.identityNodeId);
+    if (!node) {
+      throw new ConvexError('Unknown identity node');
+    }
+    if (args.decision === 'active' && node.durableAnchorCount < 2) {
+      throw new ConvexError('Identity block requires at least two durable anchors');
+    }
     await ctx.db.patch(args.blockId, {
       status: args.decision,
       reviewedByUserId: args.reviewedByUserId,

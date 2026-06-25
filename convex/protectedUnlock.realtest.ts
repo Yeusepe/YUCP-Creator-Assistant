@@ -115,11 +115,18 @@ describe('protected unlock issuance', () => {
 
   async function blockLicenseSubject(
     t: ReturnType<typeof makeTestConvex>,
-    overrides?: Partial<{ machineFingerprint: string; anchorHash: string; correlationId: string }>
+    overrides?: Partial<{
+      machineFingerprint: string;
+      anchorHash: string;
+      paymentAnchorHash: string;
+      correlationId: string;
+    }>
   ) {
+    const paymentAnchorHash = overrides?.paymentAnchorHash ?? 'payment-protected-unlock-block';
     const resolved = await t.mutation(internal.attestation.recordResolution, {
       anchors: [
         { anchorType: 'tpm_ek', anchorHash: overrides?.anchorHash ?? 'ek-protected-unlock-block' },
+        { anchorType: 'payment', anchorHash: paymentAnchorHash },
       ],
       attestation: {
         tpmVerified: true,
@@ -128,6 +135,7 @@ describe('protected unlock issuance', () => {
         osAnchorHashes: [],
         correlationId: overrides?.correlationId ?? 'corr-protected-unlock-block',
         licenseSubject,
+        paymentFingerprintHash: paymentAnchorHash,
         machineFingerprintHash: await sha256Hex(overrides?.machineFingerprint ?? machineFingerprint),
       },
     });
@@ -268,6 +276,7 @@ describe('protected unlock issuance', () => {
     await blockLicenseSubject(t, {
       machineFingerprint: 'd'.repeat(64),
       anchorHash: 'ek-protected-unlock-other-machine-block',
+      paymentAnchorHash: 'payment-protected-unlock-other-machine-block',
       correlationId: 'corr-protected-unlock-other-machine-block',
     });
     const licenseToken = await mintLicenseToken();
