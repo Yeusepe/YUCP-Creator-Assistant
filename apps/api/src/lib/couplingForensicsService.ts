@@ -64,6 +64,7 @@ type ForensicScoreServiceResponse = {
 };
 
 const HEX_RE = /^[0-9a-f]+$/;
+const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
 
 export class CouplingServiceConfigurationError extends Error {
   constructor(message: string) {
@@ -90,12 +91,42 @@ function normalizeAssetType(value: string): 'png' | 'fbx' {
   return normalized;
 }
 
-function buildCouplingScanUrl(baseUrl: string): string {
+function buildAssetMapByPath(
+  input: ExtractedForensicsAsset[],
+  duplicateContext: string
+): Map<string, ExtractedForensicsAsset> {
+  const assetByPath = new Map<string, ExtractedForensicsAsset>();
+  for (const entry of input) {
+    if (assetByPath.has(entry.assetPath)) {
+      throw new CouplingServiceRequestError(
+        `Duplicate asset path in ${duplicateContext}: ${entry.assetPath}`,
+        502
+      );
+    }
+    assetByPath.set(entry.assetPath, entry);
+  }
+  return assetByPath;
+}
+
+function buildCouplingServiceUrl(baseUrl: string, path: string): string {
   const normalizedBaseUrl = baseUrl.trim();
   if (!normalizedBaseUrl) {
     throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');
   }
-  return new URL('v1/coupling/scan', `${normalizedBaseUrl.replace(/\/$/, '')}/`).toString();
+  const url = new URL(path, `${normalizedBaseUrl.replace(/\/$/, '')}/`);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new CouplingServiceConfigurationError('Coupling service base URL must use http or https');
+  }
+  if (url.username || url.password) {
+    throw new CouplingServiceConfigurationError(
+      'Coupling service base URL must not include credentials'
+    );
+  }
+  return url.toString();
+}
+
+function buildCouplingScanUrl(baseUrl: string): string {
+  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/scan');
 }
 
 function validateCouplingScanResult(
@@ -197,14 +228,7 @@ function extractCouplingServiceErrorDetail(
 }
 
 function buildForensicScoreUrl(baseUrl: string): string {
-  const normalizedBaseUrl = baseUrl.trim();
-  if (!normalizedBaseUrl) {
-    throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');
-  }
-  return new URL(
-    'v1/coupling/forensic-score',
-    `${normalizedBaseUrl.replace(/\/$/, '')}/`
-  ).toString();
+  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/forensic-score');
 }
 
 function validateForensicsScoreResult(
@@ -357,11 +381,7 @@ type AttributeServiceResponse = {
 };
 
 function buildAttributeUrl(baseUrl: string): string {
-  const normalizedBaseUrl = baseUrl.trim();
-  if (!normalizedBaseUrl) {
-    throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');
-  }
-  return new URL('v1/coupling/attribute', `${normalizedBaseUrl.replace(/\/$/, '')}/`).toString();
+  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/attribute');
 }
 
 async function buildAttributeRequestBody(
@@ -390,7 +410,7 @@ function validateAttributionResult(
   input: ExtractedForensicsAsset[],
   payload: AttributeServiceResponse
 ): ForensicsScoreResult[] {
-  const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
+  const assetByPath = buildAssetMapByPath(input, 'attribution input');
   const results = payload.results ?? [];
   const validatedResults = new Map<string, ForensicsScoreResult>();
 
@@ -473,6 +493,7 @@ export async function runCouplingAttribution(
       preclassification: 'no-signal',
     }));
   }
+  buildAssetMapByPath(assets, 'attribution input');
 
   const sharedSecret = config.sharedSecret.trim();
   if (!sharedSecret) {
@@ -481,17 +502,33 @@ export async function runCouplingAttribution(
 
   let response: Response;
   try {
-    response = await fetch(buildAttributeUrl(config.baseUrl), {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${sharedSecret}`,
-        'Cache-Control': 'no-store',
-        'Content-Type': 'application/json',
-      },
-      body: await buildAttributeRequestBody(assets, candidates),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ATTRIBUTION_REQUEST_TIMEOUT_MS);
+    try {
+      response = await fetch(buildAttributeUrl(config.baseUrl), {
+        method: 'POST',
+        redirect: 'error',
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${sharedSecret}`,
+          'Cache-Control': 'no-store',
+          'Content-Type': 'application/json',
+        },
+        body: await buildAttributeRequestBody(assets, candidates),
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new CouplingServiceRequestError('Coupling attribution timed out', 504);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (error) {
+    if (error instanceof CouplingServiceRequestError) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
   }

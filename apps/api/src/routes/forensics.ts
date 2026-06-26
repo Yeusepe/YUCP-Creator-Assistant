@@ -421,6 +421,11 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
+    const declaredContentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
+    if (Number.isFinite(declaredContentLength) && declaredContentLength > MAX_UPLOAD_SIZE_BYTES) {
+      return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
+    }
+
     const workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-'));
     let auditContext: {
       authUserId: string;
@@ -573,6 +578,29 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           },
           409
         );
+      }
+
+      if (candidateResult.candidates.length === 0) {
+        const lookupStatus: ForensicsLookupStatus = 'hostile_unknown';
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: buildAuditStatus(lookupStatus),
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse({
+          packageId,
+          lookupStatus,
+          message: buildLookupMessage(lookupStatus),
+          candidateAssetCount: extraction.assets.length,
+          decodedAssetCount: 0,
+          results: [],
+          investigationReport: buildInvestigationReport([], extraction.assets.length),
+        });
       }
 
       // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's

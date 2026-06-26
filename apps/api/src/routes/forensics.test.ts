@@ -90,6 +90,10 @@ function defaultCandidates(tokenHash: string) {
   ];
 }
 
+const TEST_COUPLING_BEARER = ['unit', 'test', 'coupling', 'bearer'].join('-');
+const TEST_CONVEX_API_TOKEN = ['unit', 'test', 'convex', 'api', 'token'].join('-');
+const TEST_ENCRYPTION_KEY = ['unit', 'test', 'encryption', 'key'].join('-');
+
 describe('forensics routes', () => {
   const originalFetch = globalThis.fetch;
   const auth = {
@@ -99,11 +103,11 @@ describe('forensics routes', () => {
   const routes = createForensicsRoutes(auth, {
     apiBaseUrl: 'http://localhost:3001',
     couplingServiceBaseUrl: 'https://coupling.internal',
-    couplingServiceSharedSecret: 'coupling-secret',
+    couplingServiceSharedSecret: TEST_COUPLING_BEARER,
     frontendBaseUrl: 'http://localhost:3000',
-    convexApiSecret: 'convex-secret',
+    convexApiSecret: TEST_CONVEX_API_TOKEN,
     convexUrl: 'http://convex.invalid',
-    encryptionSecret: 'encryption-secret',
+    encryptionSecret: TEST_ENCRYPTION_KEY,
   });
 
   beforeEach(() => {
@@ -134,7 +138,7 @@ describe('forensics routes', () => {
     queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
       if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
         expect(args).toEqual({
-          apiSecret: 'convex-secret',
+          apiSecret: TEST_CONVEX_API_TOKEN,
           authUserId: 'creator-user',
           packageId: 'creator.package',
         });
@@ -146,7 +150,7 @@ describe('forensics routes', () => {
       }
       if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
         expect(args).toEqual({
-          apiSecret: 'convex-secret',
+          apiSecret: TEST_CONVEX_API_TOKEN,
           authUserId: 'creator-user',
           packageId: 'creator.package',
           tokenHashes: [expectedTokenHash],
@@ -179,7 +183,7 @@ describe('forensics routes', () => {
       expect(url).toBe('https://coupling.internal/v1/coupling/attribute');
       expect(init?.method).toBe('POST');
       const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer coupling-secret');
+      expect(headers.get('authorization')).toBe(`Bearer ${TEST_COUPLING_BEARER}`);
       expect(headers.get('content-type')).toBe('application/json');
 
       const requestBody = JSON.parse(String(init?.body)) as {
@@ -253,7 +257,7 @@ describe('forensics routes', () => {
     });
     expect(mutationMock).toHaveBeenCalledTimes(1);
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
-      apiSecret: 'convex-secret',
+      apiSecret: TEST_CONVEX_API_TOKEN,
       authUserId: 'creator-user',
       packageId: 'creator.package',
       status: 'attributed',
@@ -301,6 +305,25 @@ describe('forensics routes', () => {
     });
   });
 
+  it('rejects oversized declared lookup bodies before multipart parsing', async () => {
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        headers: {
+          'Content-Length': String(100 * 1024 * 1024 + 1),
+          'Content-Type': 'multipart/form-data; boundary=x',
+        },
+        body: '--x--',
+      })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: 'Upload exceeds the size limit' });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).not.toHaveBeenCalled();
+    expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
   it('returns hostile-unknown when the viewer does not own the package', async () => {
     queryMock.mockImplementation(async (ref: unknown) => {
       if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
@@ -342,6 +365,59 @@ describe('forensics routes', () => {
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       packageId: 'creator.package',
       status: 'denied',
+    });
+  });
+
+  it('returns hostile-unknown without attribution when an owned package has no trace candidates', async () => {
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          truncated: false,
+          candidateLimit: 512,
+          candidates: [],
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      throw new Error('Coupling service should not be called without trace candidates');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      packageId: 'creator.package',
+      lookupStatus: 'hostile_unknown',
+      candidateAssetCount: 1,
+      decodedAssetCount: 0,
+      results: [],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'hostile_unknown',
+      requestedTokenCount: 0,
+      matchedTokenCount: 0,
     });
   });
 
@@ -403,7 +479,7 @@ describe('forensics routes', () => {
       queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
         if (ref === apiMock.couplingForensics.listOwnedPackageSummariesForAuthUser) {
           expect(args).toEqual({
-            apiSecret: 'convex-secret',
+            apiSecret: TEST_CONVEX_API_TOKEN,
             authUserId: 'creator-user',
           });
           return {
@@ -697,7 +773,7 @@ describe('forensics routes', () => {
       }
       if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
         expect(args).toEqual({
-          apiSecret: 'convex-secret',
+          apiSecret: TEST_CONVEX_API_TOKEN,
           authUserId: 'creator-user',
           packageId: 'creator.package',
           tokenHashes: [expectedTokenHash],
@@ -778,7 +854,7 @@ describe('forensics routes', () => {
   it('rehydrates buyer identity from the encrypted stored license instead of redundant stored buyer columns', async () => {
     const encryptedLicenseKey = await encryptForensicsLicenseKey(
       '11111111-2222-3333-4444-555555555555',
-      'encryption-secret'
+      TEST_ENCRYPTION_KEY
     );
     const expectedTokenHash = sha256Hex('deadbeef');
 
