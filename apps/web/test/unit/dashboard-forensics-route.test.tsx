@@ -535,14 +535,10 @@ describe('dashboard forensics route', () => {
           matched: true,
           matches: [
             {
-              licenseSubject: '3dea218ee2aca2785da88513407c1a78cecc034f6cd2c25d98251a2fbb5717df',
+              matchId: 'match-unresolved',
+              assetPath: 'Assets/Character/body.png',
               createdAt: 1_744_317_600_000,
-              correlationId: 'corr_1',
               runtimeArtifactVersion: 'sha256-b8c6ba93829b',
-              machineFingerprintHash:
-                'e89ae2ec8249eb9f4c1ee28da1b231ade5d54736435bd0f2fa3f9ff54a8d973e',
-              projectIdHash: 'ff42f1be72b7dd37c9eabe011ca258127c3f76cc9c5d44711afa9a3c99af4a5c',
-              grantId: 'b3ea2d7c-00a1-43d2-b41c-28bf59f3fb2d',
               provider: 'jinxxy',
             },
           ],
@@ -600,15 +596,14 @@ describe('dashboard forensics route', () => {
           matched: true,
           matches: [
             {
-              licenseSubject: '3dea218ee2aca2785da88513407c1a78cecc034f6cd2c25d98251a2fbb5717df',
+              matchId: 'match-buyer-one',
+              assetPath: 'Assets/Character/body.png',
               createdAt: 1_744_317_600_000,
-              correlationId: 'corr_1',
               runtimeArtifactVersion: 'sha256-b8c6ba93829b',
               provider: 'jinxxy',
-              buyerProviderUserId: 'customer-123',
+              buyerProviderUsername: 'BuyerAccount',
               buyerSubjectDisplayName: 'Buyer One',
-              buyerSubjectDiscordUserId: 'discord-buyer-1',
-              licenseKey: '11111111-2222-3333-4444-555555555555',
+              licenseMasked: 'jinxxy:abcd1234',
             },
           ],
         },
@@ -639,9 +634,10 @@ describe('dashboard forensics route', () => {
     await waitFor(() => expect(screen.getByText('Buyer identified')).toBeInTheDocument());
 
     expect(screen.getByText('Buyer One')).toBeInTheDocument();
-    expect(screen.getByText('discord-buyer-1')).toBeInTheDocument();
-    expect(screen.getByText('customer-123')).toBeInTheDocument();
-    expect(screen.getByText('11111111-2222-3333-4444-555555555555')).toBeInTheDocument();
+    expect(screen.getByText('BuyerAccount')).toBeInTheDocument();
+    expect(screen.getByText('jinxxy:abcd1234')).toBeInTheDocument();
+    expect(screen.queryByText('customer-123')).not.toBeInTheDocument();
+    expect(screen.queryByText('11111111-2222-3333-4444-555555555555')).not.toBeInTheDocument();
   });
 
   it('renders the human package name instead of a raw package id in the selector', async () => {

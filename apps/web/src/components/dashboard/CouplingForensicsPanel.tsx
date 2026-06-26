@@ -13,7 +13,6 @@ import {
   type CouplingForensicsLookupResponse,
   isCouplingTraceabilityRequiredError,
   listCouplingForensicsPackages,
-  revealCouplingLicenseKey,
   runCouplingForensicsLookup,
 } from '@/lib/couplingForensics';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
@@ -66,17 +65,13 @@ function getVerdictKind(
 
 function getBuyerDisplayLabel(match: {
   buyerSubjectDisplayName?: string | null;
-  purchaserEmail?: string | null;
   buyerProviderUsername?: string | null;
-  buyerProviderUserId?: string | null;
-  buyerSubjectDiscordUserId?: string | null;
+  licenseMasked?: string | null;
 }) {
   return (
     match.buyerSubjectDisplayName?.trim() ||
-    match.purchaserEmail?.trim() ||
     match.buyerProviderUsername?.trim() ||
-    match.buyerProviderUserId?.trim() ||
-    match.buyerSubjectDiscordUserId?.trim() ||
+    match.licenseMasked?.trim() ||
     null
   );
 }
@@ -293,29 +288,20 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     }
   }, [packageOptions, selectedPackageId]);
 
-  // Collect all matches across all matched assets, deduplicated by licenseSubject
+  // Collect all matches across all matched assets, deduplicated by opaque match id.
   const matchedBuyers = useMemo(() => {
     if (!lookupResult) return [];
     const seen = new Set<string>();
     const buyers: Array<{
-      licenseSubject: string;
+      matchId: string;
       createdAt: number;
-      correlationId: string | null;
       runtimeArtifactVersion?: string | null;
-      runtimePlaintextSha256?: string | null;
-      machineFingerprintHash?: string | null;
-      projectIdHash?: string | null;
-      grantId?: string | null;
       packFamily?: string | null;
       packVersion?: string | null;
       provider?: string | null;
       licenseMasked?: string | null;
-      purchaserEmail?: string | null;
-      licenseKey?: string | null;
-      buyerProviderUserId?: string | null;
       buyerProviderUsername?: string | null;
       buyerSubjectDisplayName?: string | null;
-      buyerSubjectDiscordUserId?: string | null;
       buyerDisplayLabel: string;
     }> = [];
     for (const entry of lookupResult.results) {
@@ -323,27 +309,18 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
       for (const match of entry.matches) {
         const buyerDisplayLabel = getBuyerDisplayLabel(match);
         if (!buyerDisplayLabel) continue;
-        if (!seen.has(match.licenseSubject)) {
-          seen.add(match.licenseSubject);
+        if (!seen.has(match.matchId)) {
+          seen.add(match.matchId);
           buyers.push({
-            licenseSubject: match.licenseSubject,
+            matchId: match.matchId,
             createdAt: match.createdAt,
-            correlationId: match.correlationId,
             runtimeArtifactVersion: match.runtimeArtifactVersion,
-            runtimePlaintextSha256: match.runtimePlaintextSha256,
-            machineFingerprintHash: match.machineFingerprintHash,
-            projectIdHash: match.projectIdHash,
-            grantId: match.grantId,
             packFamily: match.packFamily,
             packVersion: match.packVersion,
             provider: match.provider,
             licenseMasked: match.licenseMasked,
-            purchaserEmail: match.purchaserEmail?.trim() || null,
-            licenseKey: match.licenseKey,
-            buyerProviderUserId: match.buyerProviderUserId,
             buyerProviderUsername: match.buyerProviderUsername,
             buyerSubjectDisplayName: match.buyerSubjectDisplayName,
-            buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId,
             buyerDisplayLabel,
           });
         }
@@ -352,15 +329,12 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     return buyers.sort((a, b) => b.createdAt - a.createdAt);
   }, [lookupResult]);
 
-  const [revealedKeys, setRevealedKeys] = useState<Record<string, string>>({});
-
   const lookupMutation = useMutation({
     mutationFn: ({ packageId, file }: { packageId: string; file: File }) =>
       runCouplingForensicsLookup({ packageId, file }),
     onMutate: () => {
       setInlineError(null);
       setLookupResult(null);
-      setRevealedKeys({});
     },
     onSuccess: (result) => {
       setLookupResult(result);
@@ -377,31 +351,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
         return;
       }
       setInlineError('Scan failed. Please try again with a supported .unitypackage or .zip file.');
-    },
-  });
-
-  const revealMutation = useMutation({
-    mutationFn: ({ licenseSubject }: { licenseSubject: string }) =>
-      revealCouplingLicenseKey({
-        packageId: lookupResult?.packageId ?? selectedPackageId,
-        licenseSubject,
-      }),
-    onSuccess: (result, variables) => {
-      if (result.licenseKey) {
-        setRevealedKeys((prev) => ({
-          ...prev,
-          [variables.licenseSubject]: result.licenseKey as string,
-        }));
-      }
-    },
-    onError: (error) => {
-      if (isDashboardAuthError(error)) {
-        markSessionExpired();
-        return;
-      }
-      toast.error('Could not reveal license key', {
-        description: 'You may not have access, or no key is on file for this license.',
-      });
     },
   });
 
@@ -795,7 +744,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                   />
                   <div className="space-y-3">
                     {matchedBuyers.map((buyer) => (
-                      <div key={buyer.licenseSubject} className="fx-pane space-y-3 p-4">
+                      <div key={buyer.matchId} className="fx-pane space-y-3 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-foreground text-sm font-semibold">
                             {buyer.buyerDisplayLabel}
@@ -807,16 +756,10 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           ) : null}
                         </div>
                         <dl className="grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
-                          {buyer.buyerSubjectDiscordUserId &&
-                          buyer.buyerSubjectDiscordUserId !== buyer.buyerDisplayLabel ? (
-                            <MetaField label="Discord">{buyer.buyerSubjectDiscordUserId}</MetaField>
-                          ) : null}
-
-                          {(buyer.buyerProviderUsername || buyer.buyerProviderUserId) &&
-                          (buyer.buyerProviderUsername ?? buyer.buyerProviderUserId) !==
-                            buyer.buyerDisplayLabel ? (
+                          {buyer.buyerProviderUsername &&
+                          buyer.buyerProviderUsername !== buyer.buyerDisplayLabel ? (
                             <MetaField label="Store account">
-                              {buyer.buyerProviderUsername ?? buyer.buyerProviderUserId}
+                              {buyer.buyerProviderUsername}
                             </MetaField>
                           ) : null}
 
@@ -824,58 +767,15 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                             {formatBuyerDate(buyer.createdAt)}
                           </MetaField>
 
-                          {buyer.licenseMasked ||
-                          buyer.licenseKey ||
-                          revealedKeys[buyer.licenseSubject] ? (
+                          {buyer.licenseMasked ? (
                             <MetaField label="License" full mono>
-                              {(revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey) ? (
-                                (revealedKeys[buyer.licenseSubject] ?? buyer.licenseKey)
-                              ) : (
-                                <span className="inline-flex flex-wrap items-center gap-2">
-                                  <span>{buyer.licenseMasked}</span>
-                                  <Button
-                                    size="sm"
-                                    variant="primary"
-                                    isPending={
-                                      revealMutation.isPending &&
-                                      revealMutation.variables?.licenseSubject ===
-                                        buyer.licenseSubject
-                                    }
-                                    isDisabled={revealMutation.isPending}
-                                    onPress={() =>
-                                      revealMutation.mutate({
-                                        licenseSubject: buyer.licenseSubject,
-                                      })
-                                    }
-                                  >
-                                    Reveal key
-                                  </Button>
-                                </span>
-                              )}
+                              {buyer.licenseMasked}
                             </MetaField>
                           ) : null}
 
                           {buyer.runtimeArtifactVersion ? (
                             <MetaField label="Package version" mono>
                               {buyer.runtimeArtifactVersion}
-                            </MetaField>
-                          ) : null}
-
-                          {buyer.grantId ? (
-                            <MetaField label="Grant ID" mono>
-                              {buyer.grantId}
-                            </MetaField>
-                          ) : null}
-
-                          {buyer.machineFingerprintHash ? (
-                            <MetaField label="Machine fingerprint (SHA-256)" full mono>
-                              {buyer.machineFingerprintHash}
-                            </MetaField>
-                          ) : null}
-
-                          {buyer.projectIdHash ? (
-                            <MetaField label="Project ID (SHA-256)" full mono>
-                              {buyer.projectIdHash}
                             </MetaField>
                           ) : null}
                         </dl>

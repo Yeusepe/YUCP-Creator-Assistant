@@ -18,12 +18,12 @@ const START_API_FROM_CWD_PATH = path.resolve(
 );
 const SERVICE_BOOT_TIMEOUT_MS = 60_000;
 const TEST_INTERNAL_SECRET = 'test-internal-rpc-secret-32-chars!!';
-const WRONG_LEGACY_COUPLING_SECRET = 'legacy-coupling-secret-from-env';
+const WRONG_LEGACY_COUPLING_SECRET = 'test-placeholder-legacy-coupling-value';
 const INFISICAL_CLIENT_ID = 'forensics-test-client-id';
 const INFISICAL_CLIENT_SECRET = 'forensics-test-client-secret';
 const INFISICAL_PROJECT_ID = 'forensics-test-project-id';
 const INFISICAL_ACCESS_TOKEN = 'forensics-test-access-token';
-const COUPLING_SHARED_SECRET = 'forensics-secret-from-infisical';
+const COUPLING_SHARED_SECRET = 'test-placeholder-infisical-coupling-value';
 
 class ManagedProcess {
   private readonly child: ChildProcess;

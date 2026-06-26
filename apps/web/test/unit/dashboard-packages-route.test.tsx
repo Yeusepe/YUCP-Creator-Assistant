@@ -590,7 +590,6 @@ vi.mock('@/lib/packages', () => ({
 vi.mock('@/lib/couplingForensics', () => ({
   isCouplingTraceabilityRequiredError: vi.fn(() => false),
   listCouplingForensicsPackages: vi.fn(),
-  revealCouplingLicenseKey: vi.fn(),
   runCouplingForensicsLookup: vi.fn(),
 }));
 

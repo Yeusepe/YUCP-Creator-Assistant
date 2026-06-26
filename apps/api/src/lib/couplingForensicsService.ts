@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import type { ExtractedForensicsAsset } from './couplingForensicsArchives';
 
 export type CouplingForensicsServiceConfig = {
   baseUrl: string;
   sharedSecret: string;
+  attributionTimeoutMs?: number;
 };
 
 export type CouplingForensicsFinding = {
@@ -65,6 +67,11 @@ type ForensicScoreServiceResponse = {
 
 const HEX_RE = /^[0-9a-f]+$/;
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
+const METADATA_SERVICE_HOSTS = new Set([
+  '169.254.169.254',
+  'metadata.google.internal',
+  'metadata.azure.internal',
+]);
 
 export class CouplingServiceConfigurationError extends Error {
   constructor(message: string) {
@@ -122,7 +129,26 @@ function buildCouplingServiceUrl(baseUrl: string, path: string): string {
       'Coupling service base URL must not include credentials'
     );
   }
+  assertAllowedCouplingServiceHost(url);
   return url.toString();
+}
+
+function assertAllowedCouplingServiceHost(url: URL): void {
+  const hostname = url.hostname.toLowerCase();
+  if (METADATA_SERVICE_HOSTS.has(hostname) || hostname === '100.100.100.200') {
+    throw new CouplingServiceConfigurationError('Coupling service base URL host is not allowed');
+  }
+
+  if (isIP(hostname) && isLinkLocalIp(hostname)) {
+    throw new CouplingServiceConfigurationError('Coupling service base URL host is not allowed');
+  }
+}
+
+function isLinkLocalIp(hostname: string): boolean {
+  if (hostname.startsWith('169.254.')) {
+    return true;
+  }
+  return hostname === '::ffff:169.254.169.254' || hostname.toLowerCase().startsWith('fe80:');
 }
 
 function buildCouplingScanUrl(baseUrl: string): string {
@@ -321,6 +347,7 @@ export async function runCouplingForensicsScore(
   try {
     response = await fetch(buildForensicScoreUrl(config.baseUrl), {
       method: 'POST',
+      redirect: 'error',
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${sharedSecret}`,
@@ -382,6 +409,14 @@ type AttributeServiceResponse = {
 
 function buildAttributeUrl(baseUrl: string): string {
   return buildCouplingServiceUrl(baseUrl, 'v1/coupling/attribute');
+}
+
+function resolveAttributionTimeoutMs(config: CouplingForensicsServiceConfig): number {
+  const configured = config.attributionTimeoutMs;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return ATTRIBUTION_REQUEST_TIMEOUT_MS;
 }
 
 async function buildAttributeRequestBody(
@@ -503,7 +538,7 @@ export async function runCouplingAttribution(
   let response: Response;
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), ATTRIBUTION_REQUEST_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), resolveAttributionTimeoutMs(config));
     try {
       response = await fetch(buildAttributeUrl(config.baseUrl), {
         method: 'POST',
@@ -574,6 +609,7 @@ export async function runCouplingForensicsScan(
   try {
     response = await fetch(buildCouplingScanUrl(config.baseUrl), {
       method: 'POST',
+      redirect: 'error',
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${sharedSecret}`,

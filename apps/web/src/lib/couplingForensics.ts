@@ -8,33 +8,20 @@ export interface CouplingForensicsPackageSummary {
 }
 
 export interface CouplingForensicsMatchSummary {
-  licenseSubject: string;
+  matchId: string;
   assetPath: string;
-  correlationId: string | null;
   createdAt: number;
   runtimeArtifactVersion?: string | null;
-  runtimePlaintextSha256?: string | null;
-  machineFingerprintHash?: string | null;
-  projectIdHash?: string | null;
-  grantId?: string | null;
   packFamily?: string | null;
   packVersion?: string | null;
   /** License store ('gumroad', 'jinxxy', etc.) */
   provider?: string | null;
-  /** Non-secret license identifier (provider + short fingerprint). Full key via reveal. */
+  /** Non-secret license identifier (provider + short fingerprint). */
   licenseMasked?: string | null;
-  /** Buyer's email address from the provider API */
-  purchaserEmail?: string | null;
-  /** Raw license key used to verify the purchase */
-  licenseKey?: string | null;
-  /** Provider-native buyer account identifier */
-  buyerProviderUserId?: string | null;
   /** Provider-native buyer account username, if known */
   buyerProviderUsername?: string | null;
   /** Linked Discord subject display name, if the buyer verified through the bot */
   buyerSubjectDisplayName?: string | null;
-  /** Linked Discord subject id, if the buyer verified through the bot */
-  buyerSubjectDiscordUserId?: string | null;
 }
 
 export interface CouplingForensicsAssetResult {
@@ -71,25 +58,6 @@ export async function runCouplingForensicsLookup(args: { packageId: string; file
   return await apiFetch<CouplingForensicsLookupResponse>('/api/forensics/lookup', {
     method: 'POST',
     body: formData,
-  });
-}
-
-export interface CouplingForensicsRevealResponse {
-  licenseKey?: string | null;
-}
-
-/**
- * Reveals the full provider license key behind a forensics match. Privileged + audit-logged
- * server-side; only call from an explicit user action (e.g. a "Reveal" button).
- */
-export async function revealCouplingLicenseKey(args: {
-  packageId: string;
-  licenseSubject: string;
-}) {
-  return await apiFetch<CouplingForensicsRevealResponse>('/api/forensics/reveal-license', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packageId: args.packageId, licenseSubject: args.licenseSubject }),
   });
 }
 

@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
+import { getClientAddress } from '../lib/clientAddress';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { extractCouplingForensicsArchive } from '../lib/couplingForensicsArchives';
 import {
@@ -16,17 +17,19 @@ import {
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import {
-  RequestBodyError,
-  readJsonObjectBodyWithLimit,
-  readRequestBytesWithLimit,
-} from '../lib/requestBody';
+  checkPublicApiRateLimit,
+  getPublicApiRateLimitStore,
+  type PublicApiRateLimitStore,
+} from '../lib/publicApiRateLimit';
+import { RequestBodyError, readRequestBytesWithLimit } from '../lib/requestBody';
 import { getProviderRuntime } from '../providers/index';
 import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
-const FORENSICS_REVEAL_BODY_MAX_BYTES = 4 * 1024;
+const FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 30;
+const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -37,6 +40,9 @@ export type ForensicsConfig = {
   convexUrl: string;
   encryptionSecret: string;
   maxLookupUploadBytes?: number;
+  lookupRateLimitMaxRequests?: number;
+  lookupRateLimitStore?: PublicApiRateLimitStore;
+  lookupRateLimitWindowMs?: number;
 };
 
 type ForensicsViewer = {
@@ -85,12 +91,13 @@ function buildAuditStatus(
   }
 }
 
-function jsonResponse(body: object, status = 200): Response {
+function jsonResponse(body: object, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
+      ...headers,
     },
   });
 }
@@ -195,12 +202,38 @@ function sha256HexFromBytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function sha256HexFromString(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 function resolveLookupUploadLimit(config: ForensicsConfig): number {
   const configured = config.maxLookupUploadBytes;
   if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
     return Math.floor(configured);
   }
   return MAX_UPLOAD_SIZE_BYTES;
+}
+
+function resolveLookupRateLimitMaxRequests(config: ForensicsConfig): number {
+  const configured = config.lookupRateLimitMaxRequests;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS;
+}
+
+function resolveLookupRateLimitWindowMs(config: ForensicsConfig): number {
+  const configured = config.lookupRateLimitWindowMs;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS;
+}
+
+function buildLookupRateLimitKey(viewer: ForensicsViewer, request: Request): string {
+  const authUserHash = sha256HexFromString(viewer.authUserId);
+  const clientAddressHash = sha256HexFromString(getClientAddress(request));
+  return `forensics:lookup:user:${authUserHash}:ip:${clientAddressHash}`;
 }
 
 function normalizeDeclaredPackageIds(values: string[]): string[] {
@@ -233,16 +266,11 @@ type InvestigationReport = {
   unattributedCount: number;
   strippedCount: number;
   noSignalCount: number;
-  topCandidates: Array<{
-    licenseSubject: string;
-    assetCount: number;
-  }>;
 };
 
 function buildInvestigationReport(
   results: Array<{
     layerBClassification: LayerBClassification;
-    matches: Array<{ licenseSubject: string }>;
   }>,
   totalAssets: number
 ): InvestigationReport {
@@ -252,19 +280,11 @@ function buildInvestigationReport(
   let strippedCount = 0;
   let noSignalCount = 0;
 
-  const candidateCounts = new Map<string, number>();
-
   for (const result of results) {
     switch (result.layerBClassification) {
       case 'trace-recovered':
         decodedCount++;
         attributedCount++;
-        for (const match of result.matches) {
-          candidateCounts.set(
-            match.licenseSubject,
-            (candidateCounts.get(match.licenseSubject) ?? 0) + 1
-          );
-        }
         break;
       case 'tamper-suspected':
         decodedCount++;
@@ -279,11 +299,6 @@ function buildInvestigationReport(
     }
   }
 
-  const topCandidates = Array.from(candidateCounts.entries())
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 10)
-    .map(([licenseSubject, assetCount]) => ({ licenseSubject, assetCount }));
-
   return {
     totalAssets,
     decodedCount,
@@ -291,8 +306,29 @@ function buildInvestigationReport(
     unattributedCount,
     strippedCount,
     noSignalCount,
-    topCandidates,
   };
+}
+
+function buildLookupMatchId(
+  config: ForensicsConfig,
+  packageId: string,
+  match: {
+    licenseSubject: string;
+    tokenHash: string;
+    assetPath: string;
+  }
+): string {
+  return createHmac('sha256', config.encryptionSecret)
+    .update('forensics-lookup-match-v1')
+    .update('\0')
+    .update(packageId)
+    .update('\0')
+    .update(match.licenseSubject)
+    .update('\0')
+    .update(match.tokenHash)
+    .update('\0')
+    .update(match.assetPath)
+    .digest('hex');
 }
 
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
@@ -434,6 +470,16 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
+    const rateLimit = await checkPublicApiRateLimit({
+      store: config.lookupRateLimitStore ?? getPublicApiRateLimitStore(),
+      key: buildLookupRateLimitKey(viewer, request),
+      limit: resolveLookupRateLimitMaxRequests(config),
+      windowMs: resolveLookupRateLimitWindowMs(config),
+    });
+    if (!rateLimit.allowed) {
+      return jsonResponse({ error: 'Too many requests' }, 429, rateLimit.headers);
+    }
+
     const maxLookupUploadBytes = resolveLookupUploadLimit(config);
     let boundedRequestBody: Uint8Array;
     try {
@@ -457,11 +503,16 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     try {
       const replayBody = new ArrayBuffer(boundedRequestBody.byteLength);
       new Uint8Array(replayBody).set(boundedRequestBody);
-      const formData = await new Request(request.url, {
-        method: request.method,
-        headers: formDataHeaders,
-        body: replayBody,
-      }).formData();
+      let formData: FormData;
+      try {
+        formData = await new Request(request.url, {
+          method: request.method,
+          headers: formDataHeaders,
+          body: replayBody,
+        }).formData();
+      } catch {
+        return jsonResponse({ error: 'Invalid multipart form data' }, 400);
+      }
       const packageId = assertPackageId(String(formData.get('packageId') ?? ''));
       const upload = formData.get('file');
       if (!(upload instanceof File)) {
@@ -766,30 +817,19 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           layerBClassification,
           matched: matches.length > 0,
           matches: matches.map((match: (typeof matches)[number]) => ({
-            licenseSubject: match.licenseSubject,
+            matchId: buildLookupMatchId(config, packageId, match),
             assetPath: match.assetPath,
-            correlationId: match.correlationId,
             createdAt: match.createdAt,
             runtimeArtifactVersion: match.runtimeArtifactVersion,
-            runtimePlaintextSha256: match.runtimePlaintextSha256,
-            machineFingerprintHash: match.machineFingerprintHash,
-            projectIdHash: match.projectIdHash,
-            ...(match.grantId !== undefined ? { grantId: match.grantId } : {}),
             ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
             ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
             ...(match.licenseMasked !== undefined ? { licenseMasked: match.licenseMasked } : {}),
-            ...(match.buyerProviderUserId !== undefined
-              ? { buyerProviderUserId: match.buyerProviderUserId }
-              : {}),
             ...(match.buyerProviderUsername !== undefined
               ? { buyerProviderUsername: match.buyerProviderUsername }
               : {}),
             ...(match.buyerSubjectDisplayName !== undefined
               ? { buyerSubjectDisplayName: match.buyerSubjectDisplayName }
-              : {}),
-            ...(match.buyerSubjectDiscordUserId !== undefined
-              ? { buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId }
               : {}),
           })),
         };
@@ -863,55 +903,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
-  async function revealLicense(request: Request): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
-    if (viewer instanceof Response) {
-      return viewer;
-    }
-    if (request.method !== 'POST') {
-      return jsonResponse({ error: 'Method not allowed' }, 405);
-    }
-    try {
-      const body = await readJsonObjectBodyWithLimit(request, FORENSICS_REVEAL_BODY_MAX_BYTES);
-      let packageId: string;
-      try {
-        packageId = assertPackageId(String(body.packageId ?? ''));
-      } catch (error) {
-        return jsonResponse(
-          { error: error instanceof Error ? error.message : 'Invalid packageId format' },
-          400
-        );
-      }
-      const licenseSubject = String(body.licenseSubject ?? '')
-        .trim()
-        .toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(licenseSubject)) {
-        return jsonResponse({ error: 'Invalid licenseSubject' }, 400);
-      }
-      const result = await convex.mutation(api.couplingForensics.revealCouplingLicenseKey, {
-        apiSecret: config.convexApiSecret,
-        authUserId: viewer.authUserId,
-        packageId,
-        licenseSubject,
-      });
-      if (result.error) {
-        return jsonResponse({ error: 'Forbidden' }, 403);
-      }
-      return jsonResponse({ licenseKey: result.licenseKey });
-    } catch (error) {
-      if (error instanceof RequestBodyError) {
-        return jsonResponse({ error: error.message }, error.status);
-      }
-      logger.error('Failed to reveal coupling license key', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return jsonResponse({ error: 'Failed to reveal license key' }, 500);
-    }
-  }
-
   return {
     listPackages,
     lookup,
-    revealLicense,
   };
 }

@@ -12,7 +12,6 @@ const apiMock = {
     lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
     resolveBuyerIdentityForAuthUser: 'couplingForensics.resolveBuyerIdentityForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
-    revealCouplingLicenseKey: 'couplingForensics.revealCouplingLicenseKey',
   },
 } as const;
 
@@ -73,6 +72,7 @@ mock.module('../lib/couplingForensicsArchives', () => ({
 
 const { createForensicsRoutes } = await import('./forensics');
 const { encryptForensicsLicenseKey } = await import('../verification/forensicsLicenseKey');
+const { InMemoryPublicApiRateLimitStore } = await import('../lib/publicApiRateLimit');
 
 function sha256Hex(text: string): string {
   return createHash('sha256').update(text).digest('hex');
@@ -236,7 +236,11 @@ describe('forensics routes', () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    const payload = (await response.json()) as {
+      investigationReport?: { topCandidates?: unknown };
+      results: Array<{ matches: Array<Record<string, unknown>> }>;
+    };
+    expect(payload).toMatchObject({
       packageId: 'creator.package',
       lookupStatus: 'attributed',
       candidateAssetCount: 1,
@@ -248,13 +252,26 @@ describe('forensics routes', () => {
           layerBClassification: 'trace-recovered',
           matches: [
             {
-              licenseSubject: 'license-subject-1',
               runtimeArtifactVersion: '2026.03.25.153000',
             },
           ],
         },
       ],
     });
+    const match = payload.results[0]?.matches[0];
+    expect(typeof match?.matchId).toBe('string');
+    expect(String(match?.matchId)).toHaveLength(64);
+    expect(match).not.toHaveProperty('licenseSubject');
+    expect(match).not.toHaveProperty('correlationId');
+    expect(match).not.toHaveProperty('runtimePlaintextSha256');
+    expect(match).not.toHaveProperty('machineFingerprintHash');
+    expect(match).not.toHaveProperty('projectIdHash');
+    expect(match).not.toHaveProperty('buyerProviderUserId');
+    expect(match).not.toHaveProperty('buyerSubjectDiscordUserId');
+    expect(payload.investigationReport?.topCandidates).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain('license-subject-1');
+    expect(JSON.stringify(payload)).not.toContain('corr_1');
+    expect(JSON.stringify(payload)).not.toContain('runtime-sha');
     expect(mutationMock).toHaveBeenCalledTimes(1);
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       apiSecret: TEST_CONVEX_API_TOKEN,
@@ -339,15 +356,105 @@ describe('forensics routes', () => {
     body.set('packageId', 'creator.package');
     body.set('file', new File(['oversized'], 'package.zip', { type: 'application/zip' }));
 
-    const response = await cappedRoutes.lookup(
-      new Request('http://localhost:3001/api/forensics/lookup', {
-        method: 'POST',
-        body,
-      })
-    );
+    const request = new Request('http://localhost:3001/api/forensics/lookup', {
+      method: 'POST',
+      body,
+    });
+    expect(request.headers.get('content-length')).toBeNull();
+
+    const response = await cappedRoutes.lookup(request);
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({ error: 'Upload exceeds the size limit' });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).not.toHaveBeenCalled();
+    expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed lookup multipart bodies with a safe client error', async () => {
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'multipart/form-data; boundary=lookup-boundary',
+        },
+        body: 'not multipart content',
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid multipart form data' });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).not.toHaveBeenCalled();
+    expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
+  it('rate limits lookup before reading the request body', async () => {
+    const limitedRoutes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      frontendBaseUrl: 'http://localhost:3000',
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      lookupRateLimitMaxRequests: 1,
+      lookupRateLimitStore: new InMemoryPublicApiRateLimitStore(),
+      lookupRateLimitWindowMs: 60_000,
+    });
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          truncated: false,
+          candidateLimit: 512,
+          candidates: [],
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set('file', new File([Uint8Array.from([1, 2, 3])], 'bundle.zip'));
+
+    const firstResponse = await limitedRoutes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '203.0.113.40' },
+        body: formData,
+      })
+    );
+    expect(firstResponse.status).toBe(200);
+
+    queryMock.mockClear();
+    mutationMock.mockClear();
+    extractCouplingForensicsArchiveMock.mockClear();
+
+    const blockedBody = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new TextEncoder().encode('--blocked--'));
+        controller.close();
+      },
+    });
+
+    const blockedRequest = new Request('http://localhost:3001/api/forensics/lookup', {
+      method: 'POST',
+      headers: {
+        'cf-connecting-ip': '203.0.113.40',
+        'Content-Type': 'multipart/form-data; boundary=blocked',
+      },
+      body: blockedBody,
+    });
+
+    const blockedResponse = await limitedRoutes.lookup(blockedRequest);
+
+    expect(blockedResponse.status).toBe(429);
+    await expect(blockedResponse.json()).resolves.toEqual({ error: 'Too many requests' });
+    expect(blockedRequest.bodyUsed).toBe(false);
     expect(queryMock).not.toHaveBeenCalled();
     expect(mutationMock).not.toHaveBeenCalled();
     expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
@@ -984,80 +1091,28 @@ describe('forensics routes', () => {
         {
           matches: [
             {
-              buyerProviderUserId: 'customer-123',
               buyerProviderUsername: 'BuyerAccount',
               buyerSubjectDisplayName: 'Buyer One',
-              buyerSubjectDiscordUserId: 'discord-buyer-1',
             },
           ],
         },
       ],
     });
     const match = json.results[0]?.matches[0];
+    expect(typeof match?.matchId).toBe('string');
+    expect(String(match?.matchId)).toHaveLength(64);
+    expect(match?.buyerProviderUsername).toBe('BuyerAccount');
+    expect(match?.buyerSubjectDisplayName).toBe('Buyer One');
+    expect(match).not.toHaveProperty('licenseSubject');
+    expect(match).not.toHaveProperty('correlationId');
+    expect(match).not.toHaveProperty('runtimePlaintextSha256');
+    expect(match).not.toHaveProperty('buyerProviderUserId');
+    expect(match).not.toHaveProperty('buyerSubjectDiscordUserId');
     expect(match).not.toHaveProperty('licenseKey');
     expect(match).not.toHaveProperty('purchaserEmail');
   });
 
-  it('rejects invalid reveal package ids as a client error before Convex writes', async () => {
-    mutationMock.mockImplementation(async () => {
-      throw new Error('Invalid reveal package ids should not reach Convex');
-    });
-
-    const response = await routes.revealLicense(
-      new Request('http://localhost:3001/api/forensics/reveal-license', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          packageId: 'INVALID PACKAGE',
-          licenseSubject: 'a'.repeat(64),
-        }),
-      })
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: 'Invalid packageId format' });
-    expect(mutationMock).not.toHaveBeenCalled();
-  });
-
-  it('rejects oversized reveal bodies before Convex writes', async () => {
-    mutationMock.mockImplementation(async () => {
-      throw new Error('Oversized reveal bodies should not reach Convex');
-    });
-
-    const response = await routes.revealLicense(
-      new Request('http://localhost:3001/api/forensics/reveal-license', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          packageId: 'creator.package',
-          licenseSubject: 'a'.repeat(64),
-          padding: 'x'.repeat(5_000),
-        }),
-      })
-    );
-
-    expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({ error: 'Request body too large' });
-    expect(mutationMock).not.toHaveBeenCalled();
-  });
-
-  it('returns a fixed forbidden error when reveal access is denied', async () => {
-    mutationMock.mockResolvedValue({
-      error: 'internal authorization detail for license-subject',
-    });
-
-    const response = await routes.revealLicense(
-      new Request('http://localhost:3001/api/forensics/reveal-license', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          packageId: 'creator.package',
-          licenseSubject: 'a'.repeat(64),
-        }),
-      })
-    );
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: 'Forbidden' });
+  it('does not expose a browser license reveal handler', () => {
+    expect(routes).not.toHaveProperty('revealLicense');
   });
 });
