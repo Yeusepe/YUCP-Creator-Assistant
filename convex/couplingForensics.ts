@@ -11,6 +11,7 @@ const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
 const COUPLING_TRACE_CANDIDATE_LIMIT = 512;
 const COUPLING_TRACE_ROW_PAGE_SIZE = 512;
+const COUPLING_TRACE_ROW_SCAN_LIMIT = COUPLING_TRACE_CANDIDATE_LIMIT * 4;
 
 function assertPackageId(packageId: string): void {
   if (!PACKAGE_ID_RE.test(packageId)) {
@@ -664,11 +665,19 @@ export const listCouplingTraceCandidatesForAuthUser = query({
     let truncated = false;
     let cursor: string | null = null;
     let isDone = false;
-    while (!isDone && !truncated) {
+    let rowsScanned = 0;
+    while (!isDone && !truncated && rowsScanned < COUPLING_TRACE_ROW_SCAN_LIMIT) {
       const page = await ctx.db
         .query('coupling_trace_records')
         .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
-        .paginate({ cursor, numItems: COUPLING_TRACE_ROW_PAGE_SIZE });
+        .paginate({
+          cursor,
+          numItems: Math.min(
+            COUPLING_TRACE_ROW_PAGE_SIZE,
+            COUPLING_TRACE_ROW_SCAN_LIMIT - rowsScanned
+          ),
+        });
+      rowsScanned += page.page.length;
 
       for (const row of page.page) {
         if (row.authUserId !== args.authUserId) {
@@ -692,6 +701,9 @@ export const listCouplingTraceCandidatesForAuthUser = query({
 
       cursor = page.continueCursor;
       isDone = page.isDone;
+      if (!isDone && rowsScanned >= COUPLING_TRACE_ROW_SCAN_LIMIT) {
+        truncated = true;
+      }
     }
 
     return {
