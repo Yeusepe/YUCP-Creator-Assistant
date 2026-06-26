@@ -10,7 +10,7 @@ import { decryptForPurpose } from './lib/vrchat/crypto';
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
 const COUPLING_TRACE_CANDIDATE_LIMIT = 512;
-const COUPLING_TRACE_ROW_SCAN_LIMIT = COUPLING_TRACE_CANDIDATE_LIMIT + 1;
+const COUPLING_TRACE_ROW_PAGE_SIZE = 512;
 
 function assertPackageId(packageId: string): void {
   if (!PACKAGE_ID_RE.test(packageId)) {
@@ -659,32 +659,39 @@ export const listCouplingTraceCandidatesForAuthUser = query({
       };
     }
 
-    const rows = await ctx.db
-      .query('coupling_trace_records')
-      .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
-      .take(COUPLING_TRACE_ROW_SCAN_LIMIT);
-
     const seen = new Set<string>();
     const candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }> = [];
     let truncated = false;
-    for (const row of rows) {
-      if (row.authUserId !== args.authUserId) {
-        continue;
+    let cursor: string | null = null;
+    let isDone = false;
+    while (!isDone && !truncated) {
+      const page = await ctx.db
+        .query('coupling_trace_records')
+        .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
+        .paginate({ cursor, numItems: COUPLING_TRACE_ROW_PAGE_SIZE });
+
+      for (const row of page.page) {
+        if (row.authUserId !== args.authUserId) {
+          continue;
+        }
+        const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
+        if (seen.has(key)) {
+          continue;
+        }
+        if (candidates.length >= COUPLING_TRACE_CANDIDATE_LIMIT) {
+          truncated = true;
+          break;
+        }
+        seen.add(key);
+        candidates.push({
+          assetPath: row.assetPath,
+          licenseSubject: row.licenseSubject,
+          tokenHash: row.tokenHash,
+        });
       }
-      const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
-      if (seen.has(key)) {
-        continue;
-      }
-      if (candidates.length >= COUPLING_TRACE_CANDIDATE_LIMIT) {
-        truncated = true;
-        break;
-      }
-      seen.add(key);
-      candidates.push({
-        assetPath: row.assetPath,
-        licenseSubject: row.licenseSubject,
-        tokenHash: row.tokenHash,
-      });
+
+      cursor = page.continueCursor;
+      isDone = page.isDone;
     }
 
     return {
