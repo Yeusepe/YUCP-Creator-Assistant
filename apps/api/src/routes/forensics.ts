@@ -27,6 +27,7 @@ import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey'
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
 const FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 30;
 const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -212,6 +213,13 @@ function resolveLookupUploadLimit(config: ForensicsConfig): number {
     return Math.floor(configured);
   }
   return MAX_UPLOAD_SIZE_BYTES;
+}
+
+function resolveLookupRequestBodyLimit(maxLookupUploadBytes: number): number {
+  return Math.min(
+    maxLookupUploadBytes + MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES,
+    Number.MAX_SAFE_INTEGER
+  );
 }
 
 function resolveLookupRateLimitMaxRequests(config: ForensicsConfig): number {
@@ -481,9 +489,10 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
 
     const maxLookupUploadBytes = resolveLookupUploadLimit(config);
+    const maxLookupRequestBodyBytes = resolveLookupRequestBodyLimit(maxLookupUploadBytes);
     let boundedRequestBody: Uint8Array;
     try {
-      boundedRequestBody = await readRequestBytesWithLimit(request, maxLookupUploadBytes);
+      boundedRequestBody = await readRequestBytesWithLimit(request, maxLookupRequestBodyBytes);
     } catch (error) {
       if (error instanceof RequestBodyError && error.status === 413) {
         return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);

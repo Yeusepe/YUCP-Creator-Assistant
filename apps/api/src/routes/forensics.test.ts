@@ -322,12 +322,22 @@ describe('forensics routes', () => {
     });
   });
 
-  it('rejects oversized declared lookup bodies before multipart parsing', async () => {
-    const response = await routes.lookup(
+  it('rejects oversized declared lookup bodies above the multipart request cap', async () => {
+    const cappedRoutes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      frontendBaseUrl: 'http://localhost:3000',
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      maxLookupUploadBytes: 3,
+    });
+    const response = await cappedRoutes.lookup(
       new Request('http://localhost:3001/api/forensics/lookup', {
         method: 'POST',
         headers: {
-          'Content-Length': String(100 * 1024 * 1024 + 1),
+          'Content-Length': String(3 + 1024 * 1024 + 1),
           'Content-Type': 'multipart/form-data; boundary=x',
         },
         body: '--x--',
@@ -341,7 +351,7 @@ describe('forensics routes', () => {
     expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
   });
 
-  it('rejects streamed lookup bodies over the cap before multipart parsing', async () => {
+  it('rejects streamed lookup bodies above the multipart request cap before parsing', async () => {
     const cappedRoutes = createForensicsRoutes(auth, {
       apiBaseUrl: 'http://localhost:3001',
       couplingServiceBaseUrl: 'https://coupling.internal',
@@ -354,7 +364,10 @@ describe('forensics routes', () => {
     });
     const body = new FormData();
     body.set('packageId', 'creator.package');
-    body.set('file', new File(['oversized'], 'package.zip', { type: 'application/zip' }));
+    body.set(
+      'file',
+      new File([new Uint8Array(1024 * 1024 + 6)], 'package.zip', { type: 'application/zip' })
+    );
 
     const request = new Request('http://localhost:3001/api/forensics/lookup', {
       method: 'POST',
@@ -369,6 +382,50 @@ describe('forensics routes', () => {
     expect(queryMock).not.toHaveBeenCalled();
     expect(mutationMock).not.toHaveBeenCalled();
     expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
+  it('allows multipart overhead above the exact file-size cap', async () => {
+    const cappedRoutes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      frontendBaseUrl: 'http://localhost:3000',
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      maxLookupUploadBytes: 3,
+    });
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          truncated: false,
+          candidateLimit: 512,
+          candidates: [],
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set('file', new File([Uint8Array.from([1, 2, 3])], 'bundle.zip'));
+    const request = new Request('http://localhost:3001/api/forensics/lookup', {
+      method: 'POST',
+      body: formData,
+    });
+    expect((await request.clone().arrayBuffer()).byteLength).toBeGreaterThan(3);
+
+    const response = await cappedRoutes.lookup(request);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      packageId: 'creator.package',
+      lookupStatus: 'hostile_unknown',
+    });
+    expect(extractCouplingForensicsArchiveMock).toHaveBeenCalledTimes(1);
   });
 
   it('rejects malformed lookup multipart bodies with a safe client error', async () => {

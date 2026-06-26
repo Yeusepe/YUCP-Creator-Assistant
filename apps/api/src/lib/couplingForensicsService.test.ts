@@ -192,6 +192,30 @@ describe('runCouplingAttribution', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects bracketed IPv6 metadata attribution base URLs before sending requests', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('Attribution must not fetch bracketed metadata service URLs');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    for (const baseUrl of ['http://[fe80::1]', 'http://[::ffff:169.254.169.254]']) {
+      await expect(
+        runCouplingAttribution(
+          [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              filePath: assetFixturePath,
+            },
+          ],
+          candidates,
+          { ...config, baseUrl }
+        )
+      ).rejects.toThrow('Coupling service base URL host is not allowed');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid JSON attribution responses', async () => {
     const fetchMock = mock(async () => {
       return new Response('not-json', {

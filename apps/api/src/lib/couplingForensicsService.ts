@@ -134,14 +134,62 @@ function buildCouplingServiceUrl(baseUrl: string, path: string): string {
 }
 
 function assertAllowedCouplingServiceHost(url: URL): void {
-  const hostname = url.hostname.toLowerCase();
-  if (METADATA_SERVICE_HOSTS.has(hostname) || hostname === '100.100.100.200') {
+  const hostname = normalizeUrlHostname(url.hostname);
+  const mappedIpv4Hostname = parseIpv4MappedIpv6Hostname(hostname);
+  if (
+    isDeniedMetadataHostname(hostname) ||
+    (mappedIpv4Hostname && isDeniedMetadataHostname(mappedIpv4Hostname))
+  ) {
     throw new CouplingServiceConfigurationError('Coupling service base URL host is not allowed');
   }
 
-  if (isIP(hostname) && isLinkLocalIp(hostname)) {
+  if (isIP(hostname) && isLinkLocalIp(mappedIpv4Hostname ?? hostname)) {
     throw new CouplingServiceConfigurationError('Coupling service base URL host is not allowed');
   }
+}
+
+function isDeniedMetadataHostname(hostname: string): boolean {
+  return METADATA_SERVICE_HOSTS.has(hostname) || hostname === '100.100.100.200';
+}
+
+function normalizeUrlHostname(hostname: string): string {
+  const normalized = hostname.toLowerCase();
+  if (normalized.startsWith('[') && normalized.endsWith(']')) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function parseIpv4MappedIpv6Hostname(hostname: string): string | null {
+  if (!hostname.startsWith('::ffff:')) {
+    return null;
+  }
+
+  const suffix = hostname.slice('::ffff:'.length);
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(suffix)) {
+    return suffix;
+  }
+
+  const hextets = suffix.split(':');
+  if (hextets.length !== 2) {
+    return null;
+  }
+  const parsed = hextets.map((hextet) => Number.parseInt(hextet, 16));
+  if (
+    parsed.some(
+      (value, index) =>
+        !/^[0-9a-f]{1,4}$/.test(hextets[index] ?? '') || !Number.isFinite(value) || value < 0
+    )
+  ) {
+    return null;
+  }
+
+  return [
+    (parsed[0] ?? 0) >> 8,
+    (parsed[0] ?? 0) & 0xff,
+    (parsed[1] ?? 0) >> 8,
+    (parsed[1] ?? 0) & 0xff,
+  ].join('.');
 }
 
 function isLinkLocalIp(hostname: string): boolean {
