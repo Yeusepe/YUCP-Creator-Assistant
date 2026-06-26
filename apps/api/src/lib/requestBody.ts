@@ -11,16 +11,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export async function readRequestTextWithLimit(
+export async function readRequestBytesWithLimit(
   request: Request,
   maxBytes: number
-): Promise<string> {
+): Promise<Uint8Array> {
   const contentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new RequestBodyError('Request body too large', 413);
   }
   if (!request.body) {
-    return '';
+    return new Uint8Array();
   }
 
   const reader = request.body.getReader();
@@ -48,6 +48,14 @@ export async function readRequestTextWithLimit(
     bodyBytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return bodyBytes;
+}
+
+export async function readRequestTextWithLimit(
+  request: Request,
+  maxBytes: number
+): Promise<string> {
+  const bodyBytes = await readRequestBytesWithLimit(request, maxBytes);
   return new TextDecoder().decode(bodyBytes);
 }
 

@@ -526,7 +526,10 @@ export async function runCouplingAttribution(
       clearTimeout(timeout);
     }
   } catch (error) {
-    if (error instanceof CouplingServiceRequestError) {
+    if (
+      error instanceof CouplingServiceRequestError ||
+      error instanceof CouplingServiceConfigurationError
+    ) {
       throw error;
     }
     const message = error instanceof Error ? error.message : String(error);

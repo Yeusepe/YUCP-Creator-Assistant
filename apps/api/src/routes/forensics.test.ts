@@ -324,6 +324,35 @@ describe('forensics routes', () => {
     expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
   });
 
+  it('rejects streamed lookup bodies over the cap before multipart parsing', async () => {
+    const cappedRoutes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      frontendBaseUrl: 'http://localhost:3000',
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      maxLookupUploadBytes: 5,
+    });
+    const body = new FormData();
+    body.set('packageId', 'creator.package');
+    body.set('file', new File(['oversized'], 'package.zip', { type: 'application/zip' }));
+
+    const response = await cappedRoutes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body,
+      })
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({ error: 'Upload exceeds the size limit' });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).not.toHaveBeenCalled();
+    expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
   it('returns hostile-unknown when the viewer does not own the package', async () => {
     queryMock.mockImplementation(async (ref: unknown) => {
       if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {

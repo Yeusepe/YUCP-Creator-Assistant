@@ -15,7 +15,11 @@ import {
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
+import {
+  RequestBodyError,
+  readJsonObjectBodyWithLimit,
+  readRequestBytesWithLimit,
+} from '../lib/requestBody';
 import { getProviderRuntime } from '../providers/index';
 import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
@@ -32,6 +36,7 @@ export type ForensicsConfig = {
   convexApiSecret: string;
   convexUrl: string;
   encryptionSecret: string;
+  maxLookupUploadBytes?: number;
 };
 
 type ForensicsViewer = {
@@ -188,6 +193,14 @@ async function resolveViewer(
 
 function sha256HexFromBytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function resolveLookupUploadLimit(config: ForensicsConfig): number {
+  const configured = config.maxLookupUploadBytes;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return MAX_UPLOAD_SIZE_BYTES;
 }
 
 function normalizeDeclaredPackageIds(values: string[]): string[] {
@@ -421,10 +434,18 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
-    const declaredContentLength = Number.parseInt(request.headers.get('content-length') ?? '', 10);
-    if (Number.isFinite(declaredContentLength) && declaredContentLength > MAX_UPLOAD_SIZE_BYTES) {
-      return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
+    const maxLookupUploadBytes = resolveLookupUploadLimit(config);
+    let boundedRequestBody: Uint8Array;
+    try {
+      boundedRequestBody = await readRequestBytesWithLimit(request, maxLookupUploadBytes);
+    } catch (error) {
+      if (error instanceof RequestBodyError && error.status === 413) {
+        return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
+      }
+      throw error;
     }
+    const formDataHeaders = new Headers(request.headers);
+    formDataHeaders.delete('content-length');
 
     const workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-'));
     let auditContext: {
@@ -434,7 +455,13 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       uploadSha256?: string;
     } | null = null;
     try {
-      const formData = await request.formData();
+      const replayBody = new ArrayBuffer(boundedRequestBody.byteLength);
+      new Uint8Array(replayBody).set(boundedRequestBody);
+      const formData = await new Request(request.url, {
+        method: request.method,
+        headers: formDataHeaders,
+        body: replayBody,
+      }).formData();
       const packageId = assertPackageId(String(formData.get('packageId') ?? ''));
       const upload = formData.get('file');
       if (!(upload instanceof File)) {
@@ -443,7 +470,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       if (upload.size <= 0) {
         return jsonResponse({ error: 'Upload is empty' }, 400);
       }
-      if (upload.size > MAX_UPLOAD_SIZE_BYTES) {
+      if (upload.size > maxLookupUploadBytes) {
         return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
       }
 

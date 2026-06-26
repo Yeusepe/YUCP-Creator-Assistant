@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import {
   type CouplingAttributionCandidate,
   type CouplingForensicsServiceConfig,
+  CouplingServiceConfigurationError,
   runCouplingAttribution,
 } from './couplingForensicsService';
 
@@ -117,6 +118,33 @@ describe('runCouplingAttribution', () => {
         { ...config, baseUrl: 'file:///tmp/coupling' }
       )
     ).rejects.toThrow('Coupling service base URL must use http or https');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves attribution URL configuration errors for route-level handling', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('Attribution must not fetch invalid service URLs');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await runCouplingAttribution(
+        [
+          {
+            assetPath: 'Assets/Character/body.png',
+            assetType: 'png',
+            filePath: assetFixturePath,
+          },
+        ],
+        candidates,
+        { ...config, baseUrl: 'file:///tmp/coupling' }
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(CouplingServiceConfigurationError);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
