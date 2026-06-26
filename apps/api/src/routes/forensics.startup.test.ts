@@ -181,7 +181,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
     port: couplingPort,
     async fetch(request): Promise<Response> {
       const url = new URL(request.url);
-      if (url.pathname !== '/v1/coupling/forensic-score' || request.method !== 'POST') {
+      if (url.pathname !== '/v1/coupling/attribute' || request.method !== 'POST') {
         return new Response('Not found', { status: 404 });
       }
 
@@ -201,18 +201,33 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
       };
       const assets = Array.isArray(payload.assets) ? payload.assets : [];
 
+      // No candidate seed decodes this asset, so every entry comes back unmatched.
       return Response.json({
+        requestId: 'startup-req-1',
         results: assets.map((asset) => ({
           assetPath: asset.assetPath ?? '',
           assetType: asset.assetType ?? 'fbx',
-          decoderKind: asset.assetType ?? 'fbx',
-          preclassification: 'no-signal',
+          matched: false,
+          attempted: 1,
         })),
       });
     },
   });
 
   const convex = startFakeConvexServer({
+    query: {
+      'couplingForensics:listCouplingTraceCandidatesForAuthUser': () => ({
+        capabilityEnabled: true,
+        packageOwned: true,
+        candidates: [
+          {
+            assetPath: 'bundle/model.fbx',
+            licenseSubject: 'b'.repeat(64),
+            tokenHash: '1'.repeat(64),
+          },
+        ],
+      }),
+    },
     mutation: {
       'couplingForensics:recordLookupAudit': () => null,
     },

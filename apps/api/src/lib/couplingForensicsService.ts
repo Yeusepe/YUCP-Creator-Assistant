@@ -331,6 +331,192 @@ export async function runCouplingForensicsScore(
   return validateForensicsScoreResult(assets, payload);
 }
 
+export type CouplingAttributionCandidate = {
+  assetPath: string;
+  licenseSubject: string;
+  tokenHash: string;
+};
+
+type AttributeServiceResponse = {
+  error?:
+    | string
+    | {
+        code?: unknown;
+        message?: unknown;
+      };
+  requestId?: string;
+  results?: Array<{
+    assetPath?: string;
+    assetType?: string;
+    matched?: boolean;
+    tokenHex?: string;
+    matchedLicenseSubject?: string;
+    wmVersion?: number;
+    attempted?: number;
+  }>;
+};
+
+function buildAttributeUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.trim();
+  if (!normalizedBaseUrl) {
+    throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');
+  }
+  return new URL('v1/coupling/attribute', `${normalizedBaseUrl.replace(/\/$/, '')}/`).toString();
+}
+
+async function buildAttributeRequestBody(
+  assets: ExtractedForensicsAsset[],
+  candidates: CouplingAttributionCandidate[]
+): Promise<string> {
+  const serializedAssets = await Promise.all(
+    assets.map(async (asset) => ({
+      assetPath: asset.assetPath,
+      assetType: asset.assetType,
+      contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
+    }))
+  );
+
+  return JSON.stringify({
+    assets: serializedAssets,
+    candidates: candidates.map((candidate) => ({
+      assetPath: candidate.assetPath,
+      licenseSubject: candidate.licenseSubject,
+      tokenHash: candidate.tokenHash,
+    })),
+  });
+}
+
+function validateAttributionResult(
+  input: ExtractedForensicsAsset[],
+  payload: AttributeServiceResponse
+): ForensicsScoreResult[] {
+  const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
+  const results = payload.results ?? [];
+  const validatedResults = new Map<string, ForensicsScoreResult>();
+
+  for (const entry of results) {
+    const assetPath = entry.assetPath?.trim() || '';
+    const inputEntry = assetByPath.get(assetPath);
+    if (!inputEntry) {
+      throw new CouplingServiceRequestError(
+        `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
+        502
+      );
+    }
+    if (validatedResults.has(assetPath)) {
+      throw new CouplingServiceRequestError(
+        `Coupling service returned a duplicate asset path: ${assetPath}`,
+        502
+      );
+    }
+
+    const assetType = normalizeAssetType(entry.assetType || inputEntry.assetType);
+    // Seed-iteration attribution decodes only when a candidate's re-derived seed matches, so a
+    // matched asset is a recovered trace ('decoded'); anything else carries no usable signal.
+    if (entry.matched === true && entry.tokenHex) {
+      const tokenHex = entry.tokenHex.trim().toLowerCase();
+      if (HEX_RE.test(tokenHex) && tokenHex.length > 0) {
+        validatedResults.set(assetPath, {
+          assetPath,
+          assetType,
+          decoderKind: assetType,
+          preclassification: 'decoded',
+          tokenHex,
+          tokenLength: tokenHex.length,
+        });
+        continue;
+      }
+    }
+
+    validatedResults.set(assetPath, {
+      assetPath,
+      assetType,
+      decoderKind: assetType,
+      preclassification: 'no-signal',
+    });
+  }
+
+  return input.map((asset) => {
+    const existing = validatedResults.get(asset.assetPath);
+    if (existing) {
+      return existing;
+    }
+    return {
+      assetPath: asset.assetPath,
+      assetType: asset.assetType,
+      decoderKind: asset.assetType,
+      preclassification: 'no-signal',
+    };
+  });
+}
+
+/**
+ * Forensic attribution: ask the closed coupling service to decode each leaked asset by iterating
+ * the supplied buyer candidates (it re-derives each per-job placement seed from the recorded
+ * assetPath + licenseSubject). A matched asset comes back as a recovered trace with its token; the
+ * caller turns that token into a tokenHash for identity enrichment. No watermark secrets leave the
+ * service — only candidate (assetPath, licenseSubject, tokenHash) tuples go in.
+ */
+export async function runCouplingAttribution(
+  assets: ExtractedForensicsAsset[],
+  candidates: CouplingAttributionCandidate[],
+  config: CouplingForensicsServiceConfig
+): Promise<ForensicsScoreResult[]> {
+  if (assets.length === 0) {
+    return [];
+  }
+  if (candidates.length === 0) {
+    return assets.map((asset) => ({
+      assetPath: asset.assetPath,
+      assetType: asset.assetType,
+      decoderKind: asset.assetType,
+      preclassification: 'no-signal',
+    }));
+  }
+
+  const sharedSecret = config.sharedSecret.trim();
+  if (!sharedSecret) {
+    throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(buildAttributeUrl(config.baseUrl), {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${sharedSecret}`,
+        'Cache-Control': 'no-store',
+        'Content-Type': 'application/json',
+      },
+      body: await buildAttributeRequestBody(assets, candidates),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
+  }
+
+  const responseText = await response.text();
+  const payload = parseResponsePayload(responseText) as AttributeServiceResponse | null;
+
+  if (!response.ok) {
+    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
+    throw new CouplingServiceRequestError(
+      `Coupling attribution failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
+      response.status
+    );
+  }
+
+  if (!payload) {
+    throw new CouplingServiceRequestError(
+      'Coupling service returned invalid JSON',
+      response.status
+    );
+  }
+
+  return validateAttributionResult(assets, payload);
+}
+
 export async function runCouplingForensicsScan(
   assets: ExtractedForensicsAsset[],
   config: CouplingForensicsServiceConfig

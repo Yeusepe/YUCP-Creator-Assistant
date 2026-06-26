@@ -7,6 +7,8 @@ import type { Auth } from '../auth';
 const apiMock = {
   couplingForensics: {
     listOwnedPackageSummariesForAuthUser: 'couplingForensics.listOwnedPackageSummariesForAuthUser',
+    listCouplingTraceCandidatesForAuthUser:
+      'couplingForensics.listCouplingTraceCandidatesForAuthUser',
     lookupTraceMatchesForAuthUser: 'couplingForensics.lookupTraceMatchesForAuthUser',
     resolveBuyerIdentityForAuthUser: 'couplingForensics.resolveBuyerIdentityForAuthUser',
     recordLookupAudit: 'couplingForensics.recordLookupAudit',
@@ -76,6 +78,18 @@ function sha256Hex(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
+// One recorded buyer for the registered package: assetPath + licenseSubject + the sha256 of the
+// token the seed-iteration decoder is expected to recover.
+function defaultCandidates(tokenHash: string) {
+  return [
+    {
+      assetPath: 'Assets/Character/body.png',
+      licenseSubject: 'license-subject-1',
+      tokenHash,
+    },
+  ];
+}
+
 describe('forensics routes', () => {
   const originalFetch = globalThis.fetch;
   const auth = {
@@ -114,10 +128,22 @@ describe('forensics routes', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('sends extracted candidate assets to the coupling service before looking up trace matches', async () => {
+  it('attributes a leaked asset to its buyer via seed-iteration candidates', async () => {
     const expectedTokenHash = sha256Hex('deadbeef');
 
     queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        expect(args).toEqual({
+          apiSecret: 'convex-secret',
+          authUserId: 'creator-user',
+          packageId: 'creator.package',
+        });
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
       if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
         expect(args).toEqual({
           apiSecret: 'convex-secret',
@@ -150,23 +176,23 @@ describe('forensics routes', () => {
     const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      expect(url).toBe('https://coupling.internal/v1/coupling/forensic-score');
+      expect(url).toBe('https://coupling.internal/v1/coupling/attribute');
       expect(init?.method).toBe('POST');
       const headers = new Headers(init?.headers);
       expect(headers.get('authorization')).toBe('Bearer coupling-secret');
       expect(headers.get('content-type')).toBe('application/json');
 
       const requestBody = JSON.parse(String(init?.body)) as {
-        mode: string;
         assets: Array<{ assetPath: string; assetType: string; contentBase64: string }>;
+        candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }>;
       };
-      expect(requestBody.mode).toBe('scan');
       expect(requestBody.assets).toHaveLength(1);
       expect(requestBody.assets[0]).toMatchObject({
         assetPath: 'Assets/Character/body.png',
         assetType: 'png',
       });
       expect(requestBody.assets[0]?.contentBase64.length).toBeGreaterThan(0);
+      expect(requestBody.candidates).toEqual(defaultCandidates(expectedTokenHash));
 
       return new Response(
         JSON.stringify({
@@ -175,10 +201,11 @@ describe('forensics routes', () => {
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              decoderKind: 'png',
-              preclassification: 'decoded',
+              matched: true,
               tokenHex: 'deadbeef',
-              tokenLength: 8,
+              matchedLicenseSubject: 'license-subject-1',
+              wmVersion: 2,
+              attempted: 1,
             },
           ],
         }),
@@ -230,6 +257,91 @@ describe('forensics routes', () => {
       authUserId: 'creator-user',
       packageId: 'creator.package',
       status: 'attributed',
+    });
+  });
+
+  it('returns a 402 when the viewer lacks the coupling traceability capability', async () => {
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return { capabilityEnabled: false, packageOwned: false, candidates: [] };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      throw new Error('Coupling service should not be called without capability');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(402);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Creator Studio+ is required for coupling traceability',
+      code: 'coupling_traceability_required',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'denied',
+    });
+  });
+
+  it('returns hostile-unknown when the viewer does not own the package', async () => {
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return { capabilityEnabled: true, packageOwned: false, candidates: [] };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      throw new Error('Coupling service should not be called for an unowned package');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      packageId: 'creator.package',
+      lookupStatus: 'hostile_unknown',
+      candidateAssetCount: 1,
+      decodedAssetCount: 0,
+      results: [],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'denied',
     });
   });
 
@@ -288,9 +400,18 @@ describe('forensics routes', () => {
     }
   });
 
-  it('returns a tamper-suspected response when candidate assets have no decodable coupling signals', async () => {
-    queryMock.mockImplementation(async () => {
-      throw new Error('Trace lookup should not run without coupling findings');
+  it('returns a tamper-suspected response when no candidate seed decodes the uploaded asset', async () => {
+    const expectedTokenHash = sha256Hex('deadbeef');
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
+      throw new Error(`Trace lookup should not run without recovered tokens (${String(ref)})`);
     });
     mutationMock.mockResolvedValue(undefined);
 
@@ -302,10 +423,8 @@ describe('forensics routes', () => {
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              decoderKind: 'png',
-              preclassification: 'likely-stripped',
-              nativeCode: -10,
-              decodeError: 'quorum not reached',
+              matched: false,
+              attempted: 1,
             },
           ],
         }),
@@ -341,12 +460,12 @@ describe('forensics routes', () => {
       results: [
         {
           assetPath: 'Assets/Character/body.png',
-          layerBClassification: 'trace-likely-stripped',
+          layerBClassification: 'no-signal-found',
           matched: false,
         },
       ],
     });
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalledTimes(1);
     expect(mutationMock).toHaveBeenCalledTimes(1);
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       packageId: 'creator.package',
@@ -354,9 +473,18 @@ describe('forensics routes', () => {
     });
   });
 
-  it('treats empty forensic-score results as candidate assets with no recovered signals', async () => {
-    queryMock.mockImplementation(async () => {
-      throw new Error('Trace lookup should not run without decoded coupling findings');
+  it('treats empty attribution results as candidate assets with no recovered signals', async () => {
+    const expectedTokenHash = sha256Hex('deadbeef');
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
+      throw new Error(`Trace lookup should not run without recovered tokens (${String(ref)})`);
     });
     mutationMock.mockResolvedValue(undefined);
 
@@ -403,7 +531,7 @@ describe('forensics routes', () => {
         },
       ],
     });
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalledTimes(1);
     expect(mutationMock).toHaveBeenCalledTimes(1);
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       packageId: 'creator.package',
@@ -449,9 +577,18 @@ describe('forensics routes', () => {
     });
   });
 
-  it('returns a typed lookup failure when forensic-score returns an object error payload', async () => {
-    queryMock.mockImplementation(async () => {
-      throw new Error('Trace lookup should not run when the coupling service rejects the request');
+  it('returns a typed lookup failure when attribution returns an object error payload', async () => {
+    const expectedTokenHash = sha256Hex('deadbeef');
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
+      throw new Error(`Trace lookup should not run when attribution fails (${String(ref)})`);
     });
     mutationMock.mockResolvedValue(undefined);
 
@@ -489,7 +626,7 @@ describe('forensics routes', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'Coupling forensics lookup failed',
     });
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(queryMock).toHaveBeenCalledTimes(1);
     expect(mutationMock).toHaveBeenCalledTimes(1);
     expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
       packageId: 'creator.package',
@@ -497,10 +634,17 @@ describe('forensics routes', () => {
     });
   });
 
-  it('returns a hostile-unknown response when decoded coupling signals do not match an authorized trace record', async () => {
+  it('returns a hostile-unknown response when a recovered token does not resolve to a trace record', async () => {
     const expectedTokenHash = sha256Hex('deadbeef');
 
     queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
       if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
         expect(args).toEqual({
           apiSecret: 'convex-secret',
@@ -528,10 +672,11 @@ describe('forensics routes', () => {
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              decoderKind: 'png',
-              preclassification: 'decoded',
+              matched: true,
               tokenHex: 'deadbeef',
-              tokenLength: 8,
+              matchedLicenseSubject: 'license-subject-1',
+              wmVersion: 2,
+              attempted: 1,
             },
           ],
         }),
@@ -588,6 +733,13 @@ describe('forensics routes', () => {
     const expectedTokenHash = sha256Hex('deadbeef');
 
     queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
       if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
         return {
           capabilityEnabled: true,
@@ -637,10 +789,11 @@ describe('forensics routes', () => {
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              decoderKind: 'png',
-              preclassification: 'decoded',
+              matched: true,
               tokenHex: 'deadbeef',
-              tokenLength: 8,
+              matchedLicenseSubject: 'license-subject-1',
+              wmVersion: 2,
+              attempted: 1,
             },
           ],
         }),

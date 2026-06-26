@@ -45,10 +45,7 @@ function isArchivedPackage(
  * stable fingerprint of the license subject (SHA-256 of the key). Identifies *which* license
  * without revealing it — the full key is only available via the audit-logged reveal action.
  */
-function buildLicenseMaskedLabel(
-  provider: string | undefined,
-  licenseSubject: string
-): string {
+function buildLicenseMaskedLabel(provider: string | undefined, licenseSubject: string): string {
   const fingerprint = licenseSubject.slice(0, 10);
   return provider ? `${provider} · ${fingerprint}` : fingerprint;
 }
@@ -594,5 +591,81 @@ export const recordLookupAudit = mutation({
       correlationId: `${args.source}:${args.packageId}:${Date.now()}`,
       createdAt: Date.now(),
     });
+  },
+});
+
+/**
+ * Returns the per-(asset, buyer) candidate set the forensic attribution resolver needs to re-derive
+ * placement seeds for a leaked asset: {assetPath, licenseSubject, tokenHash} for every trace of the
+ * package. Same gates as lookupTraceMatchesForAuthUser (api secret + couplingTraceability capability
+ * + package ownership). The closed coupling service derives a seed per candidate and decodes.
+ */
+export const listCouplingTraceCandidatesForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    packageId: v.string(),
+  },
+  returns: v.object({
+    capabilityEnabled: v.boolean(),
+    packageOwned: v.boolean(),
+    candidates: v.array(
+      v.object({
+        assetPath: v.string(),
+        licenseSubject: v.string(),
+        tokenHash: v.string(),
+      })
+    ),
+  }),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    assertPackageId(args.packageId);
+
+    const capabilityEnabled = await ctx.runQuery(
+      internal.certificateBilling.hasCapabilityForAuthUser,
+      {
+        authUserId: args.authUserId,
+        capabilityKey: BILLING_CAPABILITY_KEYS.couplingTraceability,
+      }
+    );
+    if (!capabilityEnabled) {
+      return { capabilityEnabled: false, packageOwned: false, candidates: [] };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (
+      !registration ||
+      registration.yucpUserId !== args.authUserId ||
+      isArchivedPackage(registration)
+    ) {
+      return { capabilityEnabled: true, packageOwned: false, candidates: [] };
+    }
+
+    const rows = await ctx.db
+      .query('coupling_trace_records')
+      .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
+      .collect();
+
+    const seen = new Set<string>();
+    const candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }> = [];
+    for (const row of rows) {
+      if (row.authUserId !== args.authUserId) {
+        continue;
+      }
+      const key = `${row.assetPath} ${row.licenseSubject} ${row.tokenHash}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      candidates.push({
+        assetPath: row.assetPath,
+        licenseSubject: row.licenseSubject,
+        tokenHash: row.tokenHash,
+      });
+    }
+
+    return { capabilityEnabled: true, packageOwned: true, candidates };
   },
 });

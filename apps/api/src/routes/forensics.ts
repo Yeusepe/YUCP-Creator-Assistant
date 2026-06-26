@@ -11,7 +11,7 @@ import {
   CouplingServiceConfigurationError,
   CouplingServiceRequestError,
   type ForensicsScoreResult,
-  runCouplingForensicsScore,
+  runCouplingAttribution,
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -503,10 +503,68 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const scoreResults = await runCouplingForensicsScore(extraction.assets, {
-        baseUrl: config.couplingServiceBaseUrl,
-        sharedSecret: config.couplingServiceSharedSecret,
-      });
+      const candidateResult = await convex.query(
+        api.couplingForensics.listCouplingTraceCandidatesForAuthUser,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+        }
+      );
+
+      if (!candidateResult.capabilityEnabled) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'denied',
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Creator Studio+ is required for coupling traceability',
+            code: 'coupling_traceability_required',
+          },
+          402
+        );
+      }
+
+      if (!candidateResult.packageOwned) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'denied',
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse({
+          packageId,
+          lookupStatus: 'hostile_unknown' satisfies ForensicsLookupStatus,
+          message: buildLookupMessage('hostile_unknown'),
+          candidateAssetCount: extraction.assets.length,
+          decodedAssetCount: 0,
+          results: [],
+          investigationReport: buildInvestigationReport([], extraction.assets.length),
+        });
+      }
+
+      // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's
+      // per-job placement seed and decodes the leaked assets against them. We only hand it candidate
+      // (assetPath, licenseSubject, tokenHash) tuples — the master key and native code stay server-side.
+      const scoreResults = await runCouplingAttribution(
+        extraction.assets,
+        candidateResult.candidates,
+        {
+          baseUrl: config.couplingServiceBaseUrl,
+          sharedSecret: config.couplingServiceSharedSecret,
+        }
+      );
 
       const decodedResults = scoreResults.filter(
         (r) => r.preclassification === 'decoded' && r.tokenHex
