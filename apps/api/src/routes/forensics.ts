@@ -554,6 +554,27 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
+      if (candidateResult.truncated) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'error',
+          requestedTokenCount: candidateResult.candidateLimit,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Trace candidate limit exceeded; narrow the package or retry after archival',
+            code: 'coupling_trace_candidate_limit_exceeded',
+            candidateLimit: candidateResult.candidateLimit,
+          },
+          409
+        );
+      }
+
       // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's
       // per-job placement seed and decodes the leaked assets against them. We only hand it candidate
       // (assetPath, licenseSubject, tokenHash) tuples — the master key and native code stay server-side.

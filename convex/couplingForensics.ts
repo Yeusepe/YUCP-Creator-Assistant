@@ -9,6 +9,8 @@ import { decryptForPurpose } from './lib/vrchat/crypto';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
+const COUPLING_TRACE_CANDIDATE_LIMIT = 512;
+const COUPLING_TRACE_ROW_SCAN_LIMIT = COUPLING_TRACE_CANDIDATE_LIMIT + 1;
 
 function assertPackageId(packageId: string): void {
   if (!PACKAGE_ID_RE.test(packageId)) {
@@ -609,6 +611,8 @@ export const listCouplingTraceCandidatesForAuthUser = query({
   returns: v.object({
     capabilityEnabled: v.boolean(),
     packageOwned: v.boolean(),
+    truncated: v.boolean(),
+    candidateLimit: v.number(),
     candidates: v.array(
       v.object({
         assetPath: v.string(),
@@ -629,7 +633,13 @@ export const listCouplingTraceCandidatesForAuthUser = query({
       }
     );
     if (!capabilityEnabled) {
-      return { capabilityEnabled: false, packageOwned: false, candidates: [] };
+      return {
+        capabilityEnabled: false,
+        packageOwned: false,
+        truncated: false,
+        candidateLimit: COUPLING_TRACE_CANDIDATE_LIMIT,
+        candidates: [],
+      };
     }
 
     const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
@@ -640,21 +650,28 @@ export const listCouplingTraceCandidatesForAuthUser = query({
       registration.yucpUserId !== args.authUserId ||
       isArchivedPackage(registration)
     ) {
-      return { capabilityEnabled: true, packageOwned: false, candidates: [] };
+      return {
+        capabilityEnabled: true,
+        packageOwned: false,
+        truncated: false,
+        candidateLimit: COUPLING_TRACE_CANDIDATE_LIMIT,
+        candidates: [],
+      };
     }
 
     const rows = await ctx.db
       .query('coupling_trace_records')
       .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
-      .collect();
+      .take(COUPLING_TRACE_ROW_SCAN_LIMIT);
+    const truncated = rows.length > COUPLING_TRACE_CANDIDATE_LIMIT;
 
     const seen = new Set<string>();
     const candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }> = [];
-    for (const row of rows) {
+    for (const row of rows.slice(0, COUPLING_TRACE_CANDIDATE_LIMIT)) {
       if (row.authUserId !== args.authUserId) {
         continue;
       }
-      const key = `${row.assetPath} ${row.licenseSubject} ${row.tokenHash}`;
+      const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
       if (seen.has(key)) {
         continue;
       }
@@ -666,6 +683,12 @@ export const listCouplingTraceCandidatesForAuthUser = query({
       });
     }
 
-    return { capabilityEnabled: true, packageOwned: true, candidates };
+    return {
+      capabilityEnabled: true,
+      packageOwned: true,
+      truncated,
+      candidateLimit: COUPLING_TRACE_CANDIDATE_LIMIT,
+      candidates,
+    };
   },
 });

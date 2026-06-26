@@ -345,6 +345,56 @@ describe('forensics routes', () => {
     });
   });
 
+  it('fails closed when the trace candidate scan is truncated before attribution', async () => {
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          truncated: true,
+          candidateLimit: 512,
+          candidates: defaultCandidates(sha256Hex('deadbeef')),
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      throw new Error('Coupling service should not be called with a truncated candidate set');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([1, 2, 3])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Trace candidate limit exceeded; narrow the package or retry after archival',
+      code: 'coupling_trace_candidate_limit_exceeded',
+      candidateLimit: 512,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'error',
+      requestedTokenCount: 512,
+      matchedTokenCount: 0,
+    });
+  });
+
   it('keeps proxied dashboard requests on the session auth path when no internal auth user header is present', async () => {
     const previousInternalRpcSecret = process.env.INTERNAL_RPC_SHARED_SECRET;
     process.env.INTERNAL_RPC_SHARED_SECRET = 'test-internal-secret';
