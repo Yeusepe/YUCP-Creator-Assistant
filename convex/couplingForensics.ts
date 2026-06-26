@@ -663,17 +663,21 @@ export const listCouplingTraceCandidatesForAuthUser = query({
       .query('coupling_trace_records')
       .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
       .take(COUPLING_TRACE_ROW_SCAN_LIMIT);
-    const truncated = rows.length > COUPLING_TRACE_CANDIDATE_LIMIT;
 
     const seen = new Set<string>();
     const candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }> = [];
-    for (const row of rows.slice(0, COUPLING_TRACE_CANDIDATE_LIMIT)) {
+    let truncated = false;
+    for (const row of rows) {
       if (row.authUserId !== args.authUserId) {
         continue;
       }
       const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
       if (seen.has(key)) {
         continue;
+      }
+      if (candidates.length >= COUPLING_TRACE_CANDIDATE_LIMIT) {
+        truncated = true;
+        break;
       }
       seen.add(key);
       candidates.push({

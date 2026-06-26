@@ -324,6 +324,91 @@ describe('coupling forensics license subject resolution', () => {
     expect(result.candidates).toHaveLength(candidateLimit);
   });
 
+  it('does not report truncation when duplicate raw trace rows dedupe under the candidate limit', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-candidates-duplicate-bound-auth';
+    const packageId = 'pkg.creator.candidates.duplicate-bound';
+    const candidateLimit = 512;
+    const licenseSubject = 'a'.repeat(64);
+    const tokenHash = '1'.repeat(64);
+
+    await seedCertificateBillingCatalog(t, {
+      productId: 'plan-coupling-traceability',
+      capabilityKeys: ['coupling_traceability'],
+      capabilityKey: 'coupling_traceability',
+      featureFlags: { coupling_traceability: true },
+      benefitMetadata: { coupling_traceability: true },
+    });
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId,
+      ownerDiscordUserId: 'discord-candidates-duplicate-bound-creator',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('creator_billing_entitlements', {
+        workspaceKey: buildCreatorProfileWorkspaceKey(creatorProfileId),
+        authUserId,
+        creatorProfileId,
+        planKey: 'creator-suite-plus',
+        productId: 'plan-coupling-traceability',
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        deviceCap: 5,
+        auditRetentionDays: 30,
+        supportTier: 'standard',
+        currentPeriodEnd: now + 86_400_000,
+        graceUntil: now + 3 * 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'Creator Bundle',
+        publisherId: 'publisher-candidates-duplicate-bound',
+        yucpUserId: authUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+
+      for (let index = 0; index < candidateLimit + 1; index += 1) {
+        await ctx.db.insert('coupling_trace_records', {
+          authUserId,
+          packageId,
+          licenseSubject,
+          assetPath: 'Assets/Character/body.png',
+          tokenHash,
+          tokenLength: 64,
+          machineFingerprintHash: 'c'.repeat(64),
+          projectIdHash: 'd'.repeat(64),
+          runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+          runtimePlaintextSha256: 'e'.repeat(64),
+          correlationId: `corr-candidates-duplicate-bound-${index}`,
+          createdAt: now + index,
+          provider: 'jinxxy',
+        });
+      }
+    });
+
+    const result = await t.query(api.couplingForensics.listCouplingTraceCandidatesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId,
+      packageId,
+    });
+
+    expect(result.candidateLimit).toBe(candidateLimit);
+    expect(result.truncated).toBe(false);
+    expect(result.candidates).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        licenseSubject,
+        tokenHash,
+      },
+    ]);
+  });
+
   it('returns no trace candidates without the traceability capability', async () => {
     const t = makeTestConvex();
     const now = Date.now();
