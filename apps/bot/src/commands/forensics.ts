@@ -1,13 +1,14 @@
 import { createLogger, getInternalRpcSharedSecret } from '@yucp/shared';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { AutocompleteInteraction, ChatInputCommandInteraction } from 'discord.js';
-import { MessageFlags } from 'discord.js';
+import { escapeMarkdown, MessageFlags } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import { getApiUrls } from '../lib/apiUrls';
 import { E } from '../lib/emojis';
 
 const logger = createLogger(process.env.LOG_LEVEL ?? 'info');
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const NO_ALLOWED_MENTIONS = { parse: [] } as const;
 
 type ForensicsLookupResponse = {
   packageId: string;
@@ -54,6 +55,14 @@ function sanitizeUploadFileName(input: string): string {
     return 'forensics-upload.bin';
   }
   return trimmed.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
+function escapeDiscordText(input: string): string {
+  return escapeMarkdown(input.replace(/`/g, "'")).replace(/@/g, '@\u200b');
+}
+
+function formatDiscordInlineCode(input: string): string {
+  return `\`${escapeDiscordText(input)}\``;
 }
 
 function formatCreatedAt(timestamp: number): string {
@@ -115,6 +124,7 @@ export async function handleForensicsLookup(
   if (attachment.size > MAX_UPLOAD_SIZE_BYTES) {
     await interaction.editReply({
       content: `${E.Library} This upload is larger than the current limit. Use the dashboard upload instead${dashboardUrl ? `: ${dashboardUrl}` : '.'}`,
+      allowedMentions: NO_ALLOWED_MENTIONS,
     });
     return;
   }
@@ -124,6 +134,7 @@ export async function handleForensicsLookup(
   if (!apiBase) {
     await interaction.editReply({
       content: `${E.X_} The API URL is not configured for coupling lookups right now.`,
+      allowedMentions: NO_ALLOWED_MENTIONS,
     });
     return;
   }
@@ -160,6 +171,7 @@ export async function handleForensicsLookup(
     if (response.status === 402 || payload?.code === 'coupling_traceability_required') {
       await interaction.editReply({
         content: `${E.Key} Creator Studio+ is required for coupling traceability.${dashboardUrl ? ` Upgrade or run the lookup from the dashboard: ${dashboardUrl}` : ''}`,
+        allowedMentions: NO_ALLOWED_MENTIONS,
       });
       return;
     }
@@ -169,6 +181,7 @@ export async function handleForensicsLookup(
         payload && typeof payload.error === 'string' ? payload.error : 'Coupling lookup failed.';
       await interaction.editReply({
         content: `${E.X_} ${message}${dashboardUrl ? `\n\nIf this keeps happening, try the dashboard uploader: ${dashboardUrl}` : ''}`,
+        allowedMentions: NO_ALLOWED_MENTIONS,
       });
       return;
     }
@@ -186,8 +199,9 @@ export async function handleForensicsLookup(
           continue;
         }
         shownBuyerMatches.add(matchIdentity);
+        const matchLabel = formatForensicsMatchLabel(match);
         detailLines.push(
-          `- \`${entry.assetPath}\` -> \`${formatForensicsMatchLabel(match)}\` (${formatCreatedAt(match.createdAt)})`
+          `- ${formatDiscordInlineCode(entry.assetPath)} -> ${formatDiscordInlineCode(matchLabel)} (${formatCreatedAt(match.createdAt)})`
         );
       }
     }
@@ -198,8 +212,8 @@ export async function handleForensicsLookup(
       matchedEntries.length > 0
         ? `${E.Checkmark} Coupling lookup complete`
         : `${E.Library} Coupling lookup complete`,
-      `Package: \`${payload.packageId}\``,
-      `File: \`${attachment.name ?? 'upload'}\``,
+      `Package: ${formatDiscordInlineCode(payload.packageId)}`,
+      `File: ${formatDiscordInlineCode(attachment.name ?? 'upload')}`,
       `Status: ${payload.lookupStatus.replace(/_/g, ' ')}`,
       `Candidates scanned: ${payload.candidateAssetCount}`,
       `Decoded assets: ${payload.decodedAssetCount}`,
@@ -216,7 +230,7 @@ export async function handleForensicsLookup(
       .filter((line): line is string => Boolean(line))
       .join('\n');
 
-    await interaction.editReply({ content });
+    await interaction.editReply({ content, allowedMentions: NO_ALLOWED_MENTIONS });
   } catch (error) {
     logger.error('Coupling forensics lookup command failed', {
       error: error instanceof Error ? error.message : String(error),
@@ -226,6 +240,7 @@ export async function handleForensicsLookup(
 
     await interaction.editReply({
       content: `${E.X_} Coupling lookup failed.${dashboardUrl ? ` Try the dashboard uploader instead: ${dashboardUrl}` : ''}`,
+      allowedMentions: NO_ALLOWED_MENTIONS,
     });
   }
 }

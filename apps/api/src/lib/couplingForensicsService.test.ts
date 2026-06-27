@@ -5,6 +5,8 @@ import {
   type CouplingForensicsServiceConfig,
   CouplingServiceConfigurationError,
   runCouplingAttribution,
+  runCouplingForensicsScan,
+  runCouplingForensicsScore,
 } from './couplingForensicsService';
 
 const originalFetch = globalThis.fetch;
@@ -347,4 +349,106 @@ describe('runCouplingAttribution', () => {
       ])
     ).rejects.toThrow('Coupling attribution timed out');
   });
+});
+
+describe('legacy coupling service scan paths', () => {
+  for (const [name, run, expectedUrl] of [
+    ['score', runCouplingForensicsScore, 'https://coupling.internal/v1/coupling/forensic-score'],
+    ['scan', runCouplingForensicsScan, 'https://coupling.internal/v1/coupling/scan'],
+  ] as const) {
+    it(`uses a non-redirecting request for ${name}`, async () => {
+      let requestUrl = '';
+      let requestInit: RequestInit | undefined;
+      const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
+        requestUrl =
+          typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+        requestInit = init;
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await run(
+        [
+          {
+            assetPath: 'Assets/Character/body.png',
+            assetType: 'png',
+            filePath: assetFixturePath,
+          },
+        ],
+        config
+      );
+
+      expect(requestUrl).toBe(expectedUrl);
+      expect(requestInit?.redirect).toBe('error');
+    });
+
+    it(`rejects invalid ${name} base URLs before sending requests`, async () => {
+      const fetchMock = mock(async () => {
+        throw new Error(`${name} must not fetch invalid service URLs`);
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      for (const baseUrl of ['file:///tmp/coupling', 'https://user:pass@coupling.internal']) {
+        await expect(
+          run(
+            [
+              {
+                assetPath: 'Assets/Character/body.png',
+                assetType: 'png',
+                filePath: assetFixturePath,
+              },
+            ],
+            { ...config, baseUrl }
+          )
+        ).rejects.toThrow('Coupling service base URL');
+      }
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it(`rejects invalid JSON ${name} responses`, async () => {
+      const fetchMock = mock(async () => {
+        return new Response('not-json', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(
+        run(
+          [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              filePath: assetFixturePath,
+            },
+          ],
+          config
+        )
+      ).rejects.toThrow('Coupling service returned invalid JSON');
+    });
+
+    it(`maps unreachable ${name} requests to coupling service errors`, async () => {
+      const fetchMock = mock(async () => {
+        throw new Error(`${name} network down`);
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(
+        run(
+          [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              filePath: assetFixturePath,
+            },
+          ],
+          config
+        )
+      ).rejects.toThrow(`Coupling service is unreachable: ${name} network down`);
+    });
+  }
 });

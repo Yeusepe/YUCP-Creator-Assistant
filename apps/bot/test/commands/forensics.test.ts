@@ -99,7 +99,7 @@ describe('forensics command', () => {
       }),
       {
         contentType: 'application/zip',
-        name: 'upload.zip',
+        name: 'upload-<@123>.zip',
         size: 128,
         url: 'https://cdn.example.test/upload.zip',
       }
@@ -181,14 +181,14 @@ describe('forensics command', () => {
       if (url === 'https://api.example.test/api/forensics/lookup') {
         return new Response(
           JSON.stringify({
-            packageId: 'creator.package',
+            packageId: 'creator.package<@123>',
             lookupStatus: 'attributed',
             message: 'Matched stored coupling traces',
             candidateAssetCount: 1,
             decodedAssetCount: 1,
             results: [
               {
-                assetPath: 'Assets/Character/body.png',
+                assetPath: 'Assets/Character/<@123>body.png',
                 assetType: 'png',
                 decoderKind: 'png',
                 tokenLength: 8,
@@ -198,11 +198,11 @@ describe('forensics command', () => {
                   {
                     matchId: 'a'.repeat(64),
                     buyerMatchId: 'b'.repeat(64),
-                    assetPath: 'Assets/Character/body.png',
+                    assetPath: 'Assets/Character/<@123>body.png',
                     createdAt: 1_739_999_999_000,
                     runtimeArtifactVersion: '2026.03.25.153000',
                     licenseMasked: 'jinxxy · ffffffff',
-                    buyerProviderUsername: 'BuyerAccount',
+                    buyerProviderUsername: '<@123> **BuyerAccount** @everyone',
                   },
                 ],
               },
@@ -225,9 +225,14 @@ describe('forensics command', () => {
     });
 
     const reply = interaction.editReply.mock.calls[0]?.[0];
-    expect(reply?.content).toContain('Matched buyers: 1');
-    expect(reply?.content).toContain('BuyerAccount');
-    expect(reply?.content).not.toContain('undefined');
+    const content = reply?.content ?? '';
+    expect(reply?.allowedMentions).toEqual({ parse: [] });
+    expect(content).toContain('Matched buyers: 1');
+    expect(content).toContain('BuyerAccount');
+    expect(content).not.toContain('<@123>');
+    expect(content).not.toContain('@everyone');
+    expect(content).not.toContain('**BuyerAccount**');
+    expect(content).not.toContain('undefined');
   });
 
   it('counts all matched buyers and deduplicates top match details', async () => {
