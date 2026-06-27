@@ -527,7 +527,7 @@ function validateAttributionResult(
         const matchedLicenseSubject = entry.matchedLicenseSubject?.trim().toLowerCase() || '';
         if (!SHA256_HEX_RE.test(matchedLicenseSubject)) {
           throw new CouplingServiceRequestError(
-            `Coupling service returned an invalid matched license subject for ${assetPath}`,
+            'Coupling service returned an invalid matched license subject',
             502
           );
         }

@@ -269,7 +269,7 @@ function buildMatchedTraceCandidate(
   const licenseSubject = scoreResult.matchedLicenseSubject?.trim().toLowerCase() || '';
   if (!licenseSubject) {
     throw new CouplingServiceRequestError(
-      `Coupling attribution matched ${scoreResult.assetPath} without a license subject`,
+      'Coupling attribution returned a decoded match without a license subject',
       502
     );
   }

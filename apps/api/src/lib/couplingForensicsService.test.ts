@@ -262,6 +262,49 @@ describe('runCouplingAttribution', () => {
     ).rejects.toThrow('Coupling service returned invalid JSON');
   });
 
+  it('does not include uploaded asset paths when rejecting invalid matched license subjects', async () => {
+    const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              assetPath: unsafeAssetPath,
+              assetType: 'png',
+              matched: true,
+              tokenHex: 'deadbeef',
+              matchedLicenseSubject: 'not-a-sha256-subject',
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    let caught: unknown;
+    try {
+      await runCouplingAttribution(
+        [
+          {
+            assetPath: unsafeAssetPath,
+            assetType: 'png',
+            filePath: assetFixturePath,
+          },
+        ],
+        [{ ...candidates[0], assetPath: unsafeAssetPath }],
+        config
+      );
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    expect(message).toBe('Coupling service returned an invalid matched license subject');
+    expect(message).not.toContain(unsafeAssetPath);
+  });
+
   it('maps attribution timeout aborts to 504 errors', async () => {
     const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       const signal = init?.signal;
