@@ -590,7 +590,12 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       } catch {
         return jsonResponse({ error: 'Invalid multipart form data' }, 400);
       }
-      const packageId = assertPackageId(String(formData.get('packageId') ?? ''));
+      let packageId: string;
+      try {
+        packageId = assertPackageId(String(formData.get('packageId') ?? ''));
+      } catch {
+        return jsonResponse({ error: 'Invalid packageId format' }, 400);
+      }
       const upload = formData.get('file');
       if (!(upload instanceof File)) {
         return jsonResponse({ error: 'Missing upload file' }, 400);

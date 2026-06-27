@@ -571,6 +571,25 @@ describe('forensics routes', () => {
     expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
   });
 
+  it('rejects malformed lookup package ids with a safe client error', async () => {
+    const formData = new FormData();
+    formData.set('packageId', 'Creator Package');
+    formData.set('file', new File([Uint8Array.from([1, 2, 3])], 'bundle.zip'));
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'Invalid packageId format' });
+    expect(queryMock).not.toHaveBeenCalled();
+    expect(mutationMock).not.toHaveBeenCalled();
+    expect(extractCouplingForensicsArchiveMock).not.toHaveBeenCalled();
+  });
+
   it('rate limits lookup before reading the request body', async () => {
     const limitedRoutes = createForensicsRoutes(auth, {
       apiBaseUrl: 'http://localhost:3001',

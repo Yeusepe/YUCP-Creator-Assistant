@@ -221,22 +221,13 @@ function validateCouplingScanResult(
     const tokenLength = Number(entry.tokenLength ?? 0);
     const inputEntry = assetByPath.get(assetPath);
     if (!inputEntry) {
-      throw new CouplingServiceRequestError(
-        `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
-        502
-      );
+      throw new CouplingServiceRequestError('Coupling service returned an unknown asset path', 502);
     }
     if (!tokenHex || !HEX_RE.test(tokenHex)) {
-      throw new CouplingServiceRequestError(
-        `Coupling service returned an invalid token for ${assetPath}`,
-        502
-      );
+      throw new CouplingServiceRequestError('Coupling service returned an invalid token', 502);
     }
     if (tokenLength <= 0 || tokenHex.length !== tokenLength) {
-      throw new CouplingServiceRequestError(
-        `Coupling service token length mismatch for ${assetPath}`,
-        502
-      );
+      throw new CouplingServiceRequestError('Coupling service token length mismatch', 502);
     }
     return {
       assetPath,
@@ -323,14 +314,11 @@ function validateForensicsScoreResult(
     const assetPath = entry.assetPath?.trim() || '';
     const inputEntry = assetByPath.get(assetPath);
     if (!inputEntry) {
-      throw new CouplingServiceRequestError(
-        `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
-        502
-      );
+      throw new CouplingServiceRequestError('Coupling service returned an unknown asset path', 502);
     }
     if (validatedResults.has(assetPath)) {
       throw new CouplingServiceRequestError(
-        `Coupling service returned a duplicate asset path: ${assetPath}`,
+        'Coupling service returned a duplicate asset path',
         502
       );
     }
@@ -507,14 +495,11 @@ function validateAttributionResult(
     const assetPath = entry.assetPath?.trim() || '';
     const inputEntry = assetByPath.get(assetPath);
     if (!inputEntry) {
-      throw new CouplingServiceRequestError(
-        `Coupling service returned an unknown asset path: ${assetPath || '[missing]'}`,
-        502
-      );
+      throw new CouplingServiceRequestError('Coupling service returned an unknown asset path', 502);
     }
     if (validatedResults.has(assetPath)) {
       throw new CouplingServiceRequestError(
-        `Coupling service returned a duplicate asset path: ${assetPath}`,
+        'Coupling service returned a duplicate asset path',
         502
       );
     }
