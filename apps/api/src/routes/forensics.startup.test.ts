@@ -18,12 +18,12 @@ const START_API_FROM_CWD_PATH = path.resolve(
 );
 const SERVICE_BOOT_TIMEOUT_MS = 60_000;
 const TEST_INTERNAL_SECRET = 'test-internal-rpc-secret-32-chars!!';
-const WRONG_LEGACY_COUPLING_SECRET = 'legacy-coupling-secret-from-env';
+const WRONG_LEGACY_COUPLING_SECRET = 'test-placeholder-legacy-coupling-value';
 const INFISICAL_CLIENT_ID = 'forensics-test-client-id';
 const INFISICAL_CLIENT_SECRET = 'forensics-test-client-secret';
 const INFISICAL_PROJECT_ID = 'forensics-test-project-id';
 const INFISICAL_ACCESS_TOKEN = 'forensics-test-access-token';
-const COUPLING_SHARED_SECRET = 'forensics-secret-from-infisical';
+const COUPLING_SHARED_SECRET = 'test-placeholder-infisical-coupling-value';
 
 class ManagedProcess {
   private readonly child: ChildProcess;
@@ -181,7 +181,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
     port: couplingPort,
     async fetch(request): Promise<Response> {
       const url = new URL(request.url);
-      if (url.pathname !== '/v1/coupling/forensic-score' || request.method !== 'POST') {
+      if (url.pathname !== '/v1/coupling/attribute' || request.method !== 'POST') {
         return new Response('Not found', { status: 404 });
       }
 
@@ -201,18 +201,33 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
       };
       const assets = Array.isArray(payload.assets) ? payload.assets : [];
 
+      // No candidate seed decodes this asset, so every entry comes back unmatched.
       return Response.json({
+        requestId: 'startup-req-1',
         results: assets.map((asset) => ({
           assetPath: asset.assetPath ?? '',
           assetType: asset.assetType ?? 'fbx',
-          decoderKind: asset.assetType ?? 'fbx',
-          preclassification: 'no-signal',
+          matched: false,
+          attempted: 1,
         })),
       });
     },
   });
 
   const convex = startFakeConvexServer({
+    query: {
+      'couplingForensics:listCouplingTraceCandidatesForAuthUser': () => ({
+        capabilityEnabled: true,
+        packageOwned: true,
+        candidates: [
+          {
+            assetPath: 'bundle/model.fbx',
+            licenseSubject: 'b'.repeat(64),
+            tokenHash: '1'.repeat(64),
+          },
+        ],
+      }),
+    },
     mutation: {
       'couplingForensics:recordLookupAudit': () => null,
     },

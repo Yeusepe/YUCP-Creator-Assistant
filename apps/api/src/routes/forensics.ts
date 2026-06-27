@@ -1,28 +1,36 @@
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { getInternalRpcSharedSecret, timingSafeStringEqual } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Auth } from '../auth';
+import { getClientAddress } from '../lib/clientAddress';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { extractCouplingForensicsArchive } from '../lib/couplingForensicsArchives';
 import {
   CouplingServiceConfigurationError,
   CouplingServiceRequestError,
   type ForensicsScoreResult,
-  runCouplingForensicsScore,
+  runCouplingAttribution,
 } from '../lib/couplingForensicsService';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
+import {
+  checkPublicApiRateLimit,
+  getPublicApiRateLimitStore,
+  type PublicApiRateLimitStore,
+} from '../lib/publicApiRateLimit';
+import { RequestBodyError, readRequestBytesWithLimit } from '../lib/requestBody';
 import { getProviderRuntime } from '../providers/index';
 import { decryptForensicsLicenseKey } from '../verification/forensicsLicenseKey';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024;
+const MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
-const FORENSICS_REVEAL_BODY_MAX_BYTES = 4 * 1024;
+const FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 30;
+const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -32,6 +40,10 @@ export type ForensicsConfig = {
   convexApiSecret: string;
   convexUrl: string;
   encryptionSecret: string;
+  maxLookupUploadBytes?: number;
+  lookupRateLimitMaxRequests?: number;
+  lookupRateLimitStore?: PublicApiRateLimitStore;
+  lookupRateLimitWindowMs?: number;
 };
 
 type ForensicsViewer = {
@@ -80,10 +92,11 @@ function buildAuditStatus(
   }
 }
 
-function jsonResponse(body: object, status = 200): Response {
+function jsonResponse(body: object, status = 200, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...headers,
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
     },
@@ -190,22 +203,115 @@ function sha256HexFromBytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+function sha256HexFromString(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function resolveLookupUploadLimit(config: ForensicsConfig): number {
+  const configured = config.maxLookupUploadBytes;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return MAX_UPLOAD_SIZE_BYTES;
+}
+
+function resolveLookupRequestBodyLimit(maxLookupUploadBytes: number): number {
+  return Math.min(
+    maxLookupUploadBytes + MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES,
+    Number.MAX_SAFE_INTEGER
+  );
+}
+
+function resolveLookupRateLimitMaxRequests(config: ForensicsConfig): number {
+  const configured = config.lookupRateLimitMaxRequests;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS;
+}
+
+function resolveLookupRateLimitWindowMs(config: ForensicsConfig): number {
+  const configured = config.lookupRateLimitWindowMs;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS;
+}
+
+function buildLookupRateLimitKey(viewer: ForensicsViewer, request: Request): string {
+  const authUserHash = sha256HexFromString(viewer.authUserId);
+  const clientAddressHash = sha256HexFromString(getClientAddress(request));
+  return `forensics:lookup:user:${authUserHash}:ip:${clientAddressHash}`;
+}
+
+type MatchedTraceCandidate = {
+  assetPath: string;
+  licenseSubject: string;
+  tokenHash: string;
+};
+
 function normalizeDeclaredPackageIds(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
     (left, right) => left.localeCompare(right)
   );
 }
 
+function buildTraceCandidateKey(candidate: MatchedTraceCandidate): string {
+  return `${candidate.assetPath}\0${candidate.licenseSubject}\0${candidate.tokenHash}`;
+}
+
+function buildMatchedTraceCandidate(
+  scoreResult: ForensicsScoreResult
+): MatchedTraceCandidate | null {
+  if (!scoreResult.tokenHex) {
+    return null;
+  }
+  const licenseSubject = scoreResult.matchedLicenseSubject?.trim().toLowerCase() || '';
+  if (!licenseSubject) {
+    throw new CouplingServiceRequestError(
+      'Coupling attribution returned a decoded match without a license subject',
+      502
+    );
+  }
+  return {
+    assetPath: scoreResult.matchedCandidateAssetPath ?? scoreResult.assetPath,
+    licenseSubject,
+    tokenHash: sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex)),
+  };
+}
+
+function buildMatchedTraceCandidates(
+  decodedResults: ForensicsScoreResult[]
+): MatchedTraceCandidate[] {
+  const candidates: MatchedTraceCandidate[] = [];
+  const seen = new Set<string>();
+  for (const scoreResult of decodedResults) {
+    const candidate = buildMatchedTraceCandidate(scoreResult);
+    if (!candidate) {
+      continue;
+    }
+    const key = buildTraceCandidateKey(candidate);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
 function classifyLayerB(
   scoreResult: ForensicsScoreResult,
-  matchedTokenHashes: Set<string>
+  matchedTraceKeys: Set<string>
 ): LayerBClassification {
   if (scoreResult.preclassification === 'decoded') {
-    if (!scoreResult.tokenHex) {
+    const candidate = buildMatchedTraceCandidate(scoreResult);
+    if (!candidate) {
       return 'no-signal-found';
     }
-    const tokenHash = sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex));
-    return matchedTokenHashes.has(tokenHash) ? 'trace-recovered' : 'tamper-suspected';
+    return matchedTraceKeys.has(buildTraceCandidateKey(candidate))
+      ? 'trace-recovered'
+      : 'tamper-suspected';
   }
   if (scoreResult.preclassification === 'likely-stripped') {
     return 'trace-likely-stripped';
@@ -220,16 +326,11 @@ type InvestigationReport = {
   unattributedCount: number;
   strippedCount: number;
   noSignalCount: number;
-  topCandidates: Array<{
-    licenseSubject: string;
-    assetCount: number;
-  }>;
 };
 
 function buildInvestigationReport(
   results: Array<{
     layerBClassification: LayerBClassification;
-    matches: Array<{ licenseSubject: string }>;
   }>,
   totalAssets: number
 ): InvestigationReport {
@@ -239,19 +340,11 @@ function buildInvestigationReport(
   let strippedCount = 0;
   let noSignalCount = 0;
 
-  const candidateCounts = new Map<string, number>();
-
   for (const result of results) {
     switch (result.layerBClassification) {
       case 'trace-recovered':
         decodedCount++;
         attributedCount++;
-        for (const match of result.matches) {
-          candidateCounts.set(
-            match.licenseSubject,
-            (candidateCounts.get(match.licenseSubject) ?? 0) + 1
-          );
-        }
         break;
       case 'tamper-suspected':
         decodedCount++;
@@ -266,11 +359,6 @@ function buildInvestigationReport(
     }
   }
 
-  const topCandidates = Array.from(candidateCounts.entries())
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 10)
-    .map(([licenseSubject, assetCount]) => ({ licenseSubject, assetCount }));
-
   return {
     totalAssets,
     decodedCount,
@@ -278,8 +366,45 @@ function buildInvestigationReport(
     unattributedCount,
     strippedCount,
     noSignalCount,
-    topCandidates,
   };
+}
+
+function buildLookupMatchId(
+  config: ForensicsConfig,
+  packageId: string,
+  match: {
+    licenseSubject: string;
+    tokenHash: string;
+    assetPath: string;
+  }
+): string {
+  return createHmac('sha256', config.encryptionSecret)
+    .update('forensics-lookup-match-v1')
+    .update('\0')
+    .update(packageId)
+    .update('\0')
+    .update(match.licenseSubject)
+    .update('\0')
+    .update(match.tokenHash)
+    .update('\0')
+    .update(match.assetPath)
+    .digest('hex');
+}
+
+function buildLookupBuyerMatchId(
+  config: ForensicsConfig,
+  packageId: string,
+  match: {
+    licenseSubject: string;
+  }
+): string {
+  return createHmac('sha256', config.encryptionSecret)
+    .update('forensics-lookup-buyer-match-v1')
+    .update('\0')
+    .update(packageId)
+    .update('\0')
+    .update(match.licenseSubject)
+    .digest('hex');
 }
 
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
@@ -421,6 +546,30 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       return jsonResponse({ error: 'Method not allowed' }, 405);
     }
 
+    const rateLimit = await checkPublicApiRateLimit({
+      store: config.lookupRateLimitStore ?? getPublicApiRateLimitStore(),
+      key: buildLookupRateLimitKey(viewer, request),
+      limit: resolveLookupRateLimitMaxRequests(config),
+      windowMs: resolveLookupRateLimitWindowMs(config),
+    });
+    if (!rateLimit.allowed) {
+      return jsonResponse({ error: 'Too many requests' }, 429, rateLimit.headers);
+    }
+
+    const maxLookupUploadBytes = resolveLookupUploadLimit(config);
+    const maxLookupRequestBodyBytes = resolveLookupRequestBodyLimit(maxLookupUploadBytes);
+    let boundedRequestBody: Uint8Array;
+    try {
+      boundedRequestBody = await readRequestBytesWithLimit(request, maxLookupRequestBodyBytes);
+    } catch (error) {
+      if (error instanceof RequestBodyError && error.status === 413) {
+        return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
+      }
+      throw error;
+    }
+    const formDataHeaders = new Headers(request.headers);
+    formDataHeaders.delete('content-length');
+
     const workspaceDir = await mkdtemp(path.join(tmpdir(), 'yucp-forensics-'));
     let auditContext: {
       authUserId: string;
@@ -429,8 +578,22 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       uploadSha256?: string;
     } | null = null;
     try {
-      const formData = await request.formData();
-      const packageId = assertPackageId(String(formData.get('packageId') ?? ''));
+      let formData: FormData;
+      try {
+        formData = await new Request(request.url, {
+          method: request.method,
+          headers: formDataHeaders,
+          body: boundedRequestBody.buffer as ArrayBuffer,
+        }).formData();
+      } catch {
+        return jsonResponse({ error: 'Invalid multipart form data' }, 400);
+      }
+      let packageId: string;
+      try {
+        packageId = assertPackageId(String(formData.get('packageId') ?? ''));
+      } catch {
+        return jsonResponse({ error: 'Invalid packageId format' }, 400);
+      }
       const upload = formData.get('file');
       if (!(upload instanceof File)) {
         return jsonResponse({ error: 'Missing upload file' }, 400);
@@ -438,7 +601,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       if (upload.size <= 0) {
         return jsonResponse({ error: 'Upload is empty' }, 400);
       }
-      if (upload.size > MAX_UPLOAD_SIZE_BYTES) {
+      if (upload.size > maxLookupUploadBytes) {
         return jsonResponse({ error: 'Upload exceeds the size limit' }, 413);
       }
 
@@ -503,10 +666,112 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const scoreResults = await runCouplingForensicsScore(extraction.assets, {
-        baseUrl: config.couplingServiceBaseUrl,
-        sharedSecret: config.couplingServiceSharedSecret,
-      });
+      const candidateResult = await convex.query(
+        api.couplingForensics.listCouplingTraceCandidatesForAuthUser,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+        }
+      );
+
+      if (!candidateResult.capabilityEnabled) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'denied',
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Creator Studio+ is required for coupling traceability',
+            code: 'coupling_traceability_required',
+          },
+          402
+        );
+      }
+
+      if (!candidateResult.packageOwned) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'denied',
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse({
+          packageId,
+          lookupStatus: 'hostile_unknown' satisfies ForensicsLookupStatus,
+          message: buildLookupMessage('hostile_unknown'),
+          candidateAssetCount: extraction.assets.length,
+          decodedAssetCount: 0,
+          results: [],
+          investigationReport: buildInvestigationReport([], extraction.assets.length),
+        });
+      }
+
+      if (candidateResult.truncated) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'error',
+          requestedTokenCount: candidateResult.candidateLimit,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Trace candidate limit exceeded; narrow the package or retry after archival',
+            code: 'coupling_trace_candidate_limit_exceeded',
+            candidateLimit: candidateResult.candidateLimit,
+          },
+          409
+        );
+      }
+
+      if (candidateResult.candidates.length === 0) {
+        const lookupStatus: ForensicsLookupStatus = 'hostile_unknown';
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: buildAuditStatus(lookupStatus),
+          requestedTokenCount: 0,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse({
+          packageId,
+          lookupStatus,
+          message: buildLookupMessage(lookupStatus),
+          candidateAssetCount: extraction.assets.length,
+          decodedAssetCount: 0,
+          results: [],
+          investigationReport: buildInvestigationReport([], extraction.assets.length),
+        });
+      }
+
+      // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's
+      // per-job placement seed and decodes the leaked assets against them. We only hand it candidate
+      // (assetPath, licenseSubject, tokenHash) tuples; the master key and native code stay server-side.
+      const scoreResults = await runCouplingAttribution(
+        extraction.assets,
+        candidateResult.candidates,
+        {
+          baseUrl: config.couplingServiceBaseUrl,
+          sharedSecret: config.couplingServiceSharedSecret,
+        }
+      );
 
       const decodedResults = scoreResults.filter(
         (r) => r.preclassification === 'decoded' && r.tokenHex
@@ -547,15 +812,14 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const tokenHashes = decodedResults
-        .filter((r) => r.tokenHex !== undefined)
-        .map((r) => sha256HexFromBytes(new TextEncoder().encode(r.tokenHex as string)));
+      const matchedCandidates = buildMatchedTraceCandidates(decodedResults);
+      const tokenHashes = matchedCandidates.map((candidate) => candidate.tokenHash);
 
       const lookupResult = await convex.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
         apiSecret: config.convexApiSecret,
         authUserId: viewer.authUserId,
         packageId,
-        tokenHashes,
+        matchedCandidates,
       });
 
       if (!lookupResult.capabilityEnabled) {
@@ -600,30 +864,47 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const matchesByTokenHash = new Map<string, typeof lookupResult.matches>();
-      for (const match of lookupResult.matches) {
-        const bucket = matchesByTokenHash.get(match.tokenHash) ?? [];
-        bucket.push(match);
-        matchesByTokenHash.set(match.tokenHash, bucket);
+      if (lookupResult.truncated) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'error',
+          requestedTokenCount: matchedCandidates.length,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Trace match limit exceeded; retry with fewer recovered assets',
+            code: 'coupling_trace_match_limit_exceeded',
+          },
+          409
+        );
       }
 
-      const matchedTokenHashSet = new Set<string>(
-        lookupResult.matches.map((m: { tokenHash: string }) => m.tokenHash)
+      const matchedTraceKeySet = new Set<string>(
+        lookupResult.matches.map((match: MatchedTraceCandidate) => buildTraceCandidateKey(match))
       );
       const enrichedMatches = await enrichTraceMatches(viewer, lookupResult.matches);
-      const enrichedMatchesByTokenHash = new Map<string, typeof enrichedMatches>();
+      const enrichedMatchesByTraceKey = new Map<string, typeof enrichedMatches>();
       for (const match of enrichedMatches) {
-        const bucket = enrichedMatchesByTokenHash.get(match.tokenHash) ?? [];
+        const matchKey = buildTraceCandidateKey(match);
+        const bucket = enrichedMatchesByTraceKey.get(matchKey) ?? [];
         bucket.push(match);
-        enrichedMatchesByTokenHash.set(match.tokenHash, bucket);
+        enrichedMatchesByTraceKey.set(matchKey, bucket);
       }
 
       const results = scoreResults.map((scoreResult) => {
-        const tokenHash = scoreResult.tokenHex
-          ? sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex))
-          : null;
-        const matches = tokenHash ? (enrichedMatchesByTokenHash.get(tokenHash) ?? []) : [];
-        const layerBClassification = classifyLayerB(scoreResult, matchedTokenHashSet);
+        const candidate =
+          scoreResult.preclassification === 'decoded'
+            ? buildMatchedTraceCandidate(scoreResult)
+            : null;
+        const matches = candidate
+          ? (enrichedMatchesByTraceKey.get(buildTraceCandidateKey(candidate)) ?? [])
+          : [];
+        const layerBClassification = classifyLayerB(scoreResult, matchedTraceKeySet);
         return {
           assetPath: scoreResult.assetPath,
           assetType: scoreResult.assetType,
@@ -632,30 +913,20 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           layerBClassification,
           matched: matches.length > 0,
           matches: matches.map((match: (typeof matches)[number]) => ({
-            licenseSubject: match.licenseSubject,
+            matchId: buildLookupMatchId(config, packageId, match),
+            buyerMatchId: buildLookupBuyerMatchId(config, packageId, match),
             assetPath: match.assetPath,
-            correlationId: match.correlationId,
             createdAt: match.createdAt,
             runtimeArtifactVersion: match.runtimeArtifactVersion,
-            runtimePlaintextSha256: match.runtimePlaintextSha256,
-            machineFingerprintHash: match.machineFingerprintHash,
-            projectIdHash: match.projectIdHash,
-            ...(match.grantId !== undefined ? { grantId: match.grantId } : {}),
             ...(match.packFamily !== undefined ? { packFamily: match.packFamily } : {}),
             ...(match.packVersion !== undefined ? { packVersion: match.packVersion } : {}),
             ...(match.provider !== undefined ? { provider: match.provider } : {}),
             ...(match.licenseMasked !== undefined ? { licenseMasked: match.licenseMasked } : {}),
-            ...(match.buyerProviderUserId !== undefined
-              ? { buyerProviderUserId: match.buyerProviderUserId }
-              : {}),
             ...(match.buyerProviderUsername !== undefined
               ? { buyerProviderUsername: match.buyerProviderUsername }
               : {}),
             ...(match.buyerSubjectDisplayName !== undefined
               ? { buyerSubjectDisplayName: match.buyerSubjectDisplayName }
-              : {}),
-            ...(match.buyerSubjectDiscordUserId !== undefined
-              ? { buyerSubjectDiscordUserId: match.buyerSubjectDiscordUserId }
               : {}),
           })),
         };
@@ -729,55 +1000,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
     }
   }
 
-  async function revealLicense(request: Request): Promise<Response> {
-    const viewer = await resolveViewer(request, auth, config);
-    if (viewer instanceof Response) {
-      return viewer;
-    }
-    if (request.method !== 'POST') {
-      return jsonResponse({ error: 'Method not allowed' }, 405);
-    }
-    try {
-      const body = await readJsonObjectBodyWithLimit(request, FORENSICS_REVEAL_BODY_MAX_BYTES);
-      let packageId: string;
-      try {
-        packageId = assertPackageId(String(body.packageId ?? ''));
-      } catch (error) {
-        return jsonResponse(
-          { error: error instanceof Error ? error.message : 'Invalid packageId format' },
-          400
-        );
-      }
-      const licenseSubject = String(body.licenseSubject ?? '')
-        .trim()
-        .toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(licenseSubject)) {
-        return jsonResponse({ error: 'Invalid licenseSubject' }, 400);
-      }
-      const result = await convex.mutation(api.couplingForensics.revealCouplingLicenseKey, {
-        apiSecret: config.convexApiSecret,
-        authUserId: viewer.authUserId,
-        packageId,
-        licenseSubject,
-      });
-      if (result.error) {
-        return jsonResponse({ error: 'Forbidden' }, 403);
-      }
-      return jsonResponse({ licenseKey: result.licenseKey });
-    } catch (error) {
-      if (error instanceof RequestBodyError) {
-        return jsonResponse({ error: error.message }, error.status);
-      }
-      logger.error('Failed to reveal coupling license key', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return jsonResponse({ error: 'Failed to reveal license key' }, 500);
-    }
-  }
-
   return {
     listPackages,
     lookup,
-    revealLicense,
   };
 }

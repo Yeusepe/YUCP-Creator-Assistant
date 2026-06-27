@@ -18,6 +18,8 @@ const refs = {
   getConnectionStatus: 'providerConnections:getConnectionStatus',
   getUserGuilds: 'guildLinks:getUserGuilds',
   listConnectionsForUser: 'providerConnections:listConnectionsForUser',
+  listCouplingTraceCandidatesForAuthUser:
+    'couplingForensics:listCouplingTraceCandidatesForAuthUser',
   listOwnedPackageSummariesForAuthUser: 'couplingForensics:listOwnedPackageSummariesForAuthUser',
   recordLookupAudit: 'couplingForensics:recordLookupAudit',
 } as const;
@@ -90,7 +92,7 @@ const couplingServer = Bun.serve({
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname !== '/v1/coupling/forensic-score' || request.method !== 'POST') {
+    if (url.pathname !== '/v1/coupling/attribute' || request.method !== 'POST') {
       return new Response('Not found', { status: 404 });
     }
 
@@ -99,16 +101,32 @@ const couplingServer = Bun.serve({
     }
 
     const payload = (await request.json()) as {
-      assets?: Array<{ assetPath?: string; assetType?: string }>;
+      assets?: Array<{ assetPath?: string; assetType?: string; contentBase64?: string }>;
+      candidates?: Array<{ assetPath?: string; licenseSubject?: string; tokenHash?: string }>;
     };
     const assets = Array.isArray(payload.assets) ? payload.assets : [];
+    const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+    const hasText = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+    const hasInvalidAsset = assets.some(
+      (asset) => !hasText(asset.assetPath) || !hasText(asset.contentBase64)
+    );
+    const hasInvalidCandidate = candidates.some(
+      (candidate) =>
+        !hasText(candidate.assetPath) ||
+        !hasText(candidate.licenseSubject) ||
+        !hasText(candidate.tokenHash)
+    );
+
+    if (assets.length === 0 || candidates.length === 0 || hasInvalidAsset || hasInvalidCandidate) {
+      return Response.json({ error: 'Missing attribution inputs' }, { status: 400 });
+    }
 
     return Response.json({
+      requestId: 'forensics-e2e-attribution',
       results: assets.map((asset) => ({
         assetPath: asset.assetPath ?? '',
         assetType: asset.assetType ?? 'fbx',
-        decoderKind: asset.assetType ?? 'fbx',
-        preclassification: 'no-signal',
+        matched: false,
       })),
     });
   },
@@ -167,6 +185,19 @@ const convex = startFakeConvexServer({
           packageName: 'Novaspil Test Package',
           registeredAt: 1,
           updatedAt: 1,
+        },
+      ],
+    }),
+    [refs.listCouplingTraceCandidatesForAuthUser]: () => ({
+      capabilityEnabled: true,
+      packageOwned: true,
+      truncated: false,
+      candidateLimit: 512,
+      candidates: [
+        {
+          assetPath: 'Assets/Forensics/HarnessFixture.fbx',
+          licenseSubject: 'a'.repeat(64),
+          tokenHash: 'b'.repeat(64),
         },
       ],
     }),

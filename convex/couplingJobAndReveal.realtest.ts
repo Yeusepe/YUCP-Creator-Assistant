@@ -1,6 +1,7 @@
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
+import * as couplingForensics from './couplingForensics';
 import { buildCreatorProfileWorkspaceKey } from './lib/certificateBillingConfig';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { encryptPii } from './lib/piiCrypto';
@@ -27,7 +28,7 @@ async function sha256Hex(input: string): Promise<string> {
   return Buffer.from(new Uint8Array(digest)).toString('hex');
 }
 
-describe('coupling job + license reveal', () => {
+describe('coupling job + license redaction', () => {
   let rootPrivateKey = '';
   let originalFetch: typeof fetch;
   let originalCouplingServiceBaseUrl: string | undefined;
@@ -465,7 +466,7 @@ describe('coupling job + license reveal', () => {
     expect(result.files?.map((file) => file.seedHex)).toEqual(['4'.repeat(64)]);
   });
 
-  // ── Reveal ────────────────────────────────────────────────────────────────
+  // ── License redaction ─────────────────────────────────────────────────────
 
   async function seedCouplingTraceability(t: ReturnType<typeof makeTestConvex>) {
     const now = Date.now();
@@ -555,62 +556,7 @@ describe('coupling job + license reveal', () => {
     expect(result.matches[0]).not.toHaveProperty('licenseKey');
   });
 
-  it('reveals the full license key for the owner and writes an audit event', async () => {
-    const t = makeTestConvex();
-    await seedCouplingTraceability(t);
-    await seedPackageRegistration(t);
-    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
-
-    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
-      apiSecret: 'test-secret',
-      authUserId: creatorAuthUserId,
-      packageId,
-      licenseSubject,
-    });
-
-    expect(result.error).toBeUndefined();
-    expect(result.licenseKey).toBe('LICENSE-KEY-12345');
-
-    const audits = await t.run(async (ctx) =>
-      ctx.db
-        .query('audit_events')
-        .filter((q) => q.eq(q.field('eventType'), 'coupling.license_key.revealed'))
-        .collect()
-    );
-    expect(audits).toHaveLength(1);
-    expect(audits[0].authUserId).toBe(creatorAuthUserId);
-  });
-
-  it('refuses to reveal without the coupling-traceability capability', async () => {
-    const t = makeTestConvex();
-    await seedPackageRegistration(t);
-    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
-
-    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
-      apiSecret: 'test-secret',
-      authUserId: creatorAuthUserId,
-      packageId,
-      licenseSubject,
-    });
-
-    expect(result.licenseKey).toBeUndefined();
-    expect(result.error).toBeTruthy();
-  });
-
-  it('refuses to reveal for a non-owner', async () => {
-    const t = makeTestConvex();
-    await seedCouplingTraceability(t);
-    await seedPackageRegistration(t);
-    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
-
-    const result = await t.mutation(api.couplingForensics.revealCouplingLicenseKey, {
-      apiSecret: 'test-secret',
-      authUserId: 'someone-else',
-      packageId,
-      licenseSubject,
-    });
-
-    expect(result.licenseKey).toBeUndefined();
-    expect(result.error).toBeTruthy();
+  it('does not export a plaintext license key reveal mutation', () => {
+    expect('revealCouplingLicenseKey' in couplingForensics).toBe(false);
   });
 });
