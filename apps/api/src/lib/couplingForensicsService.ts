@@ -8,6 +8,7 @@ export type CouplingForensicsServiceConfig = {
   sharedSecret: string;
   requestTimeoutMs?: number;
   attributionTimeoutMs?: number;
+  responseMaxBytes?: number;
 };
 
 export type CouplingForensicsFinding = {
@@ -72,6 +73,7 @@ type ForensicScoreServiceResponse = {
 const HEX_RE = /^[0-9a-f]+$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
+const COUPLING_SERVICE_RESPONSE_MAX_BYTES = 1024 * 1024;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
   'fd00:ec2::254',
@@ -205,7 +207,15 @@ function isLinkLocalIp(hostname: string): boolean {
   if (hostname.startsWith('169.254.')) {
     return true;
   }
-  return hostname === '::ffff:169.254.169.254' || hostname.toLowerCase().startsWith('fe80:');
+  return hostname === '::ffff:169.254.169.254' || isIpv6LinkLocal(hostname);
+}
+
+function isIpv6LinkLocal(hostname: string): boolean {
+  const firstHextet = hostname.toLowerCase().split(':', 1)[0] ?? '';
+  if (!/^[0-9a-f]{1,4}$/.test(firstHextet)) {
+    return false;
+  }
+  return (Number.parseInt(firstHextet, 16) & 0xffc0) === 0xfe80;
 }
 
 function buildCouplingScanUrl(baseUrl: string): string {
@@ -217,7 +227,7 @@ function validateCouplingScanResult(
   payload: CouplingServiceResponse
 ): CouplingForensicsFinding[] {
   const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
-  const results = payload.results ?? [];
+  const results = getServiceResults(payload);
   return results.map((entry) => {
     const assetPath = entry.assetPath?.trim() || '';
     const tokenHex = entry.tokenHex?.trim().toLowerCase() || '';
@@ -301,32 +311,92 @@ function extractCouplingServiceErrorDetail(
   return responseText.trim() || statusText.trim();
 }
 
+function getServiceResults<T>(payload: { results?: T[] }): T[] {
+  if (payload.results === undefined) {
+    return [];
+  }
+  if (!Array.isArray(payload.results)) {
+    throw new CouplingServiceRequestError('Coupling service returned invalid results', 502);
+  }
+  return payload.results;
+}
+
 function buildForensicScoreUrl(baseUrl: string): string {
   return buildCouplingServiceUrl(baseUrl, 'v1/coupling/forensic-score');
 }
 
-function resolveCouplingRequestTimeoutMs(config: CouplingForensicsServiceConfig): number {
-  const configured = config.requestTimeoutMs ?? config.attributionTimeoutMs;
+function resolveCouplingRequestTimeoutMs(configured?: number): number {
   if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
     return Math.floor(configured);
   }
   return ATTRIBUTION_REQUEST_TIMEOUT_MS;
 }
 
+function resolveCouplingResponseMaxBytes(config: CouplingForensicsServiceConfig): number {
+  const configured = config.responseMaxBytes;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return COUPLING_SERVICE_RESPONSE_MAX_BYTES;
+}
+
+async function readResponseTextWithLimit(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) {
+    return '';
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new CouplingServiceRequestError('Coupling service response is too large', 502);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 async function fetchCouplingServiceResponse(
   input: string,
   init: RequestInit,
   config: CouplingForensicsServiceConfig,
-  timeoutMessage: string
+  timeoutMessage: string,
+  timeoutMs?: number
 ): Promise<{ response: Response; responseText: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), resolveCouplingRequestTimeoutMs(config));
+  const timeout = setTimeout(() => controller.abort(), resolveCouplingRequestTimeoutMs(timeoutMs));
   try {
     const response = await fetch(input, {
       ...init,
       signal: controller.signal,
     });
-    const responseText = await response.text();
+    const responseText = await readResponseTextWithLimit(
+      response,
+      resolveCouplingResponseMaxBytes(config)
+    );
     return { response, responseText };
   } catch (error) {
     if (controller.signal.aborted) {
@@ -343,7 +413,7 @@ function validateForensicsScoreResult(
   payload: ForensicScoreServiceResponse
 ): ForensicsScoreResult[] {
   const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
-  const results = payload.results ?? [];
+  const results = getServiceResults(payload);
   const validatedResults = new Map<string, ForensicsScoreResult>();
 
   for (const entry of results) {
@@ -438,7 +508,8 @@ export async function runCouplingForensicsScore(
         body: await buildRequestBody(assets),
       },
       config,
-      'Coupling forensic-score timed out'
+      'Coupling forensic-score timed out',
+      config.requestTimeoutMs
     ));
   } catch (error) {
     if (
@@ -447,8 +518,7 @@ export async function runCouplingForensicsScore(
     ) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
+    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
   }
 
   const payload = parseResponsePayload(responseText) as ForensicScoreServiceResponse | null;
@@ -540,7 +610,7 @@ function validateAttributionResult(
   const candidateKeys = new Set(
     candidates.map((candidate) => buildAttributionCandidateKey(candidate))
   );
-  const results = payload.results ?? [];
+  const results = getServiceResults(payload);
   const validatedResults = new Map<string, ForensicsScoreResult>();
 
   for (const entry of results) {
@@ -672,7 +742,8 @@ export async function runCouplingAttribution(
         body: await buildAttributeRequestBody(assets, candidates),
       },
       config,
-      'Coupling attribution timed out'
+      'Coupling attribution timed out',
+      config.attributionTimeoutMs ?? config.requestTimeoutMs
     ));
   } catch (error) {
     if (
@@ -681,8 +752,7 @@ export async function runCouplingAttribution(
     ) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
+    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
   }
 
   const payload = parseResponsePayload(responseText) as AttributeServiceResponse | null;
@@ -735,7 +805,8 @@ export async function runCouplingForensicsScan(
         body: await buildRequestBody(assets),
       },
       config,
-      'Coupling service scan timed out'
+      'Coupling service scan timed out',
+      config.requestTimeoutMs
     ));
   } catch (error) {
     if (
@@ -744,8 +815,7 @@ export async function runCouplingForensicsScan(
     ) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    throw new CouplingServiceRequestError(`Coupling service is unreachable: ${message}`, 503);
+    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
   }
 
   const payload = parseResponsePayload(responseText);

@@ -578,14 +578,12 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       uploadSha256?: string;
     } | null = null;
     try {
-      const replayBody = new ArrayBuffer(boundedRequestBody.byteLength);
-      new Uint8Array(replayBody).set(boundedRequestBody);
       let formData: FormData;
       try {
         formData = await new Request(request.url, {
           method: request.method,
           headers: formDataHeaders,
-          body: replayBody,
+          body: boundedRequestBody.buffer as ArrayBuffer,
         }).formData();
       } catch {
         return jsonResponse({ error: 'Invalid multipart form data' }, 400);
