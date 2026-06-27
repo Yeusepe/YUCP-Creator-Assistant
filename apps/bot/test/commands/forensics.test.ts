@@ -142,4 +142,91 @@ describe('forensics command', () => {
     expect(reply?.content).toContain('coupling traceability');
     expect(reply?.content).toContain('https://web.example.test/dashboard/packages?view=forensics');
   });
+
+  it('renders attributed matches with bot-safe buyer fields', async () => {
+    process.env.API_BASE_URL = 'https://api.example.test';
+    process.env.API_INTERNAL_URL = 'https://api.example.test';
+    process.env.FRONTEND_URL = 'https://web.example.test';
+    process.env.NODE_ENV = 'test';
+
+    const interaction = attachLookupOptions(
+      mockSlashCommand({
+        commandName: 'creator-admin',
+        guildId: 'guild_1',
+        stringOptions: {
+          package_id: 'creator.package',
+        },
+        subcommand: 'lookup',
+        subcommandGroup: 'forensics',
+      }),
+      {
+        contentType: 'application/zip',
+        name: 'upload.zip',
+        size: 128,
+        url: 'https://cdn.example.test/upload.zip',
+      }
+    );
+
+    const fetchMock = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url === 'https://cdn.example.test/upload.zip') {
+        return new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/zip' },
+        });
+      }
+
+      if (url === 'https://api.example.test/api/forensics/lookup') {
+        return new Response(
+          JSON.stringify({
+            packageId: 'creator.package',
+            lookupStatus: 'attributed',
+            message: 'Matched stored coupling traces',
+            candidateAssetCount: 1,
+            decodedAssetCount: 1,
+            results: [
+              {
+                assetPath: 'Assets/Character/body.png',
+                assetType: 'png',
+                decoderKind: 'png',
+                tokenLength: 8,
+                layerBClassification: 'trace-recovered',
+                matched: true,
+                matches: [
+                  {
+                    matchId: 'a'.repeat(64),
+                    buyerMatchId: 'b'.repeat(64),
+                    assetPath: 'Assets/Character/body.png',
+                    createdAt: 1_739_999_999_000,
+                    runtimeArtifactVersion: '2026.03.25.153000',
+                    licenseMasked: 'jinxxy · ffffffff',
+                    buyerProviderUsername: 'BuyerAccount',
+                  },
+                ],
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await handleForensicsLookup(interaction as unknown as ChatInputCommandInteraction, {
+      authUserId: 'auth-user-1',
+      guildId: 'guild_1',
+    });
+
+    const reply = interaction.editReply.mock.calls[0]?.[0];
+    expect(reply?.content).toContain('Matched buyers: 1');
+    expect(reply?.content).toContain('BuyerAccount');
+    expect(reply?.content).not.toContain('undefined');
+  });
 });

@@ -21,13 +21,20 @@ type ForensicsLookupResponse = {
     decoderKind: string;
     tokenLength: number;
     matched: boolean;
-    classification: 'attributed' | 'hostile_unknown';
+    layerBClassification:
+      | 'trace-recovered'
+      | 'tamper-suspected'
+      | 'trace-likely-stripped'
+      | 'no-signal-found';
     matches: Array<{
-      licenseSubject: string;
+      matchId: string;
+      buyerMatchId?: string | null;
       assetPath: string;
-      correlationId: string | null;
       createdAt: number;
       runtimeArtifactVersion?: string | null;
+      licenseMasked?: string | null;
+      buyerProviderUsername?: string | null;
+      buyerSubjectDisplayName?: string | null;
     }>;
   }>;
 };
@@ -55,6 +62,21 @@ function formatCreatedAt(timestamp: number): string {
     month: 'short',
     day: 'numeric',
   });
+}
+
+type ForensicsLookupMatch = ForensicsLookupResponse['results'][number]['matches'][number];
+
+function getForensicsMatchIdentity(match: ForensicsLookupMatch): string {
+  return match.buyerMatchId?.trim() || match.matchId;
+}
+
+function formatForensicsMatchLabel(match: ForensicsLookupMatch): string {
+  const buyerLabel = match.buyerSubjectDisplayName?.trim() || match.buyerProviderUsername?.trim();
+  const licenseLabel = match.licenseMasked?.trim();
+  if (buyerLabel && licenseLabel) {
+    return `${buyerLabel} (${licenseLabel})`;
+  }
+  return buyerLabel || licenseLabel || `match ${getForensicsMatchIdentity(match).slice(0, 12)}`;
 }
 
 export async function handleForensicsPackageAutocomplete(
@@ -152,7 +174,7 @@ export async function handleForensicsLookup(
     }
 
     const matchedEntries = payload.results.filter((entry) => entry.matched);
-    const uniqueLicenseSubjects = new Set<string>();
+    const uniqueBuyerMatches = new Set<string>();
     const detailLines: string[] = [];
 
     for (const entry of matchedEntries.slice(0, 5)) {
@@ -160,9 +182,9 @@ export async function handleForensicsLookup(
       if (!primaryMatch) {
         continue;
       }
-      uniqueLicenseSubjects.add(primaryMatch.licenseSubject);
+      uniqueBuyerMatches.add(getForensicsMatchIdentity(primaryMatch));
       detailLines.push(
-        `- \`${entry.assetPath}\` -> \`${primaryMatch.licenseSubject}\` (${formatCreatedAt(primaryMatch.createdAt)})`
+        `- \`${entry.assetPath}\` -> \`${formatForensicsMatchLabel(primaryMatch)}\` (${formatCreatedAt(primaryMatch.createdAt)})`
       );
     }
 
@@ -178,9 +200,7 @@ export async function handleForensicsLookup(
       `Candidates scanned: ${payload.candidateAssetCount}`,
       `Decoded assets: ${payload.decodedAssetCount}`,
       `Matched assets: ${matchedEntries.length}`,
-      matchedEntries.length > 0
-        ? `Matched licenses: ${uniqueLicenseSubjects.size}`
-        : payload.message,
+      matchedEntries.length > 0 ? `Matched buyers: ${uniqueBuyerMatches.size}` : payload.message,
       detailLines.length > 0 ? '' : null,
       ...(detailLines.length > 0 ? ['Top matches:', ...detailLines] : []),
       remainingMatchCount > 0
