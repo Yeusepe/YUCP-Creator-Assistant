@@ -508,7 +508,10 @@ export const lookupTraceMatchesForAuthUser = query({
           truncated = true;
           break;
         }
-        const matchLimit = Math.min(COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT, remainingMatchBudget);
+        const matchDisplayLimit = Math.min(
+          COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT,
+          remainingMatchBudget
+        );
         const rows = await ctx.db
           .query('coupling_trace_records')
           .withIndex('by_auth_package_token_created', (q) =>
@@ -518,15 +521,23 @@ export const lookupTraceMatchesForAuthUser = query({
               .eq('tokenHash', tokenHash)
           )
           .order('desc')
-          .take(matchLimit);
+          .take(matchDisplayLimit + 1);
 
         if (rows.length === 0) {
           unmatchedTokenHashSet.add(tokenHash);
           continue;
         }
 
-        for (const row of rows) {
+        if (rows.length > matchDisplayLimit) {
+          truncated = true;
+        }
+
+        for (const row of rows.slice(0, matchDisplayLimit)) {
           await appendTraceMatch(row);
+        }
+
+        if (truncated) {
+          break;
         }
       }
     }

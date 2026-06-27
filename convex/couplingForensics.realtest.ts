@@ -409,6 +409,53 @@ describe('coupling forensics license subject resolution', () => {
     expect(result.unmatchedTokenHashes).toEqual([]);
   });
 
+  it('reports truncation when one token has more matches than the per-token fanout cap', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-forensics-token-cap-auth';
+    const packageId = 'pkg.creator.token-cap';
+    const tokenHash = 'f'.repeat(64);
+
+    await seedTraceablePackage(t, {
+      authUserId,
+      packageId,
+      now,
+      ownerDiscordUserId: 'discord-creator-forensics-token-cap',
+      packageName: 'Token Cap Creator Bundle',
+    });
+
+    await t.run(async (ctx) => {
+      for (let rowIndex = 0; rowIndex < 65; rowIndex += 1) {
+        await ctx.db.insert('coupling_trace_records', {
+          authUserId,
+          packageId,
+          licenseSubject: rowIndex.toString(16).padEnd(64, '0'),
+          assetPath: `Assets/Character/token-cap-${rowIndex}.png`,
+          tokenHash,
+          tokenLength: 64,
+          machineFingerprintHash: 'c'.repeat(64),
+          projectIdHash: 'd'.repeat(64),
+          runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+          runtimePlaintextSha256: 'e'.repeat(64),
+          correlationId: `corr-forensics-token-cap-${rowIndex}`,
+          createdAt: now + rowIndex,
+          provider: 'jinxxy',
+        });
+      }
+    });
+
+    const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId,
+      packageId,
+      tokenHashes: [tokenHash],
+    });
+
+    expect(result.matches).toHaveLength(64);
+    expect(result.truncated).toBe(true);
+    expect(result.unmatchedTokenHashes).toEqual([]);
+  });
+
   it('lists deduped trace candidates for the package owner with the traceability capability', async () => {
     const t = makeTestConvex();
     const now = Date.now();
