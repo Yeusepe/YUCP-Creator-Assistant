@@ -37,6 +37,43 @@ function normalizeTokenHashes(tokenHashes: string[]): string[] {
   return normalized;
 }
 
+type TraceMatchCandidate = {
+  assetPath: string;
+  licenseSubject: string;
+  tokenHash: string;
+};
+
+function normalizeTraceMatchCandidates(candidates: TraceMatchCandidate[]): TraceMatchCandidate[] {
+  if (candidates.length > COUPLING_TRACE_CANDIDATE_LIMIT) {
+    throw new ConvexError('Too many coupling trace match candidates');
+  }
+
+  const normalized: TraceMatchCandidate[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const assetPath = candidate.assetPath.trim();
+    const licenseSubject = candidate.licenseSubject.trim().toLowerCase();
+    const tokenHash = candidate.tokenHash.trim().toLowerCase();
+    if (!assetPath) {
+      throw new ConvexError('Invalid match candidate assetPath');
+    }
+    if (!TOKEN_HASH_RE.test(licenseSubject)) {
+      throw new ConvexError('Invalid match candidate licenseSubject');
+    }
+    if (!TOKEN_HASH_RE.test(tokenHash)) {
+      throw new ConvexError('Invalid match candidate tokenHash');
+    }
+
+    const key = `${assetPath}\0${licenseSubject}\0${tokenHash}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push({ assetPath, licenseSubject, tokenHash });
+  }
+  return normalized;
+}
+
 function isArchivedPackage(
   registration: Pick<Doc<'package_registry'>, 'status'> | null | undefined
 ): boolean {
@@ -235,7 +272,16 @@ export const lookupTraceMatchesForAuthUser = query({
     apiSecret: v.string(),
     authUserId: v.string(),
     packageId: v.string(),
-    tokenHashes: v.array(v.string()),
+    tokenHashes: v.optional(v.array(v.string())),
+    matchedCandidates: v.optional(
+      v.array(
+        v.object({
+          assetPath: v.string(),
+          licenseSubject: v.string(),
+          tokenHash: v.string(),
+        })
+      )
+    ),
   },
   returns: v.object({
     capabilityEnabled: v.boolean(),
@@ -265,11 +311,19 @@ export const lookupTraceMatchesForAuthUser = query({
       })
     ),
     unmatchedTokenHashes: v.array(v.string()),
+    truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     assertPackageId(args.packageId);
-    const tokenHashes = normalizeTokenHashes(args.tokenHashes);
+    const matchedCandidates = normalizeTraceMatchCandidates(args.matchedCandidates ?? []);
+    const tokenHashes =
+      args.tokenHashes !== undefined
+        ? normalizeTokenHashes(args.tokenHashes)
+        : Array.from(new Set(matchedCandidates.map((candidate) => candidate.tokenHash)));
+    if (tokenHashes.length === 0 && matchedCandidates.length === 0) {
+      throw new ConvexError('At least one coupling trace match candidate is required');
+    }
 
     const capabilityEnabled = await ctx.runQuery(
       internal.certificateBilling.hasCapabilityForAuthUser,
@@ -284,6 +338,7 @@ export const lookupTraceMatchesForAuthUser = query({
         packageOwned: false,
         matches: [],
         unmatchedTokenHashes: tokenHashes,
+        truncated: false,
       };
     }
 
@@ -300,6 +355,7 @@ export const lookupTraceMatchesForAuthUser = query({
         packageOwned: false,
         matches: [],
         unmatchedTokenHashes: tokenHashes,
+        truncated: false,
       };
     }
 
@@ -387,53 +443,91 @@ export const lookupTraceMatchesForAuthUser = query({
       return pending;
     };
 
-    for (const tokenHash of tokenHashes) {
-      const remainingMatchBudget = COUPLING_TRACE_MATCH_TOTAL_LIMIT - matches.length;
-      if (remainingMatchBudget <= 0) {
-        break;
+    const unmatchedTokenHashSet = new Set<string>();
+    let truncated = false;
+
+    const appendTraceMatch = async (row: Doc<'coupling_trace_records'>) => {
+      matchedTokenHashes.add(row.tokenHash);
+
+      const identity = await resolveIdentityForSubject(row.licenseSubject);
+
+      matches.push({
+        tokenHash: row.tokenHash,
+        licenseSubject: row.licenseSubject,
+        assetPath: row.assetPath,
+        correlationId: row.correlationId,
+        createdAt: row.createdAt,
+        runtimeArtifactVersion: row.runtimeArtifactVersion,
+        runtimePlaintextSha256: row.runtimePlaintextSha256,
+        machineFingerprintHash: row.machineFingerprintHash,
+        projectIdHash: row.projectIdHash,
+        grantId: row.grantId,
+        packFamily: row.packFamily,
+        packVersion: row.packVersion,
+        provider: identity?.provider ?? row.provider,
+        licenseMasked: buildLicenseMaskedLabel(identity?.provider ?? row.provider, row.licenseSubject),
+        licenseKeyEncrypted: identity?.licenseKeyEncrypted,
+        providerProductId: identity?.providerProductId,
+        buyerProviderUserId: identity?.buyerProviderUserId,
+        buyerProviderUsername: identity?.buyerProviderUsername,
+        buyerSubjectDisplayName: identity?.buyerSubjectDisplayName,
+        buyerSubjectDiscordUserId: identity?.buyerSubjectDiscordUserId,
+      });
+    };
+
+    if (matchedCandidates.length > 0) {
+      for (const candidate of matchedCandidates) {
+        if (matches.length >= COUPLING_TRACE_MATCH_TOTAL_LIMIT) {
+          truncated = true;
+          break;
+        }
+        const row = await ctx.db
+          .query('coupling_trace_records')
+          .withIndex('by_auth_package_token_subject_asset_created', (q) =>
+            q
+              .eq('authUserId', args.authUserId)
+              .eq('packageId', args.packageId)
+              .eq('tokenHash', candidate.tokenHash)
+              .eq('licenseSubject', candidate.licenseSubject)
+              .eq('assetPath', candidate.assetPath)
+          )
+          .order('desc')
+          .first();
+
+        if (!row) {
+          unmatchedTokenHashSet.add(candidate.tokenHash);
+          continue;
+        }
+
+        await appendTraceMatch(row);
       }
-      const matchLimit = Math.min(COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT, remainingMatchBudget);
-      const rows = await ctx.db
-        .query('coupling_trace_records')
-        .withIndex('by_auth_package_token_created', (q) =>
-          q
-            .eq('authUserId', args.authUserId)
-            .eq('packageId', args.packageId)
-            .eq('tokenHash', tokenHash)
-        )
-        .order('desc')
-        .take(matchLimit);
+    } else {
+      for (const tokenHash of tokenHashes) {
+        const remainingMatchBudget = COUPLING_TRACE_MATCH_TOTAL_LIMIT - matches.length;
+        if (remainingMatchBudget <= 0) {
+          truncated = true;
+          break;
+        }
+        const matchLimit = Math.min(COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT, remainingMatchBudget);
+        const rows = await ctx.db
+          .query('coupling_trace_records')
+          .withIndex('by_auth_package_token_created', (q) =>
+            q
+              .eq('authUserId', args.authUserId)
+              .eq('packageId', args.packageId)
+              .eq('tokenHash', tokenHash)
+          )
+          .order('desc')
+          .take(matchLimit);
 
-      for (const row of rows) {
-        matchedTokenHashes.add(tokenHash);
+        if (rows.length === 0) {
+          unmatchedTokenHashSet.add(tokenHash);
+          continue;
+        }
 
-        const identity = await resolveIdentityForSubject(row.licenseSubject);
-
-        matches.push({
-          tokenHash,
-          licenseSubject: row.licenseSubject,
-          assetPath: row.assetPath,
-          correlationId: row.correlationId,
-          createdAt: row.createdAt,
-          runtimeArtifactVersion: row.runtimeArtifactVersion,
-          runtimePlaintextSha256: row.runtimePlaintextSha256,
-          machineFingerprintHash: row.machineFingerprintHash,
-          projectIdHash: row.projectIdHash,
-          grantId: row.grantId,
-          packFamily: row.packFamily,
-          packVersion: row.packVersion,
-          provider: identity?.provider ?? row.provider,
-          licenseMasked: buildLicenseMaskedLabel(
-            identity?.provider ?? row.provider,
-            row.licenseSubject
-          ),
-          licenseKeyEncrypted: identity?.licenseKeyEncrypted,
-          providerProductId: identity?.providerProductId,
-          buyerProviderUserId: identity?.buyerProviderUserId,
-          buyerProviderUsername: identity?.buyerProviderUsername,
-          buyerSubjectDisplayName: identity?.buyerSubjectDisplayName,
-          buyerSubjectDiscordUserId: identity?.buyerSubjectDiscordUserId,
-        });
+        for (const row of rows) {
+          await appendTraceMatch(row);
+        }
       }
     }
 
@@ -441,7 +535,10 @@ export const lookupTraceMatchesForAuthUser = query({
       capabilityEnabled: true,
       packageOwned: true,
       matches,
-      unmatchedTokenHashes: tokenHashes.filter((tokenHash) => !matchedTokenHashes.has(tokenHash)),
+      unmatchedTokenHashes: Array.from(unmatchedTokenHashSet).filter(
+        (tokenHash) => !matchedTokenHashes.has(tokenHash)
+      ),
+      truncated,
     };
   },
 });

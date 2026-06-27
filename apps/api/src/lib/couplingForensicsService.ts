@@ -25,6 +25,7 @@ export type ForensicsScoreResult = {
   preclassification: ForensicPreclassification;
   tokenHex?: string;
   tokenLength?: number;
+  matchedLicenseSubject?: string;
   nativeCode?: number;
   decodeError?: string;
 };
@@ -66,6 +67,7 @@ type ForensicScoreServiceResponse = {
 };
 
 const HEX_RE = /^[0-9a-f]+$/;
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
@@ -522,6 +524,13 @@ function validateAttributionResult(
     if (entry.matched === true && entry.tokenHex) {
       const tokenHex = entry.tokenHex.trim().toLowerCase();
       if (HEX_RE.test(tokenHex) && tokenHex.length > 0) {
+        const matchedLicenseSubject = entry.matchedLicenseSubject?.trim().toLowerCase() || '';
+        if (!SHA256_HEX_RE.test(matchedLicenseSubject)) {
+          throw new CouplingServiceRequestError(
+            `Coupling service returned an invalid matched license subject for ${assetPath}`,
+            502
+          );
+        }
         validatedResults.set(assetPath, {
           assetPath,
           assetType,
@@ -529,6 +538,7 @@ function validateAttributionResult(
           preclassification: 'decoded',
           tokenHex,
           tokenLength: tokenHex.length,
+          matchedLicenseSubject,
         });
         continue;
       }
@@ -559,9 +569,10 @@ function validateAttributionResult(
 /**
  * Forensic attribution: ask the closed coupling service to decode each leaked asset by iterating
  * the supplied buyer candidates (it re-derives each per-job placement seed from the recorded
- * assetPath + licenseSubject). A matched asset comes back as a recovered trace with its token; the
- * caller turns that token into a tokenHash for identity enrichment. No watermark secrets leave the
- * service — only candidate (assetPath, licenseSubject, tokenHash) tuples go in.
+ * assetPath + licenseSubject). A matched asset comes back as a recovered trace with its token and
+ * matched subject; the caller turns that into an exact candidate lookup for identity enrichment.
+ * No watermark secrets leave the service; only candidate (assetPath, licenseSubject, tokenHash)
+ * tuples go in.
  */
 export async function runCouplingAttribution(
   assets: ExtractedForensicsAsset[],

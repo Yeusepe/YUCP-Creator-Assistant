@@ -8,6 +8,64 @@ import {
   seedSubject,
 } from './testHelpers';
 
+async function seedTraceablePackage(
+  t: ReturnType<typeof makeTestConvex>,
+  args: {
+    authUserId: string;
+    packageId: string;
+    now: number;
+    ownerDiscordUserId?: string;
+    packageName?: string;
+  }
+) {
+  await seedCertificateBillingCatalog(t, {
+    productId: 'plan-coupling-traceability',
+    capabilityKeys: ['coupling_traceability'],
+    capabilityKey: 'coupling_traceability',
+    featureFlags: {
+      coupling_traceability: true,
+    },
+    benefitMetadata: {
+      coupling_traceability: true,
+    },
+  });
+
+  const creatorProfileId = await seedCreatorProfile(t, {
+    authUserId: args.authUserId,
+    ownerDiscordUserId: args.ownerDiscordUserId ?? `${args.authUserId}-discord`,
+  });
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert('creator_billing_entitlements', {
+      workspaceKey: buildCreatorProfileWorkspaceKey(creatorProfileId),
+      authUserId: args.authUserId,
+      creatorProfileId,
+      planKey: 'creator-suite-plus',
+      productId: 'plan-coupling-traceability',
+      status: 'active',
+      allowEnrollment: true,
+      allowSigning: true,
+      deviceCap: 5,
+      auditRetentionDays: 30,
+      supportTier: 'standard',
+      currentPeriodEnd: args.now + 86_400_000,
+      graceUntil: args.now + 3 * 86_400_000,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+
+    await ctx.db.insert('package_registry', {
+      packageId: args.packageId,
+      packageName: args.packageName ?? 'Traceable Creator Bundle',
+      publisherId: `${args.packageId}.publisher`,
+      yucpUserId: args.authUserId,
+      status: 'active',
+      registeredAt: args.now,
+      updatedAt: args.now,
+    });
+  });
+}
+
 describe('coupling forensics license subject resolution', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
@@ -224,6 +282,130 @@ describe('coupling forensics license subject resolution', () => {
     expect(result.matches).toHaveLength(matchLimit);
     expect(result.matches[0]?.assetPath).toBe(`Assets/Character/part-${matchLimit}.png`);
     expect(result.matches.at(-1)?.assetPath).toBe('Assets/Character/part-1.png');
+    expect(result.unmatchedTokenHashes).toEqual([]);
+  });
+
+  it('filters trace match lookups to the exact attribution candidate', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-forensics-exact-auth';
+    const packageId = 'pkg.creator.exact';
+    const tokenHash = 'd'.repeat(64);
+    const matchedSubject = '1'.repeat(64);
+    const otherSubject = '2'.repeat(64);
+
+    await seedTraceablePackage(t, {
+      authUserId,
+      packageId,
+      now,
+      ownerDiscordUserId: 'discord-creator-forensics-exact',
+      packageName: 'Exact Match Creator Bundle',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('coupling_trace_records', {
+        authUserId,
+        packageId,
+        licenseSubject: otherSubject,
+        assetPath: 'Assets/Character/body.png',
+        tokenHash,
+        tokenLength: 64,
+        machineFingerprintHash: 'c'.repeat(64),
+        projectIdHash: 'd'.repeat(64),
+        runtimeArtifactVersion: 'other-runtime-version',
+        runtimePlaintextSha256: 'e'.repeat(64),
+        correlationId: 'corr-forensics-exact-other',
+        createdAt: now + 1,
+        provider: 'jinxxy',
+      });
+      await ctx.db.insert('coupling_trace_records', {
+        authUserId,
+        packageId,
+        licenseSubject: matchedSubject,
+        assetPath: 'Assets/Character/body.png',
+        tokenHash,
+        tokenLength: 64,
+        machineFingerprintHash: 'c'.repeat(64),
+        projectIdHash: 'd'.repeat(64),
+        runtimeArtifactVersion: 'matched-runtime-version',
+        runtimePlaintextSha256: 'e'.repeat(64),
+        correlationId: 'corr-forensics-exact-matched',
+        createdAt: now,
+        provider: 'jinxxy',
+      });
+    });
+
+    const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId,
+      packageId,
+      matchedCandidates: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          licenseSubject: matchedSubject,
+          tokenHash,
+        },
+      ],
+    });
+
+    expect(result.truncated).toBe(false);
+    expect(result.unmatchedTokenHashes).toEqual([]);
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]).toMatchObject({
+      licenseSubject: matchedSubject,
+      runtimeArtifactVersion: 'matched-runtime-version',
+    });
+  });
+
+  it('reports truncation when token-hash fanout exhausts the total match budget', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-forensics-fanout-auth';
+    const packageId = 'pkg.creator.fanout';
+    const tokenHashes = Array.from({ length: 9 }, (_, index) =>
+      (index + 1).toString(16).repeat(64).slice(0, 64)
+    );
+
+    await seedTraceablePackage(t, {
+      authUserId,
+      packageId,
+      now,
+      ownerDiscordUserId: 'discord-creator-forensics-fanout',
+      packageName: 'Fanout Creator Bundle',
+    });
+
+    await t.run(async (ctx) => {
+      for (const [tokenIndex, tokenHash] of tokenHashes.entries()) {
+        const rowCount = tokenIndex < 8 ? 64 : 1;
+        for (let rowIndex = 0; rowIndex < rowCount; rowIndex += 1) {
+          await ctx.db.insert('coupling_trace_records', {
+            authUserId,
+            packageId,
+            licenseSubject: `${tokenIndex.toString(16)}${rowIndex.toString(16)}`.padEnd(64, '0'),
+            assetPath: `Assets/Character/token-${tokenIndex}-part-${rowIndex}.png`,
+            tokenHash,
+            tokenLength: 64,
+            machineFingerprintHash: 'c'.repeat(64),
+            projectIdHash: 'd'.repeat(64),
+            runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+            runtimePlaintextSha256: 'e'.repeat(64),
+            correlationId: `corr-forensics-fanout-${tokenIndex}-${rowIndex}`,
+            createdAt: now + tokenIndex * 100 + rowIndex,
+            provider: 'jinxxy',
+          });
+        }
+      }
+    });
+
+    const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId,
+      packageId,
+      tokenHashes,
+    });
+
+    expect(result.matches).toHaveLength(512);
+    expect(result.truncated).toBe(true);
     expect(result.unmatchedTokenHashes).toEqual([]);
   });
 

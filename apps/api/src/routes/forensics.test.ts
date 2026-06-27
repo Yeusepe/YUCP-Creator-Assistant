@@ -78,13 +78,15 @@ function sha256Hex(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
+const DEFAULT_LICENSE_SUBJECT = 'f'.repeat(64);
+
 // One recorded buyer for the registered package: assetPath + licenseSubject + the sha256 of the
 // token the seed-iteration decoder is expected to recover.
 function defaultCandidates(tokenHash: string) {
   return [
     {
       assetPath: 'Assets/Character/body.png',
-      licenseSubject: 'license-subject-1',
+      licenseSubject: DEFAULT_LICENSE_SUBJECT,
       tokenHash,
     },
   ];
@@ -153,7 +155,13 @@ describe('forensics routes', () => {
           apiSecret: TEST_CONVEX_API_TOKEN,
           authUserId: 'creator-user',
           packageId: 'creator.package',
-          tokenHashes: [expectedTokenHash],
+          matchedCandidates: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              licenseSubject: DEFAULT_LICENSE_SUBJECT,
+              tokenHash: expectedTokenHash,
+            },
+          ],
         });
         return {
           capabilityEnabled: true,
@@ -161,7 +169,7 @@ describe('forensics routes', () => {
           matches: [
             {
               tokenHash: expectedTokenHash,
-              licenseSubject: 'license-subject-1',
+              licenseSubject: DEFAULT_LICENSE_SUBJECT,
               assetPath: 'Assets/Character/body.png',
               correlationId: 'corr_1',
               createdAt: 1_739_999_999_000,
@@ -207,7 +215,7 @@ describe('forensics routes', () => {
               assetType: 'png',
               matched: true,
               tokenHex: 'deadbeef',
-              matchedLicenseSubject: 'license-subject-1',
+              matchedLicenseSubject: DEFAULT_LICENSE_SUBJECT,
               wmVersion: 2,
               attempted: 1,
             },
@@ -271,7 +279,7 @@ describe('forensics routes', () => {
     expect(match).not.toHaveProperty('buyerProviderUserId');
     expect(match).not.toHaveProperty('buyerSubjectDiscordUserId');
     expect(payload.investigationReport?.topCandidates).toBeUndefined();
-    expect(JSON.stringify(payload)).not.toContain('license-subject-1');
+    expect(JSON.stringify(payload)).not.toContain(DEFAULT_LICENSE_SUBJECT);
     expect(JSON.stringify(payload)).not.toContain('corr_1');
     expect(JSON.stringify(payload)).not.toContain('runtime-sha');
     expect(mutationMock).toHaveBeenCalledTimes(1);
@@ -280,6 +288,121 @@ describe('forensics routes', () => {
       authUserId: 'creator-user',
       packageId: 'creator.package',
       status: 'attributed',
+    });
+  });
+
+  it('looks up only the attribution-matched license subject for a recovered token', async () => {
+    const expectedTokenHash = sha256Hex('deadbeef');
+    const matchedLicenseSubject = 'f'.repeat(64);
+    const otherLicenseSubject = 'e'.repeat(64);
+
+    queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              licenseSubject: matchedLicenseSubject,
+              tokenHash: expectedTokenHash,
+            },
+            {
+              assetPath: 'Assets/Character/body.png',
+              licenseSubject: otherLicenseSubject,
+              tokenHash: expectedTokenHash,
+            },
+          ],
+        };
+      }
+      if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
+        expect(args).toEqual({
+          apiSecret: TEST_CONVEX_API_TOKEN,
+          authUserId: 'creator-user',
+          packageId: 'creator.package',
+          matchedCandidates: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              licenseSubject: matchedLicenseSubject,
+              tokenHash: expectedTokenHash,
+            },
+          ],
+        });
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          matches: [
+            {
+              tokenHash: expectedTokenHash,
+              licenseSubject: matchedLicenseSubject,
+              assetPath: 'Assets/Character/body.png',
+              correlationId: 'corr_matched',
+              createdAt: 1_739_999_999_000,
+              runtimeArtifactVersion: 'matched-runtime-version',
+              runtimePlaintextSha256: 'runtime-sha',
+            },
+          ],
+          unmatchedTokenHashes: [],
+          truncated: false,
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          requestId: 'req-subject-match',
+          results: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              matched: true,
+              tokenHex: 'deadbeef',
+              matchedLicenseSubject,
+              wmVersion: 2,
+              attempted: 2,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([21, 22, 23])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      lookupStatus: 'attributed',
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          matched: true,
+          matches: [
+            {
+              runtimeArtifactVersion: 'matched-runtime-version',
+            },
+          ],
+        },
+      ],
     });
   });
 
@@ -972,13 +1095,20 @@ describe('forensics routes', () => {
           apiSecret: TEST_CONVEX_API_TOKEN,
           authUserId: 'creator-user',
           packageId: 'creator.package',
-          tokenHashes: [expectedTokenHash],
+          matchedCandidates: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              licenseSubject: DEFAULT_LICENSE_SUBJECT,
+              tokenHash: expectedTokenHash,
+            },
+          ],
         });
         return {
           capabilityEnabled: true,
           packageOwned: true,
           matches: [],
           unmatchedTokenHashes: [expectedTokenHash],
+          truncated: false,
         };
       }
       throw new Error(`Unexpected query ${String(ref)}`);
@@ -996,7 +1126,7 @@ describe('forensics routes', () => {
               assetType: 'png',
               matched: true,
               tokenHex: 'deadbeef',
-              matchedLicenseSubject: 'license-subject-1',
+              matchedLicenseSubject: DEFAULT_LICENSE_SUBJECT,
               wmVersion: 2,
               attempted: 1,
             },
@@ -1047,6 +1177,81 @@ describe('forensics routes', () => {
     });
   });
 
+  it('fails closed when exact trace match lookup is truncated', async () => {
+    const expectedTokenHash = sha256Hex('deadbeef');
+
+    queryMock.mockImplementation(async (ref: unknown) => {
+      if (ref === apiMock.couplingForensics.listCouplingTraceCandidatesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          candidates: defaultCandidates(expectedTokenHash),
+        };
+      }
+      if (ref === apiMock.couplingForensics.lookupTraceMatchesForAuthUser) {
+        return {
+          capabilityEnabled: true,
+          packageOwned: true,
+          matches: [],
+          unmatchedTokenHashes: [],
+          truncated: true,
+        };
+      }
+      throw new Error(`Unexpected query ${String(ref)}`);
+    });
+
+    mutationMock.mockResolvedValue(undefined);
+
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          requestId: 'req-truncated-match',
+          results: [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              matched: true,
+              tokenHex: 'deadbeef',
+              matchedLicenseSubject: DEFAULT_LICENSE_SUBJECT,
+              wmVersion: 2,
+              attempted: 1,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const formData = new FormData();
+    formData.set('packageId', 'creator.package');
+    formData.set(
+      'file',
+      new File([Uint8Array.from([24, 25, 26])], 'bundle.zip', { type: 'application/zip' })
+    );
+
+    const response = await routes.lookup(
+      new Request('http://localhost:3001/api/forensics/lookup', {
+        method: 'POST',
+        body: formData,
+      })
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Trace match limit exceeded; retry with fewer recovered assets',
+      code: 'coupling_trace_match_limit_exceeded',
+    });
+    expect(mutationMock).toHaveBeenCalledTimes(1);
+    expect(mutationMock.mock.calls[0]?.[1]).toMatchObject({
+      packageId: 'creator.package',
+      status: 'error',
+    });
+  });
+
   it('rehydrates buyer identity from the encrypted stored license instead of redundant stored buyer columns', async () => {
     const encryptedLicenseKey = await encryptForensicsLicenseKey(
       'test-placeholder-forensics-license-key',
@@ -1069,7 +1274,7 @@ describe('forensics routes', () => {
           matches: [
             {
               tokenHash: expectedTokenHash,
-              licenseSubject: 'license-subject-1',
+              licenseSubject: DEFAULT_LICENSE_SUBJECT,
               assetPath: 'Assets/Character/body.png',
               correlationId: 'corr_1',
               createdAt: 1_739_999_999_000,
@@ -1113,7 +1318,7 @@ describe('forensics routes', () => {
               assetType: 'png',
               matched: true,
               tokenHex: 'deadbeef',
-              matchedLicenseSubject: 'license-subject-1',
+              matchedLicenseSubject: DEFAULT_LICENSE_SUBJECT,
               wmVersion: 2,
               attempted: 1,
             },

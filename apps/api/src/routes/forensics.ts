@@ -244,22 +244,74 @@ function buildLookupRateLimitKey(viewer: ForensicsViewer, request: Request): str
   return `forensics:lookup:user:${authUserHash}:ip:${clientAddressHash}`;
 }
 
+type MatchedTraceCandidate = {
+  assetPath: string;
+  licenseSubject: string;
+  tokenHash: string;
+};
+
 function normalizeDeclaredPackageIds(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
     (left, right) => left.localeCompare(right)
   );
 }
 
+function buildTraceCandidateKey(candidate: MatchedTraceCandidate): string {
+  return `${candidate.assetPath}\0${candidate.licenseSubject}\0${candidate.tokenHash}`;
+}
+
+function buildMatchedTraceCandidate(
+  scoreResult: ForensicsScoreResult
+): MatchedTraceCandidate | null {
+  if (!scoreResult.tokenHex) {
+    return null;
+  }
+  const licenseSubject = scoreResult.matchedLicenseSubject?.trim().toLowerCase() || '';
+  if (!licenseSubject) {
+    throw new CouplingServiceRequestError(
+      `Coupling attribution matched ${scoreResult.assetPath} without a license subject`,
+      502
+    );
+  }
+  return {
+    assetPath: scoreResult.assetPath,
+    licenseSubject,
+    tokenHash: sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex)),
+  };
+}
+
+function buildMatchedTraceCandidates(
+  decodedResults: ForensicsScoreResult[]
+): MatchedTraceCandidate[] {
+  const candidates: MatchedTraceCandidate[] = [];
+  const seen = new Set<string>();
+  for (const scoreResult of decodedResults) {
+    const candidate = buildMatchedTraceCandidate(scoreResult);
+    if (!candidate) {
+      continue;
+    }
+    const key = buildTraceCandidateKey(candidate);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    candidates.push(candidate);
+  }
+  return candidates;
+}
+
 function classifyLayerB(
   scoreResult: ForensicsScoreResult,
-  matchedTokenHashes: Set<string>
+  matchedTraceKeys: Set<string>
 ): LayerBClassification {
   if (scoreResult.preclassification === 'decoded') {
-    if (!scoreResult.tokenHex) {
+    const candidate = buildMatchedTraceCandidate(scoreResult);
+    if (!candidate) {
       return 'no-signal-found';
     }
-    const tokenHash = sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex));
-    return matchedTokenHashes.has(tokenHash) ? 'trace-recovered' : 'tamper-suspected';
+    return matchedTraceKeys.has(buildTraceCandidateKey(candidate))
+      ? 'trace-recovered'
+      : 'tamper-suspected';
   }
   if (scoreResult.preclassification === 'likely-stripped') {
     return 'trace-likely-stripped';
@@ -708,7 +760,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
 
       // Seed-iteration attribution: the closed coupling service re-derives each recorded buyer's
       // per-job placement seed and decodes the leaked assets against them. We only hand it candidate
-      // (assetPath, licenseSubject, tokenHash) tuples — the master key and native code stay server-side.
+      // (assetPath, licenseSubject, tokenHash) tuples; the master key and native code stay server-side.
       const scoreResults = await runCouplingAttribution(
         extraction.assets,
         candidateResult.candidates,
@@ -757,15 +809,14 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const tokenHashes = decodedResults
-        .filter((r) => r.tokenHex !== undefined)
-        .map((r) => sha256HexFromBytes(new TextEncoder().encode(r.tokenHex as string)));
+      const matchedCandidates = buildMatchedTraceCandidates(decodedResults);
+      const tokenHashes = matchedCandidates.map((candidate) => candidate.tokenHash);
 
       const lookupResult = await convex.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
         apiSecret: config.convexApiSecret,
         authUserId: viewer.authUserId,
         packageId,
-        tokenHashes,
+        matchedCandidates,
       });
 
       if (!lookupResult.capabilityEnabled) {
@@ -810,30 +861,47 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const matchesByTokenHash = new Map<string, typeof lookupResult.matches>();
-      for (const match of lookupResult.matches) {
-        const bucket = matchesByTokenHash.get(match.tokenHash) ?? [];
-        bucket.push(match);
-        matchesByTokenHash.set(match.tokenHash, bucket);
+      if (lookupResult.truncated) {
+        await convex.mutation(api.couplingForensics.recordLookupAudit, {
+          apiSecret: config.convexApiSecret,
+          authUserId: viewer.authUserId,
+          packageId,
+          source: viewer.source,
+          status: 'error',
+          requestedTokenCount: matchedCandidates.length,
+          matchedTokenCount: 0,
+          uploadSha256,
+        });
+        return jsonResponse(
+          {
+            error: 'Trace match limit exceeded; retry with fewer recovered assets',
+            code: 'coupling_trace_match_limit_exceeded',
+          },
+          409
+        );
       }
 
-      const matchedTokenHashSet = new Set<string>(
-        lookupResult.matches.map((m: { tokenHash: string }) => m.tokenHash)
+      const matchedTraceKeySet = new Set<string>(
+        lookupResult.matches.map((match: MatchedTraceCandidate) => buildTraceCandidateKey(match))
       );
       const enrichedMatches = await enrichTraceMatches(viewer, lookupResult.matches);
-      const enrichedMatchesByTokenHash = new Map<string, typeof enrichedMatches>();
+      const enrichedMatchesByTraceKey = new Map<string, typeof enrichedMatches>();
       for (const match of enrichedMatches) {
-        const bucket = enrichedMatchesByTokenHash.get(match.tokenHash) ?? [];
+        const matchKey = buildTraceCandidateKey(match);
+        const bucket = enrichedMatchesByTraceKey.get(matchKey) ?? [];
         bucket.push(match);
-        enrichedMatchesByTokenHash.set(match.tokenHash, bucket);
+        enrichedMatchesByTraceKey.set(matchKey, bucket);
       }
 
       const results = scoreResults.map((scoreResult) => {
-        const tokenHash = scoreResult.tokenHex
-          ? sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex))
-          : null;
-        const matches = tokenHash ? (enrichedMatchesByTokenHash.get(tokenHash) ?? []) : [];
-        const layerBClassification = classifyLayerB(scoreResult, matchedTokenHashSet);
+        const candidate =
+          scoreResult.preclassification === 'decoded'
+            ? buildMatchedTraceCandidate(scoreResult)
+            : null;
+        const matches = candidate
+          ? (enrichedMatchesByTraceKey.get(buildTraceCandidateKey(candidate)) ?? [])
+          : [];
+        const layerBClassification = classifyLayerB(scoreResult, matchedTraceKeySet);
         return {
           assetPath: scoreResult.assetPath,
           assetType: scoreResult.assetType,
