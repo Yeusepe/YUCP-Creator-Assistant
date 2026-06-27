@@ -311,6 +311,53 @@ describe('runCouplingAttribution', () => {
     expect(message).not.toContain(unsafeAssetPath);
   });
 
+  it('rejects matched attribution responses without a valid recovered token', async () => {
+    const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
+
+    for (const tokenHex of [undefined, 'not-a-token']) {
+      const fetchMock = mock(async () => {
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                assetPath: unsafeAssetPath,
+                assetType: 'png',
+                matched: true,
+                tokenHex,
+                matchedLicenseSubject: 'f'.repeat(64),
+                matchedCandidateAssetPath: unsafeAssetPath,
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      let caught: unknown;
+      try {
+        await runCouplingAttribution(
+          [
+            {
+              assetPath: unsafeAssetPath,
+              assetType: 'png',
+              filePath: assetFixturePath,
+            },
+          ],
+          [{ ...candidates[0], assetPath: unsafeAssetPath, licenseSubject: 'f'.repeat(64) }],
+          config
+        );
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toBeInstanceOf(Error);
+      const message = caught instanceof Error ? caught.message : String(caught);
+      expect(message).toBe('Coupling service returned an invalid token');
+      expect(message).not.toContain(unsafeAssetPath);
+    }
+  });
+
   it('does not include unknown uploaded asset paths in attribution validation errors', async () => {
     const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
     const fetchMock = mock(async () => {
@@ -436,6 +483,45 @@ describe('runCouplingAttribution', () => {
       ])
     ).rejects.toThrow('Coupling attribution timed out');
   });
+
+  it('keeps the attribution timeout active while reading the response body', async () => {
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            signal?.addEventListener('abort', () =>
+              controller.error(new Error('body read aborted'))
+            );
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      Promise.race([
+        runCouplingAttribution(
+          [
+            {
+              assetPath: 'Assets/Character/body.png',
+              assetType: 'png',
+              filePath: assetFixturePath,
+            },
+          ],
+          candidates,
+          { ...config, attributionTimeoutMs: 1 }
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('body timeout was not enforced')), 50)
+        ),
+      ])
+    ).rejects.toThrow('Coupling attribution timed out');
+  });
 });
 
 describe('legacy coupling service scan paths', () => {
@@ -470,6 +556,7 @@ describe('legacy coupling service scan paths', () => {
 
       expect(requestUrl).toBe(expectedUrl);
       expect(requestInit?.redirect).toBe('error');
+      expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
     });
 
     it(`rejects invalid ${name} base URLs before sending requests`, async () => {
@@ -536,6 +623,46 @@ describe('legacy coupling service scan paths', () => {
           config
         )
       ).rejects.toThrow(`Coupling service is unreachable: ${name} network down`);
+    });
+
+    it(`maps timed-out ${name} requests to 504 coupling service errors`, async () => {
+      const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal;
+        return await new Promise<Response>((resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(new Error('fetch aborted')));
+          setTimeout(
+            () =>
+              resolve(
+                new Response(JSON.stringify({ results: [] }), {
+                  status: 200,
+                  headers: { 'Content-Type': 'application/json' },
+                })
+              ),
+            100
+          );
+        });
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      await expect(
+        Promise.race([
+          run(
+            [
+              {
+                assetPath: 'Assets/Character/body.png',
+                assetType: 'png',
+                filePath: assetFixturePath,
+              },
+            ],
+            { ...config, attributionTimeoutMs: 1 }
+          ),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout was not enforced')), 50)
+          ),
+        ])
+      ).rejects.toThrow(
+        `Coupling ${name === 'score' ? 'forensic-score' : 'service scan'} timed out`
+      );
     });
   }
 

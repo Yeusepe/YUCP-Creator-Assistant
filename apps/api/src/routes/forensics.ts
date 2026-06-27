@@ -96,9 +96,9 @@ function jsonResponse(body: object, status = 200, headers?: Record<string, strin
   return new Response(JSON.stringify(body), {
     status,
     headers: {
+      ...headers,
       'Content-Type': 'application/json',
       'Cache-Control': 'no-store',
-      ...headers,
     },
   });
 }
@@ -274,7 +274,7 @@ function buildMatchedTraceCandidate(
     );
   }
   return {
-    assetPath: scoreResult.assetPath,
+    assetPath: scoreResult.matchedCandidateAssetPath ?? scoreResult.assetPath,
     licenseSubject,
     tokenHash: sha256HexFromBytes(new TextEncoder().encode(scoreResult.tokenHex)),
   };
