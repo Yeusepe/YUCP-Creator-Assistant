@@ -339,6 +339,22 @@ function buildLookupMatchId(
     .digest('hex');
 }
 
+function buildLookupBuyerMatchId(
+  config: ForensicsConfig,
+  packageId: string,
+  match: {
+    licenseSubject: string;
+  }
+): string {
+  return createHmac('sha256', config.encryptionSecret)
+    .update('forensics-lookup-buyer-match-v1')
+    .update('\0')
+    .update(packageId)
+    .update('\0')
+    .update(match.licenseSubject)
+    .digest('hex');
+}
+
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
 
@@ -827,6 +843,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           matched: matches.length > 0,
           matches: matches.map((match: (typeof matches)[number]) => ({
             matchId: buildLookupMatchId(config, packageId, match),
+            buyerMatchId: buildLookupBuyerMatchId(config, packageId, match),
             assetPath: match.assetPath,
             createdAt: match.createdAt,
             runtimeArtifactVersion: match.runtimeArtifactVersion,

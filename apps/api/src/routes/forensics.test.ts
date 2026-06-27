@@ -261,6 +261,8 @@ describe('forensics routes', () => {
     const match = payload.results[0]?.matches[0];
     expect(typeof match?.matchId).toBe('string');
     expect(String(match?.matchId)).toHaveLength(64);
+    expect(typeof match?.buyerMatchId).toBe('string');
+    expect(String(match?.buyerMatchId)).toHaveLength(64);
     expect(match).not.toHaveProperty('licenseSubject');
     expect(match).not.toHaveProperty('correlationId');
     expect(match).not.toHaveProperty('runtimePlaintextSha256');
@@ -666,7 +668,7 @@ describe('forensics routes', () => {
 
   it('keeps proxied dashboard requests on the session auth path when no internal auth user header is present', async () => {
     const previousInternalRpcSecret = process.env.INTERNAL_RPC_SHARED_SECRET;
-    process.env.INTERNAL_RPC_SHARED_SECRET = 'test-internal-secret';
+    process.env.INTERNAL_RPC_SHARED_SECRET = 'test-placeholder-internal-rpc-secret';
 
     try {
       queryMock.mockImplementation(async (ref: unknown, args: unknown) => {
@@ -693,8 +695,9 @@ describe('forensics routes', () => {
         new Request('http://localhost:3001/api/forensics/packages', {
           method: 'GET',
           headers: {
-            'x-internal-service-secret': 'test-internal-secret',
-            cookie: 'yucp.session_token=session-cookie; yucp.session_data=session-data',
+            'x-internal-service-secret': 'test-placeholder-internal-rpc-secret',
+            cookie:
+              'yucp.session_token=test-placeholder-session-cookie; yucp.session_data=test-placeholder-session-data',
           },
         })
       );
@@ -1046,7 +1049,7 @@ describe('forensics routes', () => {
 
   it('rehydrates buyer identity from the encrypted stored license instead of redundant stored buyer columns', async () => {
     const encryptedLicenseKey = await encryptForensicsLicenseKey(
-      '11111111-2222-3333-4444-555555555555',
+      'test-placeholder-forensics-license-key',
       TEST_ENCRYPTION_KEY
     );
     const expectedTokenHash = sha256Hex('deadbeef');

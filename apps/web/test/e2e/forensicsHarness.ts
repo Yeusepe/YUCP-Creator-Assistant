@@ -101,13 +101,23 @@ const couplingServer = Bun.serve({
     }
 
     const payload = (await request.json()) as {
-      assets?: Array<{ assetPath?: string; assetType?: string }>;
+      assets?: Array<{ assetPath?: string; assetType?: string; contentBase64?: string }>;
       candidates?: Array<{ assetPath?: string; licenseSubject?: string; tokenHash?: string }>;
     };
     const assets = Array.isArray(payload.assets) ? payload.assets : [];
     const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+    const hasText = (value: unknown) => typeof value === 'string' && value.trim().length > 0;
+    const hasInvalidAsset = assets.some(
+      (asset) => !hasText(asset.assetPath) || !hasText(asset.contentBase64)
+    );
+    const hasInvalidCandidate = candidates.some(
+      (candidate) =>
+        !hasText(candidate.assetPath) ||
+        !hasText(candidate.licenseSubject) ||
+        !hasText(candidate.tokenHash)
+    );
 
-    if (assets.length === 0 || candidates.length === 0) {
+    if (assets.length === 0 || candidates.length === 0 || hasInvalidAsset || hasInvalidCandidate) {
       return Response.json({ error: 'Missing attribution inputs' }, { status: 400 });
     }
 

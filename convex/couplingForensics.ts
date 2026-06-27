@@ -10,6 +10,8 @@ import { decryptForPurpose } from './lib/vrchat/crypto';
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
 const COUPLING_TRACE_CANDIDATE_LIMIT = 512;
+const COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT = 64;
+const COUPLING_TRACE_MATCH_TOTAL_LIMIT = 512;
 const COUPLING_TRACE_ROW_PAGE_SIZE = 512;
 const COUPLING_TRACE_ROW_SCAN_LIMIT = COUPLING_TRACE_CANDIDATE_LIMIT * 4;
 
@@ -388,18 +390,23 @@ export const lookupTraceMatchesForAuthUser = query({
     };
 
     for (const tokenHash of tokenHashes) {
+      const remainingMatchBudget = COUPLING_TRACE_MATCH_TOTAL_LIMIT - matches.length;
+      if (remainingMatchBudget <= 0) {
+        break;
+      }
+      const matchLimit = Math.min(COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT, remainingMatchBudget);
       const rows = await ctx.db
         .query('coupling_trace_records')
-        .withIndex('by_package_token', (q) =>
-          q.eq('packageId', args.packageId).eq('tokenHash', tokenHash)
+        .withIndex('by_auth_package_token_created', (q) =>
+          q
+            .eq('authUserId', args.authUserId)
+            .eq('packageId', args.packageId)
+            .eq('tokenHash', tokenHash)
         )
-        .collect();
+        .order('desc')
+        .take(matchLimit);
 
-      const scopedRows = rows
-        .filter((row) => row.authUserId === args.authUserId)
-        .sort((left, right) => right.createdAt - left.createdAt);
-
-      for (const row of scopedRows) {
+      for (const row of rows) {
         matchedTokenHashes.add(tokenHash);
 
         const identity = await resolveIdentityForSubject(row.licenseSubject);

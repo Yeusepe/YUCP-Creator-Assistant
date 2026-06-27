@@ -114,7 +114,7 @@ describe('coupling forensics license subject resolution', () => {
         authUserId,
         packageId,
         provider: 'jinxxy',
-        licenseKey: '11111111-2222-3333-4444-555555555555',
+        licenseKey: 'test-placeholder-forensics-license-key',
         purchaserEmail: 'buyer@example.com',
         providerUserId: 'customer-123',
         externalOrderId: 'order-123',
@@ -139,6 +139,92 @@ describe('coupling forensics license subject resolution', () => {
     });
     expect(result.matches[0]).not.toHaveProperty('licenseKey');
     expect(result.matches[0]).not.toHaveProperty('purchaserEmail');
+  });
+
+  it('bounds trace match lookup per token hash and returns the newest rows first', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-forensics-bounded-auth';
+    const packageId = 'pkg.creator.bounded';
+    const tokenHash = 'c'.repeat(64);
+    const matchLimit = 64;
+
+    await seedCertificateBillingCatalog(t, {
+      productId: 'plan-coupling-traceability',
+      capabilityKeys: ['coupling_traceability'],
+      capabilityKey: 'coupling_traceability',
+      featureFlags: {
+        coupling_traceability: true,
+      },
+      benefitMetadata: {
+        coupling_traceability: true,
+      },
+    });
+
+    const creatorProfileId = await seedCreatorProfile(t, {
+      authUserId,
+      ownerDiscordUserId: 'discord-creator-forensics-bounded',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('creator_billing_entitlements', {
+        workspaceKey: buildCreatorProfileWorkspaceKey(creatorProfileId),
+        authUserId,
+        creatorProfileId,
+        planKey: 'creator-suite-plus',
+        productId: 'plan-coupling-traceability',
+        status: 'active',
+        allowEnrollment: true,
+        allowSigning: true,
+        deviceCap: 5,
+        auditRetentionDays: 30,
+        supportTier: 'standard',
+        currentPeriodEnd: now + 86_400_000,
+        graceUntil: now + 3 * 86_400_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'Bounded Creator Bundle',
+        publisherId: 'publisher-forensics-bounded',
+        yucpUserId: authUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+
+      for (let index = 0; index < matchLimit + 1; index += 1) {
+        await ctx.db.insert('coupling_trace_records', {
+          authUserId,
+          packageId,
+          licenseSubject: index.toString(16).padStart(64, '0'),
+          assetPath: `Assets/Character/part-${index}.png`,
+          tokenHash,
+          tokenLength: 64,
+          machineFingerprintHash: 'c'.repeat(64),
+          projectIdHash: 'd'.repeat(64),
+          runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+          runtimePlaintextSha256: 'e'.repeat(64),
+          correlationId: `corr-forensics-bounded-${index}`,
+          createdAt: now + index,
+          provider: 'jinxxy',
+        });
+      }
+    });
+
+    const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
+      apiSecret: 'test-secret',
+      authUserId,
+      packageId,
+      tokenHashes: [tokenHash],
+    });
+
+    expect(result.matches).toHaveLength(matchLimit);
+    expect(result.matches[0]?.assetPath).toBe(`Assets/Character/part-${matchLimit}.png`);
+    expect(result.matches.at(-1)?.assetPath).toBe('Assets/Character/part-1.png');
+    expect(result.unmatchedTokenHashes).toEqual([]);
   });
 
   it('lists deduped trace candidates for the package owner with the traceability capability', async () => {

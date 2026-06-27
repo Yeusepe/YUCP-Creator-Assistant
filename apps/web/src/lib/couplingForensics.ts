@@ -9,6 +9,7 @@ export interface CouplingForensicsPackageSummary {
 
 export interface CouplingForensicsMatchSummary {
   matchId: string;
+  buyerMatchId?: string | null;
   assetPath: string;
   createdAt: number;
   runtimeArtifactVersion?: string | null;

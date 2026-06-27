@@ -192,6 +192,28 @@ describe('runCouplingAttribution', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects trailing-dot metadata attribution base URLs before sending requests', async () => {
+    const fetchMock = mock(async () => {
+      throw new Error('Attribution must not fetch trailing-dot metadata service URLs');
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(
+      runCouplingAttribution(
+        [
+          {
+            assetPath: 'Assets/Character/body.png',
+            assetType: 'png',
+            filePath: assetFixturePath,
+          },
+        ],
+        candidates,
+        { ...config, baseUrl: 'http://metadata.google.internal.' }
+      )
+    ).rejects.toThrow('Coupling service base URL host is not allowed');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects bracketed IPv6 metadata attribution base URLs before sending requests', async () => {
     const fetchMock = mock(async () => {
       throw new Error('Attribution must not fetch bracketed metadata service URLs');

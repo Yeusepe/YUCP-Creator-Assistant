@@ -153,7 +153,10 @@ function isDeniedMetadataHostname(hostname: string): boolean {
 }
 
 function normalizeUrlHostname(hostname: string): string {
-  const normalized = hostname.toLowerCase();
+  let normalized = hostname.toLowerCase();
+  while (normalized.endsWith('.')) {
+    normalized = normalized.slice(0, -1);
+  }
   if (normalized.startsWith('[') && normalized.endsWith(']')) {
     return normalized.slice(1, -1);
   }

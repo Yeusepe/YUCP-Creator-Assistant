@@ -288,12 +288,12 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     }
   }, [packageOptions, selectedPackageId]);
 
-  // Collect all matches across all matched assets, deduplicated by opaque match id.
+  // Collect all matches across all matched assets, deduplicated by opaque buyer/license id.
   const matchedBuyers = useMemo(() => {
     if (!lookupResult) return [];
     const seen = new Set<string>();
     const buyers: Array<{
-      matchId: string;
+      buyerMatchId: string;
       createdAt: number;
       runtimeArtifactVersion?: string | null;
       packFamily?: string | null;
@@ -309,10 +309,11 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
       for (const match of entry.matches) {
         const buyerDisplayLabel = getBuyerDisplayLabel(match);
         if (!buyerDisplayLabel) continue;
-        if (!seen.has(match.matchId)) {
-          seen.add(match.matchId);
+        const buyerMatchId = match.buyerMatchId?.trim() || match.matchId;
+        if (!seen.has(buyerMatchId)) {
+          seen.add(buyerMatchId);
           buyers.push({
-            matchId: match.matchId,
+            buyerMatchId,
             createdAt: match.createdAt,
             runtimeArtifactVersion: match.runtimeArtifactVersion,
             packFamily: match.packFamily,
@@ -744,7 +745,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                   />
                   <div className="space-y-3">
                     {matchedBuyers.map((buyer) => (
-                      <div key={buyer.matchId} className="fx-pane space-y-3 p-4">
+                      <div key={buyer.buyerMatchId} className="fx-pane space-y-3 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-foreground text-sm font-semibold">
                             {buyer.buyerDisplayLabel}

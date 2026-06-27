@@ -2591,6 +2591,7 @@ const coupling_trace_records = defineTable({
 })
   .index('by_auth_user_created', ['authUserId', 'createdAt'])
   .index('by_package_token', ['packageId', 'tokenHash'])
+  .index('by_auth_package_token_created', ['authUserId', 'packageId', 'tokenHash', 'createdAt'])
   .index('by_correlation', ['correlationId'])
   .index('by_grant_id', ['grantId']);
 

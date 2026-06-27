@@ -597,6 +597,7 @@ describe('dashboard forensics route', () => {
           matches: [
             {
               matchId: 'match-buyer-one',
+              buyerMatchId: 'buyer-license-one',
               assetPath: 'Assets/Character/body.png',
               createdAt: 1_744_317_600_000,
               runtimeArtifactVersion: 'sha256-b8c6ba93829b',
@@ -637,7 +638,83 @@ describe('dashboard forensics route', () => {
     expect(screen.getByText('BuyerAccount')).toBeInTheDocument();
     expect(screen.getByText('jinxxy:abcd1234')).toBeInTheDocument();
     expect(screen.queryByText('customer-123')).not.toBeInTheDocument();
-    expect(screen.queryByText('11111111-2222-3333-4444-555555555555')).not.toBeInTheDocument();
+    expect(screen.queryByText('test-placeholder-forensics-license-key')).not.toBeInTheDocument();
+  });
+
+  it('deduplicates buyer cards across multiple asset matches for the same buyer', async () => {
+    runCouplingForensicsLookupMock.mockResolvedValue({
+      packageId: 'pkg.creator.bundle',
+      lookupStatus: 'attributed',
+      message: 'Authorized matches found',
+      candidateAssetCount: 2,
+      decodedAssetCount: 2,
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          decoderKind: 'png',
+          tokenLength: 64,
+          matched: true,
+          matches: [
+            {
+              matchId: 'match-body',
+              buyerMatchId: 'buyer-license-one',
+              assetPath: 'Assets/Character/body.png',
+              createdAt: 1_744_317_600_000,
+              runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+              provider: 'jinxxy',
+              buyerSubjectDisplayName: 'Buyer One',
+              licenseMasked: 'jinxxy:abcd1234',
+            },
+          ],
+        },
+        {
+          assetPath: 'Assets/Character/head.png',
+          assetType: 'png',
+          decoderKind: 'png',
+          tokenLength: 64,
+          matched: true,
+          matches: [
+            {
+              matchId: 'match-head',
+              buyerMatchId: 'buyer-license-one',
+              assetPath: 'Assets/Character/head.png',
+              createdAt: 1_744_317_700_000,
+              runtimeArtifactVersion: 'sha256-b8c6ba93829b',
+              provider: 'jinxxy',
+              buyerSubjectDisplayName: 'Buyer One',
+              licenseMasked: 'jinxxy:abcd1234',
+            },
+          ],
+        },
+      ],
+    });
+
+    const Component = CouplingForensicsPanel;
+    if (!Component) {
+      throw new Error('Forensics route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    const upload = new File(['archive'], 'leak.zip', { type: 'application/zip' });
+    fireEvent.change(fileInput, { target: { files: [upload] } });
+
+    await waitFor(() => expect(screen.getByText('leak.zip')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /find buyer/i }));
+
+    await waitFor(() => expect(screen.getByText('Buyer identified')).toBeInTheDocument());
+
+    expect(screen.queryByText('2 buyers identified')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Buyer One')).toHaveLength(1);
   });
 
   it('renders the human package name instead of a raw package id in the selector', async () => {
