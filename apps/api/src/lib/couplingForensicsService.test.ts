@@ -220,7 +220,11 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    for (const baseUrl of ['http://[fe80::1]', 'http://[::ffff:169.254.169.254]']) {
+    for (const baseUrl of [
+      'http://[fe80::1]',
+      'http://[::ffff:169.254.169.254]',
+      'http://[fd00:ec2::254]',
+    ]) {
       await expect(
         runCouplingAttribution(
           [

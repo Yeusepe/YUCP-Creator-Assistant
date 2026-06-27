@@ -175,20 +175,24 @@ export async function handleForensicsLookup(
 
     const matchedEntries = payload.results.filter((entry) => entry.matched);
     const uniqueBuyerMatches = new Set<string>();
+    const shownBuyerMatches = new Set<string>();
     const detailLines: string[] = [];
 
-    for (const entry of matchedEntries.slice(0, 5)) {
-      const primaryMatch = entry.matches[0];
-      if (!primaryMatch) {
-        continue;
+    for (const entry of matchedEntries) {
+      for (const match of entry.matches) {
+        const matchIdentity = getForensicsMatchIdentity(match);
+        uniqueBuyerMatches.add(matchIdentity);
+        if (detailLines.length >= 5 || shownBuyerMatches.has(matchIdentity)) {
+          continue;
+        }
+        shownBuyerMatches.add(matchIdentity);
+        detailLines.push(
+          `- \`${entry.assetPath}\` -> \`${formatForensicsMatchLabel(match)}\` (${formatCreatedAt(match.createdAt)})`
+        );
       }
-      uniqueBuyerMatches.add(getForensicsMatchIdentity(primaryMatch));
-      detailLines.push(
-        `- \`${entry.assetPath}\` -> \`${formatForensicsMatchLabel(primaryMatch)}\` (${formatCreatedAt(primaryMatch.createdAt)})`
-      );
     }
 
-    const remainingMatchCount = Math.max(0, matchedEntries.length - detailLines.length);
+    const remainingBuyerCount = Math.max(0, uniqueBuyerMatches.size - shownBuyerMatches.size);
 
     const content = [
       matchedEntries.length > 0
@@ -203,8 +207,8 @@ export async function handleForensicsLookup(
       matchedEntries.length > 0 ? `Matched buyers: ${uniqueBuyerMatches.size}` : payload.message,
       detailLines.length > 0 ? '' : null,
       ...(detailLines.length > 0 ? ['Top matches:', ...detailLines] : []),
-      remainingMatchCount > 0
-        ? `Use the dashboard for the remaining ${remainingMatchCount} matched asset${remainingMatchCount === 1 ? '' : 's'}${dashboardUrl ? `: ${dashboardUrl}` : '.'}`
+      remainingBuyerCount > 0
+        ? `Use the dashboard for the remaining ${remainingBuyerCount} matched buyer${remainingBuyerCount === 1 ? '' : 's'}${dashboardUrl ? `: ${dashboardUrl}` : '.'}`
         : dashboardUrl
           ? `Dashboard: ${dashboardUrl}`
           : null,

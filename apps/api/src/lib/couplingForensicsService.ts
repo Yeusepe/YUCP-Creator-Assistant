@@ -71,6 +71,7 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
+  'fd00:ec2::254',
   'metadata.google.internal',
   'metadata.azure.internal',
 ]);
