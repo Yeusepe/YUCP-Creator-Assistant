@@ -161,7 +161,7 @@ describe('forensics command', () => {
       }),
       {
         contentType: 'application/zip',
-        name: 'upload.zip',
+        name: 'upload\npwned-file.zip',
         size: 128,
         url: 'https://cdn.example.test/upload.zip',
       }
@@ -181,14 +181,14 @@ describe('forensics command', () => {
       if (url === 'https://api.example.test/api/forensics/lookup') {
         return new Response(
           JSON.stringify({
-            packageId: 'creator.package<@123>',
+            packageId: 'creator.package<@123>\npwned-package',
             lookupStatus: 'attributed',
             message: 'Matched stored coupling traces',
             candidateAssetCount: 1,
             decodedAssetCount: 1,
             results: [
               {
-                assetPath: 'Assets/Character/<@123>body.png',
+                assetPath: 'Assets/Character/<@123>body.png\r\npwned-asset',
                 assetType: 'png',
                 decoderKind: 'png',
                 tokenLength: 8,
@@ -198,11 +198,11 @@ describe('forensics command', () => {
                   {
                     matchId: 'a'.repeat(64),
                     buyerMatchId: 'b'.repeat(64),
-                    assetPath: 'Assets/Character/<@123>body.png',
+                    assetPath: 'Assets/Character/<@123>body.png\r\npwned-asset',
                     createdAt: 1_739_999_999_000,
                     runtimeArtifactVersion: '2026.03.25.153000',
                     licenseMasked: 'jinxxy · ffffffff',
-                    buyerProviderUsername: '<@123> **BuyerAccount** @everyone',
+                    buyerProviderUsername: '<@123> **BuyerAccount**\r\npwned-buyer @everyone',
                   },
                 ],
               },
@@ -232,6 +232,11 @@ describe('forensics command', () => {
     expect(content).not.toContain('<@123>');
     expect(content).not.toContain('@everyone');
     expect(content).not.toContain('**BuyerAccount**');
+    expect(content).not.toContain('\r');
+    expect(content).not.toContain('\npwned-package');
+    expect(content).not.toContain('\npwned-file');
+    expect(content).not.toContain('\npwned-asset');
+    expect(content).not.toContain('\npwned-buyer');
     expect(content).not.toContain('undefined');
   });
 

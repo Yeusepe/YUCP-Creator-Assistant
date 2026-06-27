@@ -58,7 +58,7 @@ function sanitizeUploadFileName(input: string): string {
 }
 
 function escapeDiscordText(input: string): string {
-  return escapeMarkdown(input.replace(/`/g, "'")).replace(/@/g, '@\u200b');
+  return escapeMarkdown(input.replace(/[\r\n]+/g, ' ').replace(/`/g, "'")).replace(/@/g, '@\u200b');
 }
 
 function formatDiscordInlineCode(input: string): string {
