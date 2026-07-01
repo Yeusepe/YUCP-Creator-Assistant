@@ -1172,7 +1172,8 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toMatchObject({
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
       creatorName: 'Mapache',
       creatorRepoRef: 'mapache',
       productRef: 'song-thing',
@@ -1184,15 +1185,6 @@ describe('backstage repo routes', () => {
         displayName: 'Song Thing Package',
         latestPublishedVersion: '1.2.3',
         latestReleaseChannel: 'stable',
-        aliasContract: {
-          kind: 'alias-v1',
-          aliasId: 'song-thing',
-          installStrategy: 'server-authorized',
-          importerPackage: 'com.yucp.importer',
-          minImporterVersion: '1.4.0',
-          catalogProductIds: ['catalog_1'],
-          channel: 'stable',
-        },
         importerDelivery: {
           packageInstallStrategy: 'server-authorized',
           repoCatalogDeliveryMode: 'repo-token-vpm-v1',
@@ -1205,15 +1197,6 @@ describe('backstage repo routes', () => {
           displayName: 'Song Thing Package',
           latestPublishedVersion: '1.2.3',
           latestReleaseChannel: 'stable',
-          aliasContract: {
-            kind: 'alias-v1',
-            aliasId: 'song-thing',
-            installStrategy: 'server-authorized',
-            importerPackage: 'com.yucp.importer',
-            minImporterVersion: '1.4.0',
-            catalogProductIds: ['catalog_1'],
-            channel: 'stable',
-          },
           importerDelivery: {
             packageInstallStrategy: 'server-authorized',
             repoCatalogDeliveryMode: 'repo-token-vpm-v1',
@@ -1222,6 +1205,8 @@ describe('backstage repo routes', () => {
         },
       ],
     });
+    expect(payload.primaryPackage).not.toHaveProperty('aliasContract');
+    expect(payload.packageSummaries[0]).not.toHaveProperty('aliasContract');
   });
 
   it('selects the buyer access primary package by primaryPackageId', async () => {
@@ -1505,15 +1490,6 @@ describe('backstage repo routes', () => {
               sourcePath: 'Assets/YUCP/icon.png',
             },
           },
-          aliasContract: {
-            kind: 'alias-v1',
-            aliasId: 'song-thing',
-            installStrategy: 'server-authorized',
-            importerPackage: 'com.yucp.importer',
-            minImporterVersion: '1.4.0',
-            catalogProductIds: ['catalog_1'],
-            channel: 'stable',
-          },
           importerDelivery: {
             packageInstallStrategy: 'server-authorized',
             repoCatalogDeliveryMode: 'repo-token-vpm-v1',
@@ -1525,6 +1501,7 @@ describe('backstage repo routes', () => {
     expect(typeof payload.expiresAt).toBe('number');
     expect(payload).not.toHaveProperty('repoToken');
     expect(payload).not.toHaveProperty('addRepoUrl');
+    expect(payload.packages[0]).not.toHaveProperty('aliasContract');
   });
 
   it('reports CDNgine media authorization failures as temporary delivery outages', async () => {
@@ -2513,7 +2490,7 @@ describe('backstage repo routes', () => {
         case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
           expect(args).toEqual({
             apiSecret: 'convex-secret',
-            catalogProductId: 'song-thing',
+            catalogProductId: 'legacy_catalog_1',
             actor: {
               payload: JSON.stringify({
                 authUserId: 'auth-user-1',
@@ -2614,7 +2591,7 @@ describe('backstage repo routes', () => {
     };
 
     const response = await routes.handleRequest(
-      new Request('https://api.test/api/backstage/access/products/song-thing/install-plan', {
+      new Request('https://api.test/api/backstage/access/products/legacy_catalog_1/install-plan', {
         method: 'POST',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -2644,6 +2621,7 @@ describe('backstage repo routes', () => {
     expect(seenQueryRefs).toContain('packageRegistry.getBuyerAccessContextByCatalogProductId');
     expect(seenQueryRefs).toContain('backstageRepos.resolveRawPackageDownloadForApi');
     expect(seenQueryRefs).not.toContain('backstageRepos.resolvePackageDownloadForApi');
+    expect(payload.packages[0]).not.toHaveProperty('aliasContract');
   });
 
   it('uses the raw package source for alias install package downloads', async () => {
@@ -2732,7 +2710,7 @@ describe('backstage repo routes', () => {
           packageSha256: 'b'.repeat(64),
           sourceKind: 'unitypackage',
           downloadAuthorizationUrl:
-            'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
+            'https://api.test/api/backstage/access/products/song-thing/packages/com.yucp.song/download',
         },
       ],
     });

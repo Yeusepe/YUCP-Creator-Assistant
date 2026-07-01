@@ -82,6 +82,7 @@ function createWrapper() {
 describe('verify purchase route', () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   beforeEach(() => {
@@ -575,6 +576,7 @@ describe('verify purchase route', () => {
   });
 
   it('keeps Unity callback verification separate from buyer VCC handoff', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     mockUseSearch.mockReturnValue({
       intent: 'intent_verified_vcc',
       connected: undefined,
@@ -626,6 +628,7 @@ describe('verify purchase route', () => {
     expect(countdown.closest('p')).toHaveAttribute('aria-live', 'off');
     fireEvent.click(screen.getByRole('button', { name: /cancel auto-return/i }));
     expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
+    vi.advanceTimersByTime(5_000);
     await waitFor(() =>
       expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
     );

@@ -108,6 +108,14 @@ type BuyerAccessCatalogProduct = {
   status: 'active';
 };
 
+type PublicBuyerAccessPackageSummary = {
+  packageId: string;
+  displayName?: string;
+  latestPublishedVersion?: string;
+  latestReleaseChannel?: string;
+  importerDelivery?: ReturnType<typeof buildBackstageImporterDelivery>;
+};
+
 type BackstagePackageDownloadRecord = {
   deliveryArtifactId?: Id<'delivery_release_artifacts'>;
   deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
@@ -977,7 +985,7 @@ async function issueAuthorizedAliasInstallPlan(
       planConvex,
       plan,
       subjectId,
-      productRef,
+      resolved.access.canonicalSlug ?? resolved.access.providerProductRef,
       String(resolved.access.catalogProductId)
     );
   } catch (error) {
@@ -1067,7 +1075,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       planConvex,
       plan,
       subjectId,
-      catalogProductId,
+      productRef,
       String(product.catalogProductId),
       machineFingerprint
     );
@@ -1179,7 +1187,6 @@ async function buildAuthorizedAliasInstallPlanResponse(
             media: pkg.media,
             packageId: pkg.packageId,
           }),
-          aliasContract: pkg.aliasContract,
           importerDelivery,
         };
       })
@@ -1549,10 +1556,7 @@ async function getBuyerAccessInfo(
     return errorResponse('Product not found', 404);
   }
 
-  const packageSummaries = resolved.access.packageSummaries.map((summary) => ({
-    ...summary,
-    importerDelivery: buildBackstageImporterDelivery(summary.aliasContract),
-  }));
+  const packageSummaries = resolved.access.packageSummaries.map(toPublicBuyerAccessPackageSummary);
   const primaryPackage =
     packageSummaries.find((summary) => summary.packageId === resolved.access.primaryPackageId) ??
     null;
@@ -1572,6 +1576,18 @@ async function getBuyerAccessInfo(
     packageSummaries,
     ready: Boolean(resolved.access.primaryPackageId),
   });
+}
+
+function toPublicBuyerAccessPackageSummary(
+  summary: PublicBackstageAccessRecord['packageSummaries'][number]
+): PublicBuyerAccessPackageSummary {
+  return {
+    packageId: summary.packageId,
+    displayName: summary.displayName,
+    latestPublishedVersion: summary.latestPublishedVersion,
+    latestReleaseChannel: summary.latestReleaseChannel,
+    importerDelivery: buildBackstageImporterDelivery(summary.aliasContract),
+  };
 }
 
 async function bootstrapBuyerVerificationIntent(

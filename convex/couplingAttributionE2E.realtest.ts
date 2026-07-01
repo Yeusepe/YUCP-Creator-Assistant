@@ -75,6 +75,8 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
       expect(init?.method).toBe('POST');
       const headers = new Headers(init?.headers);
       expect(headers.get('authorization')).toBe(`Bearer ${process.env.COUPLING_SERVICE_SECRET}`);
+      expect(headers.get('content-type')).toBe('application/json');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
       const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
       return new Response(
         JSON.stringify({ seeds: (body.assetPaths ?? []).map((p) => ({ assetPath: p, seedHex: SEED_HEX })) }),
@@ -243,6 +245,12 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
     expect(candidateResult.capabilityEnabled).toBe(true);
     expect(candidateResult.packageOwned).toBe(true);
     expect(candidateResult.candidates).toContainEqual({ assetPath, licenseSubject, tokenHash });
+    const hasExpectedCandidate = candidateResult.candidates.some(
+      (candidate) =>
+        candidate.assetPath === assetPath &&
+        candidate.licenseSubject === licenseSubject &&
+        candidate.tokenHash === tokenHash
+    );
 
     const lookup = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
       apiSecret: 'test-secret',
@@ -268,9 +276,7 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
         JSON.stringify(
           {
             assetPath,
-            licenseSubject,
-            tokenHash,
-            candidate: { assetPath, licenseSubject, tokenHash },
+            candidateMatched: hasExpectedCandidate,
             buyer: {
               provider: match?.provider,
               hasProviderUserId: Boolean(match?.buyerProviderUserId),

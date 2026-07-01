@@ -35,13 +35,14 @@ export const Route = createLazyFileRoute('/_authenticated/verify/purchase')({
   component: VerifyPurchasePage,
 });
 
+const LOOPBACK_HOSTNAMES: readonly string[] = ['127.0.0.1', 'localhost', '[::1]'];
+
 function getSafeReturnUrl(value: string | null | undefined): string | null {
   if (!value || typeof window === 'undefined') return null;
   try {
     const url = new URL(value, window.location.origin);
     if (url.protocol === 'https:') return url.toString();
-    const isLoopback =
-      url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    const isLoopback = url.protocol === 'http:' && LOOPBACK_HOSTNAMES.includes(url.hostname);
     return isLoopback ? url.toString() : null;
   } catch {
     return null;
@@ -55,7 +56,7 @@ function isLoopbackReturnUrl(value: string | null): boolean {
 
   try {
     const url = new URL(value);
-    return ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    return LOOPBACK_HOSTNAMES.includes(url.hostname);
   } catch {
     return false;
   }
