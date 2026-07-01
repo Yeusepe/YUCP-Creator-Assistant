@@ -261,7 +261,7 @@ describe('backstage repo routes', () => {
             productId: 'product_1',
             provider: 'gumroad',
             providerProductRef: 'song-thing',
-            canonicalSlug: 'song-thing',
+            canonicalSlug: '   ',
             displayName: 'Song Thing',
             thumbnailUrl: 'https://cdn.test/song.png',
             primaryPackageId: 'com.yucp.song',
@@ -1206,7 +1206,9 @@ describe('backstage repo routes', () => {
       ],
     });
     expect(payload.primaryPackage).not.toHaveProperty('aliasContract');
-    expect(payload.packageSummaries[0]).not.toHaveProperty('aliasContract');
+    for (const summary of payload.packageSummaries) {
+      expect(summary).not.toHaveProperty('aliasContract');
+    }
   });
 
   it('selects the buyer access primary package by primaryPackageId', async () => {
@@ -1501,7 +1503,9 @@ describe('backstage repo routes', () => {
     expect(typeof payload.expiresAt).toBe('number');
     expect(payload).not.toHaveProperty('repoToken');
     expect(payload).not.toHaveProperty('addRepoUrl');
-    expect(payload.packages[0]).not.toHaveProperty('aliasContract');
+    for (const pkg of payload.packages) {
+      expect(pkg).not.toHaveProperty('aliasContract');
+    }
   });
 
   it('reports CDNgine media authorization failures as temporary delivery outages', async () => {
@@ -2621,7 +2625,9 @@ describe('backstage repo routes', () => {
     expect(seenQueryRefs).toContain('packageRegistry.getBuyerAccessContextByCatalogProductId');
     expect(seenQueryRefs).toContain('backstageRepos.resolveRawPackageDownloadForApi');
     expect(seenQueryRefs).not.toContain('backstageRepos.resolvePackageDownloadForApi');
-    expect(payload.packages[0]).not.toHaveProperty('aliasContract');
+    for (const pkg of payload.packages) {
+      expect(pkg).not.toHaveProperty('aliasContract');
+    }
   });
 
   it('uses the raw package source for alias install package downloads', async () => {

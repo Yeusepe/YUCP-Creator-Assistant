@@ -116,6 +116,13 @@ type PublicBuyerAccessPackageSummary = {
   importerDelivery?: ReturnType<typeof buildBackstageImporterDelivery>;
 };
 
+function resolvePublicProductRef(input: {
+  canonicalSlug?: string;
+  providerProductRef?: string;
+}): string | null {
+  return input.canonicalSlug?.trim() || input.providerProductRef?.trim() || null;
+}
+
 type BackstagePackageDownloadRecord = {
   deliveryArtifactId?: Id<'delivery_release_artifacts'>;
   deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
@@ -980,12 +987,17 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
+    const publicCatalogProductRef = resolvePublicProductRef(resolved.access);
+    if (!publicCatalogProductRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
       planConvex,
       plan,
       subjectId,
-      resolved.access.canonicalSlug ?? resolved.access.providerProductRef,
+      publicCatalogProductRef,
       String(resolved.access.catalogProductId)
     );
   } catch (error) {
@@ -1051,7 +1063,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
     }
 
     const creatorRef = product.creatorAuthUserId?.trim();
-    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    const productRef = resolvePublicProductRef(product);
     if (!creatorRef || !productRef) {
       throw new Error('Alias product access context was incomplete.');
     }
@@ -1113,7 +1125,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
     expiresAt: Date.now() + BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS,
     creatorName: creatorRepoIdentity.creatorName,
     creatorRepoRef: creatorRepoIdentity.creatorRepoRef,
-    productRef: plan.canonicalSlug ?? plan.providerProductRef,
+    productRef: publicCatalogProductRef,
     title: plan.displayName ?? plan.packages[0]?.displayName ?? plan.providerProductRef,
     thumbnailUrl: plan.thumbnailUrl,
     repositoryUrl,
@@ -1556,6 +1568,11 @@ async function getBuyerAccessInfo(
     return errorResponse('Product not found', 404);
   }
 
+  const publicProductRef = resolvePublicProductRef(resolved.access);
+  if (!publicProductRef) {
+    throw new Error('Public product access context was incomplete.');
+  }
+
   const packageSummaries = resolved.access.packageSummaries.map(toPublicBuyerAccessPackageSummary);
   const primaryPackage =
     packageSummaries.find((summary) => summary.packageId === resolved.access.primaryPackageId) ??
@@ -1564,7 +1581,7 @@ async function getBuyerAccessInfo(
   return jsonResponse({
     creatorName: resolved.creatorRepoIdentity.creatorName,
     creatorRepoRef: resolved.creatorRepoIdentity.creatorRepoRef,
-    productRef: resolved.access.canonicalSlug ?? resolved.access.providerProductRef,
+    productRef: publicProductRef,
     title:
       resolved.access.displayName ??
       resolved.access.primaryPackageName ??
