@@ -2918,15 +2918,16 @@ async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
     .query('product_catalog')
     .withIndex('by_slug', (q) => q.eq('canonicalSlug', trimmed))
     .take(2);
-  if (bySlug.length === 1) {
-    return bySlug[0];
-  }
 
   const byRef = await ctx.db
     .query('product_catalog')
     .withIndex('by_provider_product_ref', (q) => q.eq('providerProductRef', trimmed))
     .take(2);
-  return byRef.length === 1 ? byRef[0] : null;
+  const candidates = new Map<string, (typeof bySlug)[number]>();
+  for (const candidate of [...bySlug, ...byRef]) {
+    candidates.set(String(candidate._id), candidate);
+  }
+  return candidates.size === 1 ? Array.from(candidates.values())[0] ?? null : null;
 }
 
 export const getBuyerAccessContextByCatalogProductId = query({

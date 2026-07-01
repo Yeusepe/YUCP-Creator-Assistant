@@ -13,7 +13,7 @@ import {
 } from './testHelpers';
 
 // Cross-layer attribution e2e, convex leg: runs the real issueCouplingJob, then resolves the trace
-// back to a buyer identity, and emits the minted token/seed/candidate to E2E_OUT_JSON for the Bun leg.
+// back to a buyer identity. E2E_OUT_JSON emits only non-secret handoff metadata for the Bun leg.
 const issuerBaseUrl = 'https://coupling-e2e.test.example';
 const packageId = 'pkg.coupling.e2e';
 const publisherId = 'publisher-coupling-e2e';
@@ -28,6 +28,18 @@ const runtimePlaintextSha256 = 'b'.repeat(64);
 
 const SEED_HEX = (process.env.E2E_SEED_HEX ?? '7'.repeat(64)).toLowerCase();
 const OUT_JSON = process.env.E2E_OUT_JSON ?? '';
+const TEST_ENV_KEYS = [
+  'CONVEX_API_SECRET',
+  'ENCRYPTION_SECRET',
+  'API_BASE_URL',
+  'YUCP_ROOT_PRIVATE_KEY',
+  'YUCP_ROOT_PUBLIC_KEY',
+  'YUCP_ROOT_KEY_ID',
+  'YUCP_COUPLING_SERVICE_BASE_URL',
+  'COUPLING_SERVICE_SECRET',
+] as const;
+
+type TestEnvKey = (typeof TEST_ENV_KEYS)[number];
 
 async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
@@ -37,9 +49,13 @@ async function sha256Hex(input: string): Promise<string> {
 describe('coupling attribution cross-layer e2e (convex leg)', () => {
   let rootPrivateKey = '';
   let originalFetch: typeof fetch;
+  let originalEnv: Partial<Record<TestEnvKey, string | undefined>> = {};
 
   beforeEach(async () => {
     originalFetch = globalThis.fetch;
+    originalEnv = Object.fromEntries(TEST_ENV_KEYS.map((key) => [key, process.env[key]])) as Partial<
+      Record<TestEnvKey, string | undefined>
+    >;
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.ENCRYPTION_SECRET = 'test-encryption-secret-for-coupling-e2e-flow';
     process.env.API_BASE_URL = issuerBaseUrl;
@@ -56,6 +72,9 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
     process.env.COUPLING_SERVICE_SECRET = 'test-coupling-relay-token';
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
+      expect(init?.method).toBe('POST');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('authorization')).toBe(`Bearer ${process.env.COUPLING_SERVICE_SECRET}`);
       const body = JSON.parse(String(init?.body ?? '{}')) as { assetPaths?: string[] };
       return new Response(
         JSON.stringify({ seeds: (body.assetPaths ?? []).map((p) => ({ assetPath: p, seedHex: SEED_HEX })) }),
@@ -67,6 +86,15 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
   afterEach(() => {
     setPinnedYucpRootsForTests(null);
     globalThis.fetch = originalFetch;
+    for (const key of TEST_ENV_KEYS) {
+      const value = originalEnv[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    originalEnv = {};
   });
 
   async function mintLicenseToken() {
@@ -241,15 +269,13 @@ describe('coupling attribution cross-layer e2e (convex leg)', () => {
           {
             assetPath,
             licenseSubject,
-            seedHex: file.seedHex,
-            tokenHex: file.tokenHex,
             tokenHash,
             candidate: { assetPath, licenseSubject, tokenHash },
             buyer: {
               provider: match?.provider,
-              buyerProviderUserId: match?.buyerProviderUserId,
-              buyerSubjectDisplayName: match?.buyerSubjectDisplayName,
-              buyerSubjectDiscordUserId: match?.buyerSubjectDiscordUserId,
+              hasProviderUserId: Boolean(match?.buyerProviderUserId),
+              hasSubjectDisplayName: Boolean(match?.buyerSubjectDisplayName),
+              hasSubjectDiscordUserId: Boolean(match?.buyerSubjectDiscordUserId),
             },
           },
           null,

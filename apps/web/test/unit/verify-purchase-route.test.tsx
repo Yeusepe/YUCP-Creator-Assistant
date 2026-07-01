@@ -622,6 +622,53 @@ describe('verify purchase route', () => {
     expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Mapache repo is now ready/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/manual setup and troubleshooting/i)).not.toBeInTheDocument();
+    const countdown = screen.getByText(/returning to unity in/i);
+    expect(countdown.closest('p')).toHaveAttribute('aria-live', 'off');
+    fireEvent.click(screen.getByRole('button', { name: /cancel auto-return/i }));
+    expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
+    );
+  });
+
+  it('does not auto-return to external HTTPS callbacks', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_external_callback',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_external_callback',
+      packageId: 'pkg-verified-external',
+      packageName: 'Verified External Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_external_callback',
+      returnUrl: 'https://external.example/callback',
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: 'external-grant-token',
+      grantAvailable: true,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByRole('link', { name: /return to unity/i })).toHaveAttribute(
+      'href',
+      'https://external.example/callback?intent_id=intent_verified_external_callback&grant=external-grant-token'
+    );
+    expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /cancel auto-return/i })).not.toBeInTheDocument();
     await waitFor(() =>
       expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
     );

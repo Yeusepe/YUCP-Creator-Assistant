@@ -42,7 +42,7 @@
 
 /* Tall verification cards stay scrollable from the top instead of flex-centering off-screen. */
 .vp-wrapper.vp-wrapper--verify-scroll {
-  /* ponytail: safe center — centers short cards, falls back to start only when the tall pending card would overflow */
+  /* ponytail: safe center, centers short cards, falls back to start only when the tall pending card would overflow */
   align-items: safe center;
   justify-content: center;
   padding-top: max(1rem, env(safe-area-inset-top, 0px));
@@ -2101,10 +2101,48 @@
 }
 
 .vp-countdown-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.35);
   text-align: center;
   margin: 0.875rem 0 2rem;
+}
+
+.dark .vp-countdown-text {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.vp-countdown-cancel {
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.72);
+  padding: 0.2rem 0.55rem;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.dark .vp-countdown-cancel {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.vp-countdown-cancel:hover {
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.dark .vp-countdown-cancel:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
 /* === SVG path animations (success checkmark) === */

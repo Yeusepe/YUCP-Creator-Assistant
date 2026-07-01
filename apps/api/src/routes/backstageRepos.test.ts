@@ -1483,7 +1483,7 @@ describe('backstage repo routes', () => {
           zipSha256: 'a'.repeat(64),
           packageSha256: 'b'.repeat(64),
           downloadAuthorizationUrl:
-            'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
+            'https://api.test/api/backstage/access/products/song-thing/packages/com.yucp.song/download',
           sourceKind: 'unitypackage',
           media: {
             banner: {
@@ -1491,7 +1491,7 @@ describe('backstage repo routes', () => {
               byteSize: 12,
               contentType: 'image/webp',
               downloadUrl:
-                'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/banner',
+                'https://api.test/api/backstage/access/products/song-thing/packages/com.yucp.song/media/banner',
               sha256: 'c'.repeat(64),
               sourcePath: 'Assets/YUCP/banner.webp',
             },
@@ -1500,7 +1500,7 @@ describe('backstage repo routes', () => {
               byteSize: 10,
               contentType: 'image/png',
               downloadUrl:
-                'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
+                'https://api.test/api/backstage/access/products/song-thing/packages/com.yucp.song/media/icon',
               sha256: 'd'.repeat(64),
               sourcePath: 'Assets/YUCP/icon.png',
             },
@@ -2503,7 +2503,7 @@ describe('backstage repo routes', () => {
     ]);
   });
 
-  it('issues a catalog-product alias install plan without using the creator-owned product API', async () => {
+  it('keeps stable public product refs in catalog-product alias install plan URLs', async () => {
     const seenQueryRefs: unknown[] = [];
     queryImpl = async (ref: unknown, args?: unknown) => {
       seenQueryRefs.push(ref);
@@ -2513,7 +2513,7 @@ describe('backstage repo routes', () => {
         case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
           expect(args).toEqual({
             apiSecret: 'convex-secret',
-            catalogProductId: 'catalog_1',
+            catalogProductId: 'song-thing',
             actor: {
               payload: JSON.stringify({
                 authUserId: 'auth-user-1',
@@ -2524,7 +2524,7 @@ describe('backstage repo routes', () => {
             },
           });
           return {
-            catalogProductId: 'catalog_1',
+            catalogProductId: 'internal_catalog_1',
             creatorAuthUserId: 'auth-user-1',
             productId: 'product_1',
             provider: 'gumroad',
@@ -2614,7 +2614,7 @@ describe('backstage repo routes', () => {
     };
 
     const response = await routes.handleRequest(
-      new Request('https://api.test/api/backstage/access/products/catalog_1/install-plan', {
+      new Request('https://api.test/api/backstage/access/products/song-thing/install-plan', {
         method: 'POST',
         headers: {
           authorization: 'Bearer oauth-token',
@@ -2631,6 +2631,8 @@ describe('backstage repo routes', () => {
       packages: [
         {
           packageId: 'com.yucp.song',
+          downloadAuthorizationUrl:
+            'https://api.test/api/backstage/access/products/song-thing/packages/com.yucp.song/download',
           importerDelivery: {
             packageInstallStrategy: 'server-authorized',
             repoCatalogDeliveryMode: 'repo-token-vpm-v1',

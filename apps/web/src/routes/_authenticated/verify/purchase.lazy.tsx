@@ -48,6 +48,19 @@ function getSafeReturnUrl(value: string | null | undefined): string | null {
   }
 }
 
+function isLoopbackReturnUrl(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function buildReturnUrl(intent: UserVerificationIntent): string | null {
   const base = getSafeReturnUrl(intent.returnUrl);
   if (!base || !intent.grantToken) return base;
@@ -742,19 +755,35 @@ const AUTO_RETURN_SECONDS = 5;
 /** Counts down then sends the browser back to Unity. Only rendered on the plain "Return to Unity" success path. */
 function AutoReturnNotice({ returnUrl }: { returnUrl: string }) {
   const [seconds, setSeconds] = useState(AUTO_RETURN_SECONDS);
+  const [cancelled, setCancelled] = useState(false);
 
   useEffect(() => {
+    if (cancelled) {
+      return;
+    }
     if (seconds <= 0) {
       window.location.href = returnUrl;
       return;
     }
     const timer = setTimeout(() => setSeconds((s) => s - 1), 1000);
     return () => clearTimeout(timer);
-  }, [seconds, returnUrl]);
+  }, [cancelled, seconds, returnUrl]);
+
+  if (cancelled) {
+    return null;
+  }
 
   return (
-    <p className="vp-countdown-text" style={{ marginBottom: 0 }} aria-live="polite">
-      Returning to Unity in {seconds}s...
+    <p className="vp-countdown-text" style={{ marginBottom: 0 }} aria-live="off">
+      <span>Returning to Unity in {seconds}s...</span>
+      <button
+        type="button"
+        className="vp-countdown-cancel"
+        aria-label="Cancel auto-return"
+        onClick={() => setCancelled(true)}
+      >
+        Cancel
+      </button>
     </p>
   );
 }
@@ -850,6 +879,10 @@ function VerifyPurchasePage() {
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
   const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
+  const shouldAutoReturnToUnity = useMemo(
+    () => Boolean(returnToUrl && !returnsToBuyerAccess && isLoopbackReturnUrl(returnToUrl)),
+    [returnToUrl, returnsToBuyerAccess]
+  );
   const buyerRepoAccessTarget = useMemo(
     () => parseBuyerRepoAccessTarget(returnToUrl),
     [returnToUrl]
@@ -1158,7 +1191,7 @@ function VerifyPurchasePage() {
             <a href={returnToUrl} className="vp-primary-btn">
               {returnsToBuyerAccess ? 'Continue' : 'Return to Unity'}
             </a>
-            {returnsToBuyerAccess ? null : <AutoReturnNotice returnUrl={returnToUrl} />}
+            {shouldAutoReturnToUnity ? <AutoReturnNotice returnUrl={returnToUrl} /> : null}
           </div>
         ) : null}
 

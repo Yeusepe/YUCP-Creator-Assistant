@@ -977,6 +977,7 @@ async function issueAuthorizedAliasInstallPlan(
       planConvex,
       plan,
       subjectId,
+      productRef,
       String(resolved.access.catalogProductId)
     );
   } catch (error) {
@@ -1002,7 +1003,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 
   // Optional machine fingerprint: when present, the install plan mints a machine-bound
   // license token per package so the client can apply per-buyer coupling. Absent/malformed
-  // body is non-fatal — the plan is still issued, just without coupling tokens.
+  // body is non-fatal, the plan is still issued, just without coupling tokens.
   let machineFingerprint: string | null = null;
   try {
     const rawBody = await readRequestTextWithLimit(request, 4096);
@@ -1066,6 +1067,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       planConvex,
       plan,
       subjectId,
+      catalogProductId,
       String(product.catalogProductId),
       machineFingerprint
     );
@@ -1084,7 +1086,8 @@ async function buildAuthorizedAliasInstallPlanResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   plan: AuthorizedAliasInstallPlanRecord,
   subjectId: string,
-  catalogProductId: string,
+  publicCatalogProductRef: string,
+  resolvedCatalogProductId: string,
   machineFingerprint: string | null = null
 ): Promise<Response> {
   const creatorRepoIdentity = await getCreatorRepoIdentity({
@@ -1140,7 +1143,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
               apiSecret: config.convexApiSecret,
               creatorAuthUserId: plan.creatorAuthUserId,
               subjectId: subjectId as Id<'subjects'>,
-              catalogProductId: catalogProductId as Id<'product_catalog'>,
+              catalogProductId: resolvedCatalogProductId as Id<'product_catalog'>,
               packageId: pkg.packageId,
               machineFingerprint,
             })) as { success: boolean; token?: string; error?: string };
@@ -1168,11 +1171,11 @@ async function buildAuthorizedAliasInstallPlanResponse(
           zipSha256: pkg.zipSha256,
           packageSha256: sourceDownload.packageSha256,
           sourceKind: sourceDownload.sourceKind,
-          downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(catalogProductId)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
+          downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(publicCatalogProductRef)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
           licenseToken,
           media: buildPackageMediaInstallPlanDescriptors({
             apiBaseUrl: config.apiBaseUrl,
-            catalogProductId,
+            catalogProductId: publicCatalogProductRef,
             media: pkg.media,
             packageId: pkg.packageId,
           }),
