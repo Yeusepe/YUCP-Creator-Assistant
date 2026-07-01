@@ -35,16 +35,30 @@ export const Route = createLazyFileRoute('/_authenticated/verify/purchase')({
   component: VerifyPurchasePage,
 });
 
+const LOOPBACK_HOSTNAMES: readonly string[] = ['127.0.0.1', 'localhost', '[::1]'];
+
 function getSafeReturnUrl(value: string | null | undefined): string | null {
   if (!value || typeof window === 'undefined') return null;
   try {
     const url = new URL(value, window.location.origin);
     if (url.protocol === 'https:') return url.toString();
-    const isLoopback =
-      url.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    const isLoopback = url.protocol === 'http:' && LOOPBACK_HOSTNAMES.includes(url.hostname);
     return isLoopback ? url.toString() : null;
   } catch {
     return null;
+  }
+}
+
+function isLoopbackReturnUrl(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return LOOPBACK_HOSTNAMES.includes(url.hostname);
+  } catch {
+    return false;
   }
 }
 
@@ -735,6 +749,46 @@ function EntitlementRow({
   );
 }
 
+// ---- auto-return countdown ------------------------------------------------
+
+const AUTO_RETURN_SECONDS = 5;
+
+/** Counts down then sends the browser back to Unity. Only rendered on the plain "Return to Unity" success path. */
+function AutoReturnNotice({ returnUrl }: { returnUrl: string }) {
+  const [seconds, setSeconds] = useState(AUTO_RETURN_SECONDS);
+  const [cancelled, setCancelled] = useState(false);
+
+  useEffect(() => {
+    if (cancelled) {
+      return;
+    }
+    if (seconds <= 0) {
+      window.location.href = returnUrl;
+      return;
+    }
+    const timer = setTimeout(() => setSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cancelled, seconds, returnUrl]);
+
+  if (cancelled) {
+    return null;
+  }
+
+  return (
+    <p className="vp-countdown-text" style={{ marginBottom: 0 }} aria-live="off">
+      <span>Returning to Unity in {seconds}s...</span>
+      <button
+        type="button"
+        className="vp-countdown-cancel"
+        aria-label="Cancel auto-return"
+        onClick={() => setCancelled(true)}
+      >
+        Cancel
+      </button>
+    </p>
+  );
+}
+
 // ---- page component -----------------------------------------------
 
 function VerifyPurchasePage() {
@@ -826,6 +880,10 @@ function VerifyPurchasePage() {
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
   const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
+  const shouldAutoReturnToUnity = useMemo(
+    () => Boolean(returnToUrl && !returnsToBuyerAccess && isLoopbackReturnUrl(returnToUrl)),
+    [returnToUrl, returnsToBuyerAccess]
+  );
   const buyerRepoAccessTarget = useMemo(
     () => parseBuyerRepoAccessTarget(returnToUrl),
     [returnToUrl]
@@ -1120,10 +1178,21 @@ function VerifyPurchasePage() {
             </details>
           </div>
         ) : returnToUrl ? (
-          <div className="fade-up" style={{ animationDelay: '0.6s' }}>
+          <div
+            className="fade-up"
+            style={{
+              animationDelay: '0.6s',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.5rem',
+              paddingBottom: '2rem',
+            }}
+          >
             <a href={returnToUrl} className="vp-primary-btn">
               {returnsToBuyerAccess ? 'Continue' : 'Return to Unity'}
             </a>
+            {shouldAutoReturnToUnity ? <AutoReturnNotice returnUrl={returnToUrl} /> : null}
           </div>
         ) : null}
 

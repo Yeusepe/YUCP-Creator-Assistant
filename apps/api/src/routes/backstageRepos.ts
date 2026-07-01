@@ -108,6 +108,21 @@ type BuyerAccessCatalogProduct = {
   status: 'active';
 };
 
+type PublicBuyerAccessPackageSummary = {
+  packageId: string;
+  displayName?: string;
+  latestPublishedVersion?: string;
+  latestReleaseChannel?: string;
+  importerDelivery?: ReturnType<typeof buildBackstageImporterDelivery>;
+};
+
+function resolvePublicProductRef(input: {
+  canonicalSlug?: string;
+  providerProductRef?: string;
+}): string | null {
+  return input.canonicalSlug?.trim() || input.providerProductRef?.trim() || null;
+}
+
 type BackstagePackageDownloadRecord = {
   deliveryArtifactId?: Id<'delivery_release_artifacts'>;
   deliveryArtifactMode?: 'legacy_signed' | 'server_materialized';
@@ -848,7 +863,7 @@ async function issueRepoAccess(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: requestedCatalogProductId as Id<'product_catalog'>,
+        catalogProductId: requestedCatalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -972,11 +987,17 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
+    const publicCatalogProductRef = resolvePublicProductRef(resolved.access);
+    if (!publicCatalogProductRef) {
+      throw new Error('Alias product access context was incomplete.');
+    }
+
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
       planConvex,
       plan,
       subjectId,
+      publicCatalogProductRef,
       String(resolved.access.catalogProductId)
     );
   } catch (error) {
@@ -1002,7 +1023,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 
   // Optional machine fingerprint: when present, the install plan mints a machine-bound
   // license token per package so the client can apply per-buyer coupling. Absent/malformed
-  // body is non-fatal — the plan is still issued, just without coupling tokens.
+  // body is non-fatal, the plan is still issued, just without coupling tokens.
   let machineFingerprint: string | null = null;
   try {
     const rawBody = await readRequestTextWithLimit(request, 4096);
@@ -1034,7 +1055,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1042,7 +1063,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
     }
 
     const creatorRef = product.creatorAuthUserId?.trim();
-    const productRef = product.canonicalSlug?.trim() || product.providerProductRef?.trim();
+    const productRef = resolvePublicProductRef(product);
     if (!creatorRef || !productRef) {
       throw new Error('Alias product access context was incomplete.');
     }
@@ -1066,7 +1087,8 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       planConvex,
       plan,
       subjectId,
-      catalogProductId,
+      productRef,
+      String(product.catalogProductId),
       machineFingerprint
     );
   } catch (error) {
@@ -1084,7 +1106,8 @@ async function buildAuthorizedAliasInstallPlanResponse(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   plan: AuthorizedAliasInstallPlanRecord,
   subjectId: string,
-  catalogProductId: string,
+  publicCatalogProductRef: string,
+  resolvedCatalogProductId: string,
   machineFingerprint: string | null = null
 ): Promise<Response> {
   const creatorRepoIdentity = await getCreatorRepoIdentity({
@@ -1102,7 +1125,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
     expiresAt: Date.now() + BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS,
     creatorName: creatorRepoIdentity.creatorName,
     creatorRepoRef: creatorRepoIdentity.creatorRepoRef,
-    productRef: plan.canonicalSlug ?? plan.providerProductRef,
+    productRef: publicCatalogProductRef,
     title: plan.displayName ?? plan.packages[0]?.displayName ?? plan.providerProductRef,
     thumbnailUrl: plan.thumbnailUrl,
     repositoryUrl,
@@ -1140,7 +1163,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
               apiSecret: config.convexApiSecret,
               creatorAuthUserId: plan.creatorAuthUserId,
               subjectId: subjectId as Id<'subjects'>,
-              catalogProductId: catalogProductId as Id<'product_catalog'>,
+              catalogProductId: resolvedCatalogProductId as Id<'product_catalog'>,
               packageId: pkg.packageId,
               machineFingerprint,
             })) as { success: boolean; token?: string; error?: string };
@@ -1168,15 +1191,14 @@ async function buildAuthorizedAliasInstallPlanResponse(
           zipSha256: pkg.zipSha256,
           packageSha256: sourceDownload.packageSha256,
           sourceKind: sourceDownload.sourceKind,
-          downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(catalogProductId)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
+          downloadAuthorizationUrl: `${config.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(publicCatalogProductRef)}/packages/${encodeURIComponent(pkg.packageId)}/download`,
           licenseToken,
           media: buildPackageMediaInstallPlanDescriptors({
             apiBaseUrl: config.apiBaseUrl,
-            catalogProductId,
+            catalogProductId: publicCatalogProductRef,
             media: pkg.media,
             packageId: pkg.packageId,
           }),
-          aliasContract: pkg.aliasContract,
           importerDelivery,
         };
       })
@@ -1280,7 +1302,7 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1418,7 +1440,7 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1546,10 +1568,12 @@ async function getBuyerAccessInfo(
     return errorResponse('Product not found', 404);
   }
 
-  const packageSummaries = resolved.access.packageSummaries.map((summary) => ({
-    ...summary,
-    importerDelivery: buildBackstageImporterDelivery(summary.aliasContract),
-  }));
+  const publicProductRef = resolvePublicProductRef(resolved.access);
+  if (!publicProductRef) {
+    return errorResponse('Product not found', 404);
+  }
+
+  const packageSummaries = resolved.access.packageSummaries.map(toPublicBuyerAccessPackageSummary);
   const primaryPackage =
     packageSummaries.find((summary) => summary.packageId === resolved.access.primaryPackageId) ??
     null;
@@ -1557,7 +1581,7 @@ async function getBuyerAccessInfo(
   return jsonResponse({
     creatorName: resolved.creatorRepoIdentity.creatorName,
     creatorRepoRef: resolved.creatorRepoIdentity.creatorRepoRef,
-    productRef: resolved.access.canonicalSlug ?? resolved.access.providerProductRef,
+    productRef: publicProductRef,
     title:
       resolved.access.displayName ??
       resolved.access.primaryPackageName ??
@@ -1569,6 +1593,18 @@ async function getBuyerAccessInfo(
     packageSummaries,
     ready: Boolean(resolved.access.primaryPackageId),
   });
+}
+
+function toPublicBuyerAccessPackageSummary(
+  summary: PublicBackstageAccessRecord['packageSummaries'][number]
+): PublicBuyerAccessPackageSummary {
+  return {
+    packageId: summary.packageId,
+    displayName: summary.displayName,
+    latestPublishedVersion: summary.latestPublishedVersion,
+    latestReleaseChannel: summary.latestReleaseChannel,
+    importerDelivery: buildBackstageImporterDelivery(summary.aliasContract),
+  };
 }
 
 async function bootstrapBuyerVerificationIntent(

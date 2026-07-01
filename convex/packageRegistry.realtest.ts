@@ -31,7 +31,7 @@ let cdngineUploadCounter = 0;
 beforeEach(() => {
   cdngineUploadCounter = 0;
   process.env.CDNGINE_API_BASE_URL = 'https://cdngine.test';
-  process.env.CDNGINE_ACCESS_TOKEN = 'cdngine-token';
+  process.env.CDNGINE_ACCESS_TOKEN = 'test-cdngine-access-token';
   process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
   process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
   process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
@@ -570,6 +570,73 @@ describe('packageRegistry', () => {
         },
       ],
     });
+  });
+
+  it('resolves buyer access context by public refs and rejects unknown or ambiguous refs', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-provider-ref',
+      providerProductRef: 'QAJc7ErxdAC815P5P8R89g==',
+      displayName: 'Provider Ref Product',
+    });
+    const slugCatalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-slug-ref',
+      canonicalSlug: 'slug-product',
+      providerProductRef: 'provider-ref-product',
+      displayName: 'Slug Product',
+    });
+    await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-shared-slug',
+      canonicalSlug: 'shared-ref',
+      providerProductRef: 'slug-side-ref',
+      displayName: 'Shared Slug Product',
+    });
+    await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-shared-provider-ref',
+      canonicalSlug: 'provider-side-slug',
+      providerProductRef: 'shared-ref',
+      displayName: 'Shared Provider Ref Product',
+    });
+    const actor = await createAuthUserActorBinding('auth-user-1');
+
+    const byLegacyId = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: catalogProductId,
+    });
+    expect(byLegacyId?.catalogProductId).toBe(catalogProductId);
+
+    const byRef = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'QAJc7ErxdAC815P5P8R89g==',
+    });
+    expect(byRef?.catalogProductId).toBe(catalogProductId);
+
+    const bySlug = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'slug-product',
+    });
+    expect(bySlug?.catalogProductId).toBe(slugCatalogProductId);
+
+    const ambiguous = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'shared-ref',
+    });
+    expect(ambiguous).toBeNull();
+
+    const unknown = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'not-a-real-id-or-ref',
+    });
+    expect(unknown).toBeNull();
   });
 
   it('keeps tier-scoped packages out of product-level buyer and public access summaries', async () => {
