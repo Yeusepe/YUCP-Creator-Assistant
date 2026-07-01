@@ -1570,7 +1570,7 @@ async function getBuyerAccessInfo(
 
   const publicProductRef = resolvePublicProductRef(resolved.access);
   if (!publicProductRef) {
-    throw new Error('Public product access context was incomplete.');
+    return errorResponse('Product not found', 404);
   }
 
   const packageSummaries = resolved.access.packageSummaries.map(toPublicBuyerAccessPackageSummary);

@@ -1211,6 +1211,39 @@ describe('backstage repo routes', () => {
     }
   });
 
+  it('returns a safe 404 when public buyer access has no usable product ref', async () => {
+    const defaultQueryImpl = queryImpl;
+    queryImpl = async (ref: unknown, args?: unknown) => {
+      if (ref !== 'packageRegistry.getPublicBackstageProductAccessByRef') {
+        return defaultQueryImpl(ref, args);
+      }
+
+      return {
+        creatorAuthUserId: 'auth-user-1',
+        creatorSlug: 'mapache',
+        catalogProductId: 'catalog_1',
+        productId: 'product_1',
+        provider: 'gumroad',
+        providerProductRef: '   ',
+        canonicalSlug: '',
+        displayName: 'Song Thing',
+        thumbnailUrl: 'https://cdn.test/song.png',
+        primaryPackageId: 'com.yucp.song',
+        primaryPackageName: 'Song Thing Package',
+        packageSummaries: [],
+      };
+    };
+
+    const response = await routes.handleRequest(
+      new Request('https://api.test/api/backstage/access/mapache/song-thing')
+    );
+
+    expect(response?.status).toBe(404);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Product not found',
+    });
+  });
+
   it('selects the buyer access primary package by primaryPackageId', async () => {
     const defaultQueryImpl = queryImpl;
     queryImpl = async (ref: unknown, args?: unknown) => {
