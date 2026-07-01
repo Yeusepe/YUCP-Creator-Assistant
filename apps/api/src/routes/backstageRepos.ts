@@ -848,7 +848,7 @@ async function issueRepoAccess(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: requestedCatalogProductId as Id<'product_catalog'>,
+        catalogProductId: requestedCatalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1034,7 +1034,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1066,7 +1066,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       planConvex,
       plan,
       subjectId,
-      catalogProductId,
+      String(product.catalogProductId),
       machineFingerprint
     );
   } catch (error) {
@@ -1280,7 +1280,7 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {
@@ -1418,7 +1418,7 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
-        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        catalogProductId,
       }
     )) as BuyerAccessCatalogProduct | null;
     if (!product) {

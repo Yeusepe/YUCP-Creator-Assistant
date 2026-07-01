@@ -2899,17 +2899,47 @@ export const getByIdForAuthUser = query({
   },
 });
 
+// Public-boundary resolver: map a stable public product ref to the internal record. Accepts a
+// canonicalSlug or providerProductRef; a raw Convex _id is honored only for legacy alias manifests
+// published before slugs. Returns null for unknown/ambiguous refs so callers surface a 404, not a
+// 500, and the internal _id never becomes the public contract, it stays inside Convex.
+async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
+  const trimmed = ref.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const legacyId = ctx.db.normalizeId('product_catalog', trimmed);
+  if (legacyId) {
+    return await ctx.db.get(legacyId);
+  }
+
+  const bySlug = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_slug', (q) => q.eq('canonicalSlug', trimmed))
+    .take(2);
+  if (bySlug.length === 1) {
+    return bySlug[0];
+  }
+
+  const byRef = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_provider_product_ref', (q) => q.eq('providerProductRef', trimmed))
+    .take(2);
+  return byRef.length === 1 ? byRef[0] : null;
+}
+
 export const getBuyerAccessContextByCatalogProductId = query({
   args: {
     apiSecret: v.string(),
     actor: ApiActorBindingV,
-    catalogProductId: v.id('product_catalog'),
+    catalogProductId: v.string(),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     await requireApiActor(args.actor);
 
-    const product = await ctx.db.get(args.catalogProductId);
+    const product = await resolveCatalogProduct(ctx, args.catalogProductId);
     if (!product) {
       return null;
     }
@@ -2922,7 +2952,7 @@ export const getBuyerAccessContextByCatalogProductId = query({
     const backstagePackagesByCatalogProduct = await buildBackstagePackageMap(
       ctx,
       product.authUserId,
-      [args.catalogProductId],
+      [product._id],
       { includeTierScopedLinks: false }
     );
     const backstagePackages =

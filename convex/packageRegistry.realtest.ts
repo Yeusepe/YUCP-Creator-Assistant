@@ -572,6 +572,31 @@ describe('packageRegistry', () => {
     });
   });
 
+  it('resolves buyer access context by provider product ref, and returns null for unknown refs', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-1',
+      productId: 'product-provider-ref',
+      providerProductRef: 'QAJc7ErxdAC815P5P8R89g==',
+      displayName: 'Provider Ref Product',
+    });
+    const actor = await createAuthUserActorBinding('auth-user-1');
+
+    const byRef = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'QAJc7ErxdAC815P5P8R89g==',
+    });
+    expect(byRef?.catalogProductId).toBe(catalogProductId);
+
+    const unknown = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor,
+      catalogProductId: 'not-a-real-id-or-ref',
+    });
+    expect(unknown).toBeNull();
+  });
+
   it('keeps tier-scoped packages out of product-level buyer and public access summaries', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'creator-tier-only-access';
