@@ -55,7 +55,7 @@ const validBody = {
   packageId: 'song.thing',
   projectId: 'a'.repeat(32),
   machineFingerprint: 'b'.repeat(32),
-  licenseToken: 'header.payload.sig',
+  licenseToken: 'test-license-token',
   assetPaths: ['Assets/Body.png'],
 };
 
@@ -218,6 +218,28 @@ describe('coupling runtime gateway', () => {
     expect(res?.status).toBe(400);
     const json = (await res?.json()) as { error: string };
     expect(json.error).toBe('Invalid coupling asset path');
+    expect(couplingServiceCalled).toBe(false);
+    expect(convexActionMock).toHaveBeenCalledTimes(0);
+  });
+
+  it('rejects malformed project ids before Convex or coupling-service calls', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    let couplingServiceCalled = false;
+    globalThis.fetch = (async () => {
+      couplingServiceCalled = true;
+      return new Response(null);
+    }) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        projectId: 'not-a-project-id',
+      })
+    );
+
+    expect(res?.status).toBe(400);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('Invalid projectId format');
     expect(couplingServiceCalled).toBe(false);
     expect(convexActionMock).toHaveBeenCalledTimes(0);
   });

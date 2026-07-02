@@ -31,6 +31,10 @@ const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_COUPLING_ASSET_PATHS = 100;
 const RUNTIME_DOWNLOAD_MAX_BYTES = 128 * 1024 * 1024;
 const RUNTIME_ARTIFACT_KEY = 'coupling-runtime';
+const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
+const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
+const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
+const LICENSE_TOKEN_MAX_LENGTH = 8192;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
 const RUNTIME_VERSION_RE = /^[a-z0-9._:-]{1,128}$/i;
 const RUNTIME_DELIVERY_NAME_RE = /^[a-z0-9._-]{1,128}$/i;
@@ -473,6 +477,18 @@ async function handleCouplingJob(
       { error: 'packageId, projectId, machineFingerprint, and licenseToken are required' },
       400
     );
+  }
+  if (!PACKAGE_ID_RE.test(packageId)) {
+    return jsonResponse({ error: 'Invalid packageId format' }, 400);
+  }
+  if (!PROJECT_ID_RE.test(projectId)) {
+    return jsonResponse({ error: 'Invalid projectId format' }, 400);
+  }
+  if (!MACHINE_FINGERPRINT_RE.test(machineFingerprint)) {
+    return jsonResponse({ error: 'Invalid machineFingerprint format' }, 400);
+  }
+  if (licenseToken.length > LICENSE_TOKEN_MAX_LENGTH) {
+    return jsonResponse({ error: 'Invalid licenseToken format' }, 400);
   }
   if (!assetPaths) {
     return jsonResponse({ error: 'assetPaths must be an array' }, 400);
