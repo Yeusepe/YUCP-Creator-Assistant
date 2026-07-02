@@ -123,7 +123,7 @@ function buildAssetMapByPath(
   return assetByPath;
 }
 
-function buildCouplingServiceUrl(baseUrl: string, path: string): string {
+export function buildCouplingServiceUrl(baseUrl: string, path: string): string {
   const normalizedBaseUrl = baseUrl.trim();
   if (!normalizedBaseUrl) {
     throw new CouplingServiceConfigurationError('Coupling service base URL is not configured');

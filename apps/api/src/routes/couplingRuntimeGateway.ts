@@ -20,6 +20,7 @@
 
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
+import { buildCouplingServiceUrl } from '../lib/couplingForensicsService';
 import { logger } from '../lib/logger';
 import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 
@@ -87,25 +88,18 @@ function skipResponse(skipReason: string): Response {
   return jsonResponse({ success: true, files: [], skipReason });
 }
 
-/** Trusted operator-configured base URL; reject anything that isn't https or explicit loopback. */
+/**
+ * Resolve a private coupling-service endpoint. Reuses the forensics guard (http/https allowed,
+ * metadata + link-local hosts denied) because the service is reached over http on an internal
+ * hostname — the base URL is trusted operator config and the path is fixed, so the host can't be
+ * injected. Returns null on a rejected/malformed base URL.
+ */
 function resolveServiceEndpoint(baseUrl: string, path: string): URL | null {
-  let endpoint: URL;
   try {
-    endpoint = new URL(path, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+    return new URL(buildCouplingServiceUrl(baseUrl, path));
   } catch {
     return null;
   }
-  if (endpoint.username || endpoint.password) {
-    return null;
-  }
-  if (endpoint.protocol === 'https:') {
-    return endpoint;
-  }
-  const loopback = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-  if (endpoint.protocol === 'http:' && loopback.has(endpoint.hostname)) {
-    return endpoint;
-  }
-  return null;
 }
 
 function readRequiredString(payload: Record<string, unknown>, key: string): string | null {
