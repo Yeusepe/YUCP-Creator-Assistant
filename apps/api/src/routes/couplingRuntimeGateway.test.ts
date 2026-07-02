@@ -1,4 +1,38 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+const convexActionRefs = {
+  assembleCouplingJob: 'assembleCouplingJob',
+  verifyCouplingJobLicense: 'verifyCouplingJobLicense',
+};
+
+let convexActionImpl: (reference: unknown, args: unknown) => Promise<unknown> = async (
+  reference
+) => {
+  if (reference === convexActionRefs.verifyCouplingJobLicense) {
+    return { success: true, licenseSubject: 'license-subject' };
+  }
+  if (reference === convexActionRefs.assembleCouplingJob) {
+    return { success: true, files: [], skipReason: 'seed_unavailable' };
+  }
+  throw new Error('Unexpected Convex action');
+};
+
+const convexActionMock = mock((reference: unknown, args: unknown) =>
+  convexActionImpl(reference, args)
+);
+
+mock.module('../../../../convex/_generated/api', () => ({
+  api: {
+    yucpLicenses: convexActionRefs,
+  },
+}));
+
+mock.module('../lib/convex', () => ({
+  getConvexClientFromUrl: () => ({
+    action: convexActionMock,
+  }),
+}));
+
 import { createCouplingRuntimeRoutes } from './couplingRuntimeGateway';
 
 // Config with no coupling service wired: every coupling-job path should short-circuit BEFORE any
@@ -32,6 +66,19 @@ function licenseTokenWithSubject(subject: string): string {
 }
 
 describe('coupling runtime gateway', () => {
+  beforeEach(() => {
+    convexActionImpl = async (reference) => {
+      if (reference === convexActionRefs.verifyCouplingJobLicense) {
+        return { success: true, licenseSubject: 'license-subject' };
+      }
+      if (reference === convexActionRefs.assembleCouplingJob) {
+        return { success: true, files: [], skipReason: 'seed_unavailable' };
+      }
+      throw new Error('Unexpected Convex action');
+    };
+    convexActionMock.mockClear();
+  });
+
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
@@ -86,6 +133,39 @@ describe('coupling runtime gateway', () => {
     expect(res?.status).toBe(503);
   });
 
+  it('rejects unverifiable licenses before calling the coupling service', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes({
+      convexUrl: 'https://example.convex.cloud',
+      convexApiSecret: 'test-secret',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: 'test-secret',
+    });
+    let couplingServiceCalled = false;
+    globalThis.fetch = (async () => {
+      couplingServiceCalled = true;
+      return new Response(JSON.stringify({ seeds: [] }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+    convexActionImpl = async (reference) => {
+      expect(reference).toBe(convexActionRefs.verifyCouplingJobLicense);
+      return { success: false, error: 'License token is invalid or expired' };
+    };
+
+    const res = await configuredRoutes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        licenseToken: licenseTokenWithSubject('attacker-subject'),
+      })
+    );
+
+    expect(res?.status).toBe(422);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('License token is invalid or expired');
+    expect(couplingServiceCalled).toBe(false);
+    expect(convexActionMock).toHaveBeenCalledTimes(1);
+  });
+
   it('treats malformed runtime manifests as no_runtime before seed derivation', async () => {
     const configuredRoutes = createCouplingRuntimeRoutes({
       convexUrl: 'https://example.convex.cloud',
@@ -94,7 +174,7 @@ describe('coupling runtime gateway', () => {
       couplingServiceSharedSecret: 'test-secret',
     });
     const fetchedUrls: string[] = [];
-    globalThis.fetch = (async (input) => {
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       fetchedUrls.push(String(input));
       if (String(input).includes('/runtime-artifacts/manifest')) {
         return new Response(
@@ -110,7 +190,7 @@ describe('coupling runtime gateway', () => {
       return new Response(JSON.stringify({ seeds: [] }), {
         headers: { 'Content-Type': 'application/json' },
       });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const res = await configuredRoutes.handleRequest(
       couplingJobRequest({
@@ -122,5 +202,6 @@ describe('coupling runtime gateway', () => {
     const json = (await res?.json()) as { skipReason: string };
     expect(json.skipReason).toBe('no_runtime');
     expect(fetchedUrls).toHaveLength(1);
+    expect(convexActionMock).toHaveBeenCalledTimes(1);
   });
 });

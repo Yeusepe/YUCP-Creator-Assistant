@@ -1307,6 +1307,35 @@ async function deriveCouplingSeeds(
   }
 }
 
+type CouplingLicenseVerificationResult =
+  | { success: true; issuer: string; claims: LicenseClaims; error?: undefined }
+  | { success: false; issuer?: undefined; claims?: undefined; error: string };
+
+async function verifyCouplingJobLicenseClaims(args: {
+  packageId: string;
+  machineFingerprint: string;
+  licenseToken: string;
+}): Promise<CouplingLicenseVerificationResult> {
+  const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+  if (!publicIssuerBaseUrl) {
+    return { success: false, error: 'Service not configured' };
+  }
+
+  const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
+  const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
+  if (!claims) {
+    return { success: false, error: 'License token is invalid or expired' };
+  }
+  if (claims.package_id !== args.packageId) {
+    return { success: false, error: 'License token package mismatch' };
+  }
+  if (claims.machine_fingerprint !== args.machineFingerprint) {
+    return { success: false, error: 'License token machine mismatch' };
+  }
+
+  return { success: true, issuer, claims };
+}
+
 export const issueCouplingJob = internalAction({
   args: {
     packageId: v.string(),
@@ -1469,6 +1498,47 @@ export const issueCouplingJob = internalAction({
   },
 });
 
+export const verifyCouplingJobLicense = action({
+  args: {
+    apiSecret: v.string(),
+    packageId: v.string(),
+    machineFingerprint: v.string(),
+    licenseToken: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    licenseSubject: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ success: boolean; licenseSubject?: string; error?: string }> => {
+    requireApiSecret(args.apiSecret);
+
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+
+    const verified = await verifyCouplingJobLicenseClaims(args);
+    if (!verified.success) {
+      return { success: false, error: verified.error };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!registration) {
+      return { success: false, error: 'Package not found' };
+    }
+
+    return { success: true, licenseSubject: verified.claims.sub };
+  },
+});
+
 /**
  * API coupling gateway assembler. The public API (which alone can reach the private coupling
  * service) fetches the git-served runtime manifest + derives the placement seeds, then hands them
@@ -1549,25 +1619,11 @@ export const assembleCouplingJob = action({
       }
     }
 
-    // The runtime artifact + seeds are supplied by the API from the private coupling service; the
-    // license token is still re-validated here (never trust the relay) and traces bind to its sub.
-    // Resolve the issuer from control-plane config (matching how the license was minted) so the API
-    // relay can't steer verification at a different issuer.
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) {
-      return { success: false, error: 'Service not configured' };
+    const verified = await verifyCouplingJobLicenseClaims(args);
+    if (!verified.success) {
+      return { success: false, error: verified.error };
     }
-    const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
-    const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
-    if (!claims) {
-      return { success: false, error: 'License token is invalid or expired' };
-    }
-    if (claims.package_id !== args.packageId) {
-      return { success: false, error: 'License token package mismatch' };
-    }
-    if (claims.machine_fingerprint !== args.machineFingerprint) {
-      return { success: false, error: 'License token machine mismatch' };
-    }
+    const { claims, issuer } = verified;
 
     const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
       packageId: args.packageId,

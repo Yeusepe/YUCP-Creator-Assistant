@@ -6,6 +6,7 @@
  * importer-facing routes and Convex keeps just the control-plane crypto/bookkeeping:
  *
  *   POST /v1/licenses/coupling-job
+ *     API -> Convex verifyCouplingJobLicense: verify the machine-bound license
  *     API -> coupling service: fetch the git-served runtime manifest + derive placement seeds
  *     API -> Convex assembleCouplingJob: re-verify license, mint tokens, record traces, sign the
  *            full-manifest runtime download token
@@ -52,6 +53,14 @@ type RuntimeManifest = {
   codeSigningThumbprint?: string;
 };
 
+type CouplingLicenseVerificationActionResult =
+  | { success: true; licenseSubject: string; error?: undefined }
+  | { success: false; licenseSubject?: undefined; error?: string };
+
+type CouplingLicensePreflightResult =
+  | { success: true; licenseSubject: string }
+  | { success: false; response: Response };
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -83,22 +92,6 @@ function resolveServiceEndpoint(baseUrl: string, path: string): URL | null {
     return endpoint;
   }
   return null;
-}
-
-/** Read a JWT `sub` without verifying (Convex re-verifies the token); used only to derive seeds. */
-function decodeJwtSubject(token: string): string | null {
-  const parts = token.split('.');
-  if (parts.length !== 3 || !parts[1]) {
-    return null;
-  }
-  try {
-    const normalized = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { sub?: unknown };
-    return typeof payload.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
-  } catch {
-    return null;
-  }
 }
 
 function readRequiredString(payload: Record<string, unknown>, key: string): string | null {
@@ -296,6 +289,46 @@ async function deriveSeeds(
   }
 }
 
+async function verifyCouplingJobLicense(
+  config: CouplingRuntimeGatewayConfig,
+  packageId: string,
+  machineFingerprint: string,
+  licenseToken: string
+): Promise<CouplingLicensePreflightResult> {
+  try {
+    const convex = getConvexClientFromUrl(config.convexUrl);
+    const result = (await convex.action(api.yucpLicenses.verifyCouplingJobLicense, {
+      apiSecret: config.convexApiSecret,
+      packageId,
+      machineFingerprint,
+      licenseToken,
+    })) as CouplingLicenseVerificationActionResult;
+
+    if (!result.success) {
+      return {
+        success: false,
+        response: jsonResponse({ error: result.error ?? 'License verification failed' }, 422),
+      };
+    }
+    if (!result.licenseSubject) {
+      logger.error('coupling-job license verification returned no subject');
+      return {
+        success: false,
+        response: jsonResponse({ error: 'License verification failed' }, 502),
+      };
+    }
+    return { success: true, licenseSubject: result.licenseSubject };
+  } catch (error) {
+    logger.error('coupling-job license verification failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      success: false,
+      response: jsonResponse({ error: 'Failed to verify coupling license' }, 502),
+    };
+  }
+}
+
 async function handleCouplingJob(
   request: Request,
   config: CouplingRuntimeGatewayConfig
@@ -343,17 +376,22 @@ async function handleCouplingJob(
     return skipResponse('no_runtime');
   }
 
+  const verifiedLicense = await verifyCouplingJobLicense(
+    config,
+    packageId,
+    machineFingerprint,
+    licenseToken
+  );
+  if (!verifiedLicense.success) {
+    return verifiedLicense.response;
+  }
+
   const manifest = await fetchRuntimeManifest(config);
   if (!manifest) {
     return skipResponse('no_runtime');
   }
 
-  const licenseSubject = decodeJwtSubject(licenseToken);
-  if (!licenseSubject) {
-    return jsonResponse({ error: 'License token is invalid' }, 400);
-  }
-
-  const seeds = await deriveSeeds(config, licenseSubject, assetPaths);
+  const seeds = await deriveSeeds(config, verifiedLicense.licenseSubject, assetPaths);
   if (!seeds || seeds.length === 0) {
     return skipResponse('seed_unavailable');
   }
