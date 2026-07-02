@@ -30,6 +30,7 @@ import {
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
 import { createConnectRoutes } from './routes/connect';
+import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
 import { createProviderPlatformRoutes } from './routes/providerPlatform';
 import { createPublicRoutes } from './routes/public';
 import { createSuiteRoutes } from './routes/suite';
@@ -201,6 +202,13 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     encryptionSecret: config.encryptionSecret,
   });
 
+  const couplingRuntimeRoutes = createCouplingRuntimeRoutes({
+    convexUrl: config.convexUrl,
+    convexApiSecret: config.convexApiSecret,
+    couplingServiceBaseUrl: config.couplingServiceBaseUrl,
+    couplingServiceSharedSecret: config.couplingServiceSharedSecret,
+  });
+
   const webhookHandler = createWebhookHandler({
     convexUrl: config.convexUrl,
     convexApiSecret: config.convexApiSecret,
@@ -260,6 +268,8 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
       const backstageResponse = await backstageRepoRoutes.handleRequest(request);
       if (backstageResponse) return backstageResponse;
       if (pathname.startsWith('/v1/')) {
+        const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
+        if (couplingResponse) return couplingResponse;
         const local = await providerPlatformRoutes.handleRequest(request);
         if (local) return local;
       }

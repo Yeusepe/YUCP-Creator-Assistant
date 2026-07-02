@@ -47,6 +47,7 @@ import {
   type VerificationConfig,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
+import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
@@ -63,6 +64,7 @@ let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let backstageRepoRoutes: ReturnType<typeof createBackstageRepoRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
+let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
 let packageRoutes: ReturnType<typeof createPackageRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
@@ -382,6 +384,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     cdngine: getCdngineBackstageApiConfig(env),
   });
 
+  couplingRuntimeRoutes = createCouplingRuntimeRoutes({
+    convexUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
+    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+  });
+
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
@@ -681,6 +690,13 @@ async function routeRequest(request: Request): Promise<Response> {
     const localBackstageResponse = await backstageRepoRoutes.handleRequest(request);
     if (localBackstageResponse) {
       return localBackstageResponse;
+    }
+  }
+
+  if (pathname.startsWith('/v1/') && couplingRuntimeRoutes) {
+    const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
+    if (couplingResponse) {
+      return couplingResponse;
     }
   }
 
