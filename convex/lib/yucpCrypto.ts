@@ -303,6 +303,39 @@ export interface CouplingRuntimeClaims {
   exp: number;
 }
 
+/**
+ * Full-manifest coupling-runtime download token consumed by the private coupling service's
+ * GET /v1/licenses/coupling-runtime. The service pins every field against the artifact it serves
+ * from git, so all manifest claims must be present and match. Minted by the API coupling gateway
+ * (via assembleCouplingJob). The DLL itself never touches the control plane.
+ */
+export interface CouplingRuntimeArtifactClaims {
+  iss: string;
+  aud: 'yucp-coupling-runtime';
+  sub: string;
+  jti: string;
+  package_id: string;
+  machine_fingerprint: string;
+  project_id: string;
+  artifact_key: string;
+  artifact_channel: string;
+  artifact_platform: string;
+  artifact_version: string;
+  metadata_version: number;
+  delivery_name: string;
+  content_type: string;
+  envelope_cipher: string;
+  envelope_iv_b64: string;
+  ciphertext_sha256: string;
+  ciphertext_size: number;
+  plaintext_sha256: string;
+  plaintext_size: number;
+  code_signing_subject?: string;
+  code_signing_thumbprint?: string;
+  iat: number;
+  exp: number;
+}
+
 export async function signProtectedUnlockJwt(
   claims: ProtectedUnlockClaims,
   privateKeyBase64: string,
@@ -313,6 +346,14 @@ export async function signProtectedUnlockJwt(
 
 export async function signCouplingRuntimeJwt(
   claims: CouplingRuntimeClaims,
+  privateKeyBase64: string,
+  keyId: string
+): Promise<string> {
+  return signJwt(claims, privateKeyBase64, keyId);
+}
+
+export async function signCouplingRuntimeArtifactJwt(
+  claims: CouplingRuntimeArtifactClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {
@@ -347,7 +388,12 @@ export async function signYucpTrustBundleJwt(
 }
 
 async function signJwt(
-  claims: LicenseClaims | ProtectedUnlockClaims | YucpTrustBundleClaims | CouplingRuntimeClaims,
+  claims:
+    | LicenseClaims
+    | ProtectedUnlockClaims
+    | YucpTrustBundleClaims
+    | CouplingRuntimeClaims
+    | CouplingRuntimeArtifactClaims,
   privateKeyBase64: string,
   keyId: string
 ): Promise<string> {

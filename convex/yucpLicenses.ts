@@ -43,29 +43,31 @@ import { requireApiSecret } from './lib/apiAuth';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
-import { verifyLicenseWithProviderRuntime } from './lib/providerLicenseVerification';
 import {
   decryptProtectedBlobContentKey,
   encryptProtectedBlobContentKey,
 } from './lib/protectedAssetKeyCrypto';
 import { resolveProtectedAssetUnlockMode } from './lib/protectedAssetUnlockMode';
+import { verifyLicenseWithProviderRuntime } from './lib/providerLicenseVerification';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import {
+  RELEASE_ARTIFACT_KEYS,
+  RELEASE_CHANNELS,
+  RELEASE_PLATFORMS,
+} from './lib/releaseArtifactKeys';
+import {
+  type CouplingRuntimeArtifactClaims,
   type CouplingRuntimeClaims,
   type LicenseClaims,
   type ProtectedUnlockClaims,
   resolvePinnedYucpSigningRoot,
+  signCouplingRuntimeArtifactJwt,
   signCouplingRuntimeJwt,
   signLicenseJwt,
   signProtectedUnlockJwt,
   verifyLicenseJwtAgainstPinnedRoots,
   verifyProtectedUnlockJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
-import {
-  RELEASE_ARTIFACT_KEYS,
-  RELEASE_CHANNELS,
-  RELEASE_PLATFORMS,
-} from './lib/releaseArtifactKeys';
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offline re-use
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
@@ -550,10 +552,7 @@ export const verifyLicenseProof = internalAction({
 
     if (product) {
       if (args.creatorAuthUserId || args.productId) {
-        if (
-          args.creatorAuthUserId !== product.authUserId ||
-          args.productId !== product.productId
-        ) {
+        if (args.creatorAuthUserId !== product.authUserId || args.productId !== product.productId) {
           return {
             success: false,
             error: 'Verification method points at a different creator product',
@@ -1203,12 +1202,7 @@ export const recordCouplingTraces = internalMutation({
  * skips coupling rather than blocking the install). The watermark master never lives in this
  * open-source server.
  */
-const COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS = new Set([
-  'localhost',
-  '127.0.0.1',
-  '::1',
-  '[::1]',
-]);
+const COUPLING_SEED_RELAY_HTTP_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
 function isAllowedCouplingSeedRelayEndpoint(endpoint: URL): boolean {
   if (endpoint.username || endpoint.password) {
@@ -1222,7 +1216,10 @@ function isAllowedCouplingSeedRelayEndpoint(endpoint: URL): boolean {
   );
 }
 
-async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string | null> {
+async function readBoundedResponseText(
+  response: Response,
+  maxBytes: number
+): Promise<string | null> {
   if (!response.body) {
     const text = await response.text();
     return text.length <= maxBytes ? text : null;
@@ -1255,7 +1252,7 @@ async function readBoundedResponseText(response: Response, maxBytes: number): Pr
 async function deriveCouplingSeeds(
   licenseSubject: string,
   assetPaths: string[]
-): Promise<Record<string, string> | null> {
+): Promise<Map<string, string> | null> {
   const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
   const secret =
     process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ||
@@ -1265,7 +1262,10 @@ async function deriveCouplingSeeds(
   }
   let endpoint: URL;
   try {
-    endpoint = new URL('v1/coupling/internal/derive-seeds', baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
+    endpoint = new URL(
+      'v1/coupling/internal/derive-seeds',
+      baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+    );
   } catch {
     return null;
   }
@@ -1293,10 +1293,10 @@ async function deriveCouplingSeeds(
     if (!Array.isArray(data?.seeds)) {
       return null;
     }
-    const map: Record<string, string> = {};
+    const map = new Map<string, string>();
     for (const seed of data.seeds) {
       if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed?.seedHex ?? '')) {
-        map[seed.assetPath] = seed.seedHex.toLowerCase();
+        map.set(seed.assetPath, seed.seedHex.toLowerCase());
       }
     }
     return map;
@@ -1305,6 +1305,35 @@ async function deriveCouplingSeeds(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+type CouplingLicenseVerificationResult =
+  | { success: true; issuer: string; claims: LicenseClaims; error?: undefined }
+  | { success: false; issuer?: undefined; claims?: undefined; error: string };
+
+async function verifyCouplingJobLicenseClaims(args: {
+  packageId: string;
+  machineFingerprint: string;
+  licenseToken: string;
+}): Promise<CouplingLicenseVerificationResult> {
+  const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
+  if (!publicIssuerBaseUrl) {
+    return { success: false, error: 'Service not configured' };
+  }
+
+  const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
+  const claims = await verifyLicenseJwtAgainstPinnedRoots(args.licenseToken, issuer);
+  if (!claims) {
+    return { success: false, error: 'License token is invalid or expired' };
+  }
+  if (claims.package_id !== args.packageId) {
+    return { success: false, error: 'License token package mismatch' };
+  }
+  if (claims.machine_fingerprint !== args.machineFingerprint) {
+    return { success: false, error: 'License token machine mismatch' };
+  }
+
+  return { success: true, issuer, claims };
 }
 
 export const issueCouplingJob = internalAction({
@@ -1404,7 +1433,7 @@ export const issueCouplingJob = internalAction({
     // low-poly/low-resolution coverage, exact recovery via ECC+CRC. Token length is recorded per
     // asset so the forensic decoder reconstructs the exact hex before hashing.
     for (const assetPath of args.assetPaths) {
-      const seedHex = seedMap[assetPath];
+      const seedHex = seedMap.get(assetPath);
       if (!seedHex) {
         continue; // no seed for this asset → cannot place a mark → skip it (never blocks)
       }
@@ -1423,20 +1452,6 @@ export const issueCouplingJob = internalAction({
     if (files.length === 0) {
       return { success: true, files: [], skipReason: 'seed_unavailable' };
     }
-
-    const correlationId = crypto.randomUUID();
-    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
-      authUserId: registration.yucpUserId,
-      packageId: args.packageId,
-      licenseSubject: claims.sub,
-      provider: claims.provider,
-      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
-      projectIdHash: await sha256Hex(args.projectId),
-      runtimeArtifactVersion: artifact.version,
-      runtimePlaintextSha256: artifact.plaintextSha256,
-      correlationId,
-      entries,
-    });
 
     const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
     const iat = Math.floor(Date.now() / 1000);
@@ -1459,10 +1474,255 @@ export const issueCouplingJob = internalAction({
       signingRoot.keyId
     );
 
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: artifact.version,
+      runtimePlaintextSha256: artifact.plaintextSha256,
+      correlationId,
+      entries,
+    });
+
     return {
       success: true,
       runtimeToken,
       runtimeSha256: artifact.plaintextSha256,
+      expiresAt: exp,
+      files,
+    };
+  },
+});
+
+export const verifyCouplingJobLicense = action({
+  args: {
+    apiSecret: v.string(),
+    packageId: v.string(),
+    machineFingerprint: v.string(),
+    licenseToken: v.string(),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    licenseSubject: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ success: boolean; licenseSubject?: string; error?: string }> => {
+    requireApiSecret(args.apiSecret);
+
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+
+    const verified = await verifyCouplingJobLicenseClaims(args);
+    if (!verified.success) {
+      return { success: false, error: verified.error };
+    }
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!registration) {
+      return { success: false, error: 'Package not found' };
+    }
+
+    return { success: true, licenseSubject: verified.claims.sub };
+  },
+});
+
+/**
+ * API coupling gateway assembler. The public API (which alone can reach the private coupling
+ * service) fetches the git-served runtime manifest + derives the placement seeds, then hands them
+ * here. This action does the control-plane half: re-verify the machine-bound license, mint per-asset
+ * tokens, record forensic traces, and sign the full-manifest runtime download token the coupling
+ * service will validate. The runtime DLL never touches Convex, only its manifest metadata does.
+ */
+export const assembleCouplingJob = action({
+  args: {
+    apiSecret: v.string(),
+    packageId: v.string(),
+    projectId: v.string(),
+    machineFingerprint: v.string(),
+    licenseToken: v.string(),
+    assetPaths: v.array(v.string()),
+    runtimeManifest: v.object({
+      artifactKey: v.string(),
+      channel: v.string(),
+      platform: v.string(),
+      version: v.string(),
+      metadataVersion: v.number(),
+      deliveryName: v.string(),
+      contentType: v.string(),
+      envelopeCipher: v.string(),
+      envelopeIvBase64: v.string(),
+      ciphertextSha256: v.string(),
+      ciphertextSize: v.number(),
+      plaintextSha256: v.string(),
+      plaintextSize: v.number(),
+      codeSigningSubject: v.optional(v.string()),
+      codeSigningThumbprint: v.optional(v.string()),
+    }),
+    seeds: v.array(v.object({ assetPath: v.string(), seedHex: v.string() })),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    runtimeToken: v.optional(v.string()),
+    runtimeSha256: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    skipReason: v.optional(v.string()),
+    error: v.optional(v.string()),
+    files: v.optional(
+      v.array(v.object({ assetPath: v.string(), tokenHex: v.string(), seedHex: v.string() }))
+    ),
+  }),
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    success: boolean;
+    runtimeToken?: string;
+    runtimeSha256?: string;
+    expiresAt?: number;
+    skipReason?: string;
+    error?: string;
+    files?: { assetPath: string; tokenHex: string; seedHex: string }[];
+  }> => {
+    requireApiSecret(args.apiSecret);
+
+    if (!PACKAGE_ID_RE.test(args.packageId)) {
+      return { success: false, error: 'Invalid packageId format' };
+    }
+    if (!PROJECT_ID_RE.test(args.projectId)) {
+      return { success: false, error: 'Invalid projectId format' };
+    }
+    if (!MACHINE_FINGERPRINT_RE.test(args.machineFingerprint)) {
+      return { success: false, error: 'Invalid machine fingerprint' };
+    }
+    if (args.assetPaths.length === 0) {
+      return { success: true, files: [], skipReason: 'no_assets' };
+    }
+    if (args.assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
+      return { success: false, error: 'Too many coupling asset paths' };
+    }
+    for (const assetPath of args.assetPaths) {
+      if (!assetPath || assetPath.length > COUPLING_ASSET_PATH_MAX_LENGTH) {
+        return { success: false, error: 'Invalid coupling asset path' };
+      }
+    }
+
+    const verified = await verifyCouplingJobLicenseClaims(args);
+    if (!verified.success) {
+      return { success: false, error: verified.error };
+    }
+    const { claims, issuer } = verified;
+
+    const registration = await ctx.runQuery(internal.packageRegistry.getRegistration, {
+      packageId: args.packageId,
+    });
+    if (!registration) {
+      return { success: false, error: 'Package not found' };
+    }
+
+    const manifest = args.runtimeManifest;
+    if (manifest.artifactKey !== RELEASE_ARTIFACT_KEYS.couplingRuntime) {
+      // The API only ever passes a coupling-runtime manifest; treat anything else as "no runtime".
+      return { success: true, files: [], skipReason: 'no_runtime' };
+    }
+
+    const seedMap = new Map<string, string>();
+    for (const seed of args.seeds) {
+      if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed.seedHex ?? '')) {
+        seedMap.set(seed.assetPath, seed.seedHex.toLowerCase());
+      }
+    }
+
+    const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
+    const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
+    for (const assetPath of args.assetPaths) {
+      const seedHex = seedMap.get(assetPath);
+      if (!seedHex) {
+        continue; // no seed for this asset, cannot place a mark, skip it without blocking
+      }
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(8));
+      const tokenHex = Array.from(tokenBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      files.push({ assetPath, tokenHex, seedHex });
+      entries.push({
+        assetPath,
+        tokenHash: await sha256Hex(tokenHex),
+        tokenLength: tokenBytes.length,
+      });
+    }
+
+    if (files.length === 0) {
+      return { success: true, files: [], skipReason: 'seed_unavailable' };
+    }
+
+    const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
+    const runtimeClaims: CouplingRuntimeArtifactClaims = {
+      iss: issuer,
+      aud: 'yucp-coupling-runtime',
+      sub: claims.sub,
+      jti: crypto.randomUUID(),
+      package_id: args.packageId,
+      machine_fingerprint: args.machineFingerprint,
+      project_id: args.projectId,
+      artifact_key: manifest.artifactKey,
+      artifact_channel: manifest.channel,
+      artifact_platform: manifest.platform,
+      artifact_version: manifest.version,
+      metadata_version: manifest.metadataVersion,
+      delivery_name: manifest.deliveryName,
+      content_type: manifest.contentType,
+      envelope_cipher: manifest.envelopeCipher,
+      envelope_iv_b64: manifest.envelopeIvBase64,
+      ciphertext_sha256: manifest.ciphertextSha256,
+      ciphertext_size: manifest.ciphertextSize,
+      plaintext_sha256: manifest.plaintextSha256,
+      plaintext_size: manifest.plaintextSize,
+      ...(manifest.codeSigningSubject ? { code_signing_subject: manifest.codeSigningSubject } : {}),
+      ...(manifest.codeSigningThumbprint
+        ? { code_signing_thumbprint: manifest.codeSigningThumbprint }
+        : {}),
+      iat,
+      exp,
+    };
+    const runtimeToken = await signCouplingRuntimeArtifactJwt(
+      runtimeClaims,
+      signingRoot.privateKeyBase64,
+      signingRoot.keyId
+    );
+
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: manifest.version,
+      runtimePlaintextSha256: manifest.plaintextSha256,
+      correlationId,
+      entries,
+    });
+
+    return {
+      success: true,
+      runtimeToken,
+      runtimeSha256: manifest.plaintextSha256,
       expiresAt: exp,
       files,
     };

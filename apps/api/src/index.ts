@@ -47,6 +47,7 @@ import {
   type VerificationConfig,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
+import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
@@ -63,6 +64,7 @@ let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let backstageRepoRoutes: ReturnType<typeof createBackstageRepoRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
+let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
 let packageRoutes: ReturnType<typeof createPackageRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
@@ -85,6 +87,12 @@ function parseBearerToken(authHeader: string | null): string | null {
       ?.trim()
       .match(/^Bearer\s+(.+)$/i)?.[1]
       ?.trim() ?? null
+  );
+}
+
+function getCouplingServiceSharedSecret(env: ReturnType<typeof loadEnv>): string {
+  return (
+    env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() || env.COUPLING_SERVICE_SECRET?.trim() || ''
   );
 }
 
@@ -232,6 +240,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const convexUrl = getConfiguredConvexUrl(env);
   const encryptionSecret = getEncryptionSecret(env);
   const internalRpcSharedSecret = getInternalRpcSharedSecret(env);
+  const couplingServiceSharedSecret = getCouplingServiceSharedSecret(env);
 
   getRequired('BETTER_AUTH_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
@@ -240,7 +249,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('ENCRYPTION_SECRET');
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
     getPublicApiRateLimitStore();
-    if (!env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim()) {
+    if (!couplingServiceSharedSecret) {
       throw new Error(
         'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
       );
@@ -367,7 +376,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+    couplingServiceSharedSecret,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,
@@ -380,6 +389,13 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexSiteUrl,
     convexUrl,
     cdngine: getCdngineBackstageApiConfig(env),
+  });
+
+  couplingRuntimeRoutes = createCouplingRuntimeRoutes({
+    convexUrl,
+    convexApiSecret: env.CONVEX_API_SECRET ?? '',
+    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
+    couplingServiceSharedSecret,
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
@@ -681,6 +697,13 @@ async function routeRequest(request: Request): Promise<Response> {
     const localBackstageResponse = await backstageRepoRoutes.handleRequest(request);
     if (localBackstageResponse) {
       return localBackstageResponse;
+    }
+  }
+
+  if (pathname.startsWith('/v1/') && couplingRuntimeRoutes) {
+    const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
+    if (couplingResponse) {
+      return couplingResponse;
     }
   }
 

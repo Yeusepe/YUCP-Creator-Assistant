@@ -16,7 +16,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
         with:
-          bun-version: latest
+          bun-version: "1.3.9"
 
       - name: Validate dependency install secrets
         shell: bash
