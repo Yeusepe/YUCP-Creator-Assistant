@@ -38,6 +38,7 @@ import {
   createCouplingRuntimeRoutes,
   MAX_COUPLING_ASSET_PATHS,
   RUNTIME_DOWNLOAD_MAX_BYTES,
+  RUNTIME_TOKEN_MAX_LENGTH,
 } from './couplingRuntimeGateway';
 
 // Config with no coupling service wired: every coupling-job path should short-circuit BEFORE any
@@ -75,6 +76,14 @@ const originalFetch = globalThis.fetch;
 
 function licenseTokenWithSubject(subject: string): string {
   return `header.${Buffer.from(JSON.stringify({ sub: subject })).toString('base64url')}.sig`;
+}
+
+const validRuntimeToken = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ0ZXN0In0.signature';
+
+function runtimeDownloadRequest(token = validRuntimeToken): Request {
+  return new Request(
+    `https://api.test/v1/licenses/coupling-runtime?token=${encodeURIComponent(token)}`
+  );
 }
 
 function oversizedRuntimeBody(): ReadableStream<Uint8Array> {
@@ -192,10 +201,41 @@ describe('coupling runtime gateway', () => {
   });
 
   it('reports the runtime unavailable when the service is unconfigured', async () => {
-    const res = await routes.handleRequest(
-      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
-    );
+    const res = await routes.handleRequest(runtimeDownloadRequest());
     expect(res?.status).toBe(503);
+  });
+
+  it('rejects malformed runtime tokens before calling the private service', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response(null);
+    }) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(runtimeDownloadRequest('not-a-jwt'));
+
+    expect(res?.status).toBe(400);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('Invalid token format');
+    expect(fetchCalled).toBe(false);
+  });
+
+  it('rejects oversized runtime tokens before calling the private service', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    let fetchCalled = false;
+    globalThis.fetch = (async () => {
+      fetchCalled = true;
+      return new Response(null);
+    }) as unknown as typeof fetch;
+    const oversizedRuntimeToken = `${'a'.repeat(RUNTIME_TOKEN_MAX_LENGTH + 1)}.b.c`;
+
+    const res = await configuredRoutes.handleRequest(runtimeDownloadRequest(oversizedRuntimeToken));
+
+    expect(res?.status).toBe(400);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('Invalid token format');
+    expect(fetchCalled).toBe(false);
   });
 
   it('returns 405 for known coupling paths with unsupported methods', async () => {
@@ -369,9 +409,7 @@ describe('coupling runtime gateway', () => {
         },
       })) as unknown as typeof fetch;
 
-    const res = await configuredRoutes.handleRequest(
-      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
-    );
+    const res = await configuredRoutes.handleRequest(runtimeDownloadRequest());
 
     expect(res?.status).toBe(502);
   });
@@ -386,9 +424,7 @@ describe('coupling runtime gateway', () => {
         },
       })) as unknown as typeof fetch;
 
-    const res = await configuredRoutes.handleRequest(
-      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
-    );
+    const res = await configuredRoutes.handleRequest(runtimeDownloadRequest());
 
     expect(res?.status).toBe(200);
     const error = await readStreamFailure(res?.body ?? null);
@@ -404,13 +440,29 @@ describe('coupling runtime gateway', () => {
         headers: { 'Content-Type': 'text/plain' },
       })) as unknown as typeof fetch;
 
-    const res = await configuredRoutes.handleRequest(
-      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
-    );
+    const res = await configuredRoutes.handleRequest(runtimeDownloadRequest());
 
     expect(res?.status).toBe(502);
     expect(res?.headers.get('Content-Type')).toContain('application/json');
     const json = (await res?.json()) as { error: string };
     expect(json.error).toBe('Coupling runtime download failed');
   });
+
+  for (const status of [401, 403] as const) {
+    it(`preserves private-service ${status} runtime auth failures`, async () => {
+      const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+      globalThis.fetch = (async () =>
+        new Response('private auth error', {
+          status,
+          headers: { 'Content-Type': 'text/plain' },
+        })) as unknown as typeof fetch;
+
+      const res = await configuredRoutes.handleRequest(runtimeDownloadRequest());
+
+      expect(res?.status).toBe(status);
+      expect(res?.headers.get('Content-Type')).toContain('application/json');
+      const json = (await res?.json()) as { error: string };
+      expect(json.error).toBe('Coupling runtime download failed');
+    });
+  }
 });

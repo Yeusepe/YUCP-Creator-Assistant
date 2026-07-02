@@ -35,6 +35,8 @@ const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const LICENSE_TOKEN_MAX_LENGTH = 8192;
+export const RUNTIME_TOKEN_MAX_LENGTH = 8192;
+const RUNTIME_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
 const RUNTIME_VERSION_RE = /^[a-z0-9._:-]{1,128}$/i;
 const RUNTIME_DELIVERY_NAME_RE = /^[a-z0-9._-]{1,128}$/i;
@@ -567,6 +569,9 @@ async function handleCouplingRuntimeDownload(
   const token = url.searchParams.get('token');
   if (!token) {
     return jsonResponse({ error: 'token is required' }, 400);
+  }
+  if (token.length > RUNTIME_TOKEN_MAX_LENGTH || !RUNTIME_TOKEN_RE.test(token)) {
+    return jsonResponse({ error: 'Invalid token format' }, 400);
   }
   if (!config.couplingServiceBaseUrl || !config.couplingServiceSharedSecret) {
     return jsonResponse({ error: 'Coupling runtime is not available' }, 503);

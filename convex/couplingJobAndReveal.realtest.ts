@@ -117,7 +117,7 @@ describe('coupling job + license redaction', () => {
     const expectedSecret = 'test-preferred-coupling-relay-token';
     let observedAuthorization: string | null = null;
     process.env.YUCP_COUPLING_SERVICE_BASE_URL = 'https://coupling-service.test';
-    process.env.COUPLING_SERVICE_SECRET = 'stale-legacy-coupling-relay-token';
+    process.env.COUPLING_SERVICE_SECRET = 'example-legacy-token';
     process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET = expectedSecret;
     globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe('https://coupling-service.test/v1/coupling/internal/derive-seeds');
@@ -340,42 +340,86 @@ describe('coupling job + license redaction', () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);
     const licenseToken = await mintLicenseToken();
+    const previousRootPrivateKey = process.env.YUCP_ROOT_PRIVATE_KEY;
     delete process.env.YUCP_ROOT_PRIVATE_KEY;
 
-    await expect(
-      t.action(api.yucpLicenses.assembleCouplingJob, {
-        apiSecret: 'test-secret',
-        packageId,
-        projectId,
-        machineFingerprint,
-        licenseToken,
-        assetPaths: ['Assets/Character/body.png'],
-        runtimeManifest: {
-          artifactKey: 'coupling-runtime',
-          channel: 'stable',
-          platform: 'win-x64',
-          version: runtimeVersion,
-          metadataVersion: 1,
-          deliveryName: 'yucp_coupling.dll',
-          contentType: 'application/octet-stream',
-          envelopeCipher: 'none',
-          envelopeIvBase64: '',
-          ciphertextSha256: runtimePlaintextSha256,
-          ciphertextSize: 4,
-          plaintextSha256: runtimePlaintextSha256,
-          plaintextSize: 4,
-        },
-        seeds: [{ assetPath: 'Assets/Character/body.png', seedHex: '1'.repeat(64) }],
-      })
-    ).rejects.toThrow('YUCP_ROOT_PRIVATE_KEY not configured');
+    try {
+      await expect(
+        t.action(api.yucpLicenses.assembleCouplingJob, {
+          apiSecret: 'test-secret',
+          packageId,
+          projectId,
+          machineFingerprint,
+          licenseToken,
+          assetPaths: ['Assets/Character/body.png'],
+          runtimeManifest: {
+            artifactKey: 'coupling-runtime',
+            channel: 'stable',
+            platform: 'win-x64',
+            version: runtimeVersion,
+            metadataVersion: 1,
+            deliveryName: 'yucp_coupling.dll',
+            contentType: 'application/octet-stream',
+            envelopeCipher: 'none',
+            envelopeIvBase64: '',
+            ciphertextSha256: runtimePlaintextSha256,
+            ciphertextSize: 4,
+            plaintextSha256: runtimePlaintextSha256,
+            plaintextSize: 4,
+          },
+          seeds: [{ assetPath: 'Assets/Character/body.png', seedHex: '1'.repeat(64) }],
+        })
+      ).rejects.toThrow('YUCP_ROOT_PRIVATE_KEY not configured');
 
-    const traces = await t.run(async (ctx) =>
-      ctx.db
-        .query('coupling_trace_records')
-        .withIndex('by_auth_user_created', (q) => q.eq('authUserId', creatorAuthUserId))
-        .collect()
-    );
-    expect(traces).toHaveLength(0);
+      const traces = await t.run(async (ctx) =>
+        ctx.db
+          .query('coupling_trace_records')
+          .withIndex('by_auth_user_created', (q) => q.eq('authUserId', creatorAuthUserId))
+          .collect()
+      );
+      expect(traces).toHaveLength(0);
+    } finally {
+      if (previousRootPrivateKey === undefined) {
+        delete process.env.YUCP_ROOT_PRIVATE_KEY;
+      } else {
+        process.env.YUCP_ROOT_PRIVATE_KEY = previousRootPrivateKey;
+      }
+    }
+  });
+
+  it('assembles prototype-named asset paths without losing their seeds', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    const licenseToken = await mintLicenseToken();
+
+    const result = await t.action(api.yucpLicenses.assembleCouplingJob, {
+      apiSecret: 'test-secret',
+      packageId,
+      projectId,
+      machineFingerprint,
+      licenseToken,
+      assetPaths: ['__proto__'],
+      runtimeManifest: {
+        artifactKey: 'coupling-runtime',
+        channel: 'stable',
+        platform: 'win-x64',
+        version: runtimeVersion,
+        metadataVersion: 1,
+        deliveryName: 'yucp_coupling.dll',
+        contentType: 'application/octet-stream',
+        envelopeCipher: 'none',
+        envelopeIvBase64: '',
+        ciphertextSha256: runtimePlaintextSha256,
+        ciphertextSize: 4,
+        plaintextSha256: runtimePlaintextSha256,
+        plaintextSize: 4,
+      },
+      seeds: [{ assetPath: '__proto__', seedHex: '1'.repeat(64) }],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.files?.map((file) => file.assetPath)).toEqual(['__proto__']);
+    expect(result.files?.map((file) => file.seedHex)).toEqual(['1'.repeat(64)]);
   });
 
   it('uses the fallback coupling relay secret when the primary secret is blank', async () => {
@@ -584,7 +628,8 @@ describe('coupling job + license redaction', () => {
     const t = makeTestConvex();
     await seedCouplingTraceability(t);
     await seedPackageRegistration(t);
-    await seedTraceAndLink(t, 'LICENSE-KEY-12345');
+    const exampleLicenseKey = ['example', 'license', 'fixture'].join('-');
+    await seedTraceAndLink(t, exampleLicenseKey);
 
     const result = await t.query(api.couplingForensics.lookupTraceMatchesForAuthUser, {
       apiSecret: 'test-secret',

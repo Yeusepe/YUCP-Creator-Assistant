@@ -1252,7 +1252,7 @@ async function readBoundedResponseText(
 async function deriveCouplingSeeds(
   licenseSubject: string,
   assetPaths: string[]
-): Promise<Record<string, string> | null> {
+): Promise<Map<string, string> | null> {
   const baseUrl = process.env.YUCP_COUPLING_SERVICE_BASE_URL?.trim();
   const secret =
     process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ||
@@ -1293,10 +1293,10 @@ async function deriveCouplingSeeds(
     if (!Array.isArray(data?.seeds)) {
       return null;
     }
-    const map: Record<string, string> = {};
+    const map = new Map<string, string>();
     for (const seed of data.seeds) {
       if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed?.seedHex ?? '')) {
-        map[seed.assetPath] = seed.seedHex.toLowerCase();
+        map.set(seed.assetPath, seed.seedHex.toLowerCase());
       }
     }
     return map;
@@ -1433,7 +1433,7 @@ export const issueCouplingJob = internalAction({
     // low-poly/low-resolution coverage, exact recovery via ECC+CRC. Token length is recorded per
     // asset so the forensic decoder reconstructs the exact hex before hashing.
     for (const assetPath of args.assetPaths) {
-      const seedHex = seedMap[assetPath];
+      const seedHex = seedMap.get(assetPath);
       if (!seedHex) {
         continue; // no seed for this asset → cannot place a mark → skip it (never blocks)
       }
@@ -1638,17 +1638,17 @@ export const assembleCouplingJob = action({
       return { success: true, files: [], skipReason: 'no_runtime' };
     }
 
-    const seedMap: Record<string, string> = {};
+    const seedMap = new Map<string, string>();
     for (const seed of args.seeds) {
       if (seed?.assetPath && /^[0-9a-f]{64}$/i.test(seed.seedHex ?? '')) {
-        seedMap[seed.assetPath] = seed.seedHex.toLowerCase();
+        seedMap.set(seed.assetPath, seed.seedHex.toLowerCase());
       }
     }
 
     const files: { assetPath: string; tokenHex: string; seedHex: string }[] = [];
     const entries: { assetPath: string; tokenHash: string; tokenLength: number }[] = [];
     for (const assetPath of args.assetPaths) {
-      const seedHex = seedMap[assetPath];
+      const seedHex = seedMap.get(assetPath);
       if (!seedHex) {
         continue; // no seed for this asset, cannot place a mark, skip it without blocking
       }
