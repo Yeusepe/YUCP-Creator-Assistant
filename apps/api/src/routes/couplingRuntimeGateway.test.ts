@@ -249,7 +249,7 @@ describe('coupling runtime gateway', () => {
     expect(runtimeRes?.status).toBe(405);
   });
 
-  it('rejects unverifiable licenses before calling the coupling service', async () => {
+  it('normalizes unverifiable licenses before calling the coupling service', async () => {
     const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
     let couplingServiceCalled = false;
     globalThis.fetch = (async () => {
@@ -272,7 +272,7 @@ describe('coupling runtime gateway', () => {
 
     expect(res?.status).toBe(422);
     const json = (await res?.json()) as { error: string };
-    expect(json.error).toBe('License token is invalid or expired');
+    expect(json.error).toBe('License verification failed');
     expect(couplingServiceCalled).toBe(false);
     expect(convexActionMock).toHaveBeenCalledTimes(1);
   });
@@ -396,6 +396,58 @@ describe('coupling runtime gateway', () => {
 
     expect(res?.status).toBe(200);
     expect(fetchedUrls).toHaveLength(2);
+    expect(convexActionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('normalizes assemble re-check failures after manifest and seed derivation', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      if (String(input).includes('/runtime-artifacts/manifest')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            artifactKey: 'coupling-runtime',
+            channel: 'stable',
+            platform: 'win-x64',
+            version: '2026.07.02.1',
+            metadataVersion: 1,
+            deliveryName: 'yucp_coupling.dll',
+            contentType: 'application/octet-stream',
+            envelopeCipher: 'none',
+            envelopeIvBase64: '',
+            ciphertextSha256: 'a'.repeat(64),
+            ciphertextSize: 1024,
+            plaintextSha256: 'a'.repeat(64),
+            plaintextSize: 1024,
+          }),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ seeds: [{ assetPath: 'Assets/Body.png', seedHex: 'b'.repeat(64) }] }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as unknown as typeof fetch;
+    convexActionImpl = async (reference) => {
+      if (reference === convexActionRefs.verifyCouplingJobLicense) {
+        return { success: true, licenseSubject: 'license-subject' };
+      }
+      if (reference === convexActionRefs.assembleCouplingJob) {
+        return { success: false, error: 'License token package mismatch' };
+      }
+      throw new Error('Unexpected Convex action');
+    };
+
+    const res = await configuredRoutes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        licenseToken: licenseTokenWithSubject('license-subject'),
+      })
+    );
+
+    expect(res?.status).toBe(422);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('License verification failed');
     expect(convexActionMock).toHaveBeenCalledTimes(2);
   });
 

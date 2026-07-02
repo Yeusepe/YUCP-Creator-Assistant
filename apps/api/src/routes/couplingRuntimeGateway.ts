@@ -40,6 +40,7 @@ const RUNTIME_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
 const RUNTIME_VERSION_RE = /^[a-z0-9._:-]{1,128}$/i;
 const RUNTIME_DELIVERY_NAME_RE = /^[a-z0-9._-]{1,128}$/i;
+const PUBLIC_LICENSE_VERIFICATION_ERROR = 'License verification failed';
 
 export interface CouplingRuntimeGatewayConfig {
   convexUrl: string;
@@ -360,16 +361,19 @@ async function verifyCouplingJobLicense(
     })) as CouplingLicenseVerificationActionResult;
 
     if (!result.success) {
+      logger.warn('coupling-job license verification rejected request', {
+        reason: result.error ?? 'unknown',
+      });
       return {
         success: false,
-        response: jsonResponse({ error: result.error ?? 'License verification failed' }, 422),
+        response: jsonResponse({ error: PUBLIC_LICENSE_VERIFICATION_ERROR }, 422),
       };
     }
     if (!result.licenseSubject) {
       logger.error('coupling-job license verification returned no subject');
       return {
         success: false,
-        response: jsonResponse({ error: 'License verification failed' }, 502),
+        response: jsonResponse({ error: PUBLIC_LICENSE_VERIFICATION_ERROR }, 502),
       };
     }
     return { success: true, licenseSubject: result.licenseSubject };
@@ -544,7 +548,10 @@ async function handleCouplingJob(
     });
 
     if (!result.success) {
-      return jsonResponse({ error: result.error }, 422);
+      logger.warn('coupling-job assemble rejected request', {
+        reason: result.error ?? 'unknown',
+      });
+      return jsonResponse({ error: PUBLIC_LICENSE_VERIFICATION_ERROR }, 422);
     }
     return jsonResponse({
       success: true,
