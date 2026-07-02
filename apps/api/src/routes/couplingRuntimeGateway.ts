@@ -26,10 +26,10 @@ import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBod
 const REQUEST_TIMEOUT_MS = 15_000;
 const MANIFEST_RESPONSE_MAX_BYTES = 64 * 1024;
 const SEEDS_RESPONSE_MAX_BYTES = 512 * 1024;
-const COUPLING_JOB_BODY_MAX_BYTES = 128 * 1024;
+export const COUPLING_JOB_BODY_MAX_BYTES = 128 * 1024;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
-const MAX_COUPLING_ASSET_PATHS = 100;
-const RUNTIME_DOWNLOAD_MAX_BYTES = 128 * 1024 * 1024;
+export const MAX_COUPLING_ASSET_PATHS = 100;
+export const RUNTIME_DOWNLOAD_MAX_BYTES = 128 * 1024 * 1024;
 const RUNTIME_ARTIFACT_KEY = 'coupling-runtime';
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;

@@ -33,7 +33,12 @@ mock.module('../lib/convex', () => ({
   }),
 }));
 
-import { createCouplingRuntimeRoutes } from './couplingRuntimeGateway';
+import {
+  COUPLING_JOB_BODY_MAX_BYTES,
+  createCouplingRuntimeRoutes,
+  MAX_COUPLING_ASSET_PATHS,
+  RUNTIME_DOWNLOAD_MAX_BYTES,
+} from './couplingRuntimeGateway';
 
 // Config with no coupling service wired: every coupling-job path should short-circuit BEFORE any
 // Convex/service call, so these tests need no network. They pin the dispatch + validation + graceful
@@ -70,6 +75,35 @@ const originalFetch = globalThis.fetch;
 
 function licenseTokenWithSubject(subject: string): string {
   return `header.${Buffer.from(JSON.stringify({ sub: subject })).toString('base64url')}.sig`;
+}
+
+function oversizedRuntimeBody(): ReadableStream<Uint8Array> {
+  const chunk = new Uint8Array(1024 * 1024);
+  let bytesSent = 0;
+
+  return new ReadableStream({
+    pull(controller) {
+      if (bytesSent > RUNTIME_DOWNLOAD_MAX_BYTES) {
+        controller.close();
+        return;
+      }
+      bytesSent += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+async function readStreamFailure(body: ReadableStream<Uint8Array> | null): Promise<unknown> {
+  if (!body) return new Error('missing response body');
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done } = await reader.read();
+      if (done) return null;
+    }
+  } catch (error) {
+    return error;
+  }
 }
 
 describe('coupling runtime gateway', () => {
@@ -131,7 +165,7 @@ describe('coupling runtime gateway', () => {
       new Request('https://api.test/v1/licenses/coupling-job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...validBody, padding: 'x'.repeat(129 * 1024) }),
+        body: JSON.stringify({ ...validBody, padding: 'x'.repeat(COUPLING_JOB_BODY_MAX_BYTES) }),
       })
     );
     expect(res?.status).toBe(413);
@@ -141,7 +175,10 @@ describe('coupling runtime gateway', () => {
     const res = await routes.handleRequest(
       couplingJobRequest({
         ...validBody,
-        assetPaths: Array.from({ length: 101 }, (_, index) => `Assets/${index}.png`),
+        assetPaths: Array.from(
+          { length: MAX_COUPLING_ASSET_PATHS + 1 },
+          (_, index) => `Assets/${index}.png`
+        ),
       })
     );
     expect(res?.status).toBe(400);
@@ -327,7 +364,7 @@ describe('coupling runtime gateway', () => {
     globalThis.fetch = (async () =>
       new Response('too large', {
         headers: {
-          'Content-Length': String(129 * 1024 * 1024),
+          'Content-Length': String(RUNTIME_DOWNLOAD_MAX_BYTES + 1),
           'Content-Type': 'application/octet-stream',
         },
       })) as unknown as typeof fetch;
@@ -337,6 +374,26 @@ describe('coupling runtime gateway', () => {
     );
 
     expect(res?.status).toBe(502);
+  });
+
+  it('aborts runtime downloads when the stream exceeds the size limit', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    globalThis.fetch = (async () =>
+      new Response(oversizedRuntimeBody(), {
+        headers: {
+          'Content-Length': '1',
+          'Content-Type': 'application/octet-stream',
+        },
+      })) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
+    );
+
+    expect(res?.status).toBe(200);
+    const error = await readStreamFailure(res?.body ?? null);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('Coupling runtime download exceeded size limit');
   });
 
   it('does not proxy private-service runtime error bodies to callers', async () => {
