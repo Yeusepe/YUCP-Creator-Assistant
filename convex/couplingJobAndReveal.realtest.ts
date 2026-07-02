@@ -336,6 +336,48 @@ describe('coupling job + license redaction', () => {
     }
   });
 
+  it('does not record gateway traces when runtime token signing is unavailable', async () => {
+    const t = makeTestConvex();
+    await seedPackageRegistration(t);
+    const licenseToken = await mintLicenseToken();
+    delete process.env.YUCP_ROOT_PRIVATE_KEY;
+
+    await expect(
+      t.action(api.yucpLicenses.assembleCouplingJob, {
+        apiSecret: 'test-secret',
+        packageId,
+        projectId,
+        machineFingerprint,
+        licenseToken,
+        assetPaths: ['Assets/Character/body.png'],
+        runtimeManifest: {
+          artifactKey: 'coupling-runtime',
+          channel: 'stable',
+          platform: 'win-x64',
+          version: runtimeVersion,
+          metadataVersion: 1,
+          deliveryName: 'yucp_coupling.dll',
+          contentType: 'application/octet-stream',
+          envelopeCipher: 'none',
+          envelopeIvBase64: '',
+          ciphertextSha256: runtimePlaintextSha256,
+          ciphertextSize: 4,
+          plaintextSha256: runtimePlaintextSha256,
+          plaintextSize: 4,
+        },
+        seeds: [{ assetPath: 'Assets/Character/body.png', seedHex: '1'.repeat(64) }],
+      })
+    ).rejects.toThrow('YUCP_ROOT_PRIVATE_KEY not configured');
+
+    const traces = await t.run(async (ctx) =>
+      ctx.db
+        .query('coupling_trace_records')
+        .withIndex('by_auth_user_created', (q) => q.eq('authUserId', creatorAuthUserId))
+        .collect()
+    );
+    expect(traces).toHaveLength(0);
+  });
+
   it('uses the fallback coupling relay secret when the primary secret is blank', async () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t);

@@ -593,6 +593,12 @@ async function handleCouplingRuntimeDownload(
     });
     clearTimeout(timeout);
 
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      const status = res.status === 401 || res.status === 403 ? res.status : 502;
+      return jsonResponse({ error: 'Coupling runtime download failed' }, status);
+    }
+
     const contentLength = readContentLength(res.headers);
     if (contentLength !== null && contentLength > RUNTIME_DOWNLOAD_MAX_BYTES) {
       await res.body?.cancel().catch(() => undefined);

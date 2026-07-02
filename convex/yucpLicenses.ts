@@ -1453,20 +1453,6 @@ export const issueCouplingJob = internalAction({
       return { success: true, files: [], skipReason: 'seed_unavailable' };
     }
 
-    const correlationId = crypto.randomUUID();
-    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
-      authUserId: registration.yucpUserId,
-      packageId: args.packageId,
-      licenseSubject: claims.sub,
-      provider: claims.provider,
-      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
-      projectIdHash: await sha256Hex(args.projectId),
-      runtimeArtifactVersion: artifact.version,
-      runtimePlaintextSha256: artifact.plaintextSha256,
-      correlationId,
-      entries,
-    });
-
     const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
@@ -1487,6 +1473,20 @@ export const issueCouplingJob = internalAction({
       signingRoot.privateKeyBase64,
       signingRoot.keyId
     );
+
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: artifact.version,
+      runtimePlaintextSha256: artifact.plaintextSha256,
+      correlationId,
+      entries,
+    });
 
     return {
       success: true,
@@ -1668,20 +1668,6 @@ export const assembleCouplingJob = action({
       return { success: true, files: [], skipReason: 'seed_unavailable' };
     }
 
-    const correlationId = crypto.randomUUID();
-    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
-      authUserId: registration.yucpUserId,
-      packageId: args.packageId,
-      licenseSubject: claims.sub,
-      provider: claims.provider,
-      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
-      projectIdHash: await sha256Hex(args.projectId),
-      runtimeArtifactVersion: manifest.version,
-      runtimePlaintextSha256: manifest.plaintextSha256,
-      correlationId,
-      entries,
-    });
-
     const signingRoot = await getPinnedSigningRoot(process.env.YUCP_ROOT_KEY_ID ?? null);
     const iat = Math.floor(Date.now() / 1000);
     const exp = iat + COUPLING_RUNTIME_TOKEN_TTL_SECONDS;
@@ -1718,6 +1704,20 @@ export const assembleCouplingJob = action({
       signingRoot.privateKeyBase64,
       signingRoot.keyId
     );
+
+    const correlationId = crypto.randomUUID();
+    await ctx.runMutation(internal.yucpLicenses.recordCouplingTraces, {
+      authUserId: registration.yucpUserId,
+      packageId: args.packageId,
+      licenseSubject: claims.sub,
+      provider: claims.provider,
+      machineFingerprintHash: await sha256Hex(args.machineFingerprint),
+      projectIdHash: await sha256Hex(args.projectId),
+      runtimeArtifactVersion: manifest.version,
+      runtimePlaintextSha256: manifest.plaintextSha256,
+      correlationId,
+      entries,
+    });
 
     return {
       success: true,

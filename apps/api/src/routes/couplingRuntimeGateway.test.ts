@@ -338,4 +338,22 @@ describe('coupling runtime gateway', () => {
 
     expect(res?.status).toBe(502);
   });
+
+  it('does not proxy private-service runtime error bodies to callers', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    globalThis.fetch = (async () =>
+      new Response('private stack trace', {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain' },
+      })) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
+    );
+
+    expect(res?.status).toBe(502);
+    expect(res?.headers.get('Content-Type')).toContain('application/json');
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('Coupling runtime download failed');
+  });
 });
