@@ -21,12 +21,19 @@
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const MANIFEST_RESPONSE_MAX_BYTES = 64 * 1024;
 const SEEDS_RESPONSE_MAX_BYTES = 512 * 1024;
+const COUPLING_JOB_BODY_MAX_BYTES = 128 * 1024;
+const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_COUPLING_ASSET_PATHS = 100;
+const RUNTIME_DOWNLOAD_MAX_BYTES = 128 * 1024 * 1024;
 const RUNTIME_ARTIFACT_KEY = 'coupling-runtime';
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
+const RUNTIME_VERSION_RE = /^[a-z0-9._:-]{1,128}$/i;
+const RUNTIME_DELIVERY_NAME_RE = /^[a-z0-9._-]{1,128}$/i;
 
 export interface CouplingRuntimeGatewayConfig {
   convexUrl: string;
@@ -99,9 +106,32 @@ function readRequiredString(payload: Record<string, unknown>, key: string): stri
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function readString(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' ? value : null;
+}
+
 function readRequiredNumber(payload: Record<string, unknown>, key: string): number | null {
   const value = payload[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function isPositiveSafeInteger(value: number | null): value is number {
+  return value !== null && Number.isSafeInteger(value) && value > 0;
+}
+
+function isValidMetadataVersion(value: number | null): value is number {
+  return isPositiveSafeInteger(value) && value <= 10_000;
+}
+
+function isValidRuntimeSize(value: number | null): value is number {
+  return isPositiveSafeInteger(value) && value <= RUNTIME_DOWNLOAD_MAX_BYTES;
+}
+
+function isValidOptionalManifestString(value: unknown): value is string | undefined {
+  return (
+    value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 256)
+  );
 }
 
 function parseRuntimeManifest(payload: unknown): RuntimeManifest | null {
@@ -118,27 +148,38 @@ function parseRuntimeManifest(payload: unknown): RuntimeManifest | null {
   const deliveryName = readRequiredString(data, 'deliveryName');
   const contentType = readRequiredString(data, 'contentType');
   const envelopeCipher = readRequiredString(data, 'envelopeCipher');
-  const envelopeIvBase64 = readRequiredString(data, 'envelopeIvBase64');
+  const envelopeIvBase64 = readString(data, 'envelopeIvBase64');
   const ciphertextSha256 = readRequiredString(data, 'ciphertextSha256');
   const ciphertextSize = readRequiredNumber(data, 'ciphertextSize');
   const plaintextSha256 = readRequiredString(data, 'plaintextSha256');
   const plaintextSize = readRequiredNumber(data, 'plaintextSize');
+  const codeSigningSubject = data.codeSigningSubject;
+  const codeSigningThumbprint = data.codeSigningThumbprint;
 
   if (
     data.success !== true ||
     artifactKey !== RUNTIME_ARTIFACT_KEY ||
-    !channel ||
-    !platform ||
+    channel !== 'stable' ||
+    platform !== 'win-x64' ||
     !version ||
-    metadataVersion === null ||
+    !RUNTIME_VERSION_RE.test(version) ||
+    !isValidMetadataVersion(metadataVersion) ||
     !deliveryName ||
-    !contentType ||
-    !envelopeCipher ||
-    !envelopeIvBase64 ||
+    !RUNTIME_DELIVERY_NAME_RE.test(deliveryName) ||
+    contentType !== 'application/octet-stream' ||
+    envelopeCipher !== 'none' ||
+    envelopeIvBase64 === null ||
+    envelopeIvBase64 !== '' ||
     !ciphertextSha256 ||
-    ciphertextSize === null ||
+    !SHA256_HEX_RE.test(ciphertextSha256) ||
+    !isValidRuntimeSize(ciphertextSize) ||
     !plaintextSha256 ||
-    plaintextSize === null
+    !SHA256_HEX_RE.test(plaintextSha256) ||
+    !isValidRuntimeSize(plaintextSize) ||
+    ciphertextSha256.toLowerCase() !== plaintextSha256.toLowerCase() ||
+    ciphertextSize !== plaintextSize ||
+    !isValidOptionalManifestString(codeSigningSubject) ||
+    !isValidOptionalManifestString(codeSigningThumbprint)
   ) {
     return null;
   }
@@ -159,20 +200,28 @@ function parseRuntimeManifest(payload: unknown): RuntimeManifest | null {
     plaintextSize,
   };
 
-  if (data.codeSigningSubject !== undefined) {
-    if (typeof data.codeSigningSubject !== 'string' || data.codeSigningSubject.length === 0) {
-      return null;
-    }
-    manifest.codeSigningSubject = data.codeSigningSubject;
+  if (codeSigningSubject !== undefined) {
+    manifest.codeSigningSubject = codeSigningSubject;
   }
-  if (data.codeSigningThumbprint !== undefined) {
-    if (typeof data.codeSigningThumbprint !== 'string' || data.codeSigningThumbprint.length === 0) {
-      return null;
-    }
-    manifest.codeSigningThumbprint = data.codeSigningThumbprint;
+  if (codeSigningThumbprint !== undefined) {
+    manifest.codeSigningThumbprint = codeSigningThumbprint;
   }
 
   return manifest;
+}
+
+function isValidCouplingAssetPath(value: unknown): value is string {
+  return (
+    typeof value === 'string' && value.length > 0 && value.length <= COUPLING_ASSET_PATH_MAX_LENGTH
+  );
+}
+
+function readContentLength(headers: Headers): number | null {
+  const raw = headers.get('content-length');
+  if (!raw) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 async function readBoundedText(response: Response, maxBytes: number): Promise<string | null> {
@@ -329,6 +378,69 @@ async function verifyCouplingJobLicense(
   }
 }
 
+function createBoundedRuntimeDownloadStream(
+  body: ReadableStream<Uint8Array> | null,
+  abortController: AbortController
+): ReadableStream<Uint8Array> | null {
+  if (!body) return null;
+
+  const reader = body.getReader();
+  let bytesRead = 0;
+  let released = false;
+  let idleTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  const clearIdleTimeout = () => {
+    if (idleTimeout) {
+      clearTimeout(idleTimeout);
+      idleTimeout = null;
+    }
+  };
+  const resetIdleTimeout = () => {
+    clearIdleTimeout();
+    idleTimeout = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
+  };
+  const releaseReader = () => {
+    if (!released) {
+      released = true;
+      reader.releaseLock();
+    }
+  };
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        resetIdleTimeout();
+        const { done, value } = await reader.read();
+        clearIdleTimeout();
+        if (done) {
+          releaseReader();
+          controller.close();
+          return;
+        }
+        bytesRead += value.byteLength;
+        if (bytesRead > RUNTIME_DOWNLOAD_MAX_BYTES) {
+          abortController.abort();
+          await reader.cancel().catch(() => undefined);
+          releaseReader();
+          controller.error(new Error('Coupling runtime download exceeded size limit'));
+          return;
+        }
+        controller.enqueue(value);
+      } catch (error) {
+        clearIdleTimeout();
+        releaseReader();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      clearIdleTimeout();
+      abortController.abort();
+      await reader.cancel(reason).catch(() => undefined);
+      releaseReader();
+    },
+  });
+}
+
 async function handleCouplingJob(
   request: Request,
   config: CouplingRuntimeGatewayConfig
@@ -341,8 +453,11 @@ async function handleCouplingJob(
     assetPaths?: unknown;
   };
   try {
-    body = (await request.json()) as typeof body;
-  } catch {
+    body = await readJsonObjectBodyWithLimit(request, COUPLING_JOB_BODY_MAX_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return jsonResponse({ error: error.message }, error.status);
+    }
     return jsonResponse({ error: 'Invalid JSON body' }, 400);
   }
 
@@ -351,9 +466,7 @@ async function handleCouplingJob(
   const machineFingerprint =
     typeof body.machineFingerprint === 'string' ? body.machineFingerprint : '';
   const licenseToken = typeof body.licenseToken === 'string' ? body.licenseToken : '';
-  const assetPaths = Array.isArray(body.assetPaths)
-    ? body.assetPaths.filter((p): p is string => typeof p === 'string')
-    : null;
+  const assetPaths = Array.isArray(body.assetPaths) ? body.assetPaths : null;
 
   if (!packageId || !projectId || !machineFingerprint || !licenseToken) {
     return jsonResponse(
@@ -366,6 +479,9 @@ async function handleCouplingJob(
   }
   if (assetPaths.length > MAX_COUPLING_ASSET_PATHS) {
     return jsonResponse({ error: 'Too many coupling asset paths' }, 400);
+  }
+  if (!assetPaths.every(isValidCouplingAssetPath)) {
+    return jsonResponse({ error: 'Invalid coupling asset path' }, 400);
   }
   if (assetPaths.length === 0) {
     return skipResponse('no_assets');
@@ -459,6 +575,13 @@ async function handleCouplingRuntimeDownload(
       redirect: 'error',
       signal: controller.signal,
     });
+    clearTimeout(timeout);
+
+    const contentLength = readContentLength(res.headers);
+    if (contentLength !== null && contentLength > RUNTIME_DOWNLOAD_MAX_BYTES) {
+      await res.body?.cancel().catch(() => undefined);
+      return jsonResponse({ error: 'Coupling runtime artifact is too large' }, 502);
+    }
 
     // The service verifies the runtime token itself; surface its status and stream the bytes.
     const headers = new Headers({
@@ -472,14 +595,14 @@ async function handleCouplingRuntimeDownload(
     const sha = res.headers.get('x-yucp-runtime-plaintext-sha256');
     if (sha) headers.set('X-YUCP-Runtime-Plaintext-Sha256', sha);
 
-    return new Response(res.body, { status: res.status, headers });
+    const body = createBoundedRuntimeDownloadStream(res.body, controller);
+    return new Response(body, { status: res.status, headers });
   } catch (error) {
+    clearTimeout(timeout);
     logger.error('coupling-runtime proxy failed', {
       message: error instanceof Error ? error.message : String(error),
     });
     return jsonResponse({ error: 'Coupling runtime storage unavailable' }, 502);
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -489,10 +612,16 @@ export function createCouplingRuntimeRoutes(config: CouplingRuntimeGatewayConfig
   return {
     async handleRequest(request: Request): Promise<Response | null> {
       const url = new URL(request.url);
-      if (url.pathname === '/v1/licenses/coupling-job' && request.method === 'POST') {
+      if (url.pathname === '/v1/licenses/coupling-job') {
+        if (request.method !== 'POST') {
+          return jsonResponse({ error: 'Method not allowed' }, 405);
+        }
         return handleCouplingJob(request, config);
       }
-      if (url.pathname === '/v1/licenses/coupling-runtime' && request.method === 'GET') {
+      if (url.pathname === '/v1/licenses/coupling-runtime') {
+        if (request.method !== 'GET') {
+          return jsonResponse({ error: 'Method not allowed' }, 405);
+        }
         return handleCouplingRuntimeDownload(url, config);
       }
       return null;

@@ -59,6 +59,13 @@ const validBody = {
   assetPaths: ['Assets/Body.png'],
 };
 
+const configuredRouteOptions = {
+  convexUrl: 'https://example.convex.cloud',
+  convexApiSecret: 'test-secret',
+  couplingServiceBaseUrl: 'https://coupling.internal',
+  couplingServiceSharedSecret: 'test-secret',
+};
+
 const originalFetch = globalThis.fetch;
 
 function licenseTokenWithSubject(subject: string): string {
@@ -119,6 +126,27 @@ describe('coupling runtime gateway', () => {
     expect(res?.status).toBe(400);
   });
 
+  it('rejects oversized coupling-job bodies before parsing', async () => {
+    const res = await routes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...validBody, padding: 'x'.repeat(129 * 1024) }),
+      })
+    );
+    expect(res?.status).toBe(413);
+  });
+
+  it('rejects too many coupling asset paths', async () => {
+    const res = await routes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        assetPaths: Array.from({ length: 101 }, (_, index) => `Assets/${index}.png`),
+      })
+    );
+    expect(res?.status).toBe(400);
+  });
+
   it('requires a token on the runtime download', async () => {
     const res = await routes.handleRequest(
       new Request('https://api.test/v1/licenses/coupling-runtime')
@@ -133,13 +161,19 @@ describe('coupling runtime gateway', () => {
     expect(res?.status).toBe(503);
   });
 
+  it('returns 405 for known coupling paths with unsupported methods', async () => {
+    const jobRes = await routes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-job', { method: 'GET' })
+    );
+    const runtimeRes = await routes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-runtime', { method: 'POST' })
+    );
+    expect(jobRes?.status).toBe(405);
+    expect(runtimeRes?.status).toBe(405);
+  });
+
   it('rejects unverifiable licenses before calling the coupling service', async () => {
-    const configuredRoutes = createCouplingRuntimeRoutes({
-      convexUrl: 'https://example.convex.cloud',
-      convexApiSecret: 'test-secret',
-      couplingServiceBaseUrl: 'https://coupling.internal',
-      couplingServiceSharedSecret: 'test-secret',
-    });
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
     let couplingServiceCalled = false;
     globalThis.fetch = (async () => {
       couplingServiceCalled = true;
@@ -166,13 +200,30 @@ describe('coupling runtime gateway', () => {
     expect(convexActionMock).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects malformed asset paths before calling the coupling service', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    let couplingServiceCalled = false;
+    globalThis.fetch = (async () => {
+      couplingServiceCalled = true;
+      return new Response(null);
+    }) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        assetPaths: [''],
+      })
+    );
+
+    expect(res?.status).toBe(400);
+    const json = (await res?.json()) as { error: string };
+    expect(json.error).toBe('Invalid coupling asset path');
+    expect(couplingServiceCalled).toBe(false);
+    expect(convexActionMock).toHaveBeenCalledTimes(0);
+  });
+
   it('treats malformed runtime manifests as no_runtime before seed derivation', async () => {
-    const configuredRoutes = createCouplingRuntimeRoutes({
-      convexUrl: 'https://example.convex.cloud',
-      convexApiSecret: 'test-secret',
-      couplingServiceBaseUrl: 'https://coupling.internal',
-      couplingServiceSharedSecret: 'test-secret',
-    });
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
     const fetchedUrls: string[] = [];
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
       fetchedUrls.push(String(input));
@@ -203,5 +254,66 @@ describe('coupling runtime gateway', () => {
     expect(json.skipReason).toBe('no_runtime');
     expect(fetchedUrls).toHaveLength(1);
     expect(convexActionMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the private service none-envelope manifest with an empty IV', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    const fetchedUrls: string[] = [];
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      fetchedUrls.push(String(input));
+      if (String(input).includes('/runtime-artifacts/manifest')) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            artifactKey: 'coupling-runtime',
+            channel: 'stable',
+            platform: 'win-x64',
+            version: '2026.07.02.1',
+            metadataVersion: 1,
+            deliveryName: 'yucp_coupling.dll',
+            contentType: 'application/octet-stream',
+            envelopeCipher: 'none',
+            envelopeIvBase64: '',
+            ciphertextSha256: 'a'.repeat(64),
+            ciphertextSize: 1024,
+            plaintextSha256: 'a'.repeat(64),
+            plaintextSize: 1024,
+          }),
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+      return new Response(
+        JSON.stringify({ seeds: [{ assetPath: 'Assets/Body.png', seedHex: 'b'.repeat(64) }] }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      couplingJobRequest({
+        ...validBody,
+        licenseToken: licenseTokenWithSubject('license-subject'),
+      })
+    );
+
+    expect(res?.status).toBe(200);
+    expect(fetchedUrls).toHaveLength(2);
+    expect(convexActionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects oversized runtime downloads before proxying the body', async () => {
+    const configuredRoutes = createCouplingRuntimeRoutes(configuredRouteOptions);
+    globalThis.fetch = (async () =>
+      new Response('too large', {
+        headers: {
+          'Content-Length': String(129 * 1024 * 1024),
+          'Content-Type': 'application/octet-stream',
+        },
+      })) as unknown as typeof fetch;
+
+    const res = await configuredRoutes.handleRequest(
+      new Request('https://api.test/v1/licenses/coupling-runtime?token=abc')
+    );
+
+    expect(res?.status).toBe(502);
   });
 });

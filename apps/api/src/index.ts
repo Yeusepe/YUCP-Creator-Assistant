@@ -90,6 +90,12 @@ function parseBearerToken(authHeader: string | null): string | null {
   );
 }
 
+function getCouplingServiceSharedSecret(env: ReturnType<typeof loadEnv>): string {
+  return (
+    env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() || env.COUPLING_SERVICE_SECRET?.trim() || ''
+  );
+}
+
 function safeDecodeURIComponent(value: string): string | null {
   try {
     return decodeURIComponent(value);
@@ -234,6 +240,7 @@ function initializeAuth(webhookBaseUrl?: string) {
   const convexUrl = getConfiguredConvexUrl(env);
   const encryptionSecret = getEncryptionSecret(env);
   const internalRpcSharedSecret = getInternalRpcSharedSecret(env);
+  const couplingServiceSharedSecret = getCouplingServiceSharedSecret(env);
 
   getRequired('BETTER_AUTH_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
@@ -242,7 +249,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('ENCRYPTION_SECRET');
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
     getPublicApiRateLimitStore();
-    if (!env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim()) {
+    if (!couplingServiceSharedSecret) {
       throw new Error(
         'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
       );
@@ -369,7 +376,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     apiBaseUrl: publicBaseUrl,
     frontendBaseUrl: frontendUrl,
     couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+    couplingServiceSharedSecret,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,
@@ -388,7 +395,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret: env.YUCP_COUPLING_SERVICE_SHARED_SECRET ?? '',
+    couplingServiceSharedSecret,
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
