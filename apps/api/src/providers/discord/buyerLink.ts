@@ -5,7 +5,8 @@ import type { BuyerLinkPlugin } from '../types';
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_TOKEN_PURPOSE = 'discord-oauth-access-token';
 const DISCORD_API_TIMEOUT_MS = 10_000;
-const DISCORD_RETRY_AFTER_MAX_MS = 5_000;
+const DISCORD_RETRY_AFTER_FALLBACK_MS = 5_000;
+const DISCORD_RATE_LIMIT_RETRY_BUDGET_MS = 10_000;
 
 interface DiscordUserResponse {
   id?: string;
@@ -16,6 +17,25 @@ interface DiscordUserResponse {
 
 interface DiscordGuildMemberResponse {
   roles?: string[];
+}
+
+async function readDiscordRetryAfterMs(response: Response): Promise<number> {
+  const retryAfterHeader = Number.parseFloat(response.headers.get('Retry-After') ?? '');
+  if (Number.isFinite(retryAfterHeader) && retryAfterHeader >= 0) {
+    return retryAfterHeader * 1000;
+  }
+
+  try {
+    const data = (await response.clone().json()) as { retry_after?: unknown };
+    const retryAfter = Number.parseFloat(String(data.retry_after ?? ''));
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+      return retryAfter * 1000;
+    }
+  } catch {
+    return DISCORD_RETRY_AFTER_FALLBACK_MS;
+  }
+
+  return DISCORD_RETRY_AFTER_FALLBACK_MS;
 }
 
 async function fetchDiscordIdentity(accessToken: string) {
@@ -57,13 +77,14 @@ async function fetchGuildMember(
   });
 
   if (response.status === 429) {
-    const retryAfter = Number.parseFloat(response.headers.get('Retry-After') ?? '5');
-    await new Promise((resolve) =>
-      setTimeout(
-        resolve,
-        Math.min(Number.isFinite(retryAfter) ? retryAfter * 1000 : 5000, DISCORD_RETRY_AFTER_MAX_MS)
-      )
-    );
+    // Discord rate limit docs:
+    // https://discord.com/developers/docs/topics/rate-limits#exceeding-a-rate-limit
+    const retryAfterMs = await readDiscordRetryAfterMs(response);
+    if (retryAfterMs > DISCORD_RATE_LIMIT_RETRY_BUDGET_MS) {
+      throw new Error('Discord is rate limited. Please try again shortly.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
     response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
