@@ -175,17 +175,21 @@ describe('DiscordOAuthProvider', () => {
       const beginResult = await provider.beginVerification();
 
       // Mock fetch responses
-      global.fetch = mock(async (input: string | URL | Request) => {
+      let tokenExchangeSignal: AbortSignal | undefined;
+      let userInfoSignal: AbortSignal | undefined;
+      global.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
 
         if (url.includes('/oauth2/token')) {
+          tokenExchangeSignal = init?.signal ?? undefined;
           return new Response(JSON.stringify(mockTokens), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           });
         }
         if (url.includes('/users/@me')) {
+          userInfoSignal = init?.signal ?? undefined;
           return new Response(JSON.stringify(mockUser), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
@@ -206,6 +210,8 @@ describe('DiscordOAuthProvider', () => {
       expect(result.encryptedTokens).toBeDefined();
       expect(result.encryptedTokens.encryptedAccessToken).toBeDefined();
       expect(result.encryptedTokens.encryptedRefreshToken).toBeDefined();
+      expect(tokenExchangeSignal).toBeInstanceOf(AbortSignal);
+      expect(userInfoSignal).toBeInstanceOf(AbortSignal);
     });
 
     it('should fail with invalid state', async () => {
@@ -600,7 +606,9 @@ describe('DiscordOAuthProvider', () => {
         scope: 'identify',
       };
 
-      global.fetch = mock(async () => {
+      let refreshSignal: AbortSignal | undefined;
+      global.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        refreshSignal = init?.signal ?? undefined;
         return new Response(JSON.stringify(newTokens), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -619,6 +627,7 @@ describe('DiscordOAuthProvider', () => {
         aad: createAAD(config.authUserId, 'discord', 'access'),
       });
       expect(decryptedAccess).toBe('new-access-token');
+      expect(refreshSignal).toBeInstanceOf(AbortSignal);
     });
 
     it('should revoke tokens', async () => {
@@ -642,7 +651,9 @@ describe('DiscordOAuthProvider', () => {
       await storage.storeTokens('test-session-id', tokens);
 
       // Mock revocation response
-      global.fetch = mock(async () => {
+      let revokeSignal: AbortSignal | undefined;
+      global.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        revokeSignal = init?.signal ?? undefined;
         return new Response(null, { status: 200 });
       }) as unknown as typeof fetch;
 
@@ -651,6 +662,7 @@ describe('DiscordOAuthProvider', () => {
       // Tokens should be deleted
       const stored = await storage.getTokens('test-session-id');
       expect(stored).toBeNull();
+      expect(revokeSignal).toBeInstanceOf(AbortSignal);
     });
     it('should not throw when revoking non-existent tokens', async () => {
       // revokeTokens returns early when tokens don't exist; must not throw

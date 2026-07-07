@@ -10,6 +10,7 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ConvexError } from 'convex/values';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import { getByProductInternal } from './role_rules';
@@ -337,8 +338,9 @@ describe('role rules CRUD and isolation', () => {
     });
     const before = await getRoleRuleCounts(t);
 
-    await expect(
-      t.mutation(api.role_rules.addProductFromDiscordRole, {
+    let caught: unknown;
+    try {
+      await t.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret: 'test-secret',
         authUserId: 'auth-creator-invalid-discord-source',
         sourceGuildId: '../member',
@@ -346,8 +348,13 @@ describe('role rules CRUD and isolation', () => {
         guildId: 'guild-invalid-discord-source',
         guildLinkId,
         verifiedRoleId: 'target-role-invalid-discord-source',
-      })
-    ).rejects.toThrow('Invalid Discord source guild ID');
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ConvexError);
+    expect((caught as Error).message).toContain('Invalid Discord source guild ID');
 
     expect(await getRoleRuleCounts(t)).toEqual(before);
   });

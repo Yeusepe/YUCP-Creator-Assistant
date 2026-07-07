@@ -6,13 +6,20 @@
  */
 
 import type { GenericMutationCtx } from 'convex/server';
-import { assertDiscordSnowflakeId } from '@yucp/shared';
+import { ConvexError } from 'convex/values';
+import { isDiscordSnowflakeId } from '@yucp/shared';
 import type { DataModel, Id } from '../../_generated/dataModel';
 import { enqueueVerifyPromptRefreshJob } from '../verifyPrompt';
 import { requireApiSecret } from './queries';
 import { normalizeWritableVerifiedRoleIds } from './roleIds';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
+
+function assertDiscordSnowflakeId(value: string, label: string) {
+  if (!isDiscordSnowflakeId(value)) {
+    throw new ConvexError(`Invalid Discord ${label} ID`);
+  }
+}
 
 export function buildDiscordRoleKey(
   sourceGuildId: string,

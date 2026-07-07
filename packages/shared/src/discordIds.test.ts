@@ -17,6 +17,8 @@ describe('discord ID helpers', () => {
   it('rejects malformed Discord snowflake IDs', () => {
     expect(isDiscordSnowflakeId('../member')).toBe(false);
     expect(isDiscordSnowflakeId('123')).toBe(false);
+    expect(isDiscordSnowflakeId('1000000000000000')).toBe(false);
+    expect(isDiscordSnowflakeId('100000000000000000001')).toBe(false);
     expect(() => assertDiscordSnowflakeId('../member', 'source guild')).toThrow(
       'Invalid Discord source guild ID'
     );
