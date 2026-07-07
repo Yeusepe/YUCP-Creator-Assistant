@@ -15,6 +15,9 @@ import type { Doc } from './_generated/dataModel';
 import { getByProductInternal } from './role_rules';
 import { makeTestConvex, seedGuildLink } from './testHelpers';
 
+const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
+const DUMMY_DISCORD_REQUIRED_ROLE_ID = '100000000000000002';
+
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
   return t.run(async (ctx) => ({
     roleRules: (await ctx.db.query('role_rules').collect()).length,
@@ -311,8 +314,8 @@ describe('role rules CRUD and isolation', () => {
     await t.mutation(api.role_rules.addProductFromDiscordRole, {
       apiSecret: 'test-secret',
       authUserId: 'auth-creator-refresh-discord',
-      sourceGuildId: '1169053833922629653',
-      requiredRoleId: '1169056856354852927',
+      sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
+      requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
       guildId: 'guild-refresh-discord',
       guildLinkId,
       verifiedRoleId: 'target-role-refresh',
@@ -339,7 +342,7 @@ describe('role rules CRUD and isolation', () => {
         apiSecret: 'test-secret',
         authUserId: 'auth-creator-invalid-discord-source',
         sourceGuildId: '../member',
-        requiredRoleId: '1169056856354852927',
+        requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
         guildId: 'guild-invalid-discord-source',
         guildLinkId,
         verifiedRoleId: 'target-role-invalid-discord-source',
@@ -460,8 +463,8 @@ describe('role rules CRUD and isolation', () => {
       t.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret: 'test-secret',
         authUserId: 'auth-creator-role-limit-discord',
-        sourceGuildId: '1169053833922629653',
-        requiredRoleId: '1169056856354852927',
+        sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
+        requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
         guildId: 'guild-role-limit-discord',
         guildLinkId,
         verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-discord-${index}`),

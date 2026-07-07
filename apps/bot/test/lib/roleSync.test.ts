@@ -96,6 +96,9 @@ mock.module('../../../../convex/_generated/api', () => ({
 import type { Client } from 'discord.js';
 import { type OutboxJob, RoleSyncService } from '../../src/services/roleSync';
 
+const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
+const DUMMY_DISCORD_REQUIRED_ROLE_ID = '100000000000000002';
+
 function createService(
   discordClientOverrides?: Partial<Client>,
   optionsOverrides?: { encryptionSecret?: string }
@@ -536,7 +539,7 @@ describe('role sync service regressions', () => {
     let observedSignal: AbortSignal | undefined;
     globalThis.fetch = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
       observedSignal = init?.signal ?? undefined;
-      return Response.json({ roles: ['234567890123456789'] });
+      return Response.json({ roles: [DUMMY_DISCORD_REQUIRED_ROLE_ID] });
     }) as unknown as typeof fetch;
 
     try {
@@ -555,7 +558,7 @@ describe('role sync service regressions', () => {
         }
       ).proactiveDiscordRoleCheck(
         'auth-user-123',
-        'discord_role:123456789012345678:234567890123456789',
+        `discord_role:${DUMMY_DISCORD_SOURCE_GUILD_ID}:${DUMMY_DISCORD_REQUIRED_ROLE_ID}`,
         [
           {
             externalAccountId: 'external-account-123',
@@ -574,6 +577,67 @@ describe('role sync service regressions', () => {
       'placeholder-encrypted-oauth-value',
       'test-encryption-key'
     );
+  });
+
+  it('skips over-budget proactive Discord 429 backoff without sleeping', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalSetTimeout = globalThis.setTimeout;
+    const service = createService(undefined, { encryptionSecret: 'test-encryption-key' });
+    (
+      service as unknown as {
+        decryptToken: (ciphertextB64: string, secret: string) => Promise<string>;
+      }
+    ).decryptToken = mock(async () => 'placeholder-discord-oauth-value');
+
+    const retryDelays: number[] = [];
+    globalThis.setTimeout = mock(
+      (callback: Parameters<typeof setTimeout>[0], timeout?: number, ...args: unknown[]) => {
+        retryDelays.push(Number(timeout));
+        if (typeof callback === 'function') {
+          callback(...args);
+        }
+        return 0 as never;
+      }
+    ) as unknown as typeof setTimeout;
+    globalThis.fetch = mock(async () => {
+      return Response.json(
+        { message: 'You are being rate limited.' },
+        { status: 429, headers: { 'Retry-After': '20' } }
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      await (
+        service as unknown as {
+          proactiveDiscordRoleCheck: (
+            authUserId: string,
+            productId: string,
+            accounts: Array<{
+              externalAccountId: string;
+              providerUserId: string;
+              discordAccessTokenEncrypted: string;
+              discordTokenExpiresAt?: number;
+            }>
+          ) => Promise<void>;
+        }
+      ).proactiveDiscordRoleCheck(
+        'auth-user-123',
+        `discord_role:${DUMMY_DISCORD_SOURCE_GUILD_ID}:${DUMMY_DISCORD_REQUIRED_ROLE_ID}`,
+        [
+          {
+            externalAccountId: 'external-account-123',
+            providerUserId: 'discord-user-123',
+            discordAccessTokenEncrypted: 'placeholder-encrypted-oauth-value',
+            discordTokenExpiresAt: Date.now() + 60_000,
+          },
+        ]
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.setTimeout = originalSetTimeout;
+    }
+
+    expect(retryDelays).toEqual([]);
   });
 
   it('keeps product-wide role rules for guilds without tier-scoped overrides', async () => {

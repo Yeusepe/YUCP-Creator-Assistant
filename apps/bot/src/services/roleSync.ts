@@ -35,6 +35,8 @@ import { buildVerifyPromptMessage, getEnabledProviders } from '../lib/verifyProm
 import { buildVerifyPromptAccessPreview } from '../lib/verifyPromptAccess';
 
 const DISCORD_GUILD_MEMBER_FETCH_TIMEOUT_MS = 10_000;
+const DISCORD_GUILD_MEMBER_RATE_LIMIT_FALLBACK_MS = 5_000;
+const DISCORD_GUILD_MEMBER_RATE_LIMIT_RETRY_BUDGET_MS = 10_000;
 
 type BotConvexClient = {
   // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
@@ -44,6 +46,14 @@ type BotConvexClient = {
   // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
   action: (functionReference: unknown, args?: unknown) => Promise<any>;
 };
+
+function readDiscordRetryAfterMs(retryAfterHeader: string | null): number {
+  const retryAfterSeconds = Number.parseFloat(retryAfterHeader ?? '');
+  if (!Number.isFinite(retryAfterSeconds) || retryAfterSeconds <= 0) {
+    return DISCORD_GUILD_MEMBER_RATE_LIMIT_FALLBACK_MS;
+  }
+  return retryAfterSeconds * 1000;
+}
 
 // ============================================================================
 // TYPES (defined locally to avoid Convex import issues)
@@ -1793,8 +1803,13 @@ export class RoleSyncService {
         });
 
         if (memberRes.status === 429) {
-          const retryAfter = memberRes.headers.get('Retry-After');
-          const waitMs = retryAfter ? Number.parseInt(retryAfter, 10) * 1000 : 5000;
+          // Discord rate limit docs:
+          // https://discord.com/developers/docs/topics/rate-limits#exceeding-a-rate-limit
+          const waitMs = readDiscordRetryAfterMs(memberRes.headers.get('Retry-After'));
+          if (waitMs > DISCORD_GUILD_MEMBER_RATE_LIMIT_RETRY_BUDGET_MS) {
+            skipped++;
+            continue;
+          }
           await new Promise((r) => setTimeout(r, waitMs));
           continue; // Skip this user for now, will be retried
         }
