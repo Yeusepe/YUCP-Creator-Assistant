@@ -17,6 +17,7 @@
  */
 
 import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared/crypto';
+import { withProviderRequestSpan } from '../core/observability';
 import {
   DEFAULT_SCOPES,
   type DiscordAPIError,
@@ -54,6 +55,7 @@ const DISCORD_OAUTH_TOKEN = 'https://discord.com/api/oauth2/token';
 const DISCORD_OAUTH_TOKEN_REVOKE = 'https://discord.com/api/oauth2/token/revoke';
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_API_REQUEST_TIMEOUT_MS = 10_000;
+const DISCORD_OAUTH_TOKEN_REVOKE_PATH = '/oauth2/token/revoke';
 
 /** State expiration time (10 minutes) */
 const STATE_EXPIRY_MS = 10 * 60 * 1000;
@@ -498,16 +500,32 @@ export class DiscordOAuthProvider {
     });
 
     try {
-      // Discord OAuth2 token revocation docs:
-      // https://discord.com/developers/docs/topics/oauth2
-      await fetch(DISCORD_OAUTH_TOKEN_REVOKE, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
+      await withProviderRequestSpan(
+        'discord',
+        'POST',
+        DISCORD_OAUTH_TOKEN_REVOKE_PATH,
+        {
+          'server.address': new URL(DISCORD_OAUTH_TOKEN_REVOKE).host,
+          hasBody: true,
+          timeoutMs: DISCORD_API_REQUEST_TIMEOUT_MS,
         },
-        body: params.toString(),
-        signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
-      });
+        async () => {
+          // Discord OAuth2 token revocation docs:
+          // https://discord.com/developers/docs/topics/oauth2
+          const response = await fetch(DISCORD_OAUTH_TOKEN_REVOKE, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: params.toString(),
+            signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Discord token revocation failed with status ${response.status}`);
+          }
+        }
+      );
     } catch {
       // Remote revocation is best effort; local disconnect still clears encrypted tokens.
     } finally {
