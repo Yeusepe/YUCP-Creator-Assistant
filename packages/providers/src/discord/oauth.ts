@@ -497,19 +497,22 @@ export class DiscordOAuthProvider {
       token: accessToken,
     });
 
-    // Discord OAuth2 token revocation docs:
-    // https://discord.com/developers/docs/topics/oauth2
-    await fetch(DISCORD_OAUTH_TOKEN_REVOKE, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-      signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
-    });
-
-    // Delete stored tokens
-    await this.storage.deleteTokens(verificationSessionId);
+    try {
+      // Discord OAuth2 token revocation docs:
+      // https://discord.com/developers/docs/topics/oauth2
+      await fetch(DISCORD_OAUTH_TOKEN_REVOKE, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+        signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      // Remote revocation is best effort; local disconnect still clears encrypted tokens.
+    } finally {
+      await this.storage.deleteTokens(verificationSessionId);
+    }
   }
 
   /**

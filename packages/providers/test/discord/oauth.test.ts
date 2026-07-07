@@ -664,6 +664,36 @@ describe('DiscordOAuthProvider', () => {
       expect(stored).toBeNull();
       expect(revokeSignal).toBeInstanceOf(AbortSignal);
     });
+
+    it('should delete stored tokens when Discord revocation request times out', async () => {
+      const accessToken = 'access-to-revoke';
+      const encryptedAccessToken = await encrypt(accessToken, {
+        keyId: config.keyId,
+        keyVersion: config.keyVersion,
+        kekBytes: config.kekBytes,
+        aad: createAAD(config.authUserId, 'discord', 'access'),
+      });
+
+      const tokens: EncryptedDiscordTokens = {
+        encryptedAccessToken,
+        encryptedRefreshToken: encryptedAccessToken,
+        expiresAt: new Date(Date.now() + 604800000),
+        scopes: ['identify'],
+        verificationSessionId: 'test-session-id',
+      };
+
+      await storage.storeTokens('test-session-id', tokens);
+
+      global.fetch = mock(async () => {
+        throw new DOMException('The operation timed out.', 'TimeoutError');
+      }) as unknown as typeof fetch;
+
+      await expect(provider.revokeTokens('test-session-id')).resolves.toBeUndefined();
+
+      const stored = await storage.getTokens('test-session-id');
+      expect(stored).toBeNull();
+    });
+
     it('should not throw when revoking non-existent tokens', async () => {
       // revokeTokens returns early when tokens don't exist; must not throw
       await expect(provider.revokeTokens('non-existent')).resolves.toBeUndefined();
