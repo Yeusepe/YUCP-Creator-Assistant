@@ -370,11 +370,14 @@ export class DiscordOAuthProvider {
       accessToken = accessTokenOrSessionId;
     }
 
-    const response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    const response = await fetch(
+      `${DISCORD_API_BASE}/users/@me/guilds/${encodeURIComponent(guildId)}/member`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
 
     if (!response.ok) {
       if (response.status === 403) {

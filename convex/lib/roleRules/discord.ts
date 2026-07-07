@@ -13,6 +13,16 @@ import { normalizeWritableVerifiedRoleIds } from './roleIds';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
 
+// Discord Snowflake docs:
+// https://discord.com/developers/docs/reference#snowflakes
+const DISCORD_SNOWFLAKE_ID_PATTERN = /^\d{17,20}$/;
+
+function assertDiscordSnowflakeId(value: string, label: string) {
+  if (!DISCORD_SNOWFLAKE_ID_PATTERN.test(value)) {
+    throw new Error(`Invalid Discord ${label} ID`);
+  }
+}
+
 export function buildDiscordRoleKey(
   sourceGuildId: string,
   requiredRoleIds: string[],
@@ -54,6 +64,10 @@ export async function addProductFromDiscordRoleImpl(
   const reqIds = args.requiredRoleIds ?? (args.requiredRoleId ? [args.requiredRoleId] : []);
   if (reqIds.length === 0) {
     throw new Error('At least one required role is needed');
+  }
+  assertDiscordSnowflakeId(args.sourceGuildId, 'source guild');
+  for (const requiredRoleId of reqIds) {
+    assertDiscordSnowflakeId(requiredRoleId, 'required role');
   }
 
   const productId = buildDiscordRoleKey(args.sourceGuildId, reqIds, args.requiredRoleMatchMode);

@@ -71,7 +71,8 @@ async function fetchGuildMember(
 ): Promise<DiscordGuildMemberResponse> {
   // Discord Get Current User Guild Member docs:
   // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
-  let response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
+  const guildMemberUrl = `${DISCORD_API_BASE}/users/@me/guilds/${encodeURIComponent(guildId)}/member`;
+  let response = await fetch(guildMemberUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
     signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
   });
@@ -85,7 +86,7 @@ async function fetchGuildMember(
     }
 
     await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
-    response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
+    response = await fetch(guildMemberUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
     });

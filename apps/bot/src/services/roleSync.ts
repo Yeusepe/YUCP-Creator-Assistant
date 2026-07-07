@@ -1781,10 +1781,12 @@ export class RoleSyncService {
         );
 
         // Check guild membership using the user's OAuth token
-        const memberRes = await fetch(
-          `https://discord.com/api/v10/users/@me/guilds/${sourceGuildId}/member`,
-          { headers: { Authorization: `Bearer ${accessToken}` } }
-        );
+        const sourceGuildMemberUrl = `https://discord.com/api/v10/users/@me/guilds/${encodeURIComponent(
+          sourceGuildId
+        )}/member`;
+        const memberRes = await fetch(sourceGuildMemberUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
 
         if (memberRes.status === 429) {
           const retryAfter = memberRes.headers.get('Retry-After');

@@ -6,6 +6,9 @@ import type { ConnectConfig } from '../providers/types';
 const DISCORD_ROLE_SETUP_PREFIX = 'discord_role_setup:';
 const DISCORD_ROLE_OAUTH_STATE_PREFIX = 'discord_role_oauth:';
 const DISCORD_ROLE_SETUP_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Discord Snowflake docs:
+// https://discord.com/developers/docs/reference#snowflakes
+const DISCORD_SNOWFLAKE_ID_PATTERN = /^\d{17,20}$/;
 
 interface DiscordRoleSetupSession {
   authUserId: string;
@@ -349,6 +352,12 @@ export function createConnectDiscordRoleRoutes(options: ConnectDiscordRoleRoutes
     if (!sourceGuildId) {
       return Response.json({ error: 'sourceGuildId is required' }, { status: 400 });
     }
+    if (!DISCORD_SNOWFLAKE_ID_PATTERN.test(sourceGuildId)) {
+      return Response.json(
+        { error: 'Invalid source guild ID. Must be a Discord snowflake.' },
+        { status: 400 }
+      );
+    }
     if (bodyRecord.sourceRoleIds !== undefined && !sourceRoleIds) {
       return Response.json({ error: 'sourceRoleIds must be an array of strings' }, { status: 400 });
     }
@@ -369,9 +378,8 @@ export function createConnectDiscordRoleRoutes(options: ConnectDiscordRoleRoutes
         { status: 400 }
       );
     }
-    const validId = /^\d{17,20}$/;
     for (const id of roleIds) {
-      if (!validId.test(id)) {
+      if (!DISCORD_SNOWFLAKE_ID_PATTERN.test(id)) {
         return Response.json(
           { error: `Invalid role ID: ${id}. Must be 17–20 digits.` },
           { status: 400 }

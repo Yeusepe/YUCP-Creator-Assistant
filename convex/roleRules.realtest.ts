@@ -311,8 +311,8 @@ describe('role rules CRUD and isolation', () => {
     await t.mutation(api.role_rules.addProductFromDiscordRole, {
       apiSecret: 'test-secret',
       authUserId: 'auth-creator-refresh-discord',
-      sourceGuildId: 'source-guild-refresh',
-      requiredRoleId: 'source-role-refresh',
+      sourceGuildId: '1169053833922629653',
+      requiredRoleId: '1169056856354852927',
       guildId: 'guild-refresh-discord',
       guildLinkId,
       verifiedRoleId: 'target-role-refresh',
@@ -323,6 +323,30 @@ describe('role rules CRUD and isolation', () => {
 
     expect(jobTypes).toContain('retroactive_rule_sync');
     expect(jobTypes).toContain('verify_prompt_refresh');
+  });
+
+  it('rejects discord cross-server rules with malformed source guild IDs', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-invalid-discord-source',
+      discordGuildId: 'guild-invalid-discord-source',
+    });
+    const before = await getRoleRuleCounts(t);
+
+    await expect(
+      t.mutation(api.role_rules.addProductFromDiscordRole, {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-creator-invalid-discord-source',
+        sourceGuildId: '../member',
+        requiredRoleId: '1169056856354852927',
+        guildId: 'guild-invalid-discord-source',
+        guildLinkId,
+        verifiedRoleId: 'target-role-invalid-discord-source',
+      })
+    ).rejects.toThrow('Invalid Discord source guild ID');
+
+    expect(await getRoleRuleCounts(t)).toEqual(before);
   });
 
   it('given wrong apiSecret, when creating rule, then throws', async () => {
@@ -436,8 +460,8 @@ describe('role rules CRUD and isolation', () => {
       t.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret: 'test-secret',
         authUserId: 'auth-creator-role-limit-discord',
-        sourceGuildId: 'source-guild-role-limit-discord',
-        requiredRoleId: 'source-role-role-limit-discord',
+        sourceGuildId: '1169053833922629653',
+        requiredRoleId: '1169056856354852927',
         guildId: 'guild-role-limit-discord',
         guildLinkId,
         verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-discord-${index}`),
