@@ -48,6 +48,7 @@ export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';
 export { sha256Hex } from './crypto';
+export * from './discordIds';
 // Entitlement module exports
 export * from './entitlement';
 export * from './featureFlags';

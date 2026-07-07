@@ -7,6 +7,7 @@ import { join } from 'node:path';
 const WEB_READY_PATTERN = /Local:\s+(http:\/\/(?:localhost|127\.0\.0\.1):\d+)/;
 const REQUEST_TIMEOUT_MS = 5_000;
 const STARTUP_TIMEOUT_MS = 90_000;
+const BUN_EXECUTABLE = process.execPath;
 
 const children = new Set<ChildProcessWithoutNullStreams>();
 
@@ -49,7 +50,7 @@ function isChildProcessAlive(child: ChildProcessWithoutNullStreams): boolean {
     return false;
   }
   if (!child.pid) {
-    return true;
+    return false;
   }
   try {
     process.kill(child.pid, 0);
@@ -92,7 +93,7 @@ describe('web dev runtime', () => {
       const tempEnvDir = await mkdtemp(join(tmpdir(), 'yucp-web-worker-env-'));
       const localWorkerEnvPath = join(tempEnvDir, '.dev.vars');
       const output: string[] = [];
-      const child = spawn('bun', ['run', '--filter', '@yucp/web', 'worker:dev'], {
+      const child = spawn(BUN_EXECUTABLE, ['run', '--filter', '@yucp/web', 'worker:dev'], {
         cwd: process.cwd(),
         env: {
           ...process.env,

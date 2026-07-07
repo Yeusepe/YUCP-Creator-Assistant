@@ -545,6 +545,7 @@ describe('VerificationSessionManager account-link callback', () => {
     globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe('https://discord.com/api/oauth2/token');
       expect(init?.method).toBe('POST');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
 
       const params = new URLSearchParams(String(init?.body ?? ''));
       expect(params.get('grant_type')).toBe('authorization_code');

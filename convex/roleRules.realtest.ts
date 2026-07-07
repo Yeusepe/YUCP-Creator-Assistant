@@ -10,10 +10,14 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ConvexError } from 'convex/values';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import { getByProductInternal } from './role_rules';
 import { makeTestConvex, seedGuildLink } from './testHelpers';
+
+const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
+const DUMMY_DISCORD_REQUIRED_ROLE_ID = '100000000000000002';
 
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
   return t.run(async (ctx) => ({
@@ -311,8 +315,8 @@ describe('role rules CRUD and isolation', () => {
     await t.mutation(api.role_rules.addProductFromDiscordRole, {
       apiSecret: 'test-secret',
       authUserId: 'auth-creator-refresh-discord',
-      sourceGuildId: 'source-guild-refresh',
-      requiredRoleId: 'source-role-refresh',
+      sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
+      requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
       guildId: 'guild-refresh-discord',
       guildLinkId,
       verifiedRoleId: 'target-role-refresh',
@@ -323,6 +327,36 @@ describe('role rules CRUD and isolation', () => {
 
     expect(jobTypes).toContain('retroactive_rule_sync');
     expect(jobTypes).toContain('verify_prompt_refresh');
+  });
+
+  it('rejects discord cross-server rules with malformed source guild IDs', async () => {
+    const t = makeTestConvex();
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: 'auth-creator-invalid-discord-source',
+      discordGuildId: 'guild-invalid-discord-source',
+    });
+    const before = await getRoleRuleCounts(t);
+
+    let caught: unknown;
+    try {
+      await t.mutation(api.role_rules.addProductFromDiscordRole, {
+        apiSecret: 'test-secret',
+        authUserId: 'auth-creator-invalid-discord-source',
+        sourceGuildId: '../member',
+        requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
+        guildId: 'guild-invalid-discord-source',
+        guildLinkId,
+        verifiedRoleId: 'target-role-invalid-discord-source',
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ConvexError);
+    expect((caught as Error).message).toContain('Invalid Discord source guild ID');
+
+    expect(await getRoleRuleCounts(t)).toEqual(before);
   });
 
   it('given wrong apiSecret, when creating rule, then throws', async () => {
@@ -436,8 +470,8 @@ describe('role rules CRUD and isolation', () => {
       t.mutation(api.role_rules.addProductFromDiscordRole, {
         apiSecret: 'test-secret',
         authUserId: 'auth-creator-role-limit-discord',
-        sourceGuildId: 'source-guild-role-limit-discord',
-        requiredRoleId: 'source-role-role-limit-discord',
+        sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
+        requiredRoleId: DUMMY_DISCORD_REQUIRED_ROLE_ID,
         guildId: 'guild-role-limit-discord',
         guildLinkId,
         verifiedRoleIds: Array.from({ length: 11 }, (_, index) => `role-limit-discord-${index}`),

@@ -58,6 +58,8 @@ const apiMock = {
  * mock.module causing the stateStore singleton to diverge across module instances.
  */
 const testStore = new Map<string, { value: string; expiresAt?: number }>();
+const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
+const DUMMY_DISCORD_SOURCE_ROLE_ID = '100000000000000002';
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: apiMock,
@@ -763,7 +765,7 @@ describe('discord role setup routes', () => {
     const session = JSON.parse(sessionEntry.value) as {
       guilds?: Array<{ id: string; name: string }>;
     };
-    session.guilds = [{ id: 'source-guild-1', name: 'Source Guild' }];
+    session.guilds = [{ id: DUMMY_DISCORD_SOURCE_GUILD_ID, name: 'Source Guild' }];
     testStore.set(`discord_role_setup:${token}`, { value: JSON.stringify(session) });
 
     const saveRes = await routes.saveDiscordRoleSelection(
@@ -774,9 +776,9 @@ describe('discord role setup routes', () => {
           Cookie: `yucp_discord_role_setup=${token}`,
         },
         body: JSON.stringify({
-          sourceGuildId: 'source-guild-1',
+          sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
           sourceGuildName: 'Source Guild',
-          sourceRoleId: '123456789012345678',
+          sourceRoleId: DUMMY_DISCORD_SOURCE_ROLE_ID,
         }),
       })
     );
@@ -802,12 +804,56 @@ describe('discord role setup routes', () => {
     };
     expect(resultBody).toEqual({
       completed: true,
-      sourceGuildId: 'source-guild-1',
+      sourceGuildId: DUMMY_DISCORD_SOURCE_GUILD_ID,
       sourceGuildName: 'Source Guild',
-      sourceRoleId: '123456789012345678',
-      sourceRoleIds: ['123456789012345678'],
+      sourceRoleId: DUMMY_DISCORD_SOURCE_ROLE_ID,
+      sourceRoleIds: [DUMMY_DISCORD_SOURCE_ROLE_ID],
       requiredRoleMatchMode: 'any',
     });
+  });
+
+  it('rejects malformed Discord source guild IDs before saving role selections', async () => {
+    const createRes = await routes.createDiscordRoleSession(
+      new Request('http://localhost:3001/api/setup/discord-role-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          authUserId: 'creator-auth-user',
+          guildId: 'guild-123',
+          adminDiscordUserId: 'discord-admin-123',
+          apiSecret: 'test-convex-secret',
+        }),
+      })
+    );
+    const { token } = (await createRes.json()) as { token: string };
+    const sessionEntry = testStore.get(`discord_role_setup:${token}`);
+    if (!sessionEntry) {
+      throw new Error('Discord role setup session was not stored');
+    }
+    const session = JSON.parse(sessionEntry.value) as {
+      guilds?: Array<{ id: string; name: string }>;
+    };
+    session.guilds = [{ id: '../member', name: 'Injected Guild' }];
+    testStore.set(`discord_role_setup:${token}`, { value: JSON.stringify(session) });
+
+    const saveRes = await routes.saveDiscordRoleSelection(
+      new Request('http://localhost:3001/api/setup/discord-role-save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Cookie: `yucp_discord_role_setup=${token}`,
+        },
+        body: JSON.stringify({
+          sourceGuildId: '../member',
+          sourceGuildName: 'Injected Guild',
+          sourceRoleId: DUMMY_DISCORD_SOURCE_ROLE_ID,
+        }),
+      })
+    );
+
+    expect(saveRes.status).toBe(400);
+    const body = (await saveRes.json()) as { error: string };
+    expect(body.error).toContain('Invalid source guild ID');
   });
 });
 

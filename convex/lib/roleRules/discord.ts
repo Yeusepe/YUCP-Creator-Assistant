@@ -6,12 +6,20 @@
  */
 
 import type { GenericMutationCtx } from 'convex/server';
+import { ConvexError } from 'convex/values';
+import { isDiscordSnowflakeId } from '@yucp/shared';
 import type { DataModel, Id } from '../../_generated/dataModel';
 import { enqueueVerifyPromptRefreshJob } from '../verifyPrompt';
 import { requireApiSecret } from './queries';
 import { normalizeWritableVerifiedRoleIds } from './roleIds';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
+
+function assertDiscordSnowflakeId(value: string, label: string) {
+  if (!isDiscordSnowflakeId(value)) {
+    throw new ConvexError(`Invalid Discord ${label} ID`);
+  }
+}
 
 export function buildDiscordRoleKey(
   sourceGuildId: string,
@@ -54,6 +62,10 @@ export async function addProductFromDiscordRoleImpl(
   const reqIds = args.requiredRoleIds ?? (args.requiredRoleId ? [args.requiredRoleId] : []);
   if (reqIds.length === 0) {
     throw new Error('At least one required role is needed');
+  }
+  assertDiscordSnowflakeId(args.sourceGuildId, 'source guild');
+  for (const requiredRoleId of reqIds) {
+    assertDiscordSnowflakeId(requiredRoleId, 'required role');
   }
 
   const productId = buildDiscordRoleKey(args.sourceGuildId, reqIds, args.requiredRoleMatchMode);

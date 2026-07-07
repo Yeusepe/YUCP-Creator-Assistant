@@ -17,6 +17,7 @@
  */
 
 import { createAAD, decrypt, type EncryptedPayload, encrypt } from '@yucp/shared/crypto';
+import { withProviderRequestSpan } from '../core/observability';
 import {
   DEFAULT_SCOPES,
   type DiscordAPIError,
@@ -51,7 +52,10 @@ interface DiscordGuildMemberAPIResponse {
 /** Discord OAuth endpoints */
 const DISCORD_OAUTH_AUTHORIZE = 'https://discord.com/oauth2/authorize';
 const DISCORD_OAUTH_TOKEN = 'https://discord.com/api/oauth2/token';
+const DISCORD_OAUTH_TOKEN_REVOKE = 'https://discord.com/api/oauth2/token/revoke';
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
+const DISCORD_API_REQUEST_TIMEOUT_MS = 10_000;
+const DISCORD_OAUTH_TOKEN_REVOKE_PATH = '/oauth2/token/revoke';
 
 /** State expiration time (10 minutes) */
 const STATE_EXPIRY_MS = 10 * 60 * 1000;
@@ -294,12 +298,15 @@ export class DiscordOAuthProvider {
       code_verifier: codeVerifier,
     });
 
+    // Discord OAuth2 token exchange docs:
+    // https://discord.com/developers/docs/topics/oauth2
     const response = await fetch(DISCORD_OAUTH_TOKEN, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),
+      signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -329,10 +336,13 @@ export class DiscordOAuthProvider {
       accessToken = accessTokenOrSessionId;
     }
 
+    // Discord Get Current User docs:
+    // https://discord.com/developers/docs/resources/user#get-current-user
     const response = await fetch(`${DISCORD_API_BASE}/users/@me`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -370,11 +380,17 @@ export class DiscordOAuthProvider {
       accessToken = accessTokenOrSessionId;
     }
 
-    const response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
+    // Discord Get Current User Guild Member docs:
+    // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
+    const response = await fetch(
+      `${DISCORD_API_BASE}/users/@me/guilds/${encodeURIComponent(guildId)}/member`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
+      }
+    );
 
     if (!response.ok) {
       if (response.status === 403) {
@@ -422,12 +438,15 @@ export class DiscordOAuthProvider {
       refresh_token: refreshToken,
     });
 
+    // Discord OAuth2 token refresh docs:
+    // https://discord.com/developers/docs/topics/oauth2
     const response = await fetch(DISCORD_OAUTH_TOKEN, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),
+      signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -480,16 +499,38 @@ export class DiscordOAuthProvider {
       token: accessToken,
     });
 
-    await fetch('https://discord.com/api/oauth2/token/revoke', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-    });
+    try {
+      await withProviderRequestSpan(
+        'discord',
+        'POST',
+        DISCORD_OAUTH_TOKEN_REVOKE_PATH,
+        {
+          'server.address': new URL(DISCORD_OAUTH_TOKEN_REVOKE).host,
+          hasBody: true,
+          timeoutMs: DISCORD_API_REQUEST_TIMEOUT_MS,
+        },
+        async () => {
+          // Discord OAuth2 token revocation docs:
+          // https://discord.com/developers/docs/topics/oauth2
+          const response = await fetch(DISCORD_OAUTH_TOKEN_REVOKE, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: params.toString(),
+            signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
+          });
 
-    // Delete stored tokens
-    await this.storage.deleteTokens(verificationSessionId);
+          if (!response.ok) {
+            throw new Error(`Discord token revocation failed with status ${response.status}`);
+          }
+        }
+      );
+    } catch {
+      // Remote revocation is best effort; local disconnect still clears encrypted tokens.
+    } finally {
+      await this.storage.deleteTokens(verificationSessionId);
+    }
   }
 
   /**

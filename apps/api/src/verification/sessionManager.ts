@@ -36,6 +36,8 @@ import {
 } from './verificationSessionPrimitives';
 import { createVrchatVerificationRouteHandlers } from './verificationVrchatRoutes';
 
+const OAUTH_TOKEN_EXCHANGE_TIMEOUT_MS = 10_000;
+
 export { getVerificationConfig, type VerificationConfig } from './verificationConfig';
 export {
   computeCodeChallenge,
@@ -562,6 +564,9 @@ export function createVerificationSessionManager(
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: tokenParams.toString(),
+        // Discord OAuth2 token exchange docs:
+        // https://discord.com/developers/docs/topics/oauth2#authorization-code-grant-access-token-exchange-example
+        signal: AbortSignal.timeout(OAUTH_TOKEN_EXCHANGE_TIMEOUT_MS),
       });
 
       if (!tokenRes.ok) {

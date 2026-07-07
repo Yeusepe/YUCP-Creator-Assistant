@@ -4,6 +4,9 @@ import type { BuyerLinkPlugin } from '../types';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_TOKEN_PURPOSE = 'discord-oauth-access-token';
+const DISCORD_API_TIMEOUT_MS = 10_000;
+const DISCORD_RETRY_AFTER_FALLBACK_MS = 5_000;
+const DISCORD_RATE_LIMIT_RETRY_BUDGET_MS = 10_000;
 
 interface DiscordUserResponse {
   id?: string;
@@ -16,11 +19,31 @@ interface DiscordGuildMemberResponse {
   roles?: string[];
 }
 
+async function readDiscordRetryAfterMs(response: Response): Promise<number> {
+  const retryAfterHeader = Number.parseFloat(response.headers.get('Retry-After') ?? '');
+  if (Number.isFinite(retryAfterHeader) && retryAfterHeader >= 0) {
+    return retryAfterHeader * 1000;
+  }
+
+  try {
+    const data = (await response.clone().json()) as { retry_after?: unknown };
+    const retryAfter = Number.parseFloat(String(data.retry_after ?? ''));
+    if (Number.isFinite(retryAfter) && retryAfter >= 0) {
+      return retryAfter * 1000;
+    }
+  } catch {
+    return DISCORD_RETRY_AFTER_FALLBACK_MS;
+  }
+
+  return DISCORD_RETRY_AFTER_FALLBACK_MS;
+}
+
 async function fetchDiscordIdentity(accessToken: string) {
   // Discord Get Current User docs:
   // https://discord.com/developers/docs/resources/user#get-current-user
   const response = await fetch(`${DISCORD_API_BASE}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error('Failed to fetch Discord user');
@@ -48,17 +71,24 @@ async function fetchGuildMember(
 ): Promise<DiscordGuildMemberResponse> {
   // Discord Get Current User Guild Member docs:
   // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
-  let response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
+  const guildMemberUrl = `${DISCORD_API_BASE}/users/@me/guilds/${encodeURIComponent(guildId)}/member`;
+  let response = await fetch(guildMemberUrl, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
   });
 
   if (response.status === 429) {
-    const retryAfter = Number.parseFloat(response.headers.get('Retry-After') ?? '5');
-    await new Promise((resolve) =>
-      setTimeout(resolve, Number.isFinite(retryAfter) ? retryAfter * 1000 : 5000)
-    );
-    response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
+    // Discord rate limit docs:
+    // https://discord.com/developers/docs/topics/rate-limits#exceeding-a-rate-limit
+    const retryAfterMs = await readDiscordRetryAfterMs(response);
+    if (retryAfterMs > DISCORD_RATE_LIMIT_RETRY_BUDGET_MS) {
+      throw new Error('Discord is rate limited. Please try again shortly.');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+    response = await fetch(guildMemberUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
     });
   }
 

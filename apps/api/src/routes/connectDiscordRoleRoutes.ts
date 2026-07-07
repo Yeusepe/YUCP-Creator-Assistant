@@ -1,4 +1,4 @@
-import type { StructuredLogger } from '@yucp/shared';
+import { isDiscordSnowflakeId, type StructuredLogger } from '@yucp/shared';
 import { buildCookie, DISCORD_ROLE_SETUP_COOKIE, getCookieValue } from '../lib/browserSessions';
 import { getStateStore } from '../lib/stateStore';
 import type { ConnectConfig } from '../providers/types';
@@ -349,6 +349,12 @@ export function createConnectDiscordRoleRoutes(options: ConnectDiscordRoleRoutes
     if (!sourceGuildId) {
       return Response.json({ error: 'sourceGuildId is required' }, { status: 400 });
     }
+    if (!isDiscordSnowflakeId(sourceGuildId)) {
+      return Response.json(
+        { error: 'Invalid source guild ID. Must be a Discord snowflake.' },
+        { status: 400 }
+      );
+    }
     if (bodyRecord.sourceRoleIds !== undefined && !sourceRoleIds) {
       return Response.json({ error: 'sourceRoleIds must be an array of strings' }, { status: 400 });
     }
@@ -369,9 +375,8 @@ export function createConnectDiscordRoleRoutes(options: ConnectDiscordRoleRoutes
         { status: 400 }
       );
     }
-    const validId = /^\d{17,20}$/;
     for (const id of roleIds) {
-      if (!validId.test(id)) {
+      if (!isDiscordSnowflakeId(id)) {
         return Response.json(
           { error: `Invalid role ID: ${id}. Must be 17–20 digits.` },
           { status: 400 }
