@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConvexServerClient } from '../../lib/convex';
 
 const apiMock = {
@@ -32,6 +32,8 @@ mock.module('../../lib/encrypt', () => ({
 
 const { createDiscordBuyerLinkPlugin } = await import('./buyerLink');
 
+const originalFetch = globalThis.fetch;
+
 let queryImpl: (ref: unknown, args?: unknown) => Promise<unknown>;
 let mutationImpl: (ref: unknown, args?: unknown) => Promise<unknown>;
 const queryMock = mock((ref: unknown, args?: unknown) => queryImpl(ref, args));
@@ -58,7 +60,31 @@ beforeEach(() => {
   mutationImpl = async () => null;
 });
 
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
 describe('discord buyer link plugin', () => {
+  it('bounds the Discord identity fetch with an abort signal', async () => {
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://discord.com/api/v10/users/@me');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return Response.json({
+        id: 'discord-user-123',
+        username: 'discord-buyer',
+        avatar: 'avatar-hash',
+      });
+    }) as unknown as typeof fetch;
+
+    const plugin = createDiscordBuyerLinkPlugin();
+    const identity = await plugin.fetchIdentity('discord-access-token', makeCtx());
+
+    expect(identity).toMatchObject({
+      providerUserId: 'discord-user-123',
+      username: 'discord-buyer',
+    });
+  });
+
   it('uses the creator auth user for Discord role tenant lookups after buyer canonicalization', async () => {
     queryMock.mockImplementation(async (ref, args) => {
       switch (ref) {

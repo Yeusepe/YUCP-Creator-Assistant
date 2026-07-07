@@ -4,6 +4,8 @@ import type { BuyerLinkPlugin } from '../types';
 
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
 const DISCORD_TOKEN_PURPOSE = 'discord-oauth-access-token';
+const DISCORD_API_TIMEOUT_MS = 10_000;
+const DISCORD_RETRY_AFTER_MAX_MS = 5_000;
 
 interface DiscordUserResponse {
   id?: string;
@@ -21,6 +23,7 @@ async function fetchDiscordIdentity(accessToken: string) {
   // https://discord.com/developers/docs/resources/user#get-current-user
   const response = await fetch(`${DISCORD_API_BASE}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error('Failed to fetch Discord user');
@@ -50,15 +53,20 @@ async function fetchGuildMember(
   // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
   let response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
   });
 
   if (response.status === 429) {
     const retryAfter = Number.parseFloat(response.headers.get('Retry-After') ?? '5');
     await new Promise((resolve) =>
-      setTimeout(resolve, Number.isFinite(retryAfter) ? retryAfter * 1000 : 5000)
+      setTimeout(
+        resolve,
+        Math.min(Number.isFinite(retryAfter) ? retryAfter * 1000 : 5000, DISCORD_RETRY_AFTER_MAX_MS)
+      )
     );
     response = await fetch(`${DISCORD_API_BASE}/users/@me/guilds/${guildId}/member`, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS),
     });
   }
 
