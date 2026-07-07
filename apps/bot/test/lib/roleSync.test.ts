@@ -96,7 +96,10 @@ mock.module('../../../../convex/_generated/api', () => ({
 import type { Client } from 'discord.js';
 import { type OutboxJob, RoleSyncService } from '../../src/services/roleSync';
 
-function createService(discordClientOverrides?: Partial<Client>) {
+function createService(
+  discordClientOverrides?: Partial<Client>,
+  optionsOverrides?: { encryptionSecret?: string }
+) {
   return new RoleSyncService({
     convexUrl: 'https://convex.example.test',
     apiSecret: 'test-secret',
@@ -109,6 +112,7 @@ function createService(discordClientOverrides?: Partial<Client>) {
       ...discordClientOverrides,
     } as unknown as Client,
     pollIntervalMs: 5_000,
+    encryptionSecret: optionsOverrides?.encryptionSecret,
   });
 }
 
@@ -517,6 +521,59 @@ describe('role sync service regressions', () => {
     expect(addRoleToMemberMock.mock.calls as unknown as Array<[string, string, string]>).toEqual([
       ['guild-123', 'user-123', 'role-advanced'],
     ]);
+  });
+
+  it('bounds proactive Discord guild member fetches with an abort signal', async () => {
+    const originalFetch = globalThis.fetch;
+    const service = createService(undefined, { encryptionSecret: 'test-encryption-key' });
+    const decryptTokenMock = mock(async () => 'placeholder-discord-oauth-value');
+    (
+      service as unknown as {
+        decryptToken: (ciphertextB64: string, secret: string) => Promise<string>;
+      }
+    ).decryptToken = decryptTokenMock;
+
+    let observedSignal: AbortSignal | undefined;
+    globalThis.fetch = mock(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return Response.json({ roles: ['234567890123456789'] });
+    }) as unknown as typeof fetch;
+
+    try {
+      await (
+        service as unknown as {
+          proactiveDiscordRoleCheck: (
+            authUserId: string,
+            productId: string,
+            accounts: Array<{
+              externalAccountId: string;
+              providerUserId: string;
+              discordAccessTokenEncrypted: string;
+              discordTokenExpiresAt?: number;
+            }>
+          ) => Promise<void>;
+        }
+      ).proactiveDiscordRoleCheck(
+        'auth-user-123',
+        'discord_role:123456789012345678:234567890123456789',
+        [
+          {
+            externalAccountId: 'external-account-123',
+            providerUserId: 'discord-user-123',
+            discordAccessTokenEncrypted: 'placeholder-encrypted-oauth-value',
+            discordTokenExpiresAt: Date.now() + 60_000,
+          },
+        ]
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(observedSignal).toBeInstanceOf(AbortSignal);
+    expect(decryptTokenMock).toHaveBeenCalledWith(
+      'placeholder-encrypted-oauth-value',
+      'test-encryption-key'
+    );
   });
 
   it('keeps product-wide role rules for guilds without tier-scoped overrides', async () => {

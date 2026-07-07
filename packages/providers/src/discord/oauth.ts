@@ -52,6 +52,7 @@ interface DiscordGuildMemberAPIResponse {
 const DISCORD_OAUTH_AUTHORIZE = 'https://discord.com/oauth2/authorize';
 const DISCORD_OAUTH_TOKEN = 'https://discord.com/api/oauth2/token';
 const DISCORD_API_BASE = 'https://discord.com/api/v10';
+const DISCORD_API_REQUEST_TIMEOUT_MS = 10_000;
 
 /** State expiration time (10 minutes) */
 const STATE_EXPIRY_MS = 10 * 60 * 1000;
@@ -370,12 +371,15 @@ export class DiscordOAuthProvider {
       accessToken = accessTokenOrSessionId;
     }
 
+    // Discord Get Current User Guild Member docs:
+    // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
     const response = await fetch(
       `${DISCORD_API_BASE}/users/@me/guilds/${encodeURIComponent(guildId)}/member`,
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
+        signal: AbortSignal.timeout(DISCORD_API_REQUEST_TIMEOUT_MS),
       }
     );
 

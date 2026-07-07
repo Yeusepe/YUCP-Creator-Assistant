@@ -376,7 +376,9 @@ describe('DiscordOAuthProvider', () => {
     };
 
     it('should get guild member info with access token', async () => {
-      global.fetch = mock(async () => {
+      let observedSignal: AbortSignal | undefined;
+      global.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        observedSignal = init?.signal ?? undefined;
         return new Response(JSON.stringify(mockMember), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -389,6 +391,7 @@ describe('DiscordOAuthProvider', () => {
       expect(member.guildId).toBe('guild-123');
       expect(member.nick).toBe('Test Nick');
       expect(member.roles).toEqual(['role-1', 'role-2']);
+      expect(observedSignal).toBeInstanceOf(AbortSignal);
     });
 
     it('should handle 403 Forbidden (user not in guild)', async () => {

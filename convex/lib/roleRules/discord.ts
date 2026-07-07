@@ -6,22 +6,13 @@
  */
 
 import type { GenericMutationCtx } from 'convex/server';
+import { assertDiscordSnowflakeId } from '@yucp/shared';
 import type { DataModel, Id } from '../../_generated/dataModel';
 import { enqueueVerifyPromptRefreshJob } from '../verifyPrompt';
 import { requireApiSecret } from './queries';
 import { normalizeWritableVerifiedRoleIds } from './roleIds';
 
 type MutationCtx = GenericMutationCtx<DataModel>;
-
-// Discord Snowflake docs:
-// https://discord.com/developers/docs/reference#snowflakes
-const DISCORD_SNOWFLAKE_ID_PATTERN = /^\d{17,20}$/;
-
-function assertDiscordSnowflakeId(value: string, label: string) {
-  if (!DISCORD_SNOWFLAKE_ID_PATTERN.test(value)) {
-    throw new Error(`Invalid Discord ${label} ID`);
-  }
-}
 
 export function buildDiscordRoleKey(
   sourceGuildId: string,

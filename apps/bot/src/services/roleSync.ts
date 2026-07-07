@@ -34,6 +34,8 @@ import {
 import { buildVerifyPromptMessage, getEnabledProviders } from '../lib/verifyPrompt';
 import { buildVerifyPromptAccessPreview } from '../lib/verifyPromptAccess';
 
+const DISCORD_GUILD_MEMBER_FETCH_TIMEOUT_MS = 10_000;
+
 type BotConvexClient = {
   // biome-ignore lint/suspicious/noExplicitAny: Convex calls are dynamically dispatched in the bot runtime.
   query: (functionReference: unknown, args?: unknown) => Promise<any>;
@@ -1780,12 +1782,14 @@ export class RoleSyncService {
           this.encryptionSecret
         );
 
-        // Check guild membership using the user's OAuth token
+        // Discord Get Current User Guild Member docs:
+        // https://discord.com/developers/docs/resources/user#get-current-user-guild-member
         const sourceGuildMemberUrl = `https://discord.com/api/v10/users/@me/guilds/${encodeURIComponent(
           sourceGuildId
         )}/member`;
         const memberRes = await fetch(sourceGuildMemberUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(DISCORD_GUILD_MEMBER_FETCH_TIMEOUT_MS),
         });
 
         if (memberRes.status === 429) {
