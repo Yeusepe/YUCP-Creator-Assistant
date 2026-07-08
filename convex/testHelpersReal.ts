@@ -2,8 +2,10 @@ import { v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
 import schema from './schema';
 
+const CLEAR_ALL_BATCH_LIMIT = 50;
+
 function assertRealBackendTest(): void {
-  if (process.env.IS_TEST !== 'true') {
+  if (process.env.IS_TEST !== 'true' && process.env.IS_TEST !== '1') {
     throw new Error('testHelpersReal functions require IS_TEST=true');
   }
 }
@@ -63,25 +65,44 @@ export const collect = internalQuery({
 });
 
 export const clearAll = internalMutation({
-  args: {},
-  handler: async (ctx): Promise<void> => {
+  args: {
+    includeScheduled: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<{ deleted: number }> => {
     assertRealBackendTest();
 
-    const scheduled = await ctx.db.system.query('_scheduled_functions').collect();
-    for (const job of scheduled) {
-      await ctx.scheduler.cancel(job._id);
-    }
+    let deleted = 0;
+    const remaining = () => CLEAR_ALL_BATCH_LIMIT - deleted;
 
-    const storedFiles = await ctx.db.system.query('_storage').collect();
-    for (const file of storedFiles) {
-      await ctx.storage.delete(file._id);
-    }
-
-    for (const table of appTableNames) {
-      const docs = await ctx.db.query(table as never).collect();
-      for (const doc of docs) {
-        await ctx.db.delete((doc as { _id: string })._id as never);
+    if (args.includeScheduled !== false) {
+      // ponytail: Scheduled cleanup is capped at CLEAR_ALL_BATCH_LIMIT per cleanup run
+      // because Convex/system component jobs can remain present after cancellation. If
+      // test-created scheduled jobs approach that ceiling, split this into an ID-cursor
+      // cleanup phase that verifies progress across calls.
+      const scheduled = await ctx.db.system.query('_scheduled_functions').take(remaining());
+      for (const job of scheduled) {
+        await ctx.scheduler.cancel(job._id);
+        deleted++;
       }
     }
+    if (remaining() <= 0) return { deleted };
+
+    const storedFiles = await ctx.db.system.query('_storage').take(remaining());
+    for (const file of storedFiles) {
+      await ctx.storage.delete(file._id);
+      deleted++;
+    }
+    if (remaining() <= 0) return { deleted };
+
+    for (const table of appTableNames) {
+      const docs = await ctx.db.query(table as never).take(remaining());
+      for (const doc of docs) {
+        await ctx.db.delete((doc as { _id: string })._id as never);
+        deleted++;
+      }
+      if (remaining() <= 0) return { deleted };
+    }
+
+    return { deleted };
   },
 });

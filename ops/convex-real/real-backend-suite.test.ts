@@ -1,8 +1,17 @@
-import { sha256Hex } from '@yucp/shared/crypto';
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
+import { API_ACTOR_TTL_MS, parseApiActorPayload } from '@yucp/shared/apiActor';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { api, internal } from '../../convex/_generated/api';
 import type { Id } from '../../convex/_generated/dataModel';
-import { makeRealConvex, type RealConvex, waitFor } from './harness';
+import {
+  getTestActorBindingForTest,
+  makeRealConvex,
+  type RealConvex,
+  removeRealBackendEnv,
+  resetTestActorBindingCacheForTest,
+  restoreRealBackendTestSignal,
+  waitFor,
+} from './harness';
 
 let t: RealConvex;
 
@@ -115,6 +124,32 @@ afterEach(async () => {
 });
 
 describe('real Convex backend contracts', () => {
+  test('test-only deployed helpers reject when the real-backend test signal is absent', async () => {
+    await removeRealBackendEnv('IS_TEST');
+    try {
+      await expect(t.clearAll()).rejects.toThrow('testHelpersReal functions require IS_TEST=true');
+    } finally {
+      await restoreRealBackendTestSignal();
+    }
+  });
+
+  test('real backend harness refreshes the signed service actor before expiry', async () => {
+    const issuedAt = 1_700_000_000_000;
+    resetTestActorBindingCacheForTest();
+
+    const first = await getTestActorBindingForTest(issuedAt);
+    const reused = await getTestActorBindingForTest(issuedAt + API_ACTOR_TTL_MS - 30_001);
+    expect(reused).toEqual(first);
+
+    const refreshed = await getTestActorBindingForTest(issuedAt + API_ACTOR_TTL_MS - 30_000);
+    expect(refreshed).not.toEqual(first);
+
+    const firstActor = parseApiActorPayload(first.payload);
+    const refreshedActor = parseApiActorPayload(refreshed.payload);
+    expect(firstActor?.expiresAt).toBe(issuedAt + API_ACTOR_TTL_MS);
+    expect(refreshedActor?.expiresAt).toBe(issuedAt + 2 * API_ACTOR_TTL_MS - 30_000);
+  });
+
   test('public manual-license bounds run through the deployed backend', async () => {
     const authUserId = unique('auth-manual-bounds');
 

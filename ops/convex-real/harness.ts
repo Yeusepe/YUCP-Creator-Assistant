@@ -1,8 +1,10 @@
+import { resolve } from 'node:path';
 import {
+  API_ACTOR_TTL_MS,
+  type ApiActorBinding,
   createApiActorBinding,
   createServiceApiActor,
   isApiActorProtectedFunction,
-  type ApiActorBinding,
 } from '@yucp/shared/apiActor';
 import { ConvexHttpClient } from 'convex/browser';
 import {
@@ -31,6 +33,8 @@ type OptionalActorRestArgs<FuncRef extends AnyFunctionReference> =
     : [args: OptionalActorArgs<FunctionArgs<FuncRef>>];
 
 const COMPOSE_FILE = `${import.meta.dir}/docker-compose.yml`;
+const ROOT_DIR = resolve(import.meta.dir, '../..');
+const TEST_ACTOR_REFRESH_MARGIN_MS = 30_000;
 const helper = {
   insert: makeFunctionReference<
     'mutation',
@@ -43,15 +47,25 @@ const helper = {
   deleteById: makeFunctionReference<'mutation', { id: string }, void>('testHelpersReal:deleteById'),
   get: makeFunctionReference<'query', { id: string }, unknown>('testHelpersReal:get'),
   collect: makeFunctionReference<'query', { table: string }, unknown[]>('testHelpersReal:collect'),
-  clearAll: makeFunctionReference<'mutation', {}, void>('testHelpersReal:clearAll'),
+  clearAll: makeFunctionReference<'mutation', { includeScheduled?: boolean }, { deleted: number }>(
+    'testHelpersReal:clearAll'
+  ),
 };
 
 let adminKeyPromise: Promise<string> | null = null;
-let testActorPromise: Promise<ApiActorBinding> | null = null;
+let testActorCache: { binding: ApiActorBinding; expiresAt: number } | null = null;
 
-async function run(args: string[], timeoutMs = 60_000): Promise<string> {
+type RunOptions = {
+  env?: Record<string, string>;
+  timeoutMs?: number;
+};
+
+async function run(args: string[], options: RunOptions | number = {}): Promise<string> {
+  const timeoutMs = typeof options === 'number' ? options : (options.timeoutMs ?? 60_000);
   let timedOut = false;
   const proc = Bun.spawn(args, {
+    cwd: ROOT_DIR,
+    env: typeof options === 'number' ? process.env : { ...process.env, ...options.env },
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -123,18 +137,21 @@ function stripUndefined(value: unknown): unknown {
 
 export async function getRealBackendAdminKey(): Promise<string> {
   adminKeyPromise ??= (async () => {
-    const output = await run([
-      'docker',
-      'compose',
-      '-p',
-      PROJECT_NAME,
-      '-f',
-      COMPOSE_FILE,
-      'exec',
-      '-T',
-      'backend',
-      './generate_admin_key.sh',
-    ]);
+    const output = await run(
+      [
+        'docker',
+        'compose',
+        '-p',
+        PROJECT_NAME,
+        '-f',
+        COMPOSE_FILE,
+        'exec',
+        '-T',
+        'backend',
+        './generate_admin_key.sh',
+      ],
+      60_000
+    );
     const adminKey = output
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -147,24 +164,54 @@ export async function getRealBackendAdminKey(): Promise<string> {
   return await adminKeyPromise;
 }
 
-async function getTestActorBinding(): Promise<ApiActorBinding> {
-  testActorPromise ??= createApiActorBinding(
-    createServiceApiActor({
-      service: 'convex-real-test',
-      scopes: [
-        'creator:delegate',
-        'downloads:service',
-        'entitlements:service',
-        'manual-licenses:service',
-        'subjects:service',
-        'verification-intents:service',
-        'verification-sessions:service',
-      ],
-      now: Date.now(),
-    }),
-    INTERNAL_SERVICE_AUTH_SECRET
-  );
-  return await testActorPromise;
+async function runConvexEnv(args: string[]): Promise<void> {
+  await run(['bun', 'x', 'convex', 'env', ...args], {
+    env: {
+      CONVEX_SELF_HOSTED_URL: BACKEND_URL,
+      CONVEX_SELF_HOSTED_ADMIN_KEY: await getRealBackendAdminKey(),
+    },
+    timeoutMs: 60_000,
+  });
+}
+
+export async function removeRealBackendEnv(name: string): Promise<void> {
+  await runConvexEnv(['remove', name]);
+}
+
+export async function restoreRealBackendTestSignal(): Promise<void> {
+  await runConvexEnv(['set', 'IS_TEST', 'true']);
+}
+
+export function resetTestActorBindingCacheForTest(): void {
+  testActorCache = null;
+}
+
+export async function getTestActorBindingForTest(now = Date.now()): Promise<ApiActorBinding> {
+  return await getTestActorBinding(now);
+}
+
+async function getTestActorBinding(now = Date.now()): Promise<ApiActorBinding> {
+  if (testActorCache && testActorCache.expiresAt - now > TEST_ACTOR_REFRESH_MARGIN_MS) {
+    return testActorCache.binding;
+  }
+
+  const actor = createServiceApiActor({
+    service: 'convex-real-test',
+    scopes: [
+      'creator:delegate',
+      'downloads:service',
+      'entitlements:service',
+      'manual-licenses:service',
+      'subjects:service',
+      'verification-intents:service',
+      'verification-sessions:service',
+    ],
+    now,
+    ttlMs: API_ACTOR_TTL_MS,
+  });
+  const binding = await createApiActorBinding(actor, INTERNAL_SERVICE_AUTH_SECRET);
+  testActorCache = { binding, expiresAt: actor.expiresAt };
+  return binding;
 }
 
 export type RealConvex = Awaited<ReturnType<typeof makeRealConvex>>;
@@ -239,7 +286,11 @@ export async function makeRealConvex(options: { injectActor?: boolean } = {}) {
       return (await client.query(helper.collect, { table })) as Array<Doc<Table>>;
     },
     clearAll: async (): Promise<void> => {
-      await client.mutation(helper.clearAll, {});
+      await client.mutation(helper.clearAll, { includeScheduled: true });
+      while (true) {
+        const result = await client.mutation(helper.clearAll, { includeScheduled: false });
+        if (result.deleted === 0) return;
+      }
     },
   };
 }
