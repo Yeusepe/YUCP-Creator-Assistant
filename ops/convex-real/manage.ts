@@ -17,10 +17,35 @@ type RunOptions = {
   quiet?: boolean;
 };
 
+export function createComposeEnv(
+  source: NodeJS.ProcessEnv = process.env
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined) env[key] = value;
+  }
+
+  delete env.DATABASE_URL;
+  delete env.POSTGRES_URL;
+  delete env.MYSQL_URL;
+
+  if (source.CONVEX_REAL_BACKEND_DATABASE_URL) {
+    env.DATABASE_URL = source.CONVEX_REAL_BACKEND_DATABASE_URL;
+  }
+  if (source.CONVEX_REAL_BACKEND_POSTGRES_URL) {
+    env.POSTGRES_URL = source.CONVEX_REAL_BACKEND_POSTGRES_URL;
+  }
+  if (source.CONVEX_REAL_BACKEND_MYSQL_URL) {
+    env.MYSQL_URL = source.CONVEX_REAL_BACKEND_MYSQL_URL;
+  }
+
+  return env;
+}
+
 async function run(args: string[], options: RunOptions = {}): Promise<string> {
   const proc = Bun.spawn(args, {
     cwd: ROOT_DIR,
-    env: { ...process.env, ...options.env },
+    env: options.env ?? process.env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -156,26 +181,28 @@ async function deploy(adminKey: string): Promise<void> {
     CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
   };
   await run(['bun', 'x', 'convex', 'env', 'set', '--from-file', writeTestEnvFile(), '--force'], {
-    env,
+    env: { ...process.env, ...env },
   });
   await run(
     ['bun', 'x', 'convex', 'deploy', '--yes', '--typecheck', 'disable', '--codegen', 'disable'],
-    { env }
+    { env: { ...process.env, ...env } }
   );
 }
 
 async function up(): Promise<void> {
-  await run(['docker', ...composeArgs, 'up', '-d']);
+  await run(['docker', ...composeArgs, 'up', '-d'], { env: createComposeEnv() });
   await waitForBackend();
   await deploy(await getAdminKey());
 }
 
 async function down(): Promise<void> {
-  await run(['docker', ...composeArgs, 'down', '-v']);
+  await run(['docker', ...composeArgs, 'down', '-v'], { env: createComposeEnv() });
 }
 
 async function logs(): Promise<void> {
-  await run(['docker', ...composeArgs, 'logs', '--no-color', '--tail=300']);
+  await run(['docker', ...composeArgs, 'logs', '--no-color', '--tail=300'], {
+    env: createComposeEnv(),
+  });
 }
 
 async function main(): Promise<void> {
