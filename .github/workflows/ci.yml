@@ -29,7 +29,8 @@ jobs:
         # h3 CVEs are ignored because @tanstack/start-server-core aliases h3 as
         # h3-v2 (npm:h3@2.0.1-rc.16), which bun overrides cannot resolve.
         # Remove these ignores once @tanstack/start-server-core ships with h3 >=2.0.1-rc.17.
-        run: bun audit --ignore GHSA-4hxc-9384-m385 --ignore GHSA-2j6q-whv2-gh6w
+        # GHSA-p2fr-6hmx-4528 has no stable patch available; revisit when better-auth 1.7.0 ships stable.
+        run: bun audit --ignore GHSA-4hxc-9384-m385 --ignore GHSA-2j6q-whv2-gh6w --ignore GHSA-p2fr-6hmx-4528
 
       - name: Run linter
         run: bun run lint
@@ -87,3 +88,32 @@ jobs:
 
       - name: Run tests
         run: bun run test:ci
+
+  convex-real:
+    name: Convex Real Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Boot and deploy self-hosted Convex
+        run: bun run test:convex:real:up
+
+      - name: Run self-hosted Convex smoke
+        run: bun run test:convex:real
+
+      - name: Dump Convex logs
+        if: failure()
+        run: bun run ops/convex-real/manage.ts logs
+
+      - name: Tear down self-hosted Convex
+        if: always()
+        run: bun run test:convex:real:down
