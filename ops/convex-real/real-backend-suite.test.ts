@@ -127,7 +127,20 @@ describe('real Convex backend contracts', () => {
   test('test-only deployed helpers reject when the real-backend test signal is absent', async () => {
     await removeRealBackendEnv('IS_TEST');
     try {
-      await expect(t.clearAll()).rejects.toThrow('testHelpersReal functions require IS_TEST=true');
+      await expect(t.clearAll()).rejects.toThrow(
+        'testHelpersReal functions require IS_TEST=true and YUCP_REAL_BACKEND_TEST_HELPERS=true'
+      );
+    } finally {
+      await restoreRealBackendTestSignal();
+    }
+  });
+
+  test('test-only deployed helpers reject when the real-backend helper marker is absent', async () => {
+    await removeRealBackendEnv('YUCP_REAL_BACKEND_TEST_HELPERS');
+    try {
+      await expect(t.clearAll()).rejects.toThrow(
+        'testHelpersReal functions require IS_TEST=true and YUCP_REAL_BACKEND_TEST_HELPERS=true'
+      );
     } finally {
       await restoreRealBackendTestSignal();
     }

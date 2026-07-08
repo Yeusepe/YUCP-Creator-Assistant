@@ -5,8 +5,12 @@ import schema from './schema';
 const CLEAR_ALL_BATCH_LIMIT = 50;
 
 function assertRealBackendTest(): void {
-  if (process.env.IS_TEST !== 'true' && process.env.IS_TEST !== '1') {
-    throw new Error('testHelpersReal functions require IS_TEST=true');
+  const isTest = process.env.IS_TEST === 'true' || process.env.IS_TEST === '1';
+  const isRealBackendHarness = process.env.YUCP_REAL_BACKEND_TEST_HELPERS === 'true';
+  if (!isTest || !isRealBackendHarness) {
+    throw new Error(
+      'testHelpersReal functions require IS_TEST=true and YUCP_REAL_BACKEND_TEST_HELPERS=true'
+    );
   }
 }
 

@@ -180,6 +180,7 @@ export async function removeRealBackendEnv(name: string): Promise<void> {
 
 export async function restoreRealBackendTestSignal(): Promise<void> {
   await runConvexEnv(['set', 'IS_TEST', 'true']);
+  await runConvexEnv(['set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true']);
 }
 
 export function resetTestActorBindingCacheForTest(): void {

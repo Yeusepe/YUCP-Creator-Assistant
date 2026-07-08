@@ -97,13 +97,7 @@ function findCompleteBetterAuthPackage(): string | null {
 
   for (const entry of readdirSync(bunModulesDir)) {
     if (!entry.startsWith('@convex-dev+better-auth@')) continue;
-    const candidate = join(
-      bunModulesDir,
-      entry,
-      'node_modules',
-      '@convex-dev',
-      'better-auth'
-    );
+    const candidate = join(bunModulesDir, entry, 'node_modules', '@convex-dev', 'better-auth');
     if (existsSync(join(candidate, 'package.json'))) {
       return candidate;
     }
@@ -156,6 +150,7 @@ function writeTestEnvFile(): string {
       `INTERNAL_SERVICE_AUTH_SECRET=${INTERNAL_SERVICE_AUTH_SECRET}`,
       `CONVEX_API_SECRET=${API_SECRET}`,
       'IS_TEST=true',
+      'YUCP_REAL_BACKEND_TEST_HELPERS=true',
       'VRCHAT_PROVIDER_SESSION_SECRET=test-vrchat-provider-session-secret',
       `BETTER_AUTH_URL=${SITE_URL}/api/auth`,
       'API_BASE_URL=http://127.0.0.1:3001',
