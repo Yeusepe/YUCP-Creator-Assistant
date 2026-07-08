@@ -245,6 +245,7 @@ export async function handleWebhooksRoutes(
 
       const signingSecret = generateSigningSecret();
       const signingSecretPrefix = signingSecret.slice(0, 8);
+      let createdSubscriptionId: string | undefined;
 
       try {
         const signingSecretEnc = await encrypt(
@@ -253,7 +254,7 @@ export async function handleWebhooksRoutes(
           WEBHOOK_SIGNING_SECRET_PURPOSE
         );
 
-        const result = await convex.mutation(api.webhookSubscriptions.create, {
+        const subscriptionId = await convex.mutation(api.webhookSubscriptions.create, {
           apiSecret: config.convexApiSecret,
           authUserId: auth.authUserId,
           url: body.url as string,
@@ -263,17 +264,40 @@ export async function handleWebhooksRoutes(
           signingSecretEnc,
           signingSecretPrefix,
         });
+        createdSubscriptionId = subscriptionId as string;
 
-        const sub = (result as Record<string, unknown>) ?? {};
+        const sub = await convex.query(api.webhookSubscriptions.getById, {
+          apiSecret: config.convexApiSecret,
+          authUserId: auth.authUserId,
+          subscriptionId,
+        });
+
+        if (!sub) {
+          throw new Error('Webhook subscription not found after create');
+        }
+
         return jsonResponse(
           {
-            ...sanitizeSubscription(sub),
+            ...sanitizeSubscription(sub as Record<string, unknown>),
             signingSecret,
           },
           201,
           reqId
         );
       } catch (err) {
+        if (createdSubscriptionId) {
+          try {
+            await convex.mutation(api.webhookSubscriptions.deleteSubscription, {
+              apiSecret: config.convexApiSecret,
+              authUserId: auth.authUserId,
+              subscriptionId: createdSubscriptionId,
+            });
+          } catch {
+            logger.error('webhookSubscriptions.create cleanup failed', {
+              error: 'Failed to delete subscription after create failure',
+            });
+          }
+        }
         logger.error('webhookSubscriptions.create failed', { error: String(err) });
         return errorResponse('internal_error', 'An internal error occurred', 500, reqId);
       }

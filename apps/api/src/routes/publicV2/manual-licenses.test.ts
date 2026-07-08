@@ -1,4 +1,68 @@
-import { describe, expect, it } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+
+const apiMock = {
+  manualLicenses: {
+    create: 'manualLicenses.create',
+    bulkCreate: 'manualLicenses.bulkCreate',
+  },
+} as const;
+
+let mutationImpl: (fn: unknown, args: unknown) => Promise<unknown>;
+
+const mutationMock = mock((fn: unknown, args: unknown) => mutationImpl(fn, args));
+
+mock.module('../../../../../convex/_generated/api', () => ({
+  api: apiMock,
+}));
+
+mock.module('../../lib/convex', () => ({
+  getConvexClientFromUrl: () => ({ mutation: mutationMock }),
+}));
+
+mock.module('./auth', () => ({
+  resolveAuth: async () => ({
+    authUserId: 'user_abc',
+    actorBinding: {
+      payload: 'test-payload',
+      signature: 'test-signature',
+    },
+    scopes: ['licenses:manage'],
+  }),
+}));
+
+const { handleManualLicensesRoutes } = await import('./manual-licenses');
+
+const config = {
+  apiBaseUrl: 'https://api.test',
+  convexUrl: 'https://test.convex.cloud',
+  convexApiSecret: 'test-secret',
+  convexSiteUrl: 'https://test.convex.site',
+  encryptionSecret: 'test-enc',
+  frontendBaseUrl: 'https://creators.test',
+};
+
+function makeRequest(method: string, subPath: string, body?: unknown): Request {
+  const url = `http://localhost/api/public/v2${subPath}`;
+  return new Request(url, {
+    method,
+    headers: {
+      authorization: 'Bearer test-token',
+      ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
+beforeEach(() => {
+  mutationMock.mockClear();
+  mutationImpl = async (fn) => {
+    if (fn === apiMock.manualLicenses.create) return { licenseId: 'license_001' };
+    if (fn === apiMock.manualLicenses.bulkCreate) {
+      return { created: 1, licenseIds: ['license_001'] };
+    }
+    throw new Error(`Unhandled mutation: ${String(fn)}`);
+  };
+});
 
 // hashLicenseKey is private to manual-licenses.ts, replicate the identical algorithm here
 // so we can test its properties independently without importing the production module.
@@ -43,5 +107,97 @@ describe('hashKey (SHA-256 hex)', () => {
     const result = await hashKey('héllo wörld 🎉');
     expect(result).toHaveLength(64);
     expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('handleManualLicensesRoutes', () => {
+  it('POST /manual-licenses sends canonical licenseKeyHash to Convex create', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses', {
+        key: 'plain-license-key',
+        product_id: 'product_001',
+      }),
+      '/manual-licenses',
+      config
+    );
+
+    expect(res.status).toBe(201);
+    const [, args] = mutationMock.mock.calls[0] ?? [];
+    expect(args).toMatchObject({
+      authUserId: 'user_abc',
+      productId: 'product_001',
+    });
+    expect((args as Record<string, unknown>).licenseKeyHash).toMatch(/^[0-9a-f]{64}$/);
+    expect((args as Record<string, unknown>).hashedKey).toBeUndefined();
+  });
+
+  it('POST /manual-licenses/bulk sends canonical license fields to Convex bulkCreate', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: [
+          {
+            key: 'plain-license-key',
+            product_id: 'product_001',
+            max_uses: 2,
+            expires_at: 1_800_000_000_000,
+            notes: 'test note',
+            buyer_email: 'buyer@example.com',
+          },
+        ],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(201);
+    const [, args] = mutationMock.mock.calls[0] ?? [];
+    const license = (args as { licenses: Array<Record<string, unknown>> }).licenses[0];
+    expect(license).toMatchObject({
+      productId: 'product_001',
+      maxUses: 2,
+      expiresAt: 1_800_000_000_000,
+      notes: 'test note',
+      buyerEmail: 'buyer@example.com',
+    });
+    expect(license.licenseKeyHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(license.hashedKey).toBeUndefined();
+    expect(license.key).toBeUndefined();
+    expect(license.product_id).toBeUndefined();
+  });
+
+  it('POST /manual-licenses/bulk rejects empty license keys before Convex', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: [
+          {
+            key: '',
+            product_id: 'product_001',
+          },
+        ],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /manual-licenses/bulk rejects empty product ids before Convex', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: [
+          {
+            key: 'plain-license-key',
+            product_id: '',
+          },
+        ],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutationMock).not.toHaveBeenCalled();
   });
 });

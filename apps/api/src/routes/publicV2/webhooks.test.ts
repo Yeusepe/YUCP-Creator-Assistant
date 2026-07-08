@@ -25,6 +25,7 @@ let mutationImpl: (fn: unknown, args: unknown) => Promise<unknown>;
 
 const queryMock = mock((fn: unknown, args: unknown) => queryImpl(fn, args));
 const mutationMock = mock((fn: unknown, args: unknown) => mutationImpl(fn, args));
+const loggerErrorMock = mock(() => undefined);
 
 mock.module('../../../../../convex/_generated/api', () => ({
   api: apiMock,
@@ -34,6 +35,12 @@ mock.module('../../../../../convex/_generated/api', () => ({
 
 mock.module('../../lib/convex', () => ({
   getConvexClientFromUrl: () => ({ query: queryMock, mutation: mutationMock }),
+}));
+
+mock.module('../../lib/logger', () => ({
+  logger: {
+    error: loggerErrorMock,
+  },
 }));
 
 mock.module('../../lib/encrypt', () => ({
@@ -97,6 +104,7 @@ function makeRequest(
 beforeEach(() => {
   queryMock.mockClear();
   mutationMock.mockClear();
+  loggerErrorMock.mockClear();
 
   queryImpl = async (fn) => {
     if (fn === apiMock.webhookSubscriptions.list) return [];
@@ -215,6 +223,77 @@ describe('handleWebhooksRoutes', () => {
       );
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).not.toHaveProperty('signingSecretEnc');
+    });
+
+    it('uses the created subscription id to return the public subscription shape', async () => {
+      mutationImpl = async (fn) => {
+        if (fn === apiMock.webhookSubscriptions.create) return sampleSubscription._id;
+        throw new Error(`Unhandled mutation: ${String(fn)}`);
+      };
+
+      const res = await routes(
+        makeRequest('POST', '/webhooks', {
+          url: 'https://example.com/webhook',
+          events: ['entitlement.granted'],
+        }),
+        '/webhooks'
+      );
+
+      expect(res.status).toBe(201);
+      expect(
+        queryMock.mock.calls.some(
+          (call) =>
+            call[0] === apiMock.webhookSubscriptions.getById &&
+            (call[1] as Record<string, unknown>).apiSecret === config.convexApiSecret &&
+            (call[1] as Record<string, unknown>).authUserId === 'user_abc' &&
+            (call[1] as Record<string, unknown>).subscriptionId === sampleSubscription._id
+        )
+      ).toBe(true);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        _id: sampleSubscription._id,
+        url: sampleSubscription.url,
+        events: sampleSubscription.events,
+        enabled: sampleSubscription.enabled,
+        signingSecretPrefix: sampleSubscription.signingSecretPrefix,
+      });
+      expect(typeof body.signingSecret).toBe('string');
+      expect(body).not.toHaveProperty('signingSecretEnc');
+    });
+
+    it('does not log the subscription id when the post-create read fails', async () => {
+      mutationImpl = async (fn) => {
+        if (fn === apiMock.webhookSubscriptions.create) return sampleSubscription._id;
+        throw new Error(`Unhandled mutation: ${String(fn)}`);
+      };
+      queryImpl = async (fn) => {
+        if (fn === apiMock.webhookSubscriptions.getById) return null;
+        throw new Error(`Unhandled query: ${String(fn)}`);
+      };
+
+      const res = await routes(
+        makeRequest('POST', '/webhooks', {
+          url: 'https://example.com/webhook',
+          events: ['entitlement.granted'],
+        }),
+        '/webhooks'
+      );
+
+      expect(res.status).toBe(500);
+      expect(
+        mutationMock.mock.calls.some(
+          (call) =>
+            call[0] === apiMock.webhookSubscriptions.deleteSubscription &&
+            (call[1] as Record<string, unknown>).apiSecret === config.convexApiSecret &&
+            (call[1] as Record<string, unknown>).authUserId === 'user_abc' &&
+            (call[1] as Record<string, unknown>).subscriptionId === sampleSubscription._id
+        )
+      ).toBe(true);
+      const firstLogCall = loggerErrorMock.mock.calls[0] as unknown as
+        | [unknown, unknown]
+        | undefined;
+      const metadata = firstLogCall?.[1];
+      expect(JSON.stringify(metadata)).not.toContain(sampleSubscription._id);
     });
   });
 

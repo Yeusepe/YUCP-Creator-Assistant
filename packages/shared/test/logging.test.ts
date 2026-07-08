@@ -201,6 +201,16 @@ describe('redaction', () => {
       expect(result.user.password).toBe('[REDACTED]');
     });
 
+    it('should preserve arrays while redacting their contents', () => {
+      const input = {
+        events: ['ping'],
+        users: [{ name: 'John', token: 'secret' }],
+      };
+      const result = redactObject(input);
+      expect(result.events).toEqual(['ping']);
+      expect(result.users).toEqual([{ name: 'John', token: '[REDACTED]' }]);
+    });
+
     it('should handle fingerprints specially', () => {
       const input = { fingerprint: 'abc123', device_fingerprint: 'def456' };
       const result = redactObject(input);
@@ -219,6 +229,11 @@ describe('redaction', () => {
     it('should handle objects', () => {
       const input = { secret: 'value' };
       expect(redactForLogging(input).secret).toBe('[REDACTED]');
+    });
+
+    it('should handle top-level arrays', () => {
+      const input = ['ping', { token: 'secret' }];
+      expect(redactForLogging(input)).toEqual(['ping', { token: '[REDACTED]' }]);
     });
 
     it('should pass through primitives', () => {
