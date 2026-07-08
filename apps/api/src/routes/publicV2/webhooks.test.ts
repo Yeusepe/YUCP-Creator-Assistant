@@ -216,6 +216,40 @@ describe('handleWebhooksRoutes', () => {
       const body = (await res.json()) as Record<string, unknown>;
       expect(body).not.toHaveProperty('signingSecretEnc');
     });
+
+    it('uses the created subscription id to return the public subscription shape', async () => {
+      mutationImpl = async (fn) => {
+        if (fn === apiMock.webhookSubscriptions.create) return sampleSubscription._id;
+        throw new Error(`Unhandled mutation: ${String(fn)}`);
+      };
+
+      const res = await routes(
+        makeRequest('POST', '/webhooks', {
+          url: 'https://example.com/webhook',
+          events: ['entitlement.granted'],
+        }),
+        '/webhooks'
+      );
+
+      expect(res.status).toBe(201);
+      expect(
+        queryMock.mock.calls.some(
+          (call) =>
+            call[0] === apiMock.webhookSubscriptions.getById &&
+            (call[1] as Record<string, unknown>).subscriptionId === sampleSubscription._id
+        )
+      ).toBe(true);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        _id: sampleSubscription._id,
+        url: sampleSubscription.url,
+        events: sampleSubscription.events,
+        enabled: sampleSubscription.enabled,
+        signingSecretPrefix: sampleSubscription.signingSecretPrefix,
+      });
+      expect(typeof body.signingSecret).toBe('string');
+      expect(body).not.toHaveProperty('signingSecretEnc');
+    });
   });
 
   describe('POST /webhooks, validation errors', () => {

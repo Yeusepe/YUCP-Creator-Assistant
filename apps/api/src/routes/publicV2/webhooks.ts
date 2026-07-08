@@ -253,7 +253,7 @@ export async function handleWebhooksRoutes(
           WEBHOOK_SIGNING_SECRET_PURPOSE
         );
 
-        const result = await convex.mutation(api.webhookSubscriptions.create, {
+        const subscriptionId = await convex.mutation(api.webhookSubscriptions.create, {
           apiSecret: config.convexApiSecret,
           authUserId: auth.authUserId,
           url: body.url as string,
@@ -264,10 +264,19 @@ export async function handleWebhooksRoutes(
           signingSecretPrefix,
         });
 
-        const sub = (result as Record<string, unknown>) ?? {};
+        const sub = await convex.query(api.webhookSubscriptions.getById, {
+          apiSecret: config.convexApiSecret,
+          authUserId: auth.authUserId,
+          subscriptionId,
+        });
+
+        if (!sub) {
+          throw new Error(`Webhook subscription not found after create: ${subscriptionId}`);
+        }
+
         return jsonResponse(
           {
-            ...sanitizeSubscription(sub),
+            ...sanitizeSubscription(sub as Record<string, unknown>),
             signingSecret,
           },
           201,

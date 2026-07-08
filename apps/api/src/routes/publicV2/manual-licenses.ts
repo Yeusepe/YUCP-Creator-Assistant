@@ -70,11 +70,15 @@ export async function handleManualLicensesRoutes(
     try {
       const hashedLicenses = await Promise.all(
         licenses.map(async (lic: Record<string, unknown>) => ({
-          ...lic,
-          hashedKey: lic.key
-            ? await hashLicenseKey(lic.key as string, config.encryptionSecret)
-            : undefined,
-          key: undefined,
+          licenseKeyHash:
+            typeof lic.key === 'string'
+              ? await hashLicenseKey(lic.key, config.encryptionSecret)
+              : undefined,
+          productId: lic.product_id,
+          maxUses: typeof lic.max_uses === 'number' ? lic.max_uses : undefined,
+          expiresAt: typeof lic.expires_at === 'number' ? lic.expires_at : undefined,
+          notes: typeof lic.notes === 'string' ? lic.notes : undefined,
+          buyerEmail: typeof lic.buyer_email === 'string' ? lic.buyer_email : undefined,
         }))
       );
 
@@ -222,7 +226,7 @@ export async function handleManualLicensesRoutes(
         const result = await convex.mutation(api.manualLicenses.create, {
           apiSecret: config.convexApiSecret,
           authUserId: auth.authUserId,
-          hashedKey,
+          licenseKeyHash: hashedKey,
           productId: body.product_id as string,
           maxUses: typeof body.max_uses === 'number' ? body.max_uses : undefined,
           expiresAt: typeof body.expires_at === 'number' ? body.expires_at : undefined,
