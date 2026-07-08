@@ -164,4 +164,40 @@ describe('handleManualLicensesRoutes', () => {
     expect(license.key).toBeUndefined();
     expect(license.product_id).toBeUndefined();
   });
+
+  it('POST /manual-licenses/bulk rejects empty license keys before Convex', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: [
+          {
+            key: '',
+            product_id: 'product_001',
+          },
+        ],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
+
+  it('POST /manual-licenses/bulk rejects empty product ids before Convex', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: [
+          {
+            key: 'plain-license-key',
+            product_id: '',
+          },
+        ],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
 });

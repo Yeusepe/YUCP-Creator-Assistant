@@ -67,13 +67,30 @@ export async function handleManualLicensesRoutes(
       return errorResponse('bad_request', 'Maximum of 100 licenses per bulk request', 400, reqId);
     }
 
+    for (const [index, lic] of licenses.entries()) {
+      if (!lic || typeof lic !== 'object' || Array.isArray(lic)) {
+        return errorResponse('bad_request', `licenses[${index}] must be an object`, 400, reqId);
+      }
+
+      const license = lic as Record<string, unknown>;
+      if (typeof license.key !== 'string' || !license.key) {
+        return errorResponse('bad_request', `licenses[${index}].key is required`, 400, reqId);
+      }
+      if (typeof license.product_id !== 'string' || !license.product_id) {
+        return errorResponse(
+          'bad_request',
+          `licenses[${index}].product_id is required`,
+          400,
+          reqId
+        );
+      }
+    }
+
     try {
+      const licenseInputs = licenses as Array<Record<string, unknown>>;
       const hashedLicenses = await Promise.all(
-        licenses.map(async (lic: Record<string, unknown>) => ({
-          licenseKeyHash:
-            typeof lic.key === 'string'
-              ? await hashLicenseKey(lic.key, config.encryptionSecret)
-              : undefined,
+        licenseInputs.map(async (lic) => ({
+          licenseKeyHash: await hashLicenseKey(lic.key as string, config.encryptionSecret),
           productId: lic.product_id,
           maxUses: typeof lic.max_uses === 'number' ? lic.max_uses : undefined,
           expiresAt: typeof lic.expires_at === 'number' ? lic.expires_at : undefined,
