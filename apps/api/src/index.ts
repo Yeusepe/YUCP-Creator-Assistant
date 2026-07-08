@@ -1435,6 +1435,16 @@ async function handleRequest(request: Request): Promise<Response> {
 }
 
 /**
+ * Builds the same request handler used by the production Bun server.
+ */
+export function createApiRequestHandler(
+  webhookBaseUrl?: string
+): (request: Request) => Promise<Response> {
+  auth = initializeAuth(webhookBaseUrl);
+  return handleRequest;
+}
+
+/**
  * Main entry point
  */
 async function main() {
@@ -1458,15 +1468,16 @@ async function main() {
   const publicBaseUrl =
     tunnel.provider !== 'none' ? tunnel.url : (env.SITE_URL ?? `http://localhost:${port}`);
 
-  // Initialize Better Auth (pass tunnel URL for webhook base if detected)
-  auth = initializeAuth(tunnel.provider !== 'none' ? tunnel.url : undefined);
+  const requestHandler = createApiRequestHandler(
+    tunnel.provider !== 'none' ? tunnel.url : undefined
+  );
 
   // Start HTTP server
   Bun.serve({
     hostname,
     maxRequestBodySize: MAX_BACKSTAGE_UPLOAD_BYTES,
     port,
-    fetch: handleRequest,
+    fetch: requestHandler,
   });
 
   logger.info('API server ready', {
@@ -1481,13 +1492,15 @@ async function main() {
   });
 }
 
-main().catch((err) => {
-  logger.error('Failed to start API server', {
-    message: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
+if (import.meta.main) {
+  main().catch((err) => {
+    logger.error('Failed to start API server', {
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    process.exit(1);
   });
-  process.exit(1);
-});
+}
 
 // Export auth utilities for external use
 export { auth };
