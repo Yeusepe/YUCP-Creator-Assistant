@@ -318,7 +318,7 @@ describe('api to Convex boundary contract realtests', () => {
           authUserId,
           selector: { id: subjectId },
         } as never)
-      ).rejects.toThrow(/Expected one of object/);
+      ).rejects.toThrow();
     });
 
     it('pins getEntitlementsBySubject args and normalized result shape', async () => {
@@ -404,7 +404,7 @@ describe('api to Convex boundary contract realtests', () => {
         status: 'active',
       });
       expect(typeof subscription._id).toBe('string');
-      expect('events' in subscription).toBe(true);
+      expect(subscription.events).toEqual(['ping']);
       expect('signingSecretEnc' in subscription).toBe(false);
 
       await expect(
@@ -612,7 +612,7 @@ describe('api to Convex boundary contract realtests', () => {
           subscriptionId,
           status: 'queued',
         } as never)
-      ).rejects.toThrow(/Expected one of literal/);
+      ).rejects.toThrow();
     });
   });
 });

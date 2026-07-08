@@ -209,6 +209,8 @@ export function redactObject<T extends Record<string, unknown>>(obj: T): T {
       }
     } else if (typeof value === 'string') {
       (redacted as Record<string, unknown>)[key] = redactString(value);
+    } else if (Array.isArray(value)) {
+      (redacted as Record<string, unknown>)[key] = value.map((item) => redactForLogging(item));
     } else if (typeof value === 'object' && value !== null) {
       (redacted as Record<string, unknown>)[key] = redactObject(value as Record<string, unknown>);
     }
@@ -223,6 +225,10 @@ export function redactObject<T extends Record<string, unknown>>(obj: T): T {
 export function redactForLogging<T>(data: T): T {
   if (typeof data === 'string') {
     return redactString(data) as T;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map((item) => redactForLogging(item)) as T;
   }
 
   if (typeof data === 'object' && data !== null) {
