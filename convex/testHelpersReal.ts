@@ -80,7 +80,7 @@ export const clearAll = internalMutation({
     for (const table of appTableNames) {
       const docs = await ctx.db.query(table as never).collect();
       for (const doc of docs) {
-        await ctx.db.delete(doc._id);
+        await ctx.db.delete((doc as { _id: string })._id as never);
       }
     }
   },
