@@ -12,6 +12,21 @@ import {
 } from './helpers';
 import type { PublicV2Config } from './types';
 
+function unwrapResolvedSubject(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  const wrapper = result as { found?: unknown; subject?: unknown };
+  if (typeof wrapper.found === 'boolean') {
+    return wrapper.found && wrapper.subject && typeof wrapper.subject === 'object'
+      ? (wrapper.subject as Record<string, unknown>)
+      : null;
+  }
+
+  return result as Record<string, unknown>;
+}
+
 export async function handleSubjectsRoutes(
   request: Request,
   subPath: string,
@@ -174,10 +189,11 @@ export async function handleSubjectsRoutes(
         authUserId: auth.authUserId,
         selector: { subjectId },
       });
-      if (!result) {
+      const subject = unwrapResolvedSubject(result);
+      if (!subject) {
         return errorResponse('not_found', `Subject with ID ${subjectId} was not found`, 404, reqId);
       }
-      return jsonResponse(result, 200, reqId);
+      return jsonResponse(subject, 200, reqId);
     } catch (err) {
       logger.error('subjects.resolveSubjectForPublicApi failed', { error: String(err) });
       return errorResponse('internal_error', 'An internal error occurred', 500, reqId);

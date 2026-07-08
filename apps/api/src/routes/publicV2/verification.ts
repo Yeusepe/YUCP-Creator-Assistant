@@ -5,6 +5,21 @@ import { resolveAuth } from './auth';
 import { errorResponse, extractListData, generateRequestId, jsonResponse } from './helpers';
 import type { PublicV2Config } from './types';
 
+function unwrapResolvedSubject(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+
+  const wrapper = result as { found?: unknown; subject?: unknown };
+  if (typeof wrapper.found === 'boolean') {
+    return wrapper.found && wrapper.subject && typeof wrapper.subject === 'object'
+      ? (wrapper.subject as Record<string, unknown>)
+      : null;
+  }
+
+  return result as Record<string, unknown>;
+}
+
 export async function handleVerificationRoutes(
   request: Request,
   subPath: string,
@@ -22,11 +37,12 @@ export async function handleVerificationRoutes(
     if (auth instanceof Response) return auth;
 
     try {
-      const subject = await convex.query(api.subjects.resolveSubjectForPublicApi, {
+      const resolvedSubject = await convex.query(api.subjects.resolveSubjectForPublicApi, {
         apiSecret: config.convexApiSecret,
         authUserId: auth.authUserId,
         selector: { authUserId: auth.authUserId },
       });
+      const subject = unwrapResolvedSubject(resolvedSubject);
 
       if (!subject) {
         return jsonResponse(
@@ -44,7 +60,7 @@ export async function handleVerificationRoutes(
       const entResult = await convex.query(api.entitlements.getEntitlementsBySubject, {
         apiSecret: config.convexApiSecret,
         authUserId: auth.authUserId,
-        subjectId: (subject as Record<string, unknown>)._id as string,
+        subjectId: subject._id as string,
         includeInactive: false,
       });
 
@@ -88,11 +104,12 @@ export async function handleVerificationRoutes(
     }
 
     try {
-      const subject = await convex.query(api.subjects.resolveSubjectForPublicApi, {
+      const resolvedSubject = await convex.query(api.subjects.resolveSubjectForPublicApi, {
         apiSecret: config.convexApiSecret,
         authUserId: auth.authUserId,
         selector: body.subject as Record<string, unknown>,
       });
+      const subject = unwrapResolvedSubject(resolvedSubject);
 
       if (!subject) {
         return jsonResponse(
@@ -110,7 +127,7 @@ export async function handleVerificationRoutes(
         );
       }
 
-      const subjectId = (subject as Record<string, unknown>)._id as string;
+      const subjectId = subject._id as string;
       const entResult = await convex.query(api.entitlements.getEntitlementsBySubject, {
         apiSecret: config.convexApiSecret,
         authUserId: auth.authUserId,
