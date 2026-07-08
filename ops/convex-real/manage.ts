@@ -75,19 +75,29 @@ async function waitForBackend(): Promise<void> {
   throw new Error(`Convex backend did not become healthy: ${String(lastError)}`);
 }
 
+async function pullImagesWithRetry(): Promise<void> {
+  const attempts = 3;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await run(['docker', ...composeArgs, 'pull'], {
+        timeoutMs: 300_000,
+      });
+      return;
+    } catch (error) {
+      if (attempt === attempts) throw error;
+      console.warn(`Docker image pull failed on attempt ${attempt}; retrying.`);
+      await Bun.sleep(5_000 * attempt);
+    }
+  }
+}
+
 function findCompleteBetterAuthPackage(): string | null {
   const bunModulesDir = join(ROOT_DIR, 'node_modules', '.bun');
   if (!existsSync(bunModulesDir)) return null;
 
   for (const entry of readdirSync(bunModulesDir)) {
     if (!entry.startsWith('@convex-dev+better-auth@')) continue;
-    const candidate = join(
-      bunModulesDir,
-      entry,
-      'node_modules',
-      '@convex-dev',
-      'better-auth'
-    );
+    const candidate = join(bunModulesDir, entry, 'node_modules', '@convex-dev', 'better-auth');
     if (existsSync(join(candidate, 'package.json'))) {
       return candidate;
     }
@@ -139,6 +149,8 @@ function writeTestEnvFile(): string {
       'ACCOUNT_RECOVERY_CONTEXT_SECRET=test-account-recovery-secret-for-convex-real-backend',
       `INTERNAL_SERVICE_AUTH_SECRET=${INTERNAL_SERVICE_AUTH_SECRET}`,
       `CONVEX_API_SECRET=${API_SECRET}`,
+      'IS_TEST=true',
+      'YUCP_REAL_BACKEND_TEST_HELPERS=true',
       'VRCHAT_PROVIDER_SESSION_SECRET=test-vrchat-provider-session-secret',
       `BETTER_AUTH_URL=${SITE_URL}/api/auth`,
       'API_BASE_URL=http://127.0.0.1:3001',
@@ -182,6 +194,7 @@ async function deploy(adminKey: string): Promise<void> {
 }
 
 async function up(): Promise<void> {
+  await pullImagesWithRetry();
   await run(['docker', ...composeArgs, 'up', '-d']);
   await waitForBackend();
   await deploy(await getAdminKey());

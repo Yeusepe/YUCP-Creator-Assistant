@@ -10,6 +10,8 @@ describe('gumroad external storefront backfill', () => {
 
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
+    // Kept on convex-test because these cases drain scheduled backfill with fake timers.
+    // The real-backend suite covers backfill projection via deployed internal functions.
     vi.useFakeTimers();
   });
 

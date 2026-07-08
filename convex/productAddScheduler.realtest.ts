@@ -113,6 +113,8 @@ describe('grantEntitlement - no time-based past purchase block', () => {
 describe('addProductFromPayhip - schedules projection of existing purchase facts', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
+    // Kept on convex-test because this file asserts scheduler behavior with fake timers.
+    // The real-backend suite covers the same Payhip projection path with real scheduler waits.
     vi.useFakeTimers();
   });
 

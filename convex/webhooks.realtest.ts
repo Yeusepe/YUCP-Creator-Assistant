@@ -141,6 +141,8 @@ describe('insertWebhookEvent', () => {
 describe('processWebhookEvent pipeline', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = API_SECRET;
+    // Kept on convex-test because these cases use fake timers to drain scheduled work.
+    // The real-backend suite covers webhook processing with deployed internal functions.
     vi.useFakeTimers();
   });
 
