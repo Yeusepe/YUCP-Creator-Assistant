@@ -289,7 +289,10 @@ describe('handleWebhooksRoutes', () => {
             (call[1] as Record<string, unknown>).subscriptionId === sampleSubscription._id
         )
       ).toBe(true);
-      const [, metadata] = loggerErrorMock.mock.calls[0] ?? [];
+      const firstLogCall = loggerErrorMock.mock.calls[0] as unknown as
+        | [unknown, unknown]
+        | undefined;
+      const metadata = firstLogCall?.[1];
       expect(JSON.stringify(metadata)).not.toContain(sampleSubscription._id);
     });
   });
