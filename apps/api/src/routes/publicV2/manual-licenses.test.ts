@@ -200,4 +200,17 @@ describe('handleManualLicensesRoutes', () => {
     expect(res.status).toBe(400);
     expect(mutationMock).not.toHaveBeenCalled();
   });
+
+  it('POST /manual-licenses/bulk rejects non-object license entries before Convex', async () => {
+    const res = await handleManualLicensesRoutes(
+      makeRequest('POST', '/manual-licenses/bulk', {
+        licenses: ['not-an-object'],
+      }),
+      '/manual-licenses/bulk',
+      config
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutationMock).not.toHaveBeenCalled();
+  });
 });
