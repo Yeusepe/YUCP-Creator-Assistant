@@ -59,7 +59,7 @@
     "test:convex:types": "tsc --noEmit -p convex/tsconfig.json",
     "test:convex": "bun run test:convex:types && bun x vitest run --config convex/vitest.config.ts",
     "test:convex:real:up": "bun run ops/convex-real/manage.ts up",
-    "test:convex:real": "bun test ./ops/convex-real/real-backend-smoke.test.ts",
+    "test:convex:real": "bun test --timeout 60000 --max-concurrency 1 ./ops/convex-real/real-backend-smoke.test.ts ./ops/convex-real/real-backend-suite.test.ts",
     "test:convex:real:down": "bun run ops/convex-real/manage.ts down",
     "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",

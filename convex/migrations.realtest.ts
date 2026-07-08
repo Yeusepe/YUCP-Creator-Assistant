@@ -588,6 +588,8 @@ describe('backstage alias metadata remediation', () => {
   });
 
   it('repairs a selected published release by backfilling the alias metadata contract', async () => {
+    // Kept on convex-test because this assertion drains scheduled repair work with fake timers.
+    // Real-backend scheduler coverage should use real waits in dedicated cases.
     vi.useFakeTimers();
     const t = makeTestConvex();
     const { catalogProductId, deliveryPackageReleaseId } =

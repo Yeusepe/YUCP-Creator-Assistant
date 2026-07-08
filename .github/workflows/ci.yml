@@ -110,7 +110,7 @@ jobs:
       - name: Boot and deploy self-hosted Convex
         run: bun run test:convex:real:up
 
-      - name: Run self-hosted Convex smoke
+      - name: Run self-hosted Convex real suite
         run: bun run test:convex:real
 
       - name: Dump Convex logs
