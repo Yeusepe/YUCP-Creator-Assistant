@@ -31,7 +31,7 @@ const testFiles = collectTestFiles(testRoot)
   .sort((left, right) => left.localeCompare(right));
 
 for (const testFile of testFiles) {
-  const result = spawnSync(process.execPath, ['test', testFile, ...forwardedArgs], {
+  const result = spawnSync(process.execPath, ['test', ...forwardedArgs, testFile], {
     cwd: packageRoot,
     env: process.env,
     stdio: 'inherit',

@@ -86,7 +86,7 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
-      - name: Run tests
+      - name: Run full test gate (fast, boundary mock ratchet, Convex, API integration)
         run: bun run test:ci
 
   convex-real:
