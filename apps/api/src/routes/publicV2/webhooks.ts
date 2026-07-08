@@ -371,7 +371,20 @@ export async function handleWebhooksRoutes(
         cursor,
         limit,
       });
-      const { data, hasMore, nextCursor } = extractListData(result);
+      const fallbackList = extractListData(result);
+      const deliveryList =
+        result && typeof result === 'object'
+          ? (result as { deliveries?: unknown; hasMore?: unknown; nextCursor?: unknown })
+          : {};
+      const data = Array.isArray(deliveryList.deliveries)
+        ? deliveryList.deliveries
+        : fallbackList.data;
+      const hasMore =
+        typeof deliveryList.hasMore === 'boolean' ? deliveryList.hasMore : fallbackList.hasMore;
+      const nextCursor =
+        typeof deliveryList.nextCursor === 'string'
+          ? deliveryList.nextCursor
+          : fallbackList.nextCursor;
       return listResponse(data, hasMore, nextCursor, reqId);
     } catch (err) {
       logger.error('webhookDeliveries.listBySubscription failed', { error: String(err) });

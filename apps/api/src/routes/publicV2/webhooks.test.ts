@@ -368,6 +368,31 @@ describe('handleWebhooksRoutes', () => {
     });
   });
 
+  describe('GET /webhooks/:id/deliveries', () => {
+    it('maps Convex deliveries list shape to the public list response', async () => {
+      const deliveries = [{ _id: 'delivery_001', status: 'pending' }];
+      queryImpl = async (fn) => {
+        if (fn === apiMock.webhookDeliveries.listBySubscription) {
+          return { deliveries, hasMore: true, nextCursor: 'delivery_002' };
+        }
+        throw new Error(`Unhandled query: ${String(fn)}`);
+      };
+
+      const res = await routes(
+        makeRequest('GET', '/webhooks/wh_001/deliveries'),
+        '/webhooks/wh_001/deliveries'
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        object: 'list',
+        data: deliveries,
+        hasMore: true,
+        nextCursor: 'delivery_002',
+      });
+    });
+  });
+
   describe('unknown sub-paths', () => {
     it('returns 404 for an unrecognised sub-path', async () => {
       const res = await routes(makeRequest('GET', '/unknown-route'), '/unknown-route');
