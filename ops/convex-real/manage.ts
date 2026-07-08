@@ -1,37 +1,54 @@
 import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import {
+  API_SECRET,
+  BACKEND_URL,
+  INTERNAL_SERVICE_AUTH_SECRET,
+  PROJECT_NAME,
+  SITE_URL,
+} from './config';
 
 const ROOT_DIR = resolve(import.meta.dir, '../..');
 const COMPOSE_FILE = join(import.meta.dir, 'docker-compose.yml');
-const PROJECT_NAME = process.env.CONVEX_REAL_BACKEND_PROJECT ?? 'yucp-convex-real';
-const BACKEND_URL = process.env.CONVEX_REAL_BACKEND_URL ?? 'http://127.0.0.1:3210';
-const SITE_URL = process.env.CONVEX_REAL_SITE_URL ?? 'http://127.0.0.1:3211';
-const API_SECRET = 'test-convex-api-secret';
-const INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-auth-secret';
+const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
+const FORCE_KILL_GRACE_MS = 5_000;
 
 const composeArgs = ['compose', '-p', PROJECT_NAME, '-f', COMPOSE_FILE];
 
 type RunOptions = {
   env?: Record<string, string>;
   quiet?: boolean;
+  timeoutMs?: number;
 };
 
 async function run(args: string[], options: RunOptions = {}): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+  let timedOut = false;
   const proc = Bun.spawn(args, {
     cwd: ROOT_DIR,
     env: { ...process.env, ...options.env },
     stdout: 'pipe',
     stderr: 'pipe',
   });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    proc.kill('SIGTERM');
+    setTimeout(() => proc.kill('SIGKILL'), FORCE_KILL_GRACE_MS).unref();
+  }, timeoutMs);
+
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
+  clearTimeout(timeoutId);
   if (!options.quiet) {
     if (stdout.trim()) process.stdout.write(stdout);
     if (stderr.trim()) process.stderr.write(stderr);
+  }
+  if (timedOut) {
+    throw new Error(`${args.join(' ')} timed out after ${timeoutMs}ms and was killed`);
   }
   if (exitCode !== 0) {
     throw new Error(`${args.join(' ')} failed with exit code ${exitCode}`);

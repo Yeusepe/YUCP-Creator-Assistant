@@ -2,10 +2,7 @@ import { createApiActorBinding, createAuthUserApiActor } from '@yucp/shared/apiA
 import { expect, test } from 'bun:test';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../convex/_generated/api';
-
-const BACKEND_URL = process.env.CONVEX_REAL_BACKEND_URL ?? 'http://127.0.0.1:3210';
-const API_SECRET = 'test-convex-api-secret';
-const INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-auth-secret';
+import { API_SECRET, BACKEND_URL, INTERNAL_SERVICE_AUTH_SECRET } from './config';
 
 test('self-hosted Convex backend executes real deployed functions', async () => {
   const correlationId = `convex-real-${Date.now()}-${crypto.randomUUID()}`;
