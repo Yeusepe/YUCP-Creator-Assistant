@@ -32,7 +32,7 @@ bun run typecheck
   ```
   Then commit the updated `src/generated.ts`.
 - `bun run typecheck` currently runs `bun run contracts:check`, `tsc -b tsconfig.solution.json --pretty false`, and the package `typecheck` scripts for `@yucp/api`, `@yucp/bot`, and `@yucp/web`.
-- Convex realtest compilation stays under `bun run test:convex`, not under `bun run typecheck`.
+- Convex realtests are typechecked with `tsc -p convex/tsconfig.json`, now run as the first step of `bun run test:convex`, not under `bun run typecheck`.
 
 ### 3. External integration contracts (`bun run test:external-integrations`)
 
@@ -58,7 +58,7 @@ bun run test:ci
 
 - `test:ops` covers the repo-level ops and regression harness tests under `./ops`.
 - `test:fast:ci` currently runs the `test:ci` scripts for `@yucp/api`, `@yucp/application`, `@yucp/policy`, `@yucp/providers`, and `@yucp/shared`.
-- `bun run test:ci` does not include a Convex compile gate. Keep Convex coverage under `bun run test:convex`.
+- `bun run test:ci` includes Convex realtest typechecking and backend tests through `bun run test:convex`.
 
 Additional test suites (not part of CI fast path, but should pass before merging):
 

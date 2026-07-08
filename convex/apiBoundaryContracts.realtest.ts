@@ -396,6 +396,10 @@ describe('api to Convex boundary contract realtests', () => {
         subscriptionId,
       });
 
+      if (subscription === null) {
+        throw new Error('Expected webhook subscription to exist after creation');
+      }
+
       expect(subscription).toMatchObject({
         authUserId,
         url: 'https://example.com/webhooks/yucp',
