@@ -121,3 +121,41 @@ jobs:
       - name: Tear down self-hosted Convex
         if: always()
         run: bun run test:convex:real:down
+
+  e2e-flows:
+    name: E2E User Flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    concurrency:
+      group: e2e-flows-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Boot and deploy self-hosted Convex
+        run: bun run test:convex:real:up
+
+      - name: Run real API user journey flows
+        env:
+          E2E_GUMROAD_PRODUCT_ID: ${{ secrets.E2E_GUMROAD_PRODUCT_ID }}
+          E2E_GUMROAD_LICENSE_KEY: ${{ secrets.E2E_GUMROAD_LICENSE_KEY }}
+          E2E_JINXXY_API_KEY: ${{ secrets.E2E_JINXXY_API_KEY }}
+          E2E_JINXXY_LICENSE_KEY: ${{ secrets.E2E_JINXXY_LICENSE_KEY }}
+          E2E_JINXXY_PRODUCT_REF: ${{ secrets.E2E_JINXXY_PRODUCT_REF }}
+          JINXXY_DISPOSABLE_LICENSE_KEY: ${{ secrets.JINXXY_DISPOSABLE_LICENSE_KEY }}
+        run: bun run test:e2e:flows:run
+
+      - name: Tear down self-hosted Convex
+        if: always()
+        run: bun run test:convex:real:down
