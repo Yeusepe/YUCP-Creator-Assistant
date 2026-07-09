@@ -278,30 +278,6 @@ export const getJinxxyWebhookSecretByRouteId = query({
 });
 
 /**
- * Get Gumroad webhook secret for a tenant.
- * Used by webhook handler for signature verification.
- */
-export const getGumroadWebhookSecret = query({
-  args: {
-    apiSecret: v.string(),
-    authUserId: v.string(),
-  },
-  returns: v.union(v.string(), v.null()),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const conn = await ctx.db
-      .query('provider_connections')
-      .withIndex('by_auth_user_provider', (q) =>
-        q.eq('authUserId', args.authUserId).eq('provider', 'gumroad')
-      )
-      .first();
-    if (!conn) return null;
-    const credentialSecret = await getCredentialValue(ctx, conn._id, 'webhook_secret');
-    return credentialSecret ?? conn.webhookSecretRef ?? null;
-  },
-});
-
-/**
  * Get Gumroad webhook secret by routeId (authUserId).
  * Used by webhook handler for signature verification.
  */
