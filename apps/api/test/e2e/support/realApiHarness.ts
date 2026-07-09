@@ -52,6 +52,7 @@ type JsonResponse<TBody> = {
 
 let state: HarnessState | null = null;
 const seededAuthUserIds = new Set<string>();
+// ponytail: keep ops harness loading dynamic until its admin client type is exported cleanly.
 const convexRealHarnessPath = ['..', '..', '..', '..', '..', 'ops', 'convex-real', 'harness'].join(
   '/'
 );

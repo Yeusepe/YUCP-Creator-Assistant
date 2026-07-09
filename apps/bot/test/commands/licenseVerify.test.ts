@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { ConvexHttpClient } from 'convex/browser';
 import type { ModalSubmitInteraction } from 'discord.js';
 
@@ -67,6 +67,10 @@ describe('handleLicenseKeyModal', () => {
     } else {
       process.env.INTERNAL_SERVICE_AUTH_SECRET = originalInternalServiceAuthSecret;
     }
+  });
+
+  afterAll(() => {
+    mock.restore();
   });
 
   it('sends completeLicenseVerification the exact user journey payload', async () => {
