@@ -126,6 +126,9 @@ jobs:
     name: E2E User Flows
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    concurrency:
+      group: e2e-flows-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -145,10 +148,6 @@ jobs:
 
       - name: Run real API user journey flows
         run: bun run test:e2e:flows:run
-
-      - name: Dump Convex logs
-        if: failure()
-        run: bun run ops/convex-real/manage.ts logs
 
       - name: Tear down self-hosted Convex
         if: always()

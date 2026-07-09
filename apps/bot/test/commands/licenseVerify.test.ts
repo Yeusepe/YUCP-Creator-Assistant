@@ -33,11 +33,11 @@ function makeConvex(): ConvexHttpClient {
   } as unknown as ConvexHttpClient;
 }
 
-function makeModalInteraction() {
+function makeModalInteraction(licenseKey: string) {
   return {
     customId: 'creator_verify:lp_modal:creator_auth_1:prod_1:manual',
     fields: {
-      getTextInputValue: mock(() => '  RAW-KEY-CONTRACT  '),
+      getTextInputValue: mock(() => `  ${licenseKey}  `),
     },
     user: {
       id: 'discord_user_1',
@@ -58,7 +58,7 @@ describe('handleLicenseKeyModal', () => {
 
   beforeEach(() => {
     completeLicenseVerificationMock.mockClear();
-    process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-auth-secret';
+    process.env.INTERNAL_SERVICE_AUTH_SECRET = crypto.randomUUID();
   });
 
   afterEach(() => {
@@ -70,18 +70,19 @@ describe('handleLicenseKeyModal', () => {
   });
 
   it('sends completeLicenseVerification the exact user journey payload', async () => {
-    const interaction = makeModalInteraction();
+    const licenseKey = crypto.randomUUID();
+    const interaction = makeModalInteraction(licenseKey);
 
     await handleLicenseKeyModal(
       interaction as unknown as ModalSubmitInteraction,
       makeConvex(),
-      'api-secret',
+      crypto.randomUUID(),
       undefined
     );
 
     expect(completeLicenseVerificationMock).toHaveBeenCalledTimes(1);
     expect(completeLicenseVerificationMock.mock.calls[0]?.[0]).toEqual({
-      licenseKey: 'RAW-KEY-CONTRACT',
+      licenseKey,
       productId: 'prod_1',
       provider: 'manual',
       authUserId: 'creator_auth_1',
@@ -91,6 +92,8 @@ describe('handleLicenseKeyModal', () => {
     expect(interaction.deferReply).toHaveBeenCalledTimes(1);
     expect(interaction.reply).not.toHaveBeenCalled();
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(interaction.editReply.mock.calls[0]?.[0])).toContain('license verified');
+    expect((interaction.editReply.mock.calls[0]?.[0] as { content?: string })?.content).toContain(
+      'license verified'
+    );
   });
 });

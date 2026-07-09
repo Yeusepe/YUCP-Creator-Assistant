@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { api } from '../../../../convex/_generated/api';
 import { API_SECRET } from '../../../../ops/convex-real/config';
+import { PUBLIC_API_SCOPES } from '../../../../packages/shared/src/publicApiScopes';
 import { createAuthUserActorBinding } from '../../src/lib/apiActor';
 import {
   apiJson,
@@ -16,14 +17,8 @@ import {
 
 installRealApiHarness();
 
-const RAW_LICENSE_KEY = 'RAW-KEY-E2E-001';
+const RAW_LICENSE_KEY = crypto.randomUUID();
 const PRODUCT_ID = 'prod_e2e_manual_1';
-const PUBLIC_API_SCOPES = [
-  'profile:read',
-  'licenses:manage',
-  'webhooks:manage',
-  'verification:read',
-];
 
 describe('real API user journeys against self-hosted Convex', () => {
   test.failing('[F-public-api-key] smoke reads a seeded API key through the real API router', async () => {
@@ -94,7 +89,7 @@ describe('real API user journeys against self-hosted Convex', () => {
       {
         method: 'POST',
         headers: apiKeyHeaders(apiKey),
-        body: JSON.stringify({ key: 'WRONG-KEY', product_id: PRODUCT_ID }),
+        body: JSON.stringify({ key: crypto.randomUUID(), product_id: PRODUCT_ID }),
       }
     );
 

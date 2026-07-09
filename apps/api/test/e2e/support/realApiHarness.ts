@@ -9,7 +9,7 @@ import {
 } from '../../../../../ops/convex-real/config';
 import { type BuiltApiApp, buildApp } from '../../support/buildApp';
 
-export const E2E_ENCRYPTION_SECRET = 'test-e2e-encryption-secret-32-chars';
+export const E2E_ENCRYPTION_SECRET = `e2e-${crypto.randomUUID()}`;
 
 type HarnessState = {
   app: BuiltApiApp;
@@ -132,10 +132,19 @@ async function clearSeededState(): Promise<void> {
   if (!current) return;
 
   await current.convex.clearAll();
-  for (const authUserId of seededAuthUserIds) {
-    await deleteBetterAuthRowsForUser(authUserId);
-  }
+  const authUserIds = [...seededAuthUserIds];
   seededAuthUserIds.clear();
+  const cleanupErrors: unknown[] = [];
+  for (const authUserId of authUserIds) {
+    try {
+      await deleteBetterAuthRowsForUser(authUserId);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'Failed to clean up BetterAuth seed rows');
+  }
 }
 
 export function installRealApiHarness(): void {
@@ -154,7 +163,7 @@ export function installRealApiHarness(): void {
       convexApiSecret: API_SECRET,
       encryptionSecret: E2E_ENCRYPTION_SECRET,
       internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
-      internalRpcSharedSecret: 'test-internal-rpc-shared-secret',
+      internalRpcSharedSecret: `e2e-rpc-${crypto.randomUUID()}`,
     });
     state = { app, componentClient, convex };
   });
