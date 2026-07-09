@@ -3,7 +3,7 @@
  *
  * Flow:
  *   1. User clicks "Use License Key" button
- *      → showProductPicker(): loads tenant's products, renders StringSelectMenu
+ *      → showProductPicker(): loads server configured products, renders StringSelectMenu
  *         with filter buttons (All / Gumroad / Jinxxy) and pagination (Prev/Next).
  *   2. User selects a product from the select menu
  *      → handleProductSelected(): shows a modal pre-titled with the product name.
@@ -265,6 +265,22 @@ async function enrichDisplayNames(
   });
 }
 
+async function loadConfiguredProductsForPicker(
+  convex: ConvexHttpClient,
+  apiSecret: string,
+  authUserId: string,
+  guildId: string | null
+): Promise<Product[]> {
+  if (!guildId) return [];
+
+  const products = (await convex.query(api.productResolution.getProductsConfiguredForGuild, {
+    apiSecret,
+    authUserId,
+    guildId,
+  })) as Product[];
+  return await enrichDisplayNames(products, authUserId, apiSecret);
+}
+
 export async function showProductPicker(
   interaction: ButtonInteraction,
   convex: ConvexHttpClient,
@@ -277,11 +293,12 @@ export async function showProductPicker(
 
   let products: Product[] = [];
   try {
-    products = (await convex.query(api.productResolution.getProductsForTenant, {
+    products = await loadConfiguredProductsForPicker(
+      convex,
       apiSecret,
       authUserId,
-    })) as Product[];
-    products = await enrichDisplayNames(products, authUserId, apiSecret);
+      interaction.guildId
+    );
   } catch (err) {
     logger.error('Failed to load products for picker', { err });
   }
@@ -320,11 +337,12 @@ export async function handlePickerNavigation(
 
   let products: Product[] = [];
   try {
-    products = (await convex.query(api.productResolution.getProductsForTenant, {
+    products = await loadConfiguredProductsForPicker(
+      convex,
       apiSecret,
       authUserId,
-    })) as Product[];
-    products = await enrichDisplayNames(products, authUserId, apiSecret);
+      interaction.guildId
+    );
   } catch (err) {
     logger.error('Failed to reload products for picker nav', { err });
   }
