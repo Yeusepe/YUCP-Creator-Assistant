@@ -211,6 +211,7 @@ describe('connect user product access routes', () => {
       if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
+          actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
         });
         return { _id: 'subject_buyer_1' };
@@ -358,6 +359,7 @@ describe('connect user product access routes', () => {
       if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
+          actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
         });
         return { _id: 'subject_buyer_1' };
