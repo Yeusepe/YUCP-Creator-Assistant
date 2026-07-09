@@ -6,6 +6,7 @@ import {
   API_SECRET,
   BACKEND_URL,
   INTERNAL_SERVICE_AUTH_SECRET,
+  PROJECT_NAME,
   SITE_URL,
 } from '../../../../../ops/convex-real/config';
 import { type BuiltApiApp, buildApp } from '../../support/buildApp';
@@ -96,6 +97,44 @@ async function runConvexEnvSet(
   }
 }
 
+async function getDockerNetworkGateway(): Promise<string | null> {
+  const proc = Bun.spawn(
+    [
+      'docker',
+      'network',
+      'inspect',
+      `${PROJECT_NAME}_default`,
+      '--format',
+      '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{end}}{{end}}',
+    ],
+    {
+      stderr: 'pipe',
+      stdout: 'pipe',
+    }
+  );
+  const [stdout, , exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    return null;
+  }
+  const gateway = stdout.trim();
+  return gateway.length > 0 && gateway !== '<no value>' ? gateway : null;
+}
+
+async function getBackfillApiUrl(): Promise<string> {
+  if (process.platform !== 'linux') {
+    return 'http://host.docker.internal:3001';
+  }
+  const gateway = await getDockerNetworkGateway();
+  if (!gateway) {
+    throw new Error(`Could not resolve Docker gateway for ${PROJECT_NAME}_default`);
+  }
+  return `http://${gateway}:3001`;
+}
+
 function requireState(): HarnessState {
   if (!state) {
     throw new Error('Real API E2E harness has not been initialized');
@@ -168,10 +207,11 @@ export function installRealApiHarness(): void {
       skipConvexDeploymentUrlCheck: true,
     }) as BetterAuthComponentClient;
     componentClient.setAdminAuth(await getRealBackendAdminKey());
+    const backfillApiUrl = await getBackfillApiUrl();
     await runConvexEnvSet(
       'BACKFILL_API_URL',
-      // Convex actions run in Docker, where 127.0.0.1 is the backend container.
-      'http://host.docker.internal:3001',
+      // Convex actions run in Docker, so they need the host's compose-network address.
+      backfillApiUrl,
       getRealBackendAdminKey
     );
     const app = buildApp({

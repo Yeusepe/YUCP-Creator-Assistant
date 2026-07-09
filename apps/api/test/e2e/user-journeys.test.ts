@@ -47,12 +47,16 @@ const jinxxyEnv = {
 };
 const hasGumroadE2E = Boolean(gumroadEnv.productId && gumroadEnv.licenseKey);
 const hasJinxxyE2E = Boolean(jinxxyEnv.apiKey && jinxxyEnv.licenseKey && jinxxyEnv.productRef);
+const hasAsyncBackfillE2E = Boolean(jinxxyEnv.apiKey);
 
 if (!hasGumroadE2E) {
   console.log('SKIP gumroad e2e: E2E_GUMROAD_* not set');
 }
 if (!hasJinxxyE2E) {
   console.log('SKIP jinxxy e2e: E2E_JINXXY_* not set');
+}
+if (!hasAsyncBackfillE2E) {
+  console.log('SKIP jinxxy async backfill e2e: E2E_JINXXY_API_KEY not set');
 }
 
 type ProviderLicenseApiResponse = {
@@ -629,7 +633,7 @@ describe('real API user journeys against self-hosted Convex', () => {
     EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
   );
 
-  test(
+  test.skipIf(!hasAsyncBackfillE2E)(
     'scheduled catalog backfill materializes a linked historical purchase entitlement',
     async () => {
       const journey = await seedAsyncBackfillJourney();
@@ -647,7 +651,7 @@ describe('real API user journeys against self-hosted Convex', () => {
     ASYNC_JOB_TEST_TIMEOUT_MS
   );
 
-  test(
+  test.skipIf(!hasAsyncBackfillE2E)(
     'scheduled catalog backfill entitlement grant enqueues a role sync outbox job',
     async () => {
       const journey = await seedAsyncBackfillJourney();
