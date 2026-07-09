@@ -211,11 +211,13 @@ async function describeDeliveryAuthorization(input: {
   config: Config;
   repoPackage: RepoPackage;
   subjectId: string;
+  tokenHash: string;
 }): Promise<string> {
   const packageUrl = new URL(input.repoPackage.url);
   const channel = packageUrl.searchParams.get('channel') ?? 'stable';
   const resolved = (await input.client.query(api.backstageRepos.resolvePackageDownloadForApi, {
     apiSecret: input.apiSecret,
+    tokenHash: input.tokenHash,
     authUserId: input.config.creatorAuthUserId,
     channel,
     packageId: input.config.packageId,
@@ -467,6 +469,7 @@ async function verifyRawPackageSourceDownload(input: {
   client: ConvexClient;
   config: Config;
   subjectId: string;
+  tokenHash: string;
 }): Promise<{
   bytes: number;
   deliveryArtifactId: string;
@@ -476,6 +479,7 @@ async function verifyRawPackageSourceDownload(input: {
 }> {
   const raw = (await input.client.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
     apiSecret: input.apiSecret,
+    tokenHash: input.tokenHash,
     authUserId: input.config.creatorAuthUserId,
     channel: 'stable',
     packageId: input.config.packageId,
@@ -588,9 +592,11 @@ async function verifyInstallablePackageDownload(input: {
   client: ConvexClient;
   config: Config;
   subjectId: string;
+  tokenHash: string;
 }): Promise<{ bytes: number; deliveryArtifactId?: string; sourceKind: 'zip' }> {
   const resolved = (await input.client.query(api.backstageRepos.resolvePackageDownloadForApi, {
     apiSecret: input.apiSecret,
+    tokenHash: input.tokenHash,
     authUserId: input.config.creatorAuthUserId,
     channel: 'stable',
     packageId: input.config.packageId,
@@ -707,6 +713,7 @@ async function resolveSubjectWithEntitlement(input: {
 }): Promise<string> {
   const authSubject = (await input.client.query(api.backstageRepos.getSubjectByAuthUserForApi, {
     apiSecret: input.apiSecret,
+    actor: input.actor,
     authUserId: input.config.creatorAuthUserId,
   })) as { _id: string } | null;
   if (authSubject) {
@@ -764,6 +771,7 @@ async function resolveSubjectWithEntitlement(input: {
 }
 
 async function issueRepoToken(input: {
+  actor: Record<string, unknown>;
   apiSecret: string;
   client: ConvexClient;
   config: Config;
@@ -771,6 +779,7 @@ async function issueRepoToken(input: {
 }): Promise<string> {
   const issued = (await input.client.mutation(api.backstageRepos.issueRepoTokenForApi, {
     apiSecret: input.apiSecret,
+    actor: input.actor,
     authUserId: input.config.creatorAuthUserId,
     expiresAt: Date.now() + 5 * 60 * 1000,
     label: `Backstage live E2E ${input.config.packageId}`,
@@ -818,19 +827,22 @@ async function runOnce(config: Config): Promise<void> {
     context,
     subjectId,
   });
+  const token = await issueRepoToken({ actor, apiSecret, client, config, subjectId });
+  const tokenHash = sha256Hex(new TextEncoder().encode(token));
   const rawSource = await verifyRawPackageSourceDownload({
     apiSecret,
     client,
     config,
     subjectId,
+    tokenHash,
   });
   const installablePackage = await verifyInstallablePackageDownload({
     apiSecret,
     client,
     config,
     subjectId,
+    tokenHash,
   });
-  const token = await issueRepoToken({ apiSecret, client, config, subjectId });
   const repoHeaders = { 'X-YUCP-Repo-Token': token };
   const repositoryUrl = `${config.apiBaseUrl}/v1/backstage/repos/${encodeURIComponent(
     creatorRepoRef
@@ -859,6 +871,7 @@ async function runOnce(config: Config): Promise<void> {
       config,
       repoPackage,
       subjectId,
+      tokenHash,
     });
     throw new Error(
       `Package download failed for ${repoPackage.packageId}@${repoPackage.version}: ${response.status} ${response.statusText}. Body: ${body}. ${delivery}`
