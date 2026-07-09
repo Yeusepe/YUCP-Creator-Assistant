@@ -180,14 +180,14 @@ export function createConnectUserProductAccessRoutes({
             source: 'session',
           })
         : null;
-      const convex = getConvexClientFromUrl(config.convexUrl, buyerActor ?? undefined);
+      const buyerConvex = buyerActor ? getConvexClientFromUrl(config.convexUrl, buyerActor) : null;
       const product = await resolveAccessProduct(catalogProductId);
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
 
       const buyerSubject = session
-        ? ((await convex.query(api.backstageRepos.getSubjectByAuthUserForApi, {
+        ? ((await buyerConvex?.query(api.backstageRepos.getSubjectByAuthUserForApi, {
             apiSecret: config.convexApiSecret,
             actor: buyerActor,
             authUserId: session.user.id,
@@ -195,18 +195,22 @@ export function createConnectUserProductAccessRoutes({
         : null;
       const entitlementsResult =
         session && buyerSubject
-          ? await convex.query(api.entitlements.listByAuthUser, {
-              apiSecret: config.convexApiSecret,
-              actor: await createApiServiceActorBinding({
+          ? await (async () => {
+              const entitlementActor = await createApiServiceActorBinding({
                 service: 'api-server',
                 scopes: ['creator:delegate'],
-              }),
-              authUserId: product.creatorAuthUserId,
-              subjectId: buyerSubject._id,
-              productId: product.productId,
-              status: 'active',
-              limit: 20,
-            })
+              });
+              const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
+              return await entitlementConvex.query(api.entitlements.listByAuthUser, {
+                apiSecret: config.convexApiSecret,
+                actor: entitlementActor,
+                authUserId: product.creatorAuthUserId,
+                subjectId: buyerSubject._id,
+                productId: product.productId,
+                status: 'active',
+                limit: 20,
+              });
+            })()
           : { data: [] };
       const activeEntitlement =
         entitlementsResult.data?.find(
