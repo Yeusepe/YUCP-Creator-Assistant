@@ -363,11 +363,12 @@ export const createApiKey = mutation({
     const api = auth.api as unknown as BetterAuthServerApi;
     const created = await api.createApiKey({
       body: {
+        // Better Auth derives API-key referenceId from body.userId.
+        // Managed public keys are owned by the public tenant authUserId.
         userId: args.authUserId,
         name: args.name,
         prefix: PUBLIC_API_KEY_PREFIX,
         expiresIn: args.expiresIn,
-        referenceId: args.authUserId,
         metadata: {
           kind: PUBLIC_API_KEY_METADATA_KIND,
           authUserId: args.authUserId,
@@ -377,15 +378,11 @@ export const createApiKey = mutation({
         },
       },
     });
-    const stored = (await ctx.runMutation(components.betterAuth.adapter.updateOne, {
-      input: {
-        model: 'apikey',
-        update: {
-          referenceId: args.authUserId,
-        },
-        where: [{ field: '_id', operator: 'eq', value: created.id }],
-      },
-    })) as SerializableApiKeyRecord;
+    const stored = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'apikey',
+      where: [{ field: '_id', operator: 'eq', value: created.id }],
+      select: API_KEY_SERIALIZATION_SELECT,
+    })) as SerializableApiKeyRecord | null;
     const serialized = serializeApiKeyRecord(stored);
     if (!serialized) {
       throw new Error('Better Auth returned an API key record without an owner');
