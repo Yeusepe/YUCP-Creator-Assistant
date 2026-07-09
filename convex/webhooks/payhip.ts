@@ -170,6 +170,7 @@ export async function processPayhipEvent(
           ctx,
           authUserId,
           subjectId,
+          'payhip',
           permalink,
           sourceRef,
           purchasedAt

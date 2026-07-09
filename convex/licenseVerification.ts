@@ -13,16 +13,14 @@
  * 5. Enqueue outbox jobs for role sync
  */
 
-import { canReactivate } from '@yucp/shared/entitlement/service';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx } from './_generated/server';
 import { mutation } from './_generated/server';
+import { grantEntitlementFromFunnel } from './entitlements';
 import { requireApiSecret } from './lib/apiAuth';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { LicenseProviderV } from './lib/providers';
-import { resolveRoleSyncDiscordUserId } from './lib/roleSyncIdentity';
-import { buildRoleSyncIdempotencyKey, enqueueRoleSync } from './lib/roleSyncEnqueue';
 import { upsertBuyerProviderLinkRecord } from './subjects';
 
 // ============================================================================
@@ -198,61 +196,6 @@ async function findExistingEntitlementForGrant(
   }
 
   return null;
-}
-
-async function upsertLicenseVerificationEntitlementEvidence(
-  ctx: Pick<MutationCtx, 'db'>,
-  args: {
-    authUserId: string;
-    subjectId: Id<'subjects'>;
-    provider: Doc<'entitlements'>['sourceProvider'];
-    productId: string;
-    catalogProductId?: Id<'product_catalog'>;
-    sourceReference: string;
-    providerTierRefs?: string[];
-    observedAt: number;
-  }
-): Promise<Id<'entitlement_evidence'>> {
-  const providerTierRefs = normalizeProviderTierRefs(args.providerTierRefs);
-  const existing = await ctx.db
-    .query('entitlement_evidence')
-    .withIndex('by_source_reference', (q) =>
-      q.eq('providerKey', args.provider).eq('sourceReference', args.sourceReference)
-    )
-    .filter((q) => q.eq(q.field('authUserId'), args.authUserId))
-    .filter((q) => q.eq(q.field('subjectId'), args.subjectId))
-    .filter((q) => q.eq(q.field('productId'), args.productId))
-    .filter((q) => q.eq(q.field('evidenceType'), 'license_verification'))
-    .first();
-
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      subjectId: args.subjectId,
-      evidenceType: 'license_verification',
-      status: 'active',
-      productId: args.productId,
-      catalogProductId: args.catalogProductId ?? existing.catalogProductId,
-      providerTierRefs: providerTierRefs ?? existing.providerTierRefs,
-      observedAt: args.observedAt,
-      updatedAt: args.observedAt,
-    });
-    return existing._id;
-  }
-
-  return await ctx.db.insert('entitlement_evidence', {
-    authUserId: args.authUserId,
-    subjectId: args.subjectId,
-    providerKey: args.provider,
-    sourceReference: args.sourceReference,
-    evidenceType: 'license_verification',
-    status: 'active',
-    productId: args.productId,
-    catalogProductId: args.catalogProductId,
-    providerTierRefs,
-    observedAt: args.observedAt,
-    createdAt: args.observedAt,
-    updatedAt: args.observedAt,
-  });
 }
 
 /**
@@ -500,172 +443,80 @@ export const completeLicenseVerification = mutation({
 
     const entitlementIds: Id<'entitlements'>[] = [];
     const outboxJobIds: Id<'outbox_jobs'>[] = [];
+    const existingEntitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+      )
+      .collect();
+    let nextPolicySnapshotVersion = existingEntitlements.length + 1;
 
     for (const product of args.productsToGrant) {
-      // Check for existing entitlement (idempotency)
-      const existingEntitlement = await findExistingEntitlementForGrant(ctx, {
+      const policySnapshotVersion = nextPolicySnapshotVersion;
+      const providerTierRefs = normalizeProviderTierRefs(product.providerTierRefs);
+      const grantResult = await grantEntitlementFromFunnel(ctx, {
         authUserId: creatorAuthUserId,
         subjectId: buyerSubjectId,
-        provider: args.provider,
+        subject,
         productId: product.productId,
-        sourceReferences: sourceReferencesForGrantIdentity(args.provider, product.sourceReference),
-      });
-
-      let entitlementId: Id<'entitlements'>;
-      let shouldEnqueueActiveRefreshRoleSync = false;
-      if (existingEntitlement) {
-        entitlementId = existingEntitlement._id;
-        const refreshPatch: {
-          sourceReference?: string;
-          licenseSubject?: string;
-          providerCustomerId?: Id<'provider_customers'>;
-          catalogProductId?: Id<'product_catalog'>;
-        } = {};
-        if (existingEntitlement.sourceReference !== product.sourceReference) {
-          refreshPatch.sourceReference = product.sourceReference;
-        }
-        if (args.licenseSubjectLink?.licenseSubject && !existingEntitlement.licenseSubject) {
-          refreshPatch.licenseSubject = args.licenseSubjectLink.licenseSubject;
-        }
-        if (providerCustomerId && existingEntitlement.providerCustomerId !== providerCustomerId) {
-          refreshPatch.providerCustomerId = providerCustomerId;
-        }
-        if (product.catalogProductId && existingEntitlement.catalogProductId !== product.catalogProductId) {
-          refreshPatch.catalogProductId = product.catalogProductId;
-        }
-        const hasRefreshPatch = Object.keys(refreshPatch).length > 0;
-        const hasTierEvidenceRefresh = normalizeProviderTierRefs(product.providerTierRefs) !== undefined;
-
-        if (existingEntitlement.status !== 'active') {
-          if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
-            throw new ConvexError('Cannot reactivate a refunded or disputed entitlement');
-          }
-          await ctx.db.patch(entitlementId, {
-            ...refreshPatch,
-            status: 'active',
-            revokedAt: undefined,
-            updatedAt: now,
-            // Backfill the canonical license subject if this grant carries one and the
-            // existing row predates the field, so forensics can resolve the license.
-            licenseSubject:
-              args.licenseSubjectLink?.licenseSubject ?? existingEntitlement.licenseSubject,
-          });
-          // Emit role sync for reactivated entitlement
-          const discordUserId = resolveRoleSyncDiscordUserId(subject);
-          if (discordUserId) {
-            const jobId = await enqueueRoleSync(ctx, {
-              authUserId: creatorAuthUserId,
-              subjectId: buyerSubjectId,
-              entitlementId,
-              discordUserId,
-              idempotencyKey: buildRoleSyncIdempotencyKey({
-                authUserId: creatorAuthUserId,
-                subjectId: buyerSubjectId,
-                entitlementId,
-                lifecycle: { kind: 'grant', at: now },
-              }),
-            });
-            outboxJobIds.push(jobId);
-          }
-        } else {
-          if (hasRefreshPatch) {
-            await ctx.db.patch(entitlementId, {
-              ...refreshPatch,
-              updatedAt: now,
-            });
-          }
-          shouldEnqueueActiveRefreshRoleSync = hasRefreshPatch || hasTierEvidenceRefresh;
-        }
-      } else {
-        // Create new entitlement
-        const existingEntitlements = await ctx.db
-          .query('entitlements')
-          .withIndex('by_auth_user_subject', (q) =>
-            q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
-          )
-          .collect();
-        const policySnapshotVersion = existingEntitlements.length + 1;
-
-        entitlementId = await ctx.db.insert('entitlements', {
-          authUserId: creatorAuthUserId,
-          subjectId: buyerSubjectId,
-          productId: product.productId,
-          sourceProvider: args.provider,
-          sourceReference: product.sourceReference,
-          licenseSubject: args.licenseSubjectLink?.licenseSubject,
-          providerCustomerId,
-          catalogProductId: product.catalogProductId,
-          status: 'active',
-          policySnapshotVersion,
-          grantedAt: now,
-          updatedAt: now,
-        });
-
-        // Emit role sync job
-        const discordUserId = resolveRoleSyncDiscordUserId(subject);
-        if (discordUserId) {
-          const jobId = await enqueueRoleSync(ctx, {
-            authUserId: creatorAuthUserId,
-            subjectId: buyerSubjectId,
-            entitlementId,
-            discordUserId,
-            idempotencyKey: buildRoleSyncIdempotencyKey({
-              authUserId: creatorAuthUserId,
-              subjectId: buyerSubjectId,
-              entitlementId,
-              lifecycle: { kind: 'grant', at: now },
-            }),
-          });
-          outboxJobIds.push(jobId);
-        }
-
-        // Audit event
-        await ctx.db.insert('audit_events', {
-          authUserId: creatorAuthUserId,
-          eventType: 'entitlement.granted',
-          actorType: 'system',
-          subjectId: buyerSubjectId,
-          entitlementId,
-          metadata: {
-            productId: product.productId,
-            sourceProvider: args.provider,
-            sourceReference: product.sourceReference,
-            policySnapshotVersion,
-            catalogProductId: product.catalogProductId,
-          },
-          correlationId: args.correlationId,
-          createdAt: now,
-        });
-      }
-      entitlementIds.push(entitlementId);
-      await upsertLicenseVerificationEntitlementEvidence(ctx, {
-        authUserId: creatorAuthUserId,
-        subjectId: buyerSubjectId,
-        provider: args.provider,
-        productId: product.productId,
-        catalogProductId: product.catalogProductId,
+        sourceProvider: args.provider,
         sourceReference: product.sourceReference,
-        providerTierRefs: product.providerTierRefs,
-        observedAt: now,
+        licenseSubject: args.licenseSubjectLink?.licenseSubject,
+        providerCustomerId,
+        catalogProductId: product.catalogProductId,
+        policySnapshotVersion,
+        grantedAt: now,
+        now,
+        existingLookup: {
+          mode: 'sourceReference',
+          sourceReferences: sourceReferencesForGrantIdentity(args.provider, product.sourceReference),
+          matchProduct: true,
+          matchProvider: true,
+        },
+        reactivation: {
+          allowTerminal: false,
+          refreshExistingFields: true,
+        },
+        roleSync: {
+          mode: 'roleSyncIdentity',
+          lifecycleAt: now,
+          requireDiscordUserId: true,
+          missingSubject: 'skip',
+          enqueueOnActiveRefresh: providerTierRefs !== undefined,
+        },
+        audit: {
+          emitForNew: true,
+          emitForReactivated: false,
+          correlationId: args.correlationId,
+        },
+        evidence: {
+          authUserId: creatorAuthUserId,
+          subjectId: buyerSubjectId,
+          providerKey: args.provider,
+          sourceReference: product.sourceReference,
+          evidenceType: 'license_verification',
+          status: 'active',
+          productId: product.productId,
+          catalogProductId: product.catalogProductId,
+          providerTierRefs,
+          observedAt: now,
+          createdAt: now,
+          updatedAt: now,
+          lookupFilters: {
+            authUserId: true,
+            subjectId: true,
+            productId: true,
+            evidenceType: true,
+          },
+          patchEvidenceType: true,
+        },
       });
-      if (shouldEnqueueActiveRefreshRoleSync) {
-        const discordUserId = resolveRoleSyncDiscordUserId(subject);
-        if (discordUserId) {
-          const jobId = await enqueueRoleSync(ctx, {
-            authUserId: creatorAuthUserId,
-            subjectId: buyerSubjectId,
-            entitlementId,
-            discordUserId,
-            idempotencyKey: buildRoleSyncIdempotencyKey({
-              authUserId: creatorAuthUserId,
-              subjectId: buyerSubjectId,
-              entitlementId,
-              lifecycle: { kind: 'grant', at: now },
-            }),
-          });
-          outboxJobIds.push(jobId);
-        }
+
+      entitlementIds.push(grantResult.entitlementId);
+      if (grantResult.isNew) {
+        nextPolicySnapshotVersion++;
       }
+      outboxJobIds.push(...grantResult.outboxJobIds);
     }
 
     // Audit event for license verification

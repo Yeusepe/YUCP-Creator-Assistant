@@ -11,8 +11,9 @@
  */
 
 import { createApiActorBinding, createServiceApiActor } from '@yucp/shared/apiActor';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { convexTest } from 'convex-test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import schema from './schema';
@@ -70,12 +71,14 @@ describe('grantEntitlement lifecycle', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     delete process.env.CONVEX_API_SECRET;
   });
 
   it('given no entitlement, when grantEntitlement called, then isNew=true and status=active', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-grant-lifecycle-1';
+    const purchasedAt = Date.now() - 1_000;
 
     const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-1' });
     await seedCreatorProfile(t, { authUserId });
@@ -88,7 +91,7 @@ describe('grantEntitlement lifecycle', () => {
       evidence: {
         provider: 'gumroad',
         sourceReference: 'order_abc',
-        purchasedAt: Date.now(),
+        purchasedAt,
       },
     });
 
@@ -106,6 +109,26 @@ describe('grantEntitlement lifecycle', () => {
 
     expect(activeResult.found).toBe(true);
     expect(activeResult.entitlement?.status).toBe('active');
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'gumroad').eq('sourceReference', 'order_abc')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), authUserId))
+        .first()
+    );
+
+    expect(evidence).toMatchObject({
+      authUserId,
+      subjectId,
+      providerKey: 'gumroad',
+      evidenceType: 'provider_evidence',
+      status: 'active',
+      productId: 'gumroad:prod_xyz',
+      observedAt: purchasedAt,
+    });
   });
 
   it('given same sourceReference, when granted twice, then isNew=false on second call', async () => {
@@ -146,6 +169,107 @@ describe('grantEntitlement lifecycle', () => {
     });
 
     expect(count).toBe(1);
+  });
+
+  it('given same sourceReference, when grant is skipped as idempotent, then logs one structured skipped event', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-grant-idempotent-monitoring';
+    const productId = 'gumroad:prod_monitoring';
+    const sourceReference = 'order_monitoring_ref';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-monitoring' });
+    await seedCreatorProfile(t, { authUserId });
+
+    const args = {
+      apiSecret: 'test-secret',
+      authUserId,
+      subjectId,
+      productId,
+      evidence: {
+        provider: 'gumroad' as const,
+        sourceReference,
+      },
+    };
+
+    const first = await t.mutation(api.entitlements.grantEntitlement, args);
+    logSpy.mockClear();
+
+    const second = await t.mutation(api.entitlements.grantEntitlement, args);
+
+    expect(second.isNew).toBe(false);
+    expect(second.entitlementId).toBe(first.entitlementId);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0]?.[0]).toBe('entitlement_grant');
+    const metadata = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(metadata).toEqual(
+      expect.objectContaining({
+        event: 'entitlement_grant',
+        provider: 'gumroad',
+        outcome: 'skipped',
+        reason: 'already_active',
+        authUserIdHash: await sha256Hex(authUserId),
+        subjectIdHash: await sha256Hex(subjectId),
+        productIdHash: await sha256Hex(productId),
+      })
+    );
+    expect(metadata).not.toHaveProperty('authUserId');
+    expect(metadata).not.toHaveProperty('subjectId');
+    expect(metadata).not.toHaveProperty('productId');
+    expect(metadata).not.toHaveProperty('entitlementId');
+  });
+
+  it('given unexpected grant failure, when logging error outcome, then uses bounded reason code', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-grant-error-reason';
+    const staleSubjectId = await seedSubject(t, {
+      primaryDiscordUserId: 'discord-grant-error-reason',
+    });
+    const providerCustomerId = await t.run(async (ctx) => {
+      await ctx.db.delete(staleSubjectId);
+      return await ctx.db.insert('provider_customers', {
+        provider: 'gumroad',
+        providerUserId: 'provider-user-grant-error-reason',
+        status: 'active',
+        lastObservedAt: Date.now(),
+        confidence: 'high',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await seedCreatorProfile(t, { authUserId });
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(
+      t.mutation(api.entitlements.grantEntitlementsForPurchaser, {
+        apiSecret: 'test-secret',
+        authUserId,
+        subjectId: staleSubjectId,
+        providerCustomerId,
+        products: [
+          {
+            productId: 'gumroad:prod_error_reason',
+            sourceReference: 'order_error_reason',
+          },
+        ],
+      })
+    ).rejects.toThrow('Subject not found');
+
+    const metadata = logSpy.mock.calls.find((call) => call[0] === 'entitlement_grant')?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(metadata).toEqual(
+      expect.objectContaining({
+        event: 'entitlement_grant',
+        provider: 'gumroad',
+        outcome: 'error',
+        reason: 'unexpected_error',
+        authUserIdHash: await sha256Hex(authUserId),
+        subjectIdHash: await sha256Hex(staleSubjectId),
+        productIdHash: await sha256Hex('gumroad:prod_error_reason'),
+      })
+    );
+    expect(JSON.stringify(metadata)).not.toContain('Subject not found');
   });
 
   it('given wrong apiSecret, when grantEntitlement called, then throws', async () => {

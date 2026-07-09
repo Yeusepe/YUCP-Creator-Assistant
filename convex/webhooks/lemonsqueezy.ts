@@ -1,11 +1,23 @@
 import type { Id } from '../_generated/dataModel';
 import {
+  grantEntitlementFromFunnel,
+  upsertEntitlementEvidenceFromFunnel,
+} from '../entitlements';
+import {
   emitRoleRemovalJobs,
-  emitRoleSyncJob,
   findSubjectByEmailHash,
   normalizeEmail,
   sha256Hex,
 } from './_helpers';
+
+type EntitlementEvidenceParameters = Parameters<typeof upsertEntitlementEvidenceFromFunnel>[1];
+type LemonEntitlementEvidenceParameters = Omit<
+  EntitlementEvidenceParameters,
+  'providerKey' | 'createdAt' | 'updatedAt'
+> & {
+  createdAt?: number;
+  updatedAt?: number;
+};
 
 async function resolveLemonCatalogProduct(
   ctx: any,
@@ -46,6 +58,18 @@ async function resolveLemonCatalogProduct(
   return { productId: providerRefs.find(Boolean) };
 }
 
+async function upsertLemonEntitlementEvidence(
+  ctx: any,
+  args: LemonEntitlementEvidenceParameters
+): Promise<Id<'entitlement_evidence'>> {
+  return await upsertEntitlementEvidenceFromFunnel(ctx, {
+    ...args,
+    providerKey: 'lemonsqueezy',
+    createdAt: args.createdAt ?? args.observedAt,
+    updatedAt: args.updatedAt ?? args.observedAt,
+  });
+}
+
 async function projectCanonicalEntitlement(
   ctx: any,
   authUserId: string,
@@ -55,61 +79,38 @@ async function projectCanonicalEntitlement(
   productId: string,
   catalogProductId: Id<'product_catalog'> | undefined,
   grantedAt: number,
-  roleSyncLifecycleAt = grantedAt
+  roleSyncLifecycleAt = grantedAt,
+  evidence?: LemonEntitlementEvidenceParameters
 ): Promise<void> {
-  const existing = await ctx.db
-    .query('entitlements')
-    .withIndex('by_auth_user_subject', (q: any) =>
-      q.eq('authUserId', authUserId).eq('subjectId', subjectId)
-    )
-    .filter((q: any) => q.eq(q.field('sourceReference'), sourceRef))
-    .first();
-
-  if (existing?.status === 'active') {
-    return;
-  }
-
   const now = Date.now();
-  let entitlementId: Id<'entitlements'>;
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      status: 'active',
-      revokedAt: undefined,
-      updatedAt: now,
-    });
-    entitlementId = existing._id;
-  } else {
-    entitlementId = await ctx.db.insert('entitlements', {
-      authUserId,
-      subjectId,
-      productId,
-      sourceProvider: provider,
-      sourceReference: sourceRef,
-      catalogProductId,
-      status: 'active',
-      policySnapshotVersion: 1,
-      grantedAt,
-      updatedAt: now,
-    });
-  }
-
-  const subject = await ctx.db.get(subjectId);
-  const discordUserId = subject?.primaryDiscordUserId;
-  if (
-    discordUserId &&
-    !discordUserId.startsWith('gumroad:') &&
-    !discordUserId.startsWith('jinxxy:') &&
-    !discordUserId.startsWith('lemonsqueezy:')
-  ) {
-    await emitRoleSyncJob(
-      ctx,
-      authUserId,
-      subjectId,
-      discordUserId,
-      entitlementId,
-      roleSyncLifecycleAt
-    );
-  }
+  await grantEntitlementFromFunnel(ctx, {
+    authUserId,
+    subjectId,
+    productId,
+    sourceProvider: provider,
+    sourceReference: sourceRef,
+    catalogProductId,
+    policySnapshotVersion: 1,
+    grantedAt,
+    now,
+    existingLookup: { mode: 'sourceReference' },
+    reactivation: { allowTerminal: true },
+    roleSync: {
+      mode: 'primaryDiscordUserId',
+      lifecycleAt: roleSyncLifecycleAt,
+      requireDiscordUserId: true,
+      missingSubject: 'skip',
+      skipDiscordUserIdPrefixes: ['gumroad:', 'jinxxy:', 'lemonsqueezy:'],
+    },
+    evidence: evidence
+      ? {
+          ...evidence,
+          providerKey: 'lemonsqueezy',
+          createdAt: evidence.createdAt ?? evidence.observedAt,
+          updatedAt: evidence.updatedAt ?? evidence.observedAt,
+        }
+      : undefined,
+  });
 }
 
 async function revokeCanonicalEntitlementBySource(
@@ -292,44 +293,20 @@ export async function processLemonEvent(
         });
 
     const sourceRef = `lemonsqueezy:order:${objectId}`;
-    const evidenceExisting = await ctx.db
-      .query('entitlement_evidence')
-      .withIndex('by_source_reference', (q: any) =>
-        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
-      )
-      .first();
-    if (evidenceExisting) {
-      await ctx.db.patch(evidenceExisting._id, {
-        subjectId: subjectId ?? evidenceExisting.subjectId,
-        providerConnectionId: connectionId,
-        transactionId,
-        status: transactionStatus === 'refunded' ? 'revoked' : 'active',
-        productId: resolved.productId ?? evidenceExisting.productId,
-        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert('entitlement_evidence', {
-        authUserId,
-        subjectId,
-        providerKey: 'lemonsqueezy',
-        providerConnectionId: connectionId,
-        transactionId,
-        sourceReference: sourceRef,
-        evidenceType: transactionStatus === 'refunded' ? 'purchase.refunded' : 'purchase.recorded',
-        status: transactionStatus === 'refunded' ? 'revoked' : 'active',
-        productId: resolved.productId,
-        catalogProductId: resolved.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+    const orderEvidence = {
+      authUserId,
+      subjectId,
+      providerConnectionId: connectionId,
+      transactionId,
+      sourceReference: sourceRef,
+      evidenceType: transactionStatus === 'refunded' ? 'purchase.refunded' : 'purchase.recorded',
+      status: transactionStatus === 'refunded' ? 'revoked' : 'active',
+      productId: resolved.productId,
+      catalogProductId: resolved.catalogProductId,
+      rawWebhookEventId: event._id,
+      metadata: { payload },
+      observedAt: now,
+    } satisfies Parameters<typeof upsertLemonEntitlementEvidence>[1];
 
     if (subjectId && resolved.productId && transactionStatus !== 'refunded') {
       await projectCanonicalEntitlement(
@@ -340,10 +317,15 @@ export async function processLemonEvent(
         sourceRef,
         resolved.productId,
         resolved.catalogProductId,
-        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now,
+        undefined,
+        orderEvidence
       );
     } else if (transactionStatus === 'refunded') {
+      await upsertLemonEntitlementEvidence(ctx, orderEvidence);
       await revokeCanonicalEntitlementBySource(ctx, authUserId, subjectId, sourceRef);
+    } else {
+      await upsertLemonEntitlementEvidence(ctx, orderEvidence);
     }
     return;
   }
@@ -441,44 +423,20 @@ export async function processLemonEvent(
 
     const sourceRef = `lemonsqueezy:subscription:${objectId}`;
     const evidenceStatus = status === 'cancelled' || status === 'expired' ? 'revoked' : 'active';
-    const evidenceExisting = await ctx.db
-      .query('entitlement_evidence')
-      .withIndex('by_source_reference', (q: any) =>
-        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
-      )
-      .first();
-    if (evidenceExisting) {
-      await ctx.db.patch(evidenceExisting._id, {
-        subjectId: subjectId ?? evidenceExisting.subjectId,
-        providerConnectionId: connectionId,
-        membershipId,
-        status: evidenceStatus,
-        productId: resolved.productId ?? evidenceExisting.productId,
-        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert('entitlement_evidence', {
-        authUserId,
-        subjectId,
-        providerKey: 'lemonsqueezy',
-        providerConnectionId: connectionId,
-        membershipId,
-        sourceReference: sourceRef,
-        evidenceType: evidenceStatus === 'revoked' ? 'subscription.ended' : 'subscription.updated',
-        status: evidenceStatus,
-        productId: resolved.productId,
-        catalogProductId: resolved.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+    const subscriptionEvidence = {
+      authUserId,
+      subjectId,
+      providerConnectionId: connectionId,
+      membershipId,
+      sourceReference: sourceRef,
+      evidenceType: evidenceStatus === 'revoked' ? 'subscription.ended' : 'subscription.updated',
+      status: evidenceStatus,
+      productId: resolved.productId,
+      catalogProductId: resolved.catalogProductId,
+      rawWebhookEventId: event._id,
+      metadata: { payload },
+      observedAt: now,
+    } satisfies Parameters<typeof upsertLemonEntitlementEvidence>[1];
 
     if (subjectId && resolved.productId && evidenceStatus === 'active') {
       const grantedAt =
@@ -492,10 +450,14 @@ export async function processLemonEvent(
         resolved.productId,
         resolved.catalogProductId,
         grantedAt,
-        now
+        now,
+        subscriptionEvidence
       );
     } else if (evidenceStatus === 'revoked') {
+      await upsertLemonEntitlementEvidence(ctx, subscriptionEvidence);
       await revokeCanonicalEntitlementBySource(ctx, authUserId, subjectId, sourceRef);
+    } else {
+      await upsertLemonEntitlementEvidence(ctx, subscriptionEvidence);
     }
     return;
   }
@@ -592,44 +554,20 @@ export async function processLemonEvent(
     const resolved = await resolveLemonCatalogProduct(ctx, authUserId, [variantId, productId]);
     const sourceRef = `lemonsqueezy:license:${objectId}`;
     const evidenceStatus = licenseStatus === 'active' ? 'active' : 'revoked';
-    const evidenceExisting = await ctx.db
-      .query('entitlement_evidence')
-      .withIndex('by_source_reference', (q: any) =>
-        q.eq('providerKey', 'lemonsqueezy').eq('sourceReference', sourceRef)
-      )
-      .first();
-    if (evidenceExisting) {
-      await ctx.db.patch(evidenceExisting._id, {
-        subjectId: subjectId ?? evidenceExisting.subjectId,
-        providerConnectionId: connectionId,
-        licenseId,
-        status: evidenceStatus,
-        productId: resolved.productId ?? evidenceExisting.productId,
-        catalogProductId: resolved.catalogProductId ?? evidenceExisting.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert('entitlement_evidence', {
-        authUserId,
-        subjectId,
-        providerKey: 'lemonsqueezy',
-        providerConnectionId: connectionId,
-        licenseId,
-        sourceReference: sourceRef,
-        evidenceType: evidenceStatus === 'active' ? 'license.issued' : 'license.revoked',
-        status: evidenceStatus,
-        productId: resolved.productId,
-        catalogProductId: resolved.catalogProductId,
-        rawWebhookEventId: event._id,
-        metadata: { payload },
-        observedAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+    const licenseEvidence = {
+      authUserId,
+      subjectId,
+      providerConnectionId: connectionId,
+      licenseId,
+      sourceReference: sourceRef,
+      evidenceType: evidenceStatus === 'active' ? 'license.issued' : 'license.revoked',
+      status: evidenceStatus,
+      productId: resolved.productId,
+      catalogProductId: resolved.catalogProductId,
+      rawWebhookEventId: event._id,
+      metadata: { payload },
+      observedAt: now,
+    } satisfies Parameters<typeof upsertLemonEntitlementEvidence>[1];
 
     if (subjectId && resolved.productId && evidenceStatus === 'active') {
       await projectCanonicalEntitlement(
@@ -640,10 +578,15 @@ export async function processLemonEvent(
         sourceRef,
         resolved.productId,
         resolved.catalogProductId,
-        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now
+        typeof attributes.created_at === 'string' ? new Date(attributes.created_at).getTime() : now,
+        undefined,
+        licenseEvidence
       );
     } else if (evidenceStatus === 'revoked') {
+      await upsertLemonEntitlementEvidence(ctx, licenseEvidence);
       await revokeCanonicalEntitlementBySource(ctx, authUserId, subjectId, sourceRef);
+    } else {
+      await upsertLemonEntitlementEvidence(ctx, licenseEvidence);
     }
   }
 }

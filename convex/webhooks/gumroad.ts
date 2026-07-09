@@ -92,6 +92,7 @@ export async function processGumroadEvent(
         ctx,
         authUserId,
         subjectId,
+        'gumroad',
         productId,
         sourceRef,
         saleTimestamp
