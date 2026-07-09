@@ -7,7 +7,7 @@
 
 import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
-import type { Doc } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
@@ -164,7 +164,7 @@ export const getProductsConfiguredForGuild = query({
       .take(1000);
 
     const seenCatalogIds = new Set<string>();
-    const products: Doc<'product_catalog'>[] = [];
+    const catalogProductIds: Id<'product_catalog'>[] = [];
 
     for (const rule of rules) {
       if (!rule.catalogProductId) continue;
@@ -172,12 +172,18 @@ export const getProductsConfiguredForGuild = query({
       const catalogId = String(rule.catalogProductId);
       if (seenCatalogIds.has(catalogId)) continue;
 
-      const catalog = await ctx.db.get(rule.catalogProductId);
+      seenCatalogIds.add(catalogId);
+      catalogProductIds.push(rule.catalogProductId);
+    }
+
+    const catalogDocs = await Promise.all(catalogProductIds.map((id) => ctx.db.get(id)));
+    const products: Doc<'product_catalog'>[] = [];
+
+    for (const catalog of catalogDocs) {
       if (!catalog || catalog.authUserId !== args.authUserId || catalog.status !== 'active') {
         continue;
       }
 
-      seenCatalogIds.add(catalogId);
       products.push(catalog);
     }
 
