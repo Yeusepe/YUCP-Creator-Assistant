@@ -811,6 +811,81 @@ describe('verification intents buyer provider links', () => {
     expect(secondBuyerEntitlements).toHaveLength(1);
   });
 
+  it('rejects an oversized valid manual license key before entitlement grant', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-yucp-manual-license-oversized-creator';
+    const buyerAuthUserId = 'auth-yucp-manual-license-oversized-buyer';
+    const packageId = 'pkg.yucp-manual-license-oversized';
+    const productId = 'product-yucp-manual-license-oversized';
+    const licenseKey = 'x'.repeat(4097);
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-yucp-manual-license-oversized-buyer',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'YUCP Manual License Oversized Package',
+      publisherId: 'publisher-yucp-manual-license-oversized',
+      yucpUserId: creatorAuthUserId,
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'YUCP Manual License Oversized Product',
+    });
+    await t.mutation(api.manualLicenses.create, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseKeyHash: await hashManualLicenseKey(licenseKey),
+      productId,
+    });
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-yucp-manual-license-oversized',
+      codeChallenge: 'challenge-yucp-manual-license-oversized',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'manual-license',
+          providerKey: 'manual',
+          kind: 'manual_license',
+          title: 'YUCP manual license',
+          providerProductRef: productId,
+          creatorAuthUserId,
+          productId,
+        },
+      ],
+    });
+
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({
+      success: false,
+      errorCode: 'invalid_proof',
+      errorMessage: 'License verification failed',
+    });
+    const entitlements = await t.run((ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    expect(entitlements).toEqual([]);
+  });
+
   it('verifies manual-license intents through the public Convex action when Gumroad accepts product_id directly', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-manual-license-product-id-creator';

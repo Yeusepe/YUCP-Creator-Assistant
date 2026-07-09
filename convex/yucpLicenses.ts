@@ -74,6 +74,7 @@ const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offl
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
+const MAX_MANUAL_LICENSE_KEY_LENGTH = 4_096;
 const COUPLING_SEED_RELAY_TIMEOUT_MS = 5_000;
 const COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS = 256 * 1024;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -651,6 +652,9 @@ export const verifyLicenseProof = internalAction({
   handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
       return { success: false, error: 'Missing required fields' };
+    }
+    if (args.provider === 'manual' && args.licenseKey.length > MAX_MANUAL_LICENSE_KEY_LENGTH) {
+      return { success: false, error: 'License verification failed' };
     }
 
     let verifyResult: { valid: boolean; reason?: string } | null = null;
