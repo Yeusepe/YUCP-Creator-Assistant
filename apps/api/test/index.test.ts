@@ -8,6 +8,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
+import { type BuiltApiApp, buildApp } from './support/buildApp';
 
 function expectHtmlSecurityHeaders(response: Response) {
   const contentType = response.headers.get('content-type') ?? '';
@@ -22,17 +23,17 @@ function expectHtmlSecurityHeaders(response: Response) {
   expect(response.headers.get('x-frame-options')).toBe('DENY');
 }
 
-describe('API server, route mounting', () => {
-  let server: TestServerHandle;
+describe('API server, production app harness', () => {
+  let app: BuiltApiApp;
 
-  beforeAll(async () => {
-    server = await startTestServer();
+  beforeAll(() => {
+    app = buildApp();
   });
 
-  afterAll(() => server.stop());
+  afterAll(() => app.dispose());
 
   it('GET /health returns { status: "ok" }', async () => {
-    const res = await server.fetch('/health');
+    const res = await app.fetch('/health');
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({ status: 'ok' });
@@ -43,7 +44,7 @@ describe('API server, route mounting', () => {
   });
 
   it('GET /v1/keys serves the importer trust bootstrap on the API host', async () => {
-    const res = await server.fetch('/v1/keys');
+    const res = await app.fetch('/v1/keys');
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('application/json');
 
@@ -74,6 +75,48 @@ describe('API server, route mounting', () => {
     }
     expect(res.headers.get('cache-control')).toBe('no-store');
   });
+
+  it('GET /api/public/v2/openapi.json is mounted through the v2 router', async () => {
+    const res = await app.fetch('/api/public/v2/openapi.json');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/json');
+    expect(res.headers.get('yucp-version')).toBe('2025-03-01');
+
+    const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
+    expect(body.openapi).toBe('3.1.0');
+    expect(body.paths).toHaveProperty('/verification/check');
+  });
+
+  it('rejects overlapping buildApp instances while handler state is module-scoped', () => {
+    let overlappingApp: BuiltApiApp | undefined;
+
+    try {
+      expect(() => {
+        overlappingApp = buildApp();
+      }).toThrow(
+        'buildApp only supports one app per test worker while handler state is module-scoped'
+      );
+    } finally {
+      overlappingApp?.dispose();
+    }
+  });
+
+  it('rejects a second buildApp lifetime after dispose while handler state is module-scoped', () => {
+    app.dispose();
+    expect(() => buildApp()).toThrow(
+      'buildApp only supports one app per test worker while handler state is module-scoped'
+    );
+  });
+});
+
+describe('API server, route mounting', () => {
+  let server: TestServerHandle;
+
+  beforeAll(async () => {
+    server = await startTestServer();
+  });
+
+  afterAll(() => server.stop());
 
   it('still serves shared static assets that are used outside the migrated creator UI', async () => {
     const res = await server.fetch('/tokens.css');
