@@ -1,38 +1,75 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-const targetCwd = process.env.YUCP_TEST_CWD?.trim();
+const FORCE_KILL_TIMEOUT_MS = 5_000;
 
-if (!targetCwd) {
-  throw new Error('YUCP_TEST_CWD must be set');
+interface KillableChild {
+  kill(signal: NodeJS.Signals): boolean;
 }
 
-const apiEntry = path.resolve(import.meta.dir, '../../src/index.ts');
-const apiProcess = spawn(process.execPath, ['run', apiEntry], {
-  cwd: targetCwd,
-  env: process.env,
-  stdio: 'inherit',
-});
+export function stopChildWithFallback(
+  child: KillableChild,
+  signal: NodeJS.Signals,
+  timeoutMs = FORCE_KILL_TIMEOUT_MS
+): () => void {
+  let cancelled = false;
+  child.kill(signal);
 
-let stopping = false;
+  const fallback = setTimeout(() => {
+    if (!cancelled) {
+      child.kill('SIGKILL');
+    }
+  }, timeoutMs);
 
-function stop(signal: NodeJS.Signals) {
-  stopping = true;
-  apiProcess.kill(signal);
+  return () => {
+    cancelled = true;
+    clearTimeout(fallback);
+  };
 }
 
-process.on('SIGINT', () => stop('SIGINT'));
-process.on('SIGTERM', () => stop('SIGTERM'));
+export async function startApiFromCwd(env: NodeJS.ProcessEnv = process.env): Promise<number> {
+  const targetCwd = env.YUCP_TEST_CWD?.trim();
 
-const exitCode = await new Promise<number>((resolve, reject) => {
-  apiProcess.on('error', reject);
-  apiProcess.on('exit', (code, signal) => {
-    if (signal) {
-      resolve(stopping ? 0 : 1);
+  if (!targetCwd) {
+    throw new Error('YUCP_TEST_CWD must be set');
+  }
+
+  const apiEntry = path.resolve(import.meta.dir, '../../src/index.ts');
+  const apiProcess = spawn(process.execPath, ['run', apiEntry], {
+    cwd: targetCwd,
+    env,
+    stdio: 'inherit',
+  });
+
+  let stopping = false;
+  let cancelFallback: (() => void) | undefined;
+
+  function stop(signal: NodeJS.Signals) {
+    if (stopping) {
       return;
     }
-    resolve(code ?? 0);
-  });
-});
+    stopping = true;
+    cancelFallback = stopChildWithFallback(apiProcess, signal);
+  }
 
-process.exit(exitCode);
+  process.on('SIGINT', () => stop('SIGINT'));
+  process.on('SIGTERM', () => stop('SIGTERM'));
+
+  const exitCode = await new Promise<number>((resolve, reject) => {
+    apiProcess.on('error', reject);
+    apiProcess.on('exit', (code, signal) => {
+      cancelFallback?.();
+      if (signal) {
+        resolve(stopping ? 0 : 1);
+        return;
+      }
+      resolve(code ?? 0);
+    });
+  });
+
+  return exitCode;
+}
+
+if (import.meta.main) {
+  process.exit(await startApiFromCwd());
+}
