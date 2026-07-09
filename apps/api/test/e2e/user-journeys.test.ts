@@ -232,7 +232,7 @@ async function expectNoEntitlements(): Promise<void> {
 
 describe('real API user journeys against self-hosted Convex', () => {
   // [F20] Blocked on createApiKey ArgumentValidationError: apikey.userId required by convex/betterAuth/schema.ts:83, not supplied by @better-auth/api-key@1.6.13.
-  test.failing('[F20] smoke reads a seeded API key through the real API router', async () => {
+  test('[F20] smoke reads a seeded API key through the real API router', async () => {
     const creator = await createBetterAuthUser({ name: 'Smoke Creator' });
     const apiKey = await createPublicApiKey(creator.authUserId, PUBLIC_API_SCOPES);
 
@@ -257,7 +257,7 @@ describe('real API user journeys against self-hosted Convex', () => {
   });
 
   // [F20] Blocked on createApiKey ArgumentValidationError: apikey.userId required by convex/betterAuth/schema.ts:83, not supplied by @better-auth/api-key@1.6.13.
-  test.failing('[F20] manual-license issue and validate round-trips through raw key HMAC storage', async () => {
+  test('[F20] manual-license issue and validate round-trips through raw key HMAC storage', async () => {
     const creator = await createBetterAuthUser({ name: 'Manual License Creator' });
     const apiKey = await createPublicApiKey(creator.authUserId, PUBLIC_API_SCOPES);
 
@@ -492,7 +492,7 @@ describe('real API user journeys against self-hosted Convex', () => {
   );
 
   // [F21] verifyIntentWithManualLicense -> internal.yucpLicenses.verifyLicenseProof returns invalid_proof, no entitlement minted.
-  test.failing('[F21] public-v2 manual license redeem should mint an active entitlement', async () => {
+  test('[F21] public-v2 manual license redeem should mint an active entitlement', async () => {
     const creator = await createBetterAuthUser({ name: 'Manual Redeem Creator' });
     const buyer = await createBetterAuthUser({ name: 'Manual Redeem Buyer' });
     const subjectId = await seedSubject(buyer.authUserId);
@@ -563,7 +563,7 @@ describe('real API user journeys against self-hosted Convex', () => {
   });
 
   // [F20] Blocked on createApiKey ArgumentValidationError: apikey.userId required by convex/betterAuth/schema.ts:83, not supplied by @better-auth/api-key@1.6.13.
-  test.failing('[F20] webhook create returns a sanitized secret and persists only encrypted storage', async () => {
+  test('[F20] webhook create returns a sanitized secret and persists only encrypted storage', async () => {
     const creator = await createBetterAuthUser({ name: 'Webhook Creator' });
     const apiKey = await createPublicApiKey(creator.authUserId, PUBLIC_API_SCOPES);
 
