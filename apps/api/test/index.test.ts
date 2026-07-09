@@ -86,6 +86,18 @@ describe('API server, production app harness', () => {
     expect(body.openapi).toBe('3.1.0');
     expect(body.paths).toHaveProperty('/verification/check');
   });
+
+  it('rejects overlapping buildApp instances while handler state is module-scoped', () => {
+    let overlappingApp: BuiltApiApp | undefined;
+
+    try {
+      expect(() => {
+        overlappingApp = buildApp();
+      }).toThrow('buildApp only supports one active app at a time');
+    } finally {
+      overlappingApp?.dispose();
+    }
+  });
 });
 
 describe('API server, route mounting', () => {

@@ -53,6 +53,8 @@ const MANAGED_ENV_KEYS = [
 type ManagedEnvKey = (typeof MANAGED_ENV_KEYS)[number];
 type ManagedEnv = Partial<Record<ManagedEnvKey, string | undefined>>;
 
+let activeApp = false;
+
 export interface BuildAppConfig {
   baseUrl?: string;
   frontendUrl?: string;
@@ -162,6 +164,11 @@ function applyEnv(next: ManagedEnv): () => void {
 }
 
 export function buildApp(config: BuildAppConfig = {}): BuiltApiApp {
+  if (activeApp) {
+    throw new Error('buildApp only supports one active app at a time');
+  }
+
+  activeApp = true;
   const baseUrl = config.baseUrl ?? 'http://localhost:3001';
   const restoreEnv = applyEnv(buildEnv(config));
   let disposed = false;
@@ -171,6 +178,7 @@ export function buildApp(config: BuildAppConfig = {}): BuiltApiApp {
     handle = createApiRequestHandler(config.webhookBaseUrl);
   } catch (error) {
     restoreEnv();
+    activeApp = false;
     throw error;
   }
 
@@ -187,6 +195,7 @@ export function buildApp(config: BuildAppConfig = {}): BuiltApiApp {
       if (!disposed) {
         disposed = true;
         restoreEnv();
+        activeApp = false;
       }
     },
     fetch(path: string, init?: RequestInit): Promise<Response> {
