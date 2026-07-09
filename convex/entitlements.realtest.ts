@@ -11,6 +11,7 @@
  */
 
 import { createApiActorBinding, createServiceApiActor } from '@yucp/shared/apiActor';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './_generated/api';
@@ -179,18 +180,22 @@ describe('grantEntitlement lifecycle', () => {
     expect(second.entitlementId).toBe(first.entitlementId);
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy.mock.calls[0]?.[0]).toBe('entitlement_grant');
-    expect(logSpy.mock.calls[0]?.[1]).toEqual(
+    const metadata = logSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(metadata).toEqual(
       expect.objectContaining({
         event: 'entitlement_grant',
         provider: 'gumroad',
         outcome: 'skipped',
         reason: 'already_active',
-        authUserId,
-        productId,
+        authUserIdHash: await sha256Hex(authUserId),
+        subjectIdHash: await sha256Hex(subjectId),
+        productIdHash: await sha256Hex(productId),
       })
     );
-    expect(logSpy.mock.calls[0]?.[1]).toHaveProperty('subjectId');
-    expect(logSpy.mock.calls[0]?.[1]).toHaveProperty('entitlementId');
+    expect(metadata).not.toHaveProperty('authUserId');
+    expect(metadata).not.toHaveProperty('subjectId');
+    expect(metadata).not.toHaveProperty('productId');
+    expect(metadata).toHaveProperty('entitlementId');
   });
 
   it('given wrong apiSecret, when grantEntitlement called, then throws', async () => {

@@ -17,6 +17,7 @@ import {
   isEntitlementActive,
   mapReasonToStatus,
 } from '@yucp/shared/entitlement/service';
+import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
@@ -279,7 +280,7 @@ async function requireActiveSubject(
   return subject;
 }
 
-function logEntitlementGrantAttempt(params: {
+async function logEntitlementGrantAttempt(params: {
   provider: string;
   outcome: EntitlementGrantOutcome;
   reason: string;
@@ -287,15 +288,15 @@ function logEntitlementGrantAttempt(params: {
   subjectId?: Id<'subjects'>;
   productId?: string;
   entitlementId?: Id<'entitlements'>;
-}): void {
+}): Promise<void> {
   const metadata = {
     event: 'entitlement_grant',
     provider: params.provider,
     outcome: params.outcome,
     reason: params.reason,
-    authUserId: params.authUserId,
-    subjectId: params.subjectId,
-    productId: params.productId,
+    authUserIdHash: await sha256Hex(params.authUserId),
+    subjectIdHash: params.subjectId ? await sha256Hex(params.subjectId) : undefined,
+    productIdHash: params.productId ? await sha256Hex(params.productId) : undefined,
     entitlementId: params.entitlementId,
   };
 
@@ -307,15 +308,15 @@ function logEntitlementGrantAttempt(params: {
   entitlementGrantLogger.info('entitlement_grant', metadata);
 }
 
-export function recordEntitlementGrantSkipped(params: {
+export async function recordEntitlementGrantSkipped(params: {
   provider: string;
   reason: EntitlementGrantReason | string;
   authUserId: string;
   subjectId?: Id<'subjects'>;
   productId?: string;
   entitlementId?: Id<'entitlements'>;
-}): void {
-  logEntitlementGrantAttempt({
+}): Promise<void> {
+  await logEntitlementGrantAttempt({
     provider: params.provider,
     outcome: 'skipped',
     reason: params.reason,
@@ -602,7 +603,7 @@ export async function grantEntitlementFromFunnel(
               ? 'active_refreshed'
               : 'already_active';
         const outcome = reason === 'active_refreshed' ? 'granted' : 'skipped';
-        logEntitlementGrantAttempt({
+        await logEntitlementGrantAttempt({
           provider,
           outcome,
           reason,
@@ -672,7 +673,7 @@ export async function grantEntitlementFromFunnel(
         evidenceId = await upsertEntitlementEvidenceFromFunnel(ctx, args.evidence);
       }
 
-      logEntitlementGrantAttempt({
+      await logEntitlementGrantAttempt({
         provider,
         outcome: 'granted',
         reason: 'reactivated',
@@ -742,7 +743,7 @@ export async function grantEntitlementFromFunnel(
       ? await upsertEntitlementEvidenceFromFunnel(ctx, args.evidence)
       : undefined;
 
-    logEntitlementGrantAttempt({
+    await logEntitlementGrantAttempt({
       provider,
       outcome: 'granted',
       reason: 'created',
@@ -763,7 +764,7 @@ export async function grantEntitlementFromFunnel(
     };
   } catch (err) {
     const reason = err instanceof ConvexError ? String(err.data) : err instanceof Error ? err.message : 'error';
-    logEntitlementGrantAttempt({
+    await logEntitlementGrantAttempt({
       provider,
       outcome: 'error',
       reason,
@@ -1796,7 +1797,7 @@ export const grantEntitlementsForPurchaser = mutation({
 
     for (const product of args.products) {
       if (!providerCustomerDoc) {
-        recordEntitlementGrantSkipped({
+        await recordEntitlementGrantSkipped({
           provider: '',
           reason: 'provider_customer_missing',
           authUserId: args.authUserId,
@@ -1807,7 +1808,7 @@ export const grantEntitlementsForPurchaser = mutation({
         continue;
       }
       if (!sourceProvider) {
-        recordEntitlementGrantSkipped({
+        await recordEntitlementGrantSkipped({
           provider: '',
           reason: 'source_provider_missing',
           authUserId: args.authUserId,

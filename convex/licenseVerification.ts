@@ -443,15 +443,16 @@ export const completeLicenseVerification = mutation({
 
     const entitlementIds: Id<'entitlements'>[] = [];
     const outboxJobIds: Id<'outbox_jobs'>[] = [];
+    const existingEntitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
+      )
+      .collect();
+    let nextPolicySnapshotVersion = existingEntitlements.length + 1;
 
     for (const product of args.productsToGrant) {
-      const existingEntitlements = await ctx.db
-        .query('entitlements')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', creatorAuthUserId).eq('subjectId', buyerSubjectId)
-        )
-        .collect();
-      const policySnapshotVersion = existingEntitlements.length + 1;
+      const policySnapshotVersion = nextPolicySnapshotVersion;
       const providerTierRefs = normalizeProviderTierRefs(product.providerTierRefs);
       const grantResult = await grantEntitlementFromFunnel(ctx, {
         authUserId: creatorAuthUserId,
@@ -512,6 +513,9 @@ export const completeLicenseVerification = mutation({
       });
 
       entitlementIds.push(grantResult.entitlementId);
+      if (grantResult.isNew) {
+        nextPolicySnapshotVersion++;
+      }
       outboxJobIds.push(...grantResult.outboxJobIds);
     }
 
