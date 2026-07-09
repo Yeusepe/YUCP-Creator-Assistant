@@ -63,25 +63,46 @@ function parsePermissionStatements(value: unknown): Record<string, string[]> | n
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-function serializeApiKeyRecord(
-  value: {
-    id?: string;
-    _id?: string;
-    userId: string;
-    name: string | null;
-    start: string | null;
-    prefix: string | null;
-    enabled: boolean | null;
-    permissions?: unknown;
-    metadata?: unknown;
-    referenceId?: string | null;
-    lastRequest?: unknown;
-    expiresAt?: unknown;
-    createdAt?: unknown;
-    updatedAt?: unknown;
-  } | null
-) {
+type SerializableApiKeyRecord = {
+  id?: string;
+  _id?: string;
+  userId?: string;
+  name: string | null;
+  start: string | null;
+  prefix: string | null;
+  enabled: boolean | null;
+  permissions?: unknown;
+  metadata?: unknown;
+  referenceId?: string | null;
+  lastRequest?: unknown;
+  expiresAt?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+};
+
+const API_KEY_SERIALIZATION_SELECT = [
+  '_id',
+  'userId',
+  'name',
+  'start',
+  'prefix',
+  'enabled',
+  'permissions',
+  'metadata',
+  'lastRequest',
+  'expiresAt',
+  'createdAt',
+  'updatedAt',
+  'referenceId',
+];
+
+function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
   if (!value) {
+    return null;
+  }
+
+  const id = value.id ?? value._id ?? '';
+  if (id.length === 0 || typeof value.userId !== 'string' || value.userId.length === 0) {
     return null;
   }
 
@@ -104,7 +125,7 @@ function serializeApiKeyRecord(
       : null;
 
   return {
-    id: value.id ?? value._id ?? '',
+    id,
     userId: value.userId,
     name: value.name,
     start: value.start,
@@ -144,7 +165,7 @@ interface BetterAuthServerApi {
   listApiKeys(): Promise<
     Array<{
       id: string;
-      userId: string;
+      userId?: string;
       name: string | null;
       start: string | null;
       prefix: string | null;
@@ -159,7 +180,7 @@ interface BetterAuthServerApi {
   >;
   getApiKey(args: { query: { id: string } }): Promise<{
     id: string;
-    userId: string;
+    userId?: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -187,7 +208,7 @@ interface BetterAuthServerApi {
   }): Promise<{
     key: string;
     id: string;
-    userId: string;
+    userId?: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -209,7 +230,7 @@ interface BetterAuthServerApi {
     error: { code: string; message?: string } | null;
     key: {
       id: string;
-      userId: string;
+      userId?: string;
       name: string | null;
       start: string | null;
       prefix: string | null;
@@ -229,7 +250,7 @@ interface BetterAuthServerApi {
     };
   }): Promise<{
     id: string;
-    userId: string;
+    userId?: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -262,13 +283,18 @@ export const listApiKeys = query({
   returns: v.array(SerializedApiKey),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const auth = createAuth(ctx);
-    const api = auth.api as unknown as BetterAuthServerApi;
-    const result = await api.listApiKeys();
-    return result.map((record) => {
+    const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'apikey',
+      select: API_KEY_SERIALIZATION_SELECT,
+      paginationOpts: { cursor: null, numItems: 100 },
+    })) as {
+      page: SerializableApiKeyRecord[];
+    };
+
+    return result.page.map((record) => {
       const serialized = serializeApiKeyRecord(record);
       if (!serialized) {
-        throw new Error('Better Auth returned an empty API key record');
+        throw new Error('Better Auth returned an API key record without an owner');
       }
       return serialized;
     });
@@ -286,38 +312,10 @@ export const listApiKeysForAuthUser = query({
     const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: 'apikey',
       where: [{ field: 'referenceId', operator: 'eq', value: args.authUserId }],
-      select: [
-        '_id',
-        'userId',
-        'name',
-        'start',
-        'prefix',
-        'enabled',
-        'permissions',
-        'metadata',
-        'lastRequest',
-        'expiresAt',
-        'createdAt',
-        'updatedAt',
-        'referenceId',
-      ],
+      select: API_KEY_SERIALIZATION_SELECT,
       paginationOpts: { cursor: null, numItems: 100 },
     })) as {
-      page: Array<{
-        _id?: string;
-        userId: string;
-        name: string | null;
-        start: string | null;
-        prefix: string | null;
-        enabled: boolean | null;
-        permissions?: unknown;
-        metadata?: unknown;
-        referenceId?: string | null;
-        lastRequest?: unknown;
-        expiresAt?: unknown;
-        createdAt?: unknown;
-        updatedAt?: unknown;
-      }>;
+      page: SerializableApiKeyRecord[];
     };
 
     return result.page
@@ -337,13 +335,11 @@ export const getApiKey = query({
   returns: v.union(SerializedApiKey, v.null()),
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    const auth = createAuth(ctx);
-    const api = auth.api as unknown as BetterAuthServerApi;
-    const result = await api.getApiKey({
-      query: {
-        id: args.keyId,
-      },
-    });
+    const result = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'apikey',
+      where: [{ field: '_id', operator: 'eq', value: args.keyId }],
+      select: API_KEY_SERIALIZATION_SELECT,
+    })) as SerializableApiKeyRecord | null;
     return serializeApiKeyRecord(result);
   },
 });
@@ -381,7 +377,7 @@ export const createApiKey = mutation({
         },
       },
     });
-    await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+    const stored = (await ctx.runMutation(components.betterAuth.adapter.updateOne, {
       input: {
         model: 'apikey',
         update: {
@@ -389,10 +385,10 @@ export const createApiKey = mutation({
         },
         where: [{ field: '_id', operator: 'eq', value: created.id }],
       },
-    });
-    const serialized = serializeApiKeyRecord(created);
+    })) as SerializableApiKeyRecord;
+    const serialized = serializeApiKeyRecord(stored);
     if (!serialized) {
-      throw new Error('Better Auth returned an empty API key record');
+      throw new Error('Better Auth returned an API key record without an owner');
     }
 
     return {
@@ -416,38 +412,10 @@ export const backfillApiKeyReferenceIds = mutation({
     const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
       model: 'apikey',
       where: [{ field: 'userId', operator: 'eq', value: args.ownerUserId }],
-      select: [
-        '_id',
-        'userId',
-        'name',
-        'start',
-        'prefix',
-        'enabled',
-        'permissions',
-        'metadata',
-        'referenceId',
-        'lastRequest',
-        'expiresAt',
-        'createdAt',
-        'updatedAt',
-      ],
+      select: API_KEY_SERIALIZATION_SELECT,
       paginationOpts: { cursor: null, numItems: 100 },
     })) as {
-      page: Array<{
-        _id?: string;
-        userId: string;
-        name: string | null;
-        start: string | null;
-        prefix: string | null;
-        enabled: boolean | null;
-        permissions?: unknown;
-        metadata?: unknown;
-        referenceId?: string | null;
-        lastRequest?: unknown;
-        expiresAt?: unknown;
-        createdAt?: unknown;
-        updatedAt?: unknown;
-      }>;
+      page: SerializableApiKeyRecord[];
     };
 
     const legacyKeys = result.page
@@ -508,15 +476,26 @@ export const verifyApiKey = mutation({
       },
     });
 
+    const keyId = result.key?.id;
+    const stored =
+      result.valid && typeof keyId === 'string' && keyId.length > 0
+        ? ((await ctx.runQuery(components.betterAuth.adapter.findOne, {
+            model: 'apikey',
+            where: [{ field: '_id', operator: 'eq', value: keyId }],
+            select: API_KEY_SERIALIZATION_SELECT,
+          })) as SerializableApiKeyRecord | null)
+        : null;
+    const serializedKey = serializeApiKeyRecord(stored ?? result.key);
+
     return {
-      valid: result.valid,
+      valid: result.valid && serializedKey !== null,
       error: result.error
         ? {
             code: result.error.code,
             message: result.error.message ?? null,
           }
         : null,
-      key: serializeApiKeyRecord(result.key),
+      key: serializedKey,
     };
   },
 });
@@ -532,15 +511,20 @@ export const updateApiKey = mutation({
     requireApiSecret(args.apiSecret);
     const auth = createAuth(ctx);
     const api = auth.api as unknown as BetterAuthServerApi;
-    const updated = await api.updateApiKey({
+    await api.updateApiKey({
       body: {
         keyId: args.keyId,
         ...(args.enabled !== undefined ? { enabled: args.enabled } : {}),
       },
     });
+    const updated = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'apikey',
+      where: [{ field: '_id', operator: 'eq', value: args.keyId }],
+      select: API_KEY_SERIALIZATION_SELECT,
+    })) as SerializableApiKeyRecord | null;
     const serialized = serializeApiKeyRecord(updated);
     if (!serialized) {
-      throw new Error('Better Auth returned an empty API key record');
+      throw new Error('Better Auth returned an API key record without an owner');
     }
     return serialized;
   },
