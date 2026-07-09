@@ -152,9 +152,12 @@ export function installRealApiHarness(): void {
   });
 
   afterAll(async () => {
-    await clearSeededState();
-    state?.app.dispose();
-    state = null;
+    try {
+      await clearSeededState();
+    } finally {
+      state?.app.dispose();
+      state = null;
+    }
   });
 }
 
@@ -259,6 +262,22 @@ export async function seedSubject(
   return await requireState().convex.insert('subjects', {
     primaryDiscordUserId: input.discordUserId ?? `discord_${uniqueSuffix()}`,
     authUserId,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+export async function seedCreatorProfile(input: {
+  authUserId: string;
+  name?: string;
+  ownerDiscordUserId?: string;
+}): Promise<Id<'creator_profiles'>> {
+  const now = Date.now();
+  return await requireState().convex.insert('creator_profiles', {
+    authUserId: input.authUserId,
+    name: input.name ?? 'E2E Creator',
+    ownerDiscordUserId: input.ownerDiscordUserId ?? `creator_${uniqueSuffix()}`,
     status: 'active',
     createdAt: now,
     updatedAt: now,

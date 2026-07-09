@@ -1,16 +1,21 @@
 import { describe, expect, test } from 'bun:test';
+import { detectLicenseFormat } from '@yucp/providers';
+import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
 import { api } from '../../../../convex/_generated/api';
 import { API_SECRET } from '../../../../ops/convex-real/config';
 import { PUBLIC_API_SCOPES } from '../../../../packages/shared/src/publicApiScopes';
 import { createAuthUserActorBinding } from '../../src/lib/apiActor';
+import { encrypt } from '../../src/lib/encrypt';
 import {
   apiJson,
   apiKeyHeaders,
   createBetterAuthUser,
   createPublicApiKey,
+  E2E_ENCRYPTION_SECRET,
   getRealApiHarness,
   hashLicenseKey,
   installRealApiHarness,
+  seedCreatorProfile,
   seedProductCatalog,
   seedSubject,
 } from './support/realApiHarness';
@@ -18,7 +23,212 @@ import {
 installRealApiHarness();
 
 const RAW_LICENSE_KEY = crypto.randomUUID();
-const PRODUCT_ID = 'prod_e2e_manual_1';
+const PRODUCT_ID = 'test_e2e_manual_1';
+const EXTERNAL_PROVIDER_TEST_TIMEOUT_MS = 60_000;
+const NONEXISTENT_GUMROAD_LICENSE_KEY = 'ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ';
+const NONEXISTENT_JINXXY_LICENSE_KEY = '00000000-0000-4000-8000-000000000000';
+
+function readEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+const gumroadEnv = {
+  productId: readEnv('E2E_GUMROAD_PRODUCT_ID'),
+  licenseKey: readEnv('E2E_GUMROAD_LICENSE_KEY'),
+};
+const jinxxyEnv = {
+  apiKey: readEnv('E2E_JINXXY_API_KEY'),
+  licenseKey: readEnv('E2E_JINXXY_LICENSE_KEY'),
+  productRef: readEnv('E2E_JINXXY_PRODUCT_REF'),
+};
+const hasGumroadE2E = Boolean(gumroadEnv.productId && gumroadEnv.licenseKey);
+const hasJinxxyE2E = Boolean(jinxxyEnv.apiKey && jinxxyEnv.licenseKey && jinxxyEnv.productRef);
+
+if (!hasGumroadE2E) {
+  console.log('SKIP gumroad e2e: E2E_GUMROAD_* not set');
+}
+if (!hasJinxxyE2E) {
+  console.log('SKIP jinxxy e2e: E2E_JINXXY_* not set');
+}
+
+type ProviderLicenseApiResponse = {
+  success: boolean;
+  provider?: string;
+  entitlementIds?: string[];
+  error?: string;
+};
+
+async function seedProviderLicenseJourney(input: {
+  provider: 'gumroad' | 'jinxxy';
+  providerProductRef: string;
+  displayName: string;
+}) {
+  const creator = await createBetterAuthUser({ name: `${input.displayName} Creator` });
+  await seedCreatorProfile({
+    authUserId: creator.authUserId,
+    name: `${input.displayName} Creator`,
+  });
+  const buyer = await createBetterAuthUser({ name: `${input.displayName} Buyer` });
+  const subjectId = await seedSubject(buyer.authUserId);
+  await seedProductCatalog({
+    authUserId: creator.authUserId,
+    productId: input.providerProductRef,
+    provider: input.provider,
+    providerProductRef: input.providerProductRef,
+    displayName: input.displayName,
+  });
+
+  return { buyer, creator, productId: input.providerProductRef, subjectId };
+}
+
+async function seedJinxxyApiKey(authUserId: string, apiKey: string): Promise<void> {
+  await getRealApiHarness().convex.mutation(api.providerConnections.upsertProviderConnection, {
+    apiSecret: API_SECRET,
+    authUserId,
+    providerKey: 'jinxxy',
+    authMode: 'api_key',
+    label: 'E2E Jinxxy connection',
+    credentials: [
+      {
+        credentialKey: 'api_key',
+        kind: 'api_key',
+        encryptedValue: await encrypt(apiKey, E2E_ENCRYPTION_SECRET, JINXXY_PURPOSES.credential),
+      },
+    ],
+  });
+}
+
+async function completeProviderLicense(input: {
+  licenseKey: string;
+  provider: 'gumroad' | 'jinxxy';
+  productId: string;
+  creatorAuthUserId: string;
+  buyerAuthUserId: string;
+  buyerSubjectId: string;
+}): Promise<{ body: ProviderLicenseApiResponse; response: Response }> {
+  return await apiJson<ProviderLicenseApiResponse>('/api/verification/complete-license', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      apiSecret: API_SECRET,
+      licenseKey: input.licenseKey,
+      provider: input.provider,
+      productId: input.productId,
+      creatorAuthUserId: input.creatorAuthUserId,
+      buyerAuthUserId: input.buyerAuthUserId,
+      buyerSubjectId: input.buyerSubjectId,
+    }),
+  });
+}
+
+async function completeProviderLicenseWithRetry(
+  input: Parameters<typeof completeProviderLicense>[0]
+): Promise<{ body: ProviderLicenseApiResponse; response: Response }> {
+  const first = await completeProviderLicense(input);
+  if (first.body.success) {
+    return first;
+  }
+  return await completeProviderLicense(input);
+}
+
+async function fetchExternalWithOneRetry(
+  label: string,
+  request: () => Promise<Response>
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await request();
+      if (response.status < 500) {
+        return response;
+      }
+      lastError = new Error(`${label} returned HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+  throw new Error(
+    `${label} unreachable after retry: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
+}
+
+async function assertGumroadLicenseEndpointReachable(input: {
+  licenseKey: string;
+  productId: string;
+}): Promise<void> {
+  const body = new URLSearchParams({
+    product_id: input.productId,
+    license_key: input.licenseKey,
+    increment_uses_count: 'false',
+  });
+  // Gumroad licenses API reference: https://gumroad.com/api#licenses
+  const response = await fetchExternalWithOneRetry('Gumroad license verification API', () =>
+    fetch('https://api.gumroad.com/v2/licenses/verify', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(15_000),
+    })
+  );
+  const payload = (await response.json().catch(() => null)) as { success?: unknown } | null;
+  if (!payload || typeof payload.success !== 'boolean') {
+    throw new Error('Gumroad license verification API returned an unexpected response shape');
+  }
+}
+
+async function assertJinxxyLicenseEndpointReachable(input: {
+  apiKey: string;
+  licenseKey: string;
+}): Promise<void> {
+  const url = new URL('https://api.creators.jinxxy.com/v1/licenses');
+  url.searchParams.set('key', input.licenseKey);
+  // Jinxxy Creator API reference: https://api.creators.jinxxy.com/v1/docs
+  const response = await fetchExternalWithOneRetry('Jinxxy license lookup API', () =>
+    fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'x-api-key': input.apiKey,
+      },
+      signal: AbortSignal.timeout(15_000),
+    })
+  );
+  if (response.status === 401 || response.status === 403) {
+    return;
+  }
+  const payload = (await response.json().catch(() => null)) as { results?: unknown } | null;
+  if (!payload || !Array.isArray(payload.results)) {
+    throw new Error('Jinxxy license lookup API returned an unexpected response shape');
+  }
+}
+
+async function expectActiveProviderEntitlement(input: {
+  creatorAuthUserId: string;
+  productId: string;
+  provider: 'gumroad' | 'jinxxy';
+  subjectId: unknown;
+}) {
+  const entitlements = await getRealApiHarness().convex.collect('entitlements');
+  const matches = entitlements.filter(
+    (entitlement) =>
+      entitlement.authUserId === input.creatorAuthUserId &&
+      entitlement.productId === input.productId &&
+      entitlement.sourceProvider === input.provider &&
+      entitlement.status === 'active' &&
+      entitlement.subjectId === input.subjectId
+  );
+  expect(matches).toHaveLength(1);
+}
+
+async function expectNoEntitlements(): Promise<void> {
+  expect(await getRealApiHarness().convex.collect('entitlements')).toHaveLength(0);
+}
 
 describe('real API user journeys against self-hosted Convex', () => {
   // [F20] Blocked on createApiKey ArgumentValidationError: apikey.userId required by convex/betterAuth/schema.ts:83, not supplied by @better-auth/api-key@1.6.13.
@@ -138,6 +348,148 @@ describe('real API user journeys against self-hosted Convex', () => {
     });
     expect(valid).toMatchObject({ valid: true, licenseId: created.licenseId });
   });
+
+  test.skipIf(!hasGumroadE2E)(
+    'gumroad real license redeem mints an active entitlement',
+    async () => {
+      const productId = gumroadEnv.productId;
+      const licenseKey = gumroadEnv.licenseKey;
+      if (!productId || !licenseKey) {
+        throw new Error('Gumroad E2E env was not available after skip gate');
+      }
+
+      const journey = await seedProviderLicenseJourney({
+        provider: 'gumroad',
+        providerProductRef: productId,
+        displayName: 'Gumroad License E2E',
+      });
+
+      const result = await completeProviderLicenseWithRetry({
+        licenseKey,
+        provider: 'gumroad',
+        productId: journey.productId,
+        creatorAuthUserId: journey.creator.authUserId,
+        buyerAuthUserId: journey.buyer.authUserId,
+        buyerSubjectId: String(journey.subjectId),
+      });
+
+      expect(result.response.status).toBe(200);
+      expect(result.body.success).toBe(true);
+      expect(result.body.provider).toBe('gumroad');
+      expect(result.body.entitlementIds?.length ?? 0).toBeGreaterThan(0);
+      await expectActiveProviderEntitlement({
+        creatorAuthUserId: journey.creator.authUserId,
+        productId: journey.productId,
+        provider: 'gumroad',
+        subjectId: journey.subjectId,
+      });
+    },
+    EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
+  );
+
+  test(
+    'gumroad non-existent license fails closed without minting entitlement',
+    async () => {
+      expect(detectLicenseFormat(NONEXISTENT_GUMROAD_LICENSE_KEY)).toBe('gumroad');
+      const journey = await seedProviderLicenseJourney({
+        provider: 'gumroad',
+        providerProductRef: 'test_e2e_gumroad_missing_product',
+        displayName: 'Gumroad Missing License E2E',
+      });
+      await assertGumroadLicenseEndpointReachable({
+        licenseKey: NONEXISTENT_GUMROAD_LICENSE_KEY,
+        productId: journey.productId,
+      });
+
+      const result = await completeProviderLicense({
+        licenseKey: NONEXISTENT_GUMROAD_LICENSE_KEY,
+        provider: 'gumroad',
+        productId: journey.productId,
+        creatorAuthUserId: journey.creator.authUserId,
+        buyerAuthUserId: journey.buyer.authUserId,
+        buyerSubjectId: String(journey.subjectId),
+      });
+
+      expect(result.response.status).toBe(400);
+      expect(result.body.success).toBe(false);
+      expect(typeof result.body.error).toBe('string');
+      await expectNoEntitlements();
+    },
+    EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
+  );
+
+  test.skipIf(!hasJinxxyE2E)(
+    'jinxxy real license redeem mints an active entitlement',
+    async () => {
+      const apiKey = jinxxyEnv.apiKey;
+      const licenseKey = jinxxyEnv.licenseKey;
+      const productRef = jinxxyEnv.productRef;
+      if (!apiKey || !licenseKey || !productRef) {
+        throw new Error('Jinxxy E2E env was not available after skip gate');
+      }
+
+      const journey = await seedProviderLicenseJourney({
+        provider: 'jinxxy',
+        providerProductRef: productRef,
+        displayName: 'Jinxxy License E2E',
+      });
+      await seedJinxxyApiKey(journey.creator.authUserId, apiKey);
+
+      const result = await completeProviderLicenseWithRetry({
+        licenseKey,
+        provider: 'jinxxy',
+        productId: journey.productId,
+        creatorAuthUserId: journey.creator.authUserId,
+        buyerAuthUserId: journey.buyer.authUserId,
+        buyerSubjectId: String(journey.subjectId),
+      });
+
+      expect(result.response.status).toBe(200);
+      expect(result.body.success).toBe(true);
+      expect(result.body.provider).toBe('jinxxy');
+      expect(result.body.entitlementIds?.length ?? 0).toBeGreaterThan(0);
+      await expectActiveProviderEntitlement({
+        creatorAuthUserId: journey.creator.authUserId,
+        productId: journey.productId,
+        provider: 'jinxxy',
+        subjectId: journey.subjectId,
+      });
+    },
+    EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
+  );
+
+  test(
+    'jinxxy non-existent license fails closed without minting entitlement',
+    async () => {
+      expect(detectLicenseFormat(NONEXISTENT_JINXXY_LICENSE_KEY)).toBe('jinxxy');
+      const journey = await seedProviderLicenseJourney({
+        provider: 'jinxxy',
+        providerProductRef: jinxxyEnv.productRef ?? 'test_e2e_jinxxy_missing_product',
+        displayName: 'Jinxxy Missing License E2E',
+      });
+      const apiKey = jinxxyEnv.apiKey ?? 'invalid-e2e-jinxxy-api-key';
+      await assertJinxxyLicenseEndpointReachable({
+        apiKey,
+        licenseKey: NONEXISTENT_JINXXY_LICENSE_KEY,
+      });
+      await seedJinxxyApiKey(journey.creator.authUserId, apiKey);
+
+      const result = await completeProviderLicense({
+        licenseKey: NONEXISTENT_JINXXY_LICENSE_KEY,
+        provider: 'jinxxy',
+        productId: journey.productId,
+        creatorAuthUserId: journey.creator.authUserId,
+        buyerAuthUserId: journey.buyer.authUserId,
+        buyerSubjectId: String(journey.subjectId),
+      });
+
+      expect(result.response.status).toBe(400);
+      expect(result.body.success).toBe(false);
+      expect(typeof result.body.error).toBe('string');
+      await expectNoEntitlements();
+    },
+    EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
+  );
 
   // [F21] verifyIntentWithManualLicense -> internal.yucpLicenses.verifyLicenseProof returns invalid_proof, no entitlement minted.
   test.failing('[F21] public-v2 manual license redeem should mint an active entitlement', async () => {

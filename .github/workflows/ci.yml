@@ -147,6 +147,13 @@ jobs:
         run: bun run test:convex:real:up
 
       - name: Run real API user journey flows
+        env:
+          E2E_GUMROAD_PRODUCT_ID: ${{ secrets.E2E_GUMROAD_PRODUCT_ID }}
+          E2E_GUMROAD_LICENSE_KEY: ${{ secrets.E2E_GUMROAD_LICENSE_KEY }}
+          E2E_JINXXY_API_KEY: ${{ secrets.E2E_JINXXY_API_KEY }}
+          E2E_JINXXY_LICENSE_KEY: ${{ secrets.E2E_JINXXY_LICENSE_KEY }}
+          E2E_JINXXY_PRODUCT_REF: ${{ secrets.E2E_JINXXY_PRODUCT_REF }}
+          JINXXY_DISPOSABLE_LICENSE_KEY: ${{ secrets.JINXXY_DISPOSABLE_LICENSE_KEY }}
         run: bun run test:e2e:flows:run
 
       - name: Tear down self-hosted Convex
