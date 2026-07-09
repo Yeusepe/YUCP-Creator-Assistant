@@ -542,6 +542,13 @@ describe('verification intents buyer provider links', () => {
       yucpUserId: creatorAuthUserId,
     });
     await seedCatalogProduct(t, {
+      authUserId: 'auth-yucp-manual-license-other-creator',
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'Different creator manual product',
+    });
+    await seedCatalogProduct(t, {
       authUserId: creatorAuthUserId,
       productId,
       provider: 'manual',
@@ -673,6 +680,135 @@ describe('verification intents buyer provider links', () => {
         .collect()
     );
     expect(retryEntitlements).toEqual([]);
+  });
+
+  it('does not consume another manual-license use when its entitlement is already active', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-yucp-manual-license-redeem-creator';
+    const buyerAuthUserId = 'auth-yucp-manual-license-redeem-buyer';
+    const packageId = 'pkg.yucp-manual-license-redeem';
+    const productId = 'product-yucp-manual-license-redeem';
+    const licenseKey = 'test-yucp-manual-license-redeem-key';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-yucp-manual-license-redeem-buyer',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'YUCP Manual License Redeem Package',
+      publisherId: 'publisher-yucp-manual-license-redeem',
+      yucpUserId: creatorAuthUserId,
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'YUCP Manual License Redeem Product',
+    });
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseKeyHash: await hashManualLicenseKey(licenseKey),
+      productId,
+      maxUses: 2,
+    });
+
+    const createIntent = async (authUserId: string, machineFingerprint: string) =>
+      await t.mutation(api.verificationIntents.createVerificationIntent, {
+        apiSecret: API_SECRET,
+        authUserId,
+        packageId,
+        machineFingerprint,
+        codeChallenge: `challenge-${machineFingerprint}`,
+        returnUrl: 'https://example.com/return',
+        requirements: [
+          {
+            methodKey: 'manual-license',
+            providerKey: 'manual',
+            kind: 'manual_license',
+            title: 'YUCP manual license',
+            providerProductRef: productId,
+            creatorAuthUserId,
+            productId,
+          },
+        ],
+      });
+
+    const { intentId: firstIntentId } = await createIntent(
+      buyerAuthUserId,
+      'machine-yucp-manual-license-redeem-first'
+    );
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId: firstIntentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({ success: true });
+
+    const { intentId: repeatIntentId } = await createIntent(
+      buyerAuthUserId,
+      'machine-yucp-manual-license-redeem-repeat'
+    );
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId: repeatIntentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({ success: true });
+
+    expect(await t.run((ctx) => ctx.db.get(licenseId))).toMatchObject({
+      currentUses: 1,
+      status: 'active',
+    });
+    const buyerEntitlements = await t.run((ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect()
+    );
+    expect(buyerEntitlements).toHaveLength(1);
+
+    const secondBuyerAuthUserId = 'auth-yucp-manual-license-redeem-second-buyer';
+    const secondSubjectId = await seedSubject(t, {
+      authUserId: secondBuyerAuthUserId,
+      primaryDiscordUserId: 'discord-yucp-manual-license-redeem-second-buyer',
+    });
+    const { intentId: secondBuyerIntentId } = await createIntent(
+      secondBuyerAuthUserId,
+      'machine-yucp-manual-license-redeem-second-buyer'
+    );
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: secondBuyerAuthUserId,
+        intentId: secondBuyerIntentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({ success: true });
+    expect(await t.run((ctx) => ctx.db.get(licenseId))).toMatchObject({
+      currentUses: 2,
+      status: 'exhausted',
+    });
+    const secondBuyerEntitlements = await t.run((ctx) =>
+      ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', secondSubjectId)
+        )
+        .collect()
+    );
+    expect(secondBuyerEntitlements).toHaveLength(1);
   });
 
   it('verifies manual-license intents through the public Convex action when Gumroad accepts product_id directly', async () => {

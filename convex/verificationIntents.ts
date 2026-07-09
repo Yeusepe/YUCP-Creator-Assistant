@@ -570,32 +570,16 @@ export const completeManualLicenseIntent = internalMutation({
       return { success: false };
     }
 
-    const currentUses = manualLicense.currentUses + 1;
-    await ctx.db.patch(args.manualLicenseId, {
-      currentUses,
-      status:
-        manualLicense.maxUses !== undefined && currentUses >= manualLicense.maxUses
-          ? 'exhausted'
-          : 'active',
-      updatedAt: now,
-    });
-
-    const existingEntitlements = await ctx.db
-      .query('entitlements')
-      .withIndex('by_auth_user_subject', (q) =>
-        q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
-      )
-      .collect();
     const sourceReference = `manual:${await sha256Hex(String(args.manualLicenseId))}`;
 
-    await grantEntitlementFromFunnel(ctx, {
+    const grantResult = await grantEntitlementFromFunnel(ctx, {
       authUserId: args.creatorAuthUserId,
       subjectId: args.subjectId,
       subject,
       productId: args.productId,
       sourceProvider: 'manual',
       sourceReference,
-      policySnapshotVersion: existingEntitlements.length + 1,
+      policySnapshotVersion: 1,
       grantedAt: now,
       now,
       existingLookup: {
@@ -639,6 +623,18 @@ export const completeManualLicenseIntent = internalMutation({
         patchEvidenceType: true,
       },
     });
+
+    if (grantResult.isNew || grantResult.reason === 'reactivated') {
+      const currentUses = manualLicense.currentUses + 1;
+      await ctx.db.patch(args.manualLicenseId, {
+        currentUses,
+        status:
+          manualLicense.maxUses !== undefined && currentUses >= manualLicense.maxUses
+            ? 'exhausted'
+            : 'active',
+        updatedAt: now,
+      });
+    }
 
     await ctx.db.patch(args.intentId, {
       status: 'verified',

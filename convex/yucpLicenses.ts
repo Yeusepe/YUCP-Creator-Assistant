@@ -180,6 +180,44 @@ export const getProductByProviderRef = internalQuery({
   },
 });
 
+/**
+ * Find a creator-owned product by its provider reference.
+ *
+ * Manual license intent requirements already identify the creator and local
+ * product. Querying through that owner scope prevents another creator's
+ * matching provider reference from changing the proof target.
+ */
+export const getProductByProviderRefForCreator = internalQuery({
+  args: {
+    authUserId: v.string(),
+    provider: v.string(),
+    providerProductRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      productId: v.string(),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
+    const row = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('provider'), args.provider),
+          q.eq(q.field('providerProductRef'), args.providerProductRef),
+          q.eq(q.field('status'), 'active')
+        )
+      )
+      .first();
+    if (!row) return null;
+    return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
+  },
+});
+
 export const lookupProductByProviderRef = query({
   args: {
     apiSecret: v.string(),
@@ -617,10 +655,17 @@ export const verifyLicenseProof = internalAction({
 
     let verifyResult: { valid: boolean; reason?: string } | null = null;
 
-    const product = await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
-      provider: args.provider,
-      providerProductRef: args.productPermalink,
-    });
+    const product =
+      args.provider === 'manual' && args.creatorAuthUserId && args.productId
+        ? await ctx.runQuery(internal.yucpLicenses.getProductByProviderRefForCreator, {
+            authUserId: args.creatorAuthUserId,
+            provider: args.provider,
+            providerProductRef: args.productPermalink,
+          })
+        : await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
+            provider: args.provider,
+            providerProductRef: args.productPermalink,
+          });
 
     if (product) {
       if (args.creatorAuthUserId || args.productId) {
