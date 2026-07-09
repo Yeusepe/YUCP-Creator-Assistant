@@ -297,7 +297,9 @@ async function logEntitlementGrantAttempt(params: {
     authUserIdHash: await sha256Hex(params.authUserId),
     subjectIdHash: params.subjectId ? await sha256Hex(params.subjectId) : undefined,
     productIdHash: params.productId ? await sha256Hex(params.productId) : undefined,
-    entitlementId: params.entitlementId,
+    ...(params.reason === 'created' && params.entitlementId
+      ? { entitlementId: params.entitlementId }
+      : {}),
   };
 
   if (params.outcome === 'error') {

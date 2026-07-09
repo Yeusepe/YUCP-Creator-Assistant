@@ -195,7 +195,7 @@ describe('grantEntitlement lifecycle', () => {
     expect(metadata).not.toHaveProperty('authUserId');
     expect(metadata).not.toHaveProperty('subjectId');
     expect(metadata).not.toHaveProperty('productId');
-    expect(metadata).toHaveProperty('entitlementId');
+    expect(metadata).not.toHaveProperty('entitlementId');
   });
 
   it('given unexpected grant failure, when logging error outcome, then uses bounded reason code', async () => {
