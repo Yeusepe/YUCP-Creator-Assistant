@@ -16,6 +16,7 @@ type HarnessState = {
   app: BuiltApiApp;
   componentClient: BetterAuthComponentClient;
   convex: RealConvex;
+  server: ReturnType<typeof Bun.serve>;
 };
 
 type BetterAuthComponentClient = ConvexHttpClient & {
@@ -38,6 +39,10 @@ type RealConvex = {
 type RealConvexHarnessModule = {
   getRealBackendAdminKey(): Promise<string>;
   makeRealConvex(): Promise<RealConvex>;
+  waitFor(
+    predicate: () => Promise<boolean>,
+    options: { timeoutMs?: number; intervalMs?: number; description: string }
+  ): Promise<void>;
 };
 
 type BetterAuthUserSeed = {
@@ -60,6 +65,35 @@ const convexRealHarnessPath = ['..', '..', '..', '..', '..', 'ops', 'convex-real
 
 async function loadRealConvexHarness(): Promise<RealConvexHarnessModule> {
   return (await import(convexRealHarnessPath)) as RealConvexHarnessModule;
+}
+
+async function runConvexEnvSet(
+  name: string,
+  value: string,
+  getRealBackendAdminKey: () => Promise<string>
+): Promise<void> {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    CONVEX_SELF_HOSTED_URL: BACKEND_URL,
+    CONVEX_SELF_HOSTED_ADMIN_KEY: await getRealBackendAdminKey(),
+  };
+  delete env.CONVEX_DEPLOYMENT;
+
+  const proc = Bun.spawn(['bun', 'x', 'convex', 'env', 'set', name, value], {
+    env,
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(
+      `convex env set ${name} failed with exit code ${exitCode}: ${stderr || stdout}`
+    );
+  }
 }
 
 function requireState(): HarnessState {
@@ -134,6 +168,12 @@ export function installRealApiHarness(): void {
       skipConvexDeploymentUrlCheck: true,
     }) as BetterAuthComponentClient;
     componentClient.setAdminAuth(await getRealBackendAdminKey());
+    await runConvexEnvSet(
+      'BACKFILL_API_URL',
+      // Convex actions run in Docker, where 127.0.0.1 is the backend container.
+      'http://host.docker.internal:3001',
+      getRealBackendAdminKey
+    );
     const app = buildApp({
       baseUrl: 'http://127.0.0.1:3001',
       frontendUrl: 'http://127.0.0.1:3000',
@@ -144,7 +184,12 @@ export function installRealApiHarness(): void {
       internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
       internalRpcSharedSecret: `e2e-rpc-${crypto.randomUUID()}`,
     });
-    state = { app, componentClient, convex };
+    const server = Bun.serve({
+      hostname: '0.0.0.0',
+      port: 3001,
+      fetch: (request) => app.handle(request),
+    });
+    state = { app, componentClient, convex, server };
   });
 
   afterEach(async () => {
@@ -155,6 +200,7 @@ export function installRealApiHarness(): void {
     try {
       await clearSeededState();
     } finally {
+      state?.server.stop(true);
       state?.app.dispose();
       state = null;
     }
@@ -163,6 +209,14 @@ export function installRealApiHarness(): void {
 
 export function getRealApiHarness(): HarnessState {
   return requireState();
+}
+
+export async function waitForRealBackend(
+  predicate: () => Promise<boolean>,
+  options: { timeoutMs?: number; intervalMs?: number; description: string }
+): Promise<void> {
+  const { waitFor } = await loadRealConvexHarness();
+  await waitFor(predicate, options);
 }
 
 export async function createBetterAuthUser(

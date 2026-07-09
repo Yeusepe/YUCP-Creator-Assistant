@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { detectLicenseFormat } from '@yucp/providers';
 import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
 import { api } from '../../../../convex/_generated/api';
+import type { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { API_SECRET } from '../../../../ops/convex-real/config';
 import { PUBLIC_API_SCOPES } from '../../../../packages/shared/src/publicApiScopes';
 import { createAuthUserActorBinding } from '../../src/lib/apiActor';
@@ -18,6 +19,7 @@ import {
   seedCreatorProfile,
   seedProductCatalog,
   seedSubject,
+  waitForRealBackend,
 } from './support/realApiHarness';
 
 installRealApiHarness();
@@ -25,6 +27,7 @@ installRealApiHarness();
 const RAW_LICENSE_KEY = crypto.randomUUID();
 const PRODUCT_ID = 'test_e2e_manual_1';
 const EXTERNAL_PROVIDER_TEST_TIMEOUT_MS = 60_000;
+const ASYNC_JOB_TEST_TIMEOUT_MS = 60_000;
 const NONEXISTENT_GUMROAD_LICENSE_KEY = 'ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ';
 const NONEXISTENT_JINXXY_LICENSE_KEY = '00000000-0000-4000-8000-000000000000';
 
@@ -58,6 +61,18 @@ type ProviderLicenseApiResponse = {
   entitlementIds?: string[];
   error?: string;
 };
+
+function uniqueRef(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function requireE2EEnv(name: string): string {
+  const value = readEnv(name);
+  if (!value) {
+    throw new Error(`${name} is required for this real E2E flow`);
+  }
+  return value;
+}
 
 async function seedProviderLicenseJourney(input: {
   provider: 'gumroad' | 'jinxxy';
@@ -97,6 +112,96 @@ async function seedJinxxyApiKey(authUserId: string, apiKey: string): Promise<voi
       },
     ],
   });
+}
+
+async function seedBuyerProviderLink(input: {
+  provider: 'jinxxy';
+  providerUserId: string;
+  subjectId: Id<'subjects'>;
+}): Promise<Id<'external_accounts'>> {
+  const now = Date.now();
+  const externalAccountId = await getRealApiHarness().convex.insert('external_accounts', {
+    provider: input.provider,
+    providerUserId: input.providerUserId,
+    providerUsername: input.providerUserId,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getRealApiHarness().convex.insert('buyer_provider_links', {
+    subjectId: input.subjectId,
+    provider: input.provider,
+    externalAccountId,
+    status: 'active',
+    linkedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return externalAccountId;
+}
+
+type AsyncBackfillJourney = {
+  buyerSubjectId: Id<'subjects'>;
+  creatorAuthUserId: string;
+  discordUserId: string;
+  externalOrderId: string;
+  productId: string;
+  provider: 'jinxxy';
+  providerProductRef: string;
+};
+
+async function seedAsyncBackfillJourney(): Promise<AsyncBackfillJourney> {
+  const provider = 'jinxxy';
+  const creator = await createBetterAuthUser({ name: 'Async Backfill Creator' });
+  await seedCreatorProfile({
+    authUserId: creator.authUserId,
+    name: 'Async Backfill Creator',
+  });
+  await seedJinxxyApiKey(creator.authUserId, requireE2EEnv('E2E_JINXXY_API_KEY'));
+
+  const buyer = await createBetterAuthUser({ name: 'Async Backfill Buyer' });
+  const discordUserId = uniqueRef('discord_async_buyer');
+  const buyerSubjectId = await seedSubject(buyer.authUserId, { discordUserId });
+  const providerUserId = uniqueRef('jinxxy_buyer');
+  await seedBuyerProviderLink({ provider, providerUserId, subjectId: buyerSubjectId });
+
+  const productId = uniqueRef('e2e_async_product');
+  const providerProductRef = uniqueRef('e2e_async_provider_product');
+  const externalOrderId = uniqueRef('jinxxy_order');
+  const now = Date.now();
+  await getRealApiHarness().convex.insert('purchase_facts', {
+    authUserId: creator.authUserId,
+    provider,
+    externalOrderId,
+    providerUserId,
+    providerProductId: providerProductRef,
+    paymentStatus: 'completed',
+    lifecycleStatus: 'active',
+    purchasedAt: now - 7 * 24 * 60 * 60 * 1000,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await getRealApiHarness().convex.mutation(api.role_rules.addCatalogProduct, {
+    apiSecret: API_SECRET,
+    authUserId: creator.authUserId,
+    productId,
+    providerProductRef,
+    provider,
+    canonicalUrl: `https://jinxxy.app/products/${providerProductRef}`,
+    supportsAutoDiscovery: true,
+    displayName: 'Async Backfill E2E Product',
+  });
+
+  return {
+    buyerSubjectId,
+    creatorAuthUserId: creator.authUserId,
+    discordUserId,
+    externalOrderId,
+    productId,
+    provider,
+    providerProductRef,
+  };
 }
 
 async function completeProviderLicense(input: {
@@ -224,6 +329,72 @@ async function expectActiveProviderEntitlement(input: {
       entitlement.subjectId === input.subjectId
   );
   expect(matches).toHaveLength(1);
+}
+
+async function findActiveProviderEntitlement(input: {
+  creatorAuthUserId: string;
+  productId: string;
+  provider: 'jinxxy';
+  subjectId: Id<'subjects'>;
+}): Promise<Doc<'entitlements'> | undefined> {
+  const entitlements = await getRealApiHarness().convex.collect('entitlements');
+  return entitlements.find(
+    (entitlement) =>
+      entitlement.authUserId === input.creatorAuthUserId &&
+      entitlement.productId === input.productId &&
+      entitlement.sourceProvider === input.provider &&
+      entitlement.status === 'active' &&
+      entitlement.subjectId === input.subjectId
+  );
+}
+
+async function waitForAsyncBackfillEntitlement(
+  journey: AsyncBackfillJourney
+): Promise<Doc<'entitlements'>> {
+  let entitlement: Doc<'entitlements'> | undefined;
+  await waitForRealBackend(
+    async () => {
+      entitlement = await findActiveProviderEntitlement({
+        creatorAuthUserId: journey.creatorAuthUserId,
+        productId: journey.productId,
+        provider: journey.provider,
+        subjectId: journey.buyerSubjectId,
+      });
+      return Boolean(entitlement);
+    },
+    {
+      description: 'scheduled backfill to project a seeded purchase into an entitlement',
+      intervalMs: 1_000,
+      timeoutMs: 45_000,
+    }
+  );
+  if (!entitlement) {
+    throw new Error('Scheduled backfill completed without an entitlement match');
+  }
+  return entitlement;
+}
+
+function readOutboxPayload(job: Doc<'outbox_jobs'>): Record<string, unknown> {
+  return job.payload && typeof job.payload === 'object' && !Array.isArray(job.payload)
+    ? (job.payload as Record<string, unknown>)
+    : {};
+}
+
+async function findRoleSyncOutboxJob(input: {
+  creatorAuthUserId: string;
+  entitlementId: Id<'entitlements'>;
+  subjectId: Id<'subjects'>;
+}): Promise<Doc<'outbox_jobs'> | undefined> {
+  const jobs = await getRealApiHarness().convex.collect('outbox_jobs');
+  return jobs.find((job) => {
+    const payload = readOutboxPayload(job);
+    return (
+      job.authUserId === input.creatorAuthUserId &&
+      job.jobType === 'role_sync' &&
+      payload.entitlementId === input.entitlementId &&
+      payload.subjectId === input.subjectId
+    );
+  });
 }
 
 async function expectNoEntitlements(): Promise<void> {
@@ -456,6 +627,60 @@ describe('real API user journeys against self-hosted Convex', () => {
       });
     },
     EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
+  );
+
+  test(
+    'scheduled catalog backfill materializes a linked historical purchase entitlement',
+    async () => {
+      const journey = await seedAsyncBackfillJourney();
+      const entitlement = await waitForAsyncBackfillEntitlement(journey);
+
+      expect(entitlement).toMatchObject({
+        authUserId: journey.creatorAuthUserId,
+        productId: journey.productId,
+        sourceProvider: journey.provider,
+        status: 'active',
+        subjectId: journey.buyerSubjectId,
+      });
+      expect(entitlement.sourceReference).toBe(`${journey.provider}:${journey.externalOrderId}`);
+    },
+    ASYNC_JOB_TEST_TIMEOUT_MS
+  );
+
+  test(
+    'scheduled catalog backfill entitlement grant enqueues a role sync outbox job',
+    async () => {
+      const journey = await seedAsyncBackfillJourney();
+      const entitlement = await waitForAsyncBackfillEntitlement(journey);
+      let roleSyncJob: Doc<'outbox_jobs'> | undefined;
+
+      await waitForRealBackend(
+        async () => {
+          roleSyncJob = await findRoleSyncOutboxJob({
+            creatorAuthUserId: journey.creatorAuthUserId,
+            entitlementId: entitlement._id,
+            subjectId: journey.buyerSubjectId,
+          });
+          return Boolean(roleSyncJob);
+        },
+        {
+          description: 'role_sync outbox job for the granted entitlement',
+          intervalMs: 1_000,
+          timeoutMs: 15_000,
+        }
+      );
+
+      if (!roleSyncJob) {
+        throw new Error('Entitlement grant completed without a role_sync outbox job');
+      }
+      const payload = readOutboxPayload(roleSyncJob);
+      expect(roleSyncJob.authUserId).toBe(journey.creatorAuthUserId);
+      expect(roleSyncJob.jobType).toBe('role_sync');
+      expect(roleSyncJob.targetDiscordUserId).toBe(journey.discordUserId);
+      expect(payload.entitlementId).toBe(entitlement._id);
+      expect(payload.subjectId).toBe(journey.buyerSubjectId);
+    },
+    ASYNC_JOB_TEST_TIMEOUT_MS
   );
 
   test(
