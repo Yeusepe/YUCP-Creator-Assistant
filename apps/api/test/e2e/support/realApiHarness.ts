@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll } from 'bun:test';
 import { ConvexHttpClient } from 'convex/browser';
+import { api } from '../../../../../convex/_generated/api';
 import type { Doc, Id, TableNames } from '../../../../../convex/_generated/dataModel';
 import {
   API_SECRET,
@@ -80,29 +81,6 @@ function getStringField(value: unknown, field: string): string | null {
 
 function eqWhere(field: string, value: string) {
   return [{ field, operator: 'eq' as const, value }];
-}
-
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes)
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function toBase64Url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-}
-
-async function hashPublicApiKey(key: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
-  return toBase64Url(new Uint8Array(digest));
-}
-
-function createRawPublicApiKey(): string {
-  return `ypsk_${toHex(crypto.getRandomValues(new Uint8Array(24)))}`;
 }
 
 async function callBetterAuthComponent<T>(name: string, args: unknown): Promise<T> {
@@ -228,38 +206,17 @@ export async function createPublicApiKey(
   scopes: string[],
   name = 'E2E public API key'
 ): Promise<string> {
-  const key = createRawPublicApiKey();
-  const now = Date.now();
-  await callBetterAuthComponent('adapter:create', {
-    input: {
-      model: 'apikey',
-      data: {
-        configId: 'default',
-        createdAt: now,
-        enabled: true,
-        expiresAt: null,
-        key: await hashPublicApiKey(key),
-        lastRefillAt: null,
-        lastRequest: null,
-        metadata: JSON.stringify({ kind: 'public-api', authUserId }),
-        name,
-        permissions: JSON.stringify({ publicApi: scopes }),
-        prefix: 'ypsk_',
-        rateLimitEnabled: true,
-        rateLimitMax: 1000,
-        rateLimitTimeWindow: 86400000,
-        referenceId: authUserId,
-        refillAmount: null,
-        refillInterval: null,
-        remaining: null,
-        requestCount: 0,
-        start: key.slice(0, 6),
-        updatedAt: now,
-        userId: authUserId,
-      },
-    },
-  });
-  return key;
+  const created = await requireState().convex.mutation<{ key: string }>(
+    api.betterAuthApiKeys.createApiKey,
+    {
+      apiSecret: API_SECRET,
+      userId: authUserId,
+      authUserId,
+      name,
+      scopes,
+    }
+  );
+  return created.key;
 }
 
 export async function apiJson<TBody = Record<string, unknown>>(
