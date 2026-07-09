@@ -252,6 +252,194 @@ describe('role rules CRUD and isolation', () => {
     expect(providers.length).toBe(2); // no duplicates
   });
 
+  it('given catalog products across guilds, license picker products are scoped to the current guild rules', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'auth-license-picker-scope';
+    const guildG = 'guild-license-picker-g';
+    const guildH = 'guild-license-picker-h';
+
+    const [catalogAId, catalogBId] = await t.run(async (ctx) => {
+      const created = await Promise.all([
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'product-a',
+          provider: 'jinxxy',
+          providerProductRef: 'provider-ref-a',
+          displayName: 'Product A',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'product-b',
+          provider: 'jinxxy',
+          providerProductRef: 'provider-ref-b',
+          displayName: 'Product B',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'product-c',
+          provider: 'jinxxy',
+          providerProductRef: 'provider-ref-c',
+          displayName: 'Product C',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ]);
+      return [created[0], created[1]] as const;
+    });
+
+    const guildLinkG = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: guildG,
+    });
+    const guildLinkH = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: guildH,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId: guildG,
+        guildLinkId: guildLinkG,
+        productId: 'product-a',
+        catalogProductId: catalogAId,
+        verifiedRoleId: 'role-a',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId: guildH,
+        guildLinkId: guildLinkH,
+        productId: 'product-b',
+        catalogProductId: catalogBId,
+        verifiedRoleId: 'role-b',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const products = await t.query(api.productResolution.getProductsConfiguredForGuild, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId: guildG,
+    });
+    const productIds = products.map((product) => product.productId);
+    const providerRefs = products.map((product) => product.providerProductRef);
+
+    expect(productIds).toEqual(['product-a']);
+    expect(providerRefs).toEqual(['provider-ref-a']);
+    expect(productIds).not.toContain('product-b');
+    expect(productIds).not.toContain('product-c');
+    expect(products[0]).not.toHaveProperty('_id');
+    expect(products[0]).not.toHaveProperty('catalogProductId');
+
+    const emptyGuildProducts = await t.query(api.productResolution.getProductsConfiguredForGuild, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId: 'guild-license-picker-empty',
+    });
+
+    expect(emptyGuildProducts).toEqual([]);
+  });
+
+  it('given disabled role rules, license picker products only include enabled products', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'auth-license-picker-enabled';
+    const guildId = 'guild-license-picker-enabled';
+
+    const [enabledCatalogId, disabledCatalogId] = await t.run(async (ctx) =>
+      Promise.all([
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'enabled-product',
+          provider: 'jinxxy',
+          providerProductRef: 'enabled-provider-ref',
+          displayName: 'Enabled Product',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'disabled-product',
+          provider: 'jinxxy',
+          providerProductRef: 'disabled-provider-ref',
+          displayName: 'Disabled Product',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ])
+    );
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: guildId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId: 'enabled-product',
+        catalogProductId: enabledCatalogId,
+        verifiedRoleId: 'enabled-role',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId: 'disabled-product',
+        catalogProductId: disabledCatalogId,
+        verifiedRoleId: 'disabled-role',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const products = await t.query(api.productResolution.getProductsConfiguredForGuild, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId,
+    });
+    const productIds = products.map((product) => product.productId);
+
+    expect(productIds).toEqual(['enabled-product']);
+    expect(productIds).not.toContain('disabled-product');
+    expect(products[0]).not.toHaveProperty('_id');
+    expect(products[0]).not.toHaveProperty('catalogProductId');
+  });
+
   it('enqueues a verify prompt refresh job when a role rule is created', async () => {
     const t = makeTestConvex();
 

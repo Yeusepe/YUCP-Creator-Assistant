@@ -7,6 +7,7 @@
 
 import { sha256Hex } from '@yucp/shared/crypto';
 import { v } from 'convex/values';
+import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 import { ProviderV } from './lib/providers';
@@ -74,8 +75,7 @@ export const resolveProductByUrl = internalQuery({
 
 /**
  * Get all active products registered for a tenant.
- * Used by the Discord bot product picker for license key verification.
- * Returns Gumroad and Jinxxy products with their provider refs.
+ * Returns catalog products with their provider refs.
  */
 export const getProductsForTenant = query({
   args: {
@@ -127,6 +127,70 @@ export const getProductsForTenant = query({
       canonicalSlug: p.canonicalSlug,
       displayName: p.displayName,
       lastSyncedAt: freshestByCatalogId.get(String(p._id)) ?? p.updatedAt,
+    }));
+  },
+});
+
+/**
+ * Get active catalog products that have role rules in one Discord guild.
+ * Used by the license verification picker so unconfigured catalog products do not appear.
+ */
+export const getProductsConfiguredForGuild = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    guildId: v.string(),
+  },
+  returns: v.array(
+    v.object({
+      productId: v.string(),
+      provider: ProviderV,
+      providerProductRef: v.string(),
+      canonicalSlug: v.optional(v.string()),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const rules = await ctx.db
+      .query('role_rules')
+      .withIndex('by_auth_user_guild', (q) =>
+        q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
+      )
+      .filter((q) => q.eq(q.field('enabled'), true))
+      .order('asc')
+      .take(1000);
+
+    const seenCatalogIds = new Set<string>();
+    const catalogProductIds: Id<'product_catalog'>[] = [];
+
+    for (const rule of rules) {
+      if (!rule.catalogProductId) continue;
+
+      const catalogId = String(rule.catalogProductId);
+      if (seenCatalogIds.has(catalogId)) continue;
+
+      seenCatalogIds.add(catalogId);
+      catalogProductIds.push(rule.catalogProductId);
+    }
+
+    const catalogDocs = await Promise.all(catalogProductIds.map((id) => ctx.db.get(id)));
+    const products: Doc<'product_catalog'>[] = [];
+
+    for (const catalog of catalogDocs) {
+      if (!catalog || catalog.authUserId !== args.authUserId || catalog.status !== 'active') {
+        continue;
+      }
+
+      products.push(catalog);
+    }
+
+    return products.map((p) => ({
+      productId: p.productId,
+      provider: p.provider,
+      providerProductRef: p.providerProductRef,
+      canonicalSlug: p.canonicalSlug,
+      displayName: p.displayName,
     }));
   },
 });
