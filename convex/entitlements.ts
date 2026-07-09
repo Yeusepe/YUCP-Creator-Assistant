@@ -1251,6 +1251,13 @@ export const grantEntitlement = mutation({
       if (args.evidence.amount > 999999.99)
         throw new ConvexError('amount exceeds maximum allowed value');
     }
+    const evidenceMetadata =
+      args.evidence.amount !== undefined || args.evidence.currency !== undefined
+        ? {
+            amount: args.evidence.amount,
+            currency: args.evidence.currency,
+          }
+        : undefined;
 
     // Get creator profile for policy snapshot
     const profile = await ctx.db
@@ -1281,6 +1288,26 @@ export const grantEntitlement = mutation({
         lifecycleAt: now,
         requireDiscordUserId: false,
         missingSubject: 'throw',
+      },
+      evidence: {
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        providerKey: args.evidence.provider,
+        sourceReference: args.evidence.sourceReference,
+        evidenceType: 'provider_evidence',
+        status: 'active',
+        productId: args.productId,
+        catalogProductId: args.catalogProductId,
+        metadata: evidenceMetadata,
+        observedAt: args.evidence.purchasedAt ?? now,
+        createdAt: now,
+        updatedAt: now,
+        lookupFilters: {
+          authUserId: true,
+          subjectId: true,
+          productId: true,
+          evidenceType: true,
+        },
       },
       audit: {
         emitForNew: true,

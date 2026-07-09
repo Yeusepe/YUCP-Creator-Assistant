@@ -78,6 +78,7 @@ describe('grantEntitlement lifecycle', () => {
   it('given no entitlement, when grantEntitlement called, then isNew=true and status=active', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-grant-lifecycle-1';
+    const purchasedAt = Date.now() - 1_000;
 
     const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-1' });
     await seedCreatorProfile(t, { authUserId });
@@ -90,7 +91,7 @@ describe('grantEntitlement lifecycle', () => {
       evidence: {
         provider: 'gumroad',
         sourceReference: 'order_abc',
-        purchasedAt: Date.now(),
+        purchasedAt,
       },
     });
 
@@ -108,6 +109,26 @@ describe('grantEntitlement lifecycle', () => {
 
     expect(activeResult.found).toBe(true);
     expect(activeResult.entitlement?.status).toBe('active');
+
+    const evidence = await t.run((ctx) =>
+      ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q.eq('providerKey', 'gumroad').eq('sourceReference', 'order_abc')
+        )
+        .filter((q) => q.eq(q.field('authUserId'), authUserId))
+        .first()
+    );
+
+    expect(evidence).toMatchObject({
+      authUserId,
+      subjectId,
+      providerKey: 'gumroad',
+      evidenceType: 'provider_evidence',
+      status: 'active',
+      productId: 'gumroad:prod_xyz',
+      observedAt: purchasedAt,
+    });
   });
 
   it('given same sourceReference, when granted twice, then isNew=false on second call', async () => {
