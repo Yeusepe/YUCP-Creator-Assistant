@@ -159,6 +159,7 @@ export const getProductsConfiguredForGuild = query({
       .withIndex('by_auth_user_guild', (q) =>
         q.eq('authUserId', args.authUserId).eq('guildId', args.guildId)
       )
+      .filter((q) => q.eq(q.field('enabled'), true))
       .order('asc')
       .take(1000);
 

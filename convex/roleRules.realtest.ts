@@ -359,6 +359,85 @@ describe('role rules CRUD and isolation', () => {
     expect(emptyGuildProducts).toEqual([]);
   });
 
+  it('given disabled role rules, license picker products only include enabled products', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'auth-license-picker-enabled';
+    const guildId = 'guild-license-picker-enabled';
+
+    const [enabledCatalogId, disabledCatalogId] = await t.run(async (ctx) =>
+      Promise.all([
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'enabled-product',
+          provider: 'jinxxy',
+          providerProductRef: 'enabled-provider-ref',
+          displayName: 'Enabled Product',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+        ctx.db.insert('product_catalog', {
+          authUserId,
+          productId: 'disabled-product',
+          provider: 'jinxxy',
+          providerProductRef: 'disabled-provider-ref',
+          displayName: 'Disabled Product',
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      ])
+    );
+
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: guildId,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId: 'enabled-product',
+        catalogProductId: enabledCatalogId,
+        verifiedRoleId: 'enabled-role',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('role_rules', {
+        authUserId,
+        guildId,
+        guildLinkId,
+        productId: 'disabled-product',
+        catalogProductId: disabledCatalogId,
+        verifiedRoleId: 'disabled-role',
+        removeOnRevoke: true,
+        priority: 0,
+        enabled: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const products = await t.query(api.productResolution.getProductsConfiguredForGuild, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId,
+    });
+    const catalogIds = products.map((product) => product.catalogProductId);
+
+    expect(products.map((product) => product.productId)).toEqual(['enabled-product']);
+    expect(catalogIds).toEqual([enabledCatalogId]);
+    expect(catalogIds).not.toContain(disabledCatalogId);
+  });
+
   it('enqueues a verify prompt refresh job when a role rule is created', async () => {
     const t = makeTestConvex();
 
