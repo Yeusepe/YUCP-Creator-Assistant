@@ -198,6 +198,59 @@ describe('grantEntitlement lifecycle', () => {
     expect(metadata).toHaveProperty('entitlementId');
   });
 
+  it('given unexpected grant failure, when logging error outcome, then uses bounded reason code', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-grant-error-reason';
+    const staleSubjectId = await seedSubject(t, {
+      primaryDiscordUserId: 'discord-grant-error-reason',
+    });
+    const providerCustomerId = await t.run(async (ctx) => {
+      await ctx.db.delete(staleSubjectId);
+      return await ctx.db.insert('provider_customers', {
+        provider: 'gumroad',
+        providerUserId: 'provider-user-grant-error-reason',
+        status: 'active',
+        lastObservedAt: Date.now(),
+        confidence: 'high',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    await seedCreatorProfile(t, { authUserId });
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(
+      t.mutation(api.entitlements.grantEntitlementsForPurchaser, {
+        apiSecret: 'test-secret',
+        authUserId,
+        subjectId: staleSubjectId,
+        providerCustomerId,
+        products: [
+          {
+            productId: 'gumroad:prod_error_reason',
+            sourceReference: 'order_error_reason',
+          },
+        ],
+      })
+    ).rejects.toThrow('Subject not found');
+
+    const metadata = logSpy.mock.calls.find((call) => call[0] === 'entitlement_grant')?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(metadata).toEqual(
+      expect.objectContaining({
+        event: 'entitlement_grant',
+        provider: 'gumroad',
+        outcome: 'error',
+        reason: 'unexpected_error',
+        authUserIdHash: await sha256Hex(authUserId),
+        subjectIdHash: await sha256Hex(staleSubjectId),
+        productIdHash: await sha256Hex('gumroad:prod_error_reason'),
+      })
+    );
+    expect(JSON.stringify(metadata)).not.toContain('Subject not found');
+  });
+
   it('given wrong apiSecret, when grantEntitlement called, then throws', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-grant-auth-fail-3';

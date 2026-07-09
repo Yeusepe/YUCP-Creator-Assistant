@@ -763,7 +763,8 @@ export async function grantEntitlementFromFunnel(
       evidenceId,
     };
   } catch (err) {
-    const reason = err instanceof ConvexError ? String(err.data) : err instanceof Error ? err.message : 'error';
+    const reason =
+      err instanceof ConvexError && typeof err.data === 'string' ? err.data : 'unexpected_error';
     await logEntitlementGrantAttempt({
       provider,
       outcome: 'error',
