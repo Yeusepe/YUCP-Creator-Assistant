@@ -93,10 +93,19 @@ describe('API server, production app harness', () => {
     try {
       expect(() => {
         overlappingApp = buildApp();
-      }).toThrow('buildApp only supports one active app at a time');
+      }).toThrow(
+        'buildApp only supports one app per test worker while handler state is module-scoped'
+      );
     } finally {
       overlappingApp?.dispose();
     }
+  });
+
+  it('rejects a second buildApp lifetime after dispose while handler state is module-scoped', () => {
+    app.dispose();
+    expect(() => buildApp()).toThrow(
+      'buildApp only supports one app per test worker while handler state is module-scoped'
+    );
   });
 });
 
