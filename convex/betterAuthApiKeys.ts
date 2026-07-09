@@ -363,7 +363,7 @@ export const createApiKey = mutation({
     const api = auth.api as unknown as BetterAuthServerApi;
     const created = await api.createApiKey({
       body: {
-        userId: args.userId,
+        userId: args.authUserId,
         name: args.name,
         prefix: PUBLIC_API_KEY_PREFIX,
         expiresIn: args.expiresIn,

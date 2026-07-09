@@ -21,12 +21,18 @@ type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
   ) => Promise<Output>;
 };
 
-async function seedBetterAuthUser(t: ComponentAwareTestConvex): Promise<string> {
+async function seedBetterAuthUser(
+  t: ComponentAwareTestConvex,
+  user: { name: string; email: string } = {
+    name: 'Public API Owner',
+    email: 'public-api-owner@example.com',
+  }
+): Promise<string> {
   return await t.runInComponent('betterAuth', async (ctx) => {
     const now = Date.now();
     return await ctx.db.insert('user', {
-      name: 'Public API Owner',
-      email: 'public-api-owner@example.com',
+      name: user.name,
+      email: user.email,
       emailVerified: true,
       image: null,
       createdAt: now,
@@ -83,5 +89,54 @@ describe('betterAuthApiKeys', () => {
       kind: 'public-api',
       authUserId: ownerAuthUserId,
     });
-  });
+  }, 10_000);
+
+  it('stores the public tenant authUserId when the session owner differs', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
+    const sessionOwnerUserId = await seedBetterAuthUser(t, {
+      name: 'Session Owner',
+      email: 'session-owner@example.com',
+    });
+    const tenantAuthUserId = await seedBetterAuthUser(t, {
+      name: 'Public Tenant',
+      email: 'public-tenant@example.com',
+    });
+
+    const result = await t.mutation(api.betterAuthApiKeys.createApiKey, {
+      apiSecret: API_SECRET,
+      userId: sessionOwnerUserId,
+      authUserId: tenantAuthUserId,
+      name: 'Tenant public API key',
+      scopes: ['verification:read'],
+      expiresIn: null,
+    });
+
+    expect(result.apiKey.userId).toBe(tenantAuthUserId);
+    expect(result.apiKey.metadata).toEqual({
+      kind: 'public-api',
+      authUserId: tenantAuthUserId,
+    });
+
+    const storedKeys = await t.runInComponent('betterAuth', async (ctx) => {
+      return await ctx.db.query('apikey').collect();
+    });
+
+    expect(storedKeys).toHaveLength(1);
+    expect(storedKeys[0]?.userId).toBe(tenantAuthUserId);
+    expect(storedKeys[0]?.referenceId).toBe(tenantAuthUserId);
+
+    const verified = await t.mutation(api.betterAuthApiKeys.verifyApiKey, {
+      apiSecret: API_SECRET,
+      key: result.key,
+      scopes: ['verification:read'],
+    });
+
+    expect(verified.valid).toBe(true);
+    expect(verified.key?.userId).toBe(tenantAuthUserId);
+    expect(verified.key?.metadata).toEqual({
+      kind: 'public-api',
+      authUserId: tenantAuthUserId,
+    });
+  }, 10_000);
 });
