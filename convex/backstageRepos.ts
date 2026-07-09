@@ -5,10 +5,10 @@ import type {
   CdngineBackstageDeliveryReference,
   CdngineBackstageSourceReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
-import { internalQuery, mutation, query } from './_generated/server';
+import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
@@ -90,6 +90,55 @@ type BackstagePublishedReleaseRecord = {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function unauthorized(message: string): never {
+  throw new ConvexError(`Unauthorized: ${message}`);
+}
+
+async function requireActiveSubjectOwner(
+  ctx: QueryCtx | MutationCtx,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+  }
+): Promise<void> {
+  const subject = await ctx.db.get(args.subjectId);
+  if (!subject || subject.status !== 'active' || subject.authUserId !== args.authUserId) {
+    unauthorized('subject does not belong to auth user');
+  }
+}
+
+async function requireBackstageRepoTokenBinding(
+  ctx: QueryCtx,
+  args: {
+    tokenHash: string;
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+  }
+): Promise<BackstageRepoAccessRecord> {
+  const access = await ctx.runQuery(internal.packageRegistry.getBackstageRepoAccessByToken, {
+    tokenHash: args.tokenHash,
+  });
+  if (!access) {
+    unauthorized('repo token is inactive or expired');
+  }
+  if (access.status !== 'active') {
+    unauthorized('repo token is inactive or expired');
+  }
+  if (typeof access.expiresAt === 'number' && access.expiresAt <= Date.now()) {
+    unauthorized('repo token is inactive or expired');
+  }
+  if (access.authUserId !== args.authUserId || String(access.subjectId) !== String(args.subjectId)) {
+    unauthorized('repo token does not authorize this subject');
+  }
+
+  const subject = await ctx.db.get(args.subjectId);
+  if (!subject || subject.status !== 'active') {
+    unauthorized('subject is inactive');
+  }
+
+  return access;
 }
 
 function normalizeBackstageMetadataInput(input: {
@@ -217,11 +266,13 @@ export const resolveAliasContractMetadataForApi = query({
 export const getSubjectByAuthUserForApi = query({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
   },
   returns: v.union(v.null(), v.object({ _id: v.id('subjects') })),
   handler: async (ctx, args): Promise<{ _id: Id<'subjects'> } | null> => {
     requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     return await ctx.runQuery(internal.yucpLicenses.getSubjectByAuthUser, {
       authUserId: args.authUserId,
     });
@@ -231,6 +282,7 @@ export const getSubjectByAuthUserForApi = query({
 export const issueRepoTokenForApi = mutation({
   args: {
     apiSecret: v.string(),
+    actor: ApiActorBindingV,
     authUserId: v.string(),
     subjectAuthUserId: v.optional(v.string()),
     subjectId: v.id('subjects'),
@@ -247,6 +299,12 @@ export const issueRepoTokenForApi = mutation({
     args
   ): Promise<{ token: string; tokenId: Id<'delivery_repo_tokens'>; expiresAt?: number }> => {
     requireApiSecret(args.apiSecret);
+    const subjectOwnerAuthUserId = args.subjectAuthUserId ?? args.authUserId;
+    await requireDelegatedAuthUserActor(args.actor, subjectOwnerAuthUserId);
+    await requireActiveSubjectOwner(ctx, {
+      authUserId: subjectOwnerAuthUserId,
+      subjectId: args.subjectId,
+    });
     return await ctx.runMutation(internal.packageRegistry.issueBackstageRepoToken, {
       authUserId: args.authUserId,
       subjectAuthUserId: args.subjectAuthUserId,
@@ -322,6 +380,7 @@ export const buildRepositoryForApi = query({
 export const resolvePackageDownloadForApi = query({
   args: {
     apiSecret: v.string(),
+    tokenHash: v.string(),
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     packageId: v.string(),
@@ -348,6 +407,11 @@ export const resolvePackageDownloadForApi = query({
   ),
   handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
     requireApiSecret(args.apiSecret);
+    await requireBackstageRepoTokenBinding(ctx, {
+      tokenHash: args.tokenHash,
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+    });
     return await ctx.runQuery(
       internal.packageRegistry.getResolvedEntitledPackageDownloadForSubject,
       {
@@ -364,6 +428,8 @@ export const resolvePackageDownloadForApi = query({
 export const resolveRawPackageDownloadForApi = query({
   args: {
     apiSecret: v.string(),
+    actor: v.optional(ApiActorBindingV),
+    tokenHash: v.optional(v.string()),
     authUserId: v.string(),
     subjectId: v.id('subjects'),
     packageId: v.string(),
@@ -386,6 +452,17 @@ export const resolveRawPackageDownloadForApi = query({
   ),
   handler: async (ctx, args): Promise<BackstageRawPackageDownloadRecord | null> => {
     requireApiSecret(args.apiSecret);
+    if (args.tokenHash) {
+      await requireBackstageRepoTokenBinding(ctx, {
+        tokenHash: args.tokenHash,
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+      });
+    } else if (args.actor) {
+      await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    } else {
+      unauthorized('missing repo token or actor binding');
+    }
     return await ctx.runQuery(
       internal.packageRegistry.getResolvedEntitledRawPackageDownloadForSubject,
       {

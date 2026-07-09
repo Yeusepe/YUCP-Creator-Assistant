@@ -1818,6 +1818,7 @@ describe('packageRegistry', () => {
 
     const issued = await t.mutation(api.backstageRepos.issueRepoTokenForApi, {
       apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('buyer-auth-flow'),
       authUserId: 'auth-user-1',
       subjectAuthUserId: 'buyer-auth-flow',
       subjectId,
@@ -1851,6 +1852,7 @@ describe('packageRegistry', () => {
 
     const rawDownload = await t.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
       apiSecret: 'test-secret',
+      tokenHash: await sha256Hex(new TextEncoder().encode(issued.token)),
       authUserId: 'auth-user-1',
       subjectId,
       packageId: 'com.yucp.backstage.cdngineflow',
@@ -1929,6 +1931,174 @@ describe('packageRegistry', () => {
         variant: 'preserve-original',
       },
     });
+  });
+
+  it('rejects repo-token package download resolution when the token subject binding mismatches', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const catalogProductId = await seedCatalogProduct(t, {
+      authUserId: 'auth-user-f24-u1',
+      productId: 'product-f24-binding',
+      providerProductRef: 'gumroad-product-f24-binding',
+      displayName: 'F24 Binding Product',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId: 'com.yucp.backstage.f24binding',
+      packageName: 'F24 Binding Package',
+      publisherId: 'publisher-f24',
+      yucpUserId: 'auth-user-f24-u1',
+    });
+
+    await t.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: 'auth-user-f24-u1',
+      catalogProductId,
+      packageId: 'com.yucp.backstage.f24binding',
+      packageName: 'F24 Binding Package',
+      displayName: 'F24 Binding Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+
+    const release = await t.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: 'auth-user-f24-u1',
+      packageId: 'com.yucp.backstage.f24binding',
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      zipSha256: 'b'.repeat(64),
+    });
+
+    await t.run(async (ctx) => {
+      const rawArtifactId = await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+        artifactRole: 'raw_upload',
+        ownership: 'creator_upload',
+        contentType: 'application/octet-stream',
+        deliveryName: 'F24_Binding_1.0.0.unitypackage',
+        sha256: 'a'.repeat(64),
+        byteSize: 123,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        cdngineSource: {
+          assetId: 'ast_raw_f24_binding',
+          assetOwner: 'creator:auth-user-f24-u1',
+          byteSize: 123,
+          serviceNamespaceId: 'yucp-backstage',
+          sha256: 'a'.repeat(64),
+          uploadedAt: now,
+          versionId: 'ver_raw_f24_binding',
+        },
+      } as never);
+      await ctx.db.insert('delivery_release_artifacts', {
+        deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+        artifactRole: 'server_deliverable',
+        ownership: 'server_materialized',
+        materializationStrategy: 'normalized_repack',
+        sourceArtifactId: rawArtifactId,
+        contentType: 'application/zip',
+        deliveryName: 'vrc-get-com.yucp.backstage.f24binding-1.0.0.zip',
+        sha256: 'b'.repeat(64),
+        byteSize: 456,
+        status: 'active',
+        activatedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        cdngineDelivery: {
+          assetId: 'ast_deliverable_f24_binding',
+          assetOwner: 'creator:auth-user-f24-u1',
+          byteSize: 456,
+          deliveryScopeId: 'paid-downloads',
+          serviceNamespaceId: 'yucp-backstage',
+          sha256: 'b'.repeat(64),
+          uploadedAt: now,
+          variant: 'preserve-original',
+          versionId: 'ver_deliverable_f24_binding',
+        },
+      } as never);
+    });
+
+    const subjectS1 = await seedSubject(t, {
+      authUserId: 'auth-user-f24-u1',
+      primaryDiscordUserId: 'discord-f24-s1',
+    });
+    const subjectS2 = await seedSubject(t, {
+      authUserId: 'auth-user-f24-u2',
+      primaryDiscordUserId: 'discord-f24-s2',
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert('entitlements', {
+        authUserId: 'auth-user-f24-u1',
+        subjectId: subjectS1,
+        productId: 'product-f24-binding',
+        sourceProvider: 'gumroad',
+        sourceReference: 'order-f24-s1',
+        catalogProductId,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const issued = await t.mutation(api.backstageRepos.issueRepoTokenForApi, {
+      apiSecret: 'test-secret',
+      actor: await createAuthUserActorBinding('auth-user-f24-u1'),
+      authUserId: 'auth-user-f24-u1',
+      subjectId: subjectS1,
+      label: 'F24 binding token',
+      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+    });
+    expect(issued.token).toMatch(/^ybt_[0-9a-f]+$/);
+    const tokenHash = await sha256Hex(new TextEncoder().encode(issued.token));
+    const downloadArgs = {
+      apiSecret: 'test-secret',
+      authUserId: 'auth-user-f24-u1',
+      tokenHash,
+      packageId: 'com.yucp.backstage.f24binding',
+      version: '1.0.0',
+      channel: 'stable',
+    };
+
+    await expect(
+      t.query(api.backstageRepos.resolvePackageDownloadForApi, {
+        ...downloadArgs,
+        subjectId: subjectS1,
+      } as never)
+    ).resolves.toMatchObject({
+      deliveryName: 'vrc-get-com.yucp.backstage.f24binding-1.0.0.zip',
+      zipSha256: 'b'.repeat(64),
+      version: '1.0.0',
+      channel: 'stable',
+    });
+    await expect(
+      t.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+        ...downloadArgs,
+        subjectId: subjectS1,
+      } as never)
+    ).resolves.toMatchObject({
+      deliveryName: 'F24_Binding_1.0.0.unitypackage',
+      packageSha256: 'a'.repeat(64),
+      sourceKind: 'unitypackage',
+      version: '1.0.0',
+      channel: 'stable',
+    });
+
+    await expect(
+      t.query(api.backstageRepos.resolvePackageDownloadForApi, {
+        ...downloadArgs,
+        subjectId: subjectS2,
+      } as never)
+    ).rejects.toThrow('Unauthorized');
+    await expect(
+      t.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
+        ...downloadArgs,
+        subjectId: subjectS2,
+      } as never)
+    ).rejects.toThrow('Unauthorized');
   });
 
   it('refuses ambiguous legacy alias synthesis when linked products resolve to different alias ids', async () => {

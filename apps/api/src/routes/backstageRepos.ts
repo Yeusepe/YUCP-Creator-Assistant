@@ -693,6 +693,7 @@ async function getAuthorizedAliasInstallPlanForViewer(
   }
 ): Promise<{
   convex: ReturnType<typeof getConvexClientFromUrl>;
+  actor: ApiActorBinding;
   plan: AuthorizedAliasInstallPlanRecord | null;
 }> {
   const actor = await resolveAliasInstallPlanActor(viewer, input.authUserId);
@@ -706,16 +707,18 @@ async function getAuthorizedAliasInstallPlanForViewer(
     productRef: input.productRef,
   })) as AuthorizedAliasInstallPlanRecord | null;
 
-  return { convex, plan };
+  return { convex, actor, plan };
 }
 
 async function getActiveSubjectId(
   convex: ReturnType<typeof getConvexClientFromUrl>,
   config: BackstageRepoConfig,
-  authUserId: string
+  authUserId: string,
+  actor: ApiActorBinding
 ): Promise<Id<'subjects'> | null> {
   const subject = await convex.query(api.backstageRepos.getSubjectByAuthUserForApi, {
     apiSecret: config.convexApiSecret,
+    actor,
     authUserId,
   });
   return subject?._id ?? null;
@@ -783,6 +786,7 @@ async function resolveRepoAccess(
   | {
       ok: true;
       rawToken: string;
+      tokenHash: string;
       tokenId: string;
       authUserId: string;
       subjectId: string;
@@ -796,9 +800,10 @@ async function resolveRepoAccess(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
+  const tokenHash = await sha256Hex(rawToken);
   const access = await convex.query(api.backstageRepos.getRepoAccessByTokenForApi, {
     apiSecret: config.convexApiSecret,
-    tokenHash: await sha256Hex(rawToken),
+    tokenHash,
   });
   if (!access) {
     return { ok: false };
@@ -827,6 +832,7 @@ async function resolveRepoAccess(
   return {
     ok: true,
     rawToken,
+    tokenHash,
     tokenId: access.tokenId,
     authUserId: access.authUserId,
     subjectId: access.subjectId,
@@ -845,7 +851,12 @@ async function issueRepoAccess(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-  const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+  const subjectId = await getActiveSubjectId(
+    convex,
+    config,
+    viewer.authUserId,
+    viewer.actorBinding
+  );
   if (!subjectId) {
     return errorResponse('No active subject found for this account', 404);
   }
@@ -914,6 +925,7 @@ async function issueRepoAccess(
   const now = Date.now();
   const issued = await convex.mutation(api.backstageRepos.issueRepoTokenForApi, {
     apiSecret: config.convexApiSecret,
+    actor: viewer.actorBinding,
     authUserId: repoAuthUserId,
     subjectAuthUserId: viewer.authUserId,
     subjectId,
@@ -958,7 +970,12 @@ async function issueAuthorizedAliasInstallPlan(
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    const subjectId = await getActiveSubjectId(
+      convex,
+      config,
+      viewer.authUserId,
+      viewer.actorBinding
+    );
     if (!subjectId) {
       return errorResponse('No active subject found for this account', 404);
     }
@@ -973,16 +990,16 @@ async function issueAuthorizedAliasInstallPlan(
       return errorResponse('Alias install plan not found', 404);
     }
 
-    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
-      config,
-      viewer,
-      {
-        authUserId: resolved.access.creatorAuthUserId,
-        subjectId,
-        creatorRef,
-        productRef,
-      }
-    );
+    const {
+      convex: planConvex,
+      actor: planActor,
+      plan,
+    } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
+      authUserId: resolved.access.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    });
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
@@ -995,6 +1012,7 @@ async function issueAuthorizedAliasInstallPlan(
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
       planConvex,
+      planActor,
       plan,
       subjectId,
       publicCatalogProductRef,
@@ -1045,7 +1063,12 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    const subjectId = await getActiveSubjectId(
+      convex,
+      config,
+      viewer.authUserId,
+      viewer.actorBinding
+    );
     if (!subjectId) {
       return errorResponse('No active subject found for this account', 404);
     }
@@ -1068,16 +1091,16 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
-      config,
-      viewer,
-      {
-        authUserId: product.creatorAuthUserId,
-        subjectId,
-        creatorRef,
-        productRef,
-      }
-    );
+    const {
+      convex: planConvex,
+      actor: planActor,
+      plan,
+    } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    });
     if (!plan) {
       return errorResponse('Alias install plan not found', 404);
     }
@@ -1085,6 +1108,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
     return await buildAuthorizedAliasInstallPlanResponse(
       config,
       planConvex,
+      planActor,
       plan,
       subjectId,
       productRef,
@@ -1104,6 +1128,7 @@ async function issueAuthorizedAliasInstallPlanForCatalogProduct(
 async function buildAuthorizedAliasInstallPlanResponse(
   config: BackstageRepoConfig,
   convex: ReturnType<typeof getConvexClientFromUrl>,
+  actor: ApiActorBinding,
   plan: AuthorizedAliasInstallPlanRecord,
   subjectId: string,
   publicCatalogProductRef: string,
@@ -1139,6 +1164,7 @@ async function buildAuthorizedAliasInstallPlanResponse(
           api.backstageRepos.resolveRawPackageDownloadForApi,
           {
             apiSecret: config.convexApiSecret,
+            actor,
             authUserId: plan.creatorAuthUserId,
             subjectId: subjectId as Id<'subjects'>,
             packageId: pkg.packageId,
@@ -1292,7 +1318,12 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
     const requestedVersion = readOptionalBodyString(body, 'version');
     const requestedChannel = readOptionalBodyString(body, 'channel');
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    const subjectId = await getActiveSubjectId(
+      convex,
+      config,
+      viewer.authUserId,
+      viewer.actorBinding
+    );
     if (!subjectId) {
       return errorResponse('No active subject found for this account', 404);
     }
@@ -1315,16 +1346,16 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       throw new Error('Alias product access context was incomplete.');
     }
 
-    const { convex: planConvex, plan } = await getAuthorizedAliasInstallPlanForViewer(
-      config,
-      viewer,
-      {
-        authUserId: product.creatorAuthUserId,
-        subjectId,
-        creatorRef,
-        productRef,
-      }
-    );
+    const {
+      convex: planConvex,
+      actor: planActor,
+      plan,
+    } = await getAuthorizedAliasInstallPlanForViewer(config, viewer, {
+      authUserId: product.creatorAuthUserId,
+      subjectId,
+      creatorRef,
+      productRef,
+    });
     const planPackage = plan?.packages.find((pkg) => pkg.packageId === packageId);
     if (!planPackage) {
       return errorResponse('Package not found', 404);
@@ -1338,6 +1369,7 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
 
     const resolved = (await planConvex.query(api.backstageRepos.resolveRawPackageDownloadForApi, {
       apiSecret: config.convexApiSecret,
+      actor: planActor,
       authUserId: product.creatorAuthUserId,
       subjectId,
       packageId,
@@ -1430,7 +1462,12 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
 
   try {
     const convex = getConvexClientFromUrl(config.convexUrl, viewer.actorBinding);
-    const subjectId = await getActiveSubjectId(convex, config, viewer.authUserId);
+    const subjectId = await getActiveSubjectId(
+      convex,
+      config,
+      viewer.authUserId,
+      viewer.actorBinding
+    );
     if (!subjectId) {
       return errorResponse('No active subject found for this account', 404);
     }
@@ -1827,6 +1864,7 @@ async function servePackageDownload(
   const convex = getConvexClientFromUrl(config.convexUrl);
   const resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
     apiSecret: config.convexApiSecret,
+    tokenHash: access.tokenHash,
     authUserId: access.authUserId,
     subjectId: access.subjectId,
     packageId,

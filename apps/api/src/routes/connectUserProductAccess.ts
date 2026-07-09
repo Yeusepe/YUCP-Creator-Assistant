@@ -174,7 +174,13 @@ export function createConnectUserProductAccessRoutes({
     const session = await auth.getSession(request);
 
     try {
-      const convex = getConvexClientFromUrl(config.convexUrl);
+      const buyerActor = session
+        ? await createAuthUserActorBinding({
+            authUserId: session.user.id,
+            source: 'session',
+          })
+        : null;
+      const convex = getConvexClientFromUrl(config.convexUrl, buyerActor ?? undefined);
       const product = await resolveAccessProduct(catalogProductId);
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
@@ -183,6 +189,7 @@ export function createConnectUserProductAccessRoutes({
       const buyerSubject = session
         ? ((await convex.query(api.backstageRepos.getSubjectByAuthUserForApi, {
             apiSecret: config.convexApiSecret,
+            actor: buyerActor,
             authUserId: session.user.id,
           })) as { _id: Id<'subjects'> } | null)
         : null;
