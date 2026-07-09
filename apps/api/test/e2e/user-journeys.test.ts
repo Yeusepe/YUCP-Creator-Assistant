@@ -98,6 +98,7 @@ if (!hasJinxxyE2E) {
 }
 if (!hasAsyncBackfillE2E) {
   console.log('SKIP jinxxy async backfill e2e: E2E_JINXXY_API_KEY not set');
+  console.log('SKIP jinxxy negative license e2e: E2E_JINXXY_API_KEY not set');
 }
 
 type ProviderLicenseApiResponse = {
@@ -1381,7 +1382,7 @@ describe('real API user journeys against self-hosted Convex', () => {
     ASYNC_JOB_TEST_TIMEOUT_MS
   );
 
-  test(
+  test.skipIf(!hasAsyncBackfillE2E)(
     'jinxxy non-existent license fails closed without minting entitlement',
     async () => {
       expect(detectLicenseFormat(NONEXISTENT_JINXXY_LICENSE_KEY)).toBe('jinxxy');
@@ -1390,7 +1391,7 @@ describe('real API user journeys against self-hosted Convex', () => {
         providerProductRef: jinxxyEnv.productRef ?? 'test_e2e_jinxxy_missing_product',
         displayName: 'Jinxxy Missing License E2E',
       });
-      const apiKey = jinxxyEnv.apiKey ?? 'invalid-e2e-jinxxy-api-key';
+      const apiKey = requireE2EEnv('E2E_JINXXY_API_KEY');
       await assertJinxxyLicenseEndpointReachable({
         apiKey,
         licenseKey: NONEXISTENT_JINXXY_LICENSE_KEY,
