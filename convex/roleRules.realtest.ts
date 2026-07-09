@@ -259,8 +259,8 @@ describe('role rules CRUD and isolation', () => {
     const guildG = 'guild-license-picker-g';
     const guildH = 'guild-license-picker-h';
 
-    const [catalogAId, catalogBId, catalogCId] = await t.run(async (ctx) =>
-      Promise.all([
+    const [catalogAId, catalogBId] = await t.run(async (ctx) => {
+      const created = await Promise.all([
         ctx.db.insert('product_catalog', {
           authUserId,
           productId: 'product-a',
@@ -294,8 +294,9 @@ describe('role rules CRUD and isolation', () => {
           createdAt: now,
           updatedAt: now,
         }),
-      ])
-    );
+      ]);
+      return [created[0], created[1]] as const;
+    });
 
     const guildLinkG = await seedGuildLink(t, {
       authUserId,
@@ -341,14 +342,14 @@ describe('role rules CRUD and isolation', () => {
       guildId: guildG,
     });
     const productIds = products.map((product) => product.productId);
-    const catalogIds = products.map((product) => product.catalogProductId);
     const providerRefs = products.map((product) => product.providerProductRef);
 
     expect(productIds).toEqual(['product-a']);
-    expect(catalogIds).toEqual([catalogAId]);
     expect(providerRefs).toEqual(['provider-ref-a']);
-    expect(catalogIds).not.toContain(catalogBId);
-    expect(catalogIds).not.toContain(catalogCId);
+    expect(productIds).not.toContain('product-b');
+    expect(productIds).not.toContain('product-c');
+    expect(products[0]).not.toHaveProperty('_id');
+    expect(products[0]).not.toHaveProperty('catalogProductId');
 
     const emptyGuildProducts = await t.query(api.productResolution.getProductsConfiguredForGuild, {
       apiSecret: 'test-secret',
@@ -431,11 +432,12 @@ describe('role rules CRUD and isolation', () => {
       authUserId,
       guildId,
     });
-    const catalogIds = products.map((product) => product.catalogProductId);
+    const productIds = products.map((product) => product.productId);
 
-    expect(products.map((product) => product.productId)).toEqual(['enabled-product']);
-    expect(catalogIds).toEqual([enabledCatalogId]);
-    expect(catalogIds).not.toContain(disabledCatalogId);
+    expect(productIds).toEqual(['enabled-product']);
+    expect(productIds).not.toContain('disabled-product');
+    expect(products[0]).not.toHaveProperty('_id');
+    expect(products[0]).not.toHaveProperty('catalogProductId');
   });
 
   it('enqueues a verify prompt refresh job when a role rule is created', async () => {

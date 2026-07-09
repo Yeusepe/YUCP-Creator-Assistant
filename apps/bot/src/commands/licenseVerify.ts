@@ -64,7 +64,6 @@ type Filter = 'all' | string;
 type ProductPickerRow = ActionRowBuilder<any>;
 
 interface Product {
-  _id: string;
   productId: string;
   provider: string;
   providerProductRef: string;

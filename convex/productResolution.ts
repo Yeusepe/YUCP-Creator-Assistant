@@ -143,8 +143,6 @@ export const getProductsConfiguredForGuild = query({
   },
   returns: v.array(
     v.object({
-      _id: v.id('product_catalog'),
-      catalogProductId: v.id('product_catalog'),
       productId: v.string(),
       provider: ProviderV,
       providerProductRef: v.string(),
@@ -188,8 +186,6 @@ export const getProductsConfiguredForGuild = query({
     }
 
     return products.map((p) => ({
-      _id: p._id,
-      catalogProductId: p._id,
       productId: p.productId,
       provider: p.provider,
       providerProductRef: p.providerProductRef,
