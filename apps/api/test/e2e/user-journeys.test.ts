@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 import { detectLicenseFormat } from '@yucp/providers';
 import { JINXXY_PURPOSES } from '@yucp/providers/jinxxy/module';
-import { api } from '../../../../convex/_generated/api';
+import { LEMONSQUEEZY_PURPOSES } from '@yucp/providers/lemonsqueezy/module';
+import { PAYHIP_PURPOSES } from '@yucp/providers/payhip/module';
+import { PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
+import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
+import { api, internal } from '../../../../convex/_generated/api';
 import type { Doc, Id } from '../../../../convex/_generated/dataModel';
 import { API_SECRET } from '../../../../ops/convex-real/config';
 import { PUBLIC_API_SCOPES } from '../../../../packages/shared/src/publicApiScopes';
 import { createAuthUserActorBinding } from '../../src/lib/apiActor';
 import { encrypt } from '../../src/lib/encrypt';
+import { getProviderRuntime, resolveWebhookPlugin } from '../../src/providers';
 import {
   apiJson,
   apiKeyHeaders,
@@ -30,6 +35,42 @@ const EXTERNAL_PROVIDER_TEST_TIMEOUT_MS = 60_000;
 const ASYNC_JOB_TEST_TIMEOUT_MS = 90_000;
 const NONEXISTENT_GUMROAD_LICENSE_KEY = 'ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ-ZZZZZZZZ';
 const NONEXISTENT_JINXXY_LICENSE_KEY = '00000000-0000-4000-8000-000000000000';
+const SUPPORTED_PROVIDER_KEYS = [
+  'gumroad',
+  'jinxxy',
+  'lemonsqueezy',
+  'payhip',
+  'itchio',
+  'patreon',
+  'vrchat',
+  'manual',
+] as const;
+const BACKFILL_GRANT_CELLS = [
+  { provider: 'gumroad', externalLineItem: false },
+  { provider: 'jinxxy', externalLineItem: true },
+  { provider: 'lemonsqueezy', externalLineItem: true },
+] as const;
+const WEBHOOK_GRANT_CELLS = [
+  { provider: 'gumroad' },
+  { provider: 'jinxxy' },
+  { provider: 'lemonsqueezy' },
+  { provider: 'payhip' },
+] as const;
+const RUNTIME_PROVIDER_KEYS = [
+  'gumroad',
+  'jinxxy',
+  'lemonsqueezy',
+  'payhip',
+  'itchio',
+  'patreon',
+  'vrchat',
+] as const;
+const SHARED_WEBHOOK_PROVIDER_KEYS = ['gumroad', 'jinxxy', 'payhip'] as const;
+const SEEDED_BACKFILL_PROVIDER_KEYS = ['gumroad', 'jinxxy', 'lemonsqueezy'] as const;
+
+type SupportedProvider = (typeof SUPPORTED_PROVIDER_KEYS)[number];
+type BackfillGrantProvider = (typeof BACKFILL_GRANT_CELLS)[number]['provider'];
+type WebhookGrantProvider = (typeof WEBHOOK_GRANT_CELLS)[number]['provider'];
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name]?.trim();
@@ -78,6 +119,59 @@ function requireE2EEnv(name: string): string {
   return value;
 }
 
+async function hmacSha256(secret: string, body: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function uniqueNumericRef(): string {
+  const bytes = new Uint32Array(1);
+  crypto.getRandomValues(bytes);
+  return String(100_000_000 + (bytes[0] % 900_000_000));
+}
+
+function buildBackfillSourceReference(
+  provider: BackfillGrantProvider,
+  externalOrderId: string,
+  externalLineItemId?: string
+): string {
+  if (provider === 'gumroad') {
+    return `gumroad:${externalOrderId}`;
+  }
+  return externalLineItemId
+    ? `${provider}:${externalOrderId}:${externalLineItemId}`
+    : `${provider}:${externalOrderId}`;
+}
+
+function buildWebhookSourceReference(
+  provider: WebhookGrantProvider,
+  externalOrderId: string,
+  externalLineItemId?: string
+): string {
+  if (provider === 'lemonsqueezy') {
+    return `lemonsqueezy:order:${externalOrderId}`;
+  }
+  return buildBackfillSourceReference(
+    provider as BackfillGrantProvider,
+    externalOrderId,
+    externalLineItemId
+  );
+}
+
+async function normalizeEmailHash(email: string): Promise<string> {
+  return await sha256Hex(normalizeEmail(email));
+}
+
 async function seedProviderLicenseJourney(input: {
   provider: 'gumroad' | 'jinxxy';
   providerProductRef: string;
@@ -101,13 +195,53 @@ async function seedProviderLicenseJourney(input: {
   return { buyer, creator, productId: input.providerProductRef, subjectId };
 }
 
+async function seedProviderConnection(input: {
+  authMode: string;
+  authUserId: string;
+  credentials?: Array<{
+    credentialKey: string;
+    encryptedValue: string;
+    kind:
+      | 'api_key'
+      | 'api_token'
+      | 'oauth_access_token'
+      | 'oauth_refresh_token'
+      | 'webhook_secret'
+      | 'remote_webhook'
+      | 'store_selector';
+  }>;
+  externalShopId?: string;
+  externalShopName?: string;
+  provider: SupportedProvider;
+  webhookConfigured?: boolean;
+  webhookEndpoint?: string;
+  webhookRouteToken?: string;
+  webhookSecretRef?: string;
+}): Promise<Id<'provider_connections'>> {
+  return await getRealApiHarness().convex.mutation(
+    api.providerConnections.upsertProviderConnection,
+    {
+      apiSecret: API_SECRET,
+      authUserId: input.authUserId,
+      providerKey: input.provider,
+      authMode: input.authMode,
+      label: `E2E ${input.provider} connection`,
+      credentials: input.credentials ?? [],
+      externalShopId: input.externalShopId,
+      externalShopName: input.externalShopName,
+      webhookConfigured: input.webhookConfigured,
+      webhookEndpoint: input.webhookEndpoint,
+      webhookRouteToken: input.webhookRouteToken,
+      webhookSecretRef: input.webhookSecretRef,
+    }
+  );
+}
+
 async function seedJinxxyApiKey(authUserId: string, apiKey: string): Promise<void> {
-  await getRealApiHarness().convex.mutation(api.providerConnections.upsertProviderConnection, {
-    apiSecret: API_SECRET,
+  await seedProviderConnection({
     authUserId,
-    providerKey: 'jinxxy',
+    provider: 'jinxxy',
     authMode: 'api_key',
-    label: 'E2E Jinxxy connection',
     credentials: [
       {
         credentialKey: 'api_key',
@@ -118,16 +252,20 @@ async function seedJinxxyApiKey(authUserId: string, apiKey: string): Promise<voi
   });
 }
 
-async function seedBuyerProviderLink(input: {
-  provider: 'jinxxy';
+async function seedProviderIdentityLink(input: {
+  authUserId: string;
+  email?: string;
+  provider: SupportedProvider;
   providerUserId: string;
   subjectId: Id<'subjects'>;
-}): Promise<Id<'external_accounts'>> {
+}): Promise<{ emailHash?: string; externalAccountId: Id<'external_accounts'> }> {
   const now = Date.now();
+  const emailHash = input.email ? await normalizeEmailHash(input.email) : undefined;
   const externalAccountId = await getRealApiHarness().convex.insert('external_accounts', {
     provider: input.provider,
     providerUserId: input.providerUserId,
     providerUsername: input.providerUserId,
+    emailHash,
     status: 'active',
     createdAt: now,
     updatedAt: now,
@@ -141,7 +279,17 @@ async function seedBuyerProviderLink(input: {
     createdAt: now,
     updatedAt: now,
   });
-  return externalAccountId;
+  await getRealApiHarness().convex.insert('bindings', {
+    authUserId: input.authUserId,
+    subjectId: input.subjectId,
+    externalAccountId,
+    bindingType: 'verification',
+    status: 'active',
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return { emailHash, externalAccountId };
 }
 
 type AsyncBackfillJourney = {
@@ -167,7 +315,12 @@ async function seedAsyncBackfillJourney(): Promise<AsyncBackfillJourney> {
   const discordUserId = uniqueRef('discord_async_buyer');
   const buyerSubjectId = await seedSubject(buyer.authUserId, { discordUserId });
   const providerUserId = uniqueRef('jinxxy_buyer');
-  await seedBuyerProviderLink({ provider, providerUserId, subjectId: buyerSubjectId });
+  await seedProviderIdentityLink({
+    authUserId: creator.authUserId,
+    provider,
+    providerUserId,
+    subjectId: buyerSubjectId,
+  });
 
   const productId = uniqueRef('e2e_async_product');
   const providerProductRef = uniqueRef('e2e_async_provider_product');
@@ -206,6 +359,331 @@ async function seedAsyncBackfillJourney(): Promise<AsyncBackfillJourney> {
     provider,
     providerProductRef,
   };
+}
+
+type ProviderGrantJourney<TProvider extends SupportedProvider = SupportedProvider> = {
+  buyerAuthUserId: string;
+  buyerEmail: string;
+  buyerEmailHash: string;
+  catalogProductId: Id<'product_catalog'>;
+  creatorAuthUserId: string;
+  externalLineItemId?: string;
+  externalOrderId: string;
+  productId: string;
+  provider: TProvider;
+  providerProductRef: string;
+  providerUserId: string;
+  sourceReference: string;
+  subjectId: Id<'subjects'>;
+};
+
+async function seedGrantJourney<TProvider extends SupportedProvider>(input: {
+  displayName: string;
+  externalLineItem?: boolean;
+  productRef?: string;
+  provider: TProvider;
+  sourceReferenceFor: (externalOrderId: string, externalLineItemId?: string) => string;
+}): Promise<ProviderGrantJourney<TProvider>> {
+  const creator = await createBetterAuthUser({ name: `${input.displayName} Creator` });
+  await seedCreatorProfile({
+    authUserId: creator.authUserId,
+    name: `${input.displayName} Creator`,
+  });
+  const buyer = await createBetterAuthUser({
+    email: `${uniqueRef(`${input.provider}_buyer`)}@example.com`,
+    name: `${input.displayName} Buyer`,
+  });
+  const subjectId = await seedSubject(buyer.authUserId);
+  const productId = uniqueRef(`e2e_${input.provider}_product`);
+  const providerProductRef =
+    input.productRef ?? uniqueRef(`e2e_${input.provider}_provider_product`);
+  const catalogProductId = await seedProductCatalog({
+    authUserId: creator.authUserId,
+    productId,
+    provider: input.provider,
+    providerProductRef,
+    displayName: input.displayName,
+  });
+  const providerUserId = uniqueRef(`${input.provider}_buyer`);
+  const { emailHash } = await seedProviderIdentityLink({
+    authUserId: creator.authUserId,
+    email: buyer.email,
+    provider: input.provider,
+    providerUserId,
+    subjectId,
+  });
+  if (!emailHash) {
+    throw new Error(`Failed to seed ${input.provider} identity email hash`);
+  }
+  const externalOrderId = uniqueRef(`${input.provider}_order`);
+  const externalLineItemId = input.externalLineItem
+    ? uniqueRef(`${input.provider}_line`)
+    : undefined;
+  return {
+    buyerAuthUserId: buyer.authUserId,
+    buyerEmail: buyer.email,
+    buyerEmailHash: emailHash,
+    catalogProductId,
+    creatorAuthUserId: creator.authUserId,
+    externalLineItemId,
+    externalOrderId,
+    productId,
+    provider: input.provider,
+    providerProductRef,
+    providerUserId,
+    sourceReference: input.sourceReferenceFor(externalOrderId, externalLineItemId),
+    subjectId,
+  };
+}
+
+async function seedBackfillGrantJourney(input: {
+  externalLineItem: boolean;
+  provider: BackfillGrantProvider;
+}): Promise<ProviderGrantJourney<BackfillGrantProvider>> {
+  const journey = await seedGrantJourney({
+    displayName: `${input.provider} Backfill Parity`,
+    externalLineItem: input.externalLineItem,
+    provider: input.provider,
+    sourceReferenceFor: (externalOrderId, externalLineItemId) =>
+      buildBackfillSourceReference(input.provider, externalOrderId, externalLineItemId),
+  });
+  const now = Date.now();
+
+  await getRealApiHarness().convex.insert('purchase_facts', {
+    authUserId: journey.creatorAuthUserId,
+    provider: journey.provider,
+    externalOrderId: journey.externalOrderId,
+    externalLineItemId: journey.externalLineItemId,
+    buyerEmailHash: journey.buyerEmailHash,
+    providerUserId: journey.providerUserId,
+    providerProductId: journey.providerProductRef,
+    paymentStatus: 'completed',
+    lifecycleStatus: 'active',
+    purchasedAt: now - 7 * 24 * 60 * 60 * 1000,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return journey;
+}
+
+type WebhookGrantJourney = ProviderGrantJourney<WebhookGrantProvider> & {
+  apiKey?: string;
+  connectionId?: Id<'provider_connections'>;
+  secret?: string;
+  webhookRouteToken?: string;
+};
+
+async function seedWebhookGrantJourney(
+  provider: WebhookGrantProvider
+): Promise<WebhookGrantJourney> {
+  const journey = await seedGrantJourney({
+    displayName: `${provider} Webhook Parity`,
+    externalLineItem: provider !== 'gumroad',
+    productRef: provider === 'lemonsqueezy' ? uniqueNumericRef() : undefined,
+    provider,
+    sourceReferenceFor: (externalOrderId, externalLineItemId) =>
+      buildWebhookSourceReference(provider, externalOrderId, externalLineItemId),
+  });
+  const webhookRouteToken = uniqueRef(`${provider}_route`);
+  if (provider === 'gumroad') {
+    const connectionId = await seedProviderConnection({
+      authUserId: journey.creatorAuthUserId,
+      provider,
+      authMode: 'oauth',
+      webhookConfigured: true,
+      webhookEndpoint: `http://127.0.0.1:3001/webhooks/${provider}/${webhookRouteToken}`,
+      webhookRouteToken,
+    });
+    return { ...journey, connectionId, webhookRouteToken };
+  }
+  if (provider === 'jinxxy') {
+    const secret = uniqueRef('jinxxy_webhook_secret');
+    const connectionId = await seedProviderConnection({
+      authUserId: journey.creatorAuthUserId,
+      provider,
+      authMode: 'api_key',
+      webhookConfigured: true,
+      webhookEndpoint: `http://127.0.0.1:3001/webhooks/${provider}/${webhookRouteToken}`,
+      webhookRouteToken,
+      credentials: [
+        {
+          credentialKey: 'webhook_secret',
+          kind: 'webhook_secret',
+          encryptedValue: await encrypt(
+            secret,
+            E2E_ENCRYPTION_SECRET,
+            JINXXY_PURPOSES.webhookSecret
+          ),
+        },
+      ],
+    });
+    return { ...journey, connectionId, secret, webhookRouteToken };
+  }
+  if (provider === 'payhip') {
+    const apiKey = uniqueRef('payhip_api_key');
+    const connectionId = await seedProviderConnection({
+      authUserId: journey.creatorAuthUserId,
+      provider,
+      authMode: 'api_key',
+      webhookConfigured: true,
+      webhookEndpoint: `http://127.0.0.1:3001/webhooks/${provider}/${webhookRouteToken}`,
+      webhookRouteToken,
+      credentials: [
+        {
+          credentialKey: 'api_key',
+          kind: 'api_key',
+          encryptedValue: await encrypt(apiKey, E2E_ENCRYPTION_SECRET, PAYHIP_PURPOSES.credential),
+        },
+      ],
+    });
+    return { ...journey, apiKey, connectionId, webhookRouteToken };
+  }
+
+  const secret = uniqueRef('lemonsqueezy_webhook_secret');
+  const connectionId = await seedProviderConnection({
+    authUserId: journey.creatorAuthUserId,
+    provider,
+    authMode: 'api_token',
+    externalShopId: uniqueNumericRef(),
+    externalShopName: 'E2E LemonSqueezy Store',
+    webhookConfigured: true,
+    webhookEndpoint: 'http://127.0.0.1:3001/v1/webhooks/lemonsqueezy/e2e',
+    webhookSecretRef: await encrypt(
+      secret,
+      E2E_ENCRYPTION_SECRET,
+      LEMONSQUEEZY_PURPOSES.webhookSecret
+    ),
+  });
+  return { ...journey, connectionId, secret };
+}
+
+async function postWebhookGrant(journey: WebhookGrantJourney): Promise<Response> {
+  if (journey.provider === 'gumroad') {
+    if (!journey.webhookRouteToken) {
+      throw new Error('Gumroad webhook route token was not seeded');
+    }
+    const body = new URLSearchParams({
+      sale_id: journey.externalOrderId,
+      product_id: journey.providerProductRef,
+      email: journey.buyerEmail,
+      sale_timestamp: String(Math.floor(Date.now() / 1000)),
+    });
+    return await getRealApiHarness().app.fetch(`/webhooks/gumroad/${journey.webhookRouteToken}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+  }
+
+  if (journey.provider === 'jinxxy') {
+    if (!journey.secret || !journey.webhookRouteToken || !journey.externalLineItemId) {
+      throw new Error('Jinxxy webhook seed data is incomplete');
+    }
+    const rawBody = JSON.stringify({
+      event_id: `${journey.externalOrderId}:order.created`,
+      event_type: 'order.created',
+      created_at: new Date().toISOString(),
+      data: {
+        id: journey.externalOrderId,
+        email: journey.buyerEmail,
+        payment_status: 'PAID',
+        created_at: new Date().toISOString(),
+        user: { id: journey.providerUserId },
+        order_items: [
+          {
+            id: journey.externalLineItemId,
+            target_type: 'DIGITAL_PRODUCT',
+            target_id: journey.providerProductRef,
+            target_version_id: uniqueRef('jinxxy_version'),
+          },
+        ],
+      },
+    });
+    return await getRealApiHarness().app.fetch(`/webhooks/jinxxy/${journey.webhookRouteToken}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-signature': `sha256=${await hmacSha256(journey.secret, rawBody)}`,
+      },
+      body: rawBody,
+    });
+  }
+
+  if (journey.provider === 'payhip') {
+    if (!journey.apiKey || !journey.webhookRouteToken || !journey.externalLineItemId) {
+      throw new Error('Payhip webhook seed data is incomplete');
+    }
+    const rawBody = JSON.stringify({
+      id: journey.externalOrderId,
+      email: journey.buyerEmail,
+      type: 'paid',
+      signature: await sha256Hex(journey.apiKey),
+      date: Math.floor(Date.now() / 1000),
+      items: [
+        {
+          product_id: journey.externalLineItemId,
+          product_key: journey.providerProductRef,
+          product_name: 'Payhip Webhook Parity Product',
+          product_permalink: `https://payhip.com/b/${journey.providerProductRef}`,
+        },
+      ],
+    });
+    return await getRealApiHarness().app.fetch(`/webhooks/payhip/${journey.webhookRouteToken}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: rawBody,
+    });
+  }
+
+  if (!journey.secret || !journey.connectionId || !journey.externalLineItemId) {
+    throw new Error('LemonSqueezy webhook seed data is incomplete');
+  }
+  const rawBody = JSON.stringify({
+    meta: { event_name: 'order_created' },
+    data: {
+      id: journey.externalOrderId,
+      type: 'orders',
+      attributes: {
+        user_email: journey.buyerEmail,
+        order_number: Number(uniqueNumericRef()),
+        store_id: Number(uniqueNumericRef()),
+        customer_id: Number(uniqueNumericRef()),
+        currency: 'USD',
+        subtotal: 1000,
+        total: 1000,
+        created_at: new Date().toISOString(),
+        first_order_item: {
+          id: journey.externalLineItemId,
+          product_id: Number(journey.providerProductRef),
+          variant_id: Number(journey.providerProductRef),
+        },
+      },
+    },
+  });
+  return await getRealApiHarness().app.fetch(`/v1/webhooks/lemonsqueezy/${journey.connectionId}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-signature': await hmacSha256(journey.secret, rawBody),
+    },
+    body: rawBody,
+  });
+}
+
+async function processPendingWebhookEvents(): Promise<{
+  errors: string[];
+  failed: number;
+  processed: number;
+}> {
+  return await getRealApiHarness().convex.action<{
+    errors: string[];
+    failed: number;
+    processed: number;
+  }>(internal.webhookProcessing.processPendingWebhookEvents, {
+    apiSecret: API_SECRET,
+    limit: 10,
+  });
 }
 
 async function completeProviderLicense(input: {
@@ -318,11 +796,14 @@ async function assertJinxxyLicenseEndpointReachable(input: {
 }
 
 async function expectActiveProviderEntitlement(input: {
+  catalogProductId?: Id<'product_catalog'>;
   creatorAuthUserId: string;
+  entitlementId?: string;
   productId: string;
-  provider: 'gumroad' | 'jinxxy';
+  provider: SupportedProvider;
+  sourceReference?: string;
   subjectId: unknown;
-}) {
+}): Promise<Doc<'entitlements'>> {
   const entitlements = await getRealApiHarness().convex.collect('entitlements');
   const matches = entitlements.filter(
     (entitlement) =>
@@ -330,15 +811,30 @@ async function expectActiveProviderEntitlement(input: {
       entitlement.productId === input.productId &&
       entitlement.sourceProvider === input.provider &&
       entitlement.status === 'active' &&
-      entitlement.subjectId === input.subjectId
+      entitlement.subjectId === input.subjectId &&
+      (input.sourceReference === undefined ||
+        entitlement.sourceReference === input.sourceReference) &&
+      (input.entitlementId === undefined || String(entitlement._id) === input.entitlementId)
   );
   expect(matches).toHaveLength(1);
+  const [entitlement] = matches;
+  if (!entitlement) {
+    throw new Error(`Expected active ${input.provider} entitlement`);
+  }
+  if (input.catalogProductId !== undefined) {
+    expect(entitlement.catalogProductId).toBe(input.catalogProductId);
+  }
+  if (input.sourceReference !== undefined) {
+    expect(entitlement.sourceReference).toBe(input.sourceReference);
+  }
+  return entitlement;
 }
 
 async function findActiveProviderEntitlement(input: {
   creatorAuthUserId: string;
   productId: string;
-  provider: 'jinxxy';
+  provider: SupportedProvider;
+  sourceReference?: string;
   subjectId: Id<'subjects'>;
 }): Promise<Doc<'entitlements'> | undefined> {
   const entitlements = await getRealApiHarness().convex.collect('entitlements');
@@ -348,8 +844,32 @@ async function findActiveProviderEntitlement(input: {
       entitlement.productId === input.productId &&
       entitlement.sourceProvider === input.provider &&
       entitlement.status === 'active' &&
-      entitlement.subjectId === input.subjectId
+      entitlement.subjectId === input.subjectId &&
+      (input.sourceReference === undefined || entitlement.sourceReference === input.sourceReference)
   );
+}
+
+async function waitForActiveProviderEntitlement(input: {
+  catalogProductId?: Id<'product_catalog'>;
+  creatorAuthUserId: string;
+  productId: string;
+  provider: SupportedProvider;
+  sourceReference: string;
+  subjectId: Id<'subjects'>;
+}): Promise<Doc<'entitlements'>> {
+  let entitlement: Doc<'entitlements'> | undefined;
+  await waitForRealBackend(
+    async () => {
+      entitlement = await findActiveProviderEntitlement(input);
+      return Boolean(entitlement);
+    },
+    {
+      description: `${input.provider} grant to project an active entitlement`,
+      intervalMs: 250,
+      timeoutMs: 15_000,
+    }
+  );
+  return await expectActiveProviderEntitlement(input);
 }
 
 async function waitForAsyncBackfillEntitlement(
@@ -524,6 +1044,176 @@ describe('real API user journeys against self-hosted Convex', () => {
     expect(valid).toMatchObject({ valid: true, licenseId: created.licenseId });
   });
 
+  test('provider parity registry guard keeps supported providers reachable', () => {
+    for (const provider of SUPPORTED_PROVIDER_KEYS) {
+      const descriptor = PROVIDER_REGISTRY_BY_KEY[provider];
+      expect(descriptor?.providerKey).toBe(provider);
+      expect(descriptor?.status).toBe('active');
+    }
+
+    for (const provider of RUNTIME_PROVIDER_KEYS) {
+      expect(getProviderRuntime(provider)?.id).toBe(provider);
+    }
+
+    const manual = PROVIDER_REGISTRY_BY_KEY.manual;
+    expect(manual.creatorAuthModes).toContain('none');
+    expect(manual.buyerVerificationMethods).toContain('manual');
+    expect(api.manualLicenses.create).toBeDefined();
+
+    for (const provider of SHARED_WEBHOOK_PROVIDER_KEYS) {
+      const resolved = resolveWebhookPlugin(provider);
+      expect(resolved?.providerId).toBe(provider);
+      expect(resolved?.webhook).toBeDefined();
+    }
+
+    const lemon = PROVIDER_REGISTRY_BY_KEY.lemonsqueezy;
+    expect(lemon.supportsWebhook).toBe(true);
+    expect(lemon.capabilities).toContain('managed_webhooks');
+
+    for (const provider of SEEDED_BACKFILL_PROVIDER_KEYS) {
+      const runtime = getProviderRuntime(provider) as { backfill?: unknown } | undefined;
+      expect(runtime?.backfill).toBeDefined();
+    }
+  });
+
+  for (const cell of BACKFILL_GRANT_CELLS) {
+    test(
+      `provider parity backfill grant projects ${cell.provider} entitlement`,
+      async () => {
+        const journey = await seedBackfillGrantJourney(cell);
+        const projection = await getRealApiHarness().convex.mutation(
+          internal.backgroundSync.projectBackfilledPurchasesForProduct,
+          {
+            authUserId: journey.creatorAuthUserId,
+            productId: journey.productId,
+            provider: journey.provider,
+            providerProductRef: journey.providerProductRef,
+          }
+        );
+
+        expect(projection).toMatchObject({
+          purchaseFactsFound: 1,
+          linkedToSubject: 1,
+          entitlementsGranted: 1,
+          skippedInactive: 0,
+          unresolved: 0,
+        });
+
+        await waitForActiveProviderEntitlement({
+          catalogProductId: journey.catalogProductId,
+          creatorAuthUserId: journey.creatorAuthUserId,
+          productId: journey.productId,
+          provider: journey.provider,
+          sourceReference: journey.sourceReference,
+          subjectId: journey.subjectId,
+        });
+
+        const facts = await getRealApiHarness().convex.collect('purchase_facts');
+        expect(facts).toContainEqual(
+          expect.objectContaining({
+            authUserId: journey.creatorAuthUserId,
+            externalOrderId: journey.externalOrderId,
+            provider: journey.provider,
+            providerProductId: journey.providerProductRef,
+            subjectId: journey.subjectId,
+          })
+        );
+      },
+      ASYNC_JOB_TEST_TIMEOUT_MS
+    );
+  }
+
+  for (const cell of WEBHOOK_GRANT_CELLS) {
+    test(
+      `provider parity webhook grant projects ${cell.provider} entitlement`,
+      async () => {
+        const journey = await seedWebhookGrantJourney(cell.provider);
+        const response = await postWebhookGrant(journey);
+        expect([200, 202]).toContain(response.status);
+        const processing = await processPendingWebhookEvents();
+        expect(processing).toMatchObject({ failed: 0, processed: 1 });
+
+        await waitForActiveProviderEntitlement({
+          catalogProductId: journey.catalogProductId,
+          creatorAuthUserId: journey.creatorAuthUserId,
+          productId: journey.productId,
+          provider: journey.provider,
+          sourceReference: journey.sourceReference,
+          subjectId: journey.subjectId,
+        });
+
+        const events = await getRealApiHarness().convex.collect('webhook_events');
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            authUserId: journey.creatorAuthUserId,
+            provider: journey.provider,
+            status: 'processed',
+          })
+        );
+      },
+      ASYNC_JOB_TEST_TIMEOUT_MS
+    );
+  }
+
+  test('provider parity no-silent-failure guard includes provider signal', async () => {
+    const creator = await createBetterAuthUser({ name: 'Webhook Failure Signal Creator' });
+    await seedCreatorProfile({
+      authUserId: creator.authUserId,
+      name: 'Webhook Failure Signal Creator',
+    });
+    const webhookRouteToken = uniqueRef('jinxxy_failure_route');
+    const secret = uniqueRef('jinxxy_failure_secret');
+    await seedProviderConnection({
+      authUserId: creator.authUserId,
+      provider: 'jinxxy',
+      authMode: 'api_key',
+      webhookConfigured: true,
+      webhookEndpoint: `http://127.0.0.1:3001/webhooks/jinxxy/${webhookRouteToken}`,
+      webhookRouteToken,
+      credentials: [
+        {
+          credentialKey: 'webhook_secret',
+          kind: 'webhook_secret',
+          encryptedValue: await encrypt(
+            secret,
+            E2E_ENCRYPTION_SECRET,
+            JINXXY_PURPOSES.webhookSecret
+          ),
+        },
+      ],
+    });
+    const rawBody = JSON.stringify({
+      event_id: uniqueRef('jinxxy_failure_event'),
+      event_type: 'order.created',
+      created_at: new Date().toISOString(),
+    });
+    const response = await getRealApiHarness().app.fetch(`/webhooks/jinxxy/${webhookRouteToken}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-signature': `sha256=${await hmacSha256(secret, rawBody)}`,
+      },
+      body: rawBody,
+    });
+    expect(response.status).toBe(200);
+
+    const processing = await processPendingWebhookEvents();
+    expect(processing).toMatchObject({
+      failed: 1,
+      processed: 0,
+      errors: [expect.stringContaining('Jinxxy')],
+    });
+    const events = await getRealApiHarness().convex.collect('webhook_events');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        provider: 'jinxxy',
+        status: 'failed',
+        errorMessage: expect.stringContaining('Jinxxy'),
+      })
+    );
+    await expectNoEntitlements();
+  });
+
   test.skipIf(!hasGumroadE2E)(
     'gumroad real license redeem mints an active entitlement',
     async () => {
@@ -552,12 +1242,14 @@ describe('real API user journeys against self-hosted Convex', () => {
       expect(result.body.success).toBe(true);
       expect(result.body.provider).toBe('gumroad');
       expect(result.body.entitlementIds?.length ?? 0).toBeGreaterThan(0);
-      await expectActiveProviderEntitlement({
+      const entitlement = await expectActiveProviderEntitlement({
         creatorAuthUserId: journey.creator.authUserId,
+        entitlementId: result.body.entitlementIds?.[0],
         productId: journey.productId,
         provider: 'gumroad',
         subjectId: journey.subjectId,
       });
+      expect(entitlement.sourceReference).toStartWith('gumroad:');
     },
     EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
   );
@@ -623,12 +1315,14 @@ describe('real API user journeys against self-hosted Convex', () => {
       expect(result.body.success).toBe(true);
       expect(result.body.provider).toBe('jinxxy');
       expect(result.body.entitlementIds?.length ?? 0).toBeGreaterThan(0);
-      await expectActiveProviderEntitlement({
+      const entitlement = await expectActiveProviderEntitlement({
         creatorAuthUserId: journey.creator.authUserId,
+        entitlementId: result.body.entitlementIds?.[0],
         productId: journey.productId,
         provider: 'jinxxy',
         subjectId: journey.subjectId,
       });
+      expect(entitlement.sourceReference).toStartWith('jinxxy:');
     },
     EXTERNAL_PROVIDER_TEST_TIMEOUT_MS
   );
@@ -785,6 +1479,7 @@ describe('real API user journeys against self-hosted Convex', () => {
       expect.objectContaining({
         authUserId: creator.authUserId,
         productId: PRODUCT_ID,
+        sourceProvider: 'manual',
         status: 'active',
         subjectId,
       })
