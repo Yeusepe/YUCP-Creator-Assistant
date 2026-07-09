@@ -32,6 +32,7 @@
 import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import {
   action,
   internalAction,
@@ -80,6 +81,38 @@ const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+
+type ManualLicenseHashVerificationResult =
+  | { valid: true; licenseId: Id<'manual_licenses'> }
+  | { valid: false; reason: string };
+
+type LicenseProofResult = {
+  success: boolean;
+  error?: string;
+  manualLicenseId?: Id<'manual_licenses'>;
+  creatorAuthUserId?: string;
+  productId?: string;
+};
+
+async function hashManualLicenseKey(licenseKey: string): Promise<string> {
+  const encryptionSecret = process.env.ENCRYPTION_SECRET?.trim();
+  if (!encryptionSecret) {
+    throw new Error('ENCRYPTION_SECRET is required for manual license verification');
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(encryptionSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(licenseKey));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
   keyId: string;
@@ -167,6 +200,42 @@ export const lookupProductByProviderRef = query({
       provider: args.provider,
       providerProductRef: args.providerProductRef,
     });
+  },
+});
+
+export const verifyManualLicenseByHash = internalQuery({
+  args: {
+    authUserId: v.string(),
+    productId: v.string(),
+    licenseKeyHash: v.string(),
+  },
+  returns: v.union(
+    v.object({ valid: v.literal(true), licenseId: v.id('manual_licenses') }),
+    v.object({ valid: v.literal(false), reason: v.string() })
+  ),
+  handler: async (ctx, args): Promise<ManualLicenseHashVerificationResult> => {
+    const license = await ctx.db
+      .query('manual_licenses')
+      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', args.licenseKeyHash))
+      .first();
+
+    if (!license || license.authUserId !== args.authUserId) {
+      return { valid: false as const, reason: 'License verification failed' };
+    }
+    if (license.productId !== args.productId) {
+      return { valid: false as const, reason: 'License does not match this product' };
+    }
+    if (license.status === 'revoked') {
+      return { valid: false as const, reason: 'License has been revoked' };
+    }
+    if (license.expiresAt && Date.now() > license.expiresAt) {
+      return { valid: false as const, reason: 'License has expired' };
+    }
+    if (license.maxUses !== undefined && license.currentUses >= license.maxUses) {
+      return { valid: false as const, reason: 'License has reached its usage limit' };
+    }
+
+    return { valid: true as const, licenseId: license._id };
   },
 });
 
@@ -537,8 +606,11 @@ export const verifyLicenseProof = internalAction({
   returns: v.object({
     success: v.boolean(),
     error: v.optional(v.string()),
+    manualLicenseId: v.optional(v.id('manual_licenses')),
+    creatorAuthUserId: v.optional(v.string()),
+    productId: v.optional(v.string()),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
       return { success: false, error: 'Missing required fields' };
     }
@@ -568,6 +640,23 @@ export const verifyLicenseProof = internalAction({
             error: 'Package not found or not registered to the product owner',
           };
         }
+      }
+
+      if (args.provider === 'manual') {
+        const manualLicense = await ctx.runQuery(internal.yucpLicenses.verifyManualLicenseByHash, {
+          authUserId: product.authUserId,
+          productId: product.productId,
+          licenseKeyHash: await hashManualLicenseKey(args.licenseKey),
+        });
+        if (!manualLicense.valid) {
+          return { success: false, error: manualLicense.reason };
+        }
+        return {
+          success: true,
+          manualLicenseId: manualLicense.licenseId,
+          creatorAuthUserId: product.authUserId,
+          productId: product.productId,
+        };
       }
 
       verifyResult = await verifyLicenseWithProviderRuntime(ctx, {

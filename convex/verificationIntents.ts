@@ -14,6 +14,7 @@ import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import type { ActionCtx } from './_generated/server';
 import { action, internalMutation, mutation, query } from './_generated/server';
+import { grantEntitlementFromFunnel } from './entitlements';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -520,6 +521,104 @@ export const markIntentVerified = internalMutation({
       throw new Error(`Verification intent not found: ${args.intentId}`);
     }
     const now = Date.now();
+    await ctx.db.patch(args.intentId, {
+      status: 'verified',
+      verifiedMethodKey: args.methodKey,
+      verificationGrantJti: generateHex(16),
+      verificationGrantExpiresAt: now + GRANT_EXPIRY_MS,
+      errorCode: undefined,
+      errorMessage: undefined,
+      updatedAt: now,
+    });
+    return null;
+  },
+});
+
+export const completeManualLicenseIntent = internalMutation({
+  args: {
+    intentId: v.id('verification_intents'),
+    methodKey: v.string(),
+    subjectId: v.id('subjects'),
+    creatorAuthUserId: v.string(),
+    productId: v.string(),
+    manualLicenseId: v.id('manual_licenses'),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get(args.intentId);
+    if (!intent) {
+      throw new Error(`Verification intent not found: ${args.intentId}`);
+    }
+    if (intent.status !== 'pending') {
+      throw new Error(`Verification intent is ${intent.status}`);
+    }
+    const subject = await ctx.db.get(args.subjectId);
+    if (!subject) {
+      throw new Error(`Verification subject not found: ${args.subjectId}`);
+    }
+
+    const now = Date.now();
+    const existingEntitlements = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
+      )
+      .collect();
+    const sourceReference = `manual:${args.manualLicenseId}`;
+
+    await grantEntitlementFromFunnel(ctx, {
+      authUserId: args.creatorAuthUserId,
+      subjectId: args.subjectId,
+      subject,
+      productId: args.productId,
+      sourceProvider: 'manual',
+      sourceReference,
+      policySnapshotVersion: existingEntitlements.length + 1,
+      grantedAt: now,
+      now,
+      existingLookup: {
+        mode: 'sourceReference',
+        sourceReferences: [sourceReference],
+        matchProduct: true,
+        matchProvider: true,
+      },
+      reactivation: {
+        allowTerminal: false,
+        refreshExistingFields: true,
+      },
+      roleSync: {
+        mode: 'roleSyncIdentity',
+        lifecycleAt: now,
+        requireDiscordUserId: true,
+        missingSubject: 'skip',
+      },
+      audit: {
+        emitForNew: true,
+        emitForReactivated: true,
+        correlationId: String(args.intentId),
+      },
+      evidence: {
+        authUserId: args.creatorAuthUserId,
+        subjectId: args.subjectId,
+        providerKey: 'manual',
+        sourceReference,
+        evidenceType: 'manual_license_redeemed',
+        status: 'active',
+        productId: args.productId,
+        metadata: { manualLicenseId: String(args.manualLicenseId) },
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        lookupFilters: {
+          authUserId: true,
+          subjectId: true,
+          productId: true,
+          evidenceType: true,
+        },
+        patchEvidenceType: true,
+      },
+    });
+
     await ctx.db.patch(args.intentId, {
       status: 'verified',
       verifiedMethodKey: args.methodKey,
@@ -1174,17 +1273,20 @@ export const verifyIntentWithManualLicense = action({
       };
     }
 
-    const proof: { success: boolean; error?: string } = await ctx.runAction(
-      internal.yucpLicenses.verifyLicenseProof,
-      {
-        packageId: intent.packageId,
-        licenseKey: args.licenseKey,
-        provider: requirement.providerKey,
-        productPermalink: requirement.providerProductRef,
-        creatorAuthUserId: requirement.creatorAuthUserId,
-        productId: requirement.productId,
-      }
-    );
+    const proof: {
+      success: boolean;
+      error?: string;
+      manualLicenseId?: Id<'manual_licenses'>;
+      creatorAuthUserId?: string;
+      productId?: string;
+    } = await ctx.runAction(internal.yucpLicenses.verifyLicenseProof, {
+      packageId: intent.packageId,
+      licenseKey: args.licenseKey,
+      provider: requirement.providerKey,
+      productPermalink: requirement.providerProductRef,
+      creatorAuthUserId: requirement.creatorAuthUserId,
+      productId: requirement.productId,
+    });
 
     if (!proof.success) {
       await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
@@ -1197,6 +1299,32 @@ export const verifyIntentWithManualLicense = action({
         errorCode: 'invalid_proof',
         errorMessage: proof.error ?? 'License verification failed',
       };
+    }
+
+    if (proof.manualLicenseId && proof.creatorAuthUserId && proof.productId) {
+      const subjectId = await resolveIntentSubjectId(ctx, intent, args.authUserId);
+      if (!subjectId) {
+        await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+          intentId: args.intentId,
+          errorCode: 'subject_not_found',
+          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        });
+        return {
+          success: false,
+          errorCode: 'subject_not_found',
+          errorMessage: 'No linked buyer subject was found for this YUCP account.',
+        };
+      }
+
+      await ctx.runMutation(internal.verificationIntents.completeManualLicenseIntent, {
+        intentId: args.intentId,
+        methodKey: args.methodKey,
+        subjectId,
+        creatorAuthUserId: proof.creatorAuthUserId,
+        productId: proof.productId,
+        manualLicenseId: proof.manualLicenseId,
+      });
+      return { success: true };
     }
 
     await ctx.runMutation(internal.verificationIntents.markIntentVerified, {
