@@ -543,7 +543,7 @@ export const completeManualLicenseIntent = internalMutation({
     productId: v.string(),
     manualLicenseId: v.id('manual_licenses'),
   },
-  returns: v.null(),
+  returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
     if (!intent) {
@@ -558,13 +558,35 @@ export const completeManualLicenseIntent = internalMutation({
     }
 
     const now = Date.now();
+    const manualLicense = await ctx.db.get(args.manualLicenseId);
+    if (
+      !manualLicense ||
+      manualLicense.authUserId !== args.creatorAuthUserId ||
+      manualLicense.productId !== args.productId ||
+      manualLicense.status !== 'active' ||
+      (manualLicense.expiresAt !== undefined && now > manualLicense.expiresAt) ||
+      (manualLicense.maxUses !== undefined && manualLicense.currentUses >= manualLicense.maxUses)
+    ) {
+      return { success: false };
+    }
+
+    const currentUses = manualLicense.currentUses + 1;
+    await ctx.db.patch(args.manualLicenseId, {
+      currentUses,
+      status:
+        manualLicense.maxUses !== undefined && currentUses >= manualLicense.maxUses
+          ? 'exhausted'
+          : 'active',
+      updatedAt: now,
+    });
+
     const existingEntitlements = await ctx.db
       .query('entitlements')
       .withIndex('by_auth_user_subject', (q) =>
         q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
       )
       .collect();
-    const sourceReference = `manual:${args.manualLicenseId}`;
+    const sourceReference = `manual:${await sha256Hex(String(args.manualLicenseId))}`;
 
     await grantEntitlementFromFunnel(ctx, {
       authUserId: args.creatorAuthUserId,
@@ -605,7 +627,6 @@ export const completeManualLicenseIntent = internalMutation({
         evidenceType: 'manual_license_redeemed',
         status: 'active',
         productId: args.productId,
-        metadata: { manualLicenseId: String(args.manualLicenseId) },
         observedAt: now,
         createdAt: now,
         updatedAt: now,
@@ -628,7 +649,7 @@ export const completeManualLicenseIntent = internalMutation({
       errorMessage: undefined,
       updatedAt: now,
     });
-    return null;
+    return { success: true };
   },
 });
 
@@ -1316,14 +1337,29 @@ export const verifyIntentWithManualLicense = action({
         };
       }
 
-      await ctx.runMutation(internal.verificationIntents.completeManualLicenseIntent, {
-        intentId: args.intentId,
-        methodKey: args.methodKey,
-        subjectId,
-        creatorAuthUserId: proof.creatorAuthUserId,
-        productId: proof.productId,
-        manualLicenseId: proof.manualLicenseId,
-      });
+      const completion = await ctx.runMutation(
+        internal.verificationIntents.completeManualLicenseIntent,
+        {
+          intentId: args.intentId,
+          methodKey: args.methodKey,
+          subjectId,
+          creatorAuthUserId: proof.creatorAuthUserId,
+          productId: proof.productId,
+          manualLicenseId: proof.manualLicenseId,
+        }
+      );
+      if (!completion.success) {
+        await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
+          intentId: args.intentId,
+          errorCode: 'invalid_proof',
+          errorMessage: 'License verification failed',
+        });
+        return {
+          success: false,
+          errorCode: 'invalid_proof',
+          errorMessage: 'License verification failed',
+        };
+      }
       return { success: true };
     }
 

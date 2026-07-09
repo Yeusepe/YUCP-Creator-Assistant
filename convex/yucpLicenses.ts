@@ -84,7 +84,7 @@ const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
 
 type ManualLicenseHashVerificationResult =
   | { valid: true; licenseId: Id<'manual_licenses'> }
-  | { valid: false; reason: string };
+  | { valid: false };
 
 type LicenseProofResult = {
   success: boolean;
@@ -95,7 +95,7 @@ type LicenseProofResult = {
 };
 
 async function hashManualLicenseKey(licenseKey: string): Promise<string> {
-  const encryptionSecret = process.env.ENCRYPTION_SECRET?.trim();
+  const encryptionSecret = process.env.ENCRYPTION_SECRET;
   if (!encryptionSecret) {
     throw new Error('ENCRYPTION_SECRET is required for manual license verification');
   }
@@ -211,7 +211,7 @@ export const verifyManualLicenseByHash = internalQuery({
   },
   returns: v.union(
     v.object({ valid: v.literal(true), licenseId: v.id('manual_licenses') }),
-    v.object({ valid: v.literal(false), reason: v.string() })
+    v.object({ valid: v.literal(false) })
   ),
   handler: async (ctx, args): Promise<ManualLicenseHashVerificationResult> => {
     const license = await ctx.db
@@ -220,19 +220,19 @@ export const verifyManualLicenseByHash = internalQuery({
       .first();
 
     if (!license || license.authUserId !== args.authUserId) {
-      return { valid: false as const, reason: 'License verification failed' };
+      return { valid: false as const };
     }
     if (license.productId !== args.productId) {
-      return { valid: false as const, reason: 'License does not match this product' };
+      return { valid: false as const };
     }
-    if (license.status === 'revoked') {
-      return { valid: false as const, reason: 'License has been revoked' };
+    if (license.status !== 'active') {
+      return { valid: false as const };
     }
     if (license.expiresAt && Date.now() > license.expiresAt) {
-      return { valid: false as const, reason: 'License has expired' };
+      return { valid: false as const };
     }
     if (license.maxUses !== undefined && license.currentUses >= license.maxUses) {
-      return { valid: false as const, reason: 'License has reached its usage limit' };
+      return { valid: false as const };
     }
 
     return { valid: true as const, licenseId: license._id };
@@ -649,7 +649,7 @@ export const verifyLicenseProof = internalAction({
           licenseKeyHash: await hashManualLicenseKey(args.licenseKey),
         });
         if (!manualLicense.valid) {
-          return { success: false, error: manualLicense.reason };
+          return { success: false, error: 'License verification failed' };
         }
         return {
           success: true,
