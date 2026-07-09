@@ -562,15 +562,33 @@ export const completeManualLicenseIntent = internalMutation({
     if (
       !manualLicense ||
       manualLicense.authUserId !== args.creatorAuthUserId ||
-      manualLicense.productId !== args.productId ||
-      manualLicense.status !== 'active' ||
-      (manualLicense.expiresAt !== undefined && now > manualLicense.expiresAt) ||
-      (manualLicense.maxUses !== undefined && manualLicense.currentUses >= manualLicense.maxUses)
+      manualLicense.productId !== args.productId
     ) {
       return { success: false };
     }
 
     const sourceReference = `manual:${await sha256Hex(String(args.manualLicenseId))}`;
+    const existingEntitlement = await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.creatorAuthUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('productId'), args.productId),
+          q.eq(q.field('sourceProvider'), 'manual'),
+          q.eq(q.field('sourceReference'), sourceReference),
+          q.eq(q.field('status'), 'active')
+        )
+      )
+      .first();
+    const canConsume =
+      manualLicense.status === 'active' &&
+      (manualLicense.expiresAt === undefined || now <= manualLicense.expiresAt) &&
+      (manualLicense.maxUses === undefined || manualLicense.currentUses < manualLicense.maxUses);
+    if (!canConsume && !existingEntitlement) {
+      return { success: false };
+    }
 
     const grantResult = await grantEntitlementFromFunnel(ctx, {
       authUserId: args.creatorAuthUserId,
@@ -625,6 +643,9 @@ export const completeManualLicenseIntent = internalMutation({
     });
 
     if (grantResult.isNew || grantResult.reason === 'reactivated') {
+      if (!canConsume) {
+        throw new Error('Manual license grant must have an available use');
+      }
       const currentUses = manualLicense.currentUses + 1;
       await ctx.db.patch(args.manualLicenseId, {
         currentUses,

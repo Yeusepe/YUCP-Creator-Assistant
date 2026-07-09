@@ -555,6 +555,13 @@ describe('verification intents buyer provider links', () => {
       providerProductRef: productId,
       displayName: 'YUCP Manual License Product',
     });
+    await t.mutation(api.manualLicenses.create, {
+      apiSecret: API_SECRET,
+      authUserId: 'auth-yucp-manual-license-other-creator',
+      licenseKeyHash: await hashManualLicenseKey(licenseKey),
+      productId,
+      maxUses: 1,
+    });
     const { licenseId } = await t.mutation(api.manualLicenses.create, {
       apiSecret: API_SECRET,
       authUserId: creatorAuthUserId,
@@ -628,6 +635,42 @@ describe('verification intents buyer provider links', () => {
     });
     const consumedLicense = await t.run((ctx) => ctx.db.get(licenseId));
     expect(consumedLicense).toMatchObject({
+      currentUses: 1,
+      status: 'exhausted',
+    });
+
+    const { intentId: sameBuyerRetryIntentId } = await t.mutation(
+      api.verificationIntents.createVerificationIntent,
+      {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        packageId,
+        machineFingerprint: 'machine-yucp-manual-license-same-buyer-retry',
+        codeChallenge: 'challenge-yucp-manual-license-same-buyer-retry',
+        returnUrl: 'https://example.com/return',
+        requirements: [
+          {
+            methodKey: 'manual-license',
+            providerKey: 'manual',
+            kind: 'manual_license',
+            title: 'YUCP manual license',
+            providerProductRef: productId,
+            creatorAuthUserId,
+            productId,
+          },
+        ],
+      }
+    );
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId: sameBuyerRetryIntentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({ success: true });
+    expect(await t.run((ctx) => ctx.db.get(licenseId))).toMatchObject({
       currentUses: 1,
       status: 'exhausted',
     });

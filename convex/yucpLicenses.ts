@@ -255,22 +255,19 @@ export const verifyManualLicenseByHash = internalQuery({
   handler: async (ctx, args): Promise<ManualLicenseHashVerificationResult> => {
     const license = await ctx.db
       .query('manual_licenses')
-      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', args.licenseKeyHash))
+      .withIndex('by_auth_user_product', (q) =>
+        q.eq('authUserId', args.authUserId).eq('productId', args.productId)
+      )
+      .filter((q) => q.eq(q.field('licenseKeyHash'), args.licenseKeyHash))
       .first();
 
-    if (!license || license.authUserId !== args.authUserId) {
+    if (!license) {
       return { valid: false as const };
     }
-    if (license.productId !== args.productId) {
-      return { valid: false as const };
-    }
-    if (license.status !== 'active') {
+    if (license.status !== 'active' && license.status !== 'exhausted') {
       return { valid: false as const };
     }
     if (license.expiresAt && Date.now() > license.expiresAt) {
-      return { valid: false as const };
-    }
-    if (license.maxUses !== undefined && license.currentUses >= license.maxUses) {
       return { valid: false as const };
     }
 
