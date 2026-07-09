@@ -61,6 +61,8 @@
     "test:convex:real:up": "bun run ops/convex-real/manage.ts up",
     "test:convex:real": "bun test --timeout 60000 --max-concurrency 1 ./ops/convex-real/real-backend-smoke.test.ts ./ops/convex-real/real-backend-suite.test.ts",
     "test:convex:real:down": "bun run ops/convex-real/manage.ts down",
+    "test:e2e:flows:run": "bun test --timeout 60000 --max-concurrency 1 ./apps/api/test/e2e/user-journeys.test.ts",
+    "test:e2e:flows": "bun run apps/api/test/e2e/support/runE2EFlows.ts",
     "test:convex:prepare": "bun run infisical:convex -- bun x convex dev --once",
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
