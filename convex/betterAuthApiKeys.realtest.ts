@@ -8,6 +8,7 @@ const API_SECRET = 'test-secret';
 type BetterAuthComponentCtx = {
   db: {
     insert: (table: string, value: Record<string, unknown>) => Promise<string>;
+    patch: (id: string, value: Record<string, unknown>) => Promise<void>;
     query: (table: string) => {
       collect: () => Promise<Array<Record<string, unknown>>>;
     };
@@ -129,6 +130,61 @@ describe('betterAuthApiKeys', () => {
     const verified = await t.mutation(api.betterAuthApiKeys.verifyApiKey, {
       apiSecret: API_SECRET,
       key: result.key,
+      scopes: ['verification:read'],
+    });
+
+    expect(verified.valid).toBe(true);
+    expect(verified.key?.userId).toBe(tenantAuthUserId);
+    expect(verified.key?.metadata).toEqual({
+      kind: 'public-api',
+      authUserId: tenantAuthUserId,
+    });
+  }, 10_000);
+
+  it('verifies legacy managed public API keys as the metadata tenant owner', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
+    const sessionOwnerUserId = await seedBetterAuthUser(t, {
+      name: 'Legacy Session Owner',
+      email: 'legacy-session-owner@example.com',
+    });
+    const tenantAuthUserId = await seedBetterAuthUser(t, {
+      name: 'Legacy Public Tenant',
+      email: 'legacy-public-tenant@example.com',
+    });
+
+    const created = await t.mutation(api.betterAuthApiKeys.createApiKey, {
+      apiSecret: API_SECRET,
+      userId: sessionOwnerUserId,
+      authUserId: tenantAuthUserId,
+      name: 'Legacy tenant public API key',
+      scopes: ['verification:read'],
+      expiresIn: null,
+    });
+
+    const legacyStoredKey = await t.runInComponent('betterAuth', async (ctx) => {
+      const [storedKey] = await ctx.db.query('apikey').collect();
+      if (!storedKey || typeof storedKey._id !== 'string') {
+        throw new Error('Expected the managed public API key to be stored');
+      }
+
+      await ctx.db.patch(storedKey._id, { userId: sessionOwnerUserId });
+      const [legacyKey] = await ctx.db.query('apikey').collect();
+      return legacyKey;
+    });
+
+    expect(legacyStoredKey).toMatchObject({
+      userId: sessionOwnerUserId,
+      referenceId: tenantAuthUserId,
+    });
+    expect(JSON.parse(String(legacyStoredKey?.metadata))).toEqual({
+      kind: 'public-api',
+      authUserId: tenantAuthUserId,
+    });
+
+    const verified = await t.mutation(api.betterAuthApiKeys.verifyApiKey, {
+      apiSecret: API_SECRET,
+      key: created.key,
       scopes: ['verification:read'],
     });
 

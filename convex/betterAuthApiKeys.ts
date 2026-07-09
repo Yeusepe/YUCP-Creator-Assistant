@@ -124,9 +124,18 @@ function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
         }
       : null;
 
+  // Managed public keys are tenant-owned. Legacy rows retain the session owner
+  // in userId, so use the corroborating referenceId to recover the tenant
+  // without trusting metadata alone.
+  const ownerUserId =
+    metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
+    value.referenceId === metadata.authUserId
+      ? metadata.authUserId
+      : value.userId;
+
   return {
     id,
-    userId: value.userId,
+    userId: ownerUserId,
     name: value.name,
     start: value.start,
     prefix: value.prefix,
