@@ -118,6 +118,7 @@ export async function processJinxxyEvent(
           ctx,
           authUserId,
           resolvedSubjectId,
+          'jinxxy',
           providerProductId,
           sourceRef,
           purchasedAt
@@ -148,6 +149,7 @@ export async function processJinxxyEvent(
           ctx,
           authUserId,
           subjectId,
+          'jinxxy',
           providerProductId,
           sourceRef,
           purchasedAt

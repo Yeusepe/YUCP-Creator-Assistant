@@ -12,7 +12,7 @@
 
 import { createApiActorBinding, createServiceApiActor } from '@yucp/shared/apiActor';
 import { convexTest } from 'convex-test';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import schema from './schema';
@@ -70,6 +70,7 @@ describe('grantEntitlement lifecycle', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     delete process.env.CONVEX_API_SECRET;
   });
 
@@ -146,6 +147,50 @@ describe('grantEntitlement lifecycle', () => {
     });
 
     expect(count).toBe(1);
+  });
+
+  it('given same sourceReference, when grant is skipped as idempotent, then logs one structured skipped event', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-grant-idempotent-monitoring';
+    const productId = 'gumroad:prod_monitoring';
+    const sourceReference = 'order_monitoring_ref';
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const subjectId = await seedSubject(t, { primaryDiscordUserId: 'discord-grant-monitoring' });
+    await seedCreatorProfile(t, { authUserId });
+
+    const args = {
+      apiSecret: 'test-secret',
+      authUserId,
+      subjectId,
+      productId,
+      evidence: {
+        provider: 'gumroad' as const,
+        sourceReference,
+      },
+    };
+
+    const first = await t.mutation(api.entitlements.grantEntitlement, args);
+    logSpy.mockClear();
+
+    const second = await t.mutation(api.entitlements.grantEntitlement, args);
+
+    expect(second.isNew).toBe(false);
+    expect(second.entitlementId).toBe(first.entitlementId);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0]?.[0]).toBe('entitlement_grant');
+    expect(logSpy.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        event: 'entitlement_grant',
+        provider: 'gumroad',
+        outcome: 'skipped',
+        reason: 'already_active',
+        authUserId,
+        productId,
+      })
+    );
+    expect(logSpy.mock.calls[0]?.[1]).toHaveProperty('subjectId');
+    expect(logSpy.mock.calls[0]?.[1]).toHaveProperty('entitlementId');
   });
 
   it('given wrong apiSecret, when grantEntitlement called, then throws', async () => {

@@ -522,6 +522,84 @@ describe('processWebhookEvent pipeline', () => {
     expect(tierIds).toEqual([catalogTierId]);
   });
 
+  it('given Payhip webhook without a catalog match, when processed, then entitlement keeps Payhip as source provider', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-payhip-source-provider';
+    const buyerAuthUserId = 'buyer-payhip-source-provider';
+    const buyerEmail = 'payhip-source-provider@example.com';
+    const buyerSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-payhip-source-provider',
+    });
+
+    await seedCreatorProfile(t, {
+      authUserId: creatorAuthUserId,
+      ownerDiscordUserId: 'discord-creator-payhip-source-provider',
+    });
+
+    const syncResult = await t.mutation(api.identitySync.syncUserFromProvider, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      provider: 'payhip',
+      providerUserId: 'payhip-source-provider-buyer',
+      username: 'Payhip Source Provider Buyer',
+      email: buyerEmail,
+      discordUserId: 'discord-payhip-source-provider',
+    });
+
+    await t.mutation(api.bindings.activateBinding, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      externalAccountId: syncResult.externalAccountId,
+      bindingType: 'verification',
+    });
+
+    const insertResult = await t.mutation(api.webhookIngestion.insertWebhookEvent, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      provider: 'payhip',
+      providerEventId: 'payhip-source-provider-event',
+      eventType: 'paid',
+      rawPayload: {
+        id: 'payhip-source-provider-transaction',
+        type: 'paid',
+        email: buyerEmail,
+        date: 1_717_171_717,
+        items: [
+          {
+            product_id: 'payhip-source-provider-line',
+            product_key: 'payhip-source-provider-product',
+            product_name: 'Payhip Source Provider Product',
+          },
+        ],
+      },
+      signatureValid: true,
+      verificationMethod: 'hmac',
+    });
+
+    const processResult = await t.run(async (ctx) =>
+      ctx.runMutation(internal.webhookProcessing.processWebhookEvent, {
+        apiSecret: API_SECRET,
+        eventId: insertResult.eventId!,
+      })
+    );
+
+    expect(processResult.success).toBe(true);
+
+    const entitlements = await t.run(async (ctx) => ctx.db.query('entitlements').collect());
+    expect(entitlements).toHaveLength(1);
+    expect(entitlements[0]).toMatchObject({
+      authUserId: creatorAuthUserId,
+      subjectId: buyerSubjectId,
+      productId: 'payhip-source-provider-product',
+      sourceProvider: 'payhip',
+      sourceReference: 'payhip:payhip-source-provider-transaction:payhip-source-provider-line',
+      status: 'active',
+      grantedAt: 1_717_171_717_000,
+    });
+  });
+
   it('given wrong apiSecret, when webhook processing is attempted, then pending event remains unchanged', async () => {
     const t = makeTestConvex();
 

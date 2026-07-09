@@ -1,4 +1,5 @@
 import type { Id } from '../_generated/dataModel';
+import { grantEntitlementFromFunnel } from '../entitlements';
 import { resolveRoleSyncDiscordUserId } from '../lib/roleSyncIdentity';
 import {
   buildRoleRemovalIdempotencyKey,
@@ -47,6 +48,7 @@ export async function projectEntitlementFromPurchaseFact(
   ctx: any,
   authUserId: string,
   subjectId: Id<'subjects'>,
+  sourceProvider: string,
   providerProductId: string,
   sourceRef: string,
   purchasedAt: number
@@ -72,53 +74,27 @@ export async function projectEntitlementFromPurchaseFact(
   const productId = catalogProduct?.productId ?? providerProductId;
   const catalogProductId = catalogProduct?._id;
 
-  const existing = await ctx.db
-    .query('entitlements')
-    .withIndex('by_auth_user_subject', (q: any) =>
-      q.eq('authUserId', authUserId).eq('subjectId', subjectId)
-    )
-    .filter((q: any) => q.eq(q.field('sourceReference'), sourceRef))
-    .first();
-
-  if (existing && existing.status === 'active') {
-    return; // Idempotent
-  }
-
   const now = Date.now();
-  const policySnapshotVersion = 1;
-
-  let entitlementId: Id<'entitlements'>;
-  if (existing) {
-    await ctx.db.patch(existing._id, {
-      status: 'active',
-      revokedAt: undefined,
-      updatedAt: now,
-    });
-    entitlementId = existing._id;
-  } else {
-    entitlementId = await ctx.db.insert('entitlements', {
-      authUserId,
-      subjectId,
-      productId,
-      sourceProvider: catalogProduct?.provider ?? 'gumroad',
-      sourceReference: sourceRef,
-      catalogProductId,
-      status: 'active',
-      policySnapshotVersion,
-      grantedAt: purchasedAt,
-      updatedAt: now,
-    });
-  }
-
-  const subject = await ctx.db.get(subjectId);
-  const discordUserId = subject?.primaryDiscordUserId;
-  if (
-    discordUserId &&
-    !discordUserId.startsWith('gumroad:') &&
-    !discordUserId.startsWith('jinxxy:')
-  ) {
-    await emitRoleSyncJob(ctx, authUserId, subjectId, discordUserId, entitlementId, now);
-  }
+  await grantEntitlementFromFunnel(ctx, {
+    authUserId,
+    subjectId,
+    productId,
+    sourceProvider,
+    sourceReference: sourceRef,
+    catalogProductId,
+    policySnapshotVersion: 1,
+    grantedAt: purchasedAt,
+    now,
+    existingLookup: { mode: 'sourceReference' },
+    reactivation: { allowTerminal: true },
+    roleSync: {
+      mode: 'primaryDiscordUserId',
+      lifecycleAt: now,
+      requireDiscordUserId: true,
+      missingSubject: 'skip',
+      skipDiscordUserIdPrefixes: ['gumroad:', 'jinxxy:'],
+    },
+  });
 }
 
 /**

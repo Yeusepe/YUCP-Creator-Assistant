@@ -27,7 +27,9 @@ import {
   requireServiceActor,
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { createConvexLogger } from './lib/logger';
 import { ProviderV } from './lib/providers';
+import { resolveRoleSyncDiscordUserId } from './lib/roleSyncIdentity';
 import {
   buildRoleRemovalIdempotencyKey,
   buildRoleSyncIdempotencyKey,
@@ -91,6 +93,104 @@ export const RevocationReason = v.union(
 );
 
 type EntitlementReaderCtx = MutationCtx | QueryCtx;
+type EntitlementGrantOutcome = 'granted' | 'skipped' | 'error';
+type EntitlementGrantReason =
+  | 'created'
+  | 'reactivated'
+  | 'active_refreshed'
+  | 'already_active'
+  | 'active_product_exists'
+  | 'source_provider_required'
+  | 'provider_customer_missing'
+  | 'source_provider_missing'
+  | 'error';
+type GrantExistingLookup =
+  | {
+      mode: 'sourceReference';
+      sourceReferences?: string[];
+      matchProduct?: boolean;
+      matchProvider?: boolean;
+    }
+  | {
+      mode: 'activeProduct';
+    };
+type GrantRoleSyncOptions =
+  | {
+      mode: 'none';
+    }
+  | {
+      mode: 'primaryDiscordUserId' | 'roleSyncIdentity';
+      lifecycleAt?: number | 'now';
+      requireDiscordUserId: boolean;
+      missingSubject: 'throw' | 'skip';
+      skipDiscordUserIdPrefixes?: string[];
+      enqueueOnActiveRefresh?: boolean;
+    };
+type GrantAuditOptions = {
+  emitForNew?: boolean;
+  emitForReactivated?: boolean;
+  correlationId?: string;
+};
+type EntitlementEvidenceFunnelArgs = {
+  authUserId: string;
+  subjectId?: Id<'subjects'>;
+  providerKey: Doc<'entitlement_evidence'>['providerKey'];
+  providerConnectionId?: Id<'provider_connections'>;
+  transactionId?: Id<'provider_transactions'>;
+  membershipId?: Id<'provider_memberships'>;
+  licenseId?: Id<'provider_licenses'>;
+  sourceReference: string;
+  evidenceType: string;
+  status: Doc<'entitlement_evidence'>['status'];
+  productId?: string;
+  catalogProductId?: Id<'product_catalog'>;
+  providerTierRefs?: string[];
+  rawWebhookEventId?: Id<'webhook_events'>;
+  metadata?: unknown;
+  observedAt: number;
+  createdAt?: number;
+  updatedAt?: number;
+  lookupFilters?: {
+    authUserId?: boolean;
+    subjectId?: boolean;
+    productId?: boolean;
+    evidenceType?: boolean;
+  };
+  patchEvidenceType?: boolean;
+};
+type GrantEntitlementFunnelArgs = {
+  authUserId: string;
+  subjectId: Id<'subjects'>;
+  subject?: Doc<'subjects'>;
+  productId: string;
+  sourceProvider: Doc<'entitlements'>['sourceProvider'];
+  sourceReference: string;
+  providerCustomerId?: Id<'provider_customers'>;
+  catalogProductId?: Id<'product_catalog'>;
+  licenseSubject?: string;
+  policySnapshotVersion: number;
+  grantedAt?: number;
+  now?: number;
+  existingLookup: GrantExistingLookup;
+  reactivation: {
+    allowTerminal: boolean;
+    refreshExistingFields?: boolean;
+  };
+  roleSync: GrantRoleSyncOptions;
+  audit?: GrantAuditOptions;
+  evidence?: EntitlementEvidenceFunnelArgs;
+};
+type GrantEntitlementFunnelResult = {
+  entitlementId: Id<'entitlements'>;
+  outcome: Exclude<EntitlementGrantOutcome, 'error'>;
+  reason: EntitlementGrantReason;
+  isNew: boolean;
+  previousStatus?: Doc<'entitlements'>['status'];
+  outboxJobIds: Id<'outbox_jobs'>[];
+  evidenceId?: Id<'entitlement_evidence'>;
+};
+
+const entitlementGrantLogger = createConvexLogger();
 
 const EntitlementReadFields = {
   _id: v.id('entitlements'),
@@ -177,6 +277,502 @@ async function requireActiveSubject(
     throw new ConvexError(`Subject is not active: ${subject.status}`);
   }
   return subject;
+}
+
+function logEntitlementGrantAttempt(params: {
+  provider: string;
+  outcome: EntitlementGrantOutcome;
+  reason: string;
+  authUserId: string;
+  subjectId?: Id<'subjects'>;
+  productId?: string;
+  entitlementId?: Id<'entitlements'>;
+}): void {
+  const metadata = {
+    event: 'entitlement_grant',
+    provider: params.provider,
+    outcome: params.outcome,
+    reason: params.reason,
+    authUserId: params.authUserId,
+    subjectId: params.subjectId,
+    productId: params.productId,
+    entitlementId: params.entitlementId,
+  };
+
+  if (params.outcome === 'error') {
+    entitlementGrantLogger.error('entitlement_grant', metadata);
+    return;
+  }
+
+  entitlementGrantLogger.info('entitlement_grant', metadata);
+}
+
+export function recordEntitlementGrantSkipped(params: {
+  provider: string;
+  reason: EntitlementGrantReason | string;
+  authUserId: string;
+  subjectId?: Id<'subjects'>;
+  productId?: string;
+  entitlementId?: Id<'entitlements'>;
+}): void {
+  logEntitlementGrantAttempt({
+    provider: params.provider,
+    outcome: 'skipped',
+    reason: params.reason,
+    authUserId: params.authUserId,
+    subjectId: params.subjectId,
+    productId: params.productId,
+    entitlementId: params.entitlementId,
+  });
+}
+
+function requireSourceProvider(sourceProvider: unknown): string {
+  const provider = typeof sourceProvider === 'string' ? sourceProvider.trim() : '';
+  if (!provider) {
+    throw new ConvexError('source_provider_required');
+  }
+  return provider;
+}
+
+async function findExistingEntitlementInFunnel(
+  ctx: MutationCtx,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    productId: string;
+    sourceProvider: string;
+    sourceReference: string;
+    lookup: GrantExistingLookup;
+  }
+): Promise<Doc<'entitlements'> | null> {
+  if (args.lookup.mode === 'activeProduct') {
+    return await ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('productId'), args.productId))
+      .filter((q) => q.eq(q.field('status'), 'active'))
+      .first();
+  }
+
+  const sourceReferences = args.lookup.sourceReferences ?? [args.sourceReference];
+  for (const sourceReference of sourceReferences) {
+    let query = ctx.db
+      .query('entitlements')
+      .withIndex('by_auth_user_subject', (q) =>
+        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
+      )
+      .filter((q) => q.eq(q.field('sourceReference'), sourceReference));
+
+    if (args.lookup.matchProduct) {
+      query = query.filter((q) => q.eq(q.field('productId'), args.productId));
+    }
+    if (args.lookup.matchProvider) {
+      query = query.filter((q) => q.eq(q.field('sourceProvider'), args.sourceProvider));
+    }
+
+    const entitlement = await query.first();
+    if (entitlement) {
+      return entitlement;
+    }
+  }
+
+  return null;
+}
+
+function buildExistingEntitlementRefreshPatch(
+  existingEntitlement: Doc<'entitlements'>,
+  args: GrantEntitlementFunnelArgs
+): Partial<Doc<'entitlements'>> {
+  if (!args.reactivation.refreshExistingFields) {
+    return {};
+  }
+
+  const refreshPatch: Partial<Doc<'entitlements'>> = {};
+  if (existingEntitlement.sourceReference !== args.sourceReference) {
+    refreshPatch.sourceReference = args.sourceReference;
+  }
+  if (args.licenseSubject && !existingEntitlement.licenseSubject) {
+    refreshPatch.licenseSubject = args.licenseSubject;
+  }
+  if (
+    args.providerCustomerId &&
+    existingEntitlement.providerCustomerId !== args.providerCustomerId
+  ) {
+    refreshPatch.providerCustomerId = args.providerCustomerId;
+  }
+  if (args.catalogProductId && existingEntitlement.catalogProductId !== args.catalogProductId) {
+    refreshPatch.catalogProductId = args.catalogProductId;
+  }
+
+  return refreshPatch;
+}
+
+function resolveGrantRoleSyncLifecycleAt(
+  roleSync: GrantRoleSyncOptions,
+  now: number
+): number | undefined {
+  if (roleSync.mode === 'none') {
+    return undefined;
+  }
+  return roleSync.lifecycleAt === 'now' ? now : roleSync.lifecycleAt;
+}
+
+async function enqueueGrantRoleSyncFromFunnel(
+  ctx: MutationCtx,
+  args: {
+    authUserId: string;
+    subjectId: Id<'subjects'>;
+    entitlementId: Id<'entitlements'>;
+    subject?: Doc<'subjects'>;
+    roleSync: GrantRoleSyncOptions;
+    now: number;
+  }
+): Promise<Id<'outbox_jobs'> | undefined> {
+  if (args.roleSync.mode === 'none') {
+    return undefined;
+  }
+
+  const subject = args.subject ?? (await ctx.db.get(args.subjectId));
+  if (!subject && args.roleSync.missingSubject === 'throw') {
+    throw new Error(`Subject not found: ${args.subjectId}`);
+  }
+
+  let discordUserId =
+    args.roleSync.mode === 'roleSyncIdentity'
+      ? resolveRoleSyncDiscordUserId(subject ?? {})
+      : subject?.primaryDiscordUserId;
+
+  if (
+    discordUserId &&
+    args.roleSync.skipDiscordUserIdPrefixes?.some((prefix) => discordUserId?.startsWith(prefix))
+  ) {
+    discordUserId = undefined;
+  }
+
+  if (!discordUserId && args.roleSync.requireDiscordUserId) {
+    return undefined;
+  }
+
+  const lifecycleAt = resolveGrantRoleSyncLifecycleAt(args.roleSync, args.now);
+  return await enqueueRoleSync(ctx, {
+    authUserId: args.authUserId,
+    subjectId: args.subjectId,
+    entitlementId: args.entitlementId,
+    discordUserId,
+    idempotencyKey: buildRoleSyncIdempotencyKey({
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      entitlementId: args.entitlementId,
+      ...(lifecycleAt !== undefined ? { lifecycle: { kind: 'grant', at: lifecycleAt } } : {}),
+    }),
+  });
+}
+
+export async function upsertEntitlementEvidenceFromFunnel(
+  ctx: MutationCtx,
+  args: EntitlementEvidenceFunnelArgs
+): Promise<Id<'entitlement_evidence'>> {
+  let query = ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q.eq('providerKey', args.providerKey).eq('sourceReference', args.sourceReference)
+    );
+
+  if (args.lookupFilters?.authUserId) {
+    query = query.filter((q) => q.eq(q.field('authUserId'), args.authUserId));
+  }
+  if (args.lookupFilters?.subjectId) {
+    query = query.filter((q) => q.eq(q.field('subjectId'), args.subjectId));
+  }
+  if (args.lookupFilters?.productId) {
+    query = query.filter((q) => q.eq(q.field('productId'), args.productId));
+  }
+  if (args.lookupFilters?.evidenceType) {
+    query = query.filter((q) => q.eq(q.field('evidenceType'), args.evidenceType));
+  }
+
+  const existing = await query.first();
+  const now = Date.now();
+  const updatedAt = args.updatedAt ?? now;
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      subjectId: args.subjectId ?? existing.subjectId,
+      providerConnectionId: args.providerConnectionId ?? existing.providerConnectionId,
+      transactionId: args.transactionId ?? existing.transactionId,
+      membershipId: args.membershipId ?? existing.membershipId,
+      licenseId: args.licenseId ?? existing.licenseId,
+      ...(args.patchEvidenceType ? { evidenceType: args.evidenceType } : {}),
+      status: args.status,
+      productId: args.productId ?? existing.productId,
+      catalogProductId: args.catalogProductId ?? existing.catalogProductId,
+      providerTierRefs: args.providerTierRefs ?? existing.providerTierRefs,
+      rawWebhookEventId: args.rawWebhookEventId ?? existing.rawWebhookEventId,
+      metadata: args.metadata ?? existing.metadata,
+      observedAt: args.observedAt,
+      updatedAt,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert('entitlement_evidence', {
+    authUserId: args.authUserId,
+    subjectId: args.subjectId,
+    providerKey: args.providerKey,
+    providerConnectionId: args.providerConnectionId,
+    transactionId: args.transactionId,
+    membershipId: args.membershipId,
+    licenseId: args.licenseId,
+    sourceReference: args.sourceReference,
+    evidenceType: args.evidenceType,
+    status: args.status,
+    productId: args.productId,
+    catalogProductId: args.catalogProductId,
+    providerTierRefs: args.providerTierRefs,
+    rawWebhookEventId: args.rawWebhookEventId,
+    metadata: args.metadata,
+    observedAt: args.observedAt,
+    createdAt: args.createdAt ?? now,
+    updatedAt,
+  });
+}
+
+export async function grantEntitlementFromFunnel(
+  ctx: MutationCtx,
+  args: GrantEntitlementFunnelArgs
+): Promise<GrantEntitlementFunnelResult> {
+  const now = args.now ?? Date.now();
+  let provider = args.sourceProvider;
+
+  try {
+    provider = requireSourceProvider(args.sourceProvider);
+    const existingEntitlement = await findExistingEntitlementInFunnel(ctx, {
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      productId: args.productId,
+      sourceProvider: provider,
+      sourceReference: args.sourceReference,
+      lookup: args.existingLookup,
+    });
+
+    if (existingEntitlement) {
+      const outboxJobIds: Id<'outbox_jobs'>[] = [];
+      const previousStatus = existingEntitlement.status;
+      const refreshPatch = buildExistingEntitlementRefreshPatch(existingEntitlement, args);
+      const hasRefreshPatch = Object.keys(refreshPatch).length > 0;
+      let evidenceId: Id<'entitlement_evidence'> | undefined;
+
+      if (
+        isEntitlementActive(existingEntitlement.status as Parameters<typeof isEntitlementActive>[0])
+      ) {
+        if (hasRefreshPatch) {
+          await ctx.db.patch(existingEntitlement._id, {
+            ...refreshPatch,
+            updatedAt: now,
+          });
+        }
+
+        if (args.evidence) {
+          evidenceId = await upsertEntitlementEvidenceFromFunnel(ctx, args.evidence);
+        }
+
+        const shouldEnqueueRoleSync =
+          args.roleSync.mode !== 'none' &&
+          (hasRefreshPatch || args.roleSync.enqueueOnActiveRefresh === true);
+        if (shouldEnqueueRoleSync) {
+          const outboxJobId = await enqueueGrantRoleSyncFromFunnel(ctx, {
+            authUserId: args.authUserId,
+            subjectId: args.subjectId,
+            entitlementId: existingEntitlement._id,
+            subject: args.subject,
+            roleSync: args.roleSync,
+            now,
+          });
+          if (outboxJobId) {
+            outboxJobIds.push(outboxJobId);
+          }
+        }
+
+        const reason =
+          args.existingLookup.mode === 'activeProduct'
+            ? 'active_product_exists'
+            : hasRefreshPatch || outboxJobIds.length > 0
+              ? 'active_refreshed'
+              : 'already_active';
+        const outcome = reason === 'active_refreshed' ? 'granted' : 'skipped';
+        logEntitlementGrantAttempt({
+          provider,
+          outcome,
+          reason,
+          authUserId: args.authUserId,
+          subjectId: args.subjectId,
+          productId: args.productId,
+          entitlementId: existingEntitlement._id,
+        });
+
+        return {
+          entitlementId: existingEntitlement._id,
+          outcome,
+          reason,
+          isNew: false,
+          previousStatus: undefined,
+          outboxJobIds,
+          evidenceId,
+        };
+      }
+
+      if (!args.reactivation.allowTerminal) {
+        if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
+          throw new ConvexError('Cannot reactivate a refunded or disputed entitlement');
+        }
+      }
+
+      await ctx.db.patch(existingEntitlement._id, {
+        ...refreshPatch,
+        status: 'active',
+        revokedAt: undefined,
+        updatedAt: now,
+        ...(args.reactivation.refreshExistingFields
+          ? { licenseSubject: args.licenseSubject ?? existingEntitlement.licenseSubject }
+          : {}),
+      });
+
+      const outboxJobId = await enqueueGrantRoleSyncFromFunnel(ctx, {
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        entitlementId: existingEntitlement._id,
+        subject: args.subject,
+        roleSync: args.roleSync,
+        now,
+      });
+      if (outboxJobId) {
+        outboxJobIds.push(outboxJobId);
+      }
+
+      if (args.audit?.emitForReactivated) {
+        await createAuditEvent(ctx, {
+          authUserId: args.authUserId,
+          eventType: 'entitlement.granted',
+          subjectId: args.subjectId,
+          entitlementId: existingEntitlement._id,
+          metadata: {
+            productId: args.productId,
+            sourceProvider: provider,
+            sourceReference: args.sourceReference,
+            reactivated: true,
+            previousStatus,
+          },
+          correlationId: args.audit.correlationId,
+        });
+      }
+
+      if (args.evidence) {
+        evidenceId = await upsertEntitlementEvidenceFromFunnel(ctx, args.evidence);
+      }
+
+      logEntitlementGrantAttempt({
+        provider,
+        outcome: 'granted',
+        reason: 'reactivated',
+        authUserId: args.authUserId,
+        subjectId: args.subjectId,
+        productId: args.productId,
+        entitlementId: existingEntitlement._id,
+      });
+
+      return {
+        entitlementId: existingEntitlement._id,
+        outcome: 'granted',
+        reason: 'reactivated',
+        isNew: false,
+        previousStatus,
+        outboxJobIds,
+        evidenceId,
+      };
+    }
+
+    const entitlementId = await ctx.db.insert('entitlements', {
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      productId: args.productId,
+      sourceProvider: provider,
+      sourceReference: args.sourceReference,
+      licenseSubject: args.licenseSubject,
+      providerCustomerId: args.providerCustomerId,
+      catalogProductId: args.catalogProductId,
+      status: 'active',
+      policySnapshotVersion: args.policySnapshotVersion,
+      grantedAt: args.grantedAt ?? now,
+      updatedAt: now,
+    });
+
+    const outboxJobIds: Id<'outbox_jobs'>[] = [];
+    const outboxJobId = await enqueueGrantRoleSyncFromFunnel(ctx, {
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      entitlementId,
+      subject: args.subject,
+      roleSync: args.roleSync,
+      now,
+    });
+    if (outboxJobId) {
+      outboxJobIds.push(outboxJobId);
+    }
+
+    if (args.audit?.emitForNew) {
+      await createAuditEvent(ctx, {
+        authUserId: args.authUserId,
+        eventType: 'entitlement.granted',
+        subjectId: args.subjectId,
+        entitlementId,
+        metadata: {
+          productId: args.productId,
+          sourceProvider: provider,
+          sourceReference: args.sourceReference,
+          policySnapshotVersion: args.policySnapshotVersion,
+          catalogProductId: args.catalogProductId,
+        },
+        correlationId: args.audit.correlationId,
+      });
+    }
+
+    const evidenceId = args.evidence
+      ? await upsertEntitlementEvidenceFromFunnel(ctx, args.evidence)
+      : undefined;
+
+    logEntitlementGrantAttempt({
+      provider,
+      outcome: 'granted',
+      reason: 'created',
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      productId: args.productId,
+      entitlementId,
+    });
+
+    return {
+      entitlementId,
+      outcome: 'granted',
+      reason: 'created',
+      isNew: true,
+      previousStatus: undefined,
+      outboxJobIds,
+      evidenceId,
+    };
+  } catch (err) {
+    const reason = err instanceof ConvexError ? String(err.data) : err instanceof Error ? err.message : 'error';
+    logEntitlementGrantAttempt({
+      provider,
+      outcome: 'error',
+      reason,
+      authUserId: args.authUserId,
+      subjectId: args.subjectId,
+      productId: args.productId,
+    });
+    throw err;
+  }
 }
 
 async function listActiveEntitlementsForActiveSubjects(
@@ -637,7 +1233,7 @@ export const grantEntitlement = mutation({
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const now = Date.now();
-    await requireActiveSubject(ctx, args.subjectId);
+    const subject = await requireActiveSubject(ctx, args.subjectId);
 
     // Validate purchasedAt timestamp if provided
     if (args.evidence.purchasedAt !== undefined) {
@@ -661,129 +1257,40 @@ export const grantEntitlement = mutation({
       throw new Error(`Creator profile not found: ${args.authUserId}`);
     }
 
-    // Check for existing entitlement with same sourceReference (idempotency)
-    const existingEntitlement = await ctx.db
-      .query('entitlements')
-      .withIndex('by_auth_user_subject', (q) =>
-        q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
-      )
-      .filter((q) => q.eq(q.field('sourceReference'), args.evidence.sourceReference))
-      .first();
-
-    if (existingEntitlement) {
-      // Entitlement already exists - check if we need to reactivate
-      if (
-        isEntitlementActive(existingEntitlement.status as Parameters<typeof isEntitlementActive>[0])
-      ) {
-        // Already active, nothing to do
-        return {
-          success: true,
-          entitlementId: existingEntitlement._id,
-          isNew: false,
-          previousStatus: undefined,
-          outboxJobId: undefined,
-        };
-      }
-
-      // Block reactivation of terminal statuses (refunded/disputed)
-      if (!canReactivate(existingEntitlement.status as Parameters<typeof canReactivate>[0])) {
-        throw new ConvexError('Cannot reactivate a refunded or disputed entitlement');
-      }
-
-      // Reactivate a revoked/expired entitlement
-      const previousStatus = existingEntitlement.status;
-      await ctx.db.patch(existingEntitlement._id, {
-        status: 'active',
-        revokedAt: undefined,
-        updatedAt: now,
-      });
-
-      // Emit role sync job
-      const outboxJobId = await emitRoleSyncJob(
-        ctx,
-        args.authUserId,
-        args.subjectId,
-        existingEntitlement._id,
-        args.correlationId,
-        now
-      );
-
-      // Create audit event
-      await createAuditEvent(ctx, {
-        authUserId: args.authUserId,
-        eventType: 'entitlement.granted',
-        subjectId: args.subjectId,
-        entitlementId: existingEntitlement._id,
-        metadata: {
-          productId: args.productId,
-          sourceProvider: args.evidence.provider,
-          sourceReference: args.evidence.sourceReference,
-          reactivated: true,
-          previousStatus,
-        },
-        correlationId: args.correlationId,
-      });
-
-      return {
-        success: true,
-        entitlementId: existingEntitlement._id,
-        isNew: false,
-        previousStatus,
-        outboxJobId,
-      };
-    }
-
-    // Calculate policy snapshot version
-    // Use a simple counter based on tenant policy updates
     const policySnapshotVersion = await getPolicySnapshotVersion(ctx, args.authUserId);
-
-    // Create new entitlement
-    const entitlementId = await ctx.db.insert('entitlements', {
+    const grantResult = await grantEntitlementFromFunnel(ctx, {
       authUserId: args.authUserId,
       subjectId: args.subjectId,
+      subject,
       productId: args.productId,
       sourceProvider: args.evidence.provider,
       sourceReference: args.evidence.sourceReference,
       providerCustomerId: args.evidence.providerCustomerId,
       catalogProductId: args.catalogProductId,
-      status: 'active',
       policySnapshotVersion,
       grantedAt: args.evidence.purchasedAt ?? now,
-      updatedAt: now,
-    });
-
-    // Emit role sync job
-    const outboxJobId = await emitRoleSyncJob(
-      ctx,
-      args.authUserId,
-      args.subjectId,
-      entitlementId,
-      args.correlationId,
-      now
-    );
-
-    // Create audit event
-    await createAuditEvent(ctx, {
-      authUserId: args.authUserId,
-      eventType: 'entitlement.granted',
-      subjectId: args.subjectId,
-      entitlementId,
-      metadata: {
-        productId: args.productId,
-        sourceProvider: args.evidence.provider,
-        sourceReference: args.evidence.sourceReference,
-        policySnapshotVersion,
-        catalogProductId: args.catalogProductId,
+      now,
+      existingLookup: { mode: 'sourceReference' },
+      reactivation: { allowTerminal: false },
+      roleSync: {
+        mode: 'primaryDiscordUserId',
+        lifecycleAt: now,
+        requireDiscordUserId: false,
+        missingSubject: 'throw',
       },
-      correlationId: args.correlationId,
+      audit: {
+        emitForNew: true,
+        emitForReactivated: true,
+        correlationId: args.correlationId,
+      },
     });
 
     return {
       success: true,
-      entitlementId,
-      isNew: true,
-      previousStatus: undefined,
-      outboxJobId,
+      entitlementId: grantResult.entitlementId,
+      isNew: grantResult.isNew,
+      previousStatus: grantResult.previousStatus,
+      outboxJobId: grantResult.outboxJobIds[0],
     };
   },
 });
@@ -1285,50 +1792,60 @@ export const grantEntitlementsForPurchaser = mutation({
 
     // Resolve the actual provider from the provider_customer record
     const providerCustomerDoc = await ctx.db.get(args.providerCustomerId);
+    const sourceProvider = providerCustomerDoc?.provider?.trim();
 
     for (const product of args.products) {
-      // Check for existing entitlement
-      const existing = await ctx.db
-        .query('entitlements')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', args.authUserId).eq('subjectId', args.subjectId)
-        )
-        .filter((q) => q.eq(q.field('productId'), product.productId))
-        .filter((q) => q.eq(q.field('status'), 'active'))
-        .first();
-
-      if (existing) {
+      if (!providerCustomerDoc) {
+        recordEntitlementGrantSkipped({
+          provider: '',
+          reason: 'provider_customer_missing',
+          authUserId: args.authUserId,
+          subjectId: args.subjectId,
+          productId: product.productId,
+        });
+        skippedCount++;
+        continue;
+      }
+      if (!sourceProvider) {
+        recordEntitlementGrantSkipped({
+          provider: '',
+          reason: 'source_provider_missing',
+          authUserId: args.authUserId,
+          subjectId: args.subjectId,
+          productId: product.productId,
+        });
         skippedCount++;
         continue;
       }
 
-      // Create entitlement
-      const entitlementId = await ctx.db.insert('entitlements', {
+      const grantResult = await grantEntitlementFromFunnel(ctx, {
         authUserId: args.authUserId,
         subjectId: args.subjectId,
         productId: product.productId,
-        sourceProvider: providerCustomerDoc?.provider ?? 'gumroad',
+        sourceProvider,
         sourceReference: product.sourceReference,
         providerCustomerId: args.providerCustomerId,
         catalogProductId: product.catalogProductId,
-        status: 'active',
         policySnapshotVersion,
         grantedAt: product.purchasedAt ?? now,
-        updatedAt: now,
+        now,
+        existingLookup: { mode: 'activeProduct' },
+        reactivation: { allowTerminal: true },
+        roleSync: {
+          mode: 'primaryDiscordUserId',
+          lifecycleAt: now,
+          requireDiscordUserId: false,
+          missingSubject: 'throw',
+        },
       });
 
-      entitlementIds.push(entitlementId);
-      grantedCount++;
+      if (grantResult.outcome === 'skipped') {
+        skippedCount++;
+        continue;
+      }
 
-      // Emit role sync job for each
-      await emitRoleSyncJob(
-        ctx,
-        args.authUserId,
-        args.subjectId,
-        entitlementId,
-        args.correlationId,
-        now
-      );
+      entitlementIds.push(grantResult.entitlementId);
+      grantedCount++;
     }
 
     // Create single audit event for batch

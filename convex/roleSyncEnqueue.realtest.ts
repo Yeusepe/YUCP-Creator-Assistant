@@ -339,6 +339,7 @@ describe('enqueueRoleSync idempotency (legacy / flag-off path)', () => {
         ctx,
         authUserId,
         subjectId,
+        'gumroad',
         productId,
         sourceReference,
         1_000
