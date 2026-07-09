@@ -230,6 +230,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    /^Unauthorized(?::|$)/.test(message) ||
+    message.includes('ConvexError: Unauthorized') ||
+    message.includes('"Unauthorized:')
+  );
+}
+
 function extractForwardedToolchainPackages(repository: unknown): BackstageRepositoryPackages {
   if (!isRecord(repository) || !isRecord(repository.packages)) {
     throw new Error('Forwarded toolchain repository is missing a packages object.');
@@ -1862,15 +1871,23 @@ async function servePackageDownload(
   }
 
   const convex = getConvexClientFromUrl(config.convexUrl);
-  const resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
-    apiSecret: config.convexApiSecret,
-    tokenHash: access.tokenHash,
-    authUserId: access.authUserId,
-    subjectId: access.subjectId,
-    packageId,
-    version,
-    channel,
-  })) as BackstagePackageDownloadRecord | null;
+  let resolved: BackstagePackageDownloadRecord | null;
+  try {
+    resolved = (await convex.query(api.backstageRepos.resolvePackageDownloadForApi, {
+      apiSecret: config.convexApiSecret,
+      tokenHash: access.tokenHash,
+      authUserId: access.authUserId,
+      subjectId: access.subjectId,
+      packageId,
+      version,
+      channel,
+    })) as BackstagePackageDownloadRecord | null;
+  } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return errorResponse('Package not found', 404);
+    }
+    throw error;
+  }
   if (!resolved) {
     return errorResponse('Package not found', 404);
   }

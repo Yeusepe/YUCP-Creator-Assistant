@@ -765,6 +765,30 @@ describe('backstage repo routes', () => {
     );
   });
 
+  it('maps repo-token download authorization races to package not found responses', async () => {
+    const defaultQueryImpl = queryImpl;
+    queryImpl = async (ref: unknown, args?: unknown) => {
+      if (ref === 'backstageRepos.resolvePackageDownloadForApi') {
+        throw new Error('Unauthorized: Backstage repo token does not authorize this subject.');
+      }
+      return defaultQueryImpl(ref, args);
+    };
+
+    const response = await routes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(404);
+    await expect(response?.json()).resolves.toEqual({ error: 'Package not found' });
+  });
+
   it('redirects entitled package downloads through CDNgine when a deliverable reference exists', async () => {
     const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
