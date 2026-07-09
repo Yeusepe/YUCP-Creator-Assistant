@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = resolve(repoRoot, 'ops', 'boundary-mock-ratchet.baseline.txt');
 const apiConvexLibPath = resolve(repoRoot, 'apps', 'api', 'src', 'lib', 'convex');
+const moduleResolutionSuffixes = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'];
+const apiConvexBoundaryPaths = new Set([
+  ...moduleResolutionSuffixes.map((suffix) => `${apiConvexLibPath}${suffix}`),
+  ...moduleResolutionSuffixes.map((suffix) => resolve(apiConvexLibPath, `index${suffix}`)),
+]);
 const scanRoots = ['apps', 'packages', 'ops', 'convex'];
 const ignoredDirectories = new Set([
   '.git',
@@ -58,7 +63,7 @@ function resolvesToApiConvexBoundary(filePath, moduleSpecifier) {
     return false;
   }
 
-  return resolve(dirname(filePath), moduleSpecifier) === apiConvexLibPath;
+  return apiConvexBoundaryPaths.has(resolve(dirname(filePath), moduleSpecifier));
 }
 
 function mocksConvexBoundary(filePath) {
