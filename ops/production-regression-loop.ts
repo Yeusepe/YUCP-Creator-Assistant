@@ -84,7 +84,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
       'convex/outboxJobs.realtest.ts',
@@ -97,6 +97,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/api/src/verification/sessionManager.accountLink.test.ts',
       'apps/api/src/routes/connect.user-verify.behavior.test.ts',
       'apps/api/test/e2e/user-journeys.test.ts',
+      'apps/api/src/routes/suite.test.ts',
     ],
     secondaryRegressionHomes: [
       'apps/bot/test/commands/verify.test.ts',
@@ -211,6 +212,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './src/routes/backfill.test.ts',
       './src/verification/completeLicense.test.ts',
       './src/verification/sessionManager.accountLink.test.ts',
+      './src/routes/suite.test.ts',
     ],
     covers: ['identity', 'verification', 'account', 'backfill'],
   },
