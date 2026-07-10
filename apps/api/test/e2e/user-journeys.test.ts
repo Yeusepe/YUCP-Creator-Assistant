@@ -13,10 +13,6 @@ import { createAuthUserActorBinding } from '../../src/lib/apiActor';
 import { encrypt } from '../../src/lib/encrypt';
 import { getProviderRuntime, resolveWebhookPlugin } from '../../src/providers';
 import {
-  decorateHostedVerificationRequirement,
-  normalizeHostedVerificationRequirements,
-} from '../../src/verification/hostedIntents';
-import {
   apiJson,
   createBetterAuthSession,
   createBetterAuthUser,
@@ -956,6 +952,24 @@ describe('real API user journeys against self-hosted Convex', () => {
       publisherId: uniqueRef('hosted_manual_publisher'),
       yucpUserId: creator.authUserId,
     });
+    await harness.convex.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
+      authUserId: creator.authUserId,
+      catalogProductId,
+      packageId,
+      packageName: 'Hosted Manual Redemption Package',
+      displayName: 'Hosted Manual Redemption Package',
+      repositoryVisibility: 'listed',
+      defaultChannel: 'stable',
+    });
+    await harness.convex.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: creator.authUserId,
+      packageId,
+      version: '1.0.0',
+      channel: 'stable',
+      releaseStatus: 'published',
+      repositoryVisibility: 'listed',
+      artifactKey: uniqueRef('hosted_manual_release'),
+    });
     const { licenseId } = await harness.convex.mutation<{ licenseId: string }>(
       api.manualLicenses.create,
       {
@@ -967,50 +981,9 @@ describe('real API user journeys against self-hosted Convex', () => {
       }
     );
 
-    const requirements = normalizeHostedVerificationRequirements([
-      {
-        methodKey: 'manual-license',
-        providerKey: 'manual',
-        kind: 'manual_license',
-        providerProductRef: productId,
-        creatorAuthUserId: creator.authUserId,
-        productId,
-      },
-    ]);
-    expect(requirements).toHaveLength(1);
-    expect(decorateHostedVerificationRequirement(requirements[0])).toEqual(
-      expect.objectContaining({
-        methodKey: 'manual-license',
-        providerKey: 'manual',
-        kind: 'manual_license',
-        capability: expect.objectContaining({
-          input: expect.objectContaining({ kind: 'license_key', masked: true }),
-        }),
-      })
-    );
-    const buyerActor = await createAuthUserActorBinding({
-      authUserId: buyer.authUserId,
-      source: 'api_key',
-      scopes: PUBLIC_API_SCOPES,
-    });
-    const { intentId } = await harness.convex.mutation<{ intentId: string }>(
-      api.verificationIntents.createVerificationIntent,
-      {
-        apiSecret: API_SECRET,
-        actor: buyerActor,
-        authUserId: buyer.authUserId,
-        packageId,
-        packageName: 'Hosted Manual Redemption Package',
-        machineFingerprint: 'hosted-manual-redemption-machine',
-        codeChallenge: 'hosted-manual-redemption-challenge',
-        returnUrl: 'http://127.0.0.1:3000/account/verify',
-        requirements,
-      }
-    );
-
     const sessionToken = await createBetterAuthSession(buyer.authUserId);
-    const redemptionResponse = await harness.app.fetch(
-      `/api/connect/user/verification-intents/${intentId}/manual-license`,
+    const intentResponse = await harness.app.fetch(
+      `/api/connect/user/product-access/${catalogProductId}`,
       {
         method: 'POST',
         headers: {
@@ -1018,7 +991,49 @@ describe('real API user journeys against self-hosted Convex', () => {
           cookie: `yucp.session_token=${sessionToken}`,
           origin: 'http://127.0.0.1:3001',
         },
-        body: JSON.stringify({ methodKey: 'manual-license', licenseKey }),
+        body: JSON.stringify({ returnTo: `/access/${catalogProductId}` }),
+      }
+    );
+
+    expect(intentResponse.status).toBe(200);
+    const intent = (await intentResponse.json()) as {
+      intentId: string;
+      requirements: Array<{
+        methodKey: string;
+        providerKey: string;
+        kind: string;
+        capability: { input?: { kind: string; masked: boolean } };
+      }>;
+    };
+    const manualRequirements = intent.requirements.filter(
+      (requirement) => requirement.kind === 'manual_license'
+    );
+    expect(manualRequirements).toHaveLength(1);
+    const manualRequirement = manualRequirements[0];
+    expect(manualRequirement).toEqual(
+      expect.objectContaining({
+        methodKey: 'manual-manual-license',
+        providerKey: 'manual',
+        kind: 'manual_license',
+        capability: expect.objectContaining({
+          input: expect.objectContaining({ kind: 'license_key', masked: true }),
+        }),
+      })
+    );
+    if (!manualRequirement) {
+      throw new Error('Hosted manual license capability was not returned');
+    }
+
+    const redemptionResponse = await harness.app.fetch(
+      `/api/connect/user/verification-intents/${intent.intentId}/manual-license`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `yucp.session_token=${sessionToken}`,
+          origin: 'http://127.0.0.1:3001',
+        },
+        body: JSON.stringify({ methodKey: manualRequirement.methodKey, licenseKey }),
       }
     );
 
