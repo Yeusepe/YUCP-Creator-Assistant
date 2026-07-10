@@ -12,6 +12,7 @@ import {
 import { type BuiltApiApp, buildApp } from '../../support/buildApp';
 
 export const E2E_ENCRYPTION_SECRET = `e2e-${crypto.randomUUID()}`;
+export const E2E_BETTER_AUTH_SECRET = 'test-better-auth-secret-32-chars!!';
 
 type HarnessState = {
   app: BuiltApiApp;
@@ -214,6 +215,8 @@ export function installRealApiHarness(): void {
       backfillApiUrl,
       getRealBackendAdminKey
     );
+    await runConvexEnvSet('ENCRYPTION_SECRET', E2E_ENCRYPTION_SECRET, getRealBackendAdminKey);
+    await runConvexEnvSet('BETTER_AUTH_SECRET', E2E_BETTER_AUTH_SECRET, getRealBackendAdminKey);
     const app = buildApp({
       baseUrl: 'http://127.0.0.1:3001',
       frontendUrl: 'http://127.0.0.1:3000',
@@ -221,6 +224,7 @@ export function installRealApiHarness(): void {
       convexSiteUrl: SITE_URL,
       convexApiSecret: API_SECRET,
       encryptionSecret: E2E_ENCRYPTION_SECRET,
+      betterAuthSecret: E2E_BETTER_AUTH_SECRET,
       internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
       internalRpcSharedSecret: `e2e-rpc-${crypto.randomUUID()}`,
     });
@@ -296,6 +300,35 @@ export async function createBetterAuthUser(
 
   seededAuthUserIds.add(authUserId);
   return { authUserId, email, name };
+}
+
+export async function createBetterAuthSession(authUserId: string): Promise<string> {
+  const token = crypto.randomUUID();
+  const now = Date.now();
+  await callBetterAuthComponent('adapter:create', {
+    input: {
+      model: 'session',
+      data: {
+        token,
+        userId: authUserId,
+        expiresAt: now + 60 * 60 * 1000,
+        createdAt: now,
+        updatedAt: now,
+      },
+    },
+    select: ['token'],
+  });
+
+  const signingKey = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(E2E_BETTER_AUTH_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', signingKey, new TextEncoder().encode(token));
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  return `${token}.${encodedSignature}`;
 }
 
 export async function createPublicApiKey(

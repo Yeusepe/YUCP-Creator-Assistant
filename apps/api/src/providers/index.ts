@@ -14,6 +14,7 @@ import gumroad from './gumroad/index';
 import itchio from './itchio/index';
 import jinxxy from './jinxxy/index';
 import lemonsqueezy from './lemonsqueezy/index';
+import manual from './manual/index';
 import patreon from './patreon/index';
 import payhip from './payhip/index';
 import type {
@@ -49,12 +50,18 @@ const PROVIDER_ENTRIES = defineProviderRegistry({
   vrchat,
 });
 
+const VERIFICATION_ONLY_PROVIDER_ENTRIES = {
+  manual,
+};
+
 export const ALL_PROVIDER_RUNTIMES = Object.freeze(
   Object.values(PROVIDER_ENTRIES).map((entry) => entry.runtime)
 );
 
 export const PROVIDER_RUNTIMES: ReadonlyMap<string, ProviderRuntime> = new Map(
-  Object.entries(PROVIDER_ENTRIES).map(([providerKey, entry]) => [providerKey, entry.runtime])
+  [...Object.entries(PROVIDER_ENTRIES), ...Object.entries(VERIFICATION_ONLY_PROVIDER_ENTRIES)].map(
+    ([providerKey, entry]) => [providerKey, entry.runtime]
+  )
 );
 
 const PROVIDER_HOOK_ENTRIES: ReadonlyArray<readonly [string, ApiProviderHooks]> = [
