@@ -27,7 +27,7 @@ async function run(args: string[], options: RunOptions = {}): Promise<string> {
   let timedOut = false;
   const proc = Bun.spawn(args, {
     cwd: ROOT_DIR,
-    env: { ...process.env, ...options.env },
+    env: options.env ?? process.env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -124,7 +124,7 @@ function ensureBetterAuthResolvable(): void {
   }
 }
 
-async function getAdminKey(): Promise<string> {
+export async function getRealBackendAdminKey(): Promise<string> {
   const output = await run(
     ['docker', ...composeArgs, 'exec', '-T', 'backend', './generate_admin_key.sh'],
     { quiet: true }
@@ -137,7 +137,12 @@ async function getAdminKey(): Promise<string> {
   return adminKey;
 }
 
-function writeTestEnvFile(): string {
+/**
+ * Builds the single test deployment env file used by both the real suite and
+ * the deploy gate. Keep this list here so every self-hosted path provisions
+ * exactly the same deployment contract.
+ */
+export function writeRealBackendEnvFile(): string {
   const envFile = join(tmpdir(), 'yucp-convex-real-env.vars');
   writeFileSync(
     envFile,
@@ -149,8 +154,6 @@ function writeTestEnvFile(): string {
       'ACCOUNT_RECOVERY_CONTEXT_SECRET=test-account-recovery-secret-for-convex-real-backend',
       `INTERNAL_SERVICE_AUTH_SECRET=${INTERNAL_SERVICE_AUTH_SECRET}`,
       `CONVEX_API_SECRET=${API_SECRET}`,
-      'IS_TEST=true',
-      'YUCP_REAL_BACKEND_TEST_HELPERS=true',
       'VRCHAT_PROVIDER_SESSION_SECRET=test-vrchat-provider-session-secret',
       `BETTER_AUTH_URL=${SITE_URL}/api/auth`,
       'API_BASE_URL=http://127.0.0.1:3001',
@@ -178,26 +181,67 @@ function writeTestEnvFile(): string {
   return envFile;
 }
 
-async function deploy(adminKey: string): Promise<void> {
-  ensureBetterAuthResolvable();
-  const env = {
+export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[name] = value;
+  }
+
+  // Bun loads .env.local before this script. A configured cloud deployment or
+  // deploy key must never win over the self-hosted backend used by this harness.
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOY_KEY_PROD;
+
+  return {
+    ...env,
     CONVEX_SELF_HOSTED_URL: BACKEND_URL,
     CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
   };
-  await run(['bun', 'x', 'convex', 'env', 'set', '--from-file', writeTestEnvFile(), '--force'], {
-    env,
-  });
+}
+
+export async function provisionRealBackendEnv(adminKey: string): Promise<void> {
   await run(
-    ['bun', 'x', 'convex', 'deploy', '--yes', '--typecheck', 'disable', '--codegen', 'disable'],
-    { env }
+    ['bun', 'x', 'convex', 'env', 'set', '--from-file', writeRealBackendEnvFile(), '--force'],
+    {
+      env: selfHostedConvexEnv(adminKey),
+    }
   );
 }
 
-async function up(): Promise<void> {
+export async function enableRealBackendTestHelpers(adminKey: string): Promise<void> {
+  const env = selfHostedConvexEnv(adminKey);
+  await run(['bun', 'x', 'convex', 'env', 'set', 'IS_TEST', 'true'], { env });
+  await run(['bun', 'x', 'convex', 'env', 'set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true'], {
+    env,
+  });
+}
+
+export function ensureConvexDependenciesResolvable(): void {
+  ensureBetterAuthResolvable();
+}
+
+export async function up(): Promise<void> {
   await pullImagesWithRetry();
   await run(['docker', ...composeArgs, 'up', '-d']);
   await waitForBackend();
-  await deploy(await getAdminKey());
+  await provisionRealBackendEnv(await getRealBackendAdminKey());
+}
+
+async function backendIsHealthy(): Promise<boolean> {
+  try {
+    return (await fetch(`${BACKEND_URL}/version`)).ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureRealBackendUp(): Promise<void> {
+  if (await backendIsHealthy()) {
+    await provisionRealBackendEnv(await getRealBackendAdminKey());
+    return;
+  }
+  await up();
 }
 
 async function down(): Promise<void> {
@@ -211,9 +255,11 @@ async function logs(): Promise<void> {
 async function main(): Promise<void> {
   const command = process.argv[2];
   if (command === 'up') return await up();
+  if (command === 'test-signals')
+    return await enableRealBackendTestHelpers(await getRealBackendAdminKey());
   if (command === 'down') return await down();
   if (command === 'logs') return await logs();
-  throw new Error('Usage: bun run ops/convex-real/manage.ts <up|down|logs>');
+  throw new Error('Usage: bun run ops/convex-real/manage.ts <up|test-signals|down|logs>');
 }
 
 if (import.meta.main) {
