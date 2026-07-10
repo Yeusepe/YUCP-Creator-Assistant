@@ -1513,11 +1513,13 @@ export async function revokeActiveEntitlementsBySourceReference(
   const newStatus = mapReasonToStatus(params.reason);
   const entitlements = await ctx.db
     .query('entitlements')
-    .withIndex('by_auth_user_status', (q) =>
-      q.eq('authUserId', params.authUserId).eq('status', 'active')
+    .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+      q
+        .eq('authUserId', params.authUserId)
+        .eq('sourceProvider', params.sourceProvider)
+        .eq('sourceReference', params.sourceReference)
+        .eq('status', 'active')
     )
-    .filter((q) => q.eq(q.field('sourceProvider'), params.sourceProvider))
-    .filter((q) => q.eq(q.field('sourceReference'), params.sourceReference))
     .collect();
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 

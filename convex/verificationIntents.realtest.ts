@@ -9,6 +9,7 @@ import { getPublicKeyFromPrivate } from './lib/yucpCrypto';
 import {
   makeTestConvex,
   seedCreatorProfile,
+  seedEntitlement,
   seedGuildLink,
   seedRoleRule,
   seedSubject,
@@ -1391,7 +1392,7 @@ describe('verification intents buyer provider links', () => {
       methodKey: 'manual-license',
       licenseKey,
     });
-    const [license, entitlements, roleSyncJobs] = await t.run(async (ctx) => {
+    const [license, entitlements, roleSyncJobs, persistedIntent] = await t.run(async (ctx) => {
       const currentLicense = await ctx.db.get(licenseId);
       const currentEntitlements = await ctx.db
         .query('entitlements')
@@ -1405,7 +1406,8 @@ describe('verification intents buyer provider links', () => {
           q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_sync')
         )
         .collect();
-      return [currentLicense, currentEntitlements, currentRoleSyncJobs] as const;
+      const currentIntent = await ctx.db.get(intentId);
+      return [currentLicense, currentEntitlements, currentRoleSyncJobs, currentIntent] as const;
     });
 
     expect({
@@ -1413,6 +1415,10 @@ describe('verification intents buyer provider links', () => {
       currentUses: license?.currentUses,
       entitlementCount: entitlements.length,
       roleSyncJobCount: roleSyncJobs.length,
+      persistedFailure: {
+        errorCode: persistedIntent?.errorCode,
+        errorMessage: persistedIntent?.errorMessage,
+      },
     }).toEqual({
       result: {
         success: false,
@@ -1422,20 +1428,35 @@ describe('verification intents buyer provider links', () => {
       currentUses: 0,
       entitlementCount: 0,
       roleSyncJobCount: 0,
+      persistedFailure: {
+        errorCode: 'subject_inactive',
+        errorMessage: 'The buyer subject is no longer active.',
+      },
     });
   });
 
   it('cascades manual-license revocation to redeemed entitlements and role-removal jobs exactly once', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-manual-revoke-cascade-creator';
-    const buyerAuthUserId = 'auth-manual-revoke-cascade-buyer';
     const packageId = 'pkg.manual-revoke-cascade';
     const productId = 'product-manual-revoke-cascade';
     const licenseKey = 'manual-revoke-cascade-license';
-    const subjectId = await seedSubject(t, {
-      authUserId: buyerAuthUserId,
-      primaryDiscordUserId: 'discord-manual-revoke-cascade',
-    });
+    const buyerSubjects = [
+      {
+        authUserId: 'auth-manual-revoke-cascade-buyer-one',
+        subjectId: await seedSubject(t, {
+          authUserId: 'auth-manual-revoke-cascade-buyer-one',
+          primaryDiscordUserId: 'discord-manual-revoke-cascade-one',
+        }),
+      },
+      {
+        authUserId: 'auth-manual-revoke-cascade-buyer-two',
+        subjectId: await seedSubject(t, {
+          authUserId: 'auth-manual-revoke-cascade-buyer-two',
+          primaryDiscordUserId: 'discord-manual-revoke-cascade-two',
+        }),
+      },
+    ];
     const guildLinkId = await seedGuildLink(t, {
       authUserId: creatorAuthUserId,
       discordGuildId: 'guild-manual-revoke-cascade',
@@ -1467,48 +1488,66 @@ describe('verification intents buyer provider links', () => {
       authUserId: creatorAuthUserId,
       licenseKeyHash: await hashManualLicenseKey(licenseKey),
       productId,
-      maxUses: 1,
+      maxUses: buyerSubjects.length,
     });
-    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
-      apiSecret: API_SECRET,
-      authUserId: buyerAuthUserId,
-      packageId,
-      machineFingerprint: 'machine-manual-revoke-cascade',
-      codeChallenge: 'challenge-manual-revoke-cascade',
-      returnUrl: 'https://example.com/return',
-      requirements: [
-        {
-          methodKey: 'manual-license',
-          providerKey: 'manual',
-          kind: 'manual_license',
-          title: 'Manual license',
-          providerProductRef: productId,
-          creatorAuthUserId,
-          productId,
-        },
-      ],
-    });
-
-    expect(
-      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+    const intentIds = [];
+    for (const [index, buyer] of buyerSubjects.entries()) {
+      const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
         apiSecret: API_SECRET,
-        authUserId: buyerAuthUserId,
-        intentId,
-        methodKey: 'manual-license',
-        licenseKey,
-      })
-    ).toEqual({ success: true });
+        authUserId: buyer.authUserId,
+        packageId,
+        machineFingerprint: `machine-manual-revoke-cascade-${index}`,
+        codeChallenge: `challenge-manual-revoke-cascade-${index}`,
+        returnUrl: 'https://example.com/return',
+        requirements: [
+          {
+            methodKey: 'manual-license',
+            providerKey: 'manual',
+            kind: 'manual_license',
+            title: 'Manual license',
+            providerProductRef: productId,
+            creatorAuthUserId,
+            productId,
+          },
+        ],
+      });
+      intentIds.push(intentId);
+    }
 
-    const entitlement = await t.run(async (ctx) =>
-      await ctx.db
+    for (const [index, buyer] of buyerSubjects.entries()) {
+      expect(
+        await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+          apiSecret: API_SECRET,
+          authUserId: buyer.authUserId,
+          intentId: intentIds[index],
+          methodKey: 'manual-license',
+          licenseKey,
+        })
+      ).toEqual({ success: true });
+    }
+
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+    const activeEntitlements = await t.run(async (ctx) =>
+      ctx.db
         .query('entitlements')
-        .withIndex('by_auth_user_subject', (q) =>
-          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+          q
+            .eq('authUserId', creatorAuthUserId)
+            .eq('sourceProvider', 'manual')
+            .eq('sourceReference', sourceReference)
+            .eq('status', 'active')
         )
-        .filter((q) => q.eq(q.field('sourceProvider'), 'manual'))
-        .first()
+        .collect()
     );
-    expect(entitlement).toMatchObject({ status: 'active' });
+    expect(activeEntitlements.map((entitlement) => entitlement.subjectId).sort()).toEqual(
+      buyerSubjects.map((buyer) => buyer.subjectId).sort()
+    );
+    const unrelatedEntitlementId = await seedEntitlement(t, buyerSubjects[0].subjectId, {
+      authUserId: creatorAuthUserId,
+      productId,
+      sourceProvider: 'manual',
+      sourceReference: 'manual:unrelated-license',
+    });
 
     await t.mutation(api.manualLicenses.revoke, {
       apiSecret: API_SECRET,
@@ -1523,21 +1562,52 @@ describe('verification intents buyer provider links', () => {
       reason: 'second revoke must be a no-op',
     });
 
-    const [revokedEntitlement, revokedLicense, roleRemovalJobs] = await t.run(async (ctx) => {
-      const currentEntitlement = entitlement ? await ctx.db.get(entitlement._id) : null;
-      const currentLicense = await ctx.db.get(licenseId);
-      const currentRoleRemovalJobs = await ctx.db
-        .query('outbox_jobs')
-        .withIndex('by_auth_user_type', (q) =>
-          q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_removal')
-        )
-        .collect();
-      return [currentEntitlement, currentLicense, currentRoleRemovalJobs] as const;
-    });
+    const [
+      revokedEntitlements,
+      unrelatedEntitlement,
+      revokedLicense,
+      roleRemovalJobs,
+      revocationAuditEvents,
+    ] = await t.run(async (ctx) => {
+        const currentEntitlements = await ctx.db
+          .query('entitlements')
+          .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+            q
+              .eq('authUserId', creatorAuthUserId)
+              .eq('sourceProvider', 'manual')
+              .eq('sourceReference', sourceReference)
+          )
+          .collect();
+        const entitlementIds = new Set(currentEntitlements.map((entitlement) => entitlement._id));
+        const currentUnrelatedEntitlement = await ctx.db.get(unrelatedEntitlementId);
+        const currentLicense = await ctx.db.get(licenseId);
+        const currentRoleRemovalJobs = await ctx.db
+          .query('outbox_jobs')
+          .withIndex('by_auth_user_type', (q) =>
+            q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_removal')
+          )
+          .collect();
+        const currentRevocationAuditEvents = await ctx.db
+          .query('audit_events')
+          .withIndex('by_auth_user_event', (q) =>
+            q.eq('authUserId', creatorAuthUserId).eq('eventType', 'entitlement.revoked')
+          )
+          .collect();
+        return [
+          currentEntitlements,
+          currentUnrelatedEntitlement,
+          currentLicense,
+          currentRoleRemovalJobs,
+          currentRevocationAuditEvents.filter(
+            (event) => event.entitlementId !== undefined && entitlementIds.has(event.entitlementId)
+          ),
+        ] as const;
+      });
 
     expect({
-      entitlementStatus: revokedEntitlement?.status,
-      revokedAt: revokedEntitlement?.revokedAt !== undefined,
+      entitlementStatuses: revokedEntitlements.map((entitlement) => entitlement.status).sort(),
+      revokedCount: revokedEntitlements.filter((entitlement) => entitlement.revokedAt !== undefined).length,
+      unrelatedEntitlementStatus: unrelatedEntitlement?.status,
       licenseStatus: revokedLicense?.status,
       licenseNotes: revokedLicense?.notes,
       roleRemovalJobs: roleRemovalJobs.map((job) => ({
@@ -1546,19 +1616,33 @@ describe('verification intents buyer provider links', () => {
         guildId: job.payload.guildId,
         roleId: job.payload.roleId,
       })),
+      auditEntitlementIds: revocationAuditEvents
+        .map((event) => event.entitlementId)
+        .filter((entitlementId): entitlementId is NonNullable<typeof entitlementId> =>
+          Boolean(entitlementId)
+        )
+        .sort(),
     }).toEqual({
-      entitlementStatus: 'revoked',
-      revokedAt: true,
+      entitlementStatuses: ['revoked', 'revoked'],
+      revokedCount: buyerSubjects.length,
+      unrelatedEntitlementStatus: 'active',
       licenseStatus: 'revoked',
       licenseNotes: 'Revoked: creator requested removal',
       roleRemovalJobs: [
         {
-          subjectId,
-          entitlementId: entitlement?._id,
+          subjectId: buyerSubjects[0].subjectId,
+          entitlementId: activeEntitlements[0]?._id,
+          guildId: 'guild-manual-revoke-cascade',
+          roleId: 'role-manual-revoke-cascade',
+        },
+        {
+          subjectId: buyerSubjects[1].subjectId,
+          entitlementId: activeEntitlements[1]?._id,
           guildId: 'guild-manual-revoke-cascade',
           roleId: 'role-manual-revoke-cascade',
         },
       ],
+      auditEntitlementIds: activeEntitlements.map((entitlement) => entitlement._id).sort(),
     });
   });
 

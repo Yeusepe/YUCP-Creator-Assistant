@@ -828,6 +828,12 @@ const entitlements = defineTable({
   .index('by_provider_customer', ['providerCustomerId'])
   .index('by_catalog_product', ['catalogProductId'])
   .index('by_auth_user_status', ['authUserId', 'status'])
+  .index('by_auth_user_source_provider_reference_status', [
+    'authUserId',
+    'sourceProvider',
+    'sourceReference',
+    'status',
+  ])
   .index('by_status', ['status']);
 
 /**
