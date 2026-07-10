@@ -156,6 +156,14 @@ export interface BuyerVerificationAdapter<
   ): Promise<BuyerVerificationResult>;
 }
 
+/**
+ * Describes provider-owned input for hosted verification flows whose proof is
+ * completed by the verification-intent action rather than a provider adapter.
+ */
+export interface HostedVerificationPlugin {
+  describeManualLicenseCapability(): BuyerVerificationCapabilityDescriptor | null;
+}
+
 export interface ConnectDisplayMeta {
   readonly dashboardSetupExperience: 'automatic' | 'guided' | 'manual';
   readonly dashboardSetupHint: string;
@@ -189,6 +197,7 @@ export interface ProviderRuntimeModule<
   readonly backfill?: BackfillPlugin<TBackfillFact>;
   readonly verification?: LicenseVerificationPlugin<TClient>;
   readonly buyerVerification?: BuyerVerificationAdapter<TClient>;
+  readonly hostedVerification?: HostedVerificationPlugin;
   readonly supportsCollab?: boolean;
   readonly productCredentialPurpose?: string;
   readonly displayMeta?: ConnectDisplayMeta;

@@ -13,7 +13,12 @@ import { createAuthUserActorBinding } from '../../src/lib/apiActor';
 import { encrypt } from '../../src/lib/encrypt';
 import { getProviderRuntime, resolveWebhookPlugin } from '../../src/providers';
 import {
+  decorateHostedVerificationRequirement,
+  normalizeHostedVerificationRequirements,
+} from '../../src/verification/hostedIntents';
+import {
   apiJson,
+  createBetterAuthSession,
   createBetterAuthUser,
   E2E_ENCRYPTION_SECRET,
   getRealApiHarness,
@@ -925,6 +930,128 @@ async function expectNoEntitlements(): Promise<void> {
 }
 
 describe('real API user journeys against self-hosted Convex', () => {
+  test('manual products stay reachable through hosted intent creation and session-backed redemption', async () => {
+    const harness = getRealApiHarness();
+    const creator = await createBetterAuthUser({ name: 'Hosted Manual Redemption Creator' });
+    const buyer = await createBetterAuthUser({ name: 'Hosted Manual Redemption Buyer' });
+    const subjectId = await seedSubject(buyer.authUserId);
+    const packageId = uniqueRef('hosted_manual_package');
+    const productId = uniqueRef('hosted_manual_product');
+    const licenseKey = uniqueRef('hosted_manual_license');
+
+    await seedCreatorProfile({
+      authUserId: creator.authUserId,
+      name: 'Hosted Manual Redemption Creator',
+    });
+    const catalogProductId = await seedProductCatalog({
+      authUserId: creator.authUserId,
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'Hosted Manual Redemption Product',
+    });
+    await harness.convex.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Hosted Manual Redemption Package',
+      publisherId: uniqueRef('hosted_manual_publisher'),
+      yucpUserId: creator.authUserId,
+    });
+    const { licenseId } = await harness.convex.mutation<{ licenseId: string }>(
+      api.manualLicenses.create,
+      {
+        apiSecret: API_SECRET,
+        authUserId: creator.authUserId,
+        licenseKeyHash: await hashLicenseKey(licenseKey),
+        productId,
+        maxUses: 1,
+      }
+    );
+
+    const requirements = normalizeHostedVerificationRequirements([
+      {
+        methodKey: 'manual-license',
+        providerKey: 'manual',
+        kind: 'manual_license',
+        providerProductRef: productId,
+        creatorAuthUserId: creator.authUserId,
+        productId,
+      },
+    ]);
+    expect(requirements).toHaveLength(1);
+    expect(decorateHostedVerificationRequirement(requirements[0])).toEqual(
+      expect.objectContaining({
+        methodKey: 'manual-license',
+        providerKey: 'manual',
+        kind: 'manual_license',
+        capability: expect.objectContaining({
+          input: expect.objectContaining({ kind: 'license_key', masked: true }),
+        }),
+      })
+    );
+    const buyerActor = await createAuthUserActorBinding({
+      authUserId: buyer.authUserId,
+      source: 'api_key',
+      scopes: PUBLIC_API_SCOPES,
+    });
+    const { intentId } = await harness.convex.mutation<{ intentId: string }>(
+      api.verificationIntents.createVerificationIntent,
+      {
+        apiSecret: API_SECRET,
+        actor: buyerActor,
+        authUserId: buyer.authUserId,
+        packageId,
+        packageName: 'Hosted Manual Redemption Package',
+        machineFingerprint: 'hosted-manual-redemption-machine',
+        codeChallenge: 'hosted-manual-redemption-challenge',
+        returnUrl: 'http://127.0.0.1:3000/account/verify',
+        requirements,
+      }
+    );
+
+    const sessionToken = await createBetterAuthSession(buyer.authUserId);
+    const redemptionResponse = await harness.app.fetch(
+      `/api/connect/user/verification-intents/${intentId}/manual-license`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `yucp.session_token=${sessionToken}`,
+          origin: 'http://127.0.0.1:3001',
+        },
+        body: JSON.stringify({ methodKey: 'manual-license', licenseKey }),
+      }
+    );
+
+    expect(redemptionResponse.status).toBe(200);
+    await expect(redemptionResponse.json()).resolves.toEqual({ success: true });
+
+    const sourceReference = `manual:${await sha256Hex(licenseId)}`;
+    const entitlements = await harness.convex.collect('entitlements');
+    expect(entitlements).toEqual([
+      expect.objectContaining({
+        authUserId: creator.authUserId,
+        subjectId,
+        productId,
+        catalogProductId,
+        sourceProvider: 'manual',
+        sourceReference,
+        status: 'active',
+      }),
+    ]);
+    const evidence = await harness.convex.collect('entitlement_evidence');
+    expect(evidence).toEqual([
+      expect.objectContaining({
+        authUserId: creator.authUserId,
+        subjectId,
+        providerKey: 'manual',
+        sourceReference,
+        evidenceType: 'manual_license_redeemed',
+        status: 'active',
+        productId,
+      }),
+    ]);
+  });
+
   test('manual-license reachable layer stores only HMAC and validates by hash', async () => {
     const creator = await createBetterAuthUser({ name: 'Manual License Convex Creator' });
     const actor = await createAuthUserActorBinding({

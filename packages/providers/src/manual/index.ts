@@ -74,6 +74,8 @@ export {
   normalizeLicenseKey,
 } from './manager';
 
+export { createManualProviderModule, MANUAL_PURPOSES } from './module';
+
 // Types
 export type {
   BulkImportInput,

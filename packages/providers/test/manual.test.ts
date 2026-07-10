@@ -9,7 +9,9 @@ import {
   ManualLicenseManager,
   normalizeLicenseKey,
 } from '../src/manual/manager';
+import { createManualProviderModule } from '../src/manual/module';
 import type { CreateLicenseInput, ManualLicense, ManualLicenseStorage } from '../src/manual/types';
+import { getProviderDescriptor } from '../src/providerMetadata';
 
 // In-memory storage implementation for testing
 class InMemoryStorage implements ManualLicenseStorage {
@@ -131,6 +133,26 @@ describe('generateLicenseKey', () => {
     expect(normalizeLicenseKey('  yucp-abcd-efgh-ijkl')).toBe('YUCP-ABCD-EFGH-IJKL');
     expect(normalizeLicenseKey('  YUCP-ABCD-EFGH-IJKL  ')).toBe('YUCP-ABCD-EFGH-IJKL');
     expect(normalizeLicenseKey('  yucp abcd efgh ijkl ')).toBe('YUCP-ABCD-EFGH-IJKL');
+  });
+});
+
+describe('manual hosted verification capability', () => {
+  it('derives a license-key input from the manual provider descriptor', () => {
+    const runtime = createManualProviderModule();
+    const descriptor = getProviderDescriptor('manual');
+
+    expect(descriptor?.buyerVerificationMethods).toContain('license_key');
+    expect(runtime.hostedVerification?.describeManualLicenseCapability()).toEqual(
+      expect.objectContaining({
+        methodKind: 'manual_license',
+        input: expect.objectContaining({
+          kind: 'license_key',
+          label: descriptor?.licenseKey?.inputLabel,
+          placeholder: descriptor?.licenseKey?.placeholder,
+          masked: true,
+        }),
+      })
+    );
   });
 });
 
