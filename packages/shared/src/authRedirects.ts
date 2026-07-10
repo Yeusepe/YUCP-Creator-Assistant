@@ -1,4 +1,5 @@
 const DEFAULT_AUTH_REDIRECT_TARGET = '/dashboard';
+const AUTH_REDIRECT_ORIGIN = 'https://auth.invalid';
 const AUTH_LOOP_PATHS = new Set(['/sign-in', '/sign-in-redirect']);
 const DASHBOARD_QUERY_KEYS_TO_STRIP = ['guild_id', 'guildId', 'tenant_id', 'authUserId'] as const;
 
@@ -11,6 +12,14 @@ function hasDashboardBootstrapHash(url: URL): boolean {
   return Boolean(hashParams.get('s') || hashParams.get('token'));
 }
 
+function resolvesToAuthRedirectOrigin(value: string): boolean {
+  try {
+    return new URL(value.replaceAll('\\', '/'), AUTH_REDIRECT_ORIGIN).origin === AUTH_REDIRECT_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 // Source: https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html
 export function getSafeRelativeRedirectTarget(value: string | null | undefined): string | null {
   if (!value) {
@@ -21,7 +30,15 @@ export function getSafeRelativeRedirectTarget(value: string | null | undefined):
     return null;
   }
 
-  if (value.startsWith('//')) {
+  if (!resolvesToAuthRedirectOrigin(value)) {
+    return null;
+  }
+
+  try {
+    if (!resolvesToAuthRedirectOrigin(decodeURIComponent(value))) {
+      return null;
+    }
+  } catch {
     return null;
   }
 
@@ -37,7 +54,7 @@ export function normalizeAuthRedirectTarget(
     return fallback;
   }
 
-  const url = new URL(safeTarget, 'https://auth.invalid');
+  const url = new URL(safeTarget, AUTH_REDIRECT_ORIGIN);
 
   if (AUTH_LOOP_PATHS.has(url.pathname)) {
     return fallback;
