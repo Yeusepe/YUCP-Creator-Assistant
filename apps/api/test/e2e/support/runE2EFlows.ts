@@ -8,8 +8,13 @@ async function run(args: string[]): Promise<number> {
 
 let exitCode = await run(['bun', 'run', 'test:convex:real:up']);
 
-if (exitCode === 0) {
-  exitCode = await run(['bun', 'run', 'test:e2e:flows:run']);
+for (const command of [
+  ['bun', 'run', 'test:convex:deploy'],
+  ['bun', 'run', 'ops/convex-real/manage.ts', 'test-signals'],
+  ['bun', 'run', 'test:e2e:flows:run'],
+]) {
+  if (exitCode !== 0) break;
+  exitCode = await run(command);
 }
 
 const teardownExit = await run(['bun', 'run', 'test:convex:real:down']);
