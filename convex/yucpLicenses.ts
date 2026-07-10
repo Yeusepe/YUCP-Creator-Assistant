@@ -264,13 +264,13 @@ export const verifyManualLicenseByHash = internalQuery({
     if (!license) {
       return { valid: false as const };
     }
-    if (license.status !== 'active' && license.status !== 'exhausted') {
-      return { valid: false as const };
-    }
-    if (license.expiresAt && Date.now() > license.expiresAt) {
+    if (license.status === 'revoked') {
       return { valid: false as const };
     }
 
+    // Exhausted and expired licenses can prove an existing redemption only.
+    // The atomic completion mutation rechecks consumability and permits these
+    // rows exclusively when this buyer already has the matching entitlement.
     return { valid: true as const, licenseId: license._id };
   },
 });

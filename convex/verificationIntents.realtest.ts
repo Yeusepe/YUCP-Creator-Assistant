@@ -519,7 +519,7 @@ describe('verification intents buyer provider links', () => {
     expect(intent?.verifiedMethodKey).toBe('gumroad-license');
   });
 
-  it('redeems a YUCP manual license through the intent action and grants its entitlement', async () => {
+  it('allows an existing owner to retry an expired YUCP manual license without consuming another use', async () => {
     const t = makeTestConvex();
     const creatorAuthUserId = 'auth-yucp-manual-license-creator';
     const buyerAuthUserId = 'auth-yucp-manual-license-buyer';
@@ -638,6 +638,14 @@ describe('verification intents buyer provider links', () => {
       currentUses: 1,
       status: 'exhausted',
     });
+    const expiredAt = Date.now() - 1;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(licenseId, {
+        status: 'expired',
+        expiresAt: expiredAt,
+        updatedAt: Date.now(),
+      });
+    });
 
     const { intentId: sameBuyerRetryIntentId } = await t.mutation(
       api.verificationIntents.createVerificationIntent,
@@ -672,7 +680,8 @@ describe('verification intents buyer provider links', () => {
     ).toEqual({ success: true });
     expect(await t.run((ctx) => ctx.db.get(licenseId))).toMatchObject({
       currentUses: 1,
-      status: 'exhausted',
+      status: 'expired',
+      expiresAt: expiredAt,
     });
 
     const retryBuyerAuthUserId = 'auth-yucp-manual-license-retry-buyer';
