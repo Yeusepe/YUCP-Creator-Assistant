@@ -69,7 +69,7 @@ async function authenticateSuiteRequest(
 async function getSubjectIdByAuthUserId(
   authUserId: string,
   config: SuiteConfig
-): Promise<{ found: true; subjectId: string } | { found: false }> {
+): Promise<{ found: true; subjectId: string; isActive: boolean } | { found: false }> {
   const convex = getConvexClientFromUrl(config.convexUrl);
   const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
     apiSecret: config.convexApiSecret,
@@ -83,6 +83,7 @@ async function getSubjectIdByAuthUserId(
   return {
     found: true,
     subjectId: subjectResult.subject._id,
+    isActive: subjectResult.subject.status === 'active',
   };
 }
 
@@ -110,6 +111,14 @@ export async function getVerificationStatus(
     return errorResponse('forbidden', 'Subject not found', 403);
   }
 
+  if (!subjectResult.isActive) {
+    return jsonResponse({
+      verified: false,
+      subjectId: subjectResult.subjectId,
+      products: [],
+    });
+  }
+
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret: config.convexApiSecret,
     authUserId,
@@ -126,7 +135,7 @@ export async function getVerificationStatus(
   );
 
   return jsonResponse({
-    verified: true,
+    verified: products.length > 0,
     subjectId: subjectResult.subjectId,
     products,
   });
