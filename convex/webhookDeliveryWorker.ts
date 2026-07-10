@@ -73,9 +73,10 @@ export const processWebhookDeliveries = internalAction({
 
     for (const delivery of deliveries) {
       try {
-        await ctx.runMutation(internal.webhookDeliveries.markInProgress, {
+        const claimed = await ctx.runMutation(internal.webhookDeliveries.markInProgress, {
           deliveryId: delivery._id as any,
         });
+        if (!claimed) continue;
 
         const subscription = (await ctx.runQuery(internal.webhookSubscriptions.getByIdInternal, {
           subscriptionId: delivery.subscriptionId as any,

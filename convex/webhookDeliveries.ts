@@ -46,22 +46,40 @@ export const listPending = internalQuery({
             delivery.nextRetryAt <= now &&
             delivery.attemptCount < delivery.maxAttempts)
       )
+      .sort((left, right) => {
+        const readyAtDifference = (left.nextRetryAt ?? now) - (right.nextRetryAt ?? now);
+        if (readyAtDifference !== 0) return readyAtDifference;
+
+        if (left.status !== right.status) {
+          return left.status === 'failed' ? -1 : 1;
+        }
+
+        return left.createdAt - right.createdAt;
+      })
       .slice(0, 20);
   },
 });
 
-/** Mark a delivery as in_progress at the start of a delivery attempt. */
+/**
+ * Atomically claim a pending or retryable delivery for one worker.
+ * Returns false when another worker has already claimed or completed it.
+ */
 export const markInProgress = internalMutation({
   args: {
     deliveryId: v.id('webhook_deliveries'),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
+    const delivery = await ctx.db.get(args.deliveryId);
+    if (!delivery || (delivery.status !== 'pending' && delivery.status !== 'failed')) {
+      return false;
+    }
+
     await ctx.db.patch(args.deliveryId, {
       status: 'in_progress',
       updatedAt: Date.now(),
     });
-    return null;
+    return true;
   },
 });
 
