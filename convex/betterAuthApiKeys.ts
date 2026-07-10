@@ -124,18 +124,9 @@ function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
         }
       : null;
 
-  // Managed public keys are tenant-owned. Legacy rows retain the session owner
-  // in userId, so use the corroborating referenceId to recover the tenant
-  // without trusting metadata alone.
-  const ownerUserId =
-    metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
-    value.referenceId === metadata.authUserId
-      ? metadata.authUserId
-      : value.userId;
-
   return {
     id,
-    userId: ownerUserId,
+    userId: value.userId,
     name: value.name,
     start: value.start,
     prefix: value.prefix,
@@ -273,15 +264,24 @@ interface BetterAuthServerApi {
   }>;
 }
 
+function isManagedPublicApiKey(
+  value: ReturnType<typeof serializeApiKeyRecord>
+): value is NonNullable<ReturnType<typeof serializeApiKeyRecord>> {
+  return (
+    value !== null &&
+    value.metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
+    value.metadata.authUserId === value.userId
+  );
+}
+
 function isManagedPublicApiKeyForAuthUser(
   value: ReturnType<typeof serializeApiKeyRecord>,
   authUserId: string
 ): value is NonNullable<ReturnType<typeof serializeApiKeyRecord>> {
   return (
-    value !== null &&
+    isManagedPublicApiKey(value) &&
     value.id.length > 0 &&
-    value.metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
-    value.metadata.authUserId === authUserId
+    value.metadata?.authUserId === authUserId
   );
 }
 
@@ -491,17 +491,23 @@ export const verifyApiKey = mutation({
             select: API_KEY_SERIALIZATION_SELECT,
           })) as SerializableApiKeyRecord | null)
         : null;
-    const serializedKey = serializeApiKeyRecord(stored ?? result.key);
+    const serializedKey = serializeApiKeyRecord(stored);
+    const valid = result.valid && isManagedPublicApiKey(serializedKey);
 
     return {
-      valid: result.valid && serializedKey !== null,
+      valid,
       error: result.error
         ? {
             code: result.error.code,
             message: result.error.message ?? null,
           }
-        : null,
-      key: serializedKey,
+        : valid
+          ? null
+          : {
+              code: 'invalid_api_key',
+              message: 'API key failed managed public key validation',
+            },
+      key: valid ? serializedKey : null,
     };
   },
 });

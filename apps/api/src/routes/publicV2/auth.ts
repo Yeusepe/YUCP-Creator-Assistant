@@ -95,20 +95,27 @@ export async function resolveAuth(
             key: apiKey,
           });
 
-      if (!result?.key) {
+      if (!result?.valid || !result.key) {
         return buildErrorResponse('unauthorized', 'Invalid or expired API key', 401);
       }
 
       const keyData = result.key as {
         id?: string;
+        userId?: string;
         metadata?: Record<string, unknown>;
         permissions?: Record<string, unknown>;
         expiresAt?: number | null;
       };
 
-      const authUserId = keyData.metadata?.authUserId as string | undefined;
-      if (!authUserId) {
-        return buildErrorResponse('unauthorized', 'API key has no associated user', 401);
+      const authUserId =
+        typeof keyData.metadata?.authUserId === 'string' ? keyData.metadata.authUserId : undefined;
+      if (
+        !authUserId ||
+        keyData.metadata?.kind !== 'public-api' ||
+        typeof keyData.userId !== 'string' ||
+        keyData.userId !== authUserId
+      ) {
+        return buildErrorResponse('unauthorized', 'Invalid or expired API key', 401);
       }
 
       const scopes = getPublicApiKeyScopes((keyData.permissions as Record<string, unknown>) ?? {});
