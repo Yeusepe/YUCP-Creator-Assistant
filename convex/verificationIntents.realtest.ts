@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { getPublicKeyFromPrivate } from './lib/yucpCrypto';
-import { makeTestConvex, seedCreatorProfile, seedSubject } from './testHelpers';
+import {
+  makeTestConvex,
+  seedCreatorProfile,
+  seedGuildLink,
+  seedRoleRule,
+  seedSubject,
+} from './testHelpers';
 
 const API_SECRET = 'test-secret';
 const originalEncryptionSecret = process.env.ENCRYPTION_SECRET;
@@ -1320,6 +1326,240 @@ describe('verification intents buyer provider links', () => {
 
     expect(intent?.status).toBe('pending');
     expect(intent?.errorCode).toBe('provider_link_missing');
+  });
+
+  it('refuses manual redemption after the resolved buyer subject becomes inactive without consuming or syncing', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-manual-inactive-subject-creator';
+    const buyerAuthUserId = 'auth-manual-inactive-subject-buyer';
+    const packageId = 'pkg.manual-inactive-subject';
+    const productId = 'product-manual-inactive-subject';
+    const licenseKey = 'manual-inactive-subject-license';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-manual-inactive-subject',
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Manual Inactive Subject Package',
+      publisherId: 'publisher-manual-inactive-subject',
+      yucpUserId: creatorAuthUserId,
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'Manual Inactive Subject Product',
+    });
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseKeyHash: await hashManualLicenseKey(licenseKey),
+      productId,
+      maxUses: 1,
+    });
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-manual-inactive-subject',
+      codeChallenge: 'challenge-manual-inactive-subject',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'manual-license',
+          providerKey: 'manual',
+          kind: 'manual_license',
+          title: 'Manual license',
+          providerProductRef: productId,
+          creatorAuthUserId,
+          productId,
+        },
+      ],
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(subjectId, { status: 'suspended', updatedAt: Date.now() });
+    });
+
+    const result = await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      intentId,
+      methodKey: 'manual-license',
+      licenseKey,
+    });
+    const [license, entitlements, roleSyncJobs] = await t.run(async (ctx) => {
+      const currentLicense = await ctx.db.get(licenseId);
+      const currentEntitlements = await ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        )
+        .collect();
+      const currentRoleSyncJobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_sync')
+        )
+        .collect();
+      return [currentLicense, currentEntitlements, currentRoleSyncJobs] as const;
+    });
+
+    expect({
+      result,
+      currentUses: license?.currentUses,
+      entitlementCount: entitlements.length,
+      roleSyncJobCount: roleSyncJobs.length,
+    }).toEqual({
+      result: {
+        success: false,
+        errorCode: 'subject_inactive',
+        errorMessage: 'The buyer subject is no longer active.',
+      },
+      currentUses: 0,
+      entitlementCount: 0,
+      roleSyncJobCount: 0,
+    });
+  });
+
+  it('cascades manual-license revocation to redeemed entitlements and role-removal jobs exactly once', async () => {
+    const t = makeTestConvex();
+    const creatorAuthUserId = 'auth-manual-revoke-cascade-creator';
+    const buyerAuthUserId = 'auth-manual-revoke-cascade-buyer';
+    const packageId = 'pkg.manual-revoke-cascade';
+    const productId = 'product-manual-revoke-cascade';
+    const licenseKey = 'manual-revoke-cascade-license';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'discord-manual-revoke-cascade',
+    });
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId: creatorAuthUserId,
+      discordGuildId: 'guild-manual-revoke-cascade',
+      installedByAuthUserId: creatorAuthUserId,
+    });
+    await seedRoleRule(t, guildLinkId, {
+      authUserId: creatorAuthUserId,
+      guildId: 'guild-manual-revoke-cascade',
+      productId,
+      verifiedRoleId: 'role-manual-revoke-cascade',
+      removeOnRevoke: true,
+    });
+
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Manual Revoke Cascade Package',
+      publisherId: 'publisher-manual-revoke-cascade',
+      yucpUserId: creatorAuthUserId,
+    });
+    await seedCatalogProduct(t, {
+      authUserId: creatorAuthUserId,
+      productId,
+      provider: 'manual',
+      providerProductRef: productId,
+      displayName: 'Manual Revoke Cascade Product',
+    });
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseKeyHash: await hashManualLicenseKey(licenseKey),
+      productId,
+      maxUses: 1,
+    });
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId: buyerAuthUserId,
+      packageId,
+      machineFingerprint: 'machine-manual-revoke-cascade',
+      codeChallenge: 'challenge-manual-revoke-cascade',
+      returnUrl: 'https://example.com/return',
+      requirements: [
+        {
+          methodKey: 'manual-license',
+          providerKey: 'manual',
+          kind: 'manual_license',
+          title: 'Manual license',
+          providerProductRef: productId,
+          creatorAuthUserId,
+          productId,
+        },
+      ],
+    });
+
+    expect(
+      await t.action(api.verificationIntents.verifyIntentWithManualLicense, {
+        apiSecret: API_SECRET,
+        authUserId: buyerAuthUserId,
+        intentId,
+        methodKey: 'manual-license',
+        licenseKey,
+      })
+    ).toEqual({ success: true });
+
+    const entitlement = await t.run(async (ctx) =>
+      await ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_subject', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('subjectId', subjectId)
+        )
+        .filter((q) => q.eq(q.field('sourceProvider'), 'manual'))
+        .first()
+    );
+    expect(entitlement).toMatchObject({ status: 'active' });
+
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseId,
+      reason: 'creator requested removal',
+    });
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: API_SECRET,
+      authUserId: creatorAuthUserId,
+      licenseId,
+      reason: 'second revoke must be a no-op',
+    });
+
+    const [revokedEntitlement, revokedLicense, roleRemovalJobs] = await t.run(async (ctx) => {
+      const currentEntitlement = entitlement ? await ctx.db.get(entitlement._id) : null;
+      const currentLicense = await ctx.db.get(licenseId);
+      const currentRoleRemovalJobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_removal')
+        )
+        .collect();
+      return [currentEntitlement, currentLicense, currentRoleRemovalJobs] as const;
+    });
+
+    expect({
+      entitlementStatus: revokedEntitlement?.status,
+      revokedAt: revokedEntitlement?.revokedAt !== undefined,
+      licenseStatus: revokedLicense?.status,
+      licenseNotes: revokedLicense?.notes,
+      roleRemovalJobs: roleRemovalJobs.map((job) => ({
+        subjectId: job.payload.subjectId,
+        entitlementId: job.payload.entitlementId,
+        guildId: job.payload.guildId,
+        roleId: job.payload.roleId,
+      })),
+    }).toEqual({
+      entitlementStatus: 'revoked',
+      revokedAt: true,
+      licenseStatus: 'revoked',
+      licenseNotes: 'Revoked: creator requested removal',
+      roleRemovalJobs: [
+        {
+          subjectId,
+          entitlementId: entitlement?._id,
+          guildId: 'guild-manual-revoke-cascade',
+          roleId: 'role-manual-revoke-cascade',
+        },
+      ],
+    });
   });
 
   it('lists and revokes buyer provider links for account surfaces', async () => {

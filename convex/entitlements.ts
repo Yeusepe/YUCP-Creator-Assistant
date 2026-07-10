@@ -1491,6 +1491,76 @@ export const revokeEntitlementBySourceRef = mutation({
 });
 
 /**
+ * Revoke every active entitlement from one provider source reference.
+ *
+ * Source references can legitimately fan out to multiple buyer subjects, such as a
+ * reusable manual license. Callers use this shared lifecycle path so entitlement
+ * revocation, role removal, and audit records remain consistent.
+ */
+export async function revokeActiveEntitlementsBySourceReference(
+  ctx: MutationCtx,
+  params: {
+    authUserId: string;
+    sourceProvider: Doc<'entitlements'>['sourceProvider'];
+    sourceReference: string;
+    reason: Parameters<typeof mapReasonToStatus>[0];
+    details?: string;
+    correlationId?: string;
+    now?: number;
+  }
+): Promise<{ revokedCount: number; outboxJobIds: Id<'outbox_jobs'>[] }> {
+  const now = params.now ?? Date.now();
+  const newStatus = mapReasonToStatus(params.reason);
+  const entitlements = await ctx.db
+    .query('entitlements')
+    .withIndex('by_auth_user_status', (q) =>
+      q.eq('authUserId', params.authUserId).eq('status', 'active')
+    )
+    .filter((q) => q.eq(q.field('sourceProvider'), params.sourceProvider))
+    .filter((q) => q.eq(q.field('sourceReference'), params.sourceReference))
+    .collect();
+  const outboxJobIds: Id<'outbox_jobs'>[] = [];
+
+  for (const entitlement of entitlements) {
+    await ctx.db.patch(entitlement._id, {
+      status: newStatus,
+      revokedAt: now,
+      updatedAt: now,
+    });
+
+    outboxJobIds.push(
+      ...(await emitRoleRemovalJobs(
+        ctx,
+        entitlement.authUserId,
+        entitlement.subjectId,
+        entitlement.productId,
+        entitlement._id,
+        params.correlationId,
+        now
+      ))
+    );
+
+    await createAuditEvent(ctx, {
+      authUserId: entitlement.authUserId,
+      eventType: 'entitlement.revoked',
+      subjectId: entitlement.subjectId,
+      entitlementId: entitlement._id,
+      metadata: {
+        productId: entitlement.productId,
+        reason: params.reason,
+        details: params.details,
+        sourceReference: params.sourceReference,
+        previousStatus: entitlement.status,
+        newStatus,
+      },
+      correlationId: params.correlationId,
+    });
+  }
+
+  return { revokedCount: entitlements.length, outboxJobIds };
+}
+
+/**
  * Revoke all entitlements for a subject in a tenant.
  * Used when user disconnects their last account - no remaining proof of ownership.
  */

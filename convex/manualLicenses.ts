@@ -6,8 +6,10 @@
  */
 
 import { ConvexError, v } from 'convex/values';
+import { sha256Hex } from '@yucp/shared/crypto';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
+import { revokeActiveEntitlementsBySourceReference } from './entitlements';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -318,12 +320,30 @@ export const revoke = mutation({
       throw new Error('License not found');
     }
 
+    // A prior revoke has already cascaded through the entitlement lifecycle.
+    // Do not mutate the audit notes or enqueue duplicate role removals.
+    if (license.status === 'revoked') {
+      const { licenseKeyHash: _, ...rest } = license;
+      return rest;
+    }
+
     const now = Date.now();
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
 
     await ctx.db.patch(licenseId, {
       status: 'revoked',
       notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
       updatedAt: now,
+    });
+
+    await revokeActiveEntitlementsBySourceReference(ctx, {
+      authUserId,
+      sourceProvider: 'manual',
+      sourceReference,
+      reason: 'manual',
+      details: reason,
+      correlationId: `manual-license:${licenseId}`,
+      now,
     });
 
     const updated = await ctx.db.get(licenseId);
