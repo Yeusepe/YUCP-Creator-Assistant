@@ -126,7 +126,7 @@ export async function getVerificationStatus(
   );
 
   return jsonResponse({
-    verified: true,
+    verified: products.length > 0,
     subjectId: subjectResult.subjectId,
     products,
   });
