@@ -152,6 +152,9 @@ jobs:
       - name: Run real Convex deploy gate
         run: bun run test:convex:deploy
 
+      - name: Enable self-hosted real test helpers
+        run: bun run ops/convex-real/manage.ts test-signals
+
       - name: Run real API user journey flows
         env:
           E2E_GUMROAD_PRODUCT_ID: ${{ secrets.E2E_GUMROAD_PRODUCT_ID }}
