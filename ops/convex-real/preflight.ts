@@ -4,7 +4,7 @@ import * as ts from 'typescript';
 
 const ROOT_DIR = resolve(import.meta.dir, '../..');
 const CONVEX_DIR = join(ROOT_DIR, 'convex');
-const REQUIRED_ENV_ERROR = /\b([A-Z][A-Z0-9_]+) is required\b/g;
+const REQUIRED_ENV_ERROR = /\b([A-Z][A-Z0-9_]+(?:\s+or\s+[A-Z][A-Z0-9_]+)*) is required\b/g;
 const CONVEX_ENV_GET_TIMEOUT_MS = 60_000;
 const FORCE_KILL_GRACE_MS = 5_000;
 
@@ -168,7 +168,7 @@ function readProcessEnvName(node: ts.Node): string | null {
   return null;
 }
 
-function requiredEnvNamesInError(node: ts.Node): string[] {
+function requiredEnvAlternativesInError(node: ts.Node): string[][] {
   if (
     !ts.isNewExpression(node) ||
     !ts.isIdentifier(node.expression) ||
@@ -183,8 +183,13 @@ function requiredEnvNamesInError(node: ts.Node): string[] {
   ) {
     return [];
   }
-  return [...argument.text.matchAll(REQUIRED_ENV_ERROR)].map((match) => match[1]);
+  return [...argument.text.matchAll(REQUIRED_ENV_ERROR)].map((match) =>
+    match[1].split(/\s+or\s+/)
+  );
 }
+
+export type DeploymentEnvRequirement = readonly string[];
+type DeploymentEnvRequirementsInput = readonly string[] | readonly DeploymentEnvRequirement[];
 
 /**
  * Derives the analyzer-time required environment contract from Convex source.
@@ -194,10 +199,16 @@ function requiredEnvNamesInError(node: ts.Node): string[] {
  * a module-level call (such as Better Auth route registration). Handler bodies
  * are deliberately not traversed, because their environment is runtime-only.
  */
-export function requiredConvexDeploymentEnv(): string[] {
+export function requiredConvexDeploymentEnvRequirements(): DeploymentEnvRequirement[] {
   const modules = buildConvexModuleGraph();
-  const required = new Set<string>();
+  const required = new Map<string, DeploymentEnvRequirement>();
   const visitedFunctions = new Set<string>();
+
+  function addRequirement(names: readonly string[]): void {
+    const alternatives = [...new Set(names)].sort();
+    if (alternatives.length === 0) return;
+    required.set(alternatives.join('\u0000'), alternatives);
+  }
 
   function resolveFunction(
     module: ConvexModule,
@@ -234,11 +245,11 @@ export function requiredConvexDeploymentEnv(): string[] {
 
     const envName = readProcessEnvName(node);
     if (envName && allowEagerCallbackInvocation) {
-      required.add(envName);
+      addRequirement([envName]);
     }
 
-    for (const envNameFromError of requiredEnvNamesInError(node)) {
-      required.add(envNameFromError);
+    for (const alternatives of requiredEnvAlternativesInError(node)) {
+      addRequirement(alternatives);
     }
 
     if (ts.isCallExpression(node)) {
@@ -273,7 +284,11 @@ export function requiredConvexDeploymentEnv(): string[] {
     }
   }
 
-  return [...required].sort();
+  return [...required.values()].sort((left, right) => left.join('\u0000').localeCompare(right.join('\u0000')));
+}
+
+export function requiredConvexDeploymentEnv(): string[] {
+  return [...new Set(requiredConvexDeploymentEnvRequirements().flat())].sort();
 }
 
 async function deploymentEnvIsSet(
@@ -309,16 +324,32 @@ export type DeploymentEnvIsSet = (
   env: Record<string, string | undefined>
 ) => Promise<boolean>;
 
+function normalizeDeploymentEnvRequirements(
+  requiredEnv: DeploymentEnvRequirementsInput
+): DeploymentEnvRequirement[] {
+  if (requiredEnv.length === 0) return [];
+  if (typeof requiredEnv[0] === 'string') {
+    return (requiredEnv as readonly string[]).map((name) => [name]);
+  }
+  return (requiredEnv as readonly DeploymentEnvRequirement[]).map((alternatives) => [
+    ...alternatives,
+  ]);
+}
+
 export async function assertRequiredConvexDeploymentEnv(
   env: Record<string, string | undefined> = process.env,
-  requiredEnv = requiredConvexDeploymentEnv(),
+  requiredEnv: DeploymentEnvRequirementsInput = requiredConvexDeploymentEnvRequirements(),
   isSet: DeploymentEnvIsSet = deploymentEnvIsSet
 ): Promise<void> {
+  const requirements = normalizeDeploymentEnvRequirements(requiredEnv);
   const missing = (
     await Promise.all(
-      requiredEnv.map(async (name) => ((await isSet(name, env)) ? null : name))
+      requirements.map(async (alternatives) => {
+        const present = await Promise.all(alternatives.map((name) => isSet(name, env)));
+        return present.some(Boolean) ? null : alternatives.join(' or ');
+      })
     )
-  ).filter((name): name is string => name !== null);
+  ).filter((requirement): requirement is string => requirement !== null);
 
   if (missing.length > 0) {
     throw new Error(`Missing required Convex deployment env: ${missing.join(', ')}`);
@@ -326,9 +357,11 @@ export async function assertRequiredConvexDeploymentEnv(
 }
 
 async function main(): Promise<void> {
-  const requiredEnv = requiredConvexDeploymentEnv();
+  const requiredEnv = requiredConvexDeploymentEnvRequirements();
   await assertRequiredConvexDeploymentEnv(process.env, requiredEnv);
-  console.log(`Convex deployment required-env preflight passed (${requiredEnv.length} vars).`);
+  console.log(
+    `Convex deployment required-env preflight passed (${requiredEnv.map((names) => names.join(' or ')).join(', ')}).`
+  );
 }
 
 if (import.meta.main) {

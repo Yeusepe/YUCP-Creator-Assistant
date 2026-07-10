@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import { assertRequiredConvexDeploymentEnv, requiredConvexDeploymentEnv } from './preflight';
+import {
+  assertRequiredConvexDeploymentEnv,
+  requiredConvexDeploymentEnv,
+  requiredConvexDeploymentEnvRequirements,
+} from './preflight';
 
 describe('Convex deployment required-env preflight', () => {
   it('derives analyzer-time required env from the Convex module graph', () => {
@@ -7,6 +11,17 @@ describe('Convex deployment required-env preflight', () => {
 
     expect(requiredEnv).toContain('BETTER_AUTH_SECRET');
     expect(requiredEnv).not.toContain('DISCORD_BOT_TOKEN');
+  });
+
+  it('treats the supported CONVEX_URL site-url fallback as an any-of requirement', async () => {
+    const requirements = requiredConvexDeploymentEnvRequirements();
+    expect(requirements).toContainEqual(['CONVEX_SITE_URL', 'CONVEX_URL']);
+
+    await expect(
+      assertRequiredConvexDeploymentEnv({}, [['CONVEX_SITE_URL', 'CONVEX_URL']], async (name) =>
+        Promise.resolve(name === 'CONVEX_URL')
+      )
+    ).resolves.toBeUndefined();
   });
 
   it('reports only missing deployment variables through the actual assertion', async () => {

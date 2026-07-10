@@ -59,7 +59,7 @@ function resolveConvexSiteUrl(): string {
     return convexUrl.replace('.convex.cloud', '.convex.site');
   }
 
-  throw new Error('CONVEX_SITE_URL is required');
+  throw new Error('CONVEX_SITE_URL or CONVEX_URL is required');
 }
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
