@@ -7,9 +7,9 @@
 
 import { ConvexError, v } from 'convex/values';
 import { sha256Hex } from '@yucp/shared/crypto';
+import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
-import { revokeActiveEntitlementsBySourceReference } from './entitlements';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -323,9 +323,9 @@ export const revoke = mutation({
     const now = Date.now();
     const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
 
-    // Preserve the original license-level audit details on retries, but still
-    // run the idempotent entitlement cascade so legacy revoked licenses can
-    // clean up any active entitlement left behind before cascading existed.
+    // Preserve the original license-level audit details on retries, while
+    // always scheduling the idempotent entitlement cascade so legacy revoked
+    // licenses can clean up active entitlements left before cascading existed.
     if (license.status !== 'revoked') {
       await ctx.db.patch(licenseId, {
         status: 'revoked',
@@ -334,14 +334,12 @@ export const revoke = mutation({
       });
     }
 
-    await revokeActiveEntitlementsBySourceReference(ctx, {
+    await ctx.scheduler.runAfter(0, internal.entitlements.revokeManualLicenseEntitlementCascadeChunk, {
       authUserId,
-      sourceProvider: 'manual',
       sourceReference,
-      reason: 'manual',
       details: reason,
       correlationId: `manual-license:${licenseId}`,
-      now,
+      revokedAt: now,
     });
 
     const updated = await ctx.db.get(licenseId);

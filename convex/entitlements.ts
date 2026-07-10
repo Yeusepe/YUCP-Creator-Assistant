@@ -21,7 +21,8 @@ import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalQuery, mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -1497,6 +1498,8 @@ export const revokeEntitlementBySourceRef = mutation({
  * reusable manual license. Callers use this shared lifecycle path so entitlement
  * revocation, role removal, and audit records remain consistent.
  */
+export const ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE = 100;
+
 export async function revokeActiveEntitlementsBySourceReference(
   ctx: MutationCtx,
   params: {
@@ -1508,7 +1511,7 @@ export async function revokeActiveEntitlementsBySourceReference(
     correlationId?: string;
     now?: number;
   }
-): Promise<{ revokedCount: number; outboxJobIds: Id<'outbox_jobs'>[] }> {
+): Promise<{ revokedCount: number; outboxJobIds: Id<'outbox_jobs'>[]; hasMore: boolean }> {
   const now = params.now ?? Date.now();
   const newStatus = mapReasonToStatus(params.reason);
   const entitlements = await ctx.db
@@ -1520,7 +1523,7 @@ export async function revokeActiveEntitlementsBySourceReference(
         .eq('sourceReference', params.sourceReference)
         .eq('status', 'active')
     )
-    .collect();
+    .take(ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE);
   const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
   for (const entitlement of entitlements) {
@@ -1559,8 +1562,44 @@ export async function revokeActiveEntitlementsBySourceReference(
     });
   }
 
-  return { revokedCount: entitlements.length, outboxJobIds };
+  return {
+    revokedCount: entitlements.length,
+    outboxJobIds,
+    hasMore: entitlements.length === ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE,
+  };
 }
+
+/**
+ * Revoke one bounded page of entitlements created by a reusable manual license.
+ *
+ * A license can have many redemptions, so each transaction handles only one
+ * page and schedules another one when active rows remain. Re-running a page is
+ * safe because only still-active entitlements are selected.
+ */
+export const revokeManualLicenseEntitlementCascadeChunk = internalMutation({
+  args: {
+    authUserId: v.string(),
+    sourceReference: v.string(),
+    details: v.optional(v.string()),
+    correlationId: v.string(),
+    revokedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { hasMore } = await revokeActiveEntitlementsBySourceReference(ctx, {
+      authUserId: args.authUserId,
+      sourceProvider: 'manual',
+      sourceReference: args.sourceReference,
+      reason: 'manual',
+      details: args.details,
+      correlationId: args.correlationId,
+      now: args.revokedAt,
+    });
+
+    if (hasMore) {
+      await ctx.scheduler.runAfter(0, internal.entitlements.revokeManualLicenseEntitlementCascadeChunk, args);
+    }
+  },
+});
 
 /**
  * Revoke all entitlements for a subject in a tenant.

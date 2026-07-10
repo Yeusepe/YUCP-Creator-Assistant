@@ -84,9 +84,10 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
+      'convex/manualLicenses.realtest.ts',
       'convex/outboxJobs.realtest.ts',
       'convex/verificationIntents.realtest.ts',
       'apps/bot/test/lib/roleSync.test.ts',
@@ -156,7 +157,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
   },
   {
     id: 'convex-verification-entitlement-realtests',
-    description: 'Convex entitlement read regressions for verification incidents',
+    description: 'Convex entitlement and manual-license revocation regressions for verification incidents',
     cwdRelativeToRepoRoot: '.',
     args: [
       'x',
@@ -165,7 +166,9 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       '--config',
       'convex/vitest.config.ts',
       './convex/entitlements.realtest.ts',
+      './convex/manualLicenses.realtest.ts',
       './convex/outboxJobs.realtest.ts',
+      './convex/verificationIntents.realtest.ts',
     ],
     covers: ['verification'],
   },

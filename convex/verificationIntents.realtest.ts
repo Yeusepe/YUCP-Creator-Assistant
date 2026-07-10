@@ -2,7 +2,7 @@ import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { symmetricEncrypt } from 'better-auth/crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { getPublicKeyFromPrivate } from './lib/yucpCrypto';
@@ -1549,18 +1549,27 @@ describe('verification intents buyer provider links', () => {
       sourceReference: 'manual:unrelated-license',
     });
 
-    await t.mutation(api.manualLicenses.revoke, {
-      apiSecret: API_SECRET,
-      authUserId: creatorAuthUserId,
-      licenseId,
-      reason: 'creator requested removal',
-    });
-    await t.mutation(api.manualLicenses.revoke, {
-      apiSecret: API_SECRET,
-      authUserId: creatorAuthUserId,
-      licenseId,
-      reason: 'second revoke must be a no-op',
-    });
+    vi.useFakeTimers();
+    try {
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: API_SECRET,
+        authUserId: creatorAuthUserId,
+        licenseId,
+        reason: 'creator requested removal',
+      });
+      vi.runAllTimers();
+      await t.finishInProgressScheduledFunctions();
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: API_SECRET,
+        authUserId: creatorAuthUserId,
+        licenseId,
+        reason: 'second revoke must be a no-op',
+      });
+      vi.runAllTimers();
+      await t.finishInProgressScheduledFunctions();
+    } finally {
+      vi.useRealTimers();
+    }
 
     const [
       revokedEntitlements,

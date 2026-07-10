@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { sha256Hex } from '@yucp/shared/crypto';
-import { api } from './_generated/api';
+import { api, internal } from './_generated/api';
+import { ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE } from './entitlements';
 import {
   makeTestConvex,
   seedEntitlement,
@@ -30,6 +31,11 @@ describe('manual license bounds', () => {
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('rejects bulkCreate requests above the documented 100-license limit', async () => {
@@ -98,6 +104,8 @@ describe('manual license bounds', () => {
       licenseId,
       reason: 'retry legacy cleanup',
     });
+    vi.runAllTimers();
+    await t.finishInProgressScheduledFunctions();
     await t.mutation(api.manualLicenses.revoke, {
       apiSecret: 'test-secret',
       actor,
@@ -105,6 +113,7 @@ describe('manual license bounds', () => {
       licenseId,
       reason: 'retry must be idempotent',
     });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const [license, entitlement, roleRemovalJobs, entitlementRevocations] = await t.run(
       async (ctx) => {
@@ -172,6 +181,7 @@ describe('manual license bounds', () => {
       licenseId,
       reason: 'must not append a duplicate note',
     });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const [license, roleRemovalJobs, entitlementRevocations] = await t.run(async (ctx) => {
       const currentLicense = await ctx.db.get(licenseId);
@@ -196,5 +206,176 @@ describe('manual license bounds', () => {
     });
     expect(roleRemovalJobs).toHaveLength(0);
     expect(entitlementRevocations).toHaveLength(0);
+  });
+
+  it('commits reusable-license revocation before draining the bounded entitlement cascade', async () => {
+    // One more than the production chunk size proves the cascade reschedules
+    // instead of processing every linked redemption in one transaction.
+    const entitlementCount = ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE + 1;
+    const t = makeTestConvex();
+    try {
+      const authUserId = 'auth-manual-bounded-revoke';
+      const productId = 'product-manual-bounded-revoke';
+      const actor = await createAuthUserActor(authUserId);
+      const subjectId = await seedSubject(t, {
+        authUserId: 'auth-manual-bounded-buyer',
+        primaryDiscordUserId: 'discord-manual-bounded-revoke',
+      });
+      const guildLinkId = await seedGuildLink(t, {
+        authUserId,
+        discordGuildId: 'guild-manual-bounded-revoke',
+        installedByAuthUserId: authUserId,
+      });
+      await seedRoleRule(t, guildLinkId, {
+        authUserId,
+        guildId: 'guild-manual-bounded-revoke',
+        productId,
+        verifiedRoleId: 'role-manual-bounded-revoke',
+        removeOnRevoke: true,
+      });
+
+      const { licenseId } = await t.mutation(api.manualLicenses.create, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseKeyHash: 'bounded-license-key-hash',
+        productId,
+        maxUses: entitlementCount,
+      });
+      const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+      const entitlementIds = await Promise.all(
+        Array.from({ length: entitlementCount }, () =>
+          seedEntitlement(t, subjectId, {
+            authUserId,
+            productId,
+            sourceProvider: 'manual',
+            sourceReference,
+          })
+        )
+      );
+
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseId,
+        reason: 'creator requested bounded removal',
+      });
+
+      const [revokedLicenseBeforeDrain, activeEntitlementsBeforeDrain, jobsBeforeDrain, auditsBeforeDrain] =
+        await t.run(async (ctx) => {
+          const license = await ctx.db.get(licenseId);
+          const activeEntitlements = await ctx.db
+            .query('entitlements')
+            .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+              q
+                .eq('authUserId', authUserId)
+                .eq('sourceProvider', 'manual')
+                .eq('sourceReference', sourceReference)
+                .eq('status', 'active')
+            )
+            .collect();
+          const jobs = await ctx.db
+            .query('outbox_jobs')
+            .withIndex('by_auth_user_type', (q) =>
+              q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+            )
+            .collect();
+          const audits = await ctx.db
+            .query('audit_events')
+            .withIndex('by_auth_user_event', (q) =>
+              q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
+            )
+            .collect();
+          return [license, activeEntitlements, jobs, audits] as const;
+        });
+
+      expect(revokedLicenseBeforeDrain).toMatchObject({ status: 'revoked' });
+      expect(activeEntitlementsBeforeDrain).toHaveLength(entitlementCount);
+      expect(jobsBeforeDrain).toHaveLength(0);
+      expect(auditsBeforeDrain).toHaveLength(0);
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const [revokedEntitlements, roleRemovalJobs, revocationAudits] = await t.run(async (ctx) => {
+        const entitlements = await ctx.db
+          .query('entitlements')
+          .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+            q
+              .eq('authUserId', authUserId)
+              .eq('sourceProvider', 'manual')
+              .eq('sourceReference', sourceReference)
+          )
+          .collect();
+        const entitlementIdSet = new Set(entitlementIds);
+        const jobs = await ctx.db
+          .query('outbox_jobs')
+          .withIndex('by_auth_user_type', (q) =>
+            q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+          )
+          .collect();
+        const audits = await ctx.db
+          .query('audit_events')
+          .withIndex('by_auth_user_event', (q) =>
+            q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
+          )
+          .collect();
+        return [
+          entitlements,
+          jobs.filter((job) => entitlementIdSet.has(job.payload.entitlementId)),
+          audits.filter(
+            (audit) => audit.entitlementId !== undefined && entitlementIdSet.has(audit.entitlementId)
+          ),
+        ] as const;
+      });
+
+      expect(revokedEntitlements).toHaveLength(entitlementCount);
+      expect(revokedEntitlements.every((entitlement) => entitlement.status === 'revoked')).toBe(true);
+      expect(roleRemovalJobs).toHaveLength(entitlementCount);
+      expect(revocationAudits).toHaveLength(entitlementCount);
+
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseId,
+        reason: 'retry must not duplicate removals',
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await t.mutation(internal.entitlements.revokeManualLicenseEntitlementCascadeChunk, {
+        authUserId,
+        sourceReference,
+        correlationId: `manual-license:${licenseId}`,
+        revokedAt: Date.now(),
+      });
+
+      const [jobsAfterRetry, auditsAfterRetry] = await t.run(async (ctx) => {
+        const jobs = await ctx.db
+          .query('outbox_jobs')
+          .withIndex('by_auth_user_type', (q) =>
+            q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+          )
+          .collect();
+        const audits = await ctx.db
+          .query('audit_events')
+          .withIndex('by_auth_user_event', (q) =>
+            q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
+          )
+          .collect();
+        const entitlementIdSet = new Set(entitlementIds);
+        return [
+          jobs.filter((job) => entitlementIdSet.has(job.payload.entitlementId)),
+          audits.filter(
+            (audit) => audit.entitlementId !== undefined && entitlementIdSet.has(audit.entitlementId)
+          ),
+        ] as const;
+      });
+
+      expect(jobsAfterRetry).toHaveLength(entitlementCount);
+      expect(auditsAfterRetry).toHaveLength(entitlementCount);
+    } finally {
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    }
   });
 });
