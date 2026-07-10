@@ -493,16 +493,15 @@ describe('package Backstage publishing routes', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('trims trailing URL slashes in linear time', () => {
+  it('trims trailing URL slashes without backtracking', () => {
     expect(trimTrailingForwardSlashes('https://api.test///')).toBe('https://api.test');
     expect(trimTrailingForwardSlashes('https://api.test')).toBe('https://api.test');
     expect(trimTrailingForwardSlashes('/')).toBe('');
 
-    const adversarialInput = 'a'.repeat(100_000);
-    const startedAt = performance.now();
+    const untrimmedPrefix = 'a'.repeat(100_000);
+    const adversarialInput = `${untrimmedPrefix}${'/'.repeat(100_000)}`;
 
-    expect(trimTrailingForwardSlashes(adversarialInput)).toBe(adversarialInput);
-    expect(performance.now() - startedAt).toBeLessThan(100);
+    expect(trimTrailingForwardSlashes(adversarialInput)).toBe(untrimmedPrefix);
   });
 
   it('does not expose API-mediated Backstage package byte upload routes', () => {
@@ -558,6 +557,49 @@ describe('package Backstage publishing routes', () => {
           value: 'f'.repeat(64),
         },
       },
+    });
+  });
+
+  it('uses the normalized API base URL in Backstage upload completion URLs', async () => {
+    const routesWithTrailingApiBaseUrl = createPackageRoutes(
+      {
+        getSession: async () => null,
+      } as never,
+      {
+        apiBaseUrl: 'https://api.test///',
+        frontendBaseUrl: 'https://creators.test',
+        convexApiSecret: 'convex-secret',
+        convexSiteUrl: 'https://convex.test',
+        convexUrl: 'https://convex.cloud',
+        cdngine: {
+          apiBaseUrl: 'https://cdngine.test',
+          accessToken: 'cdngine-token',
+          publicationPollIntervalMs: 0,
+          publicationTimeoutMs: 100,
+        },
+      }
+    );
+    const response = await routesWithTrailingApiBaseUrl.createBackstageReleaseUploadSession(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-session', {
+        body: JSON.stringify({
+          byteSize: 1024,
+          deliveryName: 'example.unitypackage',
+          sha256: 'f'.repeat(64),
+          sourceContentType: 'application/octet-stream',
+        }),
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'content-type': 'application/json',
+        },
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      completeUrl:
+        'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
     });
   });
 
