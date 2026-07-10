@@ -93,6 +93,7 @@ type LicenseProofResult = {
   manualLicenseId?: Id<'manual_licenses'>;
   creatorAuthUserId?: string;
   productId?: string;
+  catalogProductId?: Id<'product_catalog'>;
 };
 
 async function hashManualLicenseKey(licenseKey: string): Promise<string> {
@@ -136,6 +137,7 @@ async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
 type ProductByProviderRefResult = {
   authUserId: string;
   productId: string;
+  catalogProductId: Id<'product_catalog'>;
   displayName?: string;
 } | null;
 const PROTECTED_ASSET_REGISTRATION = v.object({
@@ -163,6 +165,7 @@ export const getProductByProviderRef = internalQuery({
     v.object({
       authUserId: v.string(),
       productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
       displayName: v.optional(v.string()),
     })
   ),
@@ -177,7 +180,12 @@ export const getProductByProviderRef = internalQuery({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
     if (!row) return null;
-    return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
+    return {
+      authUserId: row.authUserId,
+      productId: row.productId,
+      catalogProductId: row._id,
+      displayName: row.displayName,
+    };
   },
 });
 
@@ -199,6 +207,7 @@ export const getProductByProviderRefForCreator = internalQuery({
     v.object({
       authUserId: v.string(),
       productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
       displayName: v.optional(v.string()),
     })
   ),
@@ -215,7 +224,12 @@ export const getProductByProviderRefForCreator = internalQuery({
       )
       .first();
     if (!row) return null;
-    return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
+    return {
+      authUserId: row.authUserId,
+      productId: row.productId,
+      catalogProductId: row._id,
+      displayName: row.displayName,
+    };
   },
 });
 
@@ -230,6 +244,7 @@ export const lookupProductByProviderRef = query({
     v.object({
       authUserId: v.string(),
       productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
       displayName: v.optional(v.string()),
     })
   ),
@@ -253,13 +268,14 @@ export const verifyManualLicenseByHash = internalQuery({
     v.object({ valid: v.literal(false) })
   ),
   handler: async (ctx, args): Promise<ManualLicenseHashVerificationResult> => {
-    const license = await ctx.db
+    const licenses = await ctx.db
       .query('manual_licenses')
-      .withIndex('by_auth_user_product', (q) =>
-        q.eq('authUserId', args.authUserId).eq('productId', args.productId)
-      )
-      .filter((q) => q.eq(q.field('licenseKeyHash'), args.licenseKeyHash))
-      .first();
+      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', args.licenseKeyHash))
+      .collect();
+    const license = licenses.find(
+      (candidate) =>
+        candidate.authUserId === args.authUserId && candidate.productId === args.productId
+    );
 
     if (!license) {
       return { valid: false as const };
@@ -645,6 +661,7 @@ export const verifyLicenseProof = internalAction({
     manualLicenseId: v.optional(v.id('manual_licenses')),
     creatorAuthUserId: v.optional(v.string()),
     productId: v.optional(v.string()),
+    catalogProductId: v.optional(v.id('product_catalog')),
   }),
   handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
@@ -702,6 +719,7 @@ export const verifyLicenseProof = internalAction({
           manualLicenseId: manualLicense.licenseId,
           creatorAuthUserId: product.authUserId,
           productId: product.productId,
+          catalogProductId: product.catalogProductId,
         };
       }
 

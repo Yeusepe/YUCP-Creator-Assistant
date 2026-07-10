@@ -542,6 +542,7 @@ export const completeManualLicenseIntent = internalMutation({
     creatorAuthUserId: v.string(),
     productId: v.string(),
     manualLicenseId: v.id('manual_licenses'),
+    catalogProductId: v.optional(v.id('product_catalog')),
   },
   returns: v.object({ success: v.boolean() }),
   handler: async (ctx, args) => {
@@ -595,6 +596,7 @@ export const completeManualLicenseIntent = internalMutation({
       subjectId: args.subjectId,
       subject,
       productId: args.productId,
+      catalogProductId: args.catalogProductId,
       sourceProvider: 'manual',
       sourceReference,
       policySnapshotVersion: 1,
@@ -1317,6 +1319,7 @@ export const verifyIntentWithManualLicense = action({
       manualLicenseId?: Id<'manual_licenses'>;
       creatorAuthUserId?: string;
       productId?: string;
+      catalogProductId?: Id<'product_catalog'>;
     } = await ctx.runAction(internal.yucpLicenses.verifyLicenseProof, {
       packageId: intent.packageId,
       licenseKey: args.licenseKey,
@@ -1363,6 +1366,7 @@ export const verifyIntentWithManualLicense = action({
           creatorAuthUserId: proof.creatorAuthUserId,
           productId: proof.productId,
           manualLicenseId: proof.manualLicenseId,
+          catalogProductId: proof.catalogProductId,
         }
       );
       if (!completion.success) {

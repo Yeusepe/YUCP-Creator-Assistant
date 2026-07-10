@@ -752,7 +752,7 @@ describe('verification intents buyer provider links', () => {
       publisherId: 'publisher-yucp-manual-license-redeem',
       yucpUserId: creatorAuthUserId,
     });
-    await seedCatalogProduct(t, {
+    const catalogProductId = await seedCatalogProduct(t, {
       authUserId: creatorAuthUserId,
       productId,
       provider: 'manual',
@@ -829,6 +829,7 @@ describe('verification intents buyer provider links', () => {
         .collect()
     );
     expect(buyerEntitlements).toHaveLength(1);
+    expect(buyerEntitlements[0]).toMatchObject({ catalogProductId });
 
     const secondBuyerAuthUserId = 'auth-yucp-manual-license-redeem-second-buyer';
     const secondSubjectId = await seedSubject(t, {
