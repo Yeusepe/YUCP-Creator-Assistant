@@ -69,7 +69,7 @@ async function authenticateSuiteRequest(
 async function getSubjectIdByAuthUserId(
   authUserId: string,
   config: SuiteConfig
-): Promise<{ found: true; subjectId: string } | { found: false }> {
+): Promise<{ found: true; subjectId: string; isActive: boolean } | { found: false }> {
   const convex = getConvexClientFromUrl(config.convexUrl);
   const subjectResult = await convex.query(api.subjects.getSubjectByAuthId, {
     apiSecret: config.convexApiSecret,
@@ -83,6 +83,7 @@ async function getSubjectIdByAuthUserId(
   return {
     found: true,
     subjectId: subjectResult.subject._id,
+    isActive: subjectResult.subject.status === 'active',
   };
 }
 
@@ -126,7 +127,7 @@ export async function getVerificationStatus(
   );
 
   return jsonResponse({
-    verified: products.length > 0,
+    verified: subjectResult.isActive && products.length > 0,
     subjectId: subjectResult.subjectId,
     products,
   });

@@ -49,7 +49,7 @@ beforeEach(() => {
   });
   queryImpl = async (functionReference) => {
     if (functionReference === 'subjects.getSubjectByAuthId') {
-      return { found: true, subject: { _id: 'subject-1' } };
+      return { found: true, subject: { _id: 'subject-1', status: 'active' } };
     }
     if (functionReference === 'entitlements.getEntitlementsBySubject') {
       return [];
@@ -72,6 +72,32 @@ describe('Creator Suite verification status', () => {
       verified: false,
       subjectId: 'subject-1',
       products: [],
+    });
+  });
+
+  it('returns verified:false when a suspended OAuth-JWT subject has an active entitlement', async () => {
+    queryImpl = async (functionReference) => {
+      if (functionReference === 'subjects.getSubjectByAuthId') {
+        return { found: true, subject: { _id: 'subject-1', status: 'suspended' } };
+      }
+      if (functionReference === 'entitlements.getEntitlementsBySubject') {
+        return [{ productId: 'product-1', status: 'active', grantedAt: 1 }];
+      }
+      throw new Error(`Unexpected Convex query: ${String(functionReference)}`);
+    };
+
+    const response = await getVerificationStatus(
+      new Request('https://api.example.test/api/suite/verification/status?authUserId=auth-user-1', {
+        headers: { authorization: 'Bearer oauth-jwt' },
+      }),
+      config
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      verified: false,
+      subjectId: 'subject-1',
+      products: [{ productId: 'product-1', status: 'active', grantedAt: 1 }],
     });
   });
 });
