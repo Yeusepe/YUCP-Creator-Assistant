@@ -19,7 +19,6 @@ export async function handleTransactionRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // --- Transactions ---
 
@@ -29,6 +28,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -60,6 +60,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const transactionId = txIdMatch[1];
     try {
@@ -91,6 +92,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -122,6 +124,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const membershipId = memIdMatch[1];
     try {
@@ -153,6 +156,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -186,6 +190,7 @@ export async function handleTransactionRoutes(
     }
     const auth = await resolveAuth(request, config, ['transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const licenseId = licIdMatch[1];
     try {

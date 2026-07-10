@@ -197,6 +197,18 @@ describe('extractListData', () => {
     expect(result).toEqual({ data, hasMore: false, nextCursor: null });
   });
 
+  it('handles keyed Convex event results with nextCursor', () => {
+    const events = [{ _id: 'event_1' }];
+    const result = extractListData({ events, hasMore: true, nextCursor: 'event_1' });
+    expect(result).toEqual({ data: events, hasMore: true, nextCursor: 'event_1' });
+  });
+
+  it('handles keyed Convex delivery results with nextCursor', () => {
+    const deliveries = [{ _id: 'delivery_1' }];
+    const result = extractListData({ deliveries, hasMore: true, nextCursor: 'delivery_1' });
+    expect(result).toEqual({ data: deliveries, hasMore: true, nextCursor: 'delivery_1' });
+  });
+
   it('returns empty result for null input', () => {
     expect(extractListData(null)).toEqual({ data: [], hasMore: false, nextCursor: null });
   });

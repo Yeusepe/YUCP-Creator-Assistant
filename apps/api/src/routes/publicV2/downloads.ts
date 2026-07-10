@@ -19,7 +19,6 @@ export async function handleDownloadsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // --- Download Routes ---
 
@@ -29,6 +28,7 @@ export async function handleDownloadsRoutes(
     }
     const auth = await resolveAuth(request, config, ['downloads:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const guildId = url.searchParams.get('guild_id') ?? undefined;
@@ -59,6 +59,7 @@ export async function handleDownloadsRoutes(
     }
     const auth = await resolveAuth(request, config, ['downloads:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const routeId = routeIdMatch[1];
     try {
@@ -90,6 +91,7 @@ export async function handleDownloadsRoutes(
     }
     const auth = await resolveAuth(request, config, ['downloads:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const routeId = url.searchParams.get('route_id') ?? undefined;
@@ -121,6 +123,7 @@ export async function handleDownloadsRoutes(
     }
     const auth = await resolveAuth(request, config, ['downloads:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const artifactId = artifactIdMatch[1];
     try {

@@ -19,7 +19,6 @@ export async function handleVerificationSessionsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/verification-sessions') {
     if (request.method !== 'GET') {
@@ -27,6 +26,7 @@ export async function handleVerificationSessionsRoutes(
     }
     const auth = await resolveAuth(request, config, ['verification:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const subjectId = url.searchParams.get('subject_id') ?? undefined;
@@ -58,6 +58,7 @@ export async function handleVerificationSessionsRoutes(
     }
     const auth = await resolveAuth(request, config, ['verification:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const sessionId = idMatch[1];
     try {

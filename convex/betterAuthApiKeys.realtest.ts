@@ -141,7 +141,52 @@ describe('betterAuthApiKeys', () => {
     });
   }, 10_000);
 
-  it('verifies legacy managed public API keys as the metadata tenant owner', async () => {
+  it('rejects a managed public API key when metadata names a different owner', async () => {
+    const t = makeTestConvex() as ComponentAwareTestConvex;
+    t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
+    const attackerAuthUserId = await seedBetterAuthUser(t, {
+      name: 'Attacker',
+      email: 'attacker@example.com',
+    });
+    const victimAuthUserId = await seedBetterAuthUser(t, {
+      name: 'Victim',
+      email: 'victim@example.com',
+    });
+
+    const created = await t.mutation(api.betterAuthApiKeys.createApiKey, {
+      apiSecret: API_SECRET,
+      userId: attackerAuthUserId,
+      authUserId: attackerAuthUserId,
+      name: 'Forged public API key',
+      scopes: ['verification:read'],
+      expiresIn: null,
+    });
+
+    await t.runInComponent('betterAuth', async (ctx) => {
+      const [storedKey] = await ctx.db.query('apikey').collect();
+      if (!storedKey || typeof storedKey._id !== 'string') {
+        throw new Error('Expected the managed public API key to be stored');
+      }
+
+      await ctx.db.patch(storedKey._id, {
+        metadata: JSON.stringify({
+          kind: 'public-api',
+          authUserId: victimAuthUserId,
+        }),
+      });
+    });
+
+    const verified = await t.mutation(api.betterAuthApiKeys.verifyApiKey, {
+      apiSecret: API_SECRET,
+      key: created.key,
+      scopes: ['verification:read'],
+    });
+
+    expect(verified.valid).toBe(false);
+    expect(verified.key).toBeNull();
+  }, 10_000);
+
+  it('rejects legacy managed public API keys whose stored owner differs from metadata', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
     t.registerComponent('betterAuth', betterAuthSchema, import.meta.glob('./betterAuth/**/*.ts'));
     const sessionOwnerUserId = await seedBetterAuthUser(t, {
@@ -188,11 +233,7 @@ describe('betterAuthApiKeys', () => {
       scopes: ['verification:read'],
     });
 
-    expect(verified.valid).toBe(true);
-    expect(verified.key?.userId).toBe(tenantAuthUserId);
-    expect(verified.key?.metadata).toEqual({
-      kind: 'public-api',
-      authUserId: tenantAuthUserId,
-    });
+    expect(verified.valid).toBe(false);
+    expect(verified.key).toBeNull();
   }, 10_000);
 });

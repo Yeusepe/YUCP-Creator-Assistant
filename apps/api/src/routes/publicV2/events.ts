@@ -19,7 +19,6 @@ export async function handleEventsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/events') {
     if (request.method !== 'GET') {
@@ -27,11 +26,11 @@ export async function handleEventsRoutes(
     }
     const auth = await resolveAuth(request, config, ['events:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const eventType = url.searchParams.get('type') ?? undefined;
     const resourceId = url.searchParams.get('resource_id') ?? undefined;
-    const resourceType = url.searchParams.get('resource_type') ?? undefined;
 
     try {
       const result = await convex.query(api.creatorEvents.listByAuthUser, {
@@ -39,7 +38,6 @@ export async function handleEventsRoutes(
         authUserId: auth.authUserId,
         eventType,
         resourceId,
-        resourceType,
         cursor,
         limit,
       });
@@ -58,6 +56,7 @@ export async function handleEventsRoutes(
     }
     const auth = await resolveAuth(request, config, ['events:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const eventId = idMatch[1];
     try {

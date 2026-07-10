@@ -167,27 +167,45 @@ export const listByTenant = query({
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { apiSecret, actor, authUserId, productId, status }) => {
+  handler: async (ctx, { apiSecret, actor, authUserId, productId, status, cursor, limit }) => {
     requireApiSecret(apiSecret);
     await requireDelegatedAuthUserActor(actor, authUserId);
-    const query = ctx.db
-      .query('manual_licenses')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId));
+    const pageSize = Math.max(1, Math.min(limit ?? 50, 100));
+    const pagination = { cursor: cursor ?? null, numItems: pageSize };
+    const page =
+      productId && status
+        ? await ctx.db
+            .query('manual_licenses')
+            .withIndex('by_auth_user_product_status', (q) =>
+              q.eq('authUserId', authUserId).eq('productId', productId).eq('status', status)
+            )
+            .paginate(pagination)
+        : productId
+          ? await ctx.db
+              .query('manual_licenses')
+              .withIndex('by_auth_user_product', (q) =>
+                q.eq('authUserId', authUserId).eq('productId', productId)
+              )
+              .paginate(pagination)
+          : status
+            ? await ctx.db
+                .query('manual_licenses')
+                .withIndex('by_auth_user_status', (q) =>
+                  q.eq('authUserId', authUserId).eq('status', status)
+                )
+                .paginate(pagination)
+            : await ctx.db
+                .query('manual_licenses')
+                .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+                .paginate(pagination);
 
-    const licenses = await query.collect();
-
-    let filtered = licenses;
-
-    if (productId) {
-      filtered = filtered.filter((l) => l.productId === productId);
-    }
-
-    if (status) {
-      filtered = filtered.filter((l) => l.status === status);
-    }
-
-    // Never return hashes
-    return filtered.map(({ licenseKeyHash: _, ...rest }) => rest);
+    // Never return hashes.
+    const data = page.page.map(({ licenseKeyHash: _, ...rest }) => rest);
+    return {
+      data,
+      hasMore: !page.isDone,
+      nextCursor: page.isDone ? null : page.continueCursor,
+    };
   },
 });
 

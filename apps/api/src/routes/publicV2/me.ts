@@ -41,7 +41,7 @@ export async function handleMeRoutes(
     const auth = await resolveAuth(request, config, ['profile:read'], reqId);
     if (auth instanceof Response) return auth;
 
-    const convex = getConvexClientFromUrl(config.convexUrl);
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
     try {
       const viewer = await convex.query(api.authViewer.getViewerByAuthUser, {
         apiSecret: config.convexApiSecret,

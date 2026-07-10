@@ -20,7 +20,6 @@ export async function handleProductsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
   const timing = new RouteTimingCollector();
   const respond = (
     buildResponse: () => Response,
@@ -35,6 +34,7 @@ export async function handleProductsRoutes(
     }
     const auth = await resolveAuth(request, config, ['products:read'], reqId, timing);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -68,6 +68,7 @@ export async function handleProductsRoutes(
     }
     const auth = await resolveAuth(request, config, ['products:read'], reqId, timing);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     try {
       const result = await timing.measure(
@@ -97,6 +98,7 @@ export async function handleProductsRoutes(
     }
     const auth = await resolveAuth(request, config, ['products:read'], reqId, timing);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -134,6 +136,7 @@ export async function handleProductsRoutes(
     }
     const auth = await resolveAuth(request, config, ['products:read'], reqId, timing);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const catalogProductId = idMatch[1];
     try {

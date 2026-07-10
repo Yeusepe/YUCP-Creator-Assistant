@@ -4,19 +4,32 @@ const apiMock = {
   manualLicenses: {
     create: 'manualLicenses.create',
     bulkCreate: 'manualLicenses.bulkCreate',
+    listByTenant: 'manualLicenses.listByTenant',
+  },
+  subjects: {
+    resolveSubjectForPublicApi: 'subjects.resolveSubjectForPublicApi',
+  },
+  entitlements: {
+    getEntitlementsBySubject: 'entitlements.getEntitlementsBySubject',
   },
 } as const;
 
 let mutationImpl: (fn: unknown, args: unknown) => Promise<unknown>;
+let queryImpl: (fn: unknown, args: unknown) => Promise<unknown>;
 
 const mutationMock = mock((fn: unknown, args: unknown) => mutationImpl(fn, args));
+const queryMock = mock((fn: unknown, args: unknown) => queryImpl(fn, args));
+const convexFactoryCalls: unknown[][] = [];
 
 mock.module('../../../../../convex/_generated/api', () => ({
   api: apiMock,
 }));
 
 mock.module('../../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({ mutation: mutationMock }),
+  getConvexClientFromUrl: (...args: unknown[]) => {
+    convexFactoryCalls.push(args);
+    return { mutation: mutationMock, query: queryMock };
+  },
 }));
 
 mock.module('./auth', () => ({
@@ -31,6 +44,8 @@ mock.module('./auth', () => ({
 }));
 
 const { handleManualLicensesRoutes } = await import('./manual-licenses');
+const { handleSubjectsRoutes } = await import('./subjects');
+const { handleVerificationRoutes } = await import('./verification');
 
 const config = {
   apiBaseUrl: 'https://api.test',
@@ -55,12 +70,20 @@ function makeRequest(method: string, subPath: string, body?: unknown): Request {
 
 beforeEach(() => {
   mutationMock.mockClear();
+  queryMock.mockClear();
+  convexFactoryCalls.length = 0;
   mutationImpl = async (fn) => {
     if (fn === apiMock.manualLicenses.create) return { licenseId: 'license_001' };
     if (fn === apiMock.manualLicenses.bulkCreate) {
       return { created: 1, licenseIds: ['license_001'] };
     }
     throw new Error(`Unhandled mutation: ${String(fn)}`);
+  };
+  queryImpl = async (fn) => {
+    if (fn === apiMock.manualLicenses.listByTenant) {
+      return { data: [{ _id: 'license_001' }], hasMore: true, nextCursor: 'license_001' };
+    }
+    throw new Error(`Unhandled query: ${String(fn)}`);
   };
 });
 
@@ -111,6 +134,46 @@ describe('hashKey (SHA-256 hex)', () => {
 });
 
 describe('handleManualLicensesRoutes', () => {
+  it('GET /manual-licenses passes list pagination through the caller-bound Convex client', async () => {
+    const res = await handleManualLicensesRoutes(
+      new Request(
+        'http://localhost/api/public/v2/manual-licenses?limit=1&starting_after=license_000',
+        {
+          headers: { authorization: 'Bearer test-token' },
+        }
+      ),
+      '/manual-licenses',
+      config
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      data: [{ _id: 'license_001' }],
+      hasMore: true,
+      nextCursor: 'license_001',
+    });
+    expect(queryMock.mock.calls[0]).toEqual([
+      apiMock.manualLicenses.listByTenant,
+      {
+        apiSecret: 'test-secret',
+        authUserId: 'user_abc',
+        productId: undefined,
+        status: undefined,
+        cursor: 'license_000',
+        limit: 1,
+      },
+    ]);
+    expect(convexFactoryCalls).toEqual([
+      [
+        config.convexUrl,
+        {
+          payload: 'test-payload',
+          signature: 'test-signature',
+        },
+      ],
+    ]);
+  });
+
   it('POST /manual-licenses sends canonical licenseKeyHash to Convex create', async () => {
     const res = await handleManualLicensesRoutes(
       makeRequest('POST', '/manual-licenses', {
@@ -199,5 +262,76 @@ describe('handleManualLicensesRoutes', () => {
 
     expect(res.status).toBe(400);
     expect(mutationMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('public subject resolution', () => {
+  it('returns 404 when the subject resolver reports found:false', async () => {
+    queryImpl = async () => ({ found: false, subject: null });
+
+    const response = await handleSubjectsRoutes(
+      makeRequest('GET', '/subjects/subject_missing'),
+      '/subjects/subject_missing',
+      config
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  it('returns the resolved subject rather than the resolver wrapper', async () => {
+    const subject = { _id: 'subject_123', displayName: 'Test subject' };
+    queryImpl = async () => ({ found: true, subject });
+
+    const response = await handleSubjectsRoutes(
+      makeRequest('GET', '/subjects/subject_123'),
+      '/subjects/subject_123',
+      config
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(subject);
+  });
+
+  it('treats found:false as an absent verification-status subject', async () => {
+    queryImpl = async () => ({ found: false, subject: null });
+
+    const response = await handleVerificationRoutes(
+      makeRequest('GET', '/verification/status'),
+      '/verification/status',
+      config
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      object: 'verification_status',
+      subject: null,
+      entitlements: [],
+    });
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the unwrapped subject for verification checks', async () => {
+    const subject = { _id: 'subject_123', displayName: 'Test subject' };
+    queryImpl = async (fn) => {
+      if (fn === apiMock.subjects.resolveSubjectForPublicApi) {
+        return { found: true, subject };
+      }
+      return [{ productId: 'product_123', status: 'active' }];
+    };
+
+    const response = await handleVerificationRoutes(
+      makeRequest('POST', '/verification/check', {
+        subject: { subjectId: 'subject_123' },
+        productIds: ['product_123'],
+      }),
+      '/verification/check',
+      config
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      subject,
+      results: [{ productId: 'product_123', entitled: true }],
+    });
   });
 });

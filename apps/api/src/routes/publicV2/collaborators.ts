@@ -19,7 +19,6 @@ export async function handleCollaboratorsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/collaborators') {
     if (request.method !== 'GET') {
@@ -27,6 +26,7 @@ export async function handleCollaboratorsRoutes(
     }
     const auth = await resolveAuth(request, config, ['collaborators:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -56,6 +56,7 @@ export async function handleCollaboratorsRoutes(
     }
     const auth = await resolveAuth(request, config, ['collaborators:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const connectionId = idMatch[1];
     try {
