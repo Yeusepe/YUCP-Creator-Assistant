@@ -46,9 +46,11 @@ function makeRequest(headers: Record<string, string> = {}): Request {
 
 function validKeyResult(scopes: string[] = []) {
   return {
+    valid: true,
     key: {
       id: 'key_id_abc',
-      metadata: { authUserId: 'user_abc' },
+      userId: 'user_abc',
+      metadata: { kind: 'public-api', authUserId: 'user_abc' },
       permissions: { publicApi: scopes },
       expiresAt: null,
     },
@@ -116,9 +118,46 @@ describe('resolveAuth', () => {
 
     it('returns 401 when the key object has no authUserId in metadata', async () => {
       mutationImpl = async () => ({
+        valid: true,
         key: { id: 'key_id', metadata: {}, permissions: { publicApi: [] } },
       });
       const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, []);
+      expect((result as Response).status).toBe(401);
+    });
+
+    it('returns 401 when the key metadata owner differs from the stored key owner', async () => {
+      mutationImpl = async () => ({
+        valid: true,
+        key: {
+          id: 'key_id',
+          userId: 'attacker_user',
+          metadata: { kind: 'public-api', authUserId: 'victim_user' },
+          permissions: { publicApi: ['subjects:read'] },
+        },
+      });
+
+      const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, [
+        'subjects:read',
+      ]);
+
+      expect((result as Response).status).toBe(401);
+    });
+
+    it('returns 401 when the key is not a managed public API key', async () => {
+      mutationImpl = async () => ({
+        valid: true,
+        key: {
+          id: 'key_id',
+          userId: 'user_abc',
+          metadata: { kind: 'other-api', authUserId: 'user_abc' },
+          permissions: { publicApi: ['subjects:read'] },
+        },
+      });
+
+      const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, [
+        'subjects:read',
+      ]);
+
       expect((result as Response).status).toBe(401);
     });
 
@@ -167,9 +206,11 @@ describe('resolveAuth', () => {
 
     it('includes keyId and expiresAt in the returned AuthResult', async () => {
       mutationImpl = async () => ({
+        valid: true,
         key: {
           id: 'key_id_xyz',
-          metadata: { authUserId: 'user_abc' },
+          userId: 'user_abc',
+          metadata: { kind: 'public-api', authUserId: 'user_abc' },
           permissions: { publicApi: [] },
           expiresAt: 9_999_999_999,
         },
