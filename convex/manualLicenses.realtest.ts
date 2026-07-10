@@ -2,8 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { api, internal } from './_generated/api';
-import { ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE } from './entitlements';
 import {
+  ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE,
+  MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET,
+  calculateManualLicenseEntitlementCascadeBatchSize,
+} from './entitlements';
+import {
+  type ConvexTestInstance,
   makeTestConvex,
   seedEntitlement,
   seedGuildLink,
@@ -25,6 +30,37 @@ async function createAuthUserActor(authUserId: string) {
     },
     process.env.INTERNAL_SERVICE_AUTH_SECRET as string
   );
+}
+
+async function collectCascadeArtifacts(
+  t: ConvexTestInstance,
+  authUserId: string,
+  entitlementIds: ReadonlySet<string>
+) {
+  return await t.run(async (ctx) => {
+    const [jobs, audits] = await Promise.all([
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect(),
+      ctx.db
+        .query('audit_events')
+        .withIndex('by_auth_user_event', (q) =>
+          q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
+        )
+        .collect(),
+    ]);
+
+    return {
+      roleRemovalJobs: jobs.filter((job) => entitlementIds.has(String(job.payload.entitlementId))),
+      revocationAudits: audits.filter(
+        (audit) =>
+          audit.entitlementId !== undefined && entitlementIds.has(String(audit.entitlementId))
+      ),
+    };
+  });
 }
 
 describe('manual license bounds', () => {
@@ -210,8 +246,13 @@ describe('manual license bounds', () => {
 
   it('commits reusable-license revocation before draining the bounded entitlement cascade', async () => {
     // One more than the production chunk size proves the cascade reschedules
-    // instead of processing every linked redemption in one transaction.
+    // instead of processing every linked redemption in one transaction. Twenty-five
+    // removable roles make the role fanout reduce the entitlement batch below
+    // the fixed page limit while keeping the realtest fast enough for CI.
     const entitlementCount = ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE + 1;
+    const removableRoleCount = 25;
+    const writesPerEntitlement = removableRoleCount + 2;
+    const expectedBatchSize = calculateManualLicenseEntitlementCascadeBatchSize(removableRoleCount);
     const t = makeTestConvex();
     try {
       const authUserId = 'auth-manual-bounded-revoke';
@@ -226,13 +267,15 @@ describe('manual license bounds', () => {
         discordGuildId: 'guild-manual-bounded-revoke',
         installedByAuthUserId: authUserId,
       });
-      await seedRoleRule(t, guildLinkId, {
-        authUserId,
-        guildId: 'guild-manual-bounded-revoke',
-        productId,
-        verifiedRoleId: 'role-manual-bounded-revoke',
-        removeOnRevoke: true,
-      });
+      for (let roleIndex = 0; roleIndex < removableRoleCount; roleIndex++) {
+        await seedRoleRule(t, guildLinkId, {
+          authUserId,
+          guildId: 'guild-manual-bounded-revoke',
+          productId,
+          verifiedRoleId: `role-manual-bounded-revoke-${roleIndex}`,
+          removeOnRevoke: true,
+        });
+      }
 
       const { licenseId } = await t.mutation(api.manualLicenses.create, {
         apiSecret: 'test-secret',
@@ -262,8 +305,8 @@ describe('manual license bounds', () => {
         reason: 'creator requested bounded removal',
       });
 
-      const [revokedLicenseBeforeDrain, activeEntitlementsBeforeDrain, jobsBeforeDrain, auditsBeforeDrain] =
-        await t.run(async (ctx) => {
+      const [revokedLicenseBeforeDrain, activeEntitlementsBeforeDrain] = await t.run(
+        async (ctx) => {
           const license = await ctx.db.get(licenseId);
           const activeEntitlements = await ctx.db
             .query('entitlements')
@@ -275,29 +318,45 @@ describe('manual license bounds', () => {
                 .eq('status', 'active')
             )
             .collect();
-          const jobs = await ctx.db
-            .query('outbox_jobs')
-            .withIndex('by_auth_user_type', (q) =>
-              q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
-            )
-            .collect();
-          const audits = await ctx.db
-            .query('audit_events')
-            .withIndex('by_auth_user_event', (q) =>
-              q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
-            )
-            .collect();
-          return [license, activeEntitlements, jobs, audits] as const;
-        });
+          return [license, activeEntitlements] as const;
+        }
+      );
+      const cascadeArtifactsBeforeDrain = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
 
       expect(revokedLicenseBeforeDrain).toMatchObject({ status: 'revoked' });
       expect(activeEntitlementsBeforeDrain).toHaveLength(entitlementCount);
-      expect(jobsBeforeDrain).toHaveLength(0);
-      expect(auditsBeforeDrain).toHaveLength(0);
+      expect(cascadeArtifactsBeforeDrain.roleRemovalJobs).toHaveLength(0);
+      expect(cascadeArtifactsBeforeDrain.revocationAudits).toHaveLength(0);
+
+      const firstChunk = await t.mutation(
+        internal.entitlements.revokeManualLicenseEntitlementCascadeChunk,
+        {
+          authUserId,
+          sourceReference,
+          correlationId: `manual-license:${licenseId}`,
+          revokedAt: Date.now(),
+        }
+      );
+
+      expect(expectedBatchSize).toBeLessThan(ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE);
+      expect(expectedBatchSize * writesPerEntitlement).toBeLessThanOrEqual(
+        MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET
+      );
+      expect(firstChunk).toMatchObject({
+        revokedCount: expectedBatchSize,
+        writesPerEntitlement,
+        estimatedWriteCount: expectedBatchSize * writesPerEntitlement,
+        hop: 0,
+        revokedTotal: expectedBatchSize,
+      });
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-      const [revokedEntitlements, roleRemovalJobs, revocationAudits] = await t.run(async (ctx) => {
+      const revokedEntitlements = await t.run(async (ctx) => {
         const entitlements = await ctx.db
           .query('entitlements')
           .withIndex('by_auth_user_source_provider_reference_status', (q) =>
@@ -307,32 +366,22 @@ describe('manual license bounds', () => {
               .eq('sourceReference', sourceReference)
           )
           .collect();
-        const entitlementIdSet = new Set(entitlementIds);
-        const jobs = await ctx.db
-          .query('outbox_jobs')
-          .withIndex('by_auth_user_type', (q) =>
-            q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
-          )
-          .collect();
-        const audits = await ctx.db
-          .query('audit_events')
-          .withIndex('by_auth_user_event', (q) =>
-            q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
-          )
-          .collect();
-        return [
-          entitlements,
-          jobs.filter((job) => entitlementIdSet.has(job.payload.entitlementId)),
-          audits.filter(
-            (audit) => audit.entitlementId !== undefined && entitlementIdSet.has(audit.entitlementId)
-          ),
-        ] as const;
+        return entitlements;
       });
+      const cascadeArtifactsAfterDrain = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
 
       expect(revokedEntitlements).toHaveLength(entitlementCount);
-      expect(revokedEntitlements.every((entitlement) => entitlement.status === 'revoked')).toBe(true);
-      expect(roleRemovalJobs).toHaveLength(entitlementCount);
-      expect(revocationAudits).toHaveLength(entitlementCount);
+      expect(revokedEntitlements.every((entitlement) => entitlement.status === 'revoked')).toBe(
+        true
+      );
+      expect(cascadeArtifactsAfterDrain.roleRemovalJobs).toHaveLength(
+        entitlementCount * removableRoleCount
+      );
+      expect(cascadeArtifactsAfterDrain.revocationAudits).toHaveLength(entitlementCount);
 
       await t.mutation(api.manualLicenses.revoke, {
         apiSecret: 'test-secret',
@@ -350,30 +399,16 @@ describe('manual license bounds', () => {
         revokedAt: Date.now(),
       });
 
-      const [jobsAfterRetry, auditsAfterRetry] = await t.run(async (ctx) => {
-        const jobs = await ctx.db
-          .query('outbox_jobs')
-          .withIndex('by_auth_user_type', (q) =>
-            q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
-          )
-          .collect();
-        const audits = await ctx.db
-          .query('audit_events')
-          .withIndex('by_auth_user_event', (q) =>
-            q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
-          )
-          .collect();
-        const entitlementIdSet = new Set(entitlementIds);
-        return [
-          jobs.filter((job) => entitlementIdSet.has(job.payload.entitlementId)),
-          audits.filter(
-            (audit) => audit.entitlementId !== undefined && entitlementIdSet.has(audit.entitlementId)
-          ),
-        ] as const;
-      });
+      const cascadeArtifactsAfterRetry = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
 
-      expect(jobsAfterRetry).toHaveLength(entitlementCount);
-      expect(auditsAfterRetry).toHaveLength(entitlementCount);
+      expect(cascadeArtifactsAfterRetry.roleRemovalJobs).toHaveLength(
+        entitlementCount * removableRoleCount
+      );
+      expect(cascadeArtifactsAfterRetry.revocationAudits).toHaveLength(entitlementCount);
     } finally {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
     }
