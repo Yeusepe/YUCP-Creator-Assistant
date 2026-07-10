@@ -225,31 +225,62 @@ export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
 }
 
 /**
- * Convex CLI loads `.env.local` itself, after inheriting the process env. Move
- * the file aside around every self-hosted CLI sequence so a local cloud
- * `CONVEX_DEPLOYMENT` can never select Convex Cloud. The original file is
- * restored even when a command fails.
+ * Bun loads `.env` and `.env.local` itself, after inheriting the process env.
+ * Move both aside around every self-hosted CLI sequence so local cloud
+ * `CONVEX_DEPLOYMENT` selectors can never select Convex Cloud. The original
+ * files are restored even when a command fails.
  */
 export async function withSelfHostedConvexEnvFileMovedAside<T>(
   operation: () => Promise<T>,
-  envFilePath = join(ROOT_DIR, '.env.local')
+  envDirectory = ROOT_DIR
 ): Promise<T> {
-  if (!existsSync(envFilePath)) return await operation();
+  const movedEnvFiles = ['.env', '.env.local']
+    .map((name) => join(envDirectory, name))
+    .filter((envFilePath) => existsSync(envFilePath))
+    .map((envFilePath) => ({
+      envFilePath,
+      backupPath: `${envFilePath}.convex-real-backup-${process.pid}-${Date.now()}`,
+    }));
 
-  const backupPath = `${envFilePath}.convex-real-backup-${process.pid}-${Date.now()}`;
-  renameSync(envFilePath, backupPath);
+  if (movedEnvFiles.length === 0) return await operation();
 
-  const restoreOriginalEnvFile = (): void => {
-    if (existsSync(envFilePath)) {
-      const unexpectedPath = `${backupPath}.unexpected`;
-      renameSync(envFilePath, unexpectedPath);
-      renameSync(backupPath, envFilePath);
-      throw new Error(
-        `Self-hosted Convex command recreated ${envFilePath}; original restored and unexpected file moved to ${unexpectedPath}`
-      );
+  const restoreOriginalEnvFiles = (): void => {
+    const restorationErrors: unknown[] = [];
+    for (const { envFilePath, backupPath } of [...movedEnvFiles].reverse()) {
+      try {
+        if (existsSync(envFilePath)) {
+          const unexpectedPath = `${backupPath}.unexpected`;
+          renameSync(envFilePath, unexpectedPath);
+          renameSync(backupPath, envFilePath);
+          throw new Error(
+            `Self-hosted Convex command recreated ${envFilePath}; original restored and unexpected file moved to ${unexpectedPath}`
+          );
+        }
+        renameSync(backupPath, envFilePath);
+      } catch (error) {
+        restorationErrors.push(error);
+      }
     }
-    renameSync(backupPath, envFilePath);
+
+    if (restorationErrors.length === 1) throw restorationErrors[0];
+    if (restorationErrors.length > 1) {
+      throw new AggregateError(restorationErrors, 'Failed to restore self-hosted Convex env files');
+    }
   };
+
+  try {
+    for (const { envFilePath, backupPath } of movedEnvFiles) {
+      renameSync(envFilePath, backupPath);
+    }
+  } catch (error) {
+    try {
+      restoreOriginalEnvFiles();
+    } catch (restorationError) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AggregateError([error, restorationError], message);
+    }
+    throw error;
+  }
 
   let operationFailed = false;
   let operationError: unknown;
@@ -264,7 +295,7 @@ export async function withSelfHostedConvexEnvFileMovedAside<T>(
   let restorationFailed = false;
   let restorationError: unknown;
   try {
-    restoreOriginalEnvFile();
+    restoreOriginalEnvFiles();
   } catch (error) {
     restorationFailed = true;
     restorationError = error;

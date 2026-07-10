@@ -7,21 +7,26 @@ import { withSelfHostedConvexEnvFileMovedAside } from './manage';
 const harness = readFileSync(resolve(import.meta.dir, 'harness.ts'), 'utf8');
 
 describe('self-hosted Convex environment isolation', () => {
-  it('restores .env.local after a self-hosted command fails', async () => {
+  it('moves and restores every Bun-loaded env file after a self-hosted command fails', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
-    const envFile = join(directory, '.env.local');
+    const envFile = join(directory, '.env');
+    const localEnvFile = join(directory, '.env.local');
     const original = 'CONVEX_DEPLOYMENT=local-cloud-target\n';
+    const localOriginal = 'CONVEX_DEPLOY_KEY=local-cloud-key\n';
     writeFileSync(envFile, original);
+    writeFileSync(localEnvFile, localOriginal);
 
     try {
       await expect(
         withSelfHostedConvexEnvFileMovedAside(async () => {
           expect(existsSync(envFile)).toBe(false);
+          expect(existsSync(localEnvFile)).toBe(false);
           throw new Error('self-hosted command failed');
-        }, envFile)
+        }, directory)
       ).rejects.toThrow('self-hosted command failed');
 
       expect(readFileSync(envFile, 'utf8')).toBe(original);
+      expect(readFileSync(localEnvFile, 'utf8')).toBe(localOriginal);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -38,7 +43,7 @@ describe('self-hosted Convex environment isolation', () => {
         await withSelfHostedConvexEnvFileMovedAside(async () => {
           writeFileSync(envFile, 'unexpected replacement\n');
           throw new Error('original deploy failure');
-        }, envFile);
+        }, directory);
         throw new Error('Expected the self-hosted command to reject');
       } catch (error) {
         expect(error).toBeInstanceOf(AggregateError);
@@ -51,6 +56,18 @@ describe('self-hosted Convex environment isolation', () => {
 
       expect(readFileSync(envFile, 'utf8')).toBe(original);
       expect(readdirSync(directory).some((entry) => entry.endsWith('.unexpected'))).toBe(true);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs the operation without moving its directory when no Bun-loaded env files exist', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
+
+    try {
+      await withSelfHostedConvexEnvFileMovedAside(async () => {
+        expect(existsSync(directory)).toBe(true);
+      }, directory);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

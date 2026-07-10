@@ -14,14 +14,12 @@ export function latestImageDigest(inspectOutput: string): string {
   } catch {
     throw new Error('Docker image inspection output was not valid JSON');
   }
-  if (!isRecord(parsed) || !isRecord(parsed.manifest) || !('digest' in parsed.manifest)) {
-    throw new Error(
-      'Docker image inspection output is missing manifest.digest; inspect output may be a manifest list or use a different field casing'
-    );
+  if (!isRecord(parsed) || !isRecord(parsed.descriptor) || !('digest' in parsed.descriptor)) {
+    throw new Error('Docker image inspection output is missing descriptor.digest');
   }
-  const digest = parsed.manifest.digest;
+  const digest = parsed.descriptor.digest;
   if (typeof digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
-    throw new Error('Docker image inspection output manifest.digest was not an immutable SHA-256 digest');
+    throw new Error('Docker image inspection output descriptor.digest was not an immutable SHA-256 digest');
   }
   return digest;
 }
