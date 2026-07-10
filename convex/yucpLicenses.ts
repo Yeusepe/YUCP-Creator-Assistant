@@ -32,6 +32,7 @@
 import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
+import type { Id } from './_generated/dataModel';
 import {
   action,
   internalAction,
@@ -73,6 +74,7 @@ const TOKEN_TTL_SECONDS = 3600; // 1 hour -- kept short; disk cache handles offl
 const PROTECTED_UNLOCK_TTL_SECONDS = 10 * 60;
 const COUPLING_ASSET_PATH_MAX_LENGTH = 512;
 const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
+const MAX_MANUAL_LICENSE_KEY_LENGTH = 4_096;
 const COUPLING_SEED_RELAY_TIMEOUT_MS = 5_000;
 const COUPLING_SEED_RELAY_RESPONSE_MAX_CHARS = 256 * 1024;
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
@@ -80,6 +82,39 @@ const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
 const MACHINE_FINGERPRINT_RE = /^[a-z0-9:_-]{16,256}$/i;
 const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
 const CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+
+type ManualLicenseHashVerificationResult =
+  | { valid: true; licenseId: Id<'manual_licenses'> }
+  | { valid: false };
+
+type LicenseProofResult = {
+  success: boolean;
+  error?: string;
+  manualLicenseId?: Id<'manual_licenses'>;
+  creatorAuthUserId?: string;
+  productId?: string;
+  catalogProductId?: Id<'product_catalog'>;
+};
+
+async function hashManualLicenseKey(licenseKey: string): Promise<string> {
+  const encryptionSecret = process.env.ENCRYPTION_SECRET;
+  if (!encryptionSecret) {
+    throw new Error('ENCRYPTION_SECRET is required for manual license verification');
+  }
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(encryptionSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(licenseKey));
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
   keyId: string;
@@ -102,6 +137,7 @@ async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
 type ProductByProviderRefResult = {
   authUserId: string;
   productId: string;
+  catalogProductId: Id<'product_catalog'>;
   displayName?: string;
 } | null;
 const PROTECTED_ASSET_REGISTRATION = v.object({
@@ -129,6 +165,7 @@ export const getProductByProviderRef = internalQuery({
     v.object({
       authUserId: v.string(),
       productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
       displayName: v.optional(v.string()),
     })
   ),
@@ -143,7 +180,56 @@ export const getProductByProviderRef = internalQuery({
       .filter((q) => q.eq(q.field('status'), 'active'))
       .first();
     if (!row) return null;
-    return { authUserId: row.authUserId, productId: row.productId, displayName: row.displayName };
+    return {
+      authUserId: row.authUserId,
+      productId: row.productId,
+      catalogProductId: row._id,
+      displayName: row.displayName,
+    };
+  },
+});
+
+/**
+ * Find a creator-owned product by its provider reference.
+ *
+ * Manual license intent requirements already identify the creator and local
+ * product. Querying through that owner scope prevents another creator's
+ * matching provider reference from changing the proof target.
+ */
+export const getProductByProviderRefForCreator = internalQuery({
+  args: {
+    authUserId: v.string(),
+    provider: v.string(),
+    providerProductRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
+    const row = await ctx.db
+      .query('product_catalog')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('provider'), args.provider),
+          q.eq(q.field('providerProductRef'), args.providerProductRef),
+          q.eq(q.field('status'), 'active')
+        )
+      )
+      .first();
+    if (!row) return null;
+    return {
+      authUserId: row.authUserId,
+      productId: row.productId,
+      catalogProductId: row._id,
+      displayName: row.displayName,
+    };
   },
 });
 
@@ -158,6 +244,7 @@ export const lookupProductByProviderRef = query({
     v.object({
       authUserId: v.string(),
       productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
       displayName: v.optional(v.string()),
     })
   ),
@@ -167,6 +254,40 @@ export const lookupProductByProviderRef = query({
       provider: args.provider,
       providerProductRef: args.providerProductRef,
     });
+  },
+});
+
+export const verifyManualLicenseByHash = internalQuery({
+  args: {
+    authUserId: v.string(),
+    productId: v.string(),
+    licenseKeyHash: v.string(),
+  },
+  returns: v.union(
+    v.object({ valid: v.literal(true), licenseId: v.id('manual_licenses') }),
+    v.object({ valid: v.literal(false) })
+  ),
+  handler: async (ctx, args): Promise<ManualLicenseHashVerificationResult> => {
+    const licenses = await ctx.db
+      .query('manual_licenses')
+      .withIndex('by_license_key_hash', (q) => q.eq('licenseKeyHash', args.licenseKeyHash))
+      .collect();
+    const license = licenses.find(
+      (candidate) =>
+        candidate.authUserId === args.authUserId && candidate.productId === args.productId
+    );
+
+    if (!license) {
+      return { valid: false as const };
+    }
+    if (license.status === 'revoked') {
+      return { valid: false as const };
+    }
+
+    // Exhausted and expired licenses can prove an existing redemption only.
+    // The atomic completion mutation rechecks consumability and permits these
+    // rows exclusively when this buyer already has the matching entitlement.
+    return { valid: true as const, licenseId: license._id };
   },
 });
 
@@ -537,18 +658,32 @@ export const verifyLicenseProof = internalAction({
   returns: v.object({
     success: v.boolean(),
     error: v.optional(v.string()),
+    manualLicenseId: v.optional(v.id('manual_licenses')),
+    creatorAuthUserId: v.optional(v.string()),
+    productId: v.optional(v.string()),
+    catalogProductId: v.optional(v.id('product_catalog')),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
       return { success: false, error: 'Missing required fields' };
+    }
+    if (args.provider === 'manual' && args.licenseKey.length > MAX_MANUAL_LICENSE_KEY_LENGTH) {
+      return { success: false, error: 'License verification failed' };
     }
 
     let verifyResult: { valid: boolean; reason?: string } | null = null;
 
-    const product = await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
-      provider: args.provider,
-      providerProductRef: args.productPermalink,
-    });
+    const product =
+      args.provider === 'manual' && args.creatorAuthUserId && args.productId
+        ? await ctx.runQuery(internal.yucpLicenses.getProductByProviderRefForCreator, {
+            authUserId: args.creatorAuthUserId,
+            provider: args.provider,
+            providerProductRef: args.productPermalink,
+          })
+        : await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
+            provider: args.provider,
+            providerProductRef: args.productPermalink,
+          });
 
     if (product) {
       if (args.creatorAuthUserId || args.productId) {
@@ -568,6 +703,24 @@ export const verifyLicenseProof = internalAction({
             error: 'Package not found or not registered to the product owner',
           };
         }
+      }
+
+      if (args.provider === 'manual') {
+        const manualLicense = await ctx.runQuery(internal.yucpLicenses.verifyManualLicenseByHash, {
+          authUserId: product.authUserId,
+          productId: product.productId,
+          licenseKeyHash: await hashManualLicenseKey(args.licenseKey),
+        });
+        if (!manualLicense.valid) {
+          return { success: false, error: 'License verification failed' };
+        }
+        return {
+          success: true,
+          manualLicenseId: manualLicense.licenseId,
+          creatorAuthUserId: product.authUserId,
+          productId: product.productId,
+          catalogProductId: product.catalogProductId,
+        };
       }
 
       verifyResult = await verifyLicenseWithProviderRuntime(ctx, {
