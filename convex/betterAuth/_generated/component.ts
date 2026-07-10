@@ -27,199 +27,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       create: FunctionReference<
         "mutation",
         "internal",
-        {
-          input:
-            | {
-                data: {
-                  createdAt: number;
-                  email: string;
-                  emailVerified: boolean;
-                  image?: null | string;
-                  name: string;
-                  twoFactorEnabled?: boolean;
-                  updatedAt: number;
-                  userId?: null | string;
-                };
-                model: "user";
-              }
-            | {
-                data: {
-                  createdAt: number;
-                  expiresAt: number;
-                  ipAddress?: null | string;
-                  token: string;
-                  updatedAt: number;
-                  userAgent?: null | string;
-                  userId: string;
-                };
-                model: "session";
-              }
-            | {
-                data: {
-                  accessToken?: null | string;
-                  accessTokenExpiresAt?: null | number;
-                  accountId: string;
-                  createdAt: number;
-                  idToken?: null | string;
-                  password?: null | string;
-                  providerId: string;
-                  refreshToken?: null | string;
-                  refreshTokenExpiresAt?: null | number;
-                  scope?: null | string;
-                  updatedAt: number;
-                  userId: string;
-                };
-                model: "account";
-              }
-            | {
-                data: {
-                  createdAt: number;
-                  expiresAt: number;
-                  identifier: string;
-                  updatedAt: number;
-                  value: string;
-                };
-                model: "verification";
-              }
-            | {
-                data: {
-                  alg?: null | string;
-                  createdAt: number;
-                  crv?: null | string;
-                  expiresAt?: null | number;
-                  privateKey: string;
-                  publicKey: string;
-                };
-                model: "jwks";
-              }
-            | {
-                data: {
-                  configId?: null | string;
-                  createdAt: number;
-                  enabled?: null | boolean;
-                  expiresAt?: null | number;
-                  key: string;
-                  lastRefillAt?: null | number;
-                  lastRequest?: null | number;
-                  metadata?: null | string;
-                  name?: null | string;
-                  permissions?: null | string;
-                  prefix?: null | string;
-                  rateLimitEnabled?: null | boolean;
-                  rateLimitMax?: null | number;
-                  rateLimitTimeWindow?: null | number;
-                  referenceId?: null | string;
-                  refillAmount?: null | number;
-                  refillInterval?: null | number;
-                  remaining?: null | number;
-                  requestCount?: null | number;
-                  start?: null | string;
-                  updatedAt: number;
-                  userId: string;
-                };
-                model: "apikey";
-              }
-            | {
-                data: {
-                  clientId: string;
-                  clientSecret?: null | string;
-                  contacts?: null | Array<string>;
-                  createdAt?: null | number;
-                  disabled?: null | boolean;
-                  enableEndSession?: null | boolean;
-                  grantTypes?: null | Array<string>;
-                  icon?: null | string;
-                  metadata?: null | string;
-                  name?: null | string;
-                  policy?: null | string;
-                  postLogoutRedirectUris?: null | Array<string>;
-                  public?: null | boolean;
-                  redirectUris: Array<string>;
-                  referenceId?: null | string;
-                  requirePKCE?: null | boolean;
-                  responseTypes?: null | Array<string>;
-                  scopes?: null | Array<string>;
-                  skipConsent?: null | boolean;
-                  softwareId?: null | string;
-                  softwareStatement?: null | string;
-                  softwareVersion?: null | string;
-                  subjectType?: null | string;
-                  tokenEndpointAuthMethod?: null | string;
-                  tos?: null | string;
-                  type?: null | string;
-                  updatedAt?: null | number;
-                  uri?: null | string;
-                  userId?: null | string;
-                };
-                model: "oauthClient";
-              }
-            | {
-                data: {
-                  authTime?: null | number;
-                  clientId: string;
-                  createdAt?: null | number;
-                  expiresAt?: null | number;
-                  referenceId?: null | string;
-                  revoked?: null | number;
-                  scopes: Array<string>;
-                  sessionId?: null | string;
-                  token: string;
-                  userId: string;
-                };
-                model: "oauthRefreshToken";
-              }
-            | {
-                data: {
-                  clientId: string;
-                  createdAt?: null | number;
-                  expiresAt?: null | number;
-                  referenceId?: null | string;
-                  refreshId?: null | string;
-                  scopes: Array<string>;
-                  sessionId?: null | string;
-                  token?: null | string;
-                  userId?: null | string;
-                };
-                model: "oauthAccessToken";
-              }
-            | {
-                data: {
-                  clientId: string;
-                  createdAt?: null | number;
-                  referenceId?: null | string;
-                  scopes: Array<string>;
-                  updatedAt?: null | number;
-                  userId?: null | string;
-                };
-                model: "oauthConsent";
-              }
-            | {
-                data: {
-                  aaguid?: string;
-                  backedUp: boolean;
-                  counter: number;
-                  createdAt?: number;
-                  credentialID: string;
-                  deviceType: string;
-                  name?: string;
-                  publicKey: string;
-                  transports?: string;
-                  userId: string;
-                };
-                model: "passkey";
-              }
-            | {
-                data: {
-                  backupCodes: string;
-                  secret: string;
-                  userId: string;
-                  verified?: boolean;
-                };
-                model: "twoFactor";
-              };
-          onCreateHandle?: string;
-          select?: Array<string>;
-        },
+        { input: any; onCreateHandle?: string; select?: Array<string> },
         any,
         Name
       >;
@@ -1280,6 +1088,205 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               | Array<number>
               | null;
           }>;
+        },
+        any,
+        Name
+      >;
+      rawCreate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          input:
+            | {
+                data: {
+                  createdAt: number;
+                  email: string;
+                  emailVerified: boolean;
+                  image?: null | string;
+                  name: string;
+                  twoFactorEnabled?: boolean;
+                  updatedAt: number;
+                  userId?: null | string;
+                };
+                model: "user";
+              }
+            | {
+                data: {
+                  createdAt: number;
+                  expiresAt: number;
+                  ipAddress?: null | string;
+                  token: string;
+                  updatedAt: number;
+                  userAgent?: null | string;
+                  userId: string;
+                };
+                model: "session";
+              }
+            | {
+                data: {
+                  accessToken?: null | string;
+                  accessTokenExpiresAt?: null | number;
+                  accountId: string;
+                  createdAt: number;
+                  idToken?: null | string;
+                  password?: null | string;
+                  providerId: string;
+                  refreshToken?: null | string;
+                  refreshTokenExpiresAt?: null | number;
+                  scope?: null | string;
+                  updatedAt: number;
+                  userId: string;
+                };
+                model: "account";
+              }
+            | {
+                data: {
+                  createdAt: number;
+                  expiresAt: number;
+                  identifier: string;
+                  updatedAt: number;
+                  value: string;
+                };
+                model: "verification";
+              }
+            | {
+                data: {
+                  alg?: null | string;
+                  createdAt: number;
+                  crv?: null | string;
+                  expiresAt?: null | number;
+                  privateKey: string;
+                  publicKey: string;
+                };
+                model: "jwks";
+              }
+            | {
+                data: {
+                  configId?: null | string;
+                  createdAt: number;
+                  enabled?: null | boolean;
+                  expiresAt?: null | number;
+                  key: string;
+                  lastRefillAt?: null | number;
+                  lastRequest?: null | number;
+                  metadata?: null | string;
+                  name?: null | string;
+                  permissions?: null | string;
+                  prefix?: null | string;
+                  rateLimitEnabled?: null | boolean;
+                  rateLimitMax?: null | number;
+                  rateLimitTimeWindow?: null | number;
+                  referenceId?: null | string;
+                  refillAmount?: null | number;
+                  refillInterval?: null | number;
+                  remaining?: null | number;
+                  requestCount?: null | number;
+                  start?: null | string;
+                  updatedAt: number;
+                  userId: string;
+                };
+                model: "apikey";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  clientSecret?: null | string;
+                  contacts?: null | Array<string>;
+                  createdAt?: null | number;
+                  disabled?: null | boolean;
+                  enableEndSession?: null | boolean;
+                  grantTypes?: null | Array<string>;
+                  icon?: null | string;
+                  metadata?: null | string;
+                  name?: null | string;
+                  policy?: null | string;
+                  postLogoutRedirectUris?: null | Array<string>;
+                  public?: null | boolean;
+                  redirectUris: Array<string>;
+                  referenceId?: null | string;
+                  requirePKCE?: null | boolean;
+                  responseTypes?: null | Array<string>;
+                  scopes?: null | Array<string>;
+                  skipConsent?: null | boolean;
+                  softwareId?: null | string;
+                  softwareStatement?: null | string;
+                  softwareVersion?: null | string;
+                  subjectType?: null | string;
+                  tokenEndpointAuthMethod?: null | string;
+                  tos?: null | string;
+                  type?: null | string;
+                  updatedAt?: null | number;
+                  uri?: null | string;
+                  userId?: null | string;
+                };
+                model: "oauthClient";
+              }
+            | {
+                data: {
+                  authTime?: null | number;
+                  clientId: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  revoked?: null | number;
+                  scopes: Array<string>;
+                  sessionId?: null | string;
+                  token: string;
+                  userId: string;
+                };
+                model: "oauthRefreshToken";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  createdAt?: null | number;
+                  expiresAt?: null | number;
+                  referenceId?: null | string;
+                  refreshId?: null | string;
+                  scopes: Array<string>;
+                  sessionId?: null | string;
+                  token?: null | string;
+                  userId?: null | string;
+                };
+                model: "oauthAccessToken";
+              }
+            | {
+                data: {
+                  clientId: string;
+                  createdAt?: null | number;
+                  referenceId?: null | string;
+                  scopes: Array<string>;
+                  updatedAt?: null | number;
+                  userId?: null | string;
+                };
+                model: "oauthConsent";
+              }
+            | {
+                data: {
+                  aaguid?: string;
+                  backedUp: boolean;
+                  counter: number;
+                  createdAt?: number;
+                  credentialID: string;
+                  deviceType: string;
+                  name?: string;
+                  publicKey: string;
+                  transports?: string;
+                  userId: string;
+                };
+                model: "passkey";
+              }
+            | {
+                data: {
+                  backupCodes: string;
+                  secret: string;
+                  userId: string;
+                  verified?: boolean;
+                };
+                model: "twoFactor";
+              };
+          onCreateHandle?: string;
+          select?: Array<string>;
         },
         any,
         Name

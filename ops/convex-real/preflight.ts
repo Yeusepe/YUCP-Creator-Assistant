@@ -1,0 +1,396 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import * as ts from 'typescript';
+
+const ROOT_DIR = resolve(import.meta.dir, '../..');
+const CONVEX_DIR = join(ROOT_DIR, 'convex');
+const REQUIRED_ENV_ERROR = /\b([A-Z][A-Z0-9_]+(?:\s+or\s+[A-Z][A-Z0-9_]+)*) is required\b/g;
+const CONVEX_ENV_GET_TIMEOUT_MS = 60_000;
+const FORCE_KILL_GRACE_MS = 5_000;
+
+type FunctionDeclaration = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression;
+
+type FunctionReference = {
+  modulePath: string;
+  name: string;
+};
+
+type ConvexModule = {
+  functions: Map<string, FunctionDeclaration>;
+  imports: Map<string, FunctionReference>;
+  path: string;
+  source: ts.SourceFile;
+};
+
+function convexSourceFiles(directory = CONVEX_DIR): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === '_generated' ? [] : convexSourceFiles(path);
+    }
+    if (
+      !entry.name.endsWith('.ts') ||
+      entry.name.endsWith('.d.ts') ||
+      entry.name.endsWith('.test.ts') ||
+      entry.name.endsWith('.realtest.ts')
+    ) {
+      return [];
+    }
+    return [path];
+  });
+}
+
+function functionDeclaration(node: ts.Node): FunctionDeclaration | null {
+  if (ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+    return node;
+  }
+  return null;
+}
+
+function localFunctions(source: ts.SourceFile): Map<string, FunctionDeclaration> {
+  const functions = new Map<string, FunctionDeclaration>();
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      functions.set(statement.name.text, statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+      const fn = functionDeclaration(declaration.initializer);
+      if (fn) functions.set(declaration.name.text, fn);
+    }
+  }
+  return functions;
+}
+
+function exportedFunctionNames(
+  source: ts.SourceFile,
+  functions: Map<string, FunctionDeclaration>
+): Set<string> {
+  const exported = new Set<string>();
+  for (const statement of source.statements) {
+    if (!ts.canHaveModifiers(statement)) continue;
+    const isExported = ts
+      .getModifiers(statement)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+    if (!isExported) continue;
+
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name &&
+      functions.has(statement.name.text)
+    ) {
+      exported.add(statement.name.text);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && functions.has(declaration.name.text)) {
+        exported.add(declaration.name.text);
+      }
+    }
+  }
+  return exported;
+}
+
+function resolveRelativeModule(fromPath: string, moduleSpecifier: string): string | null {
+  if (!moduleSpecifier.startsWith('.')) return null;
+  const withoutRuntimeExtension = moduleSpecifier.replace(/\.(?:m?js|cjs)$/, '');
+  const base = resolve(dirname(fromPath), withoutRuntimeExtension);
+  for (const candidate of [`${base}.ts`, join(base, 'index.ts')]) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function buildConvexModuleGraph(): Map<string, ConvexModule> {
+  const modules = new Map<string, ConvexModule>();
+  const exportsByModule = new Map<string, Set<string>>();
+
+  for (const path of convexSourceFiles()) {
+    const source = ts.createSourceFile(
+      path,
+      readFileSync(path, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    const functions = localFunctions(source);
+    modules.set(path, { functions, imports: new Map(), path, source });
+    exportsByModule.set(path, exportedFunctionNames(source, functions));
+  }
+
+  for (const module of modules.values()) {
+    for (const statement of module.source.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier))
+        continue;
+      const importedModulePath = resolveRelativeModule(module.path, statement.moduleSpecifier.text);
+      if (!importedModulePath || !modules.has(importedModulePath)) continue;
+      const exportedNames = exportsByModule.get(importedModulePath) ?? new Set<string>();
+      const bindings = statement.importClause?.namedBindings;
+      if (!bindings || !ts.isNamedImports(bindings)) continue;
+
+      for (const element of bindings.elements) {
+        const importedName = element.propertyName?.text ?? element.name.text;
+        if (!exportedNames.has(importedName)) continue;
+        module.imports.set(element.name.text, {
+          modulePath: importedModulePath,
+          name: importedName,
+        });
+      }
+    }
+  }
+
+  return modules;
+}
+
+function readProcessEnvName(node: ts.Node): string | null {
+  if (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === 'process' &&
+    node.expression.name.text === 'env'
+  ) {
+    return node.name.text;
+  }
+  if (
+    ts.isElementAccessExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === 'process' &&
+    node.expression.name.text === 'env' &&
+    node.argumentExpression &&
+    ts.isStringLiteral(node.argumentExpression)
+  ) {
+    return node.argumentExpression.text;
+  }
+  return null;
+}
+
+function requiredEnvAlternativesInError(node: ts.Node): string[][] {
+  if (
+    !ts.isNewExpression(node) ||
+    !ts.isIdentifier(node.expression) ||
+    node.expression.text !== 'Error'
+  ) {
+    return [];
+  }
+  const argument = node.arguments?.[0];
+  if (
+    !argument ||
+    (!ts.isStringLiteral(argument) && !ts.isNoSubstitutionTemplateLiteral(argument))
+  ) {
+    return [];
+  }
+  return [...argument.text.matchAll(REQUIRED_ENV_ERROR)].map((match) => match[1].split(/\s+or\s+/));
+}
+
+export type DeploymentEnvRequirement = readonly string[];
+type DeploymentEnvRequirementsInput = readonly string[] | readonly DeploymentEnvRequirement[];
+
+/**
+ * Derives the analyzer-time required environment contract from Convex source.
+ *
+ * Convex evaluates each module during deploy analysis. This scans direct module
+ * evaluation plus local/imported function calls and eager callbacks reached from
+ * a module-level call (such as Better Auth route registration). Handler bodies
+ * are deliberately not traversed, because their environment is runtime-only.
+ */
+export function requiredConvexDeploymentEnvRequirements(): DeploymentEnvRequirement[] {
+  const modules = buildConvexModuleGraph();
+  const required = new Map<string, DeploymentEnvRequirement>();
+  const visitedFunctions = new Set<string>();
+
+  function addRequirement(names: readonly string[]): void {
+    const alternatives = [...new Set(names)].sort();
+    if (alternatives.length === 0) return;
+    required.set(alternatives.join('\u0000'), alternatives);
+  }
+
+  function resolveFunction(
+    module: ConvexModule,
+    name: string
+  ): { module: ConvexModule; fn: FunctionDeclaration } | null {
+    const local = module.functions.get(name);
+    if (local) return { module, fn: local };
+
+    const imported = module.imports.get(name);
+    if (!imported) return null;
+    const importedModule = modules.get(imported.modulePath);
+    const fn = importedModule?.functions.get(imported.name);
+    return importedModule && fn ? { module: importedModule, fn } : null;
+  }
+
+  function visitFunction(module: ConvexModule, name: string, fn: FunctionDeclaration): void {
+    const key = `${relative(CONVEX_DIR, module.path)}:${name}:${fn.pos}`;
+    if (visitedFunctions.has(key)) return;
+    visitedFunctions.add(key);
+    if (fn.body) visitEvaluatedNode(module, fn.body, false);
+  }
+
+  function visitFunctionReference(module: ConvexModule, name: string): void {
+    const resolved = resolveFunction(module, name);
+    if (resolved) visitFunction(resolved.module, name, resolved.fn);
+  }
+
+  function visitEvaluatedNode(
+    module: ConvexModule,
+    node: ts.Node,
+    allowEagerCallbackInvocation: boolean
+  ): void {
+    if (functionDeclaration(node)) return;
+
+    const envName = readProcessEnvName(node);
+    if (envName && allowEagerCallbackInvocation) {
+      addRequirement([envName]);
+    }
+
+    for (const alternatives of requiredEnvAlternativesInError(node)) {
+      addRequirement(alternatives);
+    }
+
+    if (ts.isCallExpression(node)) {
+      if (ts.isIdentifier(node.expression)) {
+        visitFunctionReference(module, node.expression.text);
+      } else if (functionDeclaration(node.expression)) {
+        visitFunction(module, 'iife', node.expression);
+      }
+
+      if (allowEagerCallbackInvocation) {
+        for (const argument of node.arguments) {
+          if (ts.isIdentifier(argument)) visitFunctionReference(module, argument.text);
+        }
+      }
+    }
+
+    ts.forEachChild(node, (child) =>
+      visitEvaluatedNode(module, child, allowEagerCallbackInvocation)
+    );
+  }
+
+  for (const module of modules.values()) {
+    for (const statement of module.source.statements) {
+      if (ts.isImportDeclaration(statement) || ts.isFunctionDeclaration(statement)) continue;
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (declaration.initializer) visitEvaluatedNode(module, declaration.initializer, true);
+        }
+        continue;
+      }
+      visitEvaluatedNode(module, statement, true);
+    }
+  }
+
+  return [...required.values()].sort((left, right) =>
+    left.join('\u0000').localeCompare(right.join('\u0000'))
+  );
+}
+
+export function requiredConvexDeploymentEnv(): string[] {
+  return [...new Set(requiredConvexDeploymentEnvRequirements().flat())].sort();
+}
+
+function isExplicitlyUnsetDeploymentEnvDiagnostic(name: string, diagnostic: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const unsetState = '(?:is\\s+)?(?:not set|unset|not found|missing|does not exist)';
+  return new RegExp(
+    `(?:${escapedName}[^\\n]*(?:${unsetState})|${unsetState}[^\\n]*${escapedName})`,
+    'i'
+  ).test(diagnostic);
+}
+
+export function deploymentEnvGetIsSet(
+  name: string,
+  stdout: string,
+  stderr: string,
+  exitCode: number
+): boolean {
+  if (exitCode === 0) return stdout.trim().length > 0;
+
+  const diagnostic = stderr.trim();
+  if (isExplicitlyUnsetDeploymentEnvDiagnostic(name, diagnostic)) return false;
+  throw new Error(
+    `bun x convex env get ${name} failed with exit code ${exitCode}: ${diagnostic || 'no stderr output'}`
+  );
+}
+
+async function deploymentEnvIsSet(
+  name: string,
+  env: Record<string, string | undefined>
+): Promise<boolean> {
+  let timedOut = false;
+  const proc = Bun.spawn(['bun', 'x', 'convex', 'env', 'get', name], {
+    cwd: ROOT_DIR,
+    env,
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    proc.kill('SIGTERM');
+    setTimeout(() => proc.kill('SIGKILL'), FORCE_KILL_GRACE_MS).unref();
+  }, CONVEX_ENV_GET_TIMEOUT_MS);
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timeoutId);
+  if (timedOut) {
+    throw new Error(`bun x convex env get ${name} timed out after ${CONVEX_ENV_GET_TIMEOUT_MS}ms`);
+  }
+  return deploymentEnvGetIsSet(name, stdout, stderr, exitCode);
+}
+
+export type DeploymentEnvIsSet = (
+  name: string,
+  env: Record<string, string | undefined>
+) => Promise<boolean>;
+
+function normalizeDeploymentEnvRequirements(
+  requiredEnv: DeploymentEnvRequirementsInput
+): DeploymentEnvRequirement[] {
+  if (requiredEnv.length === 0) return [];
+  if (typeof requiredEnv[0] === 'string') {
+    return (requiredEnv as readonly string[]).map((name) => [name]);
+  }
+  return (requiredEnv as readonly DeploymentEnvRequirement[]).map((alternatives) => [
+    ...alternatives,
+  ]);
+}
+
+export async function assertRequiredConvexDeploymentEnv(
+  env: Record<string, string | undefined> = process.env,
+  requiredEnv: DeploymentEnvRequirementsInput = requiredConvexDeploymentEnvRequirements(),
+  isSet: DeploymentEnvIsSet = deploymentEnvIsSet
+): Promise<void> {
+  const requirements = normalizeDeploymentEnvRequirements(requiredEnv);
+  const missing = (
+    await Promise.all(
+      requirements.map(async (alternatives) => {
+        const present = await Promise.all(alternatives.map((name) => isSet(name, env)));
+        return present.some(Boolean) ? null : alternatives.join(' or ');
+      })
+    )
+  ).filter((requirement): requirement is string => requirement !== null);
+
+  if (missing.length > 0) {
+    throw new Error(`Missing required Convex deployment env: ${missing.join(', ')}`);
+  }
+}
+
+async function main(): Promise<void> {
+  const requiredEnv = requiredConvexDeploymentEnvRequirements();
+  await assertRequiredConvexDeploymentEnv(process.env, requiredEnv);
+  console.log(
+    `Convex deployment required-env preflight passed (${requiredEnv.map((names) => names.join(' or ')).join(', ')}).`
+  );
+}
+
+if (import.meta.main) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

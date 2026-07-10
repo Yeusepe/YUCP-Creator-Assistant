@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -12,6 +20,7 @@ import {
 const ROOT_DIR = resolve(import.meta.dir, '../..');
 const COMPOSE_FILE = join(import.meta.dir, 'docker-compose.yml');
 const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
+const BACKEND_FETCH_TIMEOUT_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 5_000;
 
 const composeArgs = ['compose', '-p', PROJECT_NAME, '-f', COMPOSE_FILE];
@@ -27,7 +36,7 @@ async function run(args: string[], options: RunOptions = {}): Promise<string> {
   let timedOut = false;
   const proc = Bun.spawn(args, {
     cwd: ROOT_DIR,
-    env: { ...process.env, ...options.env },
+    env: options.env ?? process.env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -56,12 +65,26 @@ async function run(args: string[], options: RunOptions = {}): Promise<string> {
   return stdout;
 }
 
+/**
+ * Runs a Convex CLI command against the self-hosted backend only. Callers must
+ * provide `selfHostedConvexEnv()` so cloud deployment selection cannot leak in.
+ */
+export async function runSelfHostedConvexCli(
+  args: string[],
+  env: Record<string, string>,
+  options: Omit<RunOptions, 'env'> = {}
+): Promise<string> {
+  return await run(['bun', 'x', 'convex', ...args], { ...options, env });
+}
+
 async function waitForBackend(): Promise<void> {
   const deadline = Date.now() + 180_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${BACKEND_URL}/version`);
+      const response = await fetch(`${BACKEND_URL}/version`, {
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         console.log(`Convex backend healthy: ${await response.text()}`);
         return;
@@ -124,7 +147,7 @@ function ensureBetterAuthResolvable(): void {
   }
 }
 
-async function getAdminKey(): Promise<string> {
+export async function getRealBackendAdminKey(): Promise<string> {
   const output = await run(
     ['docker', ...composeArgs, 'exec', '-T', 'backend', './generate_admin_key.sh'],
     { quiet: true }
@@ -137,7 +160,12 @@ async function getAdminKey(): Promise<string> {
   return adminKey;
 }
 
-function writeTestEnvFile(): string {
+/**
+ * Builds the single test deployment env file used by both the real suite and
+ * the deploy gate. Keep this list here so every self-hosted path provisions
+ * exactly the same deployment contract.
+ */
+export function writeRealBackendEnvFile(): string {
   const envFile = join(tmpdir(), 'yucp-convex-real-env.vars');
   writeFileSync(
     envFile,
@@ -149,8 +177,6 @@ function writeTestEnvFile(): string {
       'ACCOUNT_RECOVERY_CONTEXT_SECRET=test-account-recovery-secret-for-convex-real-backend',
       `INTERNAL_SERVICE_AUTH_SECRET=${INTERNAL_SERVICE_AUTH_SECRET}`,
       `CONVEX_API_SECRET=${API_SECRET}`,
-      'IS_TEST=true',
-      'YUCP_REAL_BACKEND_TEST_HELPERS=true',
       'VRCHAT_PROVIDER_SESSION_SECRET=test-vrchat-provider-session-secret',
       `BETTER_AUTH_URL=${SITE_URL}/api/auth`,
       'API_BASE_URL=http://127.0.0.1:3001',
@@ -178,26 +204,161 @@ function writeTestEnvFile(): string {
   return envFile;
 }
 
-async function deploy(adminKey: string): Promise<void> {
-  ensureBetterAuthResolvable();
-  const env = {
+export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[name] = value;
+  }
+
+  // Bun loads .env.local before this script. A configured cloud deployment or
+  // deploy key must never win over the self-hosted backend used by this harness.
+  delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOYMENT_PROD;
+  delete env.CONVEX_DEPLOY_KEY;
+  delete env.CONVEX_DEPLOY_KEY_PROD;
+
+  return {
+    ...env,
     CONVEX_SELF_HOSTED_URL: BACKEND_URL,
     CONVEX_SELF_HOSTED_ADMIN_KEY: adminKey,
   };
-  await run(['bun', 'x', 'convex', 'env', 'set', '--from-file', writeTestEnvFile(), '--force'], {
-    env,
-  });
-  await run(
-    ['bun', 'x', 'convex', 'deploy', '--yes', '--typecheck', 'disable', '--codegen', 'disable'],
-    { env }
+}
+
+/**
+ * Bun loads `.env` and `.env.local` itself, after inheriting the process env.
+ * Move both aside around every self-hosted CLI sequence so local cloud
+ * `CONVEX_DEPLOYMENT` selectors can never select Convex Cloud. The original
+ * files are restored even when a command fails.
+ */
+export async function withSelfHostedConvexEnvFileMovedAside<T>(
+  operation: () => Promise<T>,
+  envDirectory = ROOT_DIR
+): Promise<T> {
+  const movedEnvFiles = ['.env', '.env.local']
+    .map((name) => join(envDirectory, name))
+    .filter((envFilePath) => existsSync(envFilePath))
+    .map((envFilePath) => ({
+      envFilePath,
+      backupPath: `${envFilePath}.convex-real-backup-${process.pid}-${Date.now()}`,
+    }));
+
+  if (movedEnvFiles.length === 0) return await operation();
+
+  const restoreOriginalEnvFiles = (): void => {
+    const restorationErrors: unknown[] = [];
+    for (const { envFilePath, backupPath } of [...movedEnvFiles].reverse()) {
+      try {
+        if (existsSync(envFilePath)) {
+          const unexpectedPath = `${backupPath}.unexpected`;
+          renameSync(envFilePath, unexpectedPath);
+          renameSync(backupPath, envFilePath);
+          throw new Error(
+            `Self-hosted Convex command recreated ${envFilePath}; original restored and unexpected file moved to ${unexpectedPath}`
+          );
+        }
+        renameSync(backupPath, envFilePath);
+      } catch (error) {
+        restorationErrors.push(error);
+      }
+    }
+
+    if (restorationErrors.length === 1) throw restorationErrors[0];
+    if (restorationErrors.length > 1) {
+      throw new AggregateError(restorationErrors, 'Failed to restore self-hosted Convex env files');
+    }
+  };
+
+  try {
+    for (const { envFilePath, backupPath } of movedEnvFiles) {
+      renameSync(envFilePath, backupPath);
+    }
+  } catch (error) {
+    try {
+      restoreOriginalEnvFiles();
+    } catch (restorationError) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new AggregateError([error, restorationError], message);
+    }
+    throw error;
+  }
+
+  let operationFailed = false;
+  let operationError: unknown;
+  let result: T | undefined;
+  try {
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
+  }
+
+  let restorationFailed = false;
+  let restorationError: unknown;
+  try {
+    restoreOriginalEnvFiles();
+  } catch (error) {
+    restorationFailed = true;
+    restorationError = error;
+  }
+
+  if (operationFailed) {
+    if (restorationFailed) {
+      const message =
+        operationError instanceof Error ? operationError.message : String(operationError);
+      throw new AggregateError([operationError, restorationError], message);
+    }
+    throw operationError;
+  }
+  if (restorationFailed) throw restorationError;
+  return result as T;
+}
+
+export async function provisionRealBackendEnv(adminKey: string): Promise<void> {
+  await withSelfHostedConvexEnvFileMovedAside(() =>
+    runSelfHostedConvexCli(
+      ['env', 'set', '--from-file', writeRealBackendEnvFile(), '--force'],
+      selfHostedConvexEnv(adminKey)
+    )
   );
 }
 
-async function up(): Promise<void> {
+export async function enableRealBackendTestHelpers(adminKey: string): Promise<void> {
+  const env = selfHostedConvexEnv(adminKey);
+  await withSelfHostedConvexEnvFileMovedAside(async () => {
+    await runSelfHostedConvexCli(['env', 'set', 'IS_TEST', 'true'], env);
+    await runSelfHostedConvexCli(['env', 'set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true'], env);
+  });
+}
+
+export function ensureConvexDependenciesResolvable(): void {
+  ensureBetterAuthResolvable();
+}
+
+export async function up(): Promise<void> {
   await pullImagesWithRetry();
   await run(['docker', ...composeArgs, 'up', '-d']);
   await waitForBackend();
-  await deploy(await getAdminKey());
+  await provisionRealBackendEnv(await getRealBackendAdminKey());
+}
+
+async function backendIsHealthy(): Promise<boolean> {
+  try {
+    return (
+      await fetch(`${BACKEND_URL}/version`, {
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      })
+    ).ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function ensureRealBackendUp(): Promise<void> {
+  if (await backendIsHealthy()) {
+    await provisionRealBackendEnv(await getRealBackendAdminKey());
+    return;
+  }
+  await up();
 }
 
 async function down(): Promise<void> {
@@ -211,9 +372,11 @@ async function logs(): Promise<void> {
 async function main(): Promise<void> {
   const command = process.argv[2];
   if (command === 'up') return await up();
+  if (command === 'test-signals')
+    return await enableRealBackendTestHelpers(await getRealBackendAdminKey());
   if (command === 'down') return await down();
   if (command === 'logs') return await logs();
-  throw new Error('Usage: bun run ops/convex-real/manage.ts <up|down|logs>');
+  throw new Error('Usage: bun run ops/convex-real/manage.ts <up|test-signals|down|logs>');
 }
 
 if (import.meta.main) {

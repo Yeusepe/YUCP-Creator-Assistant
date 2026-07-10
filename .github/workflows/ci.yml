@@ -108,8 +108,11 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
-      - name: Boot and deploy self-hosted Convex
+      - name: Boot and provision self-hosted Convex
         run: bun run test:convex:real:up
+
+      - name: Run real Convex deploy gate
+        run: bun run test:convex:deploy
 
       - name: Run self-hosted Convex real suite
         run: bun run test:convex:real
@@ -143,8 +146,14 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
-      - name: Boot and deploy self-hosted Convex
+      - name: Boot and provision self-hosted Convex
         run: bun run test:convex:real:up
+
+      - name: Run real Convex deploy gate
+        run: bun run test:convex:deploy
+
+      - name: Enable self-hosted real test helpers
+        run: bun run ops/convex-real/manage.ts test-signals
 
       - name: Run real API user journey flows
         env:

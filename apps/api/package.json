@@ -17,7 +17,7 @@
     "test:e2e:list": "bun x playwright test --config playwright.config.ts --list"
   },
   "dependencies": {
-    "@convex-dev/better-auth": "^0.11.0",
+    "@convex-dev/better-auth": "0.12.5",
     "@hyperdx/node-opentelemetry": "^0.11.0",
     "@infisical/sdk": "^4.0.6",
     "@opentelemetry/api": "^1.9.1",
@@ -31,9 +31,9 @@
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",
     "bebop": "3.0.4",
-    "better-auth": "1.6.11",
+    "better-auth": "1.6.23",
     "canvas-confetti": "^1.9.3",
-    "convex": "^1.32.0",
+    "convex": "1.42.1",
     "facehash": "^0.1.0",
     "holographic-sticker": "^1.0.4",
     "ioredis": "^5.4.1",
