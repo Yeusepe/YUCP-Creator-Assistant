@@ -26,9 +26,14 @@ function resolveHostedVerificationProvider(
     supportsHostedBuyerAccountLink: Boolean(
       descriptor.supportsBuyerOAuthLink && getVerificationConfig(providerKey)
     ),
-    describeManualLicenseCapability: () =>
-      getProviderRuntime(providerKey)?.buyerVerification?.describeCapability('manual_license') ??
-      null,
+    describeManualLicenseCapability: () => {
+      const runtime = getProviderRuntime(providerKey);
+      return (
+        runtime?.hostedVerification?.describeManualLicenseCapability() ??
+        runtime?.buyerVerification?.describeCapability('manual_license') ??
+        null
+      );
+    },
   };
 }
 

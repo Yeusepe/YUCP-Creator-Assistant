@@ -92,12 +92,28 @@ describe('provider plugin registry', () => {
 
   it('keeps provider registry keys aligned with provider ids', () => {
     const providerIds = [...ALL_PROVIDER_RUNTIMES.map((provider) => provider.id)].sort();
-    const registryKeys = [...PROVIDER_RUNTIMES.keys()].sort();
+    const registryKeys = [...PROVIDER_RUNTIMES.keys()]
+      .filter((providerKey) => RUNTIME_PROVIDER_KEYS.includes(providerKey as never))
+      .sort();
     expect(registryKeys).toEqual(providerIds);
   });
 
   it('covers every provider-owned runtime provider key exactly once', () => {
-    expect([...PROVIDER_RUNTIMES.keys()].sort()).toEqual([...RUNTIME_PROVIDER_KEYS].sort());
+    expect([...PROVIDER_RUNTIMES.keys()].sort()).toEqual(
+      [...RUNTIME_PROVIDER_KEYS, 'manual'].sort()
+    );
+  });
+
+  it('exposes the manual license input through its verification-only runtime', () => {
+    const manual = PROVIDER_RUNTIMES.get('manual');
+
+    expect(manual?.hostedVerification?.describeManualLicenseCapability()).toMatchObject({
+      methodKind: 'manual_license',
+      input: {
+        kind: 'license_key',
+        masked: true,
+      },
+    });
   });
 
   it('routes VRChat account linking through the connect-mode setup flow', () => {
