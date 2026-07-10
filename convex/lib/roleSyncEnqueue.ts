@@ -20,12 +20,24 @@ const DEFAULT_MAX_RETRIES = 10;
 const MAX_RETRY_BUDGET = 100;
 const DEDUPE_STATUSES = new Set(['pending', 'in_progress', 'failed']);
 
+// A legacy role-removal dispatch only inserts its outbox projection. The
+// Workpool path additionally creates durable Workpool work and marks the
+// projection as dispatched, so cascade sizing must reserve all three writes.
+export const ROLE_REMOVAL_LEGACY_WRITE_COUNT = 1;
+export const ROLE_REMOVAL_WORKPOOL_WRITE_COUNT = 3;
+
 type RoleSyncLifecycle =
   | { kind: 'grant'; at: number | string }
   | { kind: 'revoke'; at: number | string };
 
 export function roleSyncViaWorkpool(): boolean {
   return process.env.ROLE_SYNC_VIA_WORKPOOL === 'true';
+}
+
+export function roleRemovalWriteCount(): number {
+  return roleSyncViaWorkpool()
+    ? ROLE_REMOVAL_WORKPOOL_WRITE_COUNT
+    : ROLE_REMOVAL_LEGACY_WRITE_COUNT;
 }
 
 function lifecycleSuffix(lifecycle?: RoleSyncLifecycle): string {

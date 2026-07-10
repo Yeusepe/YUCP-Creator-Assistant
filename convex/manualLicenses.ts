@@ -29,6 +29,13 @@ export const ManualLicenseStatus = v.union(
   v.literal('exhausted')
 );
 
+// Revocation has lifecycle side effects, so it must flow through `revoke`.
+const ManualLicenseNonRevokedStatus = v.union(
+  v.literal('active'),
+  v.literal('expired'),
+  v.literal('exhausted')
+);
+
 /** Input for creating a manual license */
 export const CreateManualLicenseInput = v.object({
   authUserId: v.string(),
@@ -367,7 +374,8 @@ export const revoke = mutation({
 });
 
 /**
- * Update license status (used for expiry detection).
+ * Update a non-revoked license status (used for expiry detection).
+ * Revocation must use `revoke` so linked entitlements and roles are cascaded.
  * Requires apiSecret - called by API server only.
  */
 export const updateStatus = mutation({
@@ -375,7 +383,7 @@ export const updateStatus = mutation({
     apiSecret: v.string(),
     actor: ApiActorBindingV,
     licenseId: v.id('manual_licenses'),
-    status: ManualLicenseStatus,
+    status: ManualLicenseNonRevokedStatus,
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { apiSecret, actor, licenseId, status, reason }) => {

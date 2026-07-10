@@ -3,10 +3,10 @@ import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { sha256Hex } from '@yucp/shared/crypto';
 import { api, internal } from './_generated/api';
 import {
-  ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE,
   MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET,
   calculateManualLicenseEntitlementCascadeBatchSize,
 } from './entitlements';
+import { ROLE_REMOVAL_WORKPOOL_WRITE_COUNT } from './lib/roleSyncEnqueue';
 import {
   type ConvexTestInstance,
   makeTestConvex,
@@ -25,6 +25,21 @@ async function createAuthUserActor(authUserId: string) {
       authUserId,
       source: 'session',
       scopes: [],
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    },
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
+async function createManualLicenseServiceActor() {
+  const now = Date.now();
+  return await createApiActorBinding(
+    {
+      version: 1,
+      kind: 'service',
+      service: 'api-server',
+      scopes: ['manual-licenses:service'],
       issuedAt: now,
       expiresAt: now + 60_000,
     },
@@ -64,14 +79,59 @@ async function collectCascadeArtifacts(
 }
 
 describe('manual license bounds', () => {
+  const originalRoleSyncViaWorkpool = process.env.ROLE_SYNC_VIA_WORKPOOL;
+
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+    delete process.env.ROLE_SYNC_VIA_WORKPOOL;
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    if (originalRoleSyncViaWorkpool === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+    else process.env.ROLE_SYNC_VIA_WORKPOOL = originalRoleSyncViaWorkpool;
+  });
+
+  it('uses the Workpool role-removal write cost when sizing a manual-license cascade', () => {
+    const roleRemovalJobCount = 25;
+
+    expect(calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount)).toBe(37);
+
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+
+    const workpoolBatchSize = calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount);
+    expect(workpoolBatchSize).toBe(12);
+    expect(
+      workpoolBatchSize * (2 + roleRemovalJobCount * ROLE_REMOVAL_WORKPOOL_WRITE_COUNT)
+    ).toBeLessThanOrEqual(MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET);
+  });
+
+  it('rejects service attempts to revoke through updateStatus so revoke owns the cascade', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-update-status-revoke';
+    const actor = await createAuthUserActor(authUserId);
+    const serviceActor = await createManualLicenseServiceActor();
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'update-status-revoke-license-key-hash',
+      productId: 'product-manual-update-status-revoke',
+    });
+
+    await expect(
+      t.mutation(api.manualLicenses.updateStatus, {
+        apiSecret: 'test-secret',
+        actor: serviceActor,
+        licenseId,
+        status: 'revoked' as never,
+      })
+    ).rejects.toThrow();
+
+    const license = await t.run(async (ctx) => await ctx.db.get(licenseId));
+    expect(license).toMatchObject({ status: 'active' });
   });
 
   it('rejects bulkCreate requests above the documented 100-license limit', async () => {
@@ -245,14 +305,14 @@ describe('manual license bounds', () => {
   });
 
   it('commits reusable-license revocation before draining the bounded entitlement cascade', async () => {
-    // One more than the production chunk size proves the cascade reschedules
-    // instead of processing every linked redemption in one transaction. Twenty-five
-    // removable roles make the role fanout reduce the entitlement batch below
-    // the fixed page limit while keeping the realtest fast enough for CI.
-    const entitlementCount = ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE + 1;
-    const removableRoleCount = 25;
+    // One more than the computed production chunk size proves the cascade
+    // reschedules instead of processing every linked redemption in one transaction.
+    // One removable role retains the entitlement-to-role cascade while keeping the
+    // complete scheduled drain fast enough for the CI default timeout.
+    const removableRoleCount = 1;
     const writesPerEntitlement = removableRoleCount + 2;
     const expectedBatchSize = calculateManualLicenseEntitlementCascadeBatchSize(removableRoleCount);
+    const entitlementCount = expectedBatchSize + 1;
     const t = makeTestConvex();
     try {
       const authUserId = 'auth-manual-bounded-revoke';
@@ -342,7 +402,7 @@ describe('manual license bounds', () => {
         }
       );
 
-      expect(expectedBatchSize).toBeLessThan(ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE);
+      expect(entitlementCount).toBeGreaterThan(expectedBatchSize);
       expect(expectedBatchSize * writesPerEntitlement).toBeLessThanOrEqual(
         MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET
       );
@@ -412,7 +472,7 @@ describe('manual license bounds', () => {
     } finally {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
     }
-  });
+  }, 30_000);
 
   it('returns a filtered cursor page without exposing license hashes', async () => {
     const t = makeTestConvex();

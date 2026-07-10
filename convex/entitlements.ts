@@ -37,6 +37,7 @@ import {
   buildRoleSyncIdempotencyKey,
   enqueueRoleRemoval,
   enqueueRoleSync,
+  roleRemovalWriteCount,
 } from './lib/roleSyncEnqueue';
 
 // ============================================================================
@@ -1503,10 +1504,12 @@ export const MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET = 1_000;
 const ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT = 2;
 
 export function calculateManualLicenseEntitlementCascadeBatchSize(
-  roleRemovalJobCount: number
+  roleRemovalJobCount: number,
+  roleRemovalWritesPerJob = roleRemovalWriteCount()
 ): number {
   const writesPerEntitlement =
-    ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT + Math.max(0, roleRemovalJobCount);
+    ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT +
+    Math.max(0, roleRemovalJobCount) * Math.max(0, roleRemovalWritesPerJob);
   return Math.max(
     1,
     Math.min(
@@ -1564,9 +1567,11 @@ export async function revokeActiveEntitlementsBySourceReference(
   // per entitlement.
   const roleRules = await findRoleRemovalRules(ctx, params.authUserId, firstEntitlement.productId);
   const roleRemovalJobCount = countRoleRemovalJobs(roleRules);
-  const writesPerEntitlement = ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT + roleRemovalJobCount;
+  const roleRemovalWritesPerJob = roleRemovalWriteCount();
+  const writesPerEntitlement =
+    ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT + roleRemovalJobCount * roleRemovalWritesPerJob;
   const entitlementBatchSize =
-    calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount);
+    calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount, roleRemovalWritesPerJob);
   const entitlements = await ctx.db
     .query('entitlements')
     .withIndex('by_auth_user_source_provider_reference_status', (q) =>
