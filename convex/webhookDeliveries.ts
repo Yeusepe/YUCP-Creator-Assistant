@@ -17,8 +17,9 @@ const BACKOFF_MS = [30_000, 300_000, 1_800_000, 7_200_000, 28_800_000];
 // ---------------------------------------------------------------------------
 
 /**
- * List deliveries with status='pending' that are ready for processing now.
- * A delivery is ready if nextRetryAt is absent (immediate) or in the past.
+ * List pending deliveries and failed deliveries whose retry time has elapsed.
+ * Pending deliveries are ready if nextRetryAt is absent (immediate) or in the past.
+ * Failed deliveries are retryable only before their max-attempts cap.
  * Used by the delivery worker cron.
  */
 export const listPending = internalQuery({
@@ -30,22 +31,55 @@ export const listPending = internalQuery({
       .query('webhook_deliveries')
       .withIndex('by_status_retry', (q) => q.eq('status', 'pending'))
       .collect();
-    return pending.filter((d) => d.nextRetryAt === undefined || d.nextRetryAt <= now).slice(0, 20);
+    const dueRetries = await ctx.db
+      .query('webhook_deliveries')
+      .withIndex('by_status_retry', (q) => q.eq('status', 'failed').lte('nextRetryAt', now))
+      .collect();
+
+    return [...pending, ...dueRetries]
+      .filter(
+        (delivery) =>
+          (delivery.status === 'pending' &&
+            (delivery.nextRetryAt === undefined || delivery.nextRetryAt <= now)) ||
+          (delivery.status === 'failed' &&
+            delivery.nextRetryAt !== undefined &&
+            delivery.nextRetryAt <= now &&
+            delivery.attemptCount < delivery.maxAttempts)
+      )
+      .sort((left, right) => {
+        const readyAtDifference = (left.nextRetryAt ?? now) - (right.nextRetryAt ?? now);
+        if (readyAtDifference !== 0) return readyAtDifference;
+
+        if (left.status !== right.status) {
+          return left.status === 'failed' ? -1 : 1;
+        }
+
+        return left.createdAt - right.createdAt;
+      })
+      .slice(0, 20);
   },
 });
 
-/** Mark a delivery as in_progress at the start of a delivery attempt. */
+/**
+ * Atomically claim a pending or retryable delivery for one worker.
+ * Returns false when another worker has already claimed or completed it.
+ */
 export const markInProgress = internalMutation({
   args: {
     deliveryId: v.id('webhook_deliveries'),
   },
-  returns: v.null(),
+  returns: v.boolean(),
   handler: async (ctx, args) => {
+    const delivery = await ctx.db.get(args.deliveryId);
+    if (!delivery || (delivery.status !== 'pending' && delivery.status !== 'failed')) {
+      return false;
+    }
+
     await ctx.db.patch(args.deliveryId, {
       status: 'in_progress',
       updatedAt: Date.now(),
     });
-    return null;
+    return true;
   },
 });
 
