@@ -14,7 +14,9 @@ function hasDashboardBootstrapHash(url: URL): boolean {
 
 function resolvesToAuthRedirectOrigin(value: string): boolean {
   try {
-    return new URL(value.replaceAll('\\', '/'), AUTH_REDIRECT_ORIGIN).origin === AUTH_REDIRECT_ORIGIN;
+    return (
+      new URL(value.replaceAll('\\', '/'), AUTH_REDIRECT_ORIGIN).origin === AUTH_REDIRECT_ORIGIN
+    );
   } catch {
     return false;
   }
