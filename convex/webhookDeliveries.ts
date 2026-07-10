@@ -17,8 +17,9 @@ const BACKOFF_MS = [30_000, 300_000, 1_800_000, 7_200_000, 28_800_000];
 // ---------------------------------------------------------------------------
 
 /**
- * List deliveries with status='pending' that are ready for processing now.
- * A delivery is ready if nextRetryAt is absent (immediate) or in the past.
+ * List pending deliveries and failed deliveries whose retry time has elapsed.
+ * Pending deliveries are ready if nextRetryAt is absent (immediate) or in the past.
+ * Failed deliveries are retryable only before their max-attempts cap.
  * Used by the delivery worker cron.
  */
 export const listPending = internalQuery({
@@ -30,7 +31,22 @@ export const listPending = internalQuery({
       .query('webhook_deliveries')
       .withIndex('by_status_retry', (q) => q.eq('status', 'pending'))
       .collect();
-    return pending.filter((d) => d.nextRetryAt === undefined || d.nextRetryAt <= now).slice(0, 20);
+    const dueRetries = await ctx.db
+      .query('webhook_deliveries')
+      .withIndex('by_status_retry', (q) => q.eq('status', 'failed').lte('nextRetryAt', now))
+      .collect();
+
+    return [...pending, ...dueRetries]
+      .filter(
+        (delivery) =>
+          (delivery.status === 'pending' &&
+            (delivery.nextRetryAt === undefined || delivery.nextRetryAt <= now)) ||
+          (delivery.status === 'failed' &&
+            delivery.nextRetryAt !== undefined &&
+            delivery.nextRetryAt <= now &&
+            delivery.attemptCount < delivery.maxAttempts)
+      )
+      .slice(0, 20);
   },
 });
 
