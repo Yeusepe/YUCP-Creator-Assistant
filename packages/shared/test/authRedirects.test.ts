@@ -4,6 +4,15 @@ import { getSafeRelativeRedirectTarget, normalizeAuthRedirectTarget } from '../s
 describe('auth redirect targets', () => {
   it('rejects open redirects', () => {
     expect(getSafeRelativeRedirectTarget('//evil.example/steal')).toBeNull();
+    expect(getSafeRelativeRedirectTarget('/\\evil.example/steal')).toBeNull();
+    expect(getSafeRelativeRedirectTarget('/\\\\evil.example/steal')).toBeNull();
+    expect(getSafeRelativeRedirectTarget('\\/evil.example/steal')).toBeNull();
+    expect(getSafeRelativeRedirectTarget('\\\\evil.example/steal')).toBeNull();
+    expect(getSafeRelativeRedirectTarget('/%5Cevil.example/steal')).toBeNull();
+  });
+
+  it('keeps relative redirect targets', () => {
+    expect(getSafeRelativeRedirectTarget('/dashboard?x=1')).toBe('/dashboard?x=1');
   });
 
   it('keeps dashboard auth independent from guild selection', () => {
