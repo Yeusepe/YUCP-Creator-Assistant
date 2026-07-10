@@ -22,6 +22,7 @@ type AnyFunctionReference = FunctionReference<
   unknown,
   string | undefined
 >;
+type RawTestInvoker = (functionReference: unknown, args?: unknown) => Promise<unknown>;
 type OptionalActorArgs<Args> = Args extends { actor: ApiActorBinding }
   ? Omit<Args, 'actor'> & { actor?: ApiActorBinding }
   : Args;
@@ -140,38 +141,32 @@ export function makeTestConvex(
     return testInstance;
   }
 
-  const rawQuery = rawTestInstance.query.bind(rawTestInstance);
-  const rawMutation = rawTestInstance.mutation.bind(rawTestInstance);
-  const rawAction = rawTestInstance.action.bind(rawTestInstance);
+  // The actor wrapper receives dynamic references before the exported generic
+  // facade restores their caller-facing types. Convex 1.42 tightened bound
+  // method inference, so keep this dynamic bridge explicitly untyped.
+  const rawQuery = rawTestInstance.query.bind(rawTestInstance) as RawTestInvoker;
+  const rawMutation = rawTestInstance.mutation.bind(rawTestInstance) as RawTestInvoker;
+  const rawAction = rawTestInstance.action.bind(rawTestInstance) as RawTestInvoker;
 
   testInstance.query = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
       ? await getTestActorBinding()
       : undefined;
-    return await rawQuery(
-      functionReference as never,
-      actor ? (mergeActorArg(args, actor) as never) : (args as never)
-    );
+    return await rawQuery(functionReference, actor ? mergeActorArg(args, actor) : args);
   }) as ActorAwareConvexTestInstance['query'];
 
   testInstance.mutation = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
       ? await getTestActorBinding()
       : undefined;
-    return await rawMutation(
-      functionReference as never,
-      actor ? (mergeActorArg(args, actor) as never) : (args as never)
-    );
+    return await rawMutation(functionReference, actor ? mergeActorArg(args, actor) : args);
   }) as ActorAwareConvexTestInstance['mutation'];
 
   testInstance.action = (async (functionReference: unknown, args?: unknown) => {
     const actor = shouldAttachActor(functionReference, args)
       ? await getTestActorBinding()
       : undefined;
-    return await rawAction(
-      functionReference as never,
-      actor ? (mergeActorArg(args, actor) as never) : (args as never)
-    );
+    return await rawAction(functionReference, actor ? mergeActorArg(args, actor) : args);
   }) as ActorAwareConvexTestInstance['action'];
 
   return testInstance;

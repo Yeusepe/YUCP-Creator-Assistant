@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -12,6 +20,7 @@ import {
 const ROOT_DIR = resolve(import.meta.dir, '../..');
 const COMPOSE_FILE = join(import.meta.dir, 'docker-compose.yml');
 const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
+const BACKEND_FETCH_TIMEOUT_MS = 10_000;
 const FORCE_KILL_GRACE_MS = 5_000;
 
 const composeArgs = ['compose', '-p', PROJECT_NAME, '-f', COMPOSE_FILE];
@@ -56,12 +65,26 @@ async function run(args: string[], options: RunOptions = {}): Promise<string> {
   return stdout;
 }
 
+/**
+ * Runs a Convex CLI command against the self-hosted backend only. Callers must
+ * provide `selfHostedConvexEnv()` so cloud deployment selection cannot leak in.
+ */
+export async function runSelfHostedConvexCli(
+  args: string[],
+  env: Record<string, string>,
+  options: Omit<RunOptions, 'env'> = {}
+): Promise<string> {
+  return await run(['bun', 'x', 'convex', ...args], { ...options, env });
+}
+
 async function waitForBackend(): Promise<void> {
   const deadline = Date.now() + 180_000;
   let lastError: unknown;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${BACKEND_URL}/version`);
+      const response = await fetch(`${BACKEND_URL}/version`, {
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      });
       if (response.ok) {
         console.log(`Convex backend healthy: ${await response.text()}`);
         return;
@@ -190,6 +213,7 @@ export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
   // Bun loads .env.local before this script. A configured cloud deployment or
   // deploy key must never win over the self-hosted backend used by this harness.
   delete env.CONVEX_DEPLOYMENT;
+  delete env.CONVEX_DEPLOYMENT_PROD;
   delete env.CONVEX_DEPLOY_KEY;
   delete env.CONVEX_DEPLOY_KEY_PROD;
 
@@ -200,20 +224,49 @@ export function selfHostedConvexEnv(adminKey: string): Record<string, string> {
   };
 }
 
-export async function provisionRealBackendEnv(adminKey: string): Promise<void> {
-  await run(
-    ['bun', 'x', 'convex', 'env', 'set', '--from-file', writeRealBackendEnvFile(), '--force'],
-    {
-      env: selfHostedConvexEnv(adminKey),
+/**
+ * Convex CLI loads `.env.local` itself, after inheriting the process env. Move
+ * the file aside around every self-hosted CLI sequence so a local cloud
+ * `CONVEX_DEPLOYMENT` can never select Convex Cloud. The original file is
+ * restored even when a command fails.
+ */
+export async function withSelfHostedConvexEnvFileMovedAside<T>(
+  operation: () => Promise<T>,
+  envFilePath = join(ROOT_DIR, '.env.local')
+): Promise<T> {
+  if (!existsSync(envFilePath)) return await operation();
+
+  const backupPath = `${envFilePath}.convex-real-backup-${process.pid}-${Date.now()}`;
+  renameSync(envFilePath, backupPath);
+  try {
+    return await operation();
+  } finally {
+    if (existsSync(envFilePath)) {
+      const unexpectedPath = `${backupPath}.unexpected`;
+      renameSync(envFilePath, unexpectedPath);
+      renameSync(backupPath, envFilePath);
+      throw new Error(
+        `Self-hosted Convex command recreated ${envFilePath}; original restored and unexpected file moved to ${unexpectedPath}`
+      );
     }
+    renameSync(backupPath, envFilePath);
+  }
+}
+
+export async function provisionRealBackendEnv(adminKey: string): Promise<void> {
+  await withSelfHostedConvexEnvFileMovedAside(() =>
+    runSelfHostedConvexCli(
+      ['env', 'set', '--from-file', writeRealBackendEnvFile(), '--force'],
+      selfHostedConvexEnv(adminKey)
+    )
   );
 }
 
 export async function enableRealBackendTestHelpers(adminKey: string): Promise<void> {
   const env = selfHostedConvexEnv(adminKey);
-  await run(['bun', 'x', 'convex', 'env', 'set', 'IS_TEST', 'true'], { env });
-  await run(['bun', 'x', 'convex', 'env', 'set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true'], {
-    env,
+  await withSelfHostedConvexEnvFileMovedAside(async () => {
+    await runSelfHostedConvexCli(['env', 'set', 'IS_TEST', 'true'], env);
+    await runSelfHostedConvexCli(['env', 'set', 'YUCP_REAL_BACKEND_TEST_HELPERS', 'true'], env);
   });
 }
 
@@ -230,7 +283,11 @@ export async function up(): Promise<void> {
 
 async function backendIsHealthy(): Promise<boolean> {
   try {
-    return (await fetch(`${BACKEND_URL}/version`)).ok;
+    return (
+      await fetch(`${BACKEND_URL}/version`, {
+        signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+      })
+    ).ok;
   } catch {
     return false;
   }

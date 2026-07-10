@@ -9,3 +9,9 @@ The production Zeabur image pipeline must run the same preflight after it syncs
 the target deployment env and immediately before `bun x convex deploy`. This
 turns a missing deployed secret into a clear preflight error instead of a later
 `InvalidModules` deploy-analysis failure.
+
+The Docker backend and dashboard use their published `latest` tags and are
+pulled before every boot, so the local gate cannot silently lag behind the
+current self-hosted Convex runtime. The deploy command leaves Convex codegen and
+TypeScript checking enabled, so an internal component function used through
+`components.*` fails this local gate before merge.

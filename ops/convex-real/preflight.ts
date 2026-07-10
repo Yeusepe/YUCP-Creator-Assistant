@@ -5,6 +5,8 @@ import * as ts from 'typescript';
 const ROOT_DIR = resolve(import.meta.dir, '../..');
 const CONVEX_DIR = join(ROOT_DIR, 'convex');
 const REQUIRED_ENV_ERROR = /\b([A-Z][A-Z0-9_]+) is required\b/g;
+const CONVEX_ENV_GET_TIMEOUT_MS = 60_000;
+const FORCE_KILL_GRACE_MS = 5_000;
 
 type FunctionDeclaration = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression;
 
@@ -278,24 +280,43 @@ async function deploymentEnvIsSet(
   name: string,
   env: Record<string, string | undefined>
 ): Promise<boolean> {
+  let timedOut = false;
   const proc = Bun.spawn(['bun', 'x', 'convex', 'env', 'get', name], {
     cwd: ROOT_DIR,
     env,
     stdout: 'pipe',
     stderr: 'pipe',
   });
-  const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  await new Response(proc.stderr).text();
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    proc.kill('SIGTERM');
+    setTimeout(() => proc.kill('SIGKILL'), FORCE_KILL_GRACE_MS).unref();
+  }, CONVEX_ENV_GET_TIMEOUT_MS);
+  const [stdout, , exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timeoutId);
+  if (timedOut) {
+    throw new Error(`bun x convex env get ${name} timed out after ${CONVEX_ENV_GET_TIMEOUT_MS}ms`);
+  }
   return exitCode === 0 && stdout.trim().length > 0;
 }
 
+export type DeploymentEnvIsSet = (
+  name: string,
+  env: Record<string, string | undefined>
+) => Promise<boolean>;
+
 export async function assertRequiredConvexDeploymentEnv(
   env: Record<string, string | undefined> = process.env,
-  requiredEnv = requiredConvexDeploymentEnv()
+  requiredEnv = requiredConvexDeploymentEnv(),
+  isSet: DeploymentEnvIsSet = deploymentEnvIsSet
 ): Promise<void> {
   const missing = (
     await Promise.all(
-      requiredEnv.map(async (name) => ((await deploymentEnvIsSet(name, env)) ? null : name))
+      requiredEnv.map(async (name) => ((await isSet(name, env)) ? null : name))
     )
   ).filter((name): name is string => name !== null);
 

@@ -1,7 +1,7 @@
 import { createApi } from '@convex-dev/better-auth';
 import { anyApi, type FunctionReference } from 'convex/server';
 import { v } from 'convex/values';
-import { internalMutation } from './_generated/server';
+import { mutation } from './_generated/server';
 import { createSchemaAuthOptions } from './options';
 import schema from './schema';
 
@@ -59,7 +59,10 @@ function normalizeApiKeyCreateInput(input: unknown): unknown {
 
 export const rawCreate = adapterApi.create;
 
-export const create = internalMutation({
+// A component's public functions become internal references in its parent app,
+// so this is server-callable through components.betterAuth but not client-callable.
+// https://docs.convex.dev/components/authoring#the-component-api
+export const create = mutation({
   args: {
     input: v.any(),
     select: v.optional(v.array(v.string())),

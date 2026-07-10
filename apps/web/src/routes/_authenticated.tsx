@@ -1,4 +1,4 @@
-import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
+import { type AuthClient, ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import { createFileRoute, Outlet, redirect, useRouteContext } from '@tanstack/react-router';
 import { authClient } from '@/lib/auth-client';
 import { getAuthSession } from '@/lib/server/auth';
@@ -36,11 +36,16 @@ export const Route = createFileRoute('/_authenticated')({
 
 function AuthenticatedLayout() {
   const context = useRouteContext({ from: Route.id });
+  // Better Auth 1.6.23 correctly infers the concrete heterogeneous plugin
+  // tuple, while the Convex provider exposes an older homogeneous union for
+  // the same runtime client protocol. Keep the compatibility assertion at the
+  // provider boundary rather than weakening the exported auth client type.
+  const convexAuthClient = authClient as unknown as AuthClient;
 
   return (
     <ConvexBetterAuthProvider
       client={context.convexQueryClient.convexClient}
-      authClient={authClient}
+      authClient={convexAuthClient}
       initialToken={context.token ?? undefined}
     >
       <Outlet />

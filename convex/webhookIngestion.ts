@@ -143,6 +143,7 @@ export const getPendingWebhookEvents = query({
   returns: v.array(
     v.object({
       _id: v.id('webhook_events'),
+      _creationTime: v.number(),
       authUserId: v.optional(v.string()),
       provider: ProviderV,
       providerKey: v.optional(ProviderV),

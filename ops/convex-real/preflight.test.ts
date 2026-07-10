@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { requiredConvexDeploymentEnv } from './preflight';
+import { assertRequiredConvexDeploymentEnv, requiredConvexDeploymentEnv } from './preflight';
 
 describe('Convex deployment required-env preflight', () => {
   it('derives analyzer-time required env from the Convex module graph', () => {
@@ -7,5 +7,20 @@ describe('Convex deployment required-env preflight', () => {
 
     expect(requiredEnv).toContain('BETTER_AUTH_SECRET');
     expect(requiredEnv).not.toContain('DISCORD_BOT_TOKEN');
+  });
+
+  it('reports only missing deployment variables through the actual assertion', async () => {
+    const env = { CONVEX_SELF_HOSTED_URL: 'http://127.0.0.1:3210' };
+    const isSet = async (name: string) => name === 'BETTER_AUTH_SECRET';
+
+    await expect(
+      assertRequiredConvexDeploymentEnv(env, ['BETTER_AUTH_SECRET', 'CONVEX_SITE_URL'], isSet)
+    ).rejects.toThrow('Missing required Convex deployment env: CONVEX_SITE_URL');
+  });
+
+  it('passes when every required deployment variable is set', async () => {
+    await expect(
+      assertRequiredConvexDeploymentEnv({}, ['BETTER_AUTH_SECRET'], async () => true)
+    ).resolves.toBeUndefined();
   });
 });

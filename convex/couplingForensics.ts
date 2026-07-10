@@ -10,7 +10,6 @@ const TOKEN_HASH_RE = /^[0-9a-f]{64}$/;
 const COUPLING_TRACE_CANDIDATE_LIMIT = 512;
 const COUPLING_TRACE_MATCHES_PER_TOKEN_LIMIT = 64;
 const COUPLING_TRACE_MATCH_TOTAL_LIMIT = 512;
-const COUPLING_TRACE_ROW_PAGE_SIZE = 512;
 const COUPLING_TRACE_ROW_SCAN_LIMIT = COUPLING_TRACE_CANDIDATE_LIMIT * 4;
 
 function assertPackageId(packageId: string): void {
@@ -683,48 +682,33 @@ export const listCouplingTraceCandidatesForAuthUser = query({
 
     const seen = new Set<string>();
     const candidates: Array<{ assetPath: string; licenseSubject: string; tokenHash: string }> = [];
-    let truncated = false;
-    let cursor: string | null = null;
-    let isDone = false;
-    let rowsScanned = 0;
-    while (!isDone && !truncated && rowsScanned < COUPLING_TRACE_ROW_SCAN_LIMIT) {
-      const page = await ctx.db
-        .query('coupling_trace_records')
-        .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
-        .paginate({
-          cursor,
-          numItems: Math.min(
-            COUPLING_TRACE_ROW_PAGE_SIZE,
-            COUPLING_TRACE_ROW_SCAN_LIMIT - rowsScanned
-          ),
-        });
-      rowsScanned += page.page.length;
+    // Convex permits one paginated query per function. A bounded `take` keeps
+    // the same scan ceiling while allowing duplicate rows to be deduplicated
+    // before the candidate limit is evaluated.
+    const rows = await ctx.db
+      .query('coupling_trace_records')
+      .withIndex('by_package_token', (q) => q.eq('packageId', args.packageId))
+      .take(COUPLING_TRACE_ROW_SCAN_LIMIT + 1);
+    let truncated = rows.length > COUPLING_TRACE_ROW_SCAN_LIMIT;
 
-      for (const row of page.page) {
-        if (row.authUserId !== args.authUserId) {
-          continue;
-        }
-        const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
-        if (seen.has(key)) {
-          continue;
-        }
-        if (candidates.length >= COUPLING_TRACE_CANDIDATE_LIMIT) {
-          truncated = true;
-          break;
-        }
-        seen.add(key);
-        candidates.push({
-          assetPath: row.assetPath,
-          licenseSubject: row.licenseSubject,
-          tokenHash: row.tokenHash,
-        });
+    for (const row of rows.slice(0, COUPLING_TRACE_ROW_SCAN_LIMIT)) {
+      if (row.authUserId !== args.authUserId) {
+        continue;
       }
-
-      cursor = page.continueCursor;
-      isDone = page.isDone;
-      if (!isDone && rowsScanned >= COUPLING_TRACE_ROW_SCAN_LIMIT) {
+      const key = JSON.stringify([row.assetPath, row.licenseSubject, row.tokenHash]);
+      if (seen.has(key)) {
+        continue;
+      }
+      if (candidates.length >= COUPLING_TRACE_CANDIDATE_LIMIT) {
         truncated = true;
+        break;
       }
+      seen.add(key);
+      candidates.push({
+        assetPath: row.assetPath,
+        licenseSubject: row.licenseSubject,
+        tokenHash: row.tokenHash,
+      });
     }
 
     return {
