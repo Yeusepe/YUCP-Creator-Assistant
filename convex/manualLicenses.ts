@@ -320,21 +320,19 @@ export const revoke = mutation({
       throw new Error('License not found');
     }
 
-    // A prior revoke has already cascaded through the entitlement lifecycle.
-    // Do not mutate the audit notes or enqueue duplicate role removals.
-    if (license.status === 'revoked') {
-      const { licenseKeyHash: _, ...rest } = license;
-      return rest;
-    }
-
     const now = Date.now();
     const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
 
-    await ctx.db.patch(licenseId, {
-      status: 'revoked',
-      notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
-      updatedAt: now,
-    });
+    // Preserve the original license-level audit details on retries, but still
+    // run the idempotent entitlement cascade so legacy revoked licenses can
+    // clean up any active entitlement left behind before cascading existed.
+    if (license.status !== 'revoked') {
+      await ctx.db.patch(licenseId, {
+        status: 'revoked',
+        notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
+        updatedAt: now,
+      });
+    }
 
     await revokeActiveEntitlementsBySourceReference(ctx, {
       authUserId,
