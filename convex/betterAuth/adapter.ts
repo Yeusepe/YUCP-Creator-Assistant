@@ -1,7 +1,7 @@
 import { createApi } from '@convex-dev/better-auth';
 import { anyApi, type FunctionReference } from 'convex/server';
 import { v } from 'convex/values';
-import { mutation } from './_generated/server';
+import { internalMutation } from './_generated/server';
 import { createSchemaAuthOptions } from './options';
 import schema from './schema';
 
@@ -59,7 +59,7 @@ function normalizeApiKeyCreateInput(input: unknown): unknown {
 
 export const rawCreate = adapterApi.create;
 
-export const create = mutation({
+export const create = internalMutation({
   args: {
     input: v.any(),
     select: v.optional(v.array(v.string())),
