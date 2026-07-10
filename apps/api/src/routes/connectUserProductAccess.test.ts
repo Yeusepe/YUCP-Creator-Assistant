@@ -37,11 +37,29 @@ mock.module('../../../../convex/_generated/api', () => ({
   internal: {},
 }));
 
+function applyExplicitActor(args: unknown, actor: unknown): unknown {
+  if (!actor || !args || typeof args !== 'object' || Array.isArray(args)) {
+    return args;
+  }
+
+  if (!('apiSecret' in (args as Record<string, unknown>))) {
+    return args;
+  }
+
+  return {
+    ...(args as Record<string, unknown>),
+    actor,
+  };
+}
+
 mock.module('../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({
-    query: convexQueryMock,
-    mutation: convexMutationMock,
-    action: convexActionMock,
+  getConvexClientFromUrl: (_url: string, actor?: unknown) => ({
+    query: (reference: unknown, args?: unknown) =>
+      convexQueryMock(reference, applyExplicitActor(args, actor)),
+    mutation: (reference: unknown, args?: unknown) =>
+      convexMutationMock(reference, applyExplicitActor(args, actor)),
+    action: (reference: unknown, args?: unknown) =>
+      convexActionMock(reference, applyExplicitActor(args, actor)),
   }),
 }));
 
@@ -211,6 +229,7 @@ describe('connect user product access routes', () => {
       if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
+          actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
         });
         return { _id: 'subject_buyer_1' };
@@ -358,6 +377,7 @@ describe('connect user product access routes', () => {
       if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
+          actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
         });
         return { _id: 'subject_buyer_1' };

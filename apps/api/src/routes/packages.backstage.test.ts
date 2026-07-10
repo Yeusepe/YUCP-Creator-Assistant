@@ -955,6 +955,13 @@ describe('package Backstage publishing routes', () => {
     });
     expect(payload).not.toHaveProperty('repoToken');
     expect(payload).not.toHaveProperty('repoTokenHeader');
+    expect(lastActionArgs).toEqual(
+      expect.objectContaining({
+        actor: 'actor-binding',
+        authUserId: 'auth-user-1',
+        subjectId: 'subject_1',
+      })
+    );
   });
 
   it('falls back to generic repo labeling for synthetic creator names', async () => {

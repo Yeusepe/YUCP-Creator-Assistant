@@ -1065,6 +1065,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     try {
       const subject = await convex.query(api.backstageRepos.getSubjectByAuthUserForApi, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
       });
       if (!subject) {
@@ -1074,6 +1075,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       const now = Date.now();
       const issued = await convex.mutation(api.backstageRepos.issueRepoTokenForApi, {
         apiSecret: config.convexApiSecret,
+        actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
         subjectId: subject._id,
         label: 'Dashboard Backstage Repos',

@@ -537,6 +537,13 @@ describe('backstage repo routes', () => {
     expect(mutationCalls).toContainEqual({
       ref: 'backstageRepos.issueRepoTokenForApi',
       args: expect.objectContaining({
+        actor: expect.objectContaining({
+          payload: JSON.stringify({
+            authUserId: 'buyer-user-1',
+            source: 'session',
+          }),
+          signature: 'test-signature',
+        }),
         authUserId: 'creator-user-1',
         subjectAuthUserId: 'buyer-user-1',
         subjectId: 'subject_buyer_1',
@@ -745,6 +752,41 @@ describe('backstage repo routes', () => {
     expect(response?.status).toBe(302);
     expect(response?.headers.get('location')).toBe('https://downloads.example/package.zip');
     expect(response?.headers.get('cache-control')).toBe('no-store');
+    const repoAccessCall = convexQueryCalls.find(
+      (call) => call.reference === 'backstageRepos.getRepoAccessByTokenForApi'
+    );
+    const packageDownloadCall = convexQueryCalls.find(
+      (call) => call.reference === 'backstageRepos.resolvePackageDownloadForApi'
+    );
+    expect(packageDownloadCall?.args).toEqual(
+      expect.objectContaining({
+        tokenHash: (repoAccessCall?.args as { tokenHash?: string } | undefined)?.tokenHash,
+      })
+    );
+  });
+
+  it('maps repo-token download authorization races to package not found responses', async () => {
+    const defaultQueryImpl = queryImpl;
+    queryImpl = async (ref: unknown, args?: unknown) => {
+      if (ref === 'backstageRepos.resolvePackageDownloadForApi') {
+        throw new Error('Unauthorized: Backstage repo token does not authorize this subject.');
+      }
+      return defaultQueryImpl(ref, args);
+    };
+
+    const response = await routes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(404);
+    await expect(response?.json()).resolves.toEqual({ error: 'Package not found' });
   });
 
   it('redirects entitled package downloads through CDNgine when a deliverable reference exists', async () => {
@@ -2102,6 +2144,18 @@ describe('backstage repo routes', () => {
       }),
       signature: 'test-signature',
     });
+    expect(rawPackageResolutionCall?.args).toEqual(
+      expect.objectContaining({
+        actor: expect.objectContaining({
+          payload: JSON.stringify({
+            service: 'backstage-access',
+            scopes: ['creator:delegate'],
+            authUserId: 'creator-user-1',
+          }),
+          signature: 'test-signature',
+        }),
+      })
+    );
   });
 
   it('does not fall back to package URLs when CDNgine source authorization fails', async () => {
