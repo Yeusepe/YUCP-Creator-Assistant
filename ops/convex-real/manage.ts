@@ -238,9 +238,8 @@ export async function withSelfHostedConvexEnvFileMovedAside<T>(
 
   const backupPath = `${envFilePath}.convex-real-backup-${process.pid}-${Date.now()}`;
   renameSync(envFilePath, backupPath);
-  try {
-    return await operation();
-  } finally {
+
+  const restoreOriginalEnvFile = (): void => {
     if (existsSync(envFilePath)) {
       const unexpectedPath = `${backupPath}.unexpected`;
       renameSync(envFilePath, unexpectedPath);
@@ -250,7 +249,37 @@ export async function withSelfHostedConvexEnvFileMovedAside<T>(
       );
     }
     renameSync(backupPath, envFilePath);
+  };
+
+  let operationFailed = false;
+  let operationError: unknown;
+  let result: T | undefined;
+  try {
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
   }
+
+  let restorationFailed = false;
+  let restorationError: unknown;
+  try {
+    restoreOriginalEnvFile();
+  } catch (error) {
+    restorationFailed = true;
+    restorationError = error;
+  }
+
+  if (operationFailed) {
+    if (restorationFailed) {
+      const message =
+        operationError instanceof Error ? operationError.message : String(operationError);
+      throw new AggregateError([operationError, restorationError], message);
+    }
+    throw operationError;
+  }
+  if (restorationFailed) throw restorationError;
+  return result as T;
 }
 
 export async function provisionRealBackendEnv(adminKey: string): Promise<void> {

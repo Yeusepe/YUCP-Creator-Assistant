@@ -183,9 +183,7 @@ function requiredEnvAlternativesInError(node: ts.Node): string[][] {
   ) {
     return [];
   }
-  return [...argument.text.matchAll(REQUIRED_ENV_ERROR)].map((match) =>
-    match[1].split(/\s+or\s+/)
-  );
+  return [...argument.text.matchAll(REQUIRED_ENV_ERROR)].map((match) => match[1].split(/\s+or\s+/));
 }
 
 export type DeploymentEnvRequirement = readonly string[];
@@ -284,11 +282,37 @@ export function requiredConvexDeploymentEnvRequirements(): DeploymentEnvRequirem
     }
   }
 
-  return [...required.values()].sort((left, right) => left.join('\u0000').localeCompare(right.join('\u0000')));
+  return [...required.values()].sort((left, right) =>
+    left.join('\u0000').localeCompare(right.join('\u0000'))
+  );
 }
 
 export function requiredConvexDeploymentEnv(): string[] {
   return [...new Set(requiredConvexDeploymentEnvRequirements().flat())].sort();
+}
+
+function isExplicitlyUnsetDeploymentEnvDiagnostic(name: string, diagnostic: string): boolean {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const unsetState = '(?:is\\s+)?(?:not set|unset|not found|missing|does not exist)';
+  return new RegExp(
+    `(?:${escapedName}[^\\n]*(?:${unsetState})|${unsetState}[^\\n]*${escapedName})`,
+    'i'
+  ).test(diagnostic);
+}
+
+export function deploymentEnvGetIsSet(
+  name: string,
+  stdout: string,
+  stderr: string,
+  exitCode: number
+): boolean {
+  if (exitCode === 0) return stdout.trim().length > 0;
+
+  const diagnostic = stderr.trim();
+  if (isExplicitlyUnsetDeploymentEnvDiagnostic(name, diagnostic)) return false;
+  throw new Error(
+    `bun x convex env get ${name} failed with exit code ${exitCode}: ${diagnostic || 'no stderr output'}`
+  );
 }
 
 async function deploymentEnvIsSet(
@@ -307,7 +331,7 @@ async function deploymentEnvIsSet(
     proc.kill('SIGTERM');
     setTimeout(() => proc.kill('SIGKILL'), FORCE_KILL_GRACE_MS).unref();
   }, CONVEX_ENV_GET_TIMEOUT_MS);
-  const [stdout, , exitCode] = await Promise.all([
+  const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
     proc.exited,
@@ -316,7 +340,7 @@ async function deploymentEnvIsSet(
   if (timedOut) {
     throw new Error(`bun x convex env get ${name} timed out after ${CONVEX_ENV_GET_TIMEOUT_MS}ms`);
   }
-  return exitCode === 0 && stdout.trim().length > 0;
+  return deploymentEnvGetIsSet(name, stdout, stderr, exitCode);
 }
 
 export type DeploymentEnvIsSet = (

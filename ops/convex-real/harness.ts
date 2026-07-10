@@ -16,7 +16,11 @@ import {
 } from 'convex/server';
 import type { Doc, Id, TableNames } from '../../convex/_generated/dataModel';
 import { API_SECRET, BACKEND_URL, INTERNAL_SERVICE_AUTH_SECRET, PROJECT_NAME } from './config';
-import { selfHostedConvexEnv, withSelfHostedConvexEnvFileMovedAside } from './manage';
+import {
+  runSelfHostedConvexCli,
+  selfHostedConvexEnv,
+  withSelfHostedConvexEnvFileMovedAside,
+} from './manage';
 
 type AnyFunctionReference = FunctionReference<
   'query' | 'mutation' | 'action',
@@ -168,7 +172,7 @@ export async function getRealBackendAdminKey(): Promise<string> {
 async function runConvexEnv(args: string[]): Promise<void> {
   const env = selfHostedConvexEnv(await getRealBackendAdminKey());
   await withSelfHostedConvexEnvFileMovedAside(() =>
-    run(['bun', 'x', 'convex', 'env', ...args], { env, timeoutMs: 60_000 })
+    runSelfHostedConvexCli(['env', ...args], env, { timeoutMs: 60_000 })
   );
 }
 

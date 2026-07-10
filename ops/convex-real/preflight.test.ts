@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
   assertRequiredConvexDeploymentEnv,
+  deploymentEnvGetIsSet,
   requiredConvexDeploymentEnv,
   requiredConvexDeploymentEnvRequirements,
 } from './preflight';
@@ -37,5 +38,27 @@ describe('Convex deployment required-env preflight', () => {
     await expect(
       assertRequiredConvexDeploymentEnv({}, ['BETTER_AUTH_SECRET'], async () => true)
     ).resolves.toBeUndefined();
+  });
+
+  it('reports a failed deployment-env lookup instead of treating it as unset', () => {
+    expect(() =>
+      deploymentEnvGetIsSet(
+        'BETTER_AUTH_SECRET',
+        '',
+        'Authentication failed for self-hosted Convex',
+        1
+      )
+    ).toThrow('Authentication failed for self-hosted Convex');
+  });
+
+  it('treats an explicit unset diagnostic as an unset deployment variable', () => {
+    expect(
+      deploymentEnvGetIsSet(
+        'BETTER_AUTH_SECRET',
+        '',
+        'Environment variable BETTER_AUTH_SECRET is not set',
+        1
+      )
+    ).toBe(false);
   });
 });

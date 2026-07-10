@@ -5,13 +5,29 @@ import { resolve } from 'node:path';
 const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/ci.yml'), 'utf8');
 const deployGate = readFileSync(resolve(import.meta.dir, './deploy-gate.ts'), 'utf8');
 const compose = readFileSync(resolve(import.meta.dir, './docker-compose.yml'), 'utf8');
+const freshnessWorkflow = readFileSync(
+  resolve(import.meta.dir, '../../.github/workflows/convex-image-freshness.yml'),
+  'utf8'
+);
 
-const LATEST_SELF_HOSTED_TAG = 'latest';
+const CONVEX_BACKEND_DIGEST =
+  'sha256:104b8bc70e29b31fa4a57551596090bfc9eedc3d1f27fd4b8cd8d0e782b9b070';
+const CONVEX_DASHBOARD_DIGEST =
+  'sha256:60b04b339d6cd6623057b03e5275329a20011051907ec5e689a38a401cfdc409';
 
 describe('self-hosted Convex CI workflow', () => {
-  it('uses the newest published backend and dashboard images', () => {
-    expect(compose).toContain(`convex-backend:${LATEST_SELF_HOSTED_TAG}`);
-    expect(compose).toContain(`convex-dashboard:${LATEST_SELF_HOSTED_TAG}`);
+  it('pins backend and dashboard to the reviewed immutable images', () => {
+    expect(compose).toContain(`convex-backend@${CONVEX_BACKEND_DIGEST}`);
+    expect(compose).toContain(`convex-dashboard@${CONVEX_DASHBOARD_DIGEST}`);
+    expect(compose).not.toContain('convex-backend:latest');
+    expect(compose).not.toContain('convex-dashboard:latest');
+  });
+
+  it('checks pinned-image freshness only outside pull-request CI', () => {
+    expect(freshnessWorkflow).toContain('schedule:');
+    expect(freshnessWorkflow).toContain('workflow_dispatch:');
+    expect(freshnessWorkflow).not.toContain('pull_request:');
+    expect(freshnessWorkflow).toContain('bun run test:convex:images:freshness');
   });
 
   it('runs deploy with Convex codegen and typecheck enabled', () => {
