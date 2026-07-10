@@ -111,6 +111,14 @@ export async function getVerificationStatus(
     return errorResponse('forbidden', 'Subject not found', 403);
   }
 
+  if (!subjectResult.isActive) {
+    return jsonResponse({
+      verified: false,
+      subjectId: subjectResult.subjectId,
+      products: [],
+    });
+  }
+
   const entitlements = await convex.query(api.entitlements.getEntitlementsBySubject, {
     apiSecret: config.convexApiSecret,
     authUserId,
@@ -127,7 +135,7 @@ export async function getVerificationStatus(
   );
 
   return jsonResponse({
-    verified: subjectResult.isActive && products.length > 0,
+    verified: products.length > 0,
     subjectId: subjectResult.subjectId,
     products,
   });

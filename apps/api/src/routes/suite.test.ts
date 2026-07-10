@@ -75,7 +75,7 @@ describe('Creator Suite verification status', () => {
     });
   });
 
-  it('returns verified:false when a suspended OAuth-JWT subject has an active entitlement', async () => {
+  it('returns no products when a suspended OAuth-JWT subject has an active entitlement', async () => {
     queryImpl = async (functionReference) => {
       if (functionReference === 'subjects.getSubjectByAuthId') {
         return { found: true, subject: { _id: 'subject-1', status: 'suspended' } };
@@ -97,7 +97,8 @@ describe('Creator Suite verification status', () => {
     expect(await response.json()).toEqual({
       verified: false,
       subjectId: 'subject-1',
-      products: [{ productId: 'product-1', status: 'active', grantedAt: 1 }],
+      products: [],
     });
+    expect(queryMock).toHaveBeenCalledTimes(1);
   });
 });
