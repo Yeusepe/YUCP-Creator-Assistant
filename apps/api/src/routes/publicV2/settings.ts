@@ -11,7 +11,6 @@ export async function handleSettingsRoutes(
   config: PublicV2Config
 ): Promise<Response> {
   const reqId = generateRequestId();
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath !== '/settings') {
     return errorResponse('not_found', 'Route not found', 404, reqId);
@@ -20,6 +19,7 @@ export async function handleSettingsRoutes(
   if (request.method === 'GET') {
     const auth = await resolveAuth(request, config, ['settings:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     try {
       const result = await convex.query(api.creatorProfiles.getByAuthUser, {
@@ -39,6 +39,7 @@ export async function handleSettingsRoutes(
   if (request.method === 'PATCH') {
     const auth = await resolveAuth(request, config, ['settings:write'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     let body: Record<string, unknown>;
     try {

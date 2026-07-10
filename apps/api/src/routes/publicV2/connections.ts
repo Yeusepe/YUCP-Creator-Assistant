@@ -19,7 +19,6 @@ export async function handleConnectionsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/connections') {
     if (request.method !== 'GET') {
@@ -27,6 +26,7 @@ export async function handleConnectionsRoutes(
     }
     const auth = await resolveAuth(request, config, ['connections:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const provider = url.searchParams.get('provider') ?? undefined;
@@ -56,6 +56,7 @@ export async function handleConnectionsRoutes(
     }
     const auth = await resolveAuth(request, config, ['connections:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const connectionId = idMatch[1];
     try {

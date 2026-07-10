@@ -170,7 +170,6 @@ export async function handleWebhooksRoutes(
   const resolveAuth = services.resolveAuth ?? _resolveAuthBase;
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // GET /webhook-event-types
   if (subPath === '/webhook-event-types') {
@@ -204,6 +203,7 @@ export async function handleWebhooksRoutes(
     if (request.method === 'GET') {
       const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       const enabledParam = url.searchParams.get('enabled');
       const enabled = enabledParam === 'true' ? true : enabledParam === 'false' ? false : undefined;
@@ -226,6 +226,7 @@ export async function handleWebhooksRoutes(
     if (request.method === 'POST') {
       const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       let body: Record<string, unknown>;
       try {
@@ -314,6 +315,7 @@ export async function handleWebhooksRoutes(
     }
     const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const subscriptionId = rotateMatch[1];
     const newSigningSecret = generateSigningSecret();
@@ -357,6 +359,7 @@ export async function handleWebhooksRoutes(
     }
     const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const subscriptionId = deliveriesMatch[1];
     const { limit, cursor } = parsePagination(url);
@@ -387,6 +390,7 @@ export async function handleWebhooksRoutes(
     }
     const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     try {
       await convex.mutation(api.creatorEvents.emitPingEvent, {
@@ -408,6 +412,7 @@ export async function handleWebhooksRoutes(
     if (request.method === 'GET') {
       const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       try {
         const result = await convex.query(api.webhookSubscriptions.getById, {
@@ -433,6 +438,7 @@ export async function handleWebhooksRoutes(
     if (request.method === 'PATCH') {
       const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       let body: Record<string, unknown>;
       try {
@@ -468,6 +474,7 @@ export async function handleWebhooksRoutes(
     if (request.method === 'DELETE') {
       const auth = await resolveAuth(request, config, ['webhooks:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       try {
         await convex.mutation(api.webhookSubscriptions.deleteSubscription, {

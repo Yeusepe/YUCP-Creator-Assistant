@@ -17,6 +17,8 @@ const apiMock = {
   },
   creatorEvents: {
     emitEvent: 'creatorEvents.emitEvent',
+    listByAuthUser: 'creatorEvents.listByAuthUser',
+    getById: 'creatorEvents.getById',
   },
 } as const;
 
@@ -26,6 +28,7 @@ let mutationImpl: (fn: unknown, args: unknown) => Promise<unknown>;
 const queryMock = mock((fn: unknown, args: unknown) => queryImpl(fn, args));
 const mutationMock = mock((fn: unknown, args: unknown) => mutationImpl(fn, args));
 const loggerErrorMock = mock(() => undefined);
+const convexFactoryCalls: unknown[][] = [];
 
 mock.module('../../../../../convex/_generated/api', () => ({
   api: apiMock,
@@ -34,7 +37,10 @@ mock.module('../../../../../convex/_generated/api', () => ({
 }));
 
 mock.module('../../lib/convex', () => ({
-  getConvexClientFromUrl: () => ({ query: queryMock, mutation: mutationMock }),
+  getConvexClientFromUrl: (...args: unknown[]) => {
+    convexFactoryCalls.push(args);
+    return { query: queryMock, mutation: mutationMock };
+  },
 }));
 
 mock.module('../../lib/logger', () => ({
@@ -47,7 +53,16 @@ mock.module('../../lib/encrypt', () => ({
   encrypt: async (plaintext: string) => `encrypted_${plaintext}`,
 }));
 
+mock.module('./auth', () => ({
+  resolveAuth: async () => ({
+    authUserId: 'user_abc',
+    actorBinding: { payload: 'test-payload', signature: 'test-signature' },
+    scopes: ['events:read'],
+  }),
+}));
+
 const { handleWebhooksRoutes } = await import('./webhooks');
+const { handleEventsRoutes } = await import('./events');
 
 const mockResolveAuth = async (): Promise<AuthResult> => ({
   authUserId: 'user_abc',
@@ -105,6 +120,7 @@ beforeEach(() => {
   queryMock.mockClear();
   mutationMock.mockClear();
   loggerErrorMock.mockClear();
+  convexFactoryCalls.length = 0;
 
   queryImpl = async (fn) => {
     if (fn === apiMock.webhookSubscriptions.list) return [];
@@ -365,6 +381,75 @@ describe('handleWebhooksRoutes', () => {
           (call) => call[0] === apiMock.webhookSubscriptions.deleteSubscription
         )
       ).toBe(true);
+    });
+  });
+
+  describe('GET /webhooks/:id/deliveries', () => {
+    it('returns keyed deliveries with the Convex nextCursor', async () => {
+      queryImpl = async (fn) => {
+        if (fn === apiMock.webhookDeliveries.listBySubscription) {
+          return {
+            deliveries: [{ _id: 'delivery_001', status: 'delivered' }],
+            hasMore: true,
+            nextCursor: 'delivery_001',
+          };
+        }
+        throw new Error(`Unhandled query: ${String(fn)}`);
+      };
+
+      const res = await routes(
+        makeRequest('GET', '/webhooks/wh_001/deliveries?limit=1'),
+        '/webhooks/wh_001/deliveries'
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        data: [{ _id: 'delivery_001', status: 'delivered' }],
+        hasMore: true,
+        nextCursor: 'delivery_001',
+      });
+      expect(convexFactoryCalls).toEqual([
+        [
+          config.convexUrl,
+          {
+            payload: 'test-payload',
+            signature: 'test-signature',
+          },
+        ],
+      ]);
+    });
+  });
+
+  describe('GET /events', () => {
+    it('uses supported list args and preserves keyed event pagination', async () => {
+      queryImpl = async (_fn, args) => {
+        if ('resourceType' in (args as Record<string, unknown>)) {
+          throw new Error('ArgumentValidationError: Object contains extra field `resourceType`');
+        }
+        return { events: [{ _id: 'event_123' }], hasMore: true, nextCursor: 'event_123' };
+      };
+
+      const response = await handleEventsRoutes(
+        makeRequest('GET', '/events?type=purchase&resource_id=product_123'),
+        '/events',
+        config
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        data: [{ _id: 'event_123' }],
+        hasMore: true,
+        nextCursor: 'event_123',
+      });
+      expect(convexFactoryCalls).toEqual([
+        [
+          config.convexUrl,
+          {
+            payload: 'test-payload',
+            signature: 'test-signature',
+          },
+        ],
+      ]);
     });
   });
 

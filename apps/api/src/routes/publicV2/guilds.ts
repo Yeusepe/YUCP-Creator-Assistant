@@ -19,7 +19,6 @@ export async function handleGuildsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // GET /guilds/:id/role-rules
   const rrMatch = subPath.match(/^\/guilds\/([^/]+)\/role-rules$/);
@@ -29,6 +28,7 @@ export async function handleGuildsRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     try {
       const result = await convex.query(api.role_rules.listByAuthUser, {
@@ -52,6 +52,7 @@ export async function handleGuildsRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -77,6 +78,7 @@ export async function handleGuildsRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const status = url.searchParams.get('status') ?? undefined;
 
@@ -102,6 +104,7 @@ export async function handleGuildsRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const guildId = idMatch[1];
     try {

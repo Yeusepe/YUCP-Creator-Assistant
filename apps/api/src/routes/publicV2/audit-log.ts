@@ -18,7 +18,6 @@ export async function handleAuditLogRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath !== '/audit-log') {
     return errorResponse('not_found', 'Route not found', 404, reqId);
@@ -30,6 +29,7 @@ export async function handleAuditLogRoutes(
 
   const auth = await resolveAuth(request, config, ['audit-log:read'], reqId);
   if (auth instanceof Response) return auth;
+  const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
   const { limit, cursor } = parsePagination(url);
   const type = url.searchParams.get('type') ?? undefined;

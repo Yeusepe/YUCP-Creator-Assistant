@@ -82,14 +82,20 @@ export function extractListData(result: unknown): {
       ? r.items
       : Array.isArray(r.data)
         ? r.data
-        : [];
+        : Array.isArray(r.events)
+          ? r.events
+          : Array.isArray(r.deliveries)
+            ? r.deliveries
+            : [];
   const hasMore =
     typeof r.isDone === 'boolean' ? !r.isDone : typeof r.hasMore === 'boolean' ? r.hasMore : false;
   const nextCursor =
-    typeof r.continueCursor === 'string'
-      ? r.continueCursor
-      : typeof r.cursor === 'string'
-        ? r.cursor
-        : null;
+    typeof r.nextCursor === 'string'
+      ? r.nextCursor
+      : typeof r.continueCursor === 'string'
+        ? r.continueCursor
+        : typeof r.cursor === 'string'
+          ? r.cursor
+          : null;
   return { data, hasMore, nextCursor };
 }

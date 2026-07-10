@@ -42,7 +42,6 @@ export async function handleManualLicensesRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // POST /manual-licenses/bulk, must check before /:id
   if (subPath === '/manual-licenses/bulk') {
@@ -51,6 +50,7 @@ export async function handleManualLicensesRoutes(
     }
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     let body: Record<string, unknown>;
     try {
@@ -118,6 +118,7 @@ export async function handleManualLicensesRoutes(
     }
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     let body: Record<string, unknown>;
     try {
@@ -149,6 +150,7 @@ export async function handleManualLicensesRoutes(
   if (subPath === '/manual-licenses/stats' && request.method === 'GET') {
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     try {
       const result = await convex.query(api.manualLicenses.getStats, {
@@ -170,6 +172,7 @@ export async function handleManualLicensesRoutes(
     }
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const licenseId = revokeMatch[1];
     let body: Record<string, unknown> = {};
@@ -198,6 +201,7 @@ export async function handleManualLicensesRoutes(
     if (request.method === 'GET') {
       const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       const { limit, cursor } = parsePagination(url);
       const productId = url.searchParams.get('product_id') ?? undefined;
@@ -223,6 +227,7 @@ export async function handleManualLicensesRoutes(
     if (request.method === 'POST') {
       const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
       if (auth instanceof Response) return auth;
+      const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
       let body: Record<string, unknown>;
       try {
@@ -268,6 +273,7 @@ export async function handleManualLicensesRoutes(
     }
     const auth = await resolveAuth(request, config, ['licenses:manage'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const licenseId = idMatch[1];
     try {
