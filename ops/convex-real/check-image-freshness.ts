@@ -3,17 +3,25 @@ import { pinnedImageReference, SELF_HOSTED_CONVEX_IMAGES } from './image-pins';
 const INSPECT_TIMEOUT_MS = 60_000;
 const FORCE_KILL_GRACE_MS = 5_000;
 
-type ImageToolsInspectOutput = {
-  manifest?: {
-    digest?: unknown;
-  };
-};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 export function latestImageDigest(inspectOutput: string): string {
-  const parsed = JSON.parse(inspectOutput) as ImageToolsInspectOutput;
-  const digest = parsed.manifest?.digest;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(inspectOutput);
+  } catch {
+    throw new Error('Docker image inspection output was not valid JSON');
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.manifest) || !('digest' in parsed.manifest)) {
+    throw new Error(
+      'Docker image inspection output is missing manifest.digest; inspect output may be a manifest list or use a different field casing'
+    );
+  }
+  const digest = parsed.manifest.digest;
   if (typeof digest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
-    throw new Error('Docker image inspection did not return an immutable manifest digest');
+    throw new Error('Docker image inspection output manifest.digest was not an immutable SHA-256 digest');
   }
   return digest;
 }
