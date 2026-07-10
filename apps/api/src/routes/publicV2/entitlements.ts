@@ -19,7 +19,6 @@ export async function handleEntitlementsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // GET /entitlements
   if (subPath === '/entitlements') {
@@ -28,6 +27,7 @@ export async function handleEntitlementsRoutes(
     }
     const auth = await resolveAuth(request, config, ['entitlements:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const subjectId = url.searchParams.get('subject_id') ?? undefined;
@@ -62,6 +62,7 @@ export async function handleEntitlementsRoutes(
     }
     const auth = await resolveAuth(request, config, ['entitlements:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const entitlementId = idMatch[1];
     try {

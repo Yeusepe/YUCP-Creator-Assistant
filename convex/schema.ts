@@ -2144,6 +2144,7 @@ const manual_licenses = defineTable({
 })
   .index('by_auth_user', ['authUserId'])
   .index('by_auth_user_product', ['authUserId', 'productId'])
+  .index('by_auth_user_product_status', ['authUserId', 'productId', 'status'])
   .index('by_license_key_hash', ['licenseKeyHash'])
   .index('by_auth_user_status', ['authUserId', 'status'])
   .index('by_expires', ['expiresAt']);

@@ -18,7 +18,6 @@ export async function handleRoleRulesRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   if (subPath === '/role-rules') {
     if (request.method !== 'GET') {
@@ -26,6 +25,7 @@ export async function handleRoleRulesRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const guildId = url.searchParams.get('guild_id') ?? undefined;
     const productId = url.searchParams.get('product_id') ?? undefined;
@@ -55,6 +55,7 @@ export async function handleRoleRulesRoutes(
     }
     const auth = await resolveAuth(request, config, ['guilds:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const ruleId = idMatch[1];
     try {

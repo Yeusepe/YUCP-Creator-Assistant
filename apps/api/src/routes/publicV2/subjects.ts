@@ -19,7 +19,6 @@ export async function handleSubjectsRoutes(
 ): Promise<Response> {
   const reqId = generateRequestId();
   const url = new URL(request.url);
-  const convex = getConvexClientFromUrl(config.convexUrl);
 
   // GET /subjects
   if (subPath === '/subjects') {
@@ -28,6 +27,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     const status = url.searchParams.get('status') ?? undefined;
@@ -58,6 +58,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read', 'entitlements:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -84,6 +85,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read', 'transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -112,6 +114,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read', 'transactions:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -140,6 +143,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const { limit, cursor } = parsePagination(url);
     try {
@@ -166,6 +170,7 @@ export async function handleSubjectsRoutes(
     }
     const auth = await resolveAuth(request, config, ['subjects:read'], reqId);
     if (auth instanceof Response) return auth;
+    const convex = getConvexClientFromUrl(config.convexUrl, auth.actorBinding);
 
     const subjectId = idMatch[1];
     try {
@@ -174,10 +179,10 @@ export async function handleSubjectsRoutes(
         authUserId: auth.authUserId,
         selector: { subjectId },
       });
-      if (!result) {
+      if (!result.found) {
         return errorResponse('not_found', `Subject with ID ${subjectId} was not found`, 404, reqId);
       }
-      return jsonResponse(result, 200, reqId);
+      return jsonResponse(result.subject, 200, reqId);
     } catch (err) {
       logger.error('subjects.resolveSubjectForPublicApi failed', { error: String(err) });
       return errorResponse('internal_error', 'An internal error occurred', 500, reqId);
