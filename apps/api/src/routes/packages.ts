@@ -282,6 +282,14 @@ function base64UrlDecode(input: string): string {
   return Buffer.from(input, 'base64url').toString('utf8');
 }
 
+export function trimTrailingForwardSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 0x2f) {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
 function signBackstageUploadToken(payload: BackstageUploadTokenPayload, secret: string): string {
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
@@ -1711,7 +1719,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         },
         config.convexApiSecret
       );
-      const completeUrl = `${config.apiBaseUrl.replace(/\/+$/, '')}/api/packages/${encodeURIComponent(
+      const completeUrl = `${trimTrailingForwardSlashes(config.apiBaseUrl)}/api/packages/${encodeURIComponent(
         packageId
       )}/backstage/upload-session/complete`;
 

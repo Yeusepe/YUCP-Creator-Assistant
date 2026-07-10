@@ -217,7 +217,7 @@ mock.module('../internalRpc/router', () => ({
 
 const originalBackstageLiveSyncTimeoutMs = process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
 process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = '25';
-const { createPackageRoutes } = await import('./packages');
+const { createPackageRoutes, trimTrailingForwardSlashes } = await import('./packages');
 if (originalBackstageLiveSyncTimeoutMs === undefined) {
   delete process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
 } else {
@@ -491,6 +491,18 @@ describe('package Backstage publishing routes', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it('trims trailing URL slashes in linear time', () => {
+    expect(trimTrailingForwardSlashes('https://api.test///')).toBe('https://api.test');
+    expect(trimTrailingForwardSlashes('https://api.test')).toBe('https://api.test');
+    expect(trimTrailingForwardSlashes('/')).toBe('');
+
+    const adversarialInput = 'a'.repeat(100_000);
+    const startedAt = performance.now();
+
+    expect(trimTrailingForwardSlashes(adversarialInput)).toBe(adversarialInput);
+    expect(performance.now() - startedAt).toBeLessThan(100);
   });
 
   it('does not expose API-mediated Backstage package byte upload routes', () => {
