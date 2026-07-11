@@ -174,6 +174,16 @@ describe('API server, production app harness', () => {
     await expect(fallback.text()).resolves.toContain('Page not found');
   });
 
+  it('serves the externally embedded Sign in as Creator asset kit', async () => {
+    for (const path of [
+      '/assets/buttons/SignInAsCreator.html',
+      '/assets/buttons/maskedgradient.jpg',
+    ]) {
+      const response = await app.fetch(path);
+      expect(response.status, path).toBe(200);
+    }
+  });
+
   it('rejects overlapping buildApp instances while handler state is module-scoped', () => {
     let overlappingApp: BuiltApiApp | undefined;
 
