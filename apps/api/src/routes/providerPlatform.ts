@@ -16,7 +16,7 @@ import {
   PayloadTooLargeError,
   readWebhookTextBody,
 } from '../lib/webhookBody';
-import { listDashboardProviderDisplays } from '../providers/display';
+import { providerPlatformService } from '../providers/display';
 import { PURPOSES as LEMONSQUEEZY } from '../providers/lemonsqueezy/index';
 
 const PROVIDER_PLATFORM_CREDENTIAL_PURPOSE = 'provider-platform-credential' as const;
@@ -1244,7 +1244,7 @@ export function createProviderPlatformRoutes(auth: Auth, config: ProviderPlatfor
       const requestId = newRequestId();
 
       if (request.method === 'GET' && url.pathname === '/api/providers') {
-        const providers = listDashboardProviderDisplays();
+        const providers = providerPlatformService.listDashboardProviderDisplays();
         return new Response(JSON.stringify(providers), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

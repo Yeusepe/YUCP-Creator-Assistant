@@ -24,7 +24,16 @@ import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
-import { authorizeCdngineBackstageSource } from '../lib/cdngineBackstage';
+import {
+  authorizeCdngineBackstageSource,
+  BACKSTAGE_REPO_TOKEN_HEADER,
+  buildBackstageAddRepoUrl,
+  fetchWithTimeout,
+  getAllowedOrigins,
+  hasCdngineErrorMessage,
+  isRecord,
+  jsonResponse,
+} from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
@@ -37,7 +46,6 @@ import {
 import { normalizeHostedVerificationRequirements } from '../verification/hostedIntents';
 import { getVerificationConfig } from '../verification/verificationConfig';
 
-const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const BACKSTAGE_ALIAS_INSTALL_PLAN_TTL_MS = 5 * 60 * 1000;
 const BACKSTAGE_FORWARDED_UPSTREAM_TIMEOUT_MS = 2_000;
@@ -194,16 +202,6 @@ export type BackstageRepoConfig = {
   };
 };
 
-function jsonResponse(body: object, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
-}
-
 function errorResponse(message: string, status: number): Response {
   return jsonResponse({ error: message }, status);
 }
@@ -224,10 +222,6 @@ function safeDecodeURIComponent(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isUnauthorizedError(error: unknown): boolean {
@@ -307,13 +301,6 @@ function mergeRepositoryPackages(
   };
 }
 
-function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): string {
-  const addRepoUrl = new URL('vcc://vpm/addRepo');
-  addRepoUrl.searchParams.set('url', repositoryUrl);
-  addRepoUrl.searchParams.append('headers[]', `${BACKSTAGE_REPO_TOKEN_HEADER}:${repoToken}`);
-  return addRepoUrl.toString();
-}
-
 function getConfiguredCdngine(
   config: BackstageRepoConfig
 ): ConfiguredCdngineBackstageDelivery | null {
@@ -325,23 +312,6 @@ function getConfiguredCdngine(
     accessToken: config.cdngine.accessToken,
     apiBaseUrl: config.cdngine.apiBaseUrl.replace(/\/+$/, ''),
   };
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 type CdngineDeliveryAuthorizationResult =
@@ -399,7 +369,7 @@ async function readResponseTextWithLimit(
 }
 
 function isCdngineBackstageDependencyError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('CDNgine');
+  return hasCdngineErrorMessage(error);
 }
 
 async function authorizeCdngineBackstageDeliveryUrl(input: {
@@ -553,10 +523,6 @@ function parseCreatorRepoRoute(
     return { creatorRepoRef, routeType: 'package' };
   }
   return null;
-}
-
-function getAllowedOrigins(config: BackstageRepoConfig): Set<string> {
-  return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
 }
 
 function normalizeFrontendReturnUrl(config: BackstageRepoConfig, value: string): string | null {

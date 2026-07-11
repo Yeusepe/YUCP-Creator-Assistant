@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'bun:test';
-import {
-  getConnectedAccountProviderDisplay,
-  listHostedVerificationProviderDisplays,
-  listUserLinkProviderDisplays,
-} from './display';
+import { providerPlatformService } from './display';
 
 describe('provider display helpers', () => {
   it('preserves connected-account fallback display for verification-only providers', () => {
-    expect(getConnectedAccountProviderDisplay('discord')).toEqual({
+    expect(providerPlatformService.getConnectedAccountProviderDisplay('discord')).toEqual({
       id: 'discord',
       label: 'Discord',
       icon: null,
@@ -17,7 +13,7 @@ describe('provider display helpers', () => {
   });
 
   it('includes verification-only OAuth providers in the user link provider list', () => {
-    const providers = listUserLinkProviderDisplays();
+    const providers = providerPlatformService.listUserLinkProviderDisplays();
     const providerIds = providers.map((provider) => provider.id);
 
     expect(providerIds).toContain('gumroad');
@@ -35,7 +31,7 @@ describe('provider display helpers', () => {
   });
 
   it('includes non-OAuth hosted verification providers in the hosted verification display list', () => {
-    const providers = listHostedVerificationProviderDisplays();
+    const providers = providerPlatformService.listHostedVerificationProviderDisplays();
     const providerIds = providers.map((provider) => provider.id);
 
     expect(providerIds).toContain('gumroad');

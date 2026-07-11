@@ -1,5 +1,5 @@
 /**
- * Purpose: Handles Backstage package byte transfer through CDNgine without using Convex storage.
+ * Purpose: Provides shared Backstage route support and CDNgine package byte transfer.
  * Governing docs:
  * - README.md
  * - agents.md
@@ -80,6 +80,7 @@ export type CdngineBackstageUploadSession = {
 const DEFAULT_PUBLICATION_POLL_INTERVAL_MS = 500;
 const DEFAULT_PUBLICATION_TIMEOUT_MS = 120_000;
 const CDNGINE_RESPONSE_MAX_BYTES = 16 * 1024;
+export const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 
 const PENDING_PUBLICATION_STATES = new Set([
   'awaiting-upload',
@@ -97,6 +98,38 @@ function getFiniteNumberOrDefault(value: number | undefined, fallback: number): 
 function getPositiveNumberOrDefault(value: number | undefined, fallback: number): number {
   const resolved = getFiniteNumberOrDefault(value, fallback);
   return resolved > 0 ? resolved : fallback;
+}
+
+export function jsonResponse(body: object, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function getAllowedOrigins(config: {
+  apiBaseUrl: string;
+  frontendBaseUrl: string;
+}): Set<string> {
+  return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
+}
+
+export function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): string {
+  const addRepoUrl = new URL('vcc://vpm/addRepo');
+  addRepoUrl.searchParams.set('url', repositoryUrl);
+  addRepoUrl.searchParams.append('headers[]', `${BACKSTAGE_REPO_TOKEN_HEADER}:${repoToken}`);
+  return addRepoUrl.toString();
+}
+
+export function hasCdngineErrorMessage(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('CDNgine');
 }
 
 export function requireCdngineBackstageConfig(
@@ -138,7 +171,7 @@ export function sanitizeCdngineObjectKeySegment(value: string): string {
     .slice(0, 160);
 }
 
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   init: RequestInit,
   timeoutMs: number
