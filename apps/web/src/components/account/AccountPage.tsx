@@ -59,9 +59,6 @@ export function AccountSectionCard({
   );
 }
 
-/** Alias for {@link AccountSectionCard} — the same security-page glass section pattern for any route. */
-export { AccountSectionCard as WorkspaceSectionCard };
-
 export function AccountEmptyState({
   icon,
   title,

@@ -71,18 +71,3 @@ export function SkeletonSwitch({ className }: { className?: string }) {
     />
   );
 }
-
-export function SkeletonRowCard({
-  className,
-  style,
-}: {
-  className?: string;
-  style?: CSSProperties;
-}) {
-  return (
-    <Skeleton
-      className={['skeleton-row-card', className].filter(Boolean).join(' ')}
-      style={{ height: '64px', borderRadius: '12px', ...style }}
-    />
-  );
-}

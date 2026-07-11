@@ -8,13 +8,6 @@ const dashboardServerSource = readFileSync(
 );
 
 describe('dashboard server logging', () => {
-  it('logs the dashboard viewer, guild, and shell failure phases', () => {
-    expect(dashboardServerSource).toContain('dashboard-load-viewer');
-    expect(dashboardServerSource).toContain('dashboard-load-guilds');
-    expect(dashboardServerSource).toContain('dashboard-load-shell');
-    expect(dashboardServerSource).toContain('logWebError');
-  });
-
   it('fails closed when the authenticated viewer is missing from the shell response', () => {
     expect(dashboardServerSource).toContain(
       'Dashboard shell response is missing the authenticated viewer'

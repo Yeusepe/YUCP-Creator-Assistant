@@ -1,7 +1,6 @@
 import { context, propagation, trace } from '@opentelemetry/api';
 import { getRequestHeader } from '@tanstack/react-start/server';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
-import { getToken } from '../auth-server';
 import { filterForwardedAuthCookieHeader } from './forwardedAuthCookies';
 import { getActiveWebServerTraceId, withWebServerSpan } from './observability';
 import { getWebApiBaseUrl, getWebRuntimeEnv, isWebProductionRuntime } from './runtimeEnv';
@@ -199,13 +198,4 @@ export async function serverApiFetch<T = unknown>(
       return response.json() as Promise<T>;
     }
   );
-}
-
-/**
- * Creates a server function that automatically injects the user's auth token.
- * Use this as a base for route-specific server functions.
- */
-export async function getAuthenticatedContext() {
-  const token = await getToken();
-  return { token };
 }

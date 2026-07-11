@@ -6,17 +6,9 @@ import {
   SkeletonLine,
   SkeletonPill,
   SkeletonSwitch,
-  SkeletonTile,
 } from '@/components/ui/YucpSkeleton';
 
 const copySectionStyle: CSSProperties = { flex: 1 };
-const packageWorkspaceCardKeys = [
-  'registry-summary',
-  'package-health',
-  'package-targets',
-  'package-activity',
-] as const;
-const packageWorkspaceSideKeys = ['repo-access', 'release-targets', 'supporting-actions'] as const;
 
 type DashboardActionRowSkeletonProps = {
   count?: number;
@@ -278,123 +270,6 @@ export function PackageRegistryWorkspaceSkeleton({
   );
 }
 
-export function DashboardBackstageWorkspaceSkeleton() {
-  return (
-    <div className="space-y-4" aria-hidden="true">
-      <div className="rounded-[28px] border border-border/70 bg-surface/80 p-6">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex min-w-0 gap-4">
-            <SkeletonTile size={56} radius={18} />
-            <div className="flex-1 space-y-3">
-              <SkeletonPill width="128px" />
-              <SkeletonLine width="220px" style={{ height: '24px' }} />
-              <SkeletonLine width="72%" className="skeleton-line-muted" />
-              <div className="flex flex-wrap gap-2 pt-1">
-                <SkeletonPill width="116px" />
-                <SkeletonPill width="132px" />
-                <SkeletonPill width="104px" />
-              </div>
-            </div>
-          </div>
-          <div className="w-full max-w-[340px] rounded-[24px] border border-border/60 bg-surface-secondary/70 p-4">
-            <div className="space-y-3">
-              <SkeletonLine width="46%" />
-              <SkeletonLine width="78%" className="skeleton-line-muted" />
-              <div className="flex flex-wrap gap-2 pt-1">
-                <SkeletonPill width="144px" />
-                <SkeletonPill width="120px" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders
-          <div key={index} className="rounded-2xl border border-border/70 bg-surface/80 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 space-y-3">
-                <SkeletonLine width="48%" />
-                <SkeletonLine width="26%" style={{ height: '26px' }} />
-                <SkeletonLine width="72%" className="skeleton-line-muted" />
-              </div>
-              <SkeletonTile size={44} radius={16} />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.95fr]">
-        <div className="rounded-[28px] border border-border/70 bg-surface/90 p-6">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <SkeletonLine width="28%" />
-              <SkeletonLine width="64%" className="skeleton-line-muted" />
-            </div>
-            <div className="rounded-2xl border border-border/60 bg-surface-secondary/70 p-4">
-              <SkeletonLine width="42%" />
-              <SkeletonLine width="74%" className="skeleton-line-muted" />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <SkeletonPill width="142px" />
-                <SkeletonPill width="118px" />
-              </div>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {packageWorkspaceCardKeys.map((key) => (
-                <div
-                  key={key}
-                  className="rounded-2xl border border-border/60 bg-surface-secondary/60 p-4"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 space-y-2">
-                        <SkeletonLine width="56%" />
-                        <SkeletonLine width="72%" className="skeleton-line-muted" />
-                      </div>
-                      <SkeletonTile size={38} radius={14} />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <SkeletonPill width="88px" />
-                      <SkeletonPill width="102px" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-[28px] border border-border/70 bg-surface/90 p-6">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <SkeletonLine width="34%" />
-              <SkeletonLine width="70%" className="skeleton-line-muted" />
-            </div>
-            <div className="space-y-3">
-              {packageWorkspaceSideKeys.map((key) => (
-                <div
-                  key={key}
-                  className="rounded-2xl border border-border/60 bg-surface-secondary/60 p-4"
-                >
-                  <div className="space-y-3">
-                    <SkeletonLine width="38%" />
-                    <SkeletonLine width="82%" className="skeleton-line-muted" />
-                    <div className="flex flex-wrap gap-2">
-                      <SkeletonPill width="128px" />
-                      <SkeletonPill width="112px" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /**
  * Provider card skeleton, matches the intg-provider-grid card layout.
  * Used for the Store Integrations section while providers are loading.
@@ -416,51 +291,5 @@ export function DashboardIntegrationsSkeleton({ cards = 3 }: { cards?: number })
         </div>
       ))}
     </div>
-  );
-}
-
-/** Forensics tab, mirrors `section.intg-card.bento-col-12` (Leak Tracer form). */
-export function DashboardForensicsSkeleton() {
-  return (
-    <section className="intg-card animate-in bento-col-12" aria-hidden="true">
-      <div className="intg-header">
-        <div className="intg-title-row">
-          <SkeletonTile size={40} radius={12} />
-          <div className="skeleton-copy" style={copySectionStyle}>
-            <SkeletonLine width="32%" />
-            <SkeletonLine width="62%" className="skeleton-line-muted" />
-          </div>
-        </div>
-        <SkeletonPill width="124px" />
-      </div>
-
-      <div className="forensics-steps">
-        <div className="forensics-step">
-          <SkeletonCircle size="26px" />
-          <div className="forensics-step-body">
-            <SkeletonLine width="44%" style={{ marginBottom: 8 }} />
-            <SkeletonLine width="100%" style={{ height: 40, borderRadius: 10 }} />
-          </div>
-        </div>
-        <div className="forensics-step">
-          <SkeletonCircle size="26px" />
-          <div className="forensics-step-body">
-            <SkeletonLine width="38%" style={{ marginBottom: 8 }} />
-            <div
-              className="skeleton-block"
-              style={{
-                width: '100%',
-                height: 132,
-                borderRadius: 12,
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="account-form-actions">
-        <SkeletonPill width="168px" style={{ height: 40, borderRadius: 999 }} />
-      </div>
-    </section>
   );
 }

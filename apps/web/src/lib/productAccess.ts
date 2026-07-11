@@ -1,5 +1,4 @@
 import { apiClient } from '@/api/client';
-import type { BuyerProductAccessResponse } from '@/lib/productAccessTypes';
 
 export interface BuyerProductAccessVerificationIntent {
   intentId: string;
@@ -10,12 +9,6 @@ export interface BuyerProductAccessVerificationIntent {
 
 export function buildBuyerProductAccessPath(catalogProductId: string): string {
   return `/access/${encodeURIComponent(catalogProductId)}`;
-}
-
-export async function getBuyerProductAccess(catalogProductId: string) {
-  return apiClient.get<BuyerProductAccessResponse>(
-    `/api/connect/user/product-access/${encodeURIComponent(catalogProductId)}`
-  );
 }
 
 export async function createBuyerProductAccessVerificationIntent(
