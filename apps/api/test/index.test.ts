@@ -10,6 +10,50 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 import { type BuiltApiApp, buildApp } from './support/buildApp';
 
+const FRONTEND_ORIGIN = 'http://localhost:3000';
+
+const LEGACY_PAGE_REDIRECTS = [
+  ['collab-invite.html', '/collab-invite', '/collab-invite'],
+  ['connect.html', '/connect', '/connect'],
+  ['dashboard.html', '/dashboard', '/dashboard'],
+  ['discord-role-setup.html', '/discord-role-setup', '/setup/discord-role'],
+  ['jinxxy-setup.html', '/jinxxy-setup', '/setup/jinxxy'],
+  ['lemonsqueezy-setup.html', '/lemonsqueezy-setup', '/setup/lemonsqueezy'],
+  ['oauth-consent.html', '/oauth/consent', '/oauth/consent'],
+  ['oauth-error.html', '/oauth/error', '/oauth/error'],
+  ['oauth-login.html', '/oauth/login', '/oauth/login'],
+  ['payhip-setup.html', '/payhip-setup', '/setup/payhip'],
+  ['privacypolicy.html', '/legal/privacy-policy', '/legal/privacy-policy'],
+  ['sign-in.html', '/sign-in', '/sign-in'],
+  ['termsofservice.html', '/legal/terms-of-service', '/legal/terms-of-service'],
+  ['verify-error.html', '/verify-error', '/verify/error'],
+  ['verify-success.html', '/verify-success', '/verify/success'],
+  ['vrchat-verify.html', '/vrchat-verify', '/setup/vrchat'],
+] as const;
+
+const LEGACY_FILE_URL_REDIRECTS = [
+  ['/collab-invite.html', '/collab-invite'],
+  ['/dashboard.html', '/dashboard'],
+  ['/discord-role-setup.html', '/setup/discord-role'],
+  ['/jinxxy-setup.html', '/setup/jinxxy'],
+  ['/lemonsqueezy-setup.html', '/setup/lemonsqueezy'],
+  ['/payhip-setup.html', '/setup/payhip'],
+  ['/verify-error.html', '/verify/error'],
+  ['/verify-success.html', '/verify/success'],
+  ['/vrchat-verify.html', '/setup/vrchat'],
+] as const;
+
+const LEGACY_FILE_URL_FALLBACKS = [
+  '/connect.html',
+  '/oauth-consent.html',
+  '/oauth-error.html',
+  '/oauth-login.html',
+  '/privacypolicy.html',
+  '/sign-in-redirect.html',
+  '/sign-in.html',
+  '/termsofservice.html',
+] as const;
+
 function expectHtmlSecurityHeaders(response: Response) {
   const contentType = response.headers.get('content-type') ?? '';
   const contentSecurityPolicy = response.headers.get('content-security-policy') ?? '';
@@ -27,7 +71,7 @@ describe('API server, production app harness', () => {
   let app: BuiltApiApp;
 
   beforeAll(() => {
-    app = buildApp();
+    app = buildApp({ frontendUrl: FRONTEND_ORIGIN });
   });
 
   afterAll(() => app.dispose());
@@ -87,6 +131,49 @@ describe('API server, production app harness', () => {
     expect(body.paths).toHaveProperty('/verification/check');
   });
 
+  it('keeps every migrated page route on its prior frontend redirect', async () => {
+    for (const [deletedFile, path, destination] of LEGACY_PAGE_REDIRECTS) {
+      const response = await app.fetch(`${path}?source=${deletedFile}`, { redirect: 'manual' });
+      expect(response.status, deletedFile).toBe(302);
+      expect(response.headers.get('location'), deletedFile).toBe(
+        `${FRONTEND_ORIGIN}${destination}?source=${deletedFile}`
+      );
+    }
+  });
+
+  it('keeps every deleted HTML filename URL on its prior response', async () => {
+    for (const [path, destination] of LEGACY_FILE_URL_REDIRECTS) {
+      const response = await app.fetch(path, { redirect: 'manual' });
+      expect(response.status, path).toBe(302);
+      expect(response.headers.get('location'), path).toBe(`${FRONTEND_ORIGIN}${destination}`);
+    }
+
+    for (const path of LEGACY_FILE_URL_FALLBACKS) {
+      const response = await app.fetch(path);
+      expect(response.status, path).toBe(404);
+      expectHtmlSecurityHeaders(response);
+      await expect(response.text()).resolves.toContain('Page not found');
+    }
+  });
+
+  it('still serves every live asset class and the styled 404 fallback', async () => {
+    for (const [path, contentType] of [
+      ['/tokens.css', 'text/css'],
+      ['/loading.css', 'text/css'],
+      ['/Icons/favicon.ico', 'image/x-icon'],
+      ['/assets/site/site.css', 'text/css'],
+    ] as const) {
+      const response = await app.fetch(path);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get('content-type'), path).toContain(contentType);
+    }
+
+    const fallback = await app.fetch('/unknown-page-after-frontend-cleanup');
+    expect(fallback.status).toBe(404);
+    expectHtmlSecurityHeaders(fallback);
+    await expect(fallback.text()).resolves.toContain('Page not found');
+  });
+
   it('rejects overlapping buildApp instances while handler state is module-scoped', () => {
     let overlappingApp: BuiltApiApp | undefined;
 
@@ -118,29 +205,8 @@ describe('API server, route mounting', () => {
 
   afterAll(() => server.stop());
 
-  it('still serves shared static assets that are used outside the migrated creator UI', async () => {
-    const res = await server.fetch('/tokens.css');
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/css');
-  });
-
-  it('legacy Bun dashboard assets are no longer served', async () => {
-    const dashboardCss = await server.fetch('/dashboard.css');
-    expect(dashboardCss.status).toBe(404);
-
-    const dashboardScript = await server.fetch('/assets/dashboard/main.js');
-    expect(dashboardScript.status).toBe(404);
-  });
-
   it('legacy browser routes fail closed on the API origin with hardening headers', async () => {
-    for (const path of [
-      '/connect',
-      '/sign-in',
-      '/dashboard',
-      '/oauth/consent?client_id=test-app&scope=verification:read&consent_code=abc',
-      '/verify-success',
-      '/verify-error',
-    ]) {
+    for (const [, path] of LEGACY_PAGE_REDIRECTS) {
       const res = await server.fetch(path, { redirect: 'manual' });
       expect(res.status).toBe(404);
       expectHtmlSecurityHeaders(res);
