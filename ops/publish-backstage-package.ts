@@ -16,13 +16,12 @@ import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageD
 
 type FetchLike = typeof fetch;
 
-export type PublishBackstagePackageConfig = {
+export type PublishBackstageReleaseConfig = {
   apiBaseUrl: string;
   accessToken: string;
   packageId: string;
   catalogProductId: string;
   version: string;
-  sourcePath: string;
   channel?: string;
   packageName?: string;
   displayName?: string;
@@ -34,6 +33,10 @@ export type PublishBackstagePackageConfig = {
   deliveryName?: string;
   contentType?: string;
   releaseStatus?: 'draft' | 'published' | 'revoked' | 'superseded';
+};
+
+export type PublishBackstagePackageConfig = PublishBackstageReleaseConfig & {
+  sourcePath: string;
 };
 
 type UploadStorageResponse = {
@@ -287,7 +290,7 @@ export async function uploadBackstagePackageArtifactDirect(
 }
 
 export async function publishBackstageRelease(
-  config: PublishBackstagePackageConfig,
+  config: PublishBackstageReleaseConfig,
   uploadedSource: UploadedBackstageSource,
   fetchImpl: FetchLike = fetch
 ): Promise<PublishBackstagePackageResult> {
