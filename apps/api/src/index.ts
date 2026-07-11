@@ -398,9 +398,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     couplingServiceSharedSecret,
   });
 
-  providerPlatformRoutes = createProviderPlatformRoutes(auth, {
-    apiBaseUrl: publicBaseUrl,
-    frontendBaseUrl: frontendUrl,
+  providerPlatformRoutes = createProviderPlatformRoutes({
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,
