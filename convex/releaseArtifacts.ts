@@ -56,6 +56,14 @@ const cdngineSourceReferenceValidator = v.object({
   uploadedAt: v.number(),
   versionId: v.string(),
 });
+export const loreBackstageArtifactReferenceValidator = v.object({
+  repositoryId: v.string(),
+  address: v.string(),
+  sha256: v.string(),
+  byteSize: v.number(),
+  uploadedAt: v.string(),
+  tenantId: v.optional(v.string()),
+});
 
 const deliveryReleaseArtifactValidator = v.object({
   deliveryPackageReleaseId: v.id('delivery_package_releases'),
@@ -70,6 +78,8 @@ const deliveryReleaseArtifactValidator = v.object({
   byteSize: v.number(),
   cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
   cdngineSource: v.optional(cdngineSourceReferenceValidator),
+  loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
+  loreSource: v.optional(loreBackstageArtifactReferenceValidator),
   status: v.union(v.literal('active'), v.literal('inactive')),
   activatedAt: v.optional(v.number()),
   createdAt: v.number(),
@@ -415,6 +425,8 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
       byteSize: v.number(),
       cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
       cdngineSource: v.optional(cdngineSourceReferenceValidator),
+      loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
+      loreSource: v.optional(loreBackstageArtifactReferenceValidator),
       status: v.union(v.literal('active'), v.literal('inactive')),
       activatedAt: v.optional(v.number()),
       createdAt: v.number(),
@@ -446,6 +458,8 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
           byteSize: row.byteSize,
           cdngineDelivery: row.cdngineDelivery,
           cdngineSource: row.cdngineSource,
+          loreDelivery: row.loreDelivery,
+          loreSource: row.loreSource,
           status: row.status,
           activatedAt: row.activatedAt,
           createdAt: row.createdAt,
@@ -502,6 +516,8 @@ export const publishDeliveryArtifact = internalMutation({
     byteSize: v.number(),
     cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
     cdngineSource: v.optional(cdngineSourceReferenceValidator),
+    loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
+    loreSource: v.optional(loreBackstageArtifactReferenceValidator),
   },
   returns: v.id('delivery_release_artifacts'),
   handler: async (ctx, args) => {
@@ -510,21 +526,31 @@ export const publishDeliveryArtifact = internalMutation({
         'Backstage delivery release artifacts must store CDNgine references, not Convex storage.'
       );
     }
-    if (args.artifactRole === 'raw_upload' && args.cdngineDelivery) {
+    if (args.artifactRole === 'raw_upload' && (args.cdngineDelivery || args.loreDelivery)) {
       throw new Error(
-        'Raw Backstage upload artifacts must store cdngineSource, not cdngineDelivery.'
+        'Raw Backstage upload artifacts must store a source reference, not cdngineDelivery or loreDelivery.'
       );
     }
-    if (args.artifactRole === 'server_deliverable' && args.cdngineSource) {
+    if (args.artifactRole === 'server_deliverable' && (args.cdngineSource || args.loreSource)) {
       throw new Error(
-        'Server deliverable artifacts must store cdngineDelivery, not cdngineSource.'
+        'Server deliverable artifacts must store a delivery reference, not cdngineSource or loreSource.'
       );
     }
-    if (args.artifactRole === 'raw_upload' && !args.cdngineSource) {
-      throw new Error('Raw Backstage upload artifacts require cdngineSource.');
+    if (
+      args.artifactRole === 'raw_upload' &&
+      Boolean(args.cdngineSource) === Boolean(args.loreSource)
+    ) {
+      throw new Error(
+        'Raw Backstage upload artifacts require exactly one of cdngineSource or loreSource.'
+      );
     }
-    if (args.artifactRole === 'server_deliverable' && !args.cdngineDelivery) {
-      throw new Error('Server deliverable artifacts require cdngineDelivery.');
+    if (
+      args.artifactRole === 'server_deliverable' &&
+      Boolean(args.cdngineDelivery) === Boolean(args.loreDelivery)
+    ) {
+      throw new Error(
+        'Server deliverable artifacts require exactly one of cdngineDelivery or loreDelivery.'
+      );
     }
     const now = Date.now();
     const existing = await ctx.db

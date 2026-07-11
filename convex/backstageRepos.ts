@@ -5,6 +5,7 @@ import type {
   CdngineBackstageDeliveryReference,
   CdngineBackstageSourceReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
+import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -47,6 +48,15 @@ const CdngineBackstageDeliveryReferenceV = v.object({
   versionId: v.string(),
 });
 
+const LoreBackstageArtifactReferenceV = v.object({
+  repositoryId: v.string(),
+  address: v.string(),
+  sha256: v.string(),
+  byteSize: v.number(),
+  uploadedAt: v.string(),
+  tenantId: v.optional(v.string()),
+});
+
 type BackstageRepoAccessRecord = {
   tokenId: Id<'delivery_repo_tokens'>;
   authUserId: string;
@@ -67,6 +77,7 @@ type BackstagePackageDownloadRecord = {
   version: string;
   channel: string;
   cdngineDelivery?: CdngineBackstageDeliveryReference;
+  loreDelivery?: LoreBackstageArtifactReference;
 };
 
 type BackstageRawPackageDownloadRecord = {
@@ -79,6 +90,7 @@ type BackstageRawPackageDownloadRecord = {
   version: string;
   channel: string;
   cdngineSource?: CdngineBackstageSourceReference;
+  loreSource?: LoreBackstageArtifactReference;
 };
 
 type BackstagePublishedReleaseRecord = {
@@ -403,6 +415,7 @@ export const resolvePackageDownloadForApi = query({
       version: v.string(),
       channel: v.string(),
       cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+      loreDelivery: v.optional(LoreBackstageArtifactReferenceV),
     })
   ),
   handler: async (ctx, args): Promise<BackstagePackageDownloadRecord | null> => {
@@ -448,6 +461,7 @@ export const resolveRawPackageDownloadForApi = query({
       version: v.string(),
       channel: v.string(),
       cdngineSource: v.optional(CdngineBackstageSourceReferenceV),
+      loreSource: v.optional(LoreBackstageArtifactReferenceV),
     })
   ),
   handler: async (ctx, args): Promise<BackstageRawPackageDownloadRecord | null> => {
@@ -597,6 +611,138 @@ export const publishCdngineReleaseForAuthUser = mutation({
       sha256: args.deliverableSha256,
       byteSize: args.deliverableByteSize,
       cdngineDelivery: args.cdngineDelivery,
+    });
+
+    return {
+      deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+      zipSha256: args.deliverableSha256,
+      version: args.version,
+      channel,
+    };
+  },
+});
+
+export const publishLoreReleaseForAuthUser = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.optional(v.id('product_catalog')),
+    catalogProductIds: v.optional(v.array(v.id('product_catalog'))),
+    accessSelectors: v.optional(v.array(BackstageAccessSelectorV)),
+    packageId: v.string(),
+    version: v.string(),
+    channel: v.optional(v.string()),
+    packageName: v.optional(v.string()),
+    displayName: v.optional(v.string()),
+    description: v.optional(v.string()),
+    repositoryVisibility: v.optional(v.union(v.literal('hidden'), v.literal('listed'))),
+    defaultChannel: v.optional(v.string()),
+    unityVersion: v.optional(v.string()),
+    metadata: v.optional(v.any()),
+    rawDeliveryName: v.optional(v.string()),
+    rawContentType: v.optional(v.string()),
+    rawSha256: v.string(),
+    rawByteSize: v.number(),
+    loreSource: LoreBackstageArtifactReferenceV,
+    deliverableDeliveryName: v.string(),
+    deliverableContentType: v.string(),
+    deliverableSha256: v.string(),
+    deliverableByteSize: v.number(),
+    loreDelivery: LoreBackstageArtifactReferenceV,
+    releaseStatus: v.optional(
+      v.union(
+        v.literal('draft'),
+        v.literal('published'),
+        v.literal('revoked'),
+        v.literal('superseded')
+      )
+    ),
+  },
+  returns: v.object({
+    deliveryPackageReleaseId: v.id('delivery_package_releases'),
+    zipSha256: v.string(),
+    version: v.string(),
+    channel: v.string(),
+  }),
+  handler: async (ctx, args): Promise<BackstagePublishedReleaseRecord> => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+
+    const channel = (args.channel || '').trim() || 'stable';
+    const accessSelectors = Array.from(
+      new Map(
+        (
+          args.accessSelectors ??
+          (args.catalogProductIds ?? (args.catalogProductId ? [args.catalogProductId] : [])).map(
+            (catalogProductId) =>
+              ({
+                kind: 'catalogProduct' as const,
+                catalogProductId,
+              }) satisfies { kind: 'catalogProduct'; catalogProductId: Id<'product_catalog'> }
+          )
+        ).map((selector) => [
+          selector.kind === 'catalogTier'
+            ? `tier:${String(selector.catalogTierId)}`
+            : `product:${String(selector.catalogProductId)}`,
+          selector,
+        ])
+      ).values()
+    );
+    if (accessSelectors.length === 0) {
+      throw new Error(
+        'At least one package access selector is required to publish a Backstage release.'
+      );
+    }
+
+    await ctx.runMutation(internal.packageRegistry.upsertDeliveryPackageForAccessSelectors, {
+      authUserId: args.authUserId,
+      accessSelectors,
+      packageId: args.packageId,
+      packageName: args.packageName,
+      displayName: args.displayName,
+      description: args.description,
+      repositoryVisibility: args.repositoryVisibility,
+      defaultChannel: args.defaultChannel ?? channel,
+    });
+
+    const release = (await ctx.runMutation(internal.packageRegistry.recordDeliveryPackageRelease, {
+      authUserId: args.authUserId,
+      packageId: args.packageId,
+      version: args.version,
+      channel,
+      releaseStatus: args.releaseStatus,
+      repositoryVisibility: args.repositoryVisibility,
+      unityVersion: args.unityVersion,
+      zipSha256: args.deliverableSha256,
+      metadata: args.metadata,
+    })) as { deliveryPackageReleaseId: Id<'delivery_package_releases'> };
+
+    const rawArtifactId: Id<'delivery_release_artifacts'> = await ctx.runMutation(
+      internal.releaseArtifacts.publishDeliveryArtifact,
+      {
+        deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+        artifactRole: 'raw_upload',
+        ownership: 'creator_upload',
+        contentType: args.rawContentType ?? 'application/octet-stream',
+        deliveryName: args.rawDeliveryName ?? `${args.packageId}-${args.version}.zip`,
+        sha256: args.rawSha256,
+        byteSize: args.rawByteSize,
+        loreSource: args.loreSource,
+      }
+    );
+
+    await ctx.runMutation(internal.releaseArtifacts.publishDeliveryArtifact, {
+      deliveryPackageReleaseId: release.deliveryPackageReleaseId,
+      artifactRole: 'server_deliverable',
+      ownership: 'server_materialized',
+      materializationStrategy: 'normalized_repack',
+      sourceArtifactId: rawArtifactId,
+      contentType: args.deliverableContentType,
+      deliveryName: args.deliverableDeliveryName,
+      sha256: args.deliverableSha256,
+      byteSize: args.deliverableByteSize,
+      loreDelivery: args.loreDelivery,
     });
 
     return {

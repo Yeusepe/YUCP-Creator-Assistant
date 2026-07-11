@@ -2562,6 +2562,26 @@ const delivery_release_artifacts = defineTable({
       versionId: v.string(),
     })
   ),
+  loreDelivery: v.optional(
+    v.object({
+      repositoryId: v.string(),
+      address: v.string(),
+      sha256: v.string(),
+      byteSize: v.number(),
+      uploadedAt: v.string(),
+      tenantId: v.optional(v.string()),
+    })
+  ),
+  loreSource: v.optional(
+    v.object({
+      repositoryId: v.string(),
+      address: v.string(),
+      sha256: v.string(),
+      byteSize: v.number(),
+      uploadedAt: v.string(),
+      tenantId: v.optional(v.string()),
+    })
+  ),
   status: DeliveryReleaseArtifactStatus,
   activatedAt: v.optional(v.number()),
   createdAt: v.number(),

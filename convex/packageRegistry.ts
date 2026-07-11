@@ -39,6 +39,7 @@ import type {
   CdngineBackstageSourceReference,
 } from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
+import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { ConvexError, v } from 'convex/values';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
@@ -152,6 +153,7 @@ type BackstagePackageDownloadRecord = {
   version: string;
   channel: string;
   cdngineDelivery?: CdngineBackstageDeliveryReference;
+  loreDelivery?: LoreBackstageArtifactReference;
 };
 
 type BackstageRawPackageDownloadRecord = {
@@ -164,6 +166,7 @@ type BackstageRawPackageDownloadRecord = {
   version: string;
   channel: string;
   cdngineSource?: CdngineBackstageSourceReference;
+  loreSource?: LoreBackstageArtifactReference;
 };
 
 type AuthorizedAliasInstallPlanPackageRecord = {
@@ -209,6 +212,14 @@ const CdngineBackstageSourceReferenceV = v.object({
   uploadedAt: v.number(),
   versionId: v.string(),
 });
+export const LoreBackstageArtifactReferenceV = v.object({
+  repositoryId: v.string(),
+  address: v.string(),
+  sha256: v.string(),
+  byteSize: v.number(),
+  uploadedAt: v.string(),
+  tenantId: v.optional(v.string()),
+});
 
 const BackstagePackageMediaKindV = v.union(v.literal('banner'), v.literal('icon'));
 
@@ -248,6 +259,7 @@ const BackstagePackageDownloadRecordV = v.object({
   version: v.string(),
   channel: v.string(),
   cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+  loreDelivery: v.optional(LoreBackstageArtifactReferenceV),
 });
 
 const BackstageRawPackageDownloadRecordV = v.object({
@@ -260,6 +272,7 @@ const BackstageRawPackageDownloadRecordV = v.object({
   version: v.string(),
   channel: v.string(),
   cdngineSource: v.optional(CdngineBackstageSourceReferenceV),
+  loreSource: v.optional(LoreBackstageArtifactReferenceV),
 });
 
 const YucpAliasPackageContractV = v.object({
@@ -522,7 +535,7 @@ async function resolveDownloadableArtifactForReleaseRecord(
   )
     .first();
   if (deliverable) {
-    if (!deliverable.cdngineDelivery) {
+    if (!deliverable.cdngineDelivery && !deliverable.loreDelivery) {
       return null;
     }
 
@@ -536,6 +549,7 @@ async function resolveDownloadableArtifactForReleaseRecord(
       version: release.version,
       channel: release.channel,
       cdngineDelivery: deliverable.cdngineDelivery,
+      loreDelivery: deliverable.loreDelivery,
     };
   }
 
@@ -563,7 +577,7 @@ async function resolveRawDownloadableArtifactForReleaseRecord(
     return null;
   }
 
-  if (!rawArtifact.cdngineSource) {
+  if (!rawArtifact.cdngineSource && !rawArtifact.loreSource) {
     return null;
   }
 
@@ -580,6 +594,7 @@ async function resolveRawDownloadableArtifactForReleaseRecord(
     version: release.version,
     channel: release.channel,
     cdngineSource: rawArtifact.cdngineSource,
+    loreSource: rawArtifact.loreSource,
   };
 }
 
