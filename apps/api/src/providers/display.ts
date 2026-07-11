@@ -4,28 +4,6 @@ import { getVerificationConfig } from '../verification/verificationConfig';
 import { ALL_PROVIDER_RUNTIMES } from './index';
 import type { ConnectDisplayMeta } from './types';
 
-export interface ProviderDisplaySummary {
-  readonly id: string;
-  readonly label: string;
-  readonly icon: string | null;
-  readonly color: string | null;
-  readonly description: string | null;
-}
-
-export interface DashboardProviderSummary {
-  readonly key: string;
-  readonly setupExperience: 'automatic' | 'guided' | 'manual';
-  readonly setupHint: string;
-  readonly label: string;
-  readonly icon: string;
-  readonly iconBg: string;
-  readonly quickStartBg: string;
-  readonly quickStartBorder: string;
-  readonly serverTileHint: string;
-  readonly connectPath: string;
-  readonly connectParamStyle: ConnectDisplayMeta['dashboardConnectParamStyle'];
-}
-
 const VERIFICATION_ONLY_PROVIDER_DISPLAY: Readonly<Record<string, ProviderLinkFallbackDisplay>> = {
   discord: { icon: 'Discord.png', color: '#5865F2' },
 };
@@ -56,7 +34,7 @@ const runtimeConnectSurfaces = ALL_PROVIDER_RUNTIMES.flatMap((provider) => {
   return runtimeSurface ? [runtimeSurface] : [];
 });
 
-const providerPlatformService = createApplicationServices({
+export const providerPlatformService = createApplicationServices({
   providerPlatform: {
     listRuntimeConnectSurfaces: () => runtimeConnectSurfaces,
     getRuntimeConnectSurface: (providerKey) =>
@@ -65,19 +43,3 @@ const providerPlatformService = createApplicationServices({
     getVerificationOnlyDisplay: (providerKey) => VERIFICATION_ONLY_PROVIDER_DISPLAY[providerKey],
   },
 }).providerPlatform;
-
-export function getConnectedAccountProviderDisplay(providerKey: string): ProviderDisplaySummary {
-  return providerPlatformService.getConnectedAccountProviderDisplay(providerKey);
-}
-
-export function listUserLinkProviderDisplays(): ProviderDisplaySummary[] {
-  return providerPlatformService.listUserLinkProviderDisplays();
-}
-
-export function listHostedVerificationProviderDisplays(): ProviderDisplaySummary[] {
-  return providerPlatformService.listHostedVerificationProviderDisplays();
-}
-
-export function listDashboardProviderDisplays(): DashboardProviderSummary[] {
-  return providerPlatformService.listDashboardProviderDisplays();
-}

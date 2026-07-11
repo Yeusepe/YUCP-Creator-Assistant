@@ -32,10 +32,16 @@ import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import {
   authorizeCdngineBackstageSource,
+  buildBackstageAddRepoUrl,
   CdngineApiRequestError,
   type CdngineBackstageConfig,
   completeBackstageUploadSessionInCdngine,
   createBackstageUploadSessionInCdngine,
+  fetchWithTimeout,
+  getAllowedOrigins,
+  hasCdngineErrorMessage,
+  isRecord,
+  jsonResponse,
   requireCdngineBackstageConfig,
   sanitizeCdngineObjectKeySegment,
   sha256ArrayBuffer,
@@ -50,7 +56,6 @@ import { readBoundedArrayBuffer, readContentLength } from '../lib/readBoundedArr
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
-const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER = 'X-YUCP-Upload-Completion-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
@@ -223,21 +228,11 @@ class BackstagePackageMediaLimitError extends Error {
   }
 }
 
-function jsonResponse(body: object, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
-}
-
 function isCdngineBackstageDependencyError(error: unknown): boolean {
   return (
     error instanceof CdngineApiRequestError ||
     isFetchAbortOrTimeoutError(error) ||
-    (error instanceof Error && error.message.includes('CDNgine'))
+    hasCdngineErrorMessage(error)
   );
 }
 
@@ -411,20 +406,6 @@ async function withBackstageLiveSyncTimeout<T>(
   }
 }
 
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function decodeOptionalHeaderValue(value: string | null): string | null {
   if (!value) {
     return null;
@@ -457,23 +438,12 @@ function normalizePackageMediaContentType(contentType: string | null): string | 
   return normalized;
 }
 
-function getAllowedOrigins(config: PackagesConfig): Set<string> {
-  return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
-}
-
 function assertPackageId(packageId: string): string {
   const normalized = decodeURIComponent(packageId).trim();
   if (!PACKAGE_ID_RE.test(normalized)) {
     throw new Error('Invalid packageId format');
   }
   return normalized;
-}
-
-function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): string {
-  const addRepoUrl = new URL('vcc://vpm/addRepo');
-  addRepoUrl.searchParams.set('url', repositoryUrl);
-  addRepoUrl.searchParams.append('headers[]', `${BACKSTAGE_REPO_TOKEN_HEADER}:${repoToken}`);
-  return addRepoUrl.toString();
 }
 
 function buildBackstageProductRecordKey(provider: string, providerProductRef: string): string {
@@ -610,10 +580,6 @@ function normalizeRichTextToPlainText(value?: string | null): string | undefined
     .trim();
 
   return plainText || undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function normalizeBackstageMetadataInput(input: {

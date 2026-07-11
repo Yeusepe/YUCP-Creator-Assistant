@@ -8,10 +8,7 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import { withApiSpan } from '../lib/observability';
-import {
-  getConnectedAccountProviderDisplay,
-  listHostedVerificationProviderDisplays,
-} from '../providers/display';
+import { providerPlatformService } from '../providers/display';
 import type { ConnectConfig } from '../providers/types';
 import {
   buildLinkedEntitlementRequirements,
@@ -218,7 +215,9 @@ export function createConnectUserVerificationRoutes({
           providerUserId: link.providerUserId,
           providerUsername: link.providerUsername ?? null,
           verificationMethod: link.verificationMethod ?? null,
-          providerDisplay: getConnectedAccountProviderDisplay(link.provider),
+          providerDisplay: providerPlatformService.getConnectedAccountProviderDisplay(
+            link.provider
+          ),
           linkedAt: link.linkedAt,
           lastValidatedAt: link.lastValidatedAt ?? null,
           expiresAt: link.expiresAt ?? null,
@@ -261,7 +260,9 @@ export function createConnectUserVerificationRoutes({
           providerUserId: link.providerUserId,
           providerUsername: link.providerUsername ?? null,
           verificationMethod: link.verificationMethod ?? null,
-          providerDisplay: getConnectedAccountProviderDisplay(link.provider),
+          providerDisplay: providerPlatformService.getConnectedAccountProviderDisplay(
+            link.provider
+          ),
           linkedAt: link.linkedAt,
           lastValidatedAt: link.lastValidatedAt ?? null,
           expiresAt: link.expiresAt ?? null,
@@ -313,7 +314,9 @@ export function createConnectUserVerificationRoutes({
   }
 
   function getUserProviders(_request: Request): Response {
-    return Response.json({ providers: listHostedVerificationProviderDisplays() });
+    return Response.json({
+      providers: providerPlatformService.listHostedVerificationProviderDisplays(),
+    });
   }
 
   async function postUserVerifyStart(request: Request): Promise<Response> {

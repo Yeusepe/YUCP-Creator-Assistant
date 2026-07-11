@@ -83,7 +83,7 @@ mock.module('../lib/observability', () => ({
   ) => callback(),
 }));
 
-mock.module('../providers/display', () => ({
+const providerPlatformServiceMock = {
   getConnectedAccountProviderDisplay: (provider: string) => ({
     label: provider === 'itchio' ? 'itch.io' : provider,
     icon: provider === 'itchio' ? 'Itchio.png' : null,
@@ -171,6 +171,10 @@ mock.module('../providers/display', () => ({
     },
   ],
   listHostedVerificationProviderDisplays: () => [],
+};
+
+mock.module('../providers/display', () => ({
+  providerPlatformService: providerPlatformServiceMock,
 }));
 
 const { createConnectUserVerificationRoutes } = await import('./connectUserVerification');

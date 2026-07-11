@@ -34,7 +34,7 @@ import { loadRequestScoped, requestScopeKey } from '../lib/requestScope';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createSetupSession, resolveSetupSession } from '../lib/setupSession';
 import { getStateStore } from '../lib/stateStore';
-import { listDashboardProviderDisplays } from '../providers/display';
+import { providerPlatformService } from '../providers/display';
 import { getProviderHooks, getProviderRuntime, listConnectPlugins } from '../providers/index';
 import type { ConnectConfig, ConnectContext } from '../providers/types';
 import { createConnectApiAccessRoutes } from './connectApiAccess';
@@ -172,7 +172,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
       },
     },
     providerDisplays: {
-      listDashboardProviderDisplays,
+      listDashboardProviderDisplays: () => providerPlatformService.listDashboardProviderDisplays(),
     },
   });
   const guildDirectoryService = new GuildDirectoryService({
