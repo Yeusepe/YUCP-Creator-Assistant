@@ -53,7 +53,3 @@ export type VerificationModeConfig = BuyerLinkOAuthConfig;
 export function getVerificationConfig(mode: string): VerificationModeConfig | null {
   return getBuyerLinkPluginByMode(mode)?.oauth ?? null;
 }
-
-export function modeToProvider(mode: string): string | null {
-  return getVerificationConfig(mode)?.providerId ?? null;
-}

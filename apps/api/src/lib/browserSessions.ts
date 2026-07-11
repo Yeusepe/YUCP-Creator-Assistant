@@ -1,8 +1,6 @@
 export const SETUP_SESSION_COOKIE = 'yucp_setup_session';
 export const CONNECT_TOKEN_COOKIE = 'yucp_connect_token';
 export const DISCORD_ROLE_SETUP_COOKIE = 'yucp_discord_role_setup';
-export const JINXXY_PENDING_WEBHOOK_PREFIX = 'jinxxy_webhook_pending:';
-export const JINXXY_PENDING_WEBHOOK_TTL_MS = 30 * 60 * 1000;
 
 export interface BrowserCookieOptions {
   maxAgeSeconds?: number;
