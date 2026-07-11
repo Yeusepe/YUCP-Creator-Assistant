@@ -1,29 +1,147 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { api } from './_generated/api';
-import { makeTestConvex } from './testHelpers';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiActorBinding } from '@yucp/shared/apiActor';
+import { sha256Hex } from '@yucp/shared/crypto';
+import { api, internal } from './_generated/api';
+import {
+  MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET,
+  calculateManualLicenseEntitlementCascadeBatchSize,
+} from './entitlements';
+import { ROLE_REMOVAL_WORKPOOL_WRITE_COUNT } from './lib/roleSyncEnqueue';
+import {
+  type ConvexTestInstance,
+  makeTestConvex,
+  seedEntitlement,
+  seedGuildLink,
+  seedRoleRule,
+  seedSubject,
+} from './testHelpers';
+
+const entitlementsSource = readFileSync(resolve(__dirname, './entitlements.ts'), 'utf8');
+const schemaSource = readFileSync(resolve(__dirname, './schema.ts'), 'utf8');
+
+async function createAuthUserActor(authUserId: string) {
+  const now = Date.now();
+  return await createApiActorBinding(
+    {
+      version: 1,
+      kind: 'auth_user',
+      authUserId,
+      source: 'session',
+      scopes: [],
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    },
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
+async function createManualLicenseServiceActor() {
+  const now = Date.now();
+  return await createApiActorBinding(
+    {
+      version: 1,
+      kind: 'service',
+      service: 'api-server',
+      scopes: ['manual-licenses:service'],
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    },
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
+async function collectCascadeArtifacts(
+  t: ConvexTestInstance,
+  authUserId: string,
+  entitlementIds: ReadonlySet<string>
+) {
+  return await t.run(async (ctx) => {
+    const [jobs, audits] = await Promise.all([
+      ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect(),
+      ctx.db
+        .query('audit_events')
+        .withIndex('by_auth_user_event', (q) =>
+          q.eq('authUserId', authUserId).eq('eventType', 'entitlement.revoked')
+        )
+        .collect(),
+    ]);
+
+    return {
+      roleRemovalJobs: jobs.filter((job) => entitlementIds.has(String(job.payload.entitlementId))),
+      revocationAudits: audits.filter(
+        (audit) =>
+          audit.entitlementId !== undefined && entitlementIds.has(String(audit.entitlementId))
+      ),
+    };
+  });
+}
 
 describe('manual license bounds', () => {
+  const originalRoleSyncViaWorkpool = process.env.ROLE_SYNC_VIA_WORKPOOL;
+
   beforeEach(() => {
     process.env.CONVEX_API_SECRET = 'test-secret';
     process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
+    delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalRoleSyncViaWorkpool === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
+    else process.env.ROLE_SYNC_VIA_WORKPOOL = originalRoleSyncViaWorkpool;
+  });
+
+  it('uses the Workpool role-removal write cost when sizing a manual-license cascade', () => {
+    const roleRemovalJobCount = 25;
+
+    expect(calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount)).toBe(37);
+
+    process.env.ROLE_SYNC_VIA_WORKPOOL = 'true';
+
+    const workpoolBatchSize = calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount);
+    expect(workpoolBatchSize).toBe(12);
+    expect(
+      workpoolBatchSize * (2 + roleRemovalJobCount * ROLE_REMOVAL_WORKPOOL_WRITE_COUNT)
+    ).toBeLessThanOrEqual(MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET);
+  });
+
+  it('rejects service attempts to revoke through updateStatus so revoke owns the cascade', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-update-status-revoke';
+    const actor = await createAuthUserActor(authUserId);
+    const serviceActor = await createManualLicenseServiceActor();
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'update-status-revoke-license-key-hash',
+      productId: 'product-manual-update-status-revoke',
+    });
+
+    await expect(
+      t.mutation(api.manualLicenses.updateStatus, {
+        apiSecret: 'test-secret',
+        actor: serviceActor,
+        licenseId,
+        status: 'revoked' as never,
+      })
+    ).rejects.toThrow();
+
+    const license = await t.run(async (ctx) => await ctx.db.get(licenseId));
+    expect(license).toMatchObject({ status: 'active' });
   });
 
   it('rejects bulkCreate requests above the documented 100-license limit', async () => {
     const t = makeTestConvex();
-    const now = Date.now();
-    const actor = await createApiActorBinding(
-      {
-        version: 1,
-        kind: 'auth_user',
-        authUserId: 'auth-manual-bounds',
-        source: 'session',
-        scopes: [],
-        issuedAt: now,
-        expiresAt: now + 60_000,
-      },
-      process.env.INTERNAL_SERVICE_AUTH_SECRET as string
-    );
+    const actor = await createAuthUserActor('auth-manual-bounds');
 
     await expect(
       t.mutation(api.manualLicenses.bulkCreate, {
@@ -37,6 +155,423 @@ describe('manual license bounds', () => {
       })
     ).rejects.toThrow('Maximum of 100 licenses per bulk request');
   });
+
+  it('revokes legacy active entitlements when retrying an already-revoked manual license', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-legacy-revoke';
+    const productId = 'product-manual-legacy-revoke';
+    const actor = await createAuthUserActor(authUserId);
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-manual-legacy-buyer',
+      primaryDiscordUserId: 'discord-manual-legacy-revoke',
+    });
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-manual-legacy-revoke',
+      installedByAuthUserId: authUserId,
+    });
+    await seedRoleRule(t, guildLinkId, {
+      authUserId,
+      guildId: 'guild-manual-legacy-revoke',
+      productId,
+      verifiedRoleId: 'role-manual-legacy-revoke',
+      removeOnRevoke: true,
+    });
+
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'legacy-license-key-hash',
+      productId,
+      notes: 'Revoked before entitlement cascade existed',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(licenseId, { status: 'revoked' });
+    });
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+    const entitlementId = await seedEntitlement(t, subjectId, {
+      authUserId,
+      productId,
+      sourceProvider: 'manual',
+      sourceReference,
+      status: 'active',
+    });
+
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseId,
+      reason: 'retry legacy cleanup',
+    });
+    vi.runAllTimers();
+    await t.finishInProgressScheduledFunctions();
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseId,
+      reason: 'retry must be idempotent',
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [license, entitlement, roleRemovalJobs, entitlementRevocations] = await t.run(
+      async (ctx) => {
+        const currentLicense = await ctx.db.get(licenseId);
+        const currentEntitlement = await ctx.db.get(entitlementId);
+        const currentRoleRemovalJobs = await ctx.db
+          .query('outbox_jobs')
+          .withIndex('by_auth_user_type', (q) =>
+            q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+          )
+          .collect();
+        const currentEntitlementRevocations = await ctx.db
+          .query('audit_events')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+          .filter((q) => q.eq(q.field('eventType'), 'entitlement.revoked'))
+          .collect();
+        return [
+          currentLicense,
+          currentEntitlement,
+          currentRoleRemovalJobs,
+          currentEntitlementRevocations,
+        ] as const;
+      }
+    );
+
+    expect(license).toMatchObject({
+      status: 'revoked',
+      notes: 'Revoked before entitlement cascade existed',
+    });
+    expect(entitlement).toMatchObject({ status: 'revoked' });
+    expect(roleRemovalJobs).toHaveLength(1);
+    expect(roleRemovalJobs[0]?.payload).toMatchObject({
+      subjectId,
+      entitlementId,
+      guildId: 'guild-manual-legacy-revoke',
+      roleId: 'role-manual-legacy-revoke',
+    });
+    expect(entitlementRevocations).toHaveLength(1);
+  });
+
+  it('uses a product-scoped role-rule read when revoking one product for a many-product creator', async () => {
+    const roleRulesSchema = schemaSource.slice(
+      schemaSource.indexOf('const role_rules = defineTable'),
+      schemaSource.indexOf('const download_routes = defineTable')
+    );
+    const roleRemovalQuery = entitlementsSource.slice(
+      entitlementsSource.indexOf('async function findRoleRemovalRules'),
+      entitlementsSource.indexOf('function roleIdsForRoleRule')
+    );
+
+    expect(roleRulesSchema).toContain(
+      ".index('by_auth_user_product', ['authUserId', 'productId'])"
+    );
+    expect(roleRemovalQuery).toContain(".withIndex('by_auth_user_product'");
+    expect(roleRemovalQuery).toContain(".eq('productId', productId)");
+    expect(roleRemovalQuery).not.toContain("q.field('productId')");
+
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-many-product-revoke';
+    const productId = 'product-manual-many-product-target';
+    const actor = await createAuthUserActor(authUserId);
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-manual-many-product-buyer',
+      primaryDiscordUserId: 'discord-manual-many-product-buyer',
+    });
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-manual-many-product-revoke',
+      installedByAuthUserId: authUserId,
+    });
+    const targetRoleIds = ['role-manual-target-one', 'role-manual-target-two'];
+    for (const roleId of targetRoleIds) {
+      await seedRoleRule(t, guildLinkId, {
+        authUserId,
+        guildId: 'guild-manual-many-product-revoke',
+        productId,
+        verifiedRoleId: roleId,
+        removeOnRevoke: true,
+      });
+    }
+    await Promise.all(
+      Array.from({ length: 64 }, (_, index) =>
+        seedRoleRule(t, guildLinkId, {
+          authUserId,
+          guildId: 'guild-manual-many-product-revoke',
+          productId: `product-manual-unrelated-${index}`,
+          verifiedRoleId: `role-manual-unrelated-${index}`,
+          removeOnRevoke: true,
+        })
+      )
+    );
+
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'many-product-license-key-hash',
+      productId,
+    });
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+    const entitlementId = await seedEntitlement(t, subjectId, {
+      authUserId,
+      productId,
+      sourceProvider: 'manual',
+      sourceReference,
+    });
+
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseId,
+      reason: 'revoke only the target product',
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [entitlement, roleRemovalJobs] = await t.run(async (ctx) => {
+      const currentEntitlement = await ctx.db.get(entitlementId);
+      const jobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect();
+      return [currentEntitlement, jobs] as const;
+    });
+
+    expect(entitlement).toMatchObject({ status: 'revoked' });
+    expect(roleRemovalJobs.map((job) => job.payload.roleId).sort()).toEqual(
+      targetRoleIds.sort()
+    );
+    expect(roleRemovalJobs.every((job) => job.payload.entitlementId === entitlementId)).toBe(true);
+  });
+
+  it('does not mutate an already-revoked manual license that has no active linked entitlement', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-clean-revoke';
+    const actor = await createAuthUserActor(authUserId);
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'clean-license-key-hash',
+      productId: 'product-manual-clean-revoke',
+      notes: 'Already clean',
+    });
+    const revokedAt = 1_234_567_890;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(licenseId, {
+        status: 'revoked',
+        updatedAt: revokedAt,
+      });
+    });
+
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseId,
+      reason: 'must not append a duplicate note',
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [license, roleRemovalJobs, entitlementRevocations] = await t.run(async (ctx) => {
+      const currentLicense = await ctx.db.get(licenseId);
+      const currentRoleRemovalJobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect();
+      const currentEntitlementRevocations = await ctx.db
+        .query('audit_events')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
+        .filter((q) => q.eq(q.field('eventType'), 'entitlement.revoked'))
+        .collect();
+      return [currentLicense, currentRoleRemovalJobs, currentEntitlementRevocations] as const;
+    });
+
+    expect(license).toMatchObject({
+      status: 'revoked',
+      notes: 'Already clean',
+      updatedAt: revokedAt,
+    });
+    expect(roleRemovalJobs).toHaveLength(0);
+    expect(entitlementRevocations).toHaveLength(0);
+  });
+
+  it('commits reusable-license revocation before draining the bounded entitlement cascade', async () => {
+    // One more than the computed production chunk size proves the cascade
+    // reschedules instead of processing every linked redemption in one transaction.
+    // One removable role retains the entitlement-to-role cascade while keeping the
+    // complete scheduled drain fast enough for the CI default timeout.
+    const removableRoleCount = 1;
+    const writesPerEntitlement = removableRoleCount + 2;
+    const expectedBatchSize = calculateManualLicenseEntitlementCascadeBatchSize(removableRoleCount);
+    const entitlementCount = expectedBatchSize + 1;
+    const t = makeTestConvex();
+    try {
+      const authUserId = 'auth-manual-bounded-revoke';
+      const productId = 'product-manual-bounded-revoke';
+      const actor = await createAuthUserActor(authUserId);
+      const subjectId = await seedSubject(t, {
+        authUserId: 'auth-manual-bounded-buyer',
+        primaryDiscordUserId: 'discord-manual-bounded-revoke',
+      });
+      const guildLinkId = await seedGuildLink(t, {
+        authUserId,
+        discordGuildId: 'guild-manual-bounded-revoke',
+        installedByAuthUserId: authUserId,
+      });
+      for (let roleIndex = 0; roleIndex < removableRoleCount; roleIndex++) {
+        await seedRoleRule(t, guildLinkId, {
+          authUserId,
+          guildId: 'guild-manual-bounded-revoke',
+          productId,
+          verifiedRoleId: `role-manual-bounded-revoke-${roleIndex}`,
+          removeOnRevoke: true,
+        });
+      }
+
+      const { licenseId } = await t.mutation(api.manualLicenses.create, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseKeyHash: 'bounded-license-key-hash',
+        productId,
+        maxUses: entitlementCount,
+      });
+      const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+      const entitlementIds = await Promise.all(
+        Array.from({ length: entitlementCount }, () =>
+          seedEntitlement(t, subjectId, {
+            authUserId,
+            productId,
+            sourceProvider: 'manual',
+            sourceReference,
+          })
+        )
+      );
+
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseId,
+        reason: 'creator requested bounded removal',
+      });
+
+      const [revokedLicenseBeforeDrain, activeEntitlementsBeforeDrain] = await t.run(
+        async (ctx) => {
+          const license = await ctx.db.get(licenseId);
+          const activeEntitlements = await ctx.db
+            .query('entitlements')
+            .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+              q
+                .eq('authUserId', authUserId)
+                .eq('sourceProvider', 'manual')
+                .eq('sourceReference', sourceReference)
+                .eq('status', 'active')
+            )
+            .collect();
+          return [license, activeEntitlements] as const;
+        }
+      );
+      const cascadeArtifactsBeforeDrain = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
+
+      expect(revokedLicenseBeforeDrain).toMatchObject({ status: 'revoked' });
+      expect(activeEntitlementsBeforeDrain).toHaveLength(entitlementCount);
+      expect(cascadeArtifactsBeforeDrain.roleRemovalJobs).toHaveLength(0);
+      expect(cascadeArtifactsBeforeDrain.revocationAudits).toHaveLength(0);
+
+      const firstChunk = await t.mutation(
+        internal.entitlements.revokeManualLicenseEntitlementCascadeChunk,
+        {
+          authUserId,
+          sourceReference,
+          correlationId: `manual-license:${licenseId}`,
+          revokedAt: Date.now(),
+        }
+      );
+
+      expect(entitlementCount).toBeGreaterThan(expectedBatchSize);
+      expect(expectedBatchSize * writesPerEntitlement).toBeLessThanOrEqual(
+        MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET
+      );
+      expect(firstChunk).toMatchObject({
+        revokedCount: expectedBatchSize,
+        writesPerEntitlement,
+        estimatedWriteCount: expectedBatchSize * writesPerEntitlement,
+        hop: 0,
+        revokedTotal: expectedBatchSize,
+      });
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const revokedEntitlements = await t.run(async (ctx) => {
+        const entitlements = await ctx.db
+          .query('entitlements')
+          .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+            q
+              .eq('authUserId', authUserId)
+              .eq('sourceProvider', 'manual')
+              .eq('sourceReference', sourceReference)
+          )
+          .collect();
+        return entitlements;
+      });
+      const cascadeArtifactsAfterDrain = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
+
+      expect(revokedEntitlements).toHaveLength(entitlementCount);
+      expect(revokedEntitlements.every((entitlement) => entitlement.status === 'revoked')).toBe(
+        true
+      );
+      expect(cascadeArtifactsAfterDrain.roleRemovalJobs).toHaveLength(
+        entitlementCount * removableRoleCount
+      );
+      expect(cascadeArtifactsAfterDrain.revocationAudits).toHaveLength(entitlementCount);
+
+      await t.mutation(api.manualLicenses.revoke, {
+        apiSecret: 'test-secret',
+        actor,
+        authUserId,
+        licenseId,
+        reason: 'retry must not duplicate removals',
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await t.mutation(internal.entitlements.revokeManualLicenseEntitlementCascadeChunk, {
+        authUserId,
+        sourceReference,
+        correlationId: `manual-license:${licenseId}`,
+        revokedAt: Date.now(),
+      });
+
+      const cascadeArtifactsAfterRetry = await collectCascadeArtifacts(
+        t,
+        authUserId,
+        new Set(entitlementIds.map(String))
+      );
+
+      expect(cascadeArtifactsAfterRetry.roleRemovalJobs).toHaveLength(
+        entitlementCount * removableRoleCount
+      );
+      expect(cascadeArtifactsAfterRetry.revocationAudits).toHaveLength(entitlementCount);
+    } finally {
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    }
+  }, 30_000);
 
   it('returns a filtered cursor page without exposing license hashes', async () => {
     const t = makeTestConvex();

@@ -544,7 +544,11 @@ export const completeManualLicenseIntent = internalMutation({
     manualLicenseId: v.id('manual_licenses'),
     catalogProductId: v.optional(v.id('product_catalog')),
   },
-  returns: v.object({ success: v.boolean() }),
+  returns: v.object({
+    success: v.boolean(),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+  }),
   handler: async (ctx, args) => {
     const intent = await ctx.db.get(args.intentId);
     if (!intent) {
@@ -556,6 +560,13 @@ export const completeManualLicenseIntent = internalMutation({
     const subject = await ctx.db.get(args.subjectId);
     if (!subject) {
       throw new Error(`Verification subject not found: ${args.subjectId}`);
+    }
+    if (subject.status !== 'active') {
+      return {
+        success: false,
+        errorCode: 'subject_inactive',
+        errorMessage: 'The buyer subject is no longer active.',
+      };
     }
 
     const now = Date.now();
@@ -1370,15 +1381,17 @@ export const verifyIntentWithManualLicense = action({
         }
       );
       if (!completion.success) {
+        const errorCode = completion.errorCode ?? 'invalid_proof';
+        const errorMessage = completion.errorMessage ?? 'License verification failed';
         await ctx.runMutation(internal.verificationIntents.markIntentFailed, {
           intentId: args.intentId,
-          errorCode: 'invalid_proof',
-          errorMessage: 'License verification failed',
+          errorCode,
+          errorMessage,
         });
         return {
           success: false,
-          errorCode: 'invalid_proof',
-          errorMessage: 'License verification failed',
+          errorCode,
+          errorMessage,
         };
       }
       return { success: true };

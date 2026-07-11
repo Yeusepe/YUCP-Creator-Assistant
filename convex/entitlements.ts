@@ -21,7 +21,8 @@ import { sha256Hex } from '@yucp/shared/crypto';
 import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalQuery, mutation, query } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
+import { internal } from './_generated/api';
 import {
   ApiActorBindingV,
   requireDelegatedAuthUserActor,
@@ -36,6 +37,7 @@ import {
   buildRoleSyncIdempotencyKey,
   enqueueRoleRemoval,
   enqueueRoleSync,
+  roleRemovalWriteCount,
 } from './lib/roleSyncEnqueue';
 
 // ============================================================================
@@ -1491,6 +1493,211 @@ export const revokeEntitlementBySourceRef = mutation({
 });
 
 /**
+ * Revoke every active entitlement from one provider source reference.
+ *
+ * Source references can legitimately fan out to multiple buyer subjects, such as a
+ * reusable manual license. Callers use this shared lifecycle path so entitlement
+ * revocation, role removal, and audit records remain consistent.
+ */
+export const ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE = 100;
+export const MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET = 1_000;
+const ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT = 2;
+
+export function calculateManualLicenseEntitlementCascadeBatchSize(
+  roleRemovalJobCount: number,
+  roleRemovalWritesPerJob = roleRemovalWriteCount()
+): number {
+  const writesPerEntitlement =
+    ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT +
+    Math.max(0, roleRemovalJobCount) * Math.max(0, roleRemovalWritesPerJob);
+  return Math.max(
+    1,
+    Math.min(
+      ACTIVE_ENTITLEMENT_SOURCE_REVOCATION_BATCH_SIZE,
+      Math.floor(MANUAL_LICENSE_ENTITLEMENT_CASCADE_WRITE_BUDGET / writesPerEntitlement)
+    )
+  );
+}
+
+export async function revokeActiveEntitlementsBySourceReference(
+  ctx: MutationCtx,
+  params: {
+    authUserId: string;
+    sourceProvider: Doc<'entitlements'>['sourceProvider'];
+    sourceReference: string;
+    reason: Parameters<typeof mapReasonToStatus>[0];
+    details?: string;
+    correlationId?: string;
+    now?: number;
+  }
+): Promise<{
+  revokedCount: number;
+  outboxJobIds: Id<'outbox_jobs'>[];
+  hasMore: boolean;
+  roleRemovalJobCount: number;
+  writesPerEntitlement: number;
+  estimatedWriteCount: number;
+}> {
+  const now = params.now ?? Date.now();
+  const newStatus = mapReasonToStatus(params.reason);
+  const firstEntitlement = await ctx.db
+    .query('entitlements')
+    .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+      q
+        .eq('authUserId', params.authUserId)
+        .eq('sourceProvider', params.sourceProvider)
+        .eq('sourceReference', params.sourceReference)
+        .eq('status', 'active')
+    )
+    .first();
+
+  if (!firstEntitlement) {
+    return {
+      revokedCount: 0,
+      outboxJobIds: [],
+      hasMore: false,
+      roleRemovalJobCount: 0,
+      writesPerEntitlement: ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT,
+      estimatedWriteCount: 0,
+    };
+  }
+
+  // A manual license maps to one product, so each linked entitlement shares
+  // this rule set. Fetch it once for the whole transaction rather than once
+  // per entitlement.
+  const roleRules = await findRoleRemovalRules(ctx, params.authUserId, firstEntitlement.productId);
+  const roleRemovalJobCount = countRoleRemovalJobs(roleRules);
+  const roleRemovalWritesPerJob = roleRemovalWriteCount();
+  const writesPerEntitlement =
+    ENTITLEMENT_REVOCATION_BASE_WRITE_COUNT + roleRemovalJobCount * roleRemovalWritesPerJob;
+  const entitlementBatchSize =
+    calculateManualLicenseEntitlementCascadeBatchSize(roleRemovalJobCount, roleRemovalWritesPerJob);
+  const entitlements = await ctx.db
+    .query('entitlements')
+    .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+      q
+        .eq('authUserId', params.authUserId)
+        .eq('sourceProvider', params.sourceProvider)
+        .eq('sourceReference', params.sourceReference)
+        .eq('status', 'active')
+    )
+    .take(entitlementBatchSize + 1);
+  const entitlementBatch = entitlements.slice(0, entitlementBatchSize);
+  const outboxJobIds: Id<'outbox_jobs'>[] = [];
+
+  for (const entitlement of entitlementBatch) {
+    await ctx.db.patch(entitlement._id, {
+      status: newStatus,
+      revokedAt: now,
+      updatedAt: now,
+    });
+
+    outboxJobIds.push(
+      ...(await emitRoleRemovalJobsForRules(
+        ctx,
+        entitlement.authUserId,
+        entitlement.subjectId,
+        entitlement.productId,
+        entitlement._id,
+        roleRules,
+        params.correlationId,
+        now
+      ))
+    );
+
+    await createAuditEvent(ctx, {
+      authUserId: entitlement.authUserId,
+      eventType: 'entitlement.revoked',
+      subjectId: entitlement.subjectId,
+      entitlementId: entitlement._id,
+      metadata: {
+        productId: entitlement.productId,
+        reason: params.reason,
+        details: params.details,
+        sourceReference: params.sourceReference,
+        previousStatus: entitlement.status,
+        newStatus,
+      },
+      correlationId: params.correlationId,
+    });
+  }
+
+  return {
+    revokedCount: entitlementBatch.length,
+    outboxJobIds,
+    hasMore: entitlements.length > entitlementBatch.length,
+    roleRemovalJobCount,
+    writesPerEntitlement,
+    estimatedWriteCount: entitlementBatch.length * writesPerEntitlement,
+  };
+}
+
+/**
+ * Revoke one bounded page of entitlements created by a reusable manual license.
+ *
+ * A license can have many redemptions, so each transaction handles only one
+ * page and schedules another one when active rows remain. Re-running a page is
+ * safe because only still-active entitlements are selected.
+ */
+export const revokeManualLicenseEntitlementCascadeChunk = internalMutation({
+  args: {
+    authUserId: v.string(),
+    sourceReference: v.string(),
+    details: v.optional(v.string()),
+    correlationId: v.string(),
+    revokedAt: v.number(),
+    hop: v.optional(v.number()),
+    revokedTotal: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const hop = Math.max(args.hop ?? 0, 0);
+    const result = await revokeActiveEntitlementsBySourceReference(ctx, {
+      authUserId: args.authUserId,
+      sourceProvider: 'manual',
+      sourceReference: args.sourceReference,
+      reason: 'manual',
+      details: args.details,
+      correlationId: args.correlationId,
+      now: args.revokedAt,
+    });
+    const revokedTotal = (args.revokedTotal ?? 0) + result.revokedCount;
+
+    if (result.hasMore && result.revokedCount > 0) {
+      console.info('manual_license_entitlement_cascade_progress', {
+        hop,
+        revokedCount: result.revokedCount,
+        revokedTotal,
+        estimatedWriteCount: result.estimatedWriteCount,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.entitlements.revokeManualLicenseEntitlementCascadeChunk,
+        {
+          ...args,
+          hop: hop + 1,
+          revokedTotal,
+        }
+      );
+    } else if (result.hasMore) {
+      console.error('manual_license_entitlement_cascade_stalled', {
+        hop,
+        revokedTotal,
+        estimatedWriteCount: result.estimatedWriteCount,
+      });
+    } else {
+      console.info('manual_license_entitlement_cascade_completed', {
+        hop,
+        revokedCount: result.revokedCount,
+        revokedTotal,
+        estimatedWriteCount: result.estimatedWriteCount,
+      });
+    }
+
+    return { ...result, hop, revokedTotal };
+  },
+});
+
+/**
  * Revoke all entitlements for a subject in a tenant.
  * Used when user disconnects their last account - no remaining proof of ownership.
  */
@@ -2124,22 +2331,59 @@ async function emitRoleRemovalJobs(
   _correlationId?: string,
   lifecycleAt?: number
 ): Promise<Id<'outbox_jobs'>[]> {
-  const outboxJobIds: Id<'outbox_jobs'>[] = [];
+  const roleRules = await findRoleRemovalRules(ctx, authUserId, productId);
+  return emitRoleRemovalJobsForRules(
+    ctx,
+    authUserId,
+    subjectId,
+    productId,
+    entitlementId,
+    roleRules,
+    _correlationId,
+    lifecycleAt
+  );
+}
 
-  // Find all role rules for this product
-  const roleRules = await ctx.db
+async function findRoleRemovalRules(
+  ctx: MutationCtx,
+  authUserId: string,
+  productId: string
+): Promise<Doc<'role_rules'>[]> {
+  return await ctx.db
     .query('role_rules')
-    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
-    .filter((q) => q.eq(q.field('productId'), productId))
+    .withIndex('by_auth_user_product', (q) =>
+      q.eq('authUserId', authUserId).eq('productId', productId)
+    )
     .filter((q) => q.eq(q.field('enabled'), true))
     .filter((q) => q.eq(q.field('removeOnRevoke'), true))
     .collect();
+}
+
+function roleIdsForRoleRule(rule: Doc<'role_rules'>): string[] {
+  return rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
+}
+
+function countRoleRemovalJobs(roleRules: readonly Doc<'role_rules'>[]): number {
+  return roleRules.reduce((total, roleRule) => total + roleIdsForRoleRule(roleRule).length, 0);
+}
+
+async function emitRoleRemovalJobsForRules(
+  ctx: MutationCtx,
+  authUserId: string,
+  subjectId: Id<'subjects'>,
+  productId: string,
+  entitlementId: Id<'entitlements'>,
+  roleRules: readonly Doc<'role_rules'>[],
+  _correlationId?: string,
+  lifecycleAt?: number
+): Promise<Id<'outbox_jobs'>[]> {
+  const outboxJobIds: Id<'outbox_jobs'>[] = [];
 
   // Get subject for Discord user ID
   const subject = await ctx.db.get(subjectId);
 
   for (const rule of roleRules) {
-    const roleIds = rule.verifiedRoleIds ?? (rule.verifiedRoleId ? [rule.verifiedRoleId] : []);
+    const roleIds = roleIdsForRoleRule(rule);
 
     for (const roleId of roleIds) {
       const idempotencyKey = buildRoleRemovalIdempotencyKey({

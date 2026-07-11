@@ -6,6 +6,8 @@
  */
 
 import { ConvexError, v } from 'convex/values';
+import { sha256Hex } from '@yucp/shared/crypto';
+import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, mutation, query } from './_generated/server';
 import {
@@ -23,6 +25,13 @@ import { requireApiSecret } from './lib/apiAuth';
 export const ManualLicenseStatus = v.union(
   v.literal('active'),
   v.literal('revoked'),
+  v.literal('expired'),
+  v.literal('exhausted')
+);
+
+// Revocation has lifecycle side effects, so it must flow through `revoke`.
+const ManualLicenseNonRevokedStatus = v.union(
+  v.literal('active'),
   v.literal('expired'),
   v.literal('exhausted')
 );
@@ -337,11 +346,25 @@ export const revoke = mutation({
     }
 
     const now = Date.now();
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
 
-    await ctx.db.patch(licenseId, {
-      status: 'revoked',
-      notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
-      updatedAt: now,
+    // Preserve the original license-level audit details on retries, while
+    // always scheduling the idempotent entitlement cascade so legacy revoked
+    // licenses can clean up active entitlements left before cascading existed.
+    if (license.status !== 'revoked') {
+      await ctx.db.patch(licenseId, {
+        status: 'revoked',
+        notes: reason ? `${license.notes || ''}\nRevoked: ${reason}`.trim() : license.notes,
+        updatedAt: now,
+      });
+    }
+
+    await ctx.scheduler.runAfter(0, internal.entitlements.revokeManualLicenseEntitlementCascadeChunk, {
+      authUserId,
+      sourceReference,
+      details: reason,
+      correlationId: `manual-license:${licenseId}`,
+      revokedAt: now,
     });
 
     const updated = await ctx.db.get(licenseId);
@@ -351,7 +374,8 @@ export const revoke = mutation({
 });
 
 /**
- * Update license status (used for expiry detection).
+ * Update a non-revoked license status (used for expiry detection).
+ * Revocation must use `revoke` so linked entitlements and roles are cascaded.
  * Requires apiSecret - called by API server only.
  */
 export const updateStatus = mutation({
@@ -359,7 +383,7 @@ export const updateStatus = mutation({
     apiSecret: v.string(),
     actor: ApiActorBindingV,
     licenseId: v.id('manual_licenses'),
-    status: ManualLicenseStatus,
+    status: ManualLicenseNonRevokedStatus,
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { apiSecret, actor, licenseId, status, reason }) => {
