@@ -39,6 +39,12 @@ function readContentLength(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function isBackstageReleaseSourceUpload(request: Request, url: URL): boolean {
+  return (
+    request.method === 'POST' && /^\/api\/packages\/[^/]+\/backstage\/upload$/u.test(url.pathname)
+  );
+}
+
 async function readRequestBodyWithLimit(request: Request, maxBytes: number): Promise<ArrayBuffer> {
   const contentLength = readContentLength(request.headers);
   if (contentLength !== null && contentLength > maxBytes) {
@@ -118,7 +124,6 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
 
   copyHeaderIfPresent(request.headers, headers, 'content-type');
   copyHeaderIfPresent(request.headers, headers, 'idempotency-key');
-  copyHeaderIfPresent(request.headers, headers, 'x-yucp-upload-completion-token');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-file-name');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-media-kind');
   copyHeaderIfPresent(request.headers, headers, 'x-yucp-source-path');
@@ -129,11 +134,13 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  const shouldStreamBody = isBackstageReleaseSourceUpload(request, url);
   let body: ArrayBuffer | undefined;
   try {
-    body = hasBody
-      ? await readRequestBodyWithLimit(request, API_PROXY_REQUEST_BODY_MAX_BYTES)
-      : undefined;
+    body =
+      hasBody && !shouldStreamBody
+        ? await readRequestBodyWithLimit(request, API_PROXY_REQUEST_BODY_MAX_BYTES)
+        : undefined;
   } catch (error) {
     if (error instanceof ApiProxyRequestBodyTooLargeError) {
       return Response.json(
@@ -149,16 +156,16 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
 
   let response: Response;
   try {
-    response = await fetchApiTargetWithTimeout(
-      targetUrl,
-      {
-        method: request.method,
-        headers,
-        body,
-        redirect: 'manual',
-      },
-      API_PROXY_UPSTREAM_TIMEOUT_MS
-    );
+    const init: RequestInit & { duplex?: 'half' } = {
+      method: request.method,
+      headers,
+      body: shouldStreamBody ? request.body : body,
+      redirect: 'manual',
+      ...(shouldStreamBody ? { duplex: 'half' as const } : {}),
+    };
+    response = shouldStreamBody
+      ? await fetch(targetUrl, init)
+      : await fetchApiTargetWithTimeout(targetUrl, init, API_PROXY_UPSTREAM_TIMEOUT_MS);
   } catch (error) {
     if (error instanceof ApiProxyUpstreamTimeoutError) {
       return Response.json(

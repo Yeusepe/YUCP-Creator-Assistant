@@ -583,7 +583,7 @@ vi.mock('@/lib/packages', () => ({
   requestBackstageRepoAccess: vi.fn(),
   restoreCreatorBackstageProduct: vi.fn(),
   restoreCreatorPackage: vi.fn(),
-  uploadBackstageReleaseFileDirect: vi.fn(),
+  uploadBackstageReleaseSource: vi.fn(),
   uploadBackstageReleaseMedia: vi.fn(),
 }));
 
@@ -622,8 +622,9 @@ const publishBackstageReleaseMock = packagesApi.publishBackstageRelease as Retur
 const requestBackstageRepoAccessMock = packagesApi.requestBackstageRepoAccess as ReturnType<
   typeof vi.fn
 >;
-const uploadBackstageReleaseFileDirectMock =
-  packagesApi.uploadBackstageReleaseFileDirect as ReturnType<typeof vi.fn>;
+const uploadBackstageReleaseSourceMock = packagesApi.uploadBackstageReleaseSource as ReturnType<
+  typeof vi.fn
+>;
 const uploadBackstageReleaseMediaMock = packagesApi.uploadBackstageReleaseMedia as ReturnType<
   typeof vi.fn
 >;
@@ -869,16 +870,14 @@ describe('dashboard packages route', () => {
         'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
       expiresAt: 1_710_000_100_000,
     });
-    uploadBackstageReleaseFileDirectMock.mockResolvedValue({
-      cdngineSource: {
-        assetId: 'ast_uploaded_1',
-        assetOwner: 'creator:auth-user-1',
+    uploadBackstageReleaseSourceMock.mockResolvedValue({
+      loreSource: {
+        repositoryId: 'repo_uploaded_1',
+        address: `sha256:${'f'.repeat(64)}`,
         byteSize: 128,
-        serviceNamespaceId: 'yucp-backstage',
         sha256: 'f'.repeat(64),
         tenantId: 'auth-user-1',
-        uploadedAt: 1_710_000_000_000,
-        versionId: 'ver_uploaded_1',
+        uploadedAt: '2024-03-09T16:00:00.000Z',
       },
       deliveryName: 'bundle.unitypackage',
       sourceContentType: 'application/octet-stream',
@@ -1312,7 +1311,7 @@ describe('dashboard packages route', () => {
     fireEvent.click(screen.getByRole('button', { name: /upload package/i }));
 
     await waitFor(() =>
-      expect(uploadBackstageReleaseFileDirectMock).toHaveBeenCalledWith(
+      expect(uploadBackstageReleaseSourceMock).toHaveBeenCalledWith(
         expect.objectContaining({
           file: largePackage,
           packageId: 'pkg.creator.bundle',

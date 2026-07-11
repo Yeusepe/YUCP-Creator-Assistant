@@ -69,8 +69,8 @@ import {
   requestBackstageRepoAccess,
   restoreCreatorBackstageProduct,
   restoreCreatorPackage,
-  uploadBackstageReleaseFileDirect,
   uploadBackstageReleaseMedia,
+  uploadBackstageReleaseSource,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { copyToClipboard } from '@/lib/utils';
@@ -1742,7 +1742,7 @@ export function PackageRegistryPanel({
           })()
         : [];
 
-      const upload = await uploadBackstageReleaseFileDirect({
+      const upload = await uploadBackstageReleaseSource({
         packageId,
         file: selectedUpload.file,
         onProgress: (progress) => {
@@ -1812,7 +1812,7 @@ export function PackageRegistryPanel({
         packageId,
         body: {
           accessSelectors,
-          cdngineSource: upload.cdngineSource,
+          loreSource: upload.loreSource,
           version: draft.version.trim(),
           channel: draft.channel.trim() || 'stable',
           packageName: packageId,

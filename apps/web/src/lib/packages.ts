@@ -3,7 +3,7 @@ import type {
   BackstagePackageMediaKind,
   BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
-import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
+import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { apiClient } from '@/api/client';
 
 export interface CreatorPackageSummary {
@@ -110,29 +110,8 @@ export interface BackstageRepoAccessResponse {
   expiresAt: number;
 }
 
-export interface BackstageDirectUploadTarget {
-  expiresAt?: string;
-  method: string;
-  protocol: 'tus';
-  url: string;
-}
-
-export interface BackstageReleaseUploadSessionResponse {
-  completionToken: string;
-  completeUrl: string;
-  packageId: string;
-  uploadSessionId: string;
-  uploadTarget: BackstageDirectUploadTarget;
-}
-
-export interface BackstageStorageUploadResponse {
-  cdngineSource?: CdngineBackstageSourceReference;
-  deliveryName?: string;
-  sourceContentType?: string;
-}
-
 export interface BackstageReleaseUploadResult {
-  cdngineSource: CdngineBackstageSourceReference;
+  loreSource: LoreBackstageArtifactReference;
   deliveryName?: string;
   sourceContentType?: string;
 }
@@ -169,7 +148,7 @@ export interface PublishBackstageReleaseInput {
   catalogProductId?: string;
   catalogProductIds?: string[];
   accessSelectors?: BackstageAccessSelector[];
-  cdngineSource: CdngineBackstageSourceReference;
+  loreSource: LoreBackstageArtifactReference;
   version: string;
   channel?: string;
   packageName?: string;
@@ -272,61 +251,6 @@ export async function deleteCreatorBackstageRelease(input: {
   );
 }
 
-export async function createBackstageReleaseUploadSession(input: {
-  byteSize: number;
-  deliveryName: string;
-  packageId: string;
-  sha256: string;
-  sourceContentType: string;
-}) {
-  return await apiClient.post<BackstageReleaseUploadSessionResponse>(
-    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-session`,
-    {
-      byteSize: input.byteSize,
-      deliveryName: input.deliveryName,
-      sha256: input.sha256,
-      sourceContentType: input.sourceContentType,
-    }
-  );
-}
-
-export async function completeBackstageReleaseUploadSession(input: {
-  completionToken: string;
-  completeUrl: string;
-}) {
-  const completeUrl =
-    typeof window === 'undefined'
-      ? input.completeUrl
-      : (() => {
-          const url = new URL(input.completeUrl, window.location.href);
-          return url.origin === window.location.origin
-            ? url.toString()
-            : `${url.pathname}${url.search}`;
-        })();
-  const response = await fetch(completeUrl, {
-    headers: {
-      'X-YUCP-Upload-Completion-Token': input.completionToken,
-    },
-    method: 'POST',
-  });
-  const payload = (await response
-    .json()
-    .catch(() => null)) as BackstageStorageUploadResponse | null;
-  if (!response.ok) {
-    throw new Error(
-      `Failed to complete Backstage upload (${response.status} ${response.statusText})`
-    );
-  }
-  if (!payload?.cdngineSource) {
-    throw new Error('Backstage upload completion did not return CDNgine source coordinates');
-  }
-  return {
-    cdngineSource: payload.cdngineSource,
-    deliveryName: payload.deliveryName,
-    sourceContentType: payload.sourceContentType,
-  };
-}
-
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
@@ -349,88 +273,48 @@ async function sha256File(
   return bytesToHex(hasher.digest());
 }
 
-async function uploadBackstageFileToTarget(input: {
-  file: File;
-  onProgress?: (progress: BackstageReleaseUploadProgress) => void;
-  uploadTarget: BackstageDirectUploadTarget;
-}) {
-  if (input.uploadTarget.protocol !== 'tus') {
-    throw new Error(`Unsupported Backstage upload protocol "${input.uploadTarget.protocol}".`);
-  }
-  const xhrConstructor = globalThis.XMLHttpRequest;
-  if (xhrConstructor) {
-    await new Promise<void>((resolve, reject) => {
-      const request = new xhrConstructor();
-      request.open(input.uploadTarget.method, input.uploadTarget.url);
-      request.setRequestHeader('Content-Type', 'application/offset+octet-stream');
-      request.setRequestHeader('Tus-Resumable', '1.0.0');
-      request.setRequestHeader('Upload-Offset', '0');
-      request.upload.onprogress = (event) => {
-        if (!event.lengthComputable) {
-          return;
-        }
-        input.onProgress?.({
-          progress: Math.min(99, Math.round((event.loaded / event.total) * 100)),
-          stage: 'uploading',
-        });
-      };
-      request.onload = () => {
-        if (request.status >= 200 && request.status < 300) {
-          input.onProgress?.({ progress: 100, stage: 'uploading' });
-          resolve();
-          return;
-        }
-        reject(new Error(`CDNgine upload target rejected the file with status ${request.status}.`));
-      };
-      request.onerror = () => reject(new Error('CDNgine upload target request failed.'));
-      request.send(input.file);
-    });
-    return;
-  }
-
-  input.onProgress?.({ progress: 0, stage: 'uploading' });
-  const response = await fetch(input.uploadTarget.url, {
-    method: input.uploadTarget.method,
-    headers: {
-      'Content-Type': 'application/offset+octet-stream',
-      'Tus-Resumable': '1.0.0',
-      'Upload-Offset': '0',
-    },
-    body: input.file,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `CDNgine upload target rejected the file (${response.status} ${response.statusText})`
-    );
-  }
-  input.onProgress?.({ progress: 100, stage: 'uploading' });
-}
-
-export async function uploadBackstageReleaseFileDirect(input: {
+export async function uploadBackstageReleaseSource(input: {
+  deliveryName?: string;
   file: File;
   onProgress?: (progress: BackstageReleaseUploadProgress) => void;
   packageId: string;
+  sourceContentType?: string;
 }): Promise<BackstageReleaseUploadResult> {
-  const sourceContentType = input.file.type || 'application/octet-stream';
-  const digest = await sha256File(input.file, input.onProgress);
-  const session = await createBackstageReleaseUploadSession({
-    byteSize: input.file.size,
-    deliveryName: input.file.name,
-    packageId: input.packageId,
-    sha256: digest,
-    sourceContentType,
+  const deliveryName = input.deliveryName || input.file.name;
+  const sourceContentType =
+    input.sourceContentType || input.file.type || 'application/octet-stream';
+  const sha256 = await sha256File(input.file, input.onProgress);
+  input.onProgress?.({ progress: 0, stage: 'uploading' });
+  const payload = await apiClient.upload<{
+    loreSource?: LoreBackstageArtifactReference;
+    deliveryName?: string;
+    sourceContentType?: string;
+  }>(`/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload`, input.file, {
+    headers: {
+      'Content-Type': sourceContentType,
+    },
+    params: {
+      sha256,
+      deliveryName,
+      sourceContentType,
+    },
+    onProgress: ({ loaded, total }) => {
+      input.onProgress?.({
+        progress: Math.min(99, Math.round((loaded / total) * 100)),
+        stage: 'uploading',
+      });
+    },
   });
-  await uploadBackstageFileToTarget({
-    file: input.file,
-    onProgress: input.onProgress,
-    uploadTarget: session.uploadTarget,
-  });
-  const result = await completeBackstageReleaseUploadSession({
-    completeUrl: session.completeUrl,
-    completionToken: session.completionToken,
-  });
+  if (!payload?.loreSource) {
+    throw new Error('Backstage source upload did not return Lore source coordinates');
+  }
+  input.onProgress?.({ progress: 100, stage: 'uploading' });
   input.onProgress?.({ progress: 100, stage: 'complete' });
-  return result;
+  return {
+    loreSource: payload.loreSource,
+    deliveryName: payload.deliveryName,
+    sourceContentType: payload.sourceContentType,
+  };
 }
 
 export async function uploadBackstageReleaseMedia(

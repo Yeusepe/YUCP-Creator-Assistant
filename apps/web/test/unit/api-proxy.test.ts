@@ -91,36 +91,6 @@ describe('proxyApiRequest', () => {
     expect(mockGetToken).not.toHaveBeenCalled();
   });
 
-  it('forwards the Backstage upload completion token to the API proxy target', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ cdngineSource: { assetId: 'asset_1' } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
-
-    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
-
-    await proxyApiRequest({
-      url: 'http://localhost:3000/api/packages/com.yucp.song/backstage/upload-session/upload_1/complete',
-      method: 'POST',
-      headers: new Headers({
-        'X-YUCP-Upload-Completion-Token': 'completion-token-1',
-        authorization: 'Bearer should-not-forward',
-      }),
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
-    } as unknown as Request);
-
-    const call = mockFetch.mock.calls[0];
-    expect(call).toBeDefined();
-    const [, init] = call as [string, RequestInit];
-    const headers = new Headers(init.headers);
-
-    expect(headers.get('X-YUCP-Upload-Completion-Token')).toBe('completion-token-1');
-    expect(headers.get('Authorization')).toBeNull();
-    expect(mockGetToken).not.toHaveBeenCalled();
-  });
-
   it('forwards Backstage media metadata headers to the API proxy target', async () => {
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ kind: 'icon' }), {
@@ -175,6 +145,54 @@ describe('proxyApiRequest', () => {
       limitBytes: 16777216,
     });
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('streams Backstage source uploads without applying the generic proxy body limit', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          loreSource: {
+            repositoryId: 'repo_1',
+            address: `sha256:${'f'.repeat(64)}`,
+            sha256: 'f'.repeat(64),
+            byteSize: 17 * 1024 * 1024,
+            uploadedAt: '2024-03-09T16:00:00.000Z',
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+    const requestBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]));
+        controller.close();
+      },
+    });
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    const response = await proxyApiRequest({
+      url: `http://localhost:3000/api/packages/com.yucp.song/backstage/upload?sha256=${'f'.repeat(64)}&deliveryName=song.zip&sourceContentType=application%2Fzip`,
+      method: 'POST',
+      headers: new Headers({
+        'content-length': String(17 * 1024 * 1024),
+        'content-type': 'application/zip',
+      }),
+      body: requestBody,
+    } as unknown as Request);
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: '/api/packages/com.yucp.song/backstage/upload',
+      }),
+      expect.objectContaining({
+        body: requestBody,
+        method: 'POST',
+      })
+    );
   });
 
   it('times out hung upstream API fetches with a controlled response', async () => {
