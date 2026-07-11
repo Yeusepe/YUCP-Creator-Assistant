@@ -977,7 +977,7 @@ function VerifyPurchasePage() {
   const renderShell = (content: React.ReactNode) => (
     <div className="vp-page">
       <PageLoadingOverlay />
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <div className={wrapperClass}>
         <main id="page-content" className="vp-main">
           {content}

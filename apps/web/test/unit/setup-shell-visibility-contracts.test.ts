@@ -111,7 +111,7 @@ describe('setup shell visibility contracts', () => {
   it('renders the Lemon Squeezy background canvas inside the page-content shell', () => {
     const pageContentIndex = lemonSqueezySetupSource.indexOf('className={`page-content');
     const canvasIndex = lemonSqueezySetupSource.indexOf(
-      '<BackgroundCanvasRoot position="absolute" />'
+      '<CloudBackground position="absolute" zIndex={-20} />'
     );
     expect(pageContentIndex).toBeGreaterThan(-1);
     expect(canvasIndex).toBeGreaterThan(pageContentIndex);
@@ -122,7 +122,7 @@ describe('setup shell visibility contracts', () => {
     expect(payhipSetupSource).toContain(
       'className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden'
     );
-    expect(payhipSetupSource).toContain('<BackgroundCanvasRoot position="absolute" />');
+    expect(payhipSetupSource).toContain('<CloudBackground position="absolute" zIndex={-20} />');
     expect(payhipSetupSource).not.toContain('if (!isVisible) return null;');
   });
 

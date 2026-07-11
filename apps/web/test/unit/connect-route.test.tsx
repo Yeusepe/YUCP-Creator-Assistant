@@ -43,8 +43,8 @@ vi.mock('@/api/client', () => ({
   apiClient,
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: () => null,
 }));
 
 vi.mock('@/lib/routeStyles', () => ({

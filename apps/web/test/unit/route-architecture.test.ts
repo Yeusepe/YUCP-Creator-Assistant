@@ -80,9 +80,7 @@ describe('Route architecture', () => {
       if (!source.includes('id="bg-canvas-root"')) continue;
 
       const hasCloudMount =
-        source.includes('CloudBackground') ||
-        source.includes('CloudBackgroundLayer') ||
-        source.includes('BackgroundCanvasRoot');
+        source.includes('CloudBackground') || source.includes('CloudBackgroundLayer');
 
       if (!hasCloudMount) {
         offenders.push(rel);

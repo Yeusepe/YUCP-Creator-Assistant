@@ -216,7 +216,7 @@ function BuyerUnityAccessPage() {
 
   return (
     <div className="min-h-screen bg-transparent">
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <main className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-4 py-10">
         <Card className="w-full max-w-3xl rounded-[28px] border border-white/12 bg-white/8 shadow-none backdrop-blur-xl dark:border-white/10 dark:bg-white/6">
           <Card.Content className="space-y-6 p-6 md:p-8">

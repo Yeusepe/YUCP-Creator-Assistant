@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/error')({
@@ -59,7 +59,7 @@ function VerifyErrorPage() {
 
   return (
     <div className="verify-error-page-wrapper">
-      <BackgroundCanvasRoot position="fixed" />
+      <CloudBackground position="fixed" zIndex={-20} />
       <main
         className={`verify-error-page text-center max-w-lg w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >

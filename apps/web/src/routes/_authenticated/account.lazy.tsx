@@ -282,7 +282,7 @@ function AccountLayout() {
   return (
     <DashboardSessionProvider>
       <div className="dashboard-page">
-        <CloudBackground variant="default" />
+        <CloudBackground position="fixed" zIndex={0} />
         <div className="app-shell">
           <div
             id="sidebar-overlay"

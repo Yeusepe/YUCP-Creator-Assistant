@@ -19,8 +19,8 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 
 vi.mock('@/components/three/CloudBackground', () => ({
-  CloudBackground: ({ variant }: { variant?: 'default' | '404' }) => (
-    <div data-testid="cloud-background" data-variant={variant ?? 'default'} />
+  CloudBackground: ({ position, zIndex }: { position: 'fixed' | 'absolute'; zIndex: number }) => (
+    <div data-testid="cloud-background" data-position={position} data-z-index={zIndex} />
   ),
 }));
 
@@ -251,7 +251,11 @@ describe('verify purchase route', () => {
     expect(
       screen
         .getAllByTestId('cloud-background')
-        .every((element) => element.getAttribute('data-variant') === 'default')
+        .every(
+          (element) =>
+            element.getAttribute('data-position') === 'fixed' &&
+            element.getAttribute('data-z-index') === '0'
+        )
     ).toBe(true);
   });
 

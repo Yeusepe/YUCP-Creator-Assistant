@@ -1,13 +1,4 @@
-import {
-  Component,
-  lazy,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { Component, lazy, type ReactNode, Suspense, useEffect, useState } from 'react';
 
 const BackgroundApp = lazy(() => import('./BackgroundApp'));
 const Cloud404App = lazy(() => import('./Cloud404App'));
@@ -42,29 +33,10 @@ function CloudBackgroundSurface({ hidden = false }: { hidden?: boolean }) {
   );
 }
 
-function useOneShotCallback(callback?: () => void) {
-  const calledRef = useRef(false);
-
-  return useCallback(() => {
-    if (!callback || calledRef.current) return;
-    calledRef.current = true;
-    callback();
-  }, [callback]);
-}
-
-/**
- * Background sky canvas (z-index: 0, opaque).
- * Renders into the bg-canvas-root div that pages provide.
- */
-export function CloudBackgroundLayer({ onReady }: { onReady?: () => void }) {
+/** Background sky layer with a static fallback until the first rendered frame. */
+export function CloudBackgroundLayer() {
   const ready = useClientReady();
   const [sceneReady, setSceneReady] = useState(false);
-  const reportReady = useOneShotCallback(onReady);
-
-  useEffect(() => {
-    if (!sceneReady) return;
-    reportReady();
-  }, [reportReady, sceneReady]);
 
   return (
     <div className="cloud-layer-shell">
@@ -99,31 +71,38 @@ export function Cloud404Layer() {
   );
 }
 
-/**
- * Convenience: renders all cloud layers matching the original HTML structure.
- * For pages that need bg + fg: <CloudBackground variant="default" />
- * For 404 page: <CloudBackground variant="404" />
- */
-export function CloudBackground({
-  onReady,
-  variant = 'default',
-}: {
-  onReady?: () => void;
-  variant?: 'default' | '404';
-}) {
+type CloudBackgroundProps = {
+  position: 'fixed' | 'absolute';
+  zIndex: number;
+};
+
+export function CloudBackground({ position, zIndex }: CloudBackgroundProps) {
+  const sizeStyle =
+    position === 'absolute'
+      ? {
+          position: 'absolute' as const,
+          inset: 0,
+          width: '100%',
+          height: '100%',
+        }
+      : {
+          position: 'fixed' as const,
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+        };
+
   return (
-    <>
-      <div
-        id="bg-canvas-root"
-        style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}
-      >
-        <CloudBackgroundLayer onReady={onReady} />
-      </div>
-      {variant === '404' ? (
-        <div id="canvas-404-root" style={{ position: 'relative', zIndex: 2 }}>
-          <Cloud404Layer />
-        </div>
-      ) : null}
-    </>
+    <div
+      id="bg-canvas-root"
+      style={{
+        ...sizeStyle,
+        zIndex,
+        pointerEvents: 'none',
+      }}
+    >
+      <CloudBackgroundLayer />
+    </div>
   );
 }

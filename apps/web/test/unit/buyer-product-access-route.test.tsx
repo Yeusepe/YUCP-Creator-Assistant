@@ -32,9 +32,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('@/components/three/CloudBackground', () => ({
-  CloudBackground: ({ variant }: { variant?: 'default' | '404' }) => (
-    <div data-testid="cloud-background" data-variant={variant ?? 'default'} />
-  ),
+  CloudBackground: () => <div data-testid="cloud-background" />,
 }));
 
 const signInMock = vi.fn();

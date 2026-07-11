@@ -51,7 +51,7 @@ function SignInRouteComponent() {
 export function SignInPage({ redirectTo }: Readonly<{ redirectTo?: string | null }>) {
   return (
     <>
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <SignInPageContent redirectTo={redirectTo} />
     </>
   );

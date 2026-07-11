@@ -46,9 +46,9 @@ vi.mock('canvas-confetti', () => ({
   default: vi.fn(),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: ({ position }: { position?: 'fixed' | 'absolute' }) => (
-    <div data-testid="background-canvas-root" data-position={position ?? 'fixed'} />
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: ({ position }: { position: 'fixed' | 'absolute' }) => (
+    <div data-testid="background-canvas-root" data-position={position} />
   ),
 }));
 

@@ -1,7 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { getOAuthScopeDisplay } from '@yucp/shared';
 import { useCallback, useEffect, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { authClient } from '@/lib/auth-client';
 import '@/styles/oauth-consent.css';
 
@@ -107,7 +107,7 @@ function OAuthConsentPage() {
 
   return (
     <div className="oauth-consent-page">
-      <BackgroundCanvasRoot position="fixed" />
+      <CloudBackground position="fixed" zIndex={-20} />
       <main className="relative z-10">
         <div className="consent-card">
           {/* App connector */}
