@@ -19,20 +19,16 @@ import {
   ButtonStyle,
   ContainerBuilder,
   MessageFlags,
-  ModalBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
   TextDisplayBuilder,
-  TextInputBuilder,
-  TextInputStyle,
 } from 'discord.js';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getApiUrls } from '../lib/apiUrls';
 import { getRequiredBotActorBinding } from '../lib/convexActor';
 import { E, Emoji } from '../lib/emojis';
-import { completeLicenseVerification, disconnectVerification } from '../lib/internalRpc';
-import { sendDashboardNotification } from '../lib/notifications';
+import { disconnectVerification } from '../lib/internalRpc';
 import { track } from '../lib/posthog';
 import { sanitizeUserFacingErrorMessage } from '../lib/userFacingErrors';
 import { buildBotVerificationErrorMessage } from '../lib/verificationSupport';
@@ -57,8 +53,6 @@ type VerifyState = 'nothing' | 'connected_no_products' | 'verified';
 
 const VERIFIED_PRODUCTS_DISPLAY_LIMIT = 10;
 const VERIFY_PANEL_TTL_MS = 15 * 60 * 1000;
-export const BUYER_ACCOUNT_LINK_REQUIRED_MESSAGE = `${E.X_} Please sign in to YUCP and link this Discord account before verifying. Then try again from the verify panel.`;
-
 interface ActiveVerifyPanel {
   guildId: string;
   messageId: string;
@@ -1067,157 +1061,6 @@ export async function handleVerifySpawn(
     color: overrides.color,
     imageUrl: overrides.imageUrl,
   });
-}
-
-export function buildLicenseModal(authUserId: string): ModalBuilder {
-  const licenseConfig = { inputLabel: 'License Key', placeholder: 'Paste your license key here' };
-  return new ModalBuilder()
-    .setCustomId(`${VERIFY_PREFIX}license_modal:${authUserId}`)
-    .setTitle('Enter License Key')
-    .addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId('license_key')
-          .setLabel(licenseConfig.inputLabel)
-          .setPlaceholder(licenseConfig.placeholder)
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
-          .setMaxLength(500)
-      )
-    );
-}
-
-export async function handleLicenseModalSubmit(
-  interaction: ModalSubmitInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  apiBaseUrl: string | undefined
-): Promise<void> {
-  const customId = interaction.customId;
-  if (!customId.startsWith(`${VERIFY_PREFIX}license_modal:`)) return;
-
-  const authUserId = customId.slice(`${VERIFY_PREFIX}license_modal:`.length) as string;
-  const licenseKey = interaction.fields.getTextInputValue('license_key')?.trim();
-
-  if (!licenseKey) {
-    await interaction.reply({
-      content: 'License key is required.',
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  const actor = await getRequiredBotActorBinding();
-  const subjectResult = await convex.query(api.subjects.getSubjectByDiscordId, {
-    actor,
-    apiSecret,
-    discordUserId: interaction.user.id,
-  });
-
-  let subjectId: string;
-  if (subjectResult.found) {
-    subjectId = subjectResult.subject._id;
-  } else {
-    const created = await convex.mutation(api.subjects.ensureSubjectForDiscord, {
-      actor,
-      apiSecret,
-      discordUserId: interaction.user.id,
-      displayName: interaction.user.username,
-      avatarUrl: interaction.user.displayAvatarURL({ size: 128 }),
-    });
-    subjectId = created.subjectId as string;
-  }
-
-  if (!apiBaseUrl) {
-    await interaction.reply({
-      content: 'Verification API not configured. Please contact the server admin.',
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
-
-  if (interaction.isFromMessage()) {
-    await interaction.deferUpdate();
-  } else {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  }
-
-  try {
-    const result = await completeLicenseVerification({
-      licenseKey,
-      authUserId,
-      subjectId,
-    });
-
-    if (!result.success) {
-      const failureMessage =
-        `${E.X_} We couldn’t find a matching purchase. Make sure you’re using the license key from your purchase confirmation.\n\n` +
-        `${sanitizeUserFacingErrorMessage(result.error, 'Verification failed.')}`;
-      await interaction.editReply({
-        content: result.supportCode
-          ? formatVerificationSupportMessage(failureMessage, result.supportCode)
-          : failureMessage,
-      });
-      track(interaction.user.id, 'verification_failed', { error: result.error, authUserId });
-      return;
-    }
-
-    track(interaction.user.id, 'verification_completed', { authUserId, provider: result.provider });
-
-    const guildId = interaction.guildId;
-    if (guildId) {
-      const connectedProviderLabel = result.provider
-        ? providerLabel(result.provider)
-        : 'store account';
-      sendDashboardNotification({
-        authUserId,
-        guildId,
-        type: 'success',
-        title: 'Verification completed',
-        message: `${interaction.user.username} verified via ${connectedProviderLabel}.`,
-      });
-    }
-
-    if (guildId && apiBaseUrl) {
-      const panelToken =
-        getActiveVerifyPanel(interaction.user.id, guildId)?.panelToken ?? createVerifyPanelToken();
-      const connectedProviderLabel = result.provider ? providerLabel(result.provider) : 'account';
-      const bannerMessage = `${E.ClapStars} **Connected!** Your ${connectedProviderLabel} account is linked. Your roles will be updated shortly. ${E.Dance}`;
-      const reply = await buildVerifyStatusReply(
-        interaction.user.id,
-        authUserId,
-        guildId,
-        convex,
-        apiSecret,
-        apiBaseUrl,
-        { bannerMessage, panelToken }
-      );
-      const message = await interaction.editReply(reply);
-      rememberActiveVerifyPanel(interaction, authUserId, guildId, message.id, { panelToken });
-      await bindVerifyPanelToken(apiBaseUrl, apiSecret, interaction, {
-        discordUserId: interaction.user.id,
-        guildId,
-        messageId: message.id,
-        panelToken,
-        authUserId,
-      });
-    } else {
-      await interaction.editReply({
-        content: `${E.ClapStars} **Verified!** Your roles will be updated shortly.\n\n${E.Dance} Welcome to the community!`,
-      });
-    }
-  } catch (err) {
-    await interaction.editReply({
-      content: await buildBotVerificationErrorMessage(logger, {
-        baseMessage: `${E.X_} Verification didn’t finish. Try again in a moment.`,
-        discordUserId: interaction.user.id,
-        error: err,
-        guildId: interaction.guildId ?? undefined,
-        stage: 'verification_flow',
-        authUserId,
-      }),
-    });
-  }
 }
 
 export async function handleVerifyDisconnectButton(

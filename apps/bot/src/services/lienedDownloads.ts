@@ -1340,18 +1340,6 @@ export class LienedDownloadsService {
   }
 }
 
-export function isLienedDownloadButton(customId: string): boolean {
-  return customId.startsWith(DOWNLOAD_BUTTON_PREFIX);
-}
-
-export function isLienedAutofixButton(customId: string): boolean {
-  return (
-    customId.startsWith(AUTOFIX_PROMPT_BUTTON_PREFIX) ||
-    customId.startsWith(AUTOFIX_RUN_BUTTON_PREFIX) ||
-    customId.startsWith(AUTOFIX_CANCEL_BUTTON_PREFIX)
-  );
-}
-
 export function getLienedDownloadsInvitePermissions(): bigint {
   return new PermissionsBitField([
     PermissionsBitField.Flags.ViewChannel,
