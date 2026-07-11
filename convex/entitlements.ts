@@ -2351,8 +2351,9 @@ async function findRoleRemovalRules(
 ): Promise<Doc<'role_rules'>[]> {
   return await ctx.db
     .query('role_rules')
-    .withIndex('by_auth_user', (q) => q.eq('authUserId', authUserId))
-    .filter((q) => q.eq(q.field('productId'), productId))
+    .withIndex('by_auth_user_product', (q) =>
+      q.eq('authUserId', authUserId).eq('productId', productId)
+    )
     .filter((q) => q.eq(q.field('enabled'), true))
     .filter((q) => q.eq(q.field('removeOnRevoke'), true))
     .collect();

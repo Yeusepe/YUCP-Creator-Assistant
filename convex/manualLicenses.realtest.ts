@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { sha256Hex } from '@yucp/shared/crypto';
@@ -15,6 +17,9 @@ import {
   seedRoleRule,
   seedSubject,
 } from './testHelpers';
+
+const entitlementsSource = readFileSync(resolve(__dirname, './entitlements.ts'), 'utf8');
+const schemaSource = readFileSync(resolve(__dirname, './schema.ts'), 'utf8');
 
 async function createAuthUserActor(authUserId: string) {
   const now = Date.now();
@@ -248,6 +253,100 @@ describe('manual license bounds', () => {
       roleId: 'role-manual-legacy-revoke',
     });
     expect(entitlementRevocations).toHaveLength(1);
+  });
+
+  it('uses a product-scoped role-rule read when revoking one product for a many-product creator', async () => {
+    const roleRulesSchema = schemaSource.slice(
+      schemaSource.indexOf('const role_rules = defineTable'),
+      schemaSource.indexOf('const download_routes = defineTable')
+    );
+    const roleRemovalQuery = entitlementsSource.slice(
+      entitlementsSource.indexOf('async function findRoleRemovalRules'),
+      entitlementsSource.indexOf('function roleIdsForRoleRule')
+    );
+
+    expect(roleRulesSchema).toContain(
+      ".index('by_auth_user_product', ['authUserId', 'productId'])"
+    );
+    expect(roleRemovalQuery).toContain(".withIndex('by_auth_user_product'");
+    expect(roleRemovalQuery).toContain(".eq('productId', productId)");
+    expect(roleRemovalQuery).not.toContain("q.field('productId')");
+
+    const t = makeTestConvex();
+    const authUserId = 'auth-manual-many-product-revoke';
+    const productId = 'product-manual-many-product-target';
+    const actor = await createAuthUserActor(authUserId);
+    const subjectId = await seedSubject(t, {
+      authUserId: 'auth-manual-many-product-buyer',
+      primaryDiscordUserId: 'discord-manual-many-product-buyer',
+    });
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-manual-many-product-revoke',
+      installedByAuthUserId: authUserId,
+    });
+    const targetRoleIds = ['role-manual-target-one', 'role-manual-target-two'];
+    for (const roleId of targetRoleIds) {
+      await seedRoleRule(t, guildLinkId, {
+        authUserId,
+        guildId: 'guild-manual-many-product-revoke',
+        productId,
+        verifiedRoleId: roleId,
+        removeOnRevoke: true,
+      });
+    }
+    await Promise.all(
+      Array.from({ length: 64 }, (_, index) =>
+        seedRoleRule(t, guildLinkId, {
+          authUserId,
+          guildId: 'guild-manual-many-product-revoke',
+          productId: `product-manual-unrelated-${index}`,
+          verifiedRoleId: `role-manual-unrelated-${index}`,
+          removeOnRevoke: true,
+        })
+      )
+    );
+
+    const { licenseId } = await t.mutation(api.manualLicenses.create, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseKeyHash: 'many-product-license-key-hash',
+      productId,
+    });
+    const sourceReference = `manual:${await sha256Hex(String(licenseId))}`;
+    const entitlementId = await seedEntitlement(t, subjectId, {
+      authUserId,
+      productId,
+      sourceProvider: 'manual',
+      sourceReference,
+    });
+
+    await t.mutation(api.manualLicenses.revoke, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      licenseId,
+      reason: 'revoke only the target product',
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const [entitlement, roleRemovalJobs] = await t.run(async (ctx) => {
+      const currentEntitlement = await ctx.db.get(entitlementId);
+      const jobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', authUserId).eq('jobType', 'role_removal')
+        )
+        .collect();
+      return [currentEntitlement, jobs] as const;
+    });
+
+    expect(entitlement).toMatchObject({ status: 'revoked' });
+    expect(roleRemovalJobs.map((job) => job.payload.roleId).sort()).toEqual(
+      targetRoleIds.sort()
+    );
+    expect(roleRemovalJobs.every((job) => job.payload.entitlementId === entitlementId)).toBe(true);
   });
 
   it('does not mutate an already-revoked manual license that has no active linked entitlement', async () => {

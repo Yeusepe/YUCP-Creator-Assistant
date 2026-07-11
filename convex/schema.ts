@@ -932,6 +932,7 @@ const role_rules = defineTable({
   updatedAt: v.number(),
 })
   .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_product', ['authUserId', 'productId'])
   .index('by_auth_user_guild', ['authUserId', 'guildId'])
   .index('by_guild_link', ['guildLinkId'])
   .index('by_product', ['productId'])
