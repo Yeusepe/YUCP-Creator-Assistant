@@ -67,12 +67,6 @@ export function mapHostedVerificationIntentResponse(
   return hostedVerificationService.mapIntentResponse(intent, frontendBaseUrl);
 }
 
-export function decorateHostedVerificationRequirement(
-  requirement: StoredVerificationIntentRequirement
-) {
-  return hostedVerificationService.decorateRequirement(requirement);
-}
-
 export function shouldResolveLinkedEntitlementRequirements(intent: HostedVerificationIntentRecord) {
   const existingEntitlementProviders = new Set(
     intent.requirements
