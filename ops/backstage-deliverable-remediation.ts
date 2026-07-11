@@ -74,7 +74,7 @@ function printUsage() {
       '  --packageId <id>    Required package id to inspect.',
       '  --version <ver>     Optional release version filter.',
       '  --channel <name>    Optional channel filter.',
-      '  --apply             Removed. Backstage package bytes must stay in CDNgine.',
+      '  --apply             Removed. Backstage package bytes must stay in Lore.',
       '  --help              Show this message.',
     ].join('\n')
   );
@@ -174,7 +174,7 @@ async function main(argv: readonly string[] = process.argv.slice(2)) {
   }
   if (values.apply) {
     throw new Error(
-      'Applying legacy Backstage Convex storage remediation has been removed. Republish through the CDNgine Backstage upload flow.'
+      'Applying legacy Backstage Convex storage remediation has been removed. Republish through the Lore Backstage upload flow.'
     );
   }
 

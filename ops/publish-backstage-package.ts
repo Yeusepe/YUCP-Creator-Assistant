@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import type { CdngineBackstageSourceReference } from '@yucp/shared/cdngineBackstageDelivery';
+import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 
 type FetchLike = typeof fetch;
 
@@ -36,26 +36,14 @@ export type PublishBackstagePackageConfig = {
   releaseStatus?: 'draft' | 'published' | 'revoked' | 'superseded';
 };
 
-type UploadSessionResponse = {
-  completeUrl: string;
-  completionToken: string;
-  packageId: string;
-  uploadSessionId: string;
-  uploadTarget: {
-    method: string;
-    protocol: 'tus';
-    url: string;
-  };
-};
-
 type UploadStorageResponse = {
-  cdngineSource?: CdngineBackstageSourceReference;
+  loreSource?: LoreBackstageArtifactReference;
   deliveryName?: string;
   sourceContentType?: string;
 };
 
 type UploadedBackstageSource = {
-  cdngineSource: CdngineBackstageSourceReference;
+  loreSource: LoreBackstageArtifactReference;
   deliveryName?: string;
   sourceContentType?: string;
 };
@@ -108,7 +96,7 @@ Options:
   --packageId <id>                  Backstage package id to publish.
   --catalogProductId <id>           Catalog product id that grants entitlement access.
   --version <value>                 Version string to publish.
-  --sourcePath <path>               Package source artifact to upload to CDNgine before publishing.
+  --sourcePath <path>               Package source artifact to upload to Lore before publishing.
   --channel <value>                 Release channel. Defaults to stable.
   --packageName <value>             Optional package name metadata.
   --displayName <value>             Optional display name metadata.
@@ -259,40 +247,6 @@ async function sha256FilePath(sourcePath: string): Promise<{ byteSize: number; s
   };
 }
 
-export async function requestBackstageUploadSession(
-  config: Pick<PublishBackstagePackageConfig, 'apiBaseUrl' | 'accessToken' | 'packageId'> & {
-    byteSize: number;
-    contentType: string;
-    deliveryName: string;
-    sha256: string;
-  },
-  fetchImpl: FetchLike = fetch
-): Promise<UploadSessionResponse> {
-  const response = await fetchImpl(
-    buildApiUrl(
-      config.apiBaseUrl,
-      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload-session`
-    ),
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        byteSize: config.byteSize,
-        deliveryName: config.deliveryName,
-        sha256: config.sha256,
-        sourceContentType: config.contentType,
-      }),
-    }
-  );
-  return await assertApiResponse<UploadSessionResponse>(
-    response,
-    'Failed to create Backstage upload session'
-  );
-}
-
 export async function uploadBackstagePackageArtifactDirect(
   config: PublishBackstagePackageConfig,
   fetchImpl: FetchLike = fetch
@@ -300,51 +254,33 @@ export async function uploadBackstagePackageArtifactDirect(
   const sourcePath = config.sourcePath;
   const deliveryName = config.deliveryName ?? sourcePath.split(/[\\/]/).pop() ?? sourcePath;
   const contentType = config.contentType ?? inferBackstageArtifactContentType(sourcePath);
-  const digest = await sha256FilePath(sourcePath);
-  const session = await requestBackstageUploadSession(
-    {
-      ...config,
-      byteSize: digest.byteSize,
-      contentType,
-      deliveryName,
-      sha256: digest.sha256,
-    },
-    fetchImpl
+  const { sha256 } = await sha256FilePath(sourcePath);
+  const uploadUrl = new URL(
+    buildApiUrl(
+      config.apiBaseUrl,
+      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload`
+    )
   );
-  if (session.uploadTarget.protocol !== 'tus') {
-    throw new Error(`Unsupported Backstage upload protocol "${session.uploadTarget.protocol}".`);
-  }
-  const completionToken = trimRequired(session.completionToken, 'upload completion token');
-  const uploadResponse = await fetchImpl(session.uploadTarget.url, {
-    method: session.uploadTarget.method,
+  uploadUrl.searchParams.set('sha256', sha256);
+  uploadUrl.searchParams.set('deliveryName', deliveryName);
+  uploadUrl.searchParams.set('sourceContentType', contentType);
+  const uploadResponse = await fetchImpl(uploadUrl, {
+    method: 'POST',
     headers: {
-      'Content-Type': 'application/offset+octet-stream',
-      'Tus-Resumable': '1.0.0',
-      'Upload-Offset': '0',
+      Authorization: `Bearer ${config.accessToken}`,
+      'Content-Type': contentType,
     },
     body: Bun.file(sourcePath),
   });
-  if (!uploadResponse.ok) {
-    throw new Error(
-      `Failed to upload Backstage package artifact to CDNgine (${uploadResponse.status} ${uploadResponse.statusText})`
-    );
-  }
-
-  const completionResponse = await fetchImpl(session.completeUrl, {
-    method: 'POST',
-    headers: {
-      'X-YUCP-Upload-Completion-Token': completionToken,
-    },
-  });
   const payload = await assertApiResponse<UploadStorageResponse>(
-    completionResponse,
-    'Failed to complete Backstage package artifact upload'
+    uploadResponse,
+    'Failed to upload Backstage package artifact to Lore'
   );
-  if (!payload?.cdngineSource) {
-    throw new Error('Backstage artifact upload did not return CDNgine source coordinates');
+  if (!payload?.loreSource) {
+    throw new Error('Backstage artifact upload did not return Lore source coordinates');
   }
   return {
-    cdngineSource: payload.cdngineSource,
+    loreSource: payload.loreSource,
     deliveryName: payload.deliveryName,
     sourceContentType: payload.sourceContentType,
   };
@@ -368,7 +304,7 @@ export async function publishBackstageRelease(
       },
       body: JSON.stringify({
         catalogProductId: config.catalogProductId,
-        cdngineSource: uploadedSource.cdngineSource,
+        loreSource: uploadedSource.loreSource,
         version: config.version,
         ...(config.channel ? { channel: config.channel } : {}),
         ...(config.packageName ? { packageName: config.packageName } : {}),

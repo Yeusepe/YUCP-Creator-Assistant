@@ -148,9 +148,9 @@ No concrete stale or incorrect claims were verified during this audit.
 ### `ops\infisical\README.md`
 
 #### 1. The required secret inventory is incomplete
-- **Current doc:** Lists mostly Discord, Gumroad, Jinxxy, email, auth, infra, and CDNgine secrets.
+- **Current doc:** Lists mostly Discord, Gumroad, Jinxxy, email, auth, infra, and Lore secrets.
 - **Problem:** The current runtime also uses `ENCRYPTION_SECRET`, `CONVEX_SITE_URL`, `INTERNAL_SERVICE_AUTH_SECRET`, `CONVEX_API_SECRET` for the bot, YUCP signing keys, grant and envelope keys, and coupling-service secrets.
-- **Update needed:** Rewrite the secret inventory by runtime surface: API, bot, Convex/auth, web worker, YUCP signing, coupling, and CDNgine.
+- **Update needed:** Rewrite the secret inventory by runtime surface: API, bot, Convex/auth, web worker, YUCP signing, coupling, and Lore.
 - **Evidence:** `ops\infisical\README.md:48-158`; `convex\accountSecurity.ts:161-164`; `convex\auth.ts:47-58`; `apps\api\src\auth\index.ts:240-245`; `apps\bot\src\lib\env.ts:79-90`; `convex\yucpCertificates.ts:328-333`; `convex\lib\protectedMaterializationGrant.ts:46-50`; `convex\lib\couplingRuntimeEnvelope.ts:11-18`; `convex\lib\couplingServiceRuntimeArtifacts.ts:45-49`
 
 #### 2. The bot env mapping is wrong

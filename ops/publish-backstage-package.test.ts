@@ -1,23 +1,23 @@
 import { afterEach, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  publishBackstagePackage,
   printUsage,
+  publishBackstagePackage,
   resolvePublishBackstagePackageConfig,
 } from './publish-backstage-package';
 
 describe('publish-backstage-package', () => {
   let tempDir: string | undefined;
-  const cdngineSource = {
-    assetId: 'asset_123',
-    assetOwner: 'creator:auth-user-1',
+  const loreSource = {
+    repositoryId: 'repo_creator_1',
+    address: `sha256:${'a'.repeat(64)}`,
     byteSize: 9,
-    serviceNamespaceId: 'yucp-backstage',
     sha256: 'a'.repeat(64),
-    uploadedAt: 1_714_000_000_000,
-    versionId: 'version_123',
+    uploadedAt: '2026-07-11T12:00:00.000Z',
+    tenantId: 'auth-user-1',
   };
 
   afterEach(() => {
@@ -27,35 +27,24 @@ describe('publish-backstage-package', () => {
     }
   });
 
-  it('publishes a package by creating a direct CDNgine upload session, uploading the ZIP, and publishing the release', async () => {
+  it('uploads package bytes to Lore and publishes the returned source reference', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
     const sourcePath = join(tempDir, 'example.zip');
     writeFileSync(sourcePath, Buffer.from('zip-bytes'));
 
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const calls: Array<{ url: string; method: string; headers: Headers; body: Uint8Array }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
-      const url = input instanceof Request ? input.url : String(input);
-      calls.push({ url, init });
-      if (url.endsWith('/api/packages/com.yucp.example/backstage/upload-session')) {
+      const request = new Request(input, init);
+      const url = request.url;
+      calls.push({
+        url,
+        method: request.method,
+        headers: request.headers,
+        body: new Uint8Array(await request.arrayBuffer()),
+      });
+      if (url.includes('/api/packages/com.yucp.example/backstage/upload?')) {
         return Response.json({
-          packageId: 'com.yucp.example',
-          uploadSessionId: 'upl_1',
-          uploadTarget: {
-            method: 'PATCH',
-            protocol: 'tus',
-            url: 'https://upload.test/backstage',
-          },
-          completeUrl:
-            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
-          completionToken: 'completion-token-1',
-        });
-      }
-      if (url === 'https://upload.test/backstage') {
-        return new Response(null, { status: 204 });
-      }
-      if (url.includes('/backstage/upload-session/complete')) {
-        return Response.json({
-          cdngineSource,
+          loreSource,
           deliveryName: 'example.zip',
           sourceContentType: 'application/zip',
         });
@@ -88,41 +77,36 @@ describe('publish-backstage-package', () => {
       fetchImpl
     );
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       deliveryPackageReleaseId: 'release_1',
       artifactId: 'artifact_1',
+      artifactKey: 'backstage-package:com.yucp.example',
+      zipSha256: 'a'.repeat(64),
       version: '1.2.3',
       channel: 'stable',
     });
-    expect(calls).toHaveLength(4);
-    expect(calls[0].init?.headers).toEqual({
-      Authorization: 'Bearer oauth-token',
-      'Content-Type': 'application/json',
-    });
-    expect(JSON.parse(String(calls[0].init?.body))).toMatchObject({
-      byteSize: 9,
+    expect(calls).toHaveLength(2);
+    const uploadUrl = new URL(calls[0].url);
+    expect(uploadUrl.pathname).toBe('/api/packages/com.yucp.example/backstage/upload');
+    expect(Object.fromEntries(uploadUrl.searchParams)).toEqual({
+      sha256: createHash('sha256').update('zip-bytes').digest('hex'),
       deliveryName: 'example.zip',
       sourceContentType: 'application/zip',
     });
-    expect(calls[1].init?.headers).toEqual({
-      'Content-Type': 'application/offset+octet-stream',
-      'Tus-Resumable': '1.0.0',
-      'Upload-Offset': '0',
-    });
-    expect(calls[2].init?.method).toBe('POST');
-    expect(calls[2].init?.headers).toEqual({
-      'X-YUCP-Upload-Completion-Token': 'completion-token-1',
-    });
-    expect(calls[3].init?.headers).toEqual({
-      Authorization: 'Bearer oauth-token',
-      'Content-Type': 'application/json',
-    });
-    expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].headers.get('authorization')).toBe('Bearer oauth-token');
+    expect(calls[0].headers.get('content-type')).toBe('application/zip');
+    expect(Buffer.from(calls[0].body).toString('utf8')).toBe('zip-bytes');
+    expect(calls[1].url).toBe('https://api.test/api/packages/com.yucp.example/backstage/releases');
+    expect(calls[1].method).toBe('POST');
+    expect(calls[1].headers.get('authorization')).toBe('Bearer oauth-token');
+    expect(calls[1].headers.get('content-type')).toBe('application/json');
+    expect(JSON.parse(Buffer.from(calls[1].body).toString('utf8'))).toEqual({
       catalogProductId: 'product_123',
-      cdngineSource,
+      loreSource,
+      version: '1.2.3',
       deliveryName: 'example.zip',
       sourceContentType: 'application/zip',
-      version: '1.2.3',
     });
   });
 
@@ -177,30 +161,19 @@ describe('publish-backstage-package', () => {
     const sourcePath = join(tempDir, 'example.unitypackage');
     writeFileSync(sourcePath, Buffer.from('unitypackage-bytes'));
 
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const calls: Array<{ url: string; method: string; headers: Headers; body: Uint8Array }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
-      const url = input instanceof Request ? input.url : String(input);
-      calls.push({ url, init });
-      if (url.endsWith('/api/packages/com.yucp.example/backstage/upload-session')) {
+      const request = new Request(input, init);
+      const url = request.url;
+      calls.push({
+        url,
+        method: request.method,
+        headers: request.headers,
+        body: new Uint8Array(await request.arrayBuffer()),
+      });
+      if (url.includes('/api/packages/com.yucp.example/backstage/upload?')) {
         return Response.json({
-          packageId: 'com.yucp.example',
-          uploadSessionId: 'upl_1',
-          uploadTarget: {
-            method: 'PATCH',
-            protocol: 'tus',
-            url: 'https://upload.test/backstage',
-          },
-          completeUrl:
-            'https://api.test/api/packages/com.yucp.example/backstage/upload-session/complete',
-          completionToken: 'completion-token-2',
-        });
-      }
-      if (url === 'https://upload.test/backstage') {
-        return new Response(null, { status: 204 });
-      }
-      if (url.includes('/backstage/upload-session/complete')) {
-        return Response.json({
-          cdngineSource,
+          loreSource,
           deliveryName: 'example.unitypackage',
           sourceContentType: 'application/octet-stream',
         });
@@ -233,17 +206,17 @@ describe('publish-backstage-package', () => {
       fetchImpl
     );
 
-    expect(JSON.parse(String(calls[0].init?.body))).toMatchObject({
+    const uploadUrl = new URL(calls[0].url);
+    expect(Object.fromEntries(uploadUrl.searchParams)).toEqual({
+      sha256: createHash('sha256').update('unitypackage-bytes').digest('hex'),
       deliveryName: 'example.unitypackage',
       sourceContentType: 'application/octet-stream',
     });
-    expect(calls[1].init?.headers).toEqual({
-      'Content-Type': 'application/offset+octet-stream',
-      'Tus-Resumable': '1.0.0',
-      'Upload-Offset': '0',
-    });
-    expect(JSON.parse(String(calls[3].init?.body))).toMatchObject({
-      cdngineSource,
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].headers.get('content-type')).toBe('application/octet-stream');
+    expect(Buffer.from(calls[0].body).toString('utf8')).toBe('unitypackage-bytes');
+    expect(JSON.parse(Buffer.from(calls[1].body).toString('utf8'))).toMatchObject({
+      loreSource,
       deliveryName: 'example.unitypackage',
       sourceContentType: 'application/octet-stream',
     });
