@@ -43,7 +43,6 @@ export * from './backstagePackageMedia';
 export * from './backstageVpmDelivery';
 // Binding module exports
 export * from './binding';
-export * from './cdngineBackstageDelivery';
 export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';

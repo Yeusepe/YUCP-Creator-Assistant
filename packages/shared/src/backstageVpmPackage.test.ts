@@ -133,7 +133,7 @@ describe('prepareBackstageArtifactForPublish', () => {
     });
   });
 
-  it('prepares large package descriptors from CDNgine source metadata without requiring bytes', () => {
+  it('prepares large package descriptors from Lore source metadata without requiring bytes', () => {
     const artifact = prepareBackstageArtifactDescriptorForPublish({
       packageId: 'com.yucp.example',
       version: '1.2.3',

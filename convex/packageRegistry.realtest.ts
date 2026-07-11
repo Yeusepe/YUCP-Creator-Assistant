@@ -5,94 +5,13 @@ import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS,
 } from '@yucp/shared/backstageVpmDelivery';
 import { gzipSync, strToU8, zipSync } from 'fflate';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc, Id } from './_generated/dataModel';
 import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
 process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
-
-const CDNGINE_ENV_KEYS = [
-  'CDNGINE_ACCESS_TOKEN',
-  'CDNGINE_API_BASE_URL',
-  'CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID',
-  'CDNGINE_BACKSTAGE_REQUIRED',
-  'CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID',
-  'CDNGINE_BACKSTAGE_VARIANT',
-  'YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS',
-] as const;
-const originalFetch = globalThis.fetch;
-const originalEnv = Object.fromEntries(
-  CDNGINE_ENV_KEYS.map((key) => [key, process.env[key]])
-) as Record<(typeof CDNGINE_ENV_KEYS)[number], string | undefined>;
-let cdngineUploadCounter = 0;
-
-beforeEach(() => {
-  cdngineUploadCounter = 0;
-  process.env.CDNGINE_API_BASE_URL = 'https://cdngine.test';
-  process.env.CDNGINE_ACCESS_TOKEN = 'test-cdngine-access-token';
-  process.env.CDNGINE_BACKSTAGE_REQUIRED = 'true';
-  process.env.CDNGINE_BACKSTAGE_SERVICE_NAMESPACE_ID = 'yucp-backstage';
-  process.env.CDNGINE_BACKSTAGE_DELIVERY_SCOPE_ID = 'paid-downloads';
-  process.env.CDNGINE_BACKSTAGE_VARIANT = 'preserve-original';
-  process.env.YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS = 'true';
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    if (url === 'https://cdngine.test/v1/upload-sessions') {
-      cdngineUploadCounter += 1;
-      return new Response(
-        JSON.stringify({
-          uploadSessionId: `upl_backstage_${cdngineUploadCounter}`,
-          assetId: `ast_backstage_${cdngineUploadCounter}`,
-          versionId: `ver_backstage_pending_${cdngineUploadCounter}`,
-          uploadTarget: {
-            protocol: 'tus',
-            method: 'PATCH',
-            url: `https://uploads.cdngine.test/files/upl_backstage_${cdngineUploadCounter}`,
-          },
-        }),
-        {
-          status: 201,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    }
-    if (url.startsWith('https://uploads.cdngine.test/files/')) {
-      expect(init?.method).toBe('PATCH');
-      return new Response(null, { status: 204 });
-    }
-    const completeMatch = url.match(
-      /^https:\/\/cdngine\.test\/v1\/upload-sessions\/(upl_backstage_\d+)\/complete$/
-    );
-    if (completeMatch) {
-      const index = completeMatch[1].replace('upl_backstage_', '');
-      return new Response(
-        JSON.stringify({
-          assetId: `ast_backstage_${index}`,
-          versionId: `ver_backstage_${index}`,
-        }),
-        {
-          status: 202,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
-    }
-    return new Response(`unexpected url: ${url}`, { status: 500 });
-  }) as typeof fetch;
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  for (const key of CDNGINE_ENV_KEYS) {
-    const value = originalEnv[key];
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
-});
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -1726,32 +1645,32 @@ describe('packageRegistry', () => {
     ]);
   });
 
-  it('publishes a CDNgine-backed release with ZIP repo delivery and unitypackage raw delivery', async () => {
+  it('publishes a Lore-backed release with ZIP repo delivery and unitypackage raw delivery', async () => {
     const t = makeTestConvex();
     const catalogProductId = await seedCatalogProduct(t, {
       authUserId: 'auth-user-1',
-      productId: 'product-cdngine-auth-flow',
-      providerProductRef: 'gumroad-product-cdngine-auth-flow',
-      displayName: 'CDNgine Auth Flow Product',
+      productId: 'product-lore-auth-flow',
+      providerProductRef: 'gumroad-product-lore-auth-flow',
+      displayName: 'Lore Auth Flow Product',
     });
 
     await t.mutation(internal.packageRegistry.registerPackage, {
-      packageId: 'com.yucp.backstage.cdngineflow',
-      packageName: 'CDNgine Auth Flow Package',
+      packageId: 'com.yucp.backstage.loreflow',
+      packageName: 'Lore Auth Flow Package',
       publisherId: 'publisher-1',
       yucpUserId: 'auth-user-1',
     });
 
     const rawSha256 = '1'.repeat(64);
     const deliverableSha256 = '2'.repeat(64);
-    const published = await t.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
+    const published = await t.mutation(api.backstageRepos.publishLoreReleaseForAuthUser, {
       apiSecret: 'test-secret',
       actor: await createAuthUserActorBinding('auth-user-1'),
       authUserId: 'auth-user-1',
       accessSelectors: [{ kind: 'catalogProduct', catalogProductId }],
-      packageId: 'com.yucp.backstage.cdngineflow',
-      packageName: 'CDNgine Auth Flow Package',
-      displayName: 'CDNgine Auth Flow Package',
+      packageId: 'com.yucp.backstage.loreflow',
+      packageName: 'Lore Auth Flow Package',
+      displayName: 'Lore Auth Flow Package',
       repositoryVisibility: 'listed',
       version: '1.0.0',
       metadata: {
@@ -1760,7 +1679,7 @@ describe('packageRegistry', () => {
           BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_MARKERS.serverDerived,
         yucp: {
           kind: 'alias-v1',
-          aliasId: 'gumroad-product-cdngine-auth-flow',
+          aliasId: 'gumroad-product-lore-auth-flow',
           installStrategy: 'server-authorized',
           importerPackage: 'com.yucp.importer',
           minImporterVersion: '0.1.9',
@@ -1768,33 +1687,29 @@ describe('packageRegistry', () => {
           channel: 'stable',
         },
       },
-      rawDeliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      rawDeliveryName: 'Lore_Auth_Flow_1.0.0.unitypackage',
       rawContentType: 'application/octet-stream',
       rawSha256,
       rawByteSize: 456,
-      cdngineSource: {
-        assetId: 'ast_raw_auth_flow',
-        assetOwner: 'creator:auth-user-1',
+      loreSource: {
+        repositoryId: '1'.repeat(32),
+        address: `${rawSha256}-${'a'.repeat(32)}`,
         byteSize: 456,
-        serviceNamespaceId: 'yucp-backstage',
         sha256: rawSha256,
-        uploadedAt: 1_714_000_000_000,
-        versionId: 'ver_raw_auth_flow',
+        tenantId: 'auth-user-1',
+        uploadedAt: new Date(1_714_000_000_000).toISOString(),
       },
-      deliverableDeliveryName: 'vrc-get-com.yucp.backstage.cdngineflow-1.0.0.zip',
+      deliverableDeliveryName: 'vrc-get-com.yucp.backstage.loreflow-1.0.0.zip',
       deliverableContentType: 'application/zip',
       deliverableSha256,
       deliverableByteSize: 789,
-      cdngineDelivery: {
-        assetId: 'ast_deliverable_auth_flow',
-        assetOwner: 'creator:auth-user-1',
+      loreDelivery: {
+        repositoryId: '1'.repeat(32),
+        address: `${deliverableSha256}-${'b'.repeat(32)}`,
         byteSize: 789,
-        deliveryScopeId: 'paid-downloads',
-        serviceNamespaceId: 'yucp-backstage',
         sha256: deliverableSha256,
-        uploadedAt: 1_714_000_000_000,
-        variant: 'preserve-original',
-        versionId: 'ver_deliverable_auth_flow',
+        tenantId: 'auth-user-1',
+        uploadedAt: new Date(1_714_000_000_000).toISOString(),
       },
     });
 
@@ -1806,9 +1721,9 @@ describe('packageRegistry', () => {
       await ctx.db.insert('entitlements', {
         authUserId: 'auth-user-1',
         subjectId,
-        productId: 'product-cdngine-auth-flow',
+        productId: 'product-lore-auth-flow',
         sourceProvider: 'gumroad',
-        sourceReference: 'order-cdngine-auth-flow',
+        sourceReference: 'order-lore-auth-flow',
         catalogProductId,
         status: 'active',
         grantedAt: Date.now(),
@@ -1836,11 +1751,11 @@ describe('packageRegistry', () => {
       },
     });
 
-    const publishedVersion = repository.packages['com.yucp.backstage.cdngineflow']?.versions?.[
+    const publishedVersion = repository.packages['com.yucp.backstage.loreflow']?.versions?.[
       '1.0.0'
     ] as Record<string, unknown> | undefined;
     expect(publishedVersion).toMatchObject({
-      name: 'com.yucp.backstage.cdngineflow',
+      name: 'com.yucp.backstage.loreflow',
       version: '1.0.0',
       headers: {
         'X-YUCP-Repo-Token': issued.token,
@@ -1855,24 +1770,23 @@ describe('packageRegistry', () => {
       tokenHash: await sha256Hex(new TextEncoder().encode(issued.token)),
       authUserId: 'auth-user-1',
       subjectId,
-      packageId: 'com.yucp.backstage.cdngineflow',
+      packageId: 'com.yucp.backstage.loreflow',
       version: '1.0.0',
       channel: 'stable',
     });
     expect(rawDownload).toMatchObject({
       downloadUrl: '',
       contentType: 'application/octet-stream',
-      deliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      deliveryName: 'Lore_Auth_Flow_1.0.0.unitypackage',
       packageSha256: rawSha256,
       sourceKind: 'unitypackage',
       version: '1.0.0',
       channel: 'stable',
-      cdngineSource: {
-        assetId: 'ast_raw_auth_flow',
-        versionId: 'ver_raw_auth_flow',
+      loreSource: {
+        repositoryId: '1'.repeat(32),
+        address: `${rawSha256}-${'a'.repeat(32)}`,
       },
     });
-    expect(rawDownload).not.toHaveProperty('cdngineDelivery');
 
     const installPlan = await t.run(async (ctx) => {
       return await ctx.runQuery(api.packageRegistry.getAuthorizedAliasInstallPlanByRef, {
@@ -1881,13 +1795,13 @@ describe('packageRegistry', () => {
         authUserId: 'auth-user-1',
         subjectId,
         creatorRef: 'auth-user-1',
-        productRef: 'gumroad-product-cdngine-auth-flow',
+        productRef: 'gumroad-product-lore-auth-flow',
       });
     });
     expect(installPlan).toMatchObject({
       packages: [
         {
-          packageId: 'com.yucp.backstage.cdngineflow',
+          packageId: 'com.yucp.backstage.loreflow',
           version: '1.0.0',
           channel: 'stable',
           zipSha256: deliverableSha256,
@@ -1913,22 +1827,22 @@ describe('packageRegistry', () => {
     expect(rawArtifact).toMatchObject({
       ownership: 'creator_upload',
       contentType: 'application/octet-stream',
-      deliveryName: 'CDNgine_Auth_Flow_1.0.0.unitypackage',
+      deliveryName: 'Lore_Auth_Flow_1.0.0.unitypackage',
       sha256: rawSha256,
-      cdngineSource: {
-        assetId: 'ast_raw_auth_flow',
-        versionId: 'ver_raw_auth_flow',
+      loreSource: {
+        repositoryId: '1'.repeat(32),
+        address: `${rawSha256}-${'a'.repeat(32)}`,
       },
     });
-    expect(rawArtifact).not.toHaveProperty('cdngineDelivery');
     expect(deliverableArtifact).toMatchObject({
       ownership: 'server_materialized',
       sourceArtifactId: rawArtifact?._id,
       contentType: 'application/zip',
-      deliveryName: 'vrc-get-com.yucp.backstage.cdngineflow-1.0.0.zip',
+      deliveryName: 'vrc-get-com.yucp.backstage.loreflow-1.0.0.zip',
       sha256: deliverableSha256,
-      cdngineDelivery: {
-        variant: 'preserve-original',
+      loreDelivery: {
+        repositoryId: '1'.repeat(32),
+        address: `${deliverableSha256}-${'b'.repeat(32)}`,
       },
     });
   });
@@ -1983,14 +1897,13 @@ describe('packageRegistry', () => {
         activatedAt: now,
         createdAt: now,
         updatedAt: now,
-        cdngineSource: {
-          assetId: 'ast_raw_f24_binding',
-          assetOwner: 'creator:auth-user-f24-u1',
+        loreSource: {
+          repositoryId: 'a'.repeat(32),
+          address: `${'a'.repeat(64)}-${'1'.repeat(32)}`,
           byteSize: 123,
-          serviceNamespaceId: 'yucp-backstage',
           sha256: 'a'.repeat(64),
-          uploadedAt: now,
-          versionId: 'ver_raw_f24_binding',
+          tenantId: 'auth-user-f24-u1',
+          uploadedAt: new Date(now).toISOString(),
         },
       } as never);
       await ctx.db.insert('delivery_release_artifacts', {
@@ -2007,16 +1920,13 @@ describe('packageRegistry', () => {
         activatedAt: now,
         createdAt: now,
         updatedAt: now,
-        cdngineDelivery: {
-          assetId: 'ast_deliverable_f24_binding',
-          assetOwner: 'creator:auth-user-f24-u1',
+        loreDelivery: {
+          repositoryId: 'a'.repeat(32),
+          address: `${'b'.repeat(64)}-${'2'.repeat(32)}`,
           byteSize: 456,
-          deliveryScopeId: 'paid-downloads',
-          serviceNamespaceId: 'yucp-backstage',
           sha256: 'b'.repeat(64),
-          uploadedAt: now,
-          variant: 'preserve-original',
-          versionId: 'ver_deliverable_f24_binding',
+          tenantId: 'auth-user-f24-u1',
+          uploadedAt: new Date(now).toISOString(),
         },
       } as never);
     });
@@ -2409,15 +2319,15 @@ describe('packageRegistry', () => {
     expect(deletedState.deliveryPackage?.repositoryVisibility).toBe('hidden');
   });
 
-  it('carries CDNgine coordinates with server-owned deliverable downloads', async () => {
+  it('carries Lore coordinates with server-owned deliverable downloads', async () => {
     const t = makeTestConvex();
     const { deliveryPackageReleaseId, deliverableArtifactId } = await t.run(async (ctx) => {
       const now = Date.now();
       const deliveryPackageId = await ctx.db.insert('delivery_packages', {
         authUserId: 'auth-user-1',
-        packageId: 'com.yucp.backstage.cdngine',
-        packageName: 'CDNgine Package',
-        displayName: 'CDNgine Package',
+        packageId: 'com.yucp.backstage.lore',
+        packageName: 'Lore Package',
+        displayName: 'Lore Package',
         status: 'active',
         repositoryVisibility: 'listed',
         defaultChannel: 'stable',
@@ -2427,7 +2337,7 @@ describe('packageRegistry', () => {
       const deliveryPackageReleaseId = await ctx.db.insert('delivery_package_releases', {
         authUserId: 'auth-user-1',
         deliveryPackageId,
-        packageId: 'com.yucp.backstage.cdngine',
+        packageId: 'com.yucp.backstage.lore',
         version: '1.0.0',
         channel: 'stable',
         releaseStatus: 'published',
@@ -2443,24 +2353,20 @@ describe('packageRegistry', () => {
         ownership: 'server_materialized',
         materializationStrategy: 'normalized_repack',
         contentType: 'application/zip',
-        deliveryName: 'cdngine-package-1.0.0.zip',
+        deliveryName: 'lore-package-1.0.0.zip',
         sha256: 'c'.repeat(64),
         byteSize: 3,
         status: 'active',
         activatedAt: now,
         createdAt: now,
         updatedAt: now,
-        cdngineDelivery: {
-          assetId: 'ast_backstage_cdngine',
-          versionId: 'ver_backstage_cdngine',
-          deliveryScopeId: 'paid-downloads',
-          variant: 'preserve-original',
-          serviceNamespaceId: 'yucp-backstage',
+        loreDelivery: {
+          repositoryId: 'c'.repeat(32),
+          address: `${'c'.repeat(64)}-${'3'.repeat(32)}`,
           tenantId: 'auth-user-1',
-          assetOwner: 'creator:auth-user-1',
           sha256: 'c'.repeat(64),
           byteSize: 3,
-          uploadedAt: now,
+          uploadedAt: new Date(now).toISOString(),
         },
       } as never);
       return { deliveryPackageReleaseId, deliverableArtifactId };
@@ -2476,14 +2382,10 @@ describe('packageRegistry', () => {
     expect(resolved).toMatchObject({
       deliveryArtifactId: deliverableArtifactId,
       deliveryArtifactMode: 'server_materialized',
-      cdngineDelivery: {
-        assetId: 'ast_backstage_cdngine',
-        versionId: 'ver_backstage_cdngine',
-        deliveryScopeId: 'paid-downloads',
-        variant: 'preserve-original',
-        serviceNamespaceId: 'yucp-backstage',
+      loreDelivery: {
+        repositoryId: 'c'.repeat(32),
+        address: `${'c'.repeat(64)}-${'3'.repeat(32)}`,
         tenantId: 'auth-user-1',
-        assetOwner: 'creator:auth-user-1',
         sha256: 'c'.repeat(64),
         byteSize: 3,
       },

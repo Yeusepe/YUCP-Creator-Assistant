@@ -2536,32 +2536,6 @@ const delivery_release_artifacts = defineTable({
   deliveryName: v.string(),
   sha256: v.string(),
   byteSize: v.number(),
-  cdngineDelivery: v.optional(
-    v.object({
-      assetId: v.string(),
-      assetOwner: v.string(),
-      byteSize: v.number(),
-      deliveryScopeId: v.string(),
-      serviceNamespaceId: v.string(),
-      sha256: v.string(),
-      tenantId: v.optional(v.string()),
-      uploadedAt: v.number(),
-      variant: v.string(),
-      versionId: v.string(),
-    })
-  ),
-  cdngineSource: v.optional(
-    v.object({
-      assetId: v.string(),
-      assetOwner: v.string(),
-      byteSize: v.number(),
-      serviceNamespaceId: v.string(),
-      sha256: v.string(),
-      tenantId: v.optional(v.string()),
-      uploadedAt: v.number(),
-      versionId: v.string(),
-    })
-  ),
   loreDelivery: v.optional(
     v.object({
       repositoryId: v.string(),

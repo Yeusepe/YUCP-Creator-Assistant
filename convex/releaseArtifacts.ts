@@ -34,28 +34,6 @@ const deliveryMaterializationStrategyValidator = v.union(
   v.literal('passthrough'),
   v.literal('normalized_repack')
 );
-const cdngineDeliveryReferenceValidator = v.object({
-  assetId: v.string(),
-  assetOwner: v.string(),
-  byteSize: v.number(),
-  deliveryScopeId: v.string(),
-  serviceNamespaceId: v.string(),
-  sha256: v.string(),
-  tenantId: v.optional(v.string()),
-  uploadedAt: v.number(),
-  variant: v.string(),
-  versionId: v.string(),
-});
-const cdngineSourceReferenceValidator = v.object({
-  assetId: v.string(),
-  assetOwner: v.string(),
-  byteSize: v.number(),
-  serviceNamespaceId: v.string(),
-  sha256: v.string(),
-  tenantId: v.optional(v.string()),
-  uploadedAt: v.number(),
-  versionId: v.string(),
-});
 export const loreBackstageArtifactReferenceValidator = v.object({
   repositoryId: v.string(),
   address: v.string(),
@@ -76,8 +54,6 @@ const deliveryReleaseArtifactValidator = v.object({
   deliveryName: v.string(),
   sha256: v.string(),
   byteSize: v.number(),
-  cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
-  cdngineSource: v.optional(cdngineSourceReferenceValidator),
   loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
   loreSource: v.optional(loreBackstageArtifactReferenceValidator),
   status: v.union(v.literal('active'), v.literal('inactive')),
@@ -423,8 +399,6 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
       deliveryName: v.string(),
       sha256: v.string(),
       byteSize: v.number(),
-      cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
-      cdngineSource: v.optional(cdngineSourceReferenceValidator),
       loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
       loreSource: v.optional(loreBackstageArtifactReferenceValidator),
       status: v.union(v.literal('active'), v.literal('inactive')),
@@ -456,8 +430,6 @@ export const getActiveDeliveryArtifactRecordForRelease = internalQuery({
           deliveryName: row.deliveryName,
           sha256: row.sha256,
           byteSize: row.byteSize,
-          cdngineDelivery: row.cdngineDelivery,
-          cdngineSource: row.cdngineSource,
           loreDelivery: row.loreDelivery,
           loreSource: row.loreSource,
           status: row.status,
@@ -514,8 +486,6 @@ export const publishDeliveryArtifact = internalMutation({
     deliveryName: v.string(),
     sha256: v.string(),
     byteSize: v.number(),
-    cdngineDelivery: v.optional(cdngineDeliveryReferenceValidator),
-    cdngineSource: v.optional(cdngineSourceReferenceValidator),
     loreDelivery: v.optional(loreBackstageArtifactReferenceValidator),
     loreSource: v.optional(loreBackstageArtifactReferenceValidator),
   },
@@ -523,34 +493,24 @@ export const publishDeliveryArtifact = internalMutation({
   handler: async (ctx, args) => {
     if (args.storageId) {
       throw new Error(
-        'Backstage delivery release artifacts must store CDNgine references, not Convex storage.'
+        'Backstage delivery release artifacts must store Lore references, not Convex storage.'
       );
     }
-    if (args.artifactRole === 'raw_upload' && (args.cdngineDelivery || args.loreDelivery)) {
+    if (args.artifactRole === 'raw_upload' && args.loreDelivery) {
       throw new Error(
-        'Raw Backstage upload artifacts must store a source reference, not cdngineDelivery or loreDelivery.'
+        'Raw Backstage upload artifacts must store a Lore source reference, not loreDelivery.'
       );
     }
-    if (args.artifactRole === 'server_deliverable' && (args.cdngineSource || args.loreSource)) {
+    if (args.artifactRole === 'server_deliverable' && args.loreSource) {
       throw new Error(
-        'Server deliverable artifacts must store a delivery reference, not cdngineSource or loreSource.'
+        'Server deliverable artifacts must store a Lore delivery reference, not loreSource.'
       );
     }
-    if (
-      args.artifactRole === 'raw_upload' &&
-      Boolean(args.cdngineSource) === Boolean(args.loreSource)
-    ) {
-      throw new Error(
-        'Raw Backstage upload artifacts require exactly one of cdngineSource or loreSource.'
-      );
+    if (args.artifactRole === 'raw_upload' && !args.loreSource) {
+      throw new Error('Raw Backstage upload artifacts require loreSource.');
     }
-    if (
-      args.artifactRole === 'server_deliverable' &&
-      Boolean(args.cdngineDelivery) === Boolean(args.loreDelivery)
-    ) {
-      throw new Error(
-        'Server deliverable artifacts require exactly one of cdngineDelivery or loreDelivery.'
-      );
+    if (args.artifactRole === 'server_deliverable' && !args.loreDelivery) {
+      throw new Error('Server deliverable artifacts require loreDelivery.');
     }
     const now = Date.now();
     const existing = await ctx.db

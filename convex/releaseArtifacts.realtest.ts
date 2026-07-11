@@ -5,15 +5,15 @@ import { makeTestConvex } from './testHelpers';
 
 async function seedDeliveryPackageRelease(
   t: ReturnType<typeof makeTestConvex>,
-  packageId = 'com.yucp.backstage.cdngine-only'
+  packageId = 'com.yucp.backstage.lore-only'
 ): Promise<Id<'delivery_package_releases'>> {
   return await t.run(async (ctx) => {
     const now = Date.now();
     const deliveryPackageId = await ctx.db.insert('delivery_packages', {
       authUserId: 'auth-user-1',
       packageId,
-      packageName: 'CDNgine Only Package',
-      displayName: 'CDNgine Only Package',
+      packageName: 'Lore Only Package',
+      displayName: 'Lore Only Package',
       status: 'active',
       repositoryVisibility: 'listed',
       defaultChannel: 'stable',
@@ -37,7 +37,7 @@ async function seedDeliveryPackageRelease(
   });
 }
 
-describe('releaseArtifacts CDNgine storage contract', () => {
+describe('releaseArtifacts Lore storage contract', () => {
   it('rejects Convex storage ids for Backstage release artifacts', async () => {
     const t = makeTestConvex();
     const deliveryPackageReleaseId = await seedDeliveryPackageRelease(t);
@@ -59,13 +59,14 @@ describe('releaseArtifacts CDNgine storage contract', () => {
         byteSize: 3,
       })
     ).rejects.toThrow(
-      'Backstage delivery release artifacts must store CDNgine references, not Convex storage.'
+      'Backstage delivery release artifacts must store Lore references, not Convex storage.'
     );
   });
 
-  it('stores source and delivery coordinates without Convex storage URLs', async () => {
+  it('stores Lore source and delivery coordinates without Convex storage URLs', async () => {
     const t = makeTestConvex();
     const deliveryPackageReleaseId = await seedDeliveryPackageRelease(t);
+    const uploadedAt = new Date(1_700_000_000_000).toISOString();
 
     const rawArtifactId = await t.mutation(internal.releaseArtifacts.publishDeliveryArtifact, {
       deliveryPackageReleaseId,
@@ -75,14 +76,13 @@ describe('releaseArtifacts CDNgine storage contract', () => {
       deliveryName: 'Song Thing_1.0.0.unitypackage',
       sha256: '1'.repeat(64),
       byteSize: 1234,
-      cdngineSource: {
-        assetId: 'ast_source_1',
-        versionId: 'ver_source_1',
-        serviceNamespaceId: 'yucp-backstage',
-        assetOwner: 'creator:auth-user-1',
+      loreSource: {
+        repositoryId: '1'.repeat(32),
+        address: `${'1'.repeat(64)}-${'a'.repeat(32)}`,
         sha256: '1'.repeat(64),
         byteSize: 1234,
-        uploadedAt: 1_700_000_000_000,
+        uploadedAt,
+        tenantId: 'auth-user-1',
       },
     });
     const deliverableArtifactId = await t.mutation(
@@ -94,19 +94,16 @@ describe('releaseArtifacts CDNgine storage contract', () => {
         materializationStrategy: 'normalized_repack',
         sourceArtifactId: rawArtifactId,
         contentType: 'application/zip',
-        deliveryName: 'vrc-get-com.yucp.backstage.cdngine-only-1.0.0.zip',
+        deliveryName: 'vrc-get-com.yucp.backstage.lore-only-1.0.0.zip',
         sha256: '2'.repeat(64),
         byteSize: 456,
-        cdngineDelivery: {
-          assetId: 'ast_delivery_1',
-          versionId: 'ver_delivery_1',
-          deliveryScopeId: 'paid-downloads',
-          variant: 'preserve-original',
-          serviceNamespaceId: 'yucp-backstage',
-          assetOwner: 'creator:auth-user-1',
+        loreDelivery: {
+          repositoryId: '1'.repeat(32),
+          address: `${'2'.repeat(64)}-${'b'.repeat(32)}`,
           sha256: '2'.repeat(64),
           byteSize: 456,
-          uploadedAt: 1_700_000_000_000,
+          uploadedAt,
+          tenantId: 'auth-user-1',
         },
       }
     );
@@ -120,17 +117,17 @@ describe('releaseArtifacts CDNgine storage contract', () => {
 
     expect(rawArtifact).toMatchObject({
       artifactRole: 'raw_upload',
-      cdngineSource: {
-        assetId: 'ast_source_1',
-        versionId: 'ver_source_1',
+      loreSource: {
+        repositoryId: '1'.repeat(32),
+        address: `${'1'.repeat(64)}-${'a'.repeat(32)}`,
       },
     });
     expect(rawArtifact?.storageId).toBeUndefined();
     expect(deliverableArtifact).toMatchObject({
       artifactRole: 'server_deliverable',
-      cdngineDelivery: {
-        assetId: 'ast_delivery_1',
-        versionId: 'ver_delivery_1',
+      loreDelivery: {
+        repositoryId: '1'.repeat(32),
+        address: `${'2'.repeat(64)}-${'b'.repeat(32)}`,
       },
     });
     expect(deliverableArtifact?.storageId).toBeUndefined();

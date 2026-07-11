@@ -20,6 +20,6 @@ it('allows production-size Backstage unitypackage uploads through the API server
   expect(MAX_BACKSTAGE_UPLOAD_BYTES).toBeGreaterThanOrEqual(1024 * 1024 * 1024);
 });
 
-it('documents the Unity package upper bound enforced by the direct CDNgine upload flow', () => {
+it('documents the Unity package upper bound enforced by the direct Lore upload flow', () => {
   expect(MAX_BACKSTAGE_PACKAGE_BYTES).toBe(5 * 1024 * 1024 * 1024);
 });

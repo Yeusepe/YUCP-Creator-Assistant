@@ -1,5 +1,4 @@
 import { gunzipSync, unzipSync } from 'fflate';
-import type { CdngineBackstageDeliveryReference } from './cdngineBackstageDelivery';
 import { sha256Hex } from './crypto';
 import type { LoreBackstageArtifactReference } from './loreBackstageDelivery';
 
@@ -17,7 +16,6 @@ export type BackstagePackageMediaKind =
 
 export type BackstagePackageMediaReference = {
   byteSize: number;
-  cdngineDelivery?: CdngineBackstageDeliveryReference;
   loreDelivery?: LoreBackstageArtifactReference;
   contentType: string;
   deliveryName: string;
@@ -98,47 +96,6 @@ export function stripBackstagePackageMediaManifestMetadata(
   return next;
 }
 
-function normalizeCdngineDeliveryReference(
-  value: unknown
-): CdngineBackstageDeliveryReference | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const assetId = readString(value.assetId);
-  const assetOwner = readString(value.assetOwner);
-  const deliveryScopeId = readString(value.deliveryScopeId);
-  const serviceNamespaceId = readString(value.serviceNamespaceId);
-  const sha256 = readString(value.sha256);
-  const variant = readString(value.variant);
-  const versionId = readString(value.versionId);
-  if (
-    !assetId ||
-    !assetOwner ||
-    typeof value.byteSize !== 'number' ||
-    !deliveryScopeId ||
-    !serviceNamespaceId ||
-    !sha256 ||
-    typeof value.uploadedAt !== 'number' ||
-    !variant ||
-    !versionId
-  ) {
-    return undefined;
-  }
-
-  return {
-    assetId,
-    assetOwner,
-    byteSize: value.byteSize,
-    deliveryScopeId,
-    serviceNamespaceId,
-    sha256,
-    ...(readString(value.tenantId) ? { tenantId: readString(value.tenantId) } : {}),
-    uploadedAt: value.uploadedAt,
-    variant,
-    versionId,
-  };
-}
-
 function normalizeLoreDeliveryReference(
   value: unknown
 ): LoreBackstageArtifactReference | undefined {
@@ -194,11 +151,9 @@ function normalizePackageMediaReference(
   ) {
     return undefined;
   }
-  const cdngineDelivery = normalizeCdngineDeliveryReference(value.cdngineDelivery);
   const loreDelivery = normalizeLoreDeliveryReference(value.loreDelivery);
   return {
     byteSize: value.byteSize,
-    ...(cdngineDelivery ? { cdngineDelivery } : {}),
     ...(loreDelivery ? { loreDelivery } : {}),
     contentType,
     deliveryName,

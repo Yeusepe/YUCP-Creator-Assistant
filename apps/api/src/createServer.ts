@@ -73,14 +73,6 @@ export interface TestServerConfig {
   /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
-  cdngine?: {
-    accessToken?: string;
-    apiBaseUrl: string;
-    publicationPollIntervalMs?: number;
-    publicationTimeoutMs?: number;
-    required?: boolean;
-    timeoutMs?: number;
-  };
   lore?: LoreBackstageConfig;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
