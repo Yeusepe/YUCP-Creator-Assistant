@@ -75,10 +75,6 @@ vi.mock('@/components/dashboard/panels/SetupJourneyCard', () => ({
   SetupJourneyCard: () => <div data-testid="setup-journey-card">setup journey</div>,
 }));
 
-vi.mock('@/components/dashboard/panels/AutomaticSetupPanel', () => ({
-  AutomaticSetupPanel: () => <div data-testid="automatic-setup-panel">automatic setup</div>,
-}));
-
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 describe('dashboard setup entry', () => {
