@@ -60,33 +60,49 @@ function applyBoundActorForProtectedMockCall(
   };
 }
 
-type TestCdngineSourceReference = {
-  assetId: string;
-  versionId: string;
-  serviceNamespaceId: string;
-  tenantId: string;
-  assetOwner: string;
+type TestLoreArtifactReference = {
+  repositoryId: string;
+  address: string;
+  tenantId?: string;
   sha256: string;
   byteSize: number;
-  uploadedAt: number;
+  uploadedAt: string;
 };
 
-function makeTestCdngineSourceReference(
+function makeTestLoreArtifactReference(
   authUserId: string,
-  overrides: Partial<Omit<TestCdngineSourceReference, 'tenantId' | 'assetOwner'>> = {}
-): TestCdngineSourceReference {
+  overrides: Partial<Omit<TestLoreArtifactReference, 'tenantId'>> = {}
+): TestLoreArtifactReference {
   return {
-    assetId: 'ast_source_1',
-    versionId: 'ver_source_1',
-    serviceNamespaceId: 'yucp-backstage',
+    repositoryId: '1'.repeat(32),
+    address: `${'2'.repeat(64)}-${'3'.repeat(32)}`,
     tenantId: authUserId,
-    assetOwner: `creator:${authUserId}`,
     sha256: 'b'.repeat(64),
     byteSize: 1234,
-    uploadedAt: 1_700_000_000_000,
+    uploadedAt: '2024-03-09T16:00:00.000Z',
     ...overrides,
   };
 }
+
+function decodeLorePresignPayload(url: string): Record<string, unknown> {
+  const token = new URL(url).searchParams.get('token');
+  expect(token).toBeString();
+  const [payload, signature] = token?.split('.') ?? [];
+  expect(payload).toBeString();
+  expect(signature).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return JSON.parse(Buffer.from(payload as string, 'base64url').toString('utf8')) as Record<
+    string,
+    unknown
+  >;
+}
+
+const loreTestConfig = {
+  apiBaseUrl: 'https://lore.test',
+  presignHmacKey: '11'.repeat(32),
+  repoNamespaceSalt: 'test-repository-salt',
+  accessClientId: 'lore-client-id',
+  accessClientSecret: 'lore-client-secret',
+};
 
 mock.module('../../../../convex/_generated/api', () => ({
   api: {
@@ -173,6 +189,7 @@ describe('backstage repo routes', () => {
     convexApiSecret: 'convex-secret',
     convexSiteUrl: 'https://convex.test',
     convexUrl: 'https://convex.cloud',
+    lore: loreTestConfig,
   });
 
   beforeEach(() => {
@@ -237,15 +254,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: {
-              assetId: 'ast_source_1',
-              versionId: 'ver_source_1',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'b'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            loreSource: makeTestLoreArtifactReference('auth-user-1'),
           };
         case 'packageRegistry.getPublicBackstageProductAccessByRef':
           expect(args).toMatchObject({
@@ -789,30 +798,12 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({ error: 'Package not found' });
   });
 
-  it('redirects entitled package downloads through CDNgine when a deliverable reference exists', async () => {
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.startsWith('https://cdngine.test/')) {
-        return new Response(
-          JSON.stringify({
-            assetId: 'ast_backstage_1',
-            versionId: 'ver_backstage_1',
-            deliveryScopeId: 'paid-downloads',
-            authorizationMode: 'signed-url',
-            resolvedOrigin: 'cdn-derived',
-            expiresAt: '2026-05-01T12:00:00Z',
-            url: '/uploads/backstage/example-1.2.3.zip',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('redirects entitled package downloads through a client-minted Lore presigned URL', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getRepoAccessByTokenForApi':
@@ -832,18 +823,9 @@ describe('backstage repo routes', () => {
             zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
-            cdngineDelivery: {
-              assetId: 'ast_backstage_1',
-              versionId: 'ver_backstage_1',
-              deliveryScopeId: 'paid-downloads',
-              variant: 'preserve-original',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'auth-user-1',
-              assetOwner: 'creator:auth-user-1',
+            loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
               sha256: 'a'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            }),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
@@ -860,7 +842,7 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -871,14 +853,10 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
         {
@@ -890,53 +868,26 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get('location')).toBe(
-      'https://cdngine.test/uploads/backstage/example-1.2.3.zip'
+    const location = response?.headers.get('location') ?? '';
+    expect(location).toMatch(
+      /^https:\/\/lore\.test\/v1\/presigned\/[0-9a-f]{32}\/[0-9a-f]{64}-[0-9a-f]{32}\?token=/
     );
     expect(response?.headers.get('cache-control')).toBe('no-store');
-    const cdngineCall = fetchCalls.find((call) =>
-      String(call.input).startsWith('https://cdngine.test/')
-    );
-    expect(cdngineCall?.input.toString()).toBe(
-      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize'
-    );
-    expect((cdngineCall?.init?.headers as Record<string, string>).authorization).toBe(
-      'Bearer cdngine-token'
-    );
-    expect((cdngineCall?.init?.headers as Record<string, string>)['idempotency-key']).toMatch(
-      /^backstage-download-[0-9a-f]{64}$/
-    );
-    expect(JSON.parse(String(cdngineCall?.init?.body))).toEqual({
-      responseFormat: 'url',
-      variant: 'preserve-original',
+    expect(fetchCount).toBe(0);
+    expect(decodeLorePresignPayload(location)).toMatchObject({
+      repository: '1'.repeat(32),
+      address: `${'2'.repeat(64)}-${'3'.repeat(32)}`,
+      content_type: 'application/zip',
+      content_disposition: 'attachment; filename="example-1.2.3.zip"',
     });
   });
 
-  it('stops reading oversized CDNgine authorization responses before buffering the full body', async () => {
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    let cdngineChunksRead = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.startsWith('https://cdngine.test/')) {
-        return new Response(
-          new ReadableStream({
-            pull(controller) {
-              cdngineChunksRead += 1;
-              controller.enqueue(new Uint8Array(8 * 1024).fill(120));
-              if (cdngineChunksRead >= 8) {
-                controller.close();
-              }
-            },
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('returns a temporary outage without network access when Lore delivery config is missing', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Missing Lore configuration must fail before network access');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getRepoAccessByTokenForApi':
@@ -956,18 +907,9 @@ describe('backstage repo routes', () => {
             zipSha256: 'b'.repeat(64),
             version: '1.2.3',
             channel: 'stable',
-            cdngineDelivery: {
-              assetId: 'ast_backstage_1',
-              versionId: 'ver_backstage_1',
-              deliveryScopeId: 'paid-downloads',
-              variant: 'preserve-original',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'auth-user-1',
-              assetOwner: 'creator:auth-user-1',
+            loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
               sha256: 'a'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
+            }),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
@@ -984,7 +926,7 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const unconfiguredRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -995,203 +937,9 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
     });
 
-    const response = await cdngineRoutes.handleRequest(
-      new Request(
-        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
-        {
-          headers: {
-            'X-YUCP-Repo-Token': 'ybt_example',
-          },
-        }
-      )
-    );
-
-    expect(response?.status).toBe(502);
-    expect(cdngineChunksRead).toBeLessThan(8);
-  });
-
-  it('does not fall back to CDNgine source export for VPM package downloads when delivery is not ready', async () => {
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.endsWith('/deliveries/paid-downloads/authorize')) {
-        return new Response(
-          JSON.stringify({
-            type: 'https://docs.cdngine.dev/problems/version-not-ready',
-            title: 'Version not ready',
-            status: 409,
-            detail:
-              'Version "ver_backstage_1" for asset "ast_backstage_1" is not ready for this operation from state "canonical".',
-          }),
-          {
-            status: 409,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      if (url.endsWith('/source/authorize')) {
-        throw new Error('VPM package downloads must not authorize source exports.');
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
-    queryImpl = async (ref: unknown) => {
-      switch (ref) {
-        case 'backstageRepos.getRepoAccessByTokenForApi':
-          return {
-            tokenId: 'token_1',
-            authUserId: 'auth-user-1',
-            subjectId: 'subject_1',
-            status: 'active',
-          };
-        case 'backstageRepos.resolvePackageDownloadForApi':
-          return {
-            deliveryArtifactId: 'artifact_1',
-            deliveryArtifactMode: 'server_materialized',
-            downloadUrl: '',
-            deliveryName: 'example-1.2.3.zip',
-            contentType: 'application/zip',
-            zipSha256: 'b'.repeat(64),
-            version: '1.2.3',
-            channel: 'stable',
-            cdngineDelivery: {
-              assetId: 'ast_backstage_1',
-              versionId: 'ver_backstage_1',
-              deliveryScopeId: 'paid-downloads',
-              variant: 'preserve-original',
-              serviceNamespaceId: 'yucp-backstage',
-              tenantId: 'auth-user-1',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'a'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
-          };
-        case 'creatorProfiles.getCreatorByAuthUser':
-          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
-        case 'authViewer.getViewerByAuthUser':
-          return {
-            authUserId: 'auth-user-1',
-            name: 'Mapache',
-            email: null,
-            image: null,
-            discordUserId: 'discord-user-1',
-          };
-        default:
-          return null;
-      }
-    };
-
-    const cdngineRoutes = createBackstageRepoRoutes({
-      apiBaseUrl: 'https://api.test',
-      frontendBaseUrl: 'https://app.test',
-      convexApiSecret: 'convex-secret',
-      convexSiteUrl: 'https://convex.test',
-      convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
-    });
-
-    const response = await cdngineRoutes.handleRequest(
-      new Request(
-        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
-        {
-          headers: {
-            'X-YUCP-Repo-Token': 'ybt_example',
-          },
-        }
-      )
-    );
-
-    expect(response?.status).toBe(502);
-    const cdngineCalls = fetchCalls.filter((call) =>
-      String(call.input).startsWith('https://cdngine.test/')
-    );
-    expect(cdngineCalls.map((call) => call.input.toString())).toEqual([
-      'https://cdngine.test/v1/assets/ast_backstage_1/versions/ver_backstage_1/deliveries/paid-downloads/authorize',
-    ]);
-  });
-
-  it('does not fall back to Convex storage for CDNgine-only package artifacts', async () => {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).startsWith('https://cdngine.test/')) {
-        return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
-    queryImpl = async (ref: unknown) => {
-      switch (ref) {
-        case 'backstageRepos.getRepoAccessByTokenForApi':
-          return {
-            tokenId: 'token_1',
-            authUserId: 'auth-user-1',
-            subjectId: 'subject_1',
-            status: 'active',
-          };
-        case 'backstageRepos.resolvePackageDownloadForApi':
-          return {
-            deliveryArtifactId: 'artifact_1',
-            deliveryArtifactMode: 'server_materialized',
-            downloadUrl: '',
-            deliveryName: 'example-1.2.3.zip',
-            contentType: 'application/zip',
-            zipSha256: 'b'.repeat(64),
-            version: '1.2.3',
-            channel: 'stable',
-            cdngineDelivery: {
-              assetId: 'ast_backstage_1',
-              versionId: 'ver_backstage_1',
-              deliveryScopeId: 'paid-downloads',
-              variant: 'preserve-original',
-              serviceNamespaceId: 'yucp-backstage',
-              assetOwner: 'creator:auth-user-1',
-              sha256: 'a'.repeat(64),
-              byteSize: 1234,
-              uploadedAt: 1_700_000_000_000,
-            },
-          };
-        case 'creatorProfiles.getCreatorByAuthUser':
-          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
-        case 'authViewer.getViewerByAuthUser':
-          return {
-            authUserId: 'auth-user-1',
-            name: 'Mapache',
-            email: null,
-            image: null,
-            discordUserId: 'discord-user-1',
-          };
-        default:
-          return null;
-      }
-    };
-
-    const cdngineRoutes = createBackstageRepoRoutes({
-      apiBaseUrl: 'https://api.test',
-      frontendBaseUrl: 'https://app.test',
-      convexApiSecret: 'convex-secret',
-      convexSiteUrl: 'https://convex.test',
-      convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: false,
-      },
-    });
-
-    const response = await cdngineRoutes.handleRequest(
+    const response = await unconfiguredRoutes.handleRequest(
       new Request(
         'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
         {
@@ -1206,6 +954,150 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package delivery is temporarily unavailable',
     });
+    expect(fetchCount).toBe(0);
+  });
+
+  it('does not fall back to raw sources when Lore VPM delivery presigning fails', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore presigning and raw fallback must not make network requests');
+    }) as unknown as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: '',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
+            version: '1.2.3',
+            channel: 'stable',
+            loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
+              sha256: 'a'.repeat(64),
+            }),
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const invalidLoreRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      lore: { ...loreTestConfig, presignHmacKey: 'invalid-key' },
+    });
+
+    const response = await invalidLoreRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package delivery is temporarily unavailable',
+    });
+    expect(fetchCount).toBe(0);
+  });
+
+  it('does not fall back to Convex storage for Lore-only package artifacts', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore presigning must not make a network request');
+    }) as unknown as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getRepoAccessByTokenForApi':
+          return {
+            tokenId: 'token_1',
+            authUserId: 'auth-user-1',
+            subjectId: 'subject_1',
+            status: 'active',
+          };
+        case 'backstageRepos.resolvePackageDownloadForApi':
+          return {
+            deliveryArtifactId: 'artifact_1',
+            deliveryArtifactMode: 'server_materialized',
+            downloadUrl: '',
+            deliveryName: 'example-1.2.3.zip',
+            contentType: 'application/zip',
+            zipSha256: 'b'.repeat(64),
+            version: '1.2.3',
+            channel: 'stable',
+            loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
+              address: 'invalid-address',
+              sha256: 'a'.repeat(64),
+            }),
+          };
+        case 'creatorProfiles.getCreatorByAuthUser':
+          return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
+        case 'authViewer.getViewerByAuthUser':
+          return {
+            authUserId: 'auth-user-1',
+            name: 'Mapache',
+            email: null,
+            image: null,
+            discordUserId: 'discord-user-1',
+          };
+        default:
+          return null;
+      }
+    };
+
+    const loreRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      lore: loreTestConfig,
+    });
+
+    const response = await loreRoutes.handleRequest(
+      new Request(
+        'https://api.test/v1/backstage/repos/mapache/package?packageId=com.yucp.example&version=1.2.3&channel=stable',
+        {
+          headers: {
+            'X-YUCP-Repo-Token': 'ybt_example',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package delivery is temporarily unavailable',
+    });
+    expect(fetchCount).toBe(0);
   });
 
   it('returns public buyer access details for a creator product link', async () => {
@@ -1583,22 +1475,12 @@ describe('backstage repo routes', () => {
     }
   });
 
-  it('reports CDNgine media authorization failures as temporary delivery outages', async () => {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).startsWith('https://cdngine.test/')) {
-        return new Response(
-          JSON.stringify({
-            detail:
-              'Version "ver_media_icon" for asset "ast_media_icon" is not ready for this operation from state "canonical".',
-          }),
-          {
-            status: 409,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('reports invalid Lore media references as temporary delivery outages', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore media presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -1646,18 +1528,11 @@ describe('backstage repo routes', () => {
                     contentType: 'image/png',
                     deliveryName: 'song-icon.png',
                     sha256: 'd'.repeat(64),
-                    cdngineDelivery: {
-                      assetId: 'ast_media_icon',
-                      versionId: 'ver_media_icon',
-                      deliveryScopeId: 'paid-downloads',
-                      variant: 'package-media',
-                      serviceNamespaceId: 'yucp-backstage',
-                      tenantId: 'creator-user-1',
-                      assetOwner: 'creator:creator-user-1',
+                    loreDelivery: makeTestLoreArtifactReference('creator-user-1', {
+                      address: 'invalid-address',
                       sha256: 'd'.repeat(64),
                       byteSize: 10,
-                      uploadedAt: 1_700_000_000_000,
-                    },
+                    }),
                   },
                 },
               },
@@ -1668,20 +1543,16 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       apiBaseUrl: 'https://api.test',
       frontendBaseUrl: 'https://app.test',
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
         {
@@ -1696,23 +1567,15 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package media is temporarily unavailable',
     });
+    expect(fetchCount).toBe(0);
   });
 
-  it('marks CDNgine package media redirects as non-cacheable', async () => {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).startsWith('https://cdngine.test/')) {
-        return new Response(
-          JSON.stringify({
-            url: 'https://cdn.cdngine.test/media/song-icon.png?signature=signed',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('marks Lore package media redirects as non-cacheable', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore media presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -1746,18 +1609,10 @@ describe('backstage repo routes', () => {
                     contentType: 'image/png',
                     deliveryName: 'song-icon.png',
                     sha256: 'd'.repeat(64),
-                    cdngineDelivery: {
-                      assetId: 'ast_media_icon',
-                      versionId: 'ver_media_icon',
-                      deliveryScopeId: 'paid-downloads',
-                      variant: 'package-media',
-                      serviceNamespaceId: 'yucp-backstage',
-                      tenantId: 'auth-user-1',
-                      assetOwner: 'creator:auth-user-1',
+                    loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
                       sha256: 'd'.repeat(64),
                       byteSize: 10,
-                      uploadedAt: 1_700_000_000_000,
-                    },
+                    }),
                   },
                 },
               },
@@ -1768,20 +1623,16 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       apiBaseUrl: 'https://api.test',
       frontendBaseUrl: 'https://app.test',
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
         {
@@ -1793,19 +1644,24 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(302);
-    expect(response?.headers.get('location')).toBe(
-      'https://cdn.cdngine.test/media/song-icon.png?signature=signed'
+    const mediaLocation = response?.headers.get('location') ?? '';
+    expect(mediaLocation).toMatch(
+      /^https:\/\/lore\.test\/v1\/presigned\/[0-9a-f]{32}\/[0-9a-f]{64}-[0-9a-f]{32}\?token=/
     );
     expect(response?.headers.get('cache-control')).toBe('no-store');
+    expect(fetchCount).toBe(0);
+    expect(decodeLorePresignPayload(mediaLocation)).toMatchObject({
+      content_type: 'image/png',
+      content_disposition: 'attachment; filename="song-icon.png"',
+    });
   });
 
-  it('reports thrown CDNgine media authorization failures as temporary delivery outages', async () => {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).startsWith('https://cdngine.test/')) {
-        throw new DOMException('The operation was aborted.', 'AbortError');
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('reports invalid Lore media presign configuration as a temporary delivery outage', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore media presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -1839,18 +1695,10 @@ describe('backstage repo routes', () => {
                     contentType: 'image/png',
                     deliveryName: 'song-icon.png',
                     sha256: 'd'.repeat(64),
-                    cdngineDelivery: {
-                      assetId: 'ast_media_icon',
-                      versionId: 'ver_media_icon',
-                      deliveryScopeId: 'paid-downloads',
-                      variant: 'package-media',
-                      serviceNamespaceId: 'yucp-backstage',
-                      tenantId: 'auth-user-1',
-                      assetOwner: 'creator:auth-user-1',
+                    loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
                       sha256: 'd'.repeat(64),
                       byteSize: 10,
-                      uploadedAt: 1_700_000_000_000,
-                    },
+                    }),
                   },
                 },
               },
@@ -1861,20 +1709,16 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const invalidLoreRoutes = createBackstageRepoRoutes({
       apiBaseUrl: 'https://api.test',
       frontendBaseUrl: 'https://app.test',
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
+      lore: { ...loreTestConfig, presignHmacKey: 'invalid-key' },
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await invalidLoreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
         {
@@ -1889,6 +1733,7 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package media is temporarily unavailable',
     });
+    expect(fetchCount).toBe(0);
   });
 
   it('resolves bearer alias install plans against the creator entitlement scope', async () => {
@@ -1957,7 +1802,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('creator-user-1'),
+            loreSource: makeTestLoreArtifactReference('creator-user-1'),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           expect(args).toMatchObject({ authUserId: 'creator-user-1' });
@@ -1984,29 +1829,12 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('authorizes alias package downloads through buyer bearer auth and CDNgine', async () => {
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.startsWith('https://cdngine.test/')) {
-        return new Response(
-          JSON.stringify({
-            assetId: 'ast_source_1',
-            versionId: 'ver_source_1',
-            authorizationMode: 'signed-url',
-            resolvedOrigin: 'cdn-source',
-            expiresAt: '2026-05-01T12:00:00Z',
-            url: '/uploads/backstage/source/Song%20Thing_1.2.3.unitypackage',
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('authorizes alias package downloads through buyer bearer auth and Lore', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore source presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -2077,7 +1905,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('creator-user-1', {
+            loreSource: makeTestLoreArtifactReference('creator-user-1', {
               sha256: 'c'.repeat(64),
               byteSize: 4567,
             }),
@@ -2087,7 +1915,7 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -2098,14 +1926,10 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        accessToken: 'cdngine-token',
-        apiBaseUrl: 'https://cdngine.test',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
         {
@@ -2120,8 +1944,8 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://cdngine.test/uploads/backstage/source/Song%20Thing_1.2.3.unitypackage',
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
       packageSha256: 'c'.repeat(64),
       sourceKind: 'unitypackage',
       version: '1.2.3',
@@ -2129,9 +1953,13 @@ describe('backstage repo routes', () => {
       contentType: 'application/octet-stream',
       deliveryName: 'Song Thing_1.2.3.unitypackage',
     });
-    const cdngineCall = fetchCalls.find((call) => String(call.input).includes('/source/authorize'));
-    expect(cdngineCall?.init?.headers).toMatchObject({
-      authorization: 'Bearer cdngine-token',
+    expect(payload.downloadUrl).toMatch(
+      /^https:\/\/lore\.test\/v1\/presigned\/[0-9a-f]{32}\/[0-9a-f]{64}-[0-9a-f]{32}\?token=/
+    );
+    expect(fetchCount).toBe(0);
+    expect(decodeLorePresignPayload(payload.downloadUrl)).toMatchObject({
+      content_type: 'application/octet-stream',
+      content_disposition: 'attachment; filename="Song Thing_1.2.3.unitypackage"',
     });
     const rawPackageResolutionCall = convexQueryCalls.find(
       (call) => call.reference === 'backstageRepos.resolveRawPackageDownloadForApi'
@@ -2158,16 +1986,12 @@ describe('backstage repo routes', () => {
     );
   });
 
-  it('does not fall back to package URLs when CDNgine source authorization fails', async () => {
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).startsWith('https://cdngine.test/')) {
-        return new Response(JSON.stringify({ type: 'about:blank', title: 'Not ready' }), {
-          status: 409,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+  it('does not fall back to package URLs when Lore source presigning fails', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore source presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -2216,7 +2040,8 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('creator-user-1', {
+            loreSource: makeTestLoreArtifactReference('creator-user-1', {
+              address: 'invalid-address',
               sha256: 'c'.repeat(64),
               byteSize: 4567,
             }),
@@ -2226,7 +2051,7 @@ describe('backstage repo routes', () => {
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -2237,14 +2062,10 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        accessToken: 'cdngine-token',
-        apiBaseUrl: 'https://cdngine.test',
-        required: false,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
         {
@@ -2262,6 +2083,7 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package delivery is temporarily unavailable',
     });
+    expect(fetchCount).toBe(0);
   });
 
   it('redeems buyer verification grants with the session actor before VCC repo access', async () => {
@@ -2450,20 +2272,11 @@ describe('backstage repo routes', () => {
   });
 
   it('does not authorize VPM deliverable downloads for alias package installer downloads', async () => {
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.endsWith('/deliveries/paid-downloads/authorize')) {
-        throw new Error('Alias package installer downloads must not authorize VPM deliverables.');
-      }
-      if (url.endsWith('/source/authorize')) {
-        return new Response(JSON.stringify({ url: 'https://cdn.test/Song_Thing.unitypackage' }), {
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore source presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown, args?: unknown) => {
       switch (ref) {
         case 'backstageRepos.getSubjectByAuthUserForApi':
@@ -2519,14 +2332,14 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('creator-user-1'),
+            loreSource: makeTestLoreArtifactReference('creator-user-1'),
           };
         default:
           return null;
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -2537,14 +2350,10 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        accessToken: 'cdngine-token',
-        apiBaseUrl: 'https://cdngine.test',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
         {
@@ -2559,16 +2368,15 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://cdn.test/Song_Thing.unitypackage',
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
       packageSha256: 'b'.repeat(64),
       sourceKind: 'unitypackage',
       contentType: 'application/octet-stream',
       deliveryName: 'Song Thing_1.2.3.unitypackage',
     });
-    expect(fetchCalls.map((call) => String(call.input))).toEqual([
-      'https://cdngine.test/v1/assets/ast_source_1/versions/ver_source_1/source/authorize',
-    ]);
+    expect(payload.downloadUrl).toMatch(/^https:\/\/lore\.test\/v1\/presigned\//);
+    expect(fetchCount).toBe(0);
   });
 
   it('keeps stable public product refs in catalog-product alias install plan URLs', async () => {
@@ -2664,7 +2472,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
+            loreSource: makeTestLoreArtifactReference('auth-user-1'),
           };
         case 'creatorProfiles.getCreatorByAuthUser':
           return { _id: 'creator_1', name: '10705330', slug: 'mapache' };
@@ -2778,7 +2586,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
+            loreSource: makeTestLoreArtifactReference('auth-user-1'),
           };
         default:
           return null;
@@ -2859,7 +2667,7 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
+            loreSource: makeTestLoreArtifactReference('auth-user-1'),
           };
         default:
           return null;
@@ -2881,25 +2689,13 @@ describe('backstage repo routes', () => {
     });
   });
 
-  it('authorizes alias package installer downloads from the raw CDNgine source', async () => {
+  it('authorizes alias package installer downloads from the raw Lore source', async () => {
     const seenQueryRefs: unknown[] = [];
-    const fetchCalls: Array<{ input: string | URL | Request; init?: RequestInit }> = [];
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      fetchCalls.push({ input, init });
-      const url = String(input);
-      if (url.endsWith('/source/authorize')) {
-        return new Response(
-          JSON.stringify({ url: 'https://cdn.test/source/Song%20Thing_1.2.3.unitypackage' }),
-          {
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
-      if (url.endsWith('/deliveries/paid-downloads/authorize')) {
-        throw new Error('Alias package source downloads must not authorize VPM deliverables.');
-      }
-      return fetchImpl(input, init);
-    }) as typeof fetch;
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore source presigning must not make a network request');
+    }) as unknown as typeof fetch;
     queryImpl = async (ref: unknown, args?: unknown) => {
       seenQueryRefs.push(ref);
       switch (ref) {
@@ -2956,14 +2752,14 @@ describe('backstage repo routes', () => {
             sourceKind: 'unitypackage',
             version: '1.2.3',
             channel: 'stable',
-            cdngineSource: makeTestCdngineSourceReference('auth-user-1'),
+            loreSource: makeTestLoreArtifactReference('auth-user-1'),
           };
         default:
           return null;
       }
     };
 
-    const cdngineRoutes = createBackstageRepoRoutes({
+    const loreRoutes = createBackstageRepoRoutes({
       auth: {
         getSession: (...args: unknown[]) =>
           sessionImpl(...args) as Promise<{ user: { id: string } } | null>,
@@ -2974,14 +2770,10 @@ describe('backstage repo routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
-      cdngine: {
-        apiBaseUrl: 'https://cdngine.test',
-        accessToken: 'cdngine-token',
-        required: true,
-      },
+      lore: loreTestConfig,
     });
 
-    const response = await cdngineRoutes.handleRequest(
+    const response = await loreRoutes.handleRequest(
       new Request(
         'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/download',
         {
@@ -2996,8 +2788,8 @@ describe('backstage repo routes', () => {
     );
 
     expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toMatchObject({
-      downloadUrl: 'https://cdn.test/source/Song%20Thing_1.2.3.unitypackage',
+    const payload = await response?.json();
+    expect(payload).toMatchObject({
       packageSha256: 'b'.repeat(64),
       sourceKind: 'unitypackage',
       version: '1.2.3',
@@ -3005,14 +2797,12 @@ describe('backstage repo routes', () => {
       contentType: 'application/octet-stream',
       deliveryName: 'Song Thing_1.2.3.unitypackage',
     });
+    expect(payload.downloadUrl).toMatch(
+      /^https:\/\/lore\.test\/v1\/presigned\/[0-9a-f]{32}\/[0-9a-f]{64}-[0-9a-f]{32}\?token=/
+    );
     expect(seenQueryRefs).toContain('backstageRepos.resolveRawPackageDownloadForApi');
     expect(seenQueryRefs).not.toContain('backstageRepos.resolvePackageDownloadForApi');
-    const cdngineCall = fetchCalls.find((call) =>
-      String(call.input).startsWith('https://cdngine.test/')
-    );
-    expect(cdngineCall?.input.toString()).toBe(
-      'https://cdngine.test/v1/assets/ast_source_1/versions/ver_source_1/source/authorize'
-    );
+    expect(fetchCount).toBe(0);
   });
 
   it('rejects malformed alias package download bodies as client errors', async () => {

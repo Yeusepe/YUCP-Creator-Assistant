@@ -226,6 +226,7 @@ const BackstagePackageMediaKindV = v.union(v.literal('banner'), v.literal('icon'
 const BackstagePackageMediaReferenceV = v.object({
   byteSize: v.number(),
   cdngineDelivery: v.optional(CdngineBackstageDeliveryReferenceV),
+  loreDelivery: v.optional(LoreBackstageArtifactReferenceV),
   contentType: v.string(),
   deliveryName: v.string(),
   kind: BackstagePackageMediaKindV,

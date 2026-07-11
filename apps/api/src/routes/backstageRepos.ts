@@ -4,15 +4,12 @@ import {
   BACKSTAGE_PACKAGE_MEDIA_KINDS,
   type BackstagePackageMediaKind,
   type BackstagePackageMediaMap,
-  type BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
-import {
-  type CdngineBackstageDeliveryReference,
-  type CdngineBackstageSourceReference,
-  isCdngineBackstageDeliveryReference,
-  isCdngineBackstageSourceReference,
-} from '@yucp/shared/cdngineBackstageDelivery';
 import { sha256Hex } from '@yucp/shared/crypto';
+import {
+  isLoreBackstageArtifactReference,
+  type LoreBackstageArtifactReference,
+} from '@yucp/shared/loreBackstageDelivery';
 import {
   YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS,
   type YucpAliasPackageContract,
@@ -24,11 +21,14 @@ import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import type { CreatorRepoIdentity } from '../lib/backstageRepoIdentity';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
-import { authorizeCdngineBackstageSource } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import type { LoreBackstageConfig } from '../lib/loreBackstage';
+import {
+  type LoreBackstageConfig,
+  mintLorePresignedUrl,
+  requireLoreBackstageConfig,
+} from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import {
   RequestBodyError,
@@ -46,7 +46,6 @@ const BACKSTAGE_FORWARDED_UPSTREAM_MAX_BYTES = 1024 * 1024;
 const BACKSTAGE_PACKAGE_DOWNLOAD_BODY_MAX_BYTES = 4 * 1024;
 const BACKSTAGE_VERIFICATION_BOOTSTRAP_BODY_MAX_BYTES = 4 * 1024;
 const BACKSTAGE_VERIFICATION_REDEEM_BODY_MAX_BYTES = 4 * 1024;
-const CDNGINE_AUTHORIZATION_RESPONSE_MAX_BYTES = 16 * 1024;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 // Forward the shared toolchain packages from the public YUCP VPM source:
 // https://vpm.yucp.club/index.json
@@ -135,7 +134,7 @@ type BackstagePackageDownloadRecord = {
   zipSha256?: string;
   version: string;
   channel: string;
-  cdngineDelivery?: CdngineBackstageDeliveryReference;
+  loreDelivery?: LoreBackstageArtifactReference;
 };
 
 type BackstageRawPackageDownloadRecord = {
@@ -147,14 +146,7 @@ type BackstageRawPackageDownloadRecord = {
   sourceKind: 'zip' | 'unitypackage';
   version: string;
   channel: string;
-  cdngineSource?: CdngineBackstageSourceReference;
-};
-
-type ConfiguredCdngineBackstageDelivery = {
-  accessToken: string;
-  apiBaseUrl: string;
-  required?: boolean;
-  timeoutMs?: number;
+  loreSource?: LoreBackstageArtifactReference;
 };
 
 function requireRawBackstagePackageDownload(
@@ -163,19 +155,19 @@ function requireRawBackstagePackageDownload(
 ): {
   packageSha256: string;
   sourceKind: 'zip' | 'unitypackage';
-  cdngineSource: CdngineBackstageSourceReference;
+  loreSource: LoreBackstageArtifactReference;
 } {
   const packageSha256 = resolved.packageSha256?.trim().toLowerCase() ?? '';
   if (!SHA256_HEX_RE.test(packageSha256)) {
     throw new Error(`Alias package '${packageId}' has an invalid raw package digest`);
   }
-  if (!isCdngineBackstageSourceReference(resolved.cdngineSource)) {
-    throw new Error(`Alias package '${packageId}' is missing CDNgine source coordinates`);
+  if (!isLoreBackstageArtifactReference(resolved.loreSource)) {
+    throw new Error(`Alias package '${packageId}' is missing Lore source coordinates`);
   }
   return {
     packageSha256,
     sourceKind: resolved.sourceKind,
-    cdngineSource: resolved.cdngineSource,
+    loreSource: resolved.loreSource,
   };
 }
 
@@ -187,12 +179,6 @@ export type BackstageRepoConfig = {
   convexApiSecret: string;
   convexSiteUrl: string;
   convexUrl: string;
-  cdngine?: {
-    accessToken?: string;
-    apiBaseUrl: string;
-    required?: boolean;
-    timeoutMs?: number;
-  };
   lore?: LoreBackstageConfig;
 };
 
@@ -316,19 +302,6 @@ function buildBackstageAddRepoUrl(repositoryUrl: string, repoToken: string): str
   return addRepoUrl.toString();
 }
 
-function getConfiguredCdngine(
-  config: BackstageRepoConfig
-): ConfiguredCdngineBackstageDelivery | null {
-  if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
-    return null;
-  }
-  return {
-    ...config.cdngine,
-    accessToken: config.cdngine.accessToken,
-    apiBaseUrl: config.cdngine.apiBaseUrl.replace(/\/+$/, ''),
-  };
-}
-
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -343,30 +316,6 @@ async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timeout);
-  }
-}
-
-type CdngineDeliveryAuthorizationResult =
-  | {
-      ok: true;
-      url: string;
-    }
-  | {
-      ok: false;
-      payload: Record<string, unknown>;
-      status: number;
-      statusText: string;
-    };
-
-function parseCdngineJsonObject(text: string): Record<string, unknown> {
-  if (text.length === 0) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    return isRecord(parsed) ? parsed : { detail: text };
-  } catch {
-    return { detail: text };
   }
 }
 
@@ -400,135 +349,51 @@ async function readResponseTextWithLimit(
   return text + decoder.decode();
 }
 
-function isCdngineBackstageDependencyError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('CDNgine');
+function sanitizeDeliveryName(deliveryName: string): string {
+  return Array.from(deliveryName, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return character === '"' || character === '\\' || codePoint < 32 || codePoint === 127
+      ? '_'
+      : character;
+  }).join('');
 }
 
-async function authorizeCdngineBackstageDeliveryUrl(input: {
-  cdngine: ConfiguredCdngineBackstageDelivery;
-  delivery: CdngineBackstageDeliveryReference;
-  idempotencyKey: string;
-  request: Request;
-  variant?: string;
-}): Promise<CdngineDeliveryAuthorizationResult> {
-  const cdngineBaseUrl = input.cdngine.apiBaseUrl.replace(/\/+$/, '');
-  const response = await fetchWithTimeout(
-    `${cdngineBaseUrl}/v1/assets/${encodeURIComponent(input.delivery.assetId)}/versions/${encodeURIComponent(input.delivery.versionId)}/deliveries/${encodeURIComponent(input.delivery.deliveryScopeId)}/authorize`,
-    {
-      body: JSON.stringify({
-        responseFormat: 'url',
-        variant: input.variant ?? input.delivery.variant,
-      }),
-      headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${input.cdngine.accessToken}`,
-        'content-type': 'application/json',
-        'idempotency-key': input.idempotencyKey,
-        ...(input.request.headers.get('traceparent')
-          ? { traceparent: input.request.headers.get('traceparent') as string }
-          : {}),
-      },
-      method: 'POST',
-    },
-    input.cdngine.timeoutMs ?? 5000
-  );
-  const text = await readResponseTextWithLimit(
-    response,
-    CDNGINE_AUTHORIZATION_RESPONSE_MAX_BYTES,
-    'CDNgine authorization response exceeded the byte limit.'
-  );
-  const payload = parseCdngineJsonObject(text);
-  if (!response.ok) {
-    return {
-      ok: false,
-      payload,
-      status: response.status,
-      statusText: response.statusText,
-    };
-  }
-  if (typeof payload.url !== 'string' || payload.url.length === 0) {
-    throw new Error('CDNgine delivery authorization did not return a URL.');
-  }
-  return {
-    ok: true,
-    url: new URL(payload.url, `${cdngineBaseUrl}/`).toString(),
-  };
-}
-
-async function resolveCdngineDownloadUrl(input: {
-  access: { authUserId: string; subjectId: string; tokenId?: string; accessScopeId?: string };
-  cdngine: ConfiguredCdngineBackstageDelivery;
-  delivery: CdngineBackstageDeliveryReference;
-  packageId: string;
-  request: Request;
-  resolved: BackstagePackageDownloadRecord;
+async function resolveLoreDeliveryDownloadUrl(input: {
+  lore: LoreBackstageConfig;
+  delivery: LoreBackstageArtifactReference;
+  deliveryName?: string;
+  contentType?: string;
 }): Promise<string> {
-  const idempotencyHash = await sha256Hex(
-    [
-      'backstage-package-download-v1',
-      input.access.authUserId,
-      input.access.subjectId,
-      input.access.tokenId ?? input.access.accessScopeId ?? '',
-      input.packageId,
-      input.resolved.version,
-      input.resolved.channel,
-      'artifactId' in input.resolved
-        ? (input.resolved.deliveryArtifactId ??
-          input.resolved.artifactId ??
-          input.resolved.artifactKey ??
-          '')
-        : input.resolved.deliveryArtifactId,
-      input.delivery.assetId,
-      input.delivery.versionId,
-      input.delivery.deliveryScopeId,
-      input.delivery.variant,
-    ].join('|')
-  );
-  const deliveryAuthorization = await authorizeCdngineBackstageDeliveryUrl({
-    cdngine: input.cdngine,
-    delivery: input.delivery,
-    idempotencyKey: `backstage-download-${idempotencyHash}`,
-    request: input.request,
+  const cfg = requireLoreBackstageConfig(input.lore);
+  const { url } = await mintLorePresignedUrl({
+    config: cfg,
+    repositoryId: input.delivery.repositoryId,
+    address: input.delivery.address,
+    contentType: input.contentType,
+    contentDisposition: input.deliveryName
+      ? `attachment; filename="${sanitizeDeliveryName(input.deliveryName)}"`
+      : undefined,
   });
-  if (deliveryAuthorization.ok) {
-    return deliveryAuthorization.url;
-  }
-
-  const detail =
-    typeof deliveryAuthorization.payload.detail === 'string'
-      ? deliveryAuthorization.payload.detail
-      : deliveryAuthorization.statusText;
-  throw new Error(
-    `CDNgine delivery authorization failed: ${deliveryAuthorization.status} ${detail}`
-  );
+  return url;
 }
 
-async function resolveCdngineSourceDownloadUrl(input: {
-  access: { authUserId: string; subjectId: string; tokenId?: string; accessScopeId?: string };
-  cdngine: ConfiguredCdngineBackstageDelivery;
-  packageId: string;
-  resolved: BackstageRawPackageDownloadRecord;
-  source: CdngineBackstageSourceReference;
+async function resolveLoreSourceDownloadUrl(input: {
+  lore: LoreBackstageConfig;
+  source: LoreBackstageArtifactReference;
+  deliveryName?: string;
+  contentType?: string;
 }): Promise<string> {
-  const idempotencyHash = await sha256Hex(
-    [
-      'backstage-package-source-download-v1',
-      input.access.authUserId,
-      input.access.subjectId,
-      input.access.tokenId ?? input.access.accessScopeId ?? '',
-      input.packageId,
-      input.resolved.version,
-      input.resolved.channel,
-      input.resolved.deliveryArtifactId,
-      input.source.assetId,
-      input.source.versionId,
-    ].join('|')
-  );
-  return await authorizeCdngineBackstageSource({
-    config: input.cdngine,
-    source: input.source,
-    idempotencyKey: `backstage-source-download-${idempotencyHash}`,
+  const cfg = requireLoreBackstageConfig(input.lore);
+  const { url } = await mintLorePresignedUrl({
+    config: cfg,
+    repositoryId: input.source.repositoryId,
+    address: input.source.address,
+    contentType: input.contentType,
+    contentDisposition: input.deliveryName
+      ? `attachment; filename="${sanitizeDeliveryName(input.deliveryName)}"`
+      : undefined,
   });
+  return url;
 }
 
 function buildHostedVerificationUrl(frontendBaseUrl: string, intentId: string): string {
@@ -1268,29 +1133,22 @@ function buildPackageMediaDownloadUrl(input: {
   return `${input.apiBaseUrl.replace(/\/+$/, '')}/api/backstage/access/products/${encodeURIComponent(input.catalogProductId)}/packages/${encodeURIComponent(input.packageId)}/media/${encodeURIComponent(input.kind)}`;
 }
 
+type PackageMediaInstallPlanDescriptor = {
+  byteSize: number;
+  contentType: string;
+  downloadUrl: string;
+  kind: BackstagePackageMediaKind;
+  sha256: string;
+  sourcePath?: string;
+};
+
 function buildPackageMediaInstallPlanDescriptors(input: {
   apiBaseUrl: string;
   catalogProductId: string;
   media?: BackstagePackageMediaMap;
   packageId: string;
-}):
-  | Partial<
-      Record<
-        BackstagePackageMediaKind,
-        Omit<BackstagePackageMediaReference, 'cdngineDelivery' | 'deliveryName'> & {
-          downloadUrl: string;
-        }
-      >
-    >
-  | undefined {
-  const result: Partial<
-    Record<
-      BackstagePackageMediaKind,
-      Omit<BackstagePackageMediaReference, 'cdngineDelivery' | 'deliveryName'> & {
-        downloadUrl: string;
-      }
-    >
-  > = {};
+}): Partial<Record<BackstagePackageMediaKind, PackageMediaInstallPlanDescriptor>> | undefined {
+  const result: Partial<Record<BackstagePackageMediaKind, PackageMediaInstallPlanDescriptor>> = {};
   for (const kind of Object.values(BACKSTAGE_PACKAGE_MEDIA_KINDS)) {
     const media = input.media?.[kind];
     if (!media) {
@@ -1391,9 +1249,8 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
       return errorResponse('Package not found', 404);
     }
     const sourceDownload = requireRawBackstagePackageDownload(resolved, packageId);
-    const cdngine = getConfiguredCdngine(config);
-    if (!cdngine) {
-      logger.error('CDNgine Backstage package source delivery is configured but not available', {
+    if (!config.lore) {
+      logger.error('Lore Backstage package source delivery is configured but not available', {
         authUserId: product.creatorAuthUserId,
         deliveryArtifactId: resolved.deliveryArtifactId,
         packageId,
@@ -1404,25 +1261,19 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
     }
     let downloadUrl: string;
     try {
-      downloadUrl = await resolveCdngineSourceDownloadUrl({
-        access: {
-          authUserId: product.creatorAuthUserId,
-          subjectId,
-          accessScopeId: `catalog-product:${catalogProductId}`,
-        },
-        cdngine,
-        packageId,
-        resolved,
-        source: sourceDownload.cdngineSource,
+      downloadUrl = await resolveLoreSourceDownloadUrl({
+        lore: config.lore,
+        source: sourceDownload.loreSource,
+        deliveryName: resolved.deliveryName,
+        contentType: resolved.contentType,
       });
     } catch (error) {
-      logger.warn('CDNgine Backstage package source authorization failed', {
+      logger.warn('Lore Backstage package source presign failed', {
         authUserId: product.creatorAuthUserId,
         deliveryArtifactId: resolved.deliveryArtifactId,
         packageId,
         version,
         channel,
-        required: cdngine.required === true,
         error: error instanceof Error ? error.message : String(error),
       });
       return errorResponse('Package delivery is temporarily unavailable', 502);
@@ -1512,13 +1363,12 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
     if (!planPackage || !media) {
       return errorResponse('Package media not found', 404);
     }
-    if (!isCdngineBackstageDeliveryReference(media.cdngineDelivery)) {
+    if (!isLoreBackstageArtifactReference(media.loreDelivery)) {
       return errorResponse('Package media is temporarily unavailable', 502);
     }
 
-    const cdngine = getConfiguredCdngine(config);
-    if (!cdngine) {
-      logger.error('CDNgine Backstage package media delivery is configured but not available', {
+    if (!config.lore) {
+      logger.error('Lore Backstage package media delivery is configured but not available', {
         authUserId: product.creatorAuthUserId,
         catalogProductId,
         packageId,
@@ -1529,72 +1379,27 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       return errorResponse('Package media is temporarily unavailable', 502);
     }
 
-    const idempotencyHash = await sha256Hex(
-      [
-        'backstage-package-media-download-v1',
-        product.creatorAuthUserId,
-        viewer.authUserId,
-        subjectId,
-        catalogProductId,
-        packageId,
-        planPackage.version,
-        planPackage.channel,
-        mediaKind,
-        media.sha256,
-        media.cdngineDelivery.assetId,
-        media.cdngineDelivery.versionId,
-      ].join('|')
-    );
-    let authorization: Awaited<ReturnType<typeof authorizeCdngineBackstageDeliveryUrl>>;
     try {
-      authorization = await authorizeCdngineBackstageDeliveryUrl({
-        cdngine,
-        delivery: media.cdngineDelivery,
-        idempotencyKey: `backstage-media-download-${idempotencyHash}`,
-        request,
+      const downloadUrl = await resolveLoreDeliveryDownloadUrl({
+        lore: config.lore,
+        delivery: media.loreDelivery,
+        deliveryName: media.deliveryName,
+        contentType: media.contentType,
       });
+      return redirectNoStore(downloadUrl);
     } catch (error) {
-      logger.warn('CDNgine Backstage package media delivery authorization failed', {
+      logger.warn('Lore Backstage package media presign failed', {
         authUserId: product.creatorAuthUserId,
         catalogProductId,
         packageId,
         version: planPackage.version,
         channel: planPackage.channel,
         mediaKind,
-        required: cdngine.required === true,
         error: error instanceof Error ? error.message : String(error),
       });
       return errorResponse('Package media is temporarily unavailable', 502);
     }
-    if (!authorization.ok) {
-      const detail =
-        typeof authorization.payload.detail === 'string'
-          ? authorization.payload.detail
-          : authorization.statusText;
-      logger.warn('CDNgine Backstage package media delivery authorization failed', {
-        authUserId: product.creatorAuthUserId,
-        catalogProductId,
-        packageId,
-        version: planPackage.version,
-        channel: planPackage.channel,
-        mediaKind,
-        required: cdngine.required === true,
-        error: `CDNgine delivery authorization failed: ${authorization.status} ${detail}`,
-      });
-      return errorResponse('Package media is temporarily unavailable', 502);
-    }
-    return redirectNoStore(authorization.url);
   } catch (error) {
-    if (isCdngineBackstageDependencyError(error)) {
-      logger.warn('CDNgine Backstage package media delivery authorization failed', {
-        authUserId: viewer.authUserId,
-        catalogProductId,
-        packageId,
-        mediaKind,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return errorResponse('Package media is temporarily unavailable', 502);
-    }
     logger.error('Failed to authorize package media download', {
       authUserId: viewer.authUserId,
       catalogProductId,
@@ -1893,10 +1698,9 @@ async function servePackageDownload(
   if (!resolved) {
     return errorResponse('Package not found', 404);
   }
-  const cdngine = getConfiguredCdngine(config);
-  if (isCdngineBackstageDeliveryReference(resolved.cdngineDelivery)) {
-    if (!cdngine) {
-      logger.error('CDNgine Backstage delivery is configured on the release but not on the API', {
+  if (isLoreBackstageArtifactReference(resolved.loreDelivery)) {
+    if (!config.lore) {
+      logger.error('Lore Backstage delivery is configured on the release but not on the API', {
         authUserId: access.authUserId,
         deliveryArtifactId: resolved.deliveryArtifactId,
         packageId,
@@ -1906,29 +1710,23 @@ async function servePackageDownload(
       return errorResponse('Package delivery is temporarily unavailable', 502);
     }
     try {
-      const cdngineUrl = await resolveCdngineDownloadUrl({
-        access,
-        cdngine,
-        delivery: resolved.cdngineDelivery,
-        packageId,
-        request,
-        resolved,
+      const loreUrl = await resolveLoreDeliveryDownloadUrl({
+        lore: config.lore,
+        delivery: resolved.loreDelivery,
+        deliveryName: resolved.deliveryName,
+        contentType: resolved.contentType,
       });
-      return redirectNoStore(cdngineUrl);
+      return redirectNoStore(loreUrl);
     } catch (error) {
-      logger.warn('CDNgine Backstage delivery authorization failed', {
+      logger.warn('Lore Backstage delivery presign failed', {
         authUserId: access.authUserId,
         deliveryArtifactId: resolved.deliveryArtifactId,
         packageId,
         version,
         channel,
-        required: cdngine.required === true,
         error: error instanceof Error ? error.message : String(error),
       });
       if (!resolved.downloadUrl) {
-        return errorResponse('Package delivery is temporarily unavailable', 502);
-      }
-      if (cdngine.required === true) {
         return errorResponse('Package delivery is temporarily unavailable', 502);
       }
     }

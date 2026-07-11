@@ -1,6 +1,7 @@
 import { gunzipSync, unzipSync } from 'fflate';
 import type { CdngineBackstageDeliveryReference } from './cdngineBackstageDelivery';
 import { sha256Hex } from './crypto';
+import type { LoreBackstageArtifactReference } from './loreBackstageDelivery';
 
 export const BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY = 'yucpPackageMedia';
 
@@ -17,6 +18,7 @@ export type BackstagePackageMediaKind =
 export type BackstagePackageMediaReference = {
   byteSize: number;
   cdngineDelivery?: CdngineBackstageDeliveryReference;
+  loreDelivery?: LoreBackstageArtifactReference;
   contentType: string;
   deliveryName: string;
   kind: BackstagePackageMediaKind;
@@ -137,6 +139,29 @@ function normalizeCdngineDeliveryReference(
   };
 }
 
+function normalizeLoreDeliveryReference(
+  value: unknown
+): LoreBackstageArtifactReference | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const repositoryId = readString(value.repositoryId);
+  const address = readString(value.address);
+  const sha256 = readString(value.sha256);
+  const uploadedAt = readString(value.uploadedAt);
+  if (!repositoryId || !address || !sha256 || typeof value.byteSize !== 'number' || !uploadedAt) {
+    return undefined;
+  }
+  return {
+    repositoryId,
+    address,
+    sha256,
+    byteSize: value.byteSize,
+    uploadedAt,
+    ...(readString(value.tenantId) ? { tenantId: readString(value.tenantId) } : {}),
+  };
+}
+
 function normalizeMediaKind(value: unknown): BackstagePackageMediaKind | undefined {
   const normalized = readString(value);
   if (normalized === BACKSTAGE_PACKAGE_MEDIA_KINDS.icon) {
@@ -170,9 +195,11 @@ function normalizePackageMediaReference(
     return undefined;
   }
   const cdngineDelivery = normalizeCdngineDeliveryReference(value.cdngineDelivery);
+  const loreDelivery = normalizeLoreDeliveryReference(value.loreDelivery);
   return {
     byteSize: value.byteSize,
     ...(cdngineDelivery ? { cdngineDelivery } : {}),
+    ...(loreDelivery ? { loreDelivery } : {}),
     contentType,
     deliveryName,
     kind,

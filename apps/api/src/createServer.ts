@@ -155,7 +155,6 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     convexApiSecret: config.convexApiSecret,
     convexSiteUrl: config.convexSiteUrl,
     convexUrl: config.convexUrl,
-    cdngine: config.cdngine,
     lore: config.lore,
   });
   const accountSecurityRoutes = createAccountSecurityRoutes(stubAuth, {

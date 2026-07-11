@@ -163,37 +163,6 @@ function getEncryptionSecret(env: ReturnType<typeof loadEnv>): string {
   return env.BETTER_AUTH_SECRET ?? '';
 }
 
-function getCdngineBackstageApiConfig(env: ReturnType<typeof loadEnv>) {
-  const apiBaseUrl = (env.CDNGINE_API_BASE_URL ?? env.CDNGINE_PUBLIC_API_BASE_URL)?.trim();
-  const accessToken = (env.CDNGINE_ACCESS_TOKEN ?? env.CDNGINE_API_TOKEN)?.trim();
-  if (!apiBaseUrl || !accessToken) {
-    return undefined;
-  }
-  const timeoutMs = Number.parseInt(env.CDNGINE_BACKSTAGE_TIMEOUT_MS ?? '5000', 10);
-  const publicationPollIntervalMs = Number.parseInt(
-    env.CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS ?? '500',
-    10
-  );
-  const publicationTimeoutMs = Number.parseInt(
-    env.CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS ?? '120000',
-    10
-  );
-  return {
-    accessToken,
-    apiBaseUrl,
-    publicationPollIntervalMs:
-      Number.isFinite(publicationPollIntervalMs) && publicationPollIntervalMs >= 0
-        ? publicationPollIntervalMs
-        : 500,
-    publicationTimeoutMs:
-      Number.isFinite(publicationTimeoutMs) && publicationTimeoutMs > 0
-        ? publicationTimeoutMs
-        : 120000,
-    required: env.CDNGINE_BACKSTAGE_REQUIRED === 'true',
-    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000,
-  };
-}
-
 export function getLoreBackstageApiConfig(
   env: ReturnType<typeof loadEnv>
 ): LoreBackstageConfig | undefined {
@@ -396,7 +365,6 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
-    cdngine: getCdngineBackstageApiConfig(env),
     lore: getLoreBackstageApiConfig(env),
   });
 
@@ -421,7 +389,6 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
-    cdngine: getCdngineBackstageApiConfig(env),
     lore: getLoreBackstageApiConfig(env),
   });
 
@@ -1161,27 +1128,10 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
-  const backstageUploadSessionMatch = pathname.match(
-    /^\/api\/packages\/([^/]+)\/backstage\/upload-session$/
-  );
-  if (backstageUploadSessionMatch && packageRoutes) {
+  const backstageUploadMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/upload$/);
+  if (backstageUploadMatch && packageRoutes) {
     if (request.method === 'POST') {
-      return packageRoutes.createBackstageReleaseUploadSession(
-        request,
-        backstageUploadSessionMatch[1]
-      );
-    }
-    return Response.json({ error: 'Method not allowed' }, { status: 405 });
-  }
-  const backstageUploadSessionCompleteMatch = pathname.match(
-    /^\/api\/packages\/([^/]+)\/backstage\/upload-session\/complete$/
-  );
-  if (backstageUploadSessionCompleteMatch && packageRoutes) {
-    if (request.method === 'POST') {
-      return packageRoutes.completeBackstageReleaseUploadSession(
-        request,
-        backstageUploadSessionCompleteMatch[1]
-      );
+      return packageRoutes.uploadBackstageReleaseSource(request, backstageUploadMatch[1]);
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }

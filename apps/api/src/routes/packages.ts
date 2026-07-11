@@ -1,4 +1,3 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   buildCatalogProductUrl,
   CATALOG_SYNC_PROVIDER_KEYS,
@@ -18,10 +17,9 @@ import {
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
-  type CdngineBackstageDeliveryReference,
-  type CdngineBackstageSourceReference,
-  isCdngineBackstageSourceReference,
-} from '@yucp/shared/cdngineBackstageDelivery';
+  isLoreBackstageArtifactReference,
+  type LoreBackstageArtifactReference,
+} from '@yucp/shared/loreBackstageDelivery';
 import { legacyProductIdsToSelectors, normalizeProductSelectorList } from '@yucp/shared/product';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -30,29 +28,25 @@ import { listProviderProductsViaApi, listProviderTiersViaApi } from '../internal
 import { createAuthUserActorBinding } from '../lib/apiActor';
 import { buildBackstageImporterDelivery } from '../lib/backstageImporterDelivery';
 import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/backstageRepoIdentity';
-import {
-  authorizeCdngineBackstageSource,
-  CdngineApiRequestError,
-  type CdngineBackstageConfig,
-  completeBackstageUploadSessionInCdngine,
-  createBackstageUploadSessionInCdngine,
-  requireCdngineBackstageConfig,
-  sanitizeCdngineObjectKeySegment,
-  sha256ArrayBuffer,
-  uploadBackstageBytesToCdngine,
-  waitForCdngineBackstageDeliveryPublication,
-} from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import type { LoreBackstageConfig } from '../lib/loreBackstage';
+import {
+  type ConfiguredLoreBackstageConfig,
+  getBackstageBytesFromLore,
+  LoreApiRequestError,
+  type LoreBackstageConfig,
+  loreRepositoryIdForCreator,
+  putBackstageBytesToLore,
+  requireLoreBackstageConfig,
+  sha256ArrayBuffer,
+} from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { readBoundedArrayBuffer, readContentLength } from '../lib/readBoundedArrayBuffer';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
-const BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER = 'X-YUCP-Upload-Completion-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
@@ -70,25 +64,7 @@ export type PackagesConfig = {
   convexApiSecret: string;
   convexSiteUrl: string;
   convexUrl: string;
-  cdngine?: CdngineBackstageConfig;
   lore?: LoreBackstageConfig;
-};
-
-type BackstageUploadTokenPayload = {
-  authUserId: string;
-  exp: number;
-  packageId: string;
-};
-
-type BackstageUploadCompletionTokenPayload = BackstageUploadTokenPayload & {
-  uploadAttemptId?: string;
-  byteSize: number;
-  deliveryName: string;
-  kind: 'backstage-upload-complete';
-  objectKey: string;
-  sha256: string;
-  sourceContentType: string;
-  uploadSessionId: string;
 };
 
 type BackstageProductQueryResult = {
@@ -235,11 +211,11 @@ function jsonResponse(body: object, status = 200): Response {
   });
 }
 
-function isCdngineBackstageDependencyError(error: unknown): boolean {
+function isLoreBackstageDependencyError(error: unknown): boolean {
   return (
-    error instanceof CdngineApiRequestError ||
+    error instanceof LoreApiRequestError ||
     isFetchAbortOrTimeoutError(error) ||
-    (error instanceof Error && error.message.includes('CDNgine'))
+    (error instanceof Error && error.message.includes('Lore'))
   );
 }
 
@@ -255,33 +231,22 @@ function isFetchAbortOrTimeoutError(error: unknown): boolean {
   return message.includes('aborted') || message.includes('timed out');
 }
 
-function cdngineBackstageUnavailableResponse(error: string): Response {
+function loreBackstageUnavailableResponse(error: string): Response {
   return jsonResponse({ error }, 502);
 }
 
-function getCdngineSourceOwnershipError(input: {
+function getLoreSourceOwnershipError(input: {
   authUserId: string;
-  expectedServiceNamespaceId: string;
-  source: CdngineBackstageSourceReference;
+  salt: string;
+  source: LoreBackstageArtifactReference;
 }): string | null {
-  if (input.source.assetOwner !== `creator:${input.authUserId}`) {
-    return 'CDNgine source is not owned by this creator';
-  }
   if (input.source.tenantId !== input.authUserId) {
-    return 'CDNgine source is not owned by this creator';
+    return 'Lore source is not owned by this creator';
   }
-  if (input.source.serviceNamespaceId !== input.expectedServiceNamespaceId) {
-    return 'CDNgine source is not owned by this creator';
+  if (input.source.repositoryId !== loreRepositoryIdForCreator(input.authUserId, input.salt)) {
+    return 'Lore source is not owned by this creator';
   }
   return null;
-}
-
-function base64UrlEncode(input: string): string {
-  return Buffer.from(input, 'utf8').toString('base64url');
-}
-
-function base64UrlDecode(input: string): string {
-  return Buffer.from(input, 'base64url').toString('utf8');
 }
 
 export function trimTrailingForwardSlashes(value: string): string {
@@ -290,88 +255,6 @@ export function trimTrailingForwardSlashes(value: string): string {
     end -= 1;
   }
   return end === value.length ? value : value.slice(0, end);
-}
-
-function signBackstageUploadToken(payload: BackstageUploadTokenPayload, secret: string): string {
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signature = createHmac('sha256', secret).update(encodedPayload).digest('base64url');
-  return `${encodedPayload}.${signature}`;
-}
-
-function verifyBackstageUploadToken(
-  token: string,
-  secret: string
-): BackstageUploadTokenPayload | null {
-  const [encodedPayload, signature] = token.split('.');
-  if (!encodedPayload || !signature) {
-    return null;
-  }
-  const expected = createHmac('sha256', secret).update(encodedPayload).digest();
-  let actual: Buffer;
-  try {
-    actual = Buffer.from(signature, 'base64url');
-  } catch {
-    return null;
-  }
-  if (expected.byteLength !== actual.byteLength || !timingSafeEqual(expected, actual)) {
-    return null;
-  }
-  let payload: BackstageUploadTokenPayload;
-  try {
-    payload = JSON.parse(base64UrlDecode(encodedPayload)) as BackstageUploadTokenPayload;
-  } catch {
-    return null;
-  }
-  if (
-    !payload ||
-    typeof payload !== 'object' ||
-    typeof payload.authUserId !== 'string' ||
-    typeof payload.packageId !== 'string' ||
-    typeof payload.exp !== 'number' ||
-    payload.exp < Date.now()
-  ) {
-    return null;
-  }
-  return payload;
-}
-
-function signBackstageUploadCompletionToken(
-  payload: BackstageUploadCompletionTokenPayload,
-  secret: string
-): string {
-  return signBackstageUploadToken(payload, secret);
-}
-
-function verifyBackstageUploadCompletionToken(
-  token: string,
-  secret: string
-): BackstageUploadCompletionTokenPayload | null {
-  const payload = verifyBackstageUploadToken(token, secret);
-  if (
-    !payload ||
-    (payload as Partial<BackstageUploadCompletionTokenPayload>).kind !==
-      'backstage-upload-complete' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).uploadSessionId !==
-      'string' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).objectKey !== 'string' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).deliveryName !== 'string' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).sourceContentType !==
-      'string' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).sha256 !== 'string' ||
-    typeof (payload as Partial<BackstageUploadCompletionTokenPayload>).byteSize !== 'number'
-  ) {
-    return null;
-  }
-  return payload as BackstageUploadCompletionTokenPayload;
-}
-
-function buildBackstageSourceUploadIdempotencyBase(input: {
-  authUserId: string;
-  packageId: string;
-  sha256: string;
-  uploadAttemptId: string;
-}): string {
-  return `backstage-source:${input.authUserId}:${input.packageId}:${input.sha256}:${input.uploadAttemptId}`;
 }
 
 function getBackstageLiveSyncTimeoutMs(): number {
@@ -410,20 +293,6 @@ async function withBackstageLiveSyncTimeout<T>(
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
     }
-  }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -1596,54 +1465,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  function parseBackstageDirectUploadRequest(body: unknown):
-    | {
-        byteSize: number;
-        deliveryName: string;
-        sha256: string;
-        sourceContentType: string;
-      }
-    | Response {
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return jsonResponse({ error: 'Invalid JSON body' }, 400);
-    }
-    const record = body as Record<string, unknown>;
-    const byteSizeRaw = record.byteSize;
-    const deliveryName =
-      typeof record.deliveryName === 'string'
-        ? record.deliveryName.trim()
-        : typeof record.fileName === 'string'
-          ? record.fileName.trim()
-          : '';
-    const sha256 = typeof record.sha256 === 'string' ? record.sha256.trim().toLowerCase() : '';
-    const sourceContentType =
-      typeof record.sourceContentType === 'string' && record.sourceContentType.trim()
-        ? record.sourceContentType.trim()
-        : 'application/octet-stream';
-
-    if (typeof byteSizeRaw !== 'number' || !Number.isSafeInteger(byteSizeRaw) || byteSizeRaw < 0) {
-      return jsonResponse({ error: 'byteSize must be a non-negative safe integer' }, 400);
-    }
-    const byteSize = byteSizeRaw;
-    if (byteSize > MAX_BACKSTAGE_PACKAGE_BYTES) {
-      return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
-    }
-    if (!/^[a-f0-9]{64}$/u.test(sha256)) {
-      return jsonResponse({ error: 'sha256 must be a lowercase hex SHA-256 digest' }, 400);
-    }
-    if (!deliveryName) {
-      return jsonResponse({ error: 'deliveryName is required' }, 400);
-    }
-
-    return {
-      byteSize,
-      deliveryName,
-      sha256,
-      sourceContentType,
-    };
-  }
-
-  async function createBackstageReleaseUploadSession(
+  async function uploadBackstageReleaseSource(
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
@@ -1661,179 +1483,75 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         400
       );
     }
-    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
-      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
+    if (!config.lore) {
+      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
     }
 
-    let body: unknown;
-    try {
-      body = await request.json();
-    } catch {
-      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    const requestUrl = new URL(request.url);
+    const sha256 = requestUrl.searchParams.get('sha256')?.trim().toLowerCase() ?? '';
+    const deliveryName =
+      requestUrl.searchParams.get('deliveryName')?.trim() ||
+      requestUrl.searchParams.get('fileName')?.trim() ||
+      '';
+    const sourceContentType =
+      requestUrl.searchParams.get('sourceContentType')?.trim() || 'application/octet-stream';
+    if (!/^[a-f0-9]{64}$/u.test(sha256)) {
+      return jsonResponse({ error: 'sha256 must be a lowercase hex SHA-256 digest' }, 400);
     }
-    const parsed = parseBackstageDirectUploadRequest(body);
-    if (parsed instanceof Response) {
-      return parsed;
+    if (!deliveryName) {
+      return jsonResponse({ error: 'deliveryName is required' }, 400);
+    }
+
+    const contentLength = readContentLength(request.headers);
+    if (contentLength !== null && contentLength > MAX_BACKSTAGE_PACKAGE_BYTES) {
+      return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
     }
 
     try {
-      const assetOwner = `creator:${viewer.authUserId}`;
-      const objectKey = [
-        'staging',
-        sanitizeCdngineObjectKeySegment(config.cdngine?.serviceNamespaceId ?? 'yucp-backstage'),
-        sanitizeCdngineObjectKeySegment(viewer.authUserId),
-        'backstage-source',
-        sanitizeCdngineObjectKeySegment(packageId),
-        parsed.sha256,
-        sanitizeCdngineObjectKeySegment(parsed.deliveryName),
-      ].join('/');
-      const uploadAttemptId = randomUUID();
-      const idempotencyBase = buildBackstageSourceUploadIdempotencyBase({
-        authUserId: viewer.authUserId,
-        packageId,
-        sha256: parsed.sha256,
-        uploadAttemptId,
-      });
-      const session = await createBackstageUploadSessionInCdngine({
-        byteSize: parsed.byteSize,
-        config: config.cdngine,
-        contentType: parsed.sourceContentType,
-        deliveryName: parsed.deliveryName,
-        idempotencyBase,
-        objectKey,
-        assetOwner,
-        tenantId: viewer.authUserId,
-        sha256: parsed.sha256,
-      });
-      const completionToken = signBackstageUploadCompletionToken(
-        {
-          authUserId: viewer.authUserId,
-          byteSize: parsed.byteSize,
-          deliveryName: parsed.deliveryName,
-          exp: Date.now() + 60 * 60 * 1000,
-          kind: 'backstage-upload-complete',
-          objectKey,
-          packageId,
-          sha256: parsed.sha256,
-          sourceContentType: parsed.sourceContentType,
-          uploadAttemptId,
-          uploadSessionId: session.uploadSessionId,
+      const cfg = requireLoreBackstageConfig(config.lore);
+      const bytes = await readBoundedArrayBuffer(
+        request,
+        MAX_BACKSTAGE_PACKAGE_BYTES,
+        () => new BackstageSourceMaterializationLimitError(MAX_BACKSTAGE_PACKAGE_BYTES)
+      );
+      const receivedSha256 = await sha256ArrayBuffer(bytes);
+      if (receivedSha256 !== sha256) {
+        return jsonResponse({ error: 'Received bytes do not match the declared sha256' }, 400);
+      }
+      const repositoryId = loreRepositoryIdForCreator(viewer.authUserId, cfg.repoNamespaceSalt);
+      const stored = await putBackstageBytesToLore({ config: cfg, repositoryId, bytes });
+      return jsonResponse({
+        loreSource: {
+          repositoryId,
+          address: stored.address,
+          sha256: stored.sha256,
+          byteSize: stored.byteSize,
+          uploadedAt: new Date().toISOString(),
+          tenantId: viewer.authUserId,
         },
-        config.convexApiSecret
-      );
-      const completeUrl = `${trimTrailingForwardSlashes(config.apiBaseUrl)}/api/packages/${encodeURIComponent(
-        packageId
-      )}/backstage/upload-session/complete`;
-
-      return jsonResponse({
-        completionToken,
-        completeUrl,
-        packageId,
-        uploadSessionId: session.uploadSessionId,
-        uploadTarget: session.uploadTarget,
+        deliveryName,
+        sourceContentType,
       });
     } catch (error) {
-      if (isCdngineBackstageDependencyError(error)) {
-        logger.warn('Backstage CDNgine upload session creation is temporarily unavailable', {
+      if (error instanceof BackstageSourceMaterializationLimitError) {
+        return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
+      }
+      if (isLoreBackstageDependencyError(error)) {
+        logger.warn('Backstage Lore upload is temporarily unavailable', {
           authUserId: viewer.authUserId,
           packageId,
           error: error instanceof Error ? error.message : String(error),
         });
-        return cdngineBackstageUnavailableResponse(
+        return loreBackstageUnavailableResponse(
           'Backstage upload service is temporarily unavailable'
         );
       }
-      logger.error('Failed to create Backstage CDNgine upload session', {
+      logger.error('Failed to upload Backstage source to Lore', {
         authUserId: viewer.authUserId,
         packageId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return jsonResponse({ error: 'Failed to create Backstage upload session' }, 500);
-    }
-  }
-
-  async function completeBackstageReleaseUploadSession(
-    request: Request,
-    packageIdParam: string
-  ): Promise<Response> {
-    let packageId: string;
-    try {
-      packageId = assertPackageId(packageIdParam);
-    } catch (error) {
-      return jsonResponse(
-        { error: error instanceof Error ? error.message : 'Invalid packageId' },
-        400
-      );
-    }
-    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
-      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
-    }
-
-    const completionToken =
-      request.headers.get(BACKSTAGE_UPLOAD_COMPLETION_TOKEN_HEADER)?.trim() ?? '';
-    const tokenPayload = verifyBackstageUploadCompletionToken(
-      completionToken,
-      config.convexApiSecret
-    );
-    if (!tokenPayload || tokenPayload.packageId !== packageId) {
-      return jsonResponse({ error: 'Invalid upload completion token' }, 401);
-    }
-
-    try {
-      const assetOwner = `creator:${tokenPayload.authUserId}`;
-      const idempotencyBase = buildBackstageSourceUploadIdempotencyBase({
-        authUserId: tokenPayload.authUserId,
-        packageId,
-        sha256: tokenPayload.sha256,
-        uploadAttemptId: tokenPayload.uploadAttemptId ?? tokenPayload.uploadSessionId,
-      });
-      const cdngineSource = await completeBackstageUploadSessionInCdngine({
-        assetOwner,
-        byteSize: tokenPayload.byteSize,
-        config: config.cdngine,
-        idempotencyBase,
-        objectKey: tokenPayload.objectKey,
-        sha256: tokenPayload.sha256,
-        tenantId: tokenPayload.authUserId,
-        uploadSessionId: tokenPayload.uploadSessionId,
-      });
-      return jsonResponse({
-        cdngineSource,
-        deliveryName: tokenPayload.deliveryName,
-        sourceContentType: tokenPayload.sourceContentType,
-      });
-    } catch (error) {
-      if (
-        error instanceof CdngineApiRequestError &&
-        error.status === 410 &&
-        error.problemType === 'https://docs.cdngine.dev/problems/upload-session-expired'
-      ) {
-        return jsonResponse(
-          {
-            code: 'BACKSTAGE_UPLOAD_SESSION_EXPIRED',
-            error: 'Backstage upload session expired. Start a new upload session and try again.',
-          },
-          410
-        );
-      }
-      if (isCdngineBackstageDependencyError(error)) {
-        logger.warn('Backstage CDNgine upload session completion is temporarily unavailable', {
-          authUserId: tokenPayload.authUserId,
-          packageId,
-          uploadSessionId: tokenPayload.uploadSessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return cdngineBackstageUnavailableResponse(
-          'Backstage upload service is temporarily unavailable'
-        );
-      }
-      logger.error('Failed to complete Backstage CDNgine upload session', {
-        authUserId: tokenPayload.authUserId,
-        packageId,
-        uploadSessionId: tokenPayload.uploadSessionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return jsonResponse({ error: 'Failed to complete Backstage upload session' }, 500);
+      return jsonResponse({ error: 'Failed to upload Backstage source' }, 500);
     }
   }
 
@@ -1869,8 +1587,8 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       return jsonResponse({ error: 'Backstage package media must be a supported image type' }, 415);
     }
 
-    if (!config.cdngine?.apiBaseUrl || !config.cdngine.accessToken) {
-      return jsonResponse({ error: 'CDNgine Backstage delivery is not configured' }, 503);
+    if (!config.lore) {
+      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
     }
 
     const contentLength = readContentLength(request.headers);
@@ -1882,7 +1600,11 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
 
     try {
-      const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
+      const loreConfig = requireLoreBackstageConfig(config.lore);
+      const repositoryId = loreRepositoryIdForCreator(
+        viewer.authUserId,
+        loreConfig.repoNamespaceSalt
+      );
       const bytes = await readBoundedArrayBuffer(
         request,
         MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES,
@@ -1900,40 +1622,27 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       const deliveryName = decodedDeliveryName ?? `${packageId}-${mediaKind}`;
       const sourcePath = request.headers.get('x-yucp-source-path')?.trim();
       const sha256 = await sha256ArrayBuffer(bytes);
-      const cdngineUpload = await uploadBackstageBytesToCdngine({
+      const loreUpload = await putBackstageBytesToLore({
         bytes,
-        byteSize: bytes.byteLength,
-        config: cdngineConfig,
-        contentType,
-        deliveryName,
-        idempotencyBase: `backstage-media:${viewer.authUserId}:${packageId}:${mediaKind}:${sha256}`,
-        objectKey: [
-          'staging',
-          sanitizeCdngineObjectKeySegment(cdngineConfig.serviceNamespaceId),
-          sanitizeCdngineObjectKeySegment(viewer.authUserId),
-          'backstage-media',
-          sanitizeCdngineObjectKeySegment(packageId),
-          mediaKind,
-          sha256,
-          sanitizeCdngineObjectKeySegment(deliveryName),
-        ].join('/'),
-        assetOwner: `creator:${viewer.authUserId}`,
+        config: loreConfig,
+        repositoryId,
+      });
+      const loreDelivery: LoreBackstageArtifactReference = {
+        repositoryId,
+        address: loreUpload.address,
+        sha256: loreUpload.sha256,
+        byteSize: loreUpload.byteSize,
+        uploadedAt: new Date().toISOString(),
         tenantId: viewer.authUserId,
-        sha256,
-      });
-      const cdngineDelivery = {
-        ...cdngineUpload,
-        deliveryScopeId: cdngineConfig.deliveryScopeId,
-        variant: cdngineConfig.variant,
       };
-      await waitForCdngineBackstageDeliveryPublication({
-        config: cdngineConfig,
-        delivery: cdngineDelivery,
-      });
+
+      if (loreUpload.sha256 !== sha256) {
+        throw new Error('Lore media upload digest did not match the source bytes.');
+      }
 
       const reference: BackstagePackageMediaReference = {
         byteSize: bytes.byteLength,
-        cdngineDelivery,
+        loreDelivery,
         contentType,
         deliveryName,
         kind: mediaKind,
@@ -1945,14 +1654,14 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       if (error instanceof BackstagePackageMediaLimitError) {
         return jsonResponse({ error: error.message }, 413);
       }
-      if (isCdngineBackstageDependencyError(error)) {
+      if (isLoreBackstageDependencyError(error)) {
         logger.warn('Backstage package media upload is temporarily unavailable', {
           authUserId: viewer.authUserId,
           packageId,
           mediaKind,
           error: error instanceof Error ? error.message : String(error),
         });
-        return cdngineBackstageUnavailableResponse(
+        return loreBackstageUnavailableResponse(
           'Backstage package media upload is temporarily unavailable'
         );
       }
@@ -1966,23 +1675,19 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-    const copy = new Uint8Array(bytes.byteLength);
-    copy.set(bytes);
-    return copy.buffer;
-  }
-
-  async function materializeCdngineSourceDeliverableForPublish(input: {
+  async function materializeLoreSourceDeliverableForPublish(input: {
     authUserId: string;
-    cdngineSource: CdngineBackstageSourceReference;
+    loreSource: LoreBackstageArtifactReference;
     contentType?: string;
     deliveryName?: string;
     displayName?: string;
     metadata?: Record<string, unknown>;
     packageId: string;
     version: string;
+    config: ConfiguredLoreBackstageConfig;
+    repositoryId: string;
   }): Promise<{
-    cdngineDelivery: CdngineBackstageDeliveryReference;
+    loreDelivery: LoreBackstageArtifactReference;
     contentType: 'application/zip' | 'application/octet-stream';
     deliveryName: string;
     byteSize: number;
@@ -1990,50 +1695,26 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     sourceContentType: string;
     sourceDeliveryName: string;
   }> {
-    const cdngineConfig = requireCdngineBackstageConfig(config.cdngine);
-    const sourceUrl = await authorizeCdngineBackstageSource({
-      config: cdngineConfig,
-      source: input.cdngineSource,
-      idempotencyKey: [
-        'backstage-publish-source',
-        input.authUserId,
-        input.packageId,
-        input.version,
-        input.cdngineSource.assetId,
-        input.cdngineSource.versionId,
-      ].join(':'),
-    });
-    const sourceResponse = await fetchWithTimeout(
-      sourceUrl,
-      {
-        headers: {
-          accept: 'application/octet-stream, application/zip;q=0.9, */*;q=0.1',
-        },
-      },
-      cdngineConfig.timeoutMs
-    );
-    if (!sourceResponse.ok) {
-      throw new Error(
-        `CDNgine source download failed while materializing Backstage deliverable: ${sourceResponse.status} ${sourceResponse.statusText}`
+    if (input.loreSource.byteSize > MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES) {
+      throw new BackstageSourceMaterializationLimitError(
+        MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES
       );
     }
-    const decodedSourceName = decodeOptionalHeaderValue(
-      new URL(sourceUrl).pathname.split('/').pop() ?? null
-    );
-    const sourceDeliveryName =
-      input.deliveryName?.trim() || decodedSourceName || `${input.packageId}.zip`;
-    const sourceContentType =
-      sourceResponse.headers.get('content-type')?.trim() ||
-      input.contentType ||
-      'application/octet-stream';
-    const sourceBuffer = await readBoundedArrayBuffer(
-      sourceResponse,
-      MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES,
-      (limitBytes) => new BackstageSourceMaterializationLimitError(limitBytes)
-    );
+    const sourceBuffer = await getBackstageBytesFromLore({
+      config: input.config,
+      repositoryId: input.repositoryId,
+      address: input.loreSource.address,
+    });
+    if (sourceBuffer.byteLength > MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES) {
+      throw new BackstageSourceMaterializationLimitError(
+        MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES
+      );
+    }
+    const sourceDeliveryName = input.deliveryName?.trim() || `${input.packageId}.zip`;
+    const sourceContentType = input.contentType?.trim() || 'application/octet-stream';
     const sourceSha256 = await sha256ArrayBuffer(sourceBuffer);
-    if (sourceSha256 !== input.cdngineSource.sha256.trim().toLowerCase()) {
-      throw new Error('CDNgine source download digest did not match the upload completion record.');
+    if (sourceSha256 !== input.loreSource.sha256.trim().toLowerCase()) {
+      throw new Error('Lore source download digest did not match the upload record.');
     }
     const sourceBytes = new Uint8Array(sourceBuffer);
     const materialized = await materializeBackstageReleaseArtifact({
@@ -2045,44 +1726,26 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       displayName: input.displayName,
       metadata: input.metadata,
     });
-    const objectKey = [
-      'staging',
-      sanitizeCdngineObjectKeySegment(cdngineConfig.serviceNamespaceId),
-      sanitizeCdngineObjectKeySegment(input.authUserId),
-      'backstage-deliverable',
-      sanitizeCdngineObjectKeySegment(input.packageId),
-      sanitizeCdngineObjectKeySegment(input.version),
-      materialized.sha256,
-      sanitizeCdngineObjectKeySegment(materialized.deliveryName),
-    ].join('/');
-    const uploadedDeliverable = await uploadBackstageBytesToCdngine({
-      bytes: toOwnedArrayBuffer(materialized.bytes),
-      byteSize: materialized.byteSize,
-      config: cdngineConfig,
-      contentType: materialized.contentType,
-      deliveryName: materialized.deliveryName,
-      idempotencyBase: `backstage-deliverable:${input.authUserId}:${input.packageId}:${input.version}:${materialized.sha256}`,
-      objectKey,
-      assetOwner: `creator:${input.authUserId}`,
+    const uploadedDeliverable = await putBackstageBytesToLore({
+      bytes: materialized.bytes,
+      config: input.config,
+      repositoryId: input.repositoryId,
+    });
+    const loreDelivery: LoreBackstageArtifactReference = {
+      repositoryId: input.repositoryId,
+      address: uploadedDeliverable.address,
+      sha256: uploadedDeliverable.sha256,
+      byteSize: uploadedDeliverable.byteSize,
+      uploadedAt: new Date().toISOString(),
       tenantId: input.authUserId,
-      sha256: materialized.sha256,
-    });
-    const cdngineDelivery = {
-      ...uploadedDeliverable,
-      deliveryScopeId: cdngineConfig.deliveryScopeId,
-      variant: cdngineConfig.variant,
     };
-    await waitForCdngineBackstageDeliveryPublication({
-      config: cdngineConfig,
-      delivery: cdngineDelivery,
-    });
 
     return {
-      byteSize: materialized.byteSize,
-      cdngineDelivery,
+      byteSize: uploadedDeliverable.byteSize,
+      loreDelivery,
       contentType: materialized.contentType,
       deliveryName: materialized.deliveryName,
-      sha256: materialized.sha256,
+      sha256: uploadedDeliverable.sha256,
       sourceContentType,
       sourceDeliveryName,
     };
@@ -2112,7 +1775,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       catalogProductId?: string;
       catalogProductIds?: string[];
       accessSelectors?: unknown[];
-      cdngineSource?: CdngineBackstageSourceReference;
+      loreSource?: LoreBackstageArtifactReference;
       version?: string;
       channel?: string;
       packageName?: string;
@@ -2188,21 +1851,36 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
     if (
       accessSelectors.length === 0 ||
-      !isCdngineBackstageSourceReference(body.cdngineSource) ||
+      !isLoreBackstageArtifactReference(body.loreSource) ||
       !body.version
     ) {
-      return jsonResponse(
-        { error: 'accessSelectors, cdngineSource, and version are required' },
-        400
-      );
+      return jsonResponse({ error: 'accessSelectors, loreSource, and version are required' }, 400);
     }
-    const cdngineSourceOwnershipError = getCdngineSourceOwnershipError({
+    if (!config.lore) {
+      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
+    }
+    let loreConfig: ConfiguredLoreBackstageConfig;
+    try {
+      loreConfig = requireLoreBackstageConfig(config.lore);
+    } catch (error) {
+      logger.error('Lore Backstage storage configuration is invalid', {
+        authUserId: viewer.authUserId,
+        packageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
+    }
+    const repositoryId = loreRepositoryIdForCreator(
+      viewer.authUserId,
+      loreConfig.repoNamespaceSalt
+    );
+    const loreSourceOwnershipError = getLoreSourceOwnershipError({
       authUserId: viewer.authUserId,
-      expectedServiceNamespaceId: config.cdngine?.serviceNamespaceId ?? 'yucp-backstage',
-      source: body.cdngineSource,
+      salt: loreConfig.repoNamespaceSalt,
+      source: body.loreSource,
     });
-    if (cdngineSourceOwnershipError) {
-      return jsonResponse({ error: cdngineSourceOwnershipError }, 403);
+    if (loreSourceOwnershipError) {
+      return jsonResponse({ error: loreSourceOwnershipError }, 403);
     }
 
     try {
@@ -2235,15 +1913,17 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }),
         dependencyVersions,
       });
-      const deliverable = await materializeCdngineSourceDeliverableForPublish({
+      const deliverable = await materializeLoreSourceDeliverableForPublish({
         authUserId: viewer.authUserId,
-        cdngineSource: body.cdngineSource,
+        loreSource: body.loreSource,
         contentType: body.sourceContentType?.trim(),
         deliveryName: body.deliveryName,
         displayName: body.displayName,
         metadata,
         packageId,
         version: body.version,
+        config: loreConfig,
+        repositoryId,
       });
       const preparedArtifact = prepareBackstageArtifactDescriptorForPublish({
         packageId,
@@ -2254,9 +1934,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         metadata,
         sourceContentType: deliverable.sourceContentType,
         sourceFileName: deliverable.sourceDeliveryName,
-        sourceSha256: body.cdngineSource.sha256,
+        sourceSha256: body.loreSource.sha256,
       });
-      const result = await convex.mutation(api.backstageRepos.publishCdngineReleaseForAuthUser, {
+      const result = await convex.mutation(api.backstageRepos.publishLoreReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
         authUserId: viewer.authUserId,
@@ -2283,14 +1963,14 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         metadata: preparedArtifact.metadata,
         rawDeliveryName: deliverable.sourceDeliveryName,
         rawContentType: deliverable.sourceContentType,
-        rawSha256: body.cdngineSource.sha256,
-        rawByteSize: body.cdngineSource.byteSize,
-        cdngineSource: body.cdngineSource,
+        rawSha256: body.loreSource.sha256,
+        rawByteSize: body.loreSource.byteSize,
+        loreSource: body.loreSource,
         deliverableDeliveryName: deliverable.deliveryName,
         deliverableContentType: deliverable.contentType,
         deliverableSha256: deliverable.sha256,
         deliverableByteSize: deliverable.byteSize,
-        cdngineDelivery: deliverable.cdngineDelivery,
+        loreDelivery: deliverable.loreDelivery,
         releaseStatus: body.releaseStatus,
       });
       return jsonResponse(result, 201);
@@ -2309,13 +1989,13 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
           413
         );
       }
-      if (isCdngineBackstageDependencyError(error)) {
+      if (isLoreBackstageDependencyError(error)) {
         logger.warn('Backstage package delivery publication is temporarily unavailable', {
           authUserId: viewer.authUserId,
           packageId,
           error: error instanceof Error ? error.message : String(error),
         });
-        return cdngineBackstageUnavailableResponse(
+        return loreBackstageUnavailableResponse(
           'Backstage package delivery is temporarily unavailable'
         );
       }
@@ -2341,8 +2021,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     deleteBackstageProduct,
     archiveBackstageRelease,
     deleteBackstageRelease,
-    createBackstageReleaseUploadSession,
-    completeBackstageReleaseUploadSession,
+    uploadBackstageReleaseSource,
     uploadBackstageReleaseMedia,
     publishBackstageRelease,
   };
