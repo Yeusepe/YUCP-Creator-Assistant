@@ -345,32 +345,3 @@ export async function handleModerationUnverify(
     });
   }
 }
-
-// ─── Backward-compat exports (used by old suspicious group routing in interactions.ts) ───
-
-export async function handleSuspiciousMark(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { authUserId: string; guildId: string }
-): Promise<void> {
-  return handleModerationMark(interaction, convex, apiSecret, ctx);
-}
-
-export async function handleSuspiciousList(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { authUserId: string; guildId: string }
-): Promise<void> {
-  return handleModerationList(interaction, convex, apiSecret, ctx);
-}
-
-export async function handleSuspiciousClear(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { authUserId: string; guildId: string }
-): Promise<void> {
-  return handleModerationClear(interaction, convex, apiSecret, ctx);
-}

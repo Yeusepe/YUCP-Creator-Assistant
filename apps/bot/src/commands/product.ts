@@ -2086,13 +2086,3 @@ export async function handleProductCancelRemove(
     components: [],
   });
 }
-
-// Legacy handleProductAdd kept for backwards compat (maps to interactive flow)
-export async function handleProductAdd(
-  interaction: ChatInputCommandInteraction,
-  convex: ConvexHttpClient,
-  apiSecret: string,
-  ctx: { authUserId: string; guildLinkId: Id<'guild_links'>; guildId: string }
-): Promise<void> {
-  return handleProductAddInteractive(interaction, ctx, convex, apiSecret);
-}

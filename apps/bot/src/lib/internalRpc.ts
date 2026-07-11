@@ -216,42 +216,12 @@ export async function resolveProductName(params: {
   };
 }
 
-/** @deprecated Use listProviderProducts instead */
-export const listGumroadProducts = (authUserId: string) =>
-  listProviderProducts('gumroad', authUserId);
-/** @deprecated Use listProviderProducts instead */
-export const listJinxxyProducts = (authUserId: string) =>
-  listProviderProducts('jinxxy', authUserId);
-/** @deprecated Use listProviderProducts instead */
-export const listLemonSqueezyProducts = (authUserId: string) =>
-  listProviderProducts('lemonsqueezy', authUserId);
-/** @deprecated Use listProviderProducts instead */
-export const listVrchatProducts = (authUserId: string) =>
-  listProviderProducts('vrchat', authUserId);
-
 /** @deprecated Use resolveProductName instead */
 export async function resolveVrchatProductName(params: {
   urlOrId: string;
   authUserId: string;
 }): Promise<ResolveProductNameResponse> {
   return resolveProductName({ provider: 'vrchat', ...params });
-}
-
-export async function bindVerifyPanel(params: {
-  applicationId: string;
-  discordUserId: string;
-  guildId: string;
-  interactionToken: string;
-  messageId: string;
-  panelToken: string;
-  authUserId: string;
-}): Promise<SuccessResponse> {
-  const response = await (await getClients()).verification.bindVerifyPanel(params);
-  return {
-    success: response.success ?? false,
-    error: response.error,
-    supportCode: response.supportCode,
-  };
 }
 
 export async function completeLicenseVerification(

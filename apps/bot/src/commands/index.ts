@@ -222,9 +222,6 @@ export function buildCreatorAdminCommand(isConfigured: boolean) {
 
 const CREATOR_ADMIN_COMMAND = buildCreatorAdminCommand(false);
 
-/** No user-facing subcommands - /creator has no subcommands */
-const USER_COMMANDS: string[] = [];
-
 export async function registerCommands(
   token: string,
   clientId: string,
@@ -240,21 +237,4 @@ export async function registerCommands(
   }
 }
 
-export async function updateGuildCommandsOverride(
-  token: string,
-  clientId: string,
-  guildId: string,
-  isConfigured: boolean
-): Promise<void> {
-  const rest = new REST().setToken(token);
-  if (isConfigured) {
-    const overrideCommand = buildCreatorAdminCommand(true);
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), {
-      body: [overrideCommand.toJSON()],
-    });
-  } else {
-    await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [] });
-  }
-}
-
-export { CREATOR_USER_COMMAND, CREATOR_ADMIN_COMMAND, USER_COMMANDS };
+export { CREATOR_USER_COMMAND, CREATOR_ADMIN_COMMAND };
