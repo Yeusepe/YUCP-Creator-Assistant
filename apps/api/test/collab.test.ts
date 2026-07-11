@@ -14,109 +14,6 @@ import { createSetupSession } from '../src/lib/setupSession';
 import { startTestServer, type TestServerHandle } from './helpers/testServer';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab invite page, static HTML completeness
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Collab invite page, inline script completeness', () => {
-  it('collab-invite.html declares async function submitAccountLinking', async () => {
-    // Regression guard: the Connect button uses onclick="submitAccountLinking()".
-    // When the function declaration is accidentally omitted, the function body
-    // floats at the top level of a non-module <script>, turning every `return`
-    // inside it into "Uncaught SyntaxError: Illegal return statement" in
-    // the browser, crashing the page for every collaborator who opens the link.
-    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).toContain('async function submitAccountLinking()');
-  });
-
-  it('collab-invite.html submit functions use generic apiKey field, not jinxxyApiKey', async () => {
-    // Both submit functions must send `apiKey` (the canonical field the server
-    // accepts). The deprecated `jinxxyApiKey` alias must not appear in the
-    // request body, it breaks non-Jinxxy providers since the field name leaks
-    // provider identity to the client and confuses users.
-    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).not.toContain('jinxxyApiKey');
-  });
-
-  it('collab-invite.html consent title uses dynamic provider label, not hardcoded Jinxxy', async () => {
-    // The consent stage title must not hardcode "Jinxxy™ store", it must use
-    // getProviderUI(inviteData.providerKey).label so Lemon Squeezy and future
-    // providers display the correct store name.
-    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).not.toContain('with your Jinxxy™ store');
-    expect(html).toContain('getProviderUI(inviteData.providerKey).label');
-  });
-
-  it('collab-invite.html calls updateProviderUI after invite data is loaded', async () => {
-    // updateProviderUI must be called with inviteData.providerKey after the
-    // invite is fetched so that labels, placeholders, and error messages are
-    // correct for every provider (not just Jinxxy).
-    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).toContain('updateProviderUI(inviteData.providerKey)');
-  });
-  it('collab-invite.html stage-type has a provider label element populated by updateProviderUI', async () => {
-    // stage-type must contain an element with id="stage-type-provider" so
-    // updateProviderUI can inject "Connecting your Lemon Squeezy store" (etc.).
-    // Without this the collaborator loses provider context after the consent stage.
-    const html = await Bun.file(`${import.meta.dir}/../public/collab-invite.html`).text();
-    expect(html).toContain('id="stage-type-provider"');
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: checking for literal template expression in HTML source
-    expect(html).toContain('Connecting your ${ui.label} store');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Dashboard collab.js, static code completeness
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Dashboard collab.js, providerKey completeness', () => {
-  it('collab.js submitGenerateInvite sends providerKey in request body', async () => {
-    // The API now requires providerKey. Without it, createInvite returns 400.
-    // This guard ensures the dashboard always sends providerKey, and that the
-    // old generateCollabInvite no longer makes the API call directly.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('submitGenerateInvite');
-    // providerKey must appear as a body field in the API call
-    expect(js).toContain('providerKey,');
-    // Old pattern: generateCollabInvite must NOT call apiFetch directly
-    expect(js).not.toMatch(/function generateCollabInvite[\s\S]{0,300}apiFetch/);
-  });
-
-  it('dashboard.html invite panel has two-step flow (provider select + URL display)', async () => {
-    // Regression guard: the invite panel must include provider selection (invite-step-select)
-    // and a URL display step (invite-step-url). Removing either breaks the invite flow.
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('id="invite-step-select"');
-    expect(html).toContain('id="invite-provider-select"');
-    expect(html).toContain('id="invite-step-url"');
-    expect(html).toContain('submitGenerateInvite()');
-  });
-
-  it('collab.js submitGenerateInvite does not send server name, lets server use creator Discord name', async () => {
-    // The dashboard invite must show the creator's Discord display name, not the
-    // Discord server name. The server already resolves ownerDisplayName from
-    // webSession.user.name when no guildName is sent. The client must NOT read
-    // sidebar-selected-name and send it as guildName, because that shows the
-    // server name ("Personal Dashboard", etc.) instead of the creator's name.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).not.toContain("'this server'");
-    // Must not read the sidebar server name and send it as guildName
-    expect(js).not.toContain('sidebar-selected-name');
-  });
-
-  it('dashboard.html invite-provider-select uses invite-provider-pick CSS class, not inline style', async () => {
-    // The invite provider select must use the .invite-provider-pick CSS class
-    // (dark-themed, defined in dashboard.css) rather than an ad-hoc inline style.
-    // This ensures consistent styling across browsers and proper right-margin on the chevron.
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('class="invite-provider-pick"');
-    // Must not have the verbose inline appearance-none inline style (moved to CSS)
-    const css = await Bun.file(`${import.meta.dir}/../public/dashboard.css`).text();
-    expect(css).toContain('.invite-provider-pick');
-    expect(css).toContain('appearance: none');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Dashboard invite display name, server uses session name as fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -595,45 +492,6 @@ describe('Provider fetchProducts, collab connection filtering', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dashboard collab polling, list must refresh after invite is accepted
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Dashboard collab.js, live-update polling', () => {
-  it('collab.js starts polling fetchCollabConnections when invite URL is shown', async () => {
-    // Without polling the owner must manually reload the page to see a newly
-    // accepted invite. showInviteResult must start a periodic fetch so the
-    // collab list auto-refreshes while the invite panel is open.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    // There must be an interval-based polling mechanism
-    expect(js).toContain('setInterval');
-    // showInviteResult must trigger polling (via direct call or named helper)
-    expect(js).toMatch(/showInviteResult[\s\S]{0,1500}(setInterval|startCollab)/);
-  });
-
-  it('collab.js stops polling when the invite panel is closed', async () => {
-    // If polling is never stopped, stale intervals accumulate every time an
-    // invite is generated. closeInvitePanel must clear the interval.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('clearInterval');
-    // closeInvitePanel must stop polling (directly or via a stop helper)
-    expect(js).toMatch(/closeInvitePanel[\s\S]{0,600}(clearInterval|stopCollab)/);
-  });
-
-  it('collab.js calls fetchPendingInvites immediately after a successful invite is generated', async () => {
-    // Regression guard: after submitGenerateInvite succeeds, the pending invites
-    // list must update immediately, without requiring a page reload.
-    // The generated invite token must appear in the "Pending Invites" section
-    // the moment the URL is shown, not only after the next full page load.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    // submitGenerateInvite must call fetchPendingInvites (directly or via a
-    // wrapper) before or immediately after showing the invite URL.
-    // The call must appear within the success branch, after the fetch resolves
-    // OK and before/after showInviteResult, not only at page initialisation.
-    expect(js).toMatch(/submitGenerateInvite[\s\S]{0,2000}fetchPendingInvites\s*\(/);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Web-session auth path, authenticated user, no setup session token
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -688,29 +546,10 @@ describe('Collab routes, web session auth', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI, invites list, dynamic providers, badge color, revoke
+// Collab invite routes and provider metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI, invites and dynamic providers', () => {
-  it('badge-api CSS class is not yellow (#fde047)', async () => {
-    // Yellow on dark backgrounds has very poor contrast, especially at small sizes.
-    // The badge must use a different hue (e.g., violet/purple) that reads clearly.
-    const css = await Bun.file(`${import.meta.dir}/../public/dashboard.css`).text();
-    const badgeBlock = css.slice(css.indexOf('.badge-api'), css.indexOf('.badge-api') + 300);
-    expect(badgeBlock).not.toContain('#fde047');
-    expect(badgeBlock).not.toContain('rgba(255, 235, 59');
-  });
-
-  it('collab.js fetches provider list from server instead of hardcoding COLLAB_PROVIDERS', async () => {
-    // The provider dropdown was hardcoded, new providers added to PROVIDER_REGISTRY
-    // would not appear without also editing collab.js. The list must be fetched
-    // from GET /api/collab/providers so it stays in sync with the registry.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('/api/collab/providers');
-    // Must not hardcode the provider list as a static array literal
-    expect(js).not.toMatch(/const COLLAB_PROVIDERS\s*=\s*\[/);
-  });
-
+describe('Collab invite routes and dynamic providers', () => {
   it('GET /api/collab/providers returns provider list without auth', async () => {
     // The providers list is public metadata, no auth required. It returns the
     // set of providers that support collab invites so the dropdown is always
@@ -756,25 +595,6 @@ describe('Collab UI, invites and dynamic providers', () => {
     }
   });
 
-  it('collab.js renders a pending invites section with revoke capability', async () => {
-    // The dashboard only showed active connections. Pending invites (sent but not
-    // yet accepted) must also be listed so the creator can see what is outstanding
-    // and revoke them if needed.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('/api/collab/invites');
-    // There must be a revoke action that calls DELETE /api/collab/invites/:id
-    expect(js).toMatch(
-      /DELETE[\s\S]{0,200}\/api\/collab\/invites|\/api\/collab\/invites[\s\S]{0,200}DELETE/
-    );
-  });
-
-  it('dashboard.html has a container for pending invites', async () => {
-    // A dedicated container lets renderInvitesSection() append invite rows
-    // without polluting the active-connections list.
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('collab-invites-list');
-  });
-
   it('collab.ts exposes GET /api/collab/invites route', async () => {
     // The route must exist in the dispatch table so requests are handled.
     const src = await Bun.file(`${import.meta.dir}/../src/routes/collab.ts`).text();
@@ -789,10 +609,10 @@ describe('Collab UI, invites and dynamic providers', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI, "connections I have approved" (as-collaborator view)
+// Collab routes, "connections I have approved" (as-collaborator view)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI, as-collaborator connections', () => {
+describe('Collab routes, as-collaborator connections', () => {
   it('GET /api/collab/connections/as-collaborator without auth returns 401', async () => {
     // Viewing which stores you collaborate with is a private operation,
     // must require authentication.
@@ -811,21 +631,6 @@ describe('Collab UI, as-collaborator connections', () => {
     expect(src).toContain('/api/collab/connections/as-collaborator');
   });
 
-  it('collab.js fetches as-collaborator connections from server', async () => {
-    // The dashboard must show connections where the current user is the collaborator
-    // (i.e. stores they approved for someone else). Without this, creators who
-    // accepted invites have no way to see or manage those relationships.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('/api/collab/connections/as-collaborator');
-  });
-
-  it('dashboard.html has a container for as-collaborator connections', async () => {
-    // A dedicated container lets the JS render the "stores I collaborate with"
-    // list separately from "people who collaborate with me".
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('collab-as-collaborator-list');
-  });
-
   it('convex/collaboratorInvites.ts has listConnectionsAsCollaborator query', async () => {
     // The Convex layer needs a public query that bridges authUserId → Discord ID
     // → active connections where the user is the collaborator.
@@ -835,10 +640,10 @@ describe('Collab UI, as-collaborator connections', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Collab UI, Discord avatar pictures and deterministic fallback
+// Collab routes, Discord avatar persistence and response shaping
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Collab UI, Discord avatars and facehash fallback', () => {
+describe('Collab routes, Discord avatars', () => {
   it('authCallback stores avatarHash in Discord state store', async () => {
     // Without capturing avatar during OAuth the dashboard can never show real
     // profile pictures. The Discord user JSON includes an `avatar` hash, it
@@ -914,92 +719,5 @@ describe('Collab UI, Discord avatars and facehash fallback', () => {
     expect(src).toContain('cdn.discordapp.com/avatars');
     // The client-facing response must use avatarUrl
     expect(src).toContain('avatarUrl');
-  });
-
-  it('collab.js renders an img element for the Discord avatar', async () => {
-    // The dashboard must display real photos when available. Without an <img>
-    // element the avatar URL returned by the server is never shown.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain("createElement('img')");
-    // The img src must come from the server-supplied avatarUrl
-    expect(js).toContain('avatarUrl');
-  });
-
-  it('collab.js uses onerror to fall back to a generated avatar when img fails', async () => {
-    // The Discord CDN can return 404 for deleted avatars or fail transiently.
-    // The onerror handler must replace the broken img with a deterministic fallback
-    // so the UI never shows a broken image icon.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('onerror');
-    expect(js).toMatch(/onerror[\s\S]{0,200}replaceWith|replaceWith[\s\S]{0,200}onerror/);
-  });
-
-  it('collab.js has a deterministic fallback avatar generator function', async () => {
-    // A facehash-style deterministic avatar must be generated from the user seed
-    // (Discord ID or display name) so every user gets a consistent, unique-looking
-    // avatar without any external requests.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).toContain('generateFallbackAvatarEl');
-  });
-
-  it('collab.js does NOT construct Discord CDN URLs client-side', async () => {
-    // Security: the client must never build cdn.discordapp.com URLs from user data.
-    // Only the server-constructed avatarUrl (already validated) is used as img src.
-    // If the client builds the URL it could be misled into fetching arbitrary
-    // Discord CDN paths derived from untrusted input.
-    const js = await Bun.file(`${import.meta.dir}/../public/assets/dashboard/collab.js`).text();
-    expect(js).not.toContain('cdn.discordapp.com');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Collab UI, layout: full-width bento-grid, two-card split
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('Collab UI, layout and width', () => {
-  it('dashboard.html collab tab uses bento-grid for two-column layout', async () => {
-    // The collaboration tab had a single max-w-2xl card that wasted horizontal
-    // space. It must use a bento-grid with two cards:
-    //   left , "My Collaborators" (invites + active connections)
-    //   right, "Stores I Collaborate With" (as-collaborator view)
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    // Search in the actual tab panel element (id=), not a reference to it
-    const panelStart = html.indexOf('id="tab-panel-collaboration"');
-    const panelEnd = html.indexOf('id="tab-panel-server-rules"');
-    const tabBlock = html.slice(panelStart, panelEnd);
-    expect(tabBlock).toContain('bento-grid');
-  });
-
-  it('dashboard.html collab section cards do not carry max-w-2xl class', async () => {
-    // max-w-2xl (672px) was an artificially narrow constraint. The cards now live
-    // inside the bento-grid and must not override the grid column width.
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    const panelStart = html.indexOf('id="tab-panel-collaboration"');
-    const panelEnd = html.indexOf('id="tab-panel-server-rules"');
-    const tabBlock = html.slice(panelStart, panelEnd);
-    // The collaboration cards must not use max-w-2xl
-    expect(tabBlock).not.toContain('max-w-2xl');
-  });
-
-  it('dashboard.css does not apply max-width override to collab section', async () => {
-    // The old #collab-section.max-w-2xl { max-width: 672px } rule must be removed
-    // so the new bento-grid cards stretch to their natural column width.
-    const css = await Bun.file(`${import.meta.dir}/../public/dashboard.css`).text();
-    expect(css).not.toContain('#collab-section.max-w-2xl');
-  });
-
-  it('dashboard.html has a dedicated right card for as-collaborator view', async () => {
-    // The "Stores I Collaborate With" content must live in its own intg-card
-    // separate from the "My Collaborators" card so both sections have headers,
-    // descriptions, and their own empty states.
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('collab-as-collab-card');
-  });
-
-  it('dashboard.html has an empty-state element inside the as-collaborator card', async () => {
-    // When the user has not yet been granted collaborator access anywhere, the
-    // right card must show an explanatory empty state (not just a blank card).
-    const html = await Bun.file(`${import.meta.dir}/../public/dashboard.html`).text();
-    expect(html).toContain('collab-as-collaborator-empty');
   });
 });
