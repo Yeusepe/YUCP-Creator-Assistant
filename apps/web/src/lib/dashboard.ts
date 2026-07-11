@@ -1,6 +1,6 @@
 import type { QueryFunctionContext } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { DashboardProvider, Guild } from '@/lib/server/dashboard';
+import type { DashboardProvider } from '@/lib/server/dashboard';
 
 export type { DashboardProvider };
 
@@ -33,13 +33,6 @@ export interface DashboardGuildChannel {
   id: string;
   name: string;
   type: number;
-}
-
-interface DashboardGuildResponse {
-  authUserId: string;
-  guildId: string;
-  icon: string | null;
-  name: string;
 }
 
 export type VerificationScope = 'account' | 'license';
@@ -264,20 +257,6 @@ export async function listDashboardConnections(authUserId?: string) {
     authUserId ? { params: { authUserId } } : undefined
   );
   return data.connections ?? [];
-}
-
-export async function listUserGuilds() {
-  const data = await apiClient.get<{ guilds?: DashboardGuildResponse[] }>(
-    '/api/connect/user/guilds'
-  );
-  return (data.guilds ?? []).map(
-    (guild): Guild => ({
-      id: normalizeDashboardIdentifier(guild.guildId) ?? guild.guildId,
-      name: guild.name,
-      icon: guild.icon ?? null,
-      tenantId: normalizeDashboardIdentifier(guild.authUserId) ?? guild.authUserId,
-    })
-  );
 }
 
 export async function disconnectUserAccount(connectionId: string) {

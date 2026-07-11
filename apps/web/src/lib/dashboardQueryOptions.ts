@@ -93,14 +93,6 @@ export function dashboardClientRevalidateQueryOptions<
   } satisfies UseQueryOptions<TQueryFnData, Error, TData, TQueryKey>;
 }
 
-export function dashboardFreshQueryOptions<
-  TQueryFnData,
-  TData = TQueryFnData,
-  TQueryKey extends QueryKey = QueryKey,
->(options: DashboardQueryInput<TQueryFnData, TData, TQueryKey>) {
-  return dashboardClientRevalidateQueryOptions(options);
-}
-
 export function dashboardPollingQueryOptions<
   TQueryFnData,
   TData = TQueryFnData,

@@ -220,13 +220,6 @@ export async function renameCreatorPackage(input: { packageId: string; packageNa
   });
 }
 
-export async function deleteCreatorPackage(input: { packageId: string }) {
-  return await apiClient.delete<{
-    deleted: true;
-    packageId: string;
-  }>(`/api/packages/${encodeURIComponent(input.packageId)}`);
-}
-
 export async function archiveCreatorPackage(input: { packageId: string }) {
   return await apiClient.post<{
     archived: true;
@@ -253,13 +246,6 @@ export async function restoreCreatorBackstageProduct(input: { catalogProductId: 
     restored: true;
     catalogProductId: string;
   }>(`/api/packages/backstage/products/${encodeURIComponent(input.catalogProductId)}/restore`);
-}
-
-export async function deleteCreatorBackstageProduct(input: { catalogProductId: string }) {
-  return await apiClient.delete<{
-    deleted: true;
-    catalogProductId: string;
-  }>(`/api/packages/backstage/products/${encodeURIComponent(input.catalogProductId)}`);
 }
 
 export async function archiveCreatorBackstageRelease(input: {

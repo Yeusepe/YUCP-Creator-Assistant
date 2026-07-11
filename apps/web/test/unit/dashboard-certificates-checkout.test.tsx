@@ -104,7 +104,6 @@ vi.mock('@/components/dashboard/PackageRegistryPanel', () => ({
 
 vi.mock('@/lib/packages', () => ({
   archiveCreatorPackage: vi.fn(),
-  deleteCreatorPackage: vi.fn(),
   listCreatorPackages: vi.fn(),
   renameCreatorPackage: vi.fn(),
   restoreCreatorPackage: vi.fn(),

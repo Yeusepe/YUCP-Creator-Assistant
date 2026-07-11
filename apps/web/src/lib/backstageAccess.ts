@@ -36,10 +36,6 @@ export interface BuyerBackstageRepoAccess {
   expiresAt: number;
 }
 
-export function buildBuyerBackstageAccessPath(creatorRef: string, productRef: string): string {
-  return `/get-in-unity/${encodeURIComponent(creatorRef)}/${encodeURIComponent(productRef)}`;
-}
-
 export async function getBuyerBackstageAccessInfo(input: {
   creatorRef: string;
   productRef: string;

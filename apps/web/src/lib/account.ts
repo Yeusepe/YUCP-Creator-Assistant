@@ -176,48 +176,6 @@ export async function listUserOAuthGrants() {
   return data.grants ?? [];
 }
 
-export async function listUserCertificates() {
-  const data = await apiClient.get<UserCertificateWorkspace>('/api/connect/user/certificates');
-  return {
-    ...data,
-    creatorProfileId: data.creatorProfileId ?? null,
-    billing: {
-      ...data.billing,
-      planKey: data.billing.planKey ?? null,
-      deviceCap: data.billing.deviceCap ?? null,
-      signQuotaPerPeriod: data.billing.signQuotaPerPeriod ?? null,
-      auditRetentionDays: data.billing.auditRetentionDays ?? null,
-      supportTier: data.billing.supportTier ?? null,
-      currentPeriodEnd: data.billing.currentPeriodEnd ?? null,
-      graceUntil: data.billing.graceUntil ?? null,
-      reason: data.billing.reason ?? null,
-    },
-    availablePlans: data.availablePlans.map((plan) => ({
-      ...plan,
-      signQuotaPerPeriod: plan.signQuotaPerPeriod ?? null,
-    })),
-  } satisfies UserCertificateWorkspace;
-}
-
-export async function createUserCertificateCheckout(planKey: string) {
-  return apiClient.post<{
-    url: string;
-    redirect: boolean;
-    workspaceKey: string;
-    planKey: string;
-  }>('/api/connect/user/certificates/checkout', { planKey });
-}
-
-export async function getUserCertificatePortal() {
-  return apiClient.get<{ url: string; redirect: boolean }>('/api/connect/user/certificates/portal');
-}
-
-export async function revokeUserCertificate(certNonce: string) {
-  return apiClient.post<{ success: boolean }>('/api/connect/user/certificates/revoke', {
-    certNonce,
-  });
-}
-
 export async function revokeUserOAuthGrant(consentId: string) {
   return apiClient.delete<{ success: boolean }>(
     `/api/connect/user/oauth/grants/${encodeURIComponent(consentId)}`

@@ -83,10 +83,6 @@ export interface CreatorCertificateWorkspace {
   }>;
 }
 
-function padTwoDigits(value: number) {
-  return value.toString().padStart(2, '0');
-}
-
 export function formatCertificateDate(timestamp: number | null) {
   if (!timestamp) {
     return 'Unknown date';
@@ -97,15 +93,6 @@ export function formatCertificateDate(timestamp: number | null) {
     month: 'short',
     day: 'numeric',
   });
-}
-
-export function formatCertificateDateTime(timestamp: number | null) {
-  if (!timestamp) {
-    return 'Unknown date';
-  }
-
-  const date = new Date(timestamp);
-  return `${formatCertificateDate(timestamp)} at ${padTwoDigits(date.getHours())}:${padTwoDigits(date.getMinutes())}`;
 }
 
 export async function listCreatorCertificates() {
