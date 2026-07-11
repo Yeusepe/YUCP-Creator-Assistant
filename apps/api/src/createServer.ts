@@ -20,6 +20,7 @@ import type { Auth } from './auth';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
+import type { LoreBackstageConfig } from './lib/loreBackstage';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
@@ -80,6 +81,7 @@ export interface TestServerConfig {
     required?: boolean;
     timeoutMs?: number;
   };
+  lore?: LoreBackstageConfig;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
@@ -154,6 +156,7 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     convexSiteUrl: config.convexSiteUrl,
     convexUrl: config.convexUrl,
     cdngine: config.cdngine,
+    lore: config.lore,
   });
   const accountSecurityRoutes = createAccountSecurityRoutes(stubAuth, {
     convexUrl: config.convexUrl,

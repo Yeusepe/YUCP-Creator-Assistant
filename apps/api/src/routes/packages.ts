@@ -45,6 +45,7 @@ import {
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import type { LoreBackstageConfig } from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { readBoundedArrayBuffer, readContentLength } from '../lib/readBoundedArrayBuffer';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
@@ -70,6 +71,7 @@ export type PackagesConfig = {
   convexSiteUrl: string;
   convexUrl: string;
   cdngine?: CdngineBackstageConfig;
+  lore?: LoreBackstageConfig;
 };
 
 type BackstageUploadTokenPayload = {

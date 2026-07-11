@@ -18,6 +18,7 @@ import {
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
+import type { LoreBackstageConfig } from './lib/loreBackstage';
 import {
   annotateApiSpan,
   getActiveTraceIds,
@@ -193,6 +194,37 @@ function getCdngineBackstageApiConfig(env: ReturnType<typeof loadEnv>) {
   };
 }
 
+export function getLoreBackstageApiConfig(
+  env: ReturnType<typeof loadEnv>
+): LoreBackstageConfig | undefined {
+  const apiBaseUrl = env.LORE_API_BASE_URL?.trim();
+  const presignHmacKey = env.LORE_PRESIGN_HMAC_KEY?.trim();
+  const repoNamespaceSalt = env.LORE_REPO_NAMESPACE_SALT?.trim();
+  const accessClientId = env.LORE_ACCESS_CLIENT_ID?.trim();
+  const accessClientSecret = env.LORE_ACCESS_CLIENT_SECRET?.trim();
+  if (
+    !apiBaseUrl ||
+    !presignHmacKey ||
+    !repoNamespaceSalt ||
+    !accessClientId ||
+    !accessClientSecret
+  ) {
+    return undefined;
+  }
+
+  const defaultTtlSeconds = Number.parseInt(env.LORE_PRESIGN_DEFAULT_TTL_SECONDS ?? '', 10);
+  const timeoutMs = Number.parseInt(env.LORE_TIMEOUT_MS ?? '', 10);
+  return {
+    apiBaseUrl,
+    presignHmacKey,
+    repoNamespaceSalt,
+    accessClientId,
+    accessClientSecret,
+    ...(Number.isFinite(defaultTtlSeconds) && defaultTtlSeconds > 0 ? { defaultTtlSeconds } : {}),
+    ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
+  };
+}
+
 function redirectToFrontendRoute(
   requestUrl: URL,
   frontendUrl: string,
@@ -365,6 +397,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexSiteUrl,
     convexUrl,
     cdngine: getCdngineBackstageApiConfig(env),
+    lore: getLoreBackstageApiConfig(env),
   });
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
@@ -389,6 +422,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexSiteUrl,
     convexUrl,
     cdngine: getCdngineBackstageApiConfig(env),
+    lore: getLoreBackstageApiConfig(env),
   });
 
   couplingRuntimeRoutes = createCouplingRuntimeRoutes({

@@ -28,6 +28,7 @@ import { authorizeCdngineBackstageSource } from '../lib/cdngineBackstage';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import type { LoreBackstageConfig } from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import {
   RequestBodyError,
@@ -192,6 +193,7 @@ export type BackstageRepoConfig = {
     required?: boolean;
     timeoutMs?: number;
   };
+  lore?: LoreBackstageConfig;
 };
 
 function jsonResponse(body: object, status = 200): Response {
