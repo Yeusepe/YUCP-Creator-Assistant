@@ -5,8 +5,8 @@ vi.mock('@tanstack/react-router', () => ({
   createLazyFileRoute: () => (options: unknown) => ({ options }),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: () => null,
 }));
 
 import { Route } from '@/routes/oauth/callback/itchio.lazy';

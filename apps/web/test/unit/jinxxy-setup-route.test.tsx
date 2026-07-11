@@ -5,8 +5,8 @@ vi.mock('canvas-confetti', () => ({
   default: vi.fn(),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: () => null,
 }));
 
 import { Route } from '@/routes/setup/jinxxy.lazy';

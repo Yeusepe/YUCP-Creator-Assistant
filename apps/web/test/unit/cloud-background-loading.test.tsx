@@ -38,12 +38,16 @@ vi.mock('@react-three/fiber', () => ({
 }));
 
 vi.mock('@react-three/drei', () => ({
+  Center: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Clouds: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Preload: ({ all }: { all?: boolean }) => {
     preloadAllSpy(all);
     return null;
   },
   Sky: () => <div data-testid="background-sky" />,
+  Text3D: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="cloud-404-text">{children}</div>
+  ),
   useTexture: useTextureMock,
 }));
 
@@ -56,7 +60,11 @@ vi.mock('@/components/three/MovingCloud', () => ({
 }));
 
 import BackgroundApp from '@/components/three/BackgroundApp';
-import { CloudBackground, CloudBackgroundLayer } from '@/components/three/CloudBackground';
+import {
+  Cloud404Layer,
+  CloudBackground,
+  CloudBackgroundLayer,
+} from '@/components/three/CloudBackground';
 
 describe('Cloud background loading', () => {
   beforeEach(() => {
@@ -123,11 +131,33 @@ describe('Cloud background loading', () => {
     expect(globalsCss).not.toContain('.cloud-layer-fade');
   });
 
-  it('does not mount a foreground cloud layer above default page content', () => {
-    const { container } = render(<CloudBackground variant="default" />);
+  it('renders the fixed background shell at the requested stacking level', () => {
+    const { container } = render(<CloudBackground position="fixed" zIndex={0} />);
+    const root = container.querySelector<HTMLElement>('#bg-canvas-root');
 
-    expect(container.querySelector('#bg-canvas-root')).toBeTruthy();
-    expect(container.querySelector('#fg-canvas-root')).toBeNull();
+    expect(root?.style.position).toBe('fixed');
+    expect(root?.style.top).toBe('0px');
+    expect(root?.style.left).toBe('0px');
+    expect(root?.style.width).toBe('100vw');
+    expect(root?.style.height).toBe('100vh');
+    expect(root?.style.zIndex).toBe('0');
+  });
+
+  it('renders the absolute background shell within its containing page', () => {
+    const { container } = render(<CloudBackground position="absolute" zIndex={-20} />);
+    const root = container.querySelector<HTMLElement>('#bg-canvas-root');
+
+    expect(root?.style.position).toBe('absolute');
+    expect(root?.style.inset).toBe('0');
+    expect(root?.style.width).toBe('100%');
+    expect(root?.style.height).toBe('100%');
+    expect(root?.style.zIndex).toBe('-20');
+  });
+
+  it('keeps the 404 layer available as its direct route-level path', async () => {
+    const { findByTestId } = render(<Cloud404Layer />);
+
+    expect(await findByTestId('cloud-404-text')).toBeInTheDocument();
   });
 
   it('does not report the background as ready until a rendered frame occurs', async () => {

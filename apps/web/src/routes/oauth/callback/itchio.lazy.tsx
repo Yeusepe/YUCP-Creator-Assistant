@@ -1,7 +1,7 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { ArrowLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { buildSetupAuthQuery } from '@/lib/setupAuth';
 import { resolveSetupApiBase } from '../../setup/-lemonsqueezySetupSupport';
 
@@ -241,7 +241,7 @@ function ItchioSetupPage() {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[#0b0b10] text-white">
-      <BackgroundCanvasRoot position="fixed" />
+      <CloudBackground position="fixed" zIndex={-20} />
 
       {phase === 'error' ? (
         <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/10 bg-black/40 p-8 text-center backdrop-blur-xl">

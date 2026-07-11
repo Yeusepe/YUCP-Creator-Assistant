@@ -7,8 +7,8 @@ vi.mock('@tanstack/react-router', () => ({
   redirect: vi.fn(),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
+vi.mock('@/components/three/CloudBackground', () => ({
+  CloudBackground: () => null,
 }));
 
 vi.mock('@/lib/auth-client', () => ({

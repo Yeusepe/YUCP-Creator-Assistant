@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { Select } from '@/components/ui/Select';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
@@ -229,7 +229,7 @@ function DiscordRoleSetupPage() {
   /* ── Render ────────────────────────────────────────────────────── */
   return (
     <div className="discord-role-setup">
-      <BackgroundCanvasRoot position="fixed" />
+      <CloudBackground position="fixed" zIndex={-20} />
       <div className="discord-role-setup-inner animate-in">
         {/* Header */}
         <div className="page-header">

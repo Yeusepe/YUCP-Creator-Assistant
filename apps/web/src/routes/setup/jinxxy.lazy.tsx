@@ -17,7 +17,7 @@ import {
   Webhook,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/jinxxy-setup.css';
 
@@ -401,7 +401,7 @@ function JinxxySetupPage() {
         )}
 
         {/* Background canvas */}
-        <BackgroundCanvasRoot position="absolute" />
+        <CloudBackground position="absolute" zIndex={-20} />
 
         <main className="flex flex-1 items-center justify-center p-4 lg:p-8 relative w-full max-w-7xl mx-auto min-h-0 overflow-hidden">
           {/* Background animations */}

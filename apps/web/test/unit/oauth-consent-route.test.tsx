@@ -14,10 +14,6 @@ vi.mock('@tanstack/react-router', () => ({
   }),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
-}));
-
 vi.mock('@/components/three/CloudBackground', () => ({
   CloudBackground: () => <div data-testid="cloud-background" />,
 }));

@@ -379,7 +379,7 @@ function DashboardLayout() {
     <ServerContextProvider guildId={resolvedGuildId} tenantId={resolvedTenantId}>
       <DashboardSessionProvider>
         <div className="dashboard-page">
-          <CloudBackground variant="default" />
+          <CloudBackground position="fixed" zIndex={0} />
           <div className="app-shell">
             <SidebarOverlay />
             <ServerDropdownBackdrop />
@@ -1142,7 +1142,7 @@ function DashboardRouteErrorComponent({ error }: { error: Error }) {
 
   return (
     <div className="dashboard-page">
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <div className="app-shell">
         <main className="content-area">
           <DotMatrixBackground />

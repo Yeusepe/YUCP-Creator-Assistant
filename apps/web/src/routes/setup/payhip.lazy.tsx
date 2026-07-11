@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, apiClient } from '@/api/client';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/payhip-setup.css';
 
@@ -418,7 +418,7 @@ function PayhipSetupPage() {
       <div
         className={`page-content fixed inset-0 flex flex-col items-center justify-center overflow-hidden${isVisible ? ' is-visible' : ''}`}
       >
-        <BackgroundCanvasRoot position="absolute" />
+        <CloudBackground position="absolute" zIndex={-20} />
 
         {/* Back to dashboard */}
         {showBackBtn && (

@@ -52,7 +52,7 @@ function buildOAuthResumePath(search: string): string | null {
 function OAuthLoginPage() {
   return (
     <>
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <OAuthLoginPageContent />
     </>
   );

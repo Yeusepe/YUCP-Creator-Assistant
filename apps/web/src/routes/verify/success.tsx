@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { CloudBackground } from '@/components/three/CloudBackground';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/success')({
@@ -78,7 +78,7 @@ function VerifySuccessPage() {
 
   return (
     <div className="verify-success-page-wrapper">
-      <BackgroundCanvasRoot position="fixed" />
+      <CloudBackground position="fixed" zIndex={-20} />
       <main className={`verify-success-page${isVisible ? ' is-visible' : ''}`}>
         <section className="verify-success-card">
           <div className="verify-success-eyebrow fade-up" style={{ animationDelay: '0.15s' }}>

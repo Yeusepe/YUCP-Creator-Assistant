@@ -23,7 +23,7 @@ type ViewState = 'loading' | 'error';
 function SignInRedirectPage() {
   return (
     <>
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <SignInRedirectPageContent />
     </>
   );

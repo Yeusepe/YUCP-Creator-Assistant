@@ -47,7 +47,7 @@ function PageShell({
 }>) {
   return (
     <div className="vp-page">
-      <CloudBackground variant="default" />
+      <CloudBackground position="fixed" zIndex={0} />
       <div className="vp-wrapper">
         <main className={`vp-main vp-main--buyer-access${isVisible ? ' is-visible' : ''}`}>
           {children}

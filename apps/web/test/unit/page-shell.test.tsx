@@ -3,15 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authClient } from '@/lib/auth-client';
 import { SignInPage } from '@/routes/sign-in';
 
-const cloudBackgroundReady = vi.hoisted(() => ({
-  callback: undefined as undefined | (() => void),
-}));
-
 vi.mock('@/components/three/CloudBackground', () => ({
-  CloudBackground: ({ onReady }: { onReady?: () => void }) => {
-    cloudBackgroundReady.callback = onReady;
-    return <div data-testid="cloud-background" />;
-  },
+  CloudBackground: () => <div data-testid="cloud-background" />,
 }));
 
 vi.mock('@/lib/auth-client', () => ({
@@ -30,7 +23,6 @@ describe('Page shell boot', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    cloudBackgroundReady.callback = undefined;
     originalRequestAnimationFrame = globalThis.requestAnimationFrame;
     originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
     originalFetch = globalThis.fetch;
