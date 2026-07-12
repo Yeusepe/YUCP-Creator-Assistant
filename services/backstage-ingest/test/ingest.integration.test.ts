@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -320,6 +320,34 @@ describe('backstage ingest resumable upload integration', () => {
         await expect(verify(INGEST_SECRET, tamperedHeader)).rejects.toThrow();
         await expect(verify(WRONG_SECRET, signedResult)).rejects.toThrow();
 
+        const invalidArchiveBytes = strToU8('not a zip archive');
+        const invalidArchiveToken = await sign(INGEST_SECRET, {
+          ...claims,
+          declaredSha256: await sha256Hex(invalidArchiveBytes),
+          byteSize: invalidArchiveBytes.byteLength,
+        });
+        let invalidArchiveUploadSucceeded = false;
+        let invalidArchiveUploadError: unknown;
+        try {
+          await uploadWithTus({
+            bytes: invalidArchiveBytes,
+            endpoint: `${sidecarOrigin}/files`,
+            uploadToken: invalidArchiveToken,
+          });
+          invalidArchiveUploadSucceeded = true;
+        } catch (error) {
+          invalidArchiveUploadError = error;
+        }
+        expect(invalidArchiveUploadSucceeded).toBe(false);
+        expect(invalidArchiveUploadError).toBeInstanceOf(Error);
+        expect(responseStatus(invalidArchiveUploadError)).toBe(422);
+        expect(receivedPuts).toHaveLength(2);
+        expect(await readdir(tempDirectory)).toEqual([]);
+        expect(stdout.join('')).not.toContain(repositoryId);
+        expect(stderr.join('')).not.toContain(repositoryId);
+        expect(stderr.join('')).not.toContain('invalid zip data');
+        expect(stderr.join('')).toContain('"reason":"materialization_failed"');
+
         const wrongToken = await sign(WRONG_SECRET, claims);
         let wrongSecretUploadSucceeded = false;
         let wrongSecretUploadError: unknown;
@@ -358,6 +386,7 @@ describe('backstage ingest resumable upload integration', () => {
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
         expect(receivedPuts).toHaveLength(2);
+        expect(await readdir(tempDirectory)).toEqual([]);
       } catch (error) {
         process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
         throw error;

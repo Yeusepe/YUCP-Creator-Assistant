@@ -20,6 +20,7 @@ import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageD
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_TUS_DIRECTORY = '/data/tus';
+const DEFAULT_LORE_TIMEOUT_MS = 30 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024;
 const RESULT_TTL_SECONDS = 15 * 60;
 const RESULT_HEADER = 'X-Backstage-Ingest-Result';
@@ -91,7 +92,7 @@ function loadConfig(): ServiceConfig {
       repoNamespaceSalt: requiredEnv('LORE_REPO_NAMESPACE_SALT'),
       accessClientId: requiredEnv('LORE_ACCESS_CLIENT_ID'),
       accessClientSecret: requiredEnv('LORE_ACCESS_CLIENT_SECRET'),
-      timeoutMs: optionalPositiveInteger('LORE_TIMEOUT_MS'),
+      timeoutMs: optionalPositiveInteger('LORE_TIMEOUT_MS') ?? DEFAULT_LORE_TIMEOUT_MS,
     }),
   };
 }
@@ -107,10 +108,6 @@ function isTusHookError(error: unknown): error is TusHookError {
     typeof (error as Partial<TusHookError>).status_code === 'number' &&
     typeof (error as Partial<TusHookError>).body === 'string'
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error';
 }
 
 function isSameOriginRequest(request: Request): boolean {
@@ -185,19 +182,20 @@ const server = new Server({
   },
   async onUploadFinish(request, upload) {
     const startedAt = performance.now();
-    const serializedClaims = upload.metadata?._claims;
-    if (typeof serializedClaims !== 'string') {
-      throw tusError(401, 'Validated upload claims are missing.');
-    }
-
-    let claims: BackstageUploadClaims;
-    try {
-      claims = parseUploadClaims(JSON.parse(serializedClaims));
-    } catch {
-      throw tusError(401, 'Validated upload claims are invalid.');
-    }
 
     try {
+      const serializedClaims = upload.metadata?._claims;
+      if (typeof serializedClaims !== 'string') {
+        throw tusError(401, 'Validated upload claims are missing.');
+      }
+
+      let claims: BackstageUploadClaims;
+      try {
+        claims = parseUploadClaims(JSON.parse(serializedClaims));
+      } catch {
+        throw tusError(401, 'Validated upload claims are invalid.');
+      }
+
       const storedUpload = upload.storage?.path ? upload : await store.getUpload(upload.id);
       const stagedPath = storedUpload.storage?.path;
       if (storedUpload.storage?.type !== 'file' || !stagedPath) {
@@ -222,25 +220,6 @@ const server = new Server({
         throw tusError(403, 'Upload token repositoryId does not match the authenticated tenant.');
       }
 
-      let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-      try {
-        rawStored = await putBackstageBytesToLore({
-          config: config.lore,
-          repositoryId,
-          bytes,
-        });
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.lore_source_failed',
-            uploadId: upload.id,
-            repositoryId,
-            error: errorMessage(error),
-          })
-        );
-        throw tusError(502, 'Lore rejected the source artifact.');
-      }
-
       let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
       try {
         materialized = await materializeBackstageReleaseArtifact({
@@ -252,16 +231,33 @@ const server = new Server({
           displayName: claims.materializeMetadata?.displayName,
           metadata: claims.materializeMetadata?.metadata,
         });
-      } catch (error) {
+      } catch {
         console.error(
           JSON.stringify({
             event: 'backstage_ingest.materialization_failed',
             uploadId: upload.id,
-            repositoryId,
-            error: errorMessage(error),
+            reason: 'materialization_failed',
           })
         );
         throw tusError(422, 'The source artifact could not be materialized.');
+      }
+
+      let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+      try {
+        rawStored = await putBackstageBytesToLore({
+          config: config.lore,
+          repositoryId,
+          bytes,
+        });
+      } catch {
+        console.error(
+          JSON.stringify({
+            event: 'backstage_ingest.lore_source_failed',
+            uploadId: upload.id,
+            reason: 'lore_source_put_failed',
+          })
+        );
+        throw tusError(502, 'Lore rejected the source artifact.');
       }
 
       let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
@@ -271,13 +267,12 @@ const server = new Server({
           repositoryId,
           bytes: materialized.bytes,
         });
-      } catch (error) {
+      } catch {
         console.error(
           JSON.stringify({
             event: 'backstage_ingest.lore_delivery_failed',
             uploadId: upload.id,
-            repositoryId,
-            error: errorMessage(error),
+            reason: 'lore_deliverable_put_failed',
           })
         );
         throw tusError(502, 'Lore rejected the deliverable artifact.');
@@ -315,23 +310,10 @@ const server = new Server({
       };
       const signedResult = await sign(config.ingestSecret, result);
 
-      try {
-        await store.remove(upload.id);
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.cleanup_failed',
-            uploadId: upload.id,
-            error: errorMessage(error),
-          })
-        );
-      }
-
       console.info(
         JSON.stringify({
           event: 'backstage_ingest.completed',
           uploadId: upload.id,
-          repositoryId,
           rawByteSize: rawStored.byteSize,
           deliverableByteSize: deliverableStored.byteSize,
           durationMs: Math.round(performance.now() - startedAt),
@@ -355,10 +337,22 @@ const server = new Server({
         JSON.stringify({
           event: 'backstage_ingest.finish_failed',
           uploadId: upload.id,
-          error: errorMessage(error),
+          reason: 'finish_failed',
         })
       );
       throw tusError(500, 'Backstage artifact ingest failed.');
+    } finally {
+      try {
+        await store.remove(upload.id);
+      } catch {
+        console.error(
+          JSON.stringify({
+            event: 'backstage_ingest.cleanup_failed',
+            uploadId: upload.id,
+            reason: 'cleanup_failed',
+          })
+        );
+      }
     }
   },
 });
