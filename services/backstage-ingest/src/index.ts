@@ -8,34 +8,45 @@ import {
   validateSigningSecret,
   verify,
 } from '@yucp/shared/backstageIngest';
+import { MAX_BACKSTAGE_PACKAGE_BYTES } from '@yucp/shared/backstageLimits';
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import {
   type ConfiguredLoreBackstageConfig,
   loreRepositoryIdForCreator,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
-  sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
+import { createBunRedisClient, Queue, Worker } from 'bullmq';
+import { RedisClient } from 'bun';
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_TUS_DIRECTORY = '/data/tus';
 const DEFAULT_LORE_TIMEOUT_MS = 30 * 60 * 1000;
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES;
 const RESULT_TTL_SECONDS = 15 * 60;
-const RESULT_HEADER = 'X-Backstage-Ingest-Result';
+const QUEUE_NAME = 'backstage-ingest';
+const FAILED_JOB_REASON = 'ingest_failed';
 
 type ServiceConfig = {
   allowedOrigins: string[];
   port: number;
   tusDirectory: string;
   ingestSecret: string;
+  redisUrl: string;
+  concurrency: number;
   lore: ConfiguredLoreBackstageConfig;
 };
 
 type TusHookError = {
   status_code: number;
   body: string;
+};
+
+type BackstageIngestJobData = {
+  uploadId: string;
+  stagedPath: string;
+  claims: BackstageUploadClaims;
 };
 
 function requiredEnv(name: string): string {
@@ -87,6 +98,8 @@ function loadConfig(): ServiceConfig {
     port,
     tusDirectory: Bun.env.BACKSTAGE_INGEST_TUS_DIR?.trim() || DEFAULT_TUS_DIRECTORY,
     ingestSecret,
+    redisUrl: requiredEnv('REDIS_URL'),
+    concurrency: optionalPositiveInteger('BACKSTAGE_INGEST_CONCURRENCY') ?? 1,
     lore: requireLoreBackstageConfig({
       apiBaseUrl: requiredEnv('LORE_API_BASE_URL'),
       repoNamespaceSalt: requiredEnv('LORE_REPO_NAMESPACE_SALT'),
@@ -125,6 +138,23 @@ function removeCorsWildcard(response: Response): Response {
   });
 }
 
+function applyJobCors(request: Request, response: Response): Response {
+  if (config.allowedOrigins.length === 0) {
+    return removeCorsWildcard(response);
+  }
+
+  const origin = request.headers.get('origin');
+  const allowedOrigin =
+    origin && config.allowedOrigins.includes(origin) ? origin : config.allowedOrigins[0];
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', allowedOrigin);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function buildLoreReference(input: {
   repositoryId: string;
   stored: { address: string; sha256: string; byteSize: number };
@@ -141,8 +171,201 @@ function buildLoreReference(input: {
   };
 }
 
+async function streamSha256Hex(path: string): Promise<string> {
+  const hasher = new Bun.CryptoHasher('sha256');
+  for await (const chunk of Bun.file(path).stream() as unknown as AsyncIterable<Uint8Array>) {
+    hasher.update(chunk);
+  }
+  return hasher.digest('hex');
+}
+
 const config = loadConfig();
 const store = new FileStore({ directory: config.tusDirectory });
+const redisClient = new RedisClient(config.redisUrl);
+const connection = createBunRedisClient(
+  redisClient as unknown as Parameters<typeof createBunRedisClient>[0]
+);
+const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    removeOnComplete: { age: 3_600 },
+    removeOnFail: { age: 86_400 },
+  },
+});
+
+const worker = new Worker<BackstageIngestJobData, string>(
+  QUEUE_NAME,
+  async (job) => {
+    const startedAt = performance.now();
+    const { claims, stagedPath, uploadId } = job.data;
+    let bytes: ArrayBuffer;
+    let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
+    try {
+      // ponytail: per-job peak is about 2x package size for source plus deliverable; concurrency and RAM provisioning govern it until streaming materialization is available.
+      bytes = await Bun.file(stagedPath).arrayBuffer();
+      materialized = await materializeBackstageReleaseArtifact({
+        sourceBytes: new Uint8Array(bytes),
+        deliveryName: claims.deliveryName,
+        contentType: claims.sourceContentType,
+        packageId: claims.packageId,
+        version: claims.version,
+        displayName: claims.materializeMetadata?.displayName,
+        metadata: claims.materializeMetadata?.metadata,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.materialization_failed',
+          uploadId,
+          reason: 'materialization_failed',
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('materialization_failed');
+    }
+
+    const repositoryId = claims.repositoryId;
+    let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+    try {
+      rawStored = await putBackstageBytesToLore({
+        config: config.lore,
+        repositoryId,
+        bytes,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.lore_source_failed',
+          uploadId,
+          reason: 'lore_source_put_failed',
+          rawByteSize: bytes.byteLength,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('lore_source_put_failed');
+    }
+
+    let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+    try {
+      deliverableStored = await putBackstageBytesToLore({
+        config: config.lore,
+        repositoryId,
+        bytes: materialized.bytes,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.lore_delivery_failed',
+          uploadId,
+          reason: 'lore_deliverable_put_failed',
+          rawByteSize: rawStored.byteSize,
+          deliverableByteSize: materialized.bytes.byteLength,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('lore_deliverable_put_failed');
+    }
+
+    const uploadedAt = new Date().toISOString();
+    const loreSource = buildLoreReference({
+      repositoryId,
+      stored: rawStored,
+      authUserId: claims.authUserId,
+      uploadedAt,
+    });
+    const loreDelivery = buildLoreReference({
+      repositoryId,
+      stored: deliverableStored,
+      authUserId: claims.authUserId,
+      uploadedAt,
+    });
+    const result: BackstageIngestResult = {
+      typ: 'backstage-ingest-result',
+      authUserId: claims.authUserId,
+      packageId: claims.packageId,
+      version: claims.version,
+      loreSource,
+      loreDelivery,
+      rawSha256: rawStored.sha256,
+      rawByteSize: rawStored.byteSize,
+      rawDeliveryName: claims.deliveryName,
+      rawContentType: claims.sourceContentType,
+      deliverableSha256: deliverableStored.sha256,
+      deliverableByteSize: deliverableStored.byteSize,
+      deliverableDeliveryName: materialized.deliveryName,
+      deliverableContentType: materialized.contentType,
+      exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
+    };
+    const signedResult = await sign(config.ingestSecret, result);
+
+    console.info(
+      JSON.stringify({
+        event: 'backstage_ingest.completed',
+        uploadId,
+        rawByteSize: rawStored.byteSize,
+        deliverableByteSize: deliverableStored.byteSize,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+
+    return signedResult;
+  },
+  { connection, concurrency: config.concurrency }
+);
+
+async function removeStagedUpload(uploadId: string | undefined): Promise<void> {
+  if (!uploadId) {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.cleanup_failed',
+        reason: 'cleanup_failed',
+      })
+    );
+    return;
+  }
+
+  try {
+    await store.remove(uploadId);
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.cleanup_failed',
+        uploadId,
+        reason: 'cleanup_failed',
+      })
+    );
+  }
+}
+
+worker.on('completed', (job) => {
+  void removeStagedUpload(job.id);
+});
+
+worker.on('failed', (job) => {
+  if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+    void removeStagedUpload(job.id);
+  }
+});
+
+worker.on('error', () => {
+  console.error(
+    JSON.stringify({
+      event: 'backstage_ingest.worker_error',
+      reason: 'worker_error',
+    })
+  );
+});
+
+queue.on('error', () => {
+  console.error(
+    JSON.stringify({
+      event: 'backstage_ingest.queue_error',
+      reason: 'queue_error',
+    })
+  );
+});
 
 const server = new Server({
   path: '/files',
@@ -150,7 +373,6 @@ const server = new Server({
   maxSize: MAX_UPLOAD_BYTES,
   respectForwardedHeaders: true,
   allowedOrigins: config.allowedOrigins,
-  exposedHeaders: [RESULT_HEADER],
   async onUploadCreate(_request, upload) {
     const uploadToken = upload.metadata?.uploadToken;
     if (typeof uploadToken !== 'string' || !uploadToken) {
@@ -181,8 +403,6 @@ const server = new Server({
     };
   },
   async onUploadFinish(request, upload) {
-    const startedAt = performance.now();
-
     try {
       const serializedClaims = upload.metadata?._claims;
       if (typeof serializedClaims !== 'string') {
@@ -206,8 +426,7 @@ const server = new Server({
       if (stagedFile.size !== claims.byteSize) {
         throw tusError(422, 'Uploaded byte size does not match the upload token.');
       }
-      const bytes = await stagedFile.arrayBuffer();
-      const rawSha256 = await sha256ArrayBuffer(bytes);
+      const rawSha256 = await streamSha256Hex(stagedPath);
       if (rawSha256 !== claims.declaredSha256) {
         throw tusError(422, 'Uploaded SHA-256 does not match declaredSha256.');
       }
@@ -220,114 +439,18 @@ const server = new Server({
         throw tusError(403, 'Upload token repositoryId does not match the authenticated tenant.');
       }
 
-      let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
-      try {
-        materialized = await materializeBackstageReleaseArtifact({
-          sourceBytes: new Uint8Array(bytes),
-          deliveryName: claims.deliveryName,
-          contentType: claims.sourceContentType,
-          packageId: claims.packageId,
-          version: claims.version,
-          displayName: claims.materializeMetadata?.displayName,
-          metadata: claims.materializeMetadata?.metadata,
-        });
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.materialization_failed',
-            uploadId: upload.id,
-            reason: 'materialization_failed',
-          })
-        );
-        throw tusError(422, 'The source artifact could not be materialized.');
-      }
-
-      let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-      try {
-        rawStored = await putBackstageBytesToLore({
-          config: config.lore,
-          repositoryId,
-          bytes,
-        });
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.lore_source_failed',
-            uploadId: upload.id,
-            reason: 'lore_source_put_failed',
-          })
-        );
-        throw tusError(502, 'Lore rejected the source artifact.');
-      }
-
-      let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-      try {
-        deliverableStored = await putBackstageBytesToLore({
-          config: config.lore,
-          repositoryId,
-          bytes: materialized.bytes,
-        });
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.lore_delivery_failed',
-            uploadId: upload.id,
-            reason: 'lore_deliverable_put_failed',
-          })
-        );
-        throw tusError(502, 'Lore rejected the deliverable artifact.');
-      }
-
-      const uploadedAt = new Date().toISOString();
-      const loreSource = buildLoreReference({
-        repositoryId,
-        stored: rawStored,
-        authUserId: claims.authUserId,
-        uploadedAt,
-      });
-      const loreDelivery = buildLoreReference({
-        repositoryId,
-        stored: deliverableStored,
-        authUserId: claims.authUserId,
-        uploadedAt,
-      });
-      const result: BackstageIngestResult = {
-        typ: 'backstage-ingest-result',
-        authUserId: claims.authUserId,
-        packageId: claims.packageId,
-        version: claims.version,
-        loreSource,
-        loreDelivery,
-        rawSha256: rawStored.sha256,
-        rawByteSize: rawStored.byteSize,
-        rawDeliveryName: claims.deliveryName,
-        rawContentType: claims.sourceContentType,
-        deliverableSha256: deliverableStored.sha256,
-        deliverableByteSize: deliverableStored.byteSize,
-        deliverableDeliveryName: materialized.deliveryName,
-        deliverableContentType: materialized.contentType,
-        exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
-      };
-      const signedResult = await sign(config.ingestSecret, result);
-
-      console.info(
-        JSON.stringify({
-          event: 'backstage_ingest.completed',
-          uploadId: upload.id,
-          rawByteSize: rawStored.byteSize,
-          deliverableByteSize: deliverableStored.byteSize,
-          durationMs: Math.round(performance.now() - startedAt),
-          traceparent: request.headers.get('traceparent') ?? undefined,
-        })
+      await queue.add(
+        'materialize',
+        { uploadId: upload.id, stagedPath, claims },
+        { jobId: upload.id }
       );
 
       return {
         status_code: request.method === 'POST' ? 201 : 200,
         headers: {
           'Content-Type': 'application/json',
-          [RESULT_HEADER]: signedResult,
         },
-        body: JSON.stringify({ ok: true }),
+        body: JSON.stringify({ ok: true, jobId: upload.id }),
       };
     } catch (error) {
       if (isTusHookError(error)) {
@@ -341,23 +464,67 @@ const server = new Server({
         })
       );
       throw tusError(500, 'Backstage artifact ingest failed.');
-    } finally {
-      try {
-        await store.remove(upload.id);
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.cleanup_failed',
-            uploadId: upload.id,
-            reason: 'cleanup_failed',
-          })
-        );
-      }
     }
   },
 });
 
-Bun.serve({
+function bearerToken(request: Request): string | undefined {
+  const authorization = request.headers.get('authorization');
+  const match = authorization ? /^Bearer\s+(.+)$/i.exec(authorization) : null;
+  return match?.[1]?.trim() || undefined;
+}
+
+async function handleJobRequest(request: Request, jobId: string): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return applyJobCors(
+      request,
+      new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        },
+      })
+    );
+  }
+
+  const token = bearerToken(request);
+  if (!token) {
+    return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
+  }
+
+  let claims: BackstageUploadClaims;
+  try {
+    claims = parseUploadClaims(await verify(config.ingestSecret, token));
+  } catch {
+    return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
+  }
+
+  const job = await queue.getJob(jobId);
+  if (!job) {
+    return applyJobCors(request, Response.json({ error: 'Not found' }, { status: 404 }));
+  }
+
+  const jobClaims = job.data.claims;
+  if (
+    claims.authUserId !== jobClaims.authUserId ||
+    claims.packageId !== jobClaims.packageId ||
+    claims.declaredSha256 !== jobClaims.declaredSha256
+  ) {
+    return applyJobCors(request, Response.json({ error: 'Forbidden' }, { status: 403 }));
+  }
+
+  const state = await job.getState();
+  if (state === 'completed') {
+    return applyJobCors(request, Response.json({ state: 'completed', result: job.returnvalue }));
+  }
+  if (state === 'failed') {
+    return applyJobCors(request, Response.json({ state: 'failed', reason: FAILED_JOB_REASON }));
+  }
+  return applyJobCors(request, Response.json({ state: 'processing' }));
+}
+
+const httpServer = Bun.serve({
   port: config.port,
   async fetch(request) {
     const url = new URL(request.url);
@@ -367,9 +534,29 @@ Bun.serve({
     if (config.allowedOrigins.length === 0 && !isSameOriginRequest(request)) {
       return new Response('Cross-origin uploads are not allowed.\n', { status: 403 });
     }
+
+    const jobMatch = /^\/jobs\/([^/]+)$/.exec(url.pathname);
+    if (jobMatch && (request.method === 'GET' || request.method === 'OPTIONS')) {
+      return await handleJobRequest(request, decodeURIComponent(jobMatch[1]));
+    }
+
     const response = await server.handleWeb(request);
     return config.allowedOrigins.length === 0 ? removeCorsWildcard(response) : response;
   },
+});
+
+let shuttingDown = false;
+process.once('SIGTERM', () => {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  void (async () => {
+    await worker.close();
+    await queue.close();
+    redisClient.close();
+    await httpServer.stop(false);
+  })();
 });
 
 console.info(
@@ -377,5 +564,6 @@ console.info(
     event: 'backstage_ingest.started',
     port: config.port,
     tusDirectory: config.tusDirectory,
+    concurrency: config.concurrency,
   })
 );
