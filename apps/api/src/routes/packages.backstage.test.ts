@@ -557,6 +557,56 @@ describe('package Backstage publishing routes', () => {
     expect(lorePutBodies).toHaveLength(0);
   });
 
+  it('rejects upload authorization when Content-Length exceeds the request limit', async () => {
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+          'Content-Length': String(16 * 1024 + 1),
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.zip',
+          sha256: 'b'.repeat(64),
+          byteSize: 1234,
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Upload authorization request body exceeds the maximum allowed size',
+    });
+  });
+
+  it('rejects upload authorization when the body exceeds the request limit while reading', async () => {
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.zip',
+          sha256: 'b'.repeat(64),
+          byteSize: 1234,
+          materializeMetadata: { displayName: 'a'.repeat(16 * 1024) },
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Upload authorization request body exceeds the maximum allowed size',
+    });
+  });
+
   it('rejects malformed upload authorization digests', async () => {
     const response = await routes.authorizeBackstageReleaseUpload(
       new Request('https://api.test/upload-authorization', {
@@ -2057,9 +2107,44 @@ describe('package Backstage publishing routes', () => {
     expect(lastActionArgs).toBeUndefined();
   });
 
+  it('rejects ingest results with repository ids outside the creator repository', async () => {
+    for (const wrongRepositoryResult of [
+      makeIngestResult({
+        loreSource: { ...loreSourceFixture, repositoryId: 'a'.repeat(32) },
+      }),
+      makeIngestResult({
+        loreDelivery: { ...loreDeliveryFixture, repositoryId: 'b'.repeat(32) },
+      }),
+    ]) {
+      const response = await routes.publishBackstageRelease(
+        new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            catalogProductIds: ['product_1'],
+            ingestResult: await sign(BACKSTAGE_INGEST_SECRET, wrongRepositoryResult),
+            version: '1.2.3',
+            channel: 'stable',
+          }),
+        }),
+        'com.yucp.example'
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Ingest result is not owned by this creator',
+      });
+    }
+    expect(lastActionArgs).toBeUndefined();
+  });
+
   it('rejects tampered and expired ingest results', async () => {
     const validToken = await signedIngestResult();
-    const tamperedToken = `${validToken.slice(0, -1)}${validToken.endsWith('a') ? 'b' : 'a'}`;
+    const firstCharacter = validToken.at(0);
+    const tamperedToken = `${firstCharacter === 'A' ? 'B' : 'A'}${validToken.slice(1)}`;
     const expiredToken = await signedIngestResult({ exp: Math.floor(Date.now() / 1000) - 1 });
 
     for (const ingestResult of [tamperedToken, expiredToken]) {

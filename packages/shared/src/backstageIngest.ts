@@ -144,7 +144,7 @@ export function parseIngestResult(value: unknown): BackstageIngestResult {
     throw new Error('Ingest result loreDelivery must be a Lore artifact reference.');
   }
 
-  return {
+  const result: BackstageIngestResult = {
     typ: 'backstage-ingest-result',
     authUserId: requiredString(value, 'authUserId', 'Ingest result'),
     packageId: requiredString(value, 'packageId', 'Ingest result'),
@@ -165,6 +165,21 @@ export function parseIngestResult(value: unknown): BackstageIngestResult {
     deliverableContentType: requiredString(value, 'deliverableContentType', 'Ingest result'),
     exp: requiredExpiration(value, 'Ingest result'),
   };
+
+  if (
+    result.rawSha256 !== result.loreSource.sha256 ||
+    result.rawByteSize !== result.loreSource.byteSize
+  ) {
+    throw new Error('Ingest result raw bundle metadata must match loreSource.');
+  }
+  if (
+    result.deliverableSha256 !== result.loreDelivery.sha256 ||
+    result.deliverableByteSize !== result.loreDelivery.byteSize
+  ) {
+    throw new Error('Ingest result deliverable bundle metadata must match loreDelivery.');
+  }
+
+  return result;
 }
 
 function decodeSecret(secretHex: string): Uint8Array<ArrayBuffer> {

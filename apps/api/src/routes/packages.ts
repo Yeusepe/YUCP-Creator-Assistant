@@ -52,6 +52,7 @@ const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
+const MAX_BACKSTAGE_UPLOAD_AUTHORIZATION_BYTES = 16 * 1024;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
 const BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES = new Set([
   'image/gif',
@@ -192,6 +193,13 @@ class BackstagePackageMediaLimitError extends Error {
     super('Backstage package media exceeds the maximum allowed size');
     this.name = 'BackstagePackageMediaLimitError';
     this.limitBytes = limitBytes;
+  }
+}
+
+class BackstageUploadAuthorizationLimitError extends Error {
+  constructor() {
+    super('Upload authorization request body exceeds the maximum allowed size');
+    this.name = 'BackstageUploadAuthorizationLimitError';
   }
 }
 
@@ -1489,9 +1497,24 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       byteSize?: unknown;
       materializeMetadata?: unknown;
     };
+    const contentLength = readContentLength(request.headers);
+    if (contentLength !== null && contentLength > MAX_BACKSTAGE_UPLOAD_AUTHORIZATION_BYTES) {
+      return jsonResponse(
+        { error: 'Upload authorization request body exceeds the maximum allowed size' },
+        413
+      );
+    }
     try {
-      body = (await request.json()) as typeof body;
-    } catch {
+      const bytes = await readBoundedArrayBuffer(
+        request,
+        MAX_BACKSTAGE_UPLOAD_AUTHORIZATION_BYTES,
+        () => new BackstageUploadAuthorizationLimitError()
+      );
+      body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as typeof body;
+    } catch (error) {
+      if (error instanceof BackstageUploadAuthorizationLimitError) {
+        return jsonResponse({ error: error.message }, 413);
+      }
       return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
 
@@ -1808,6 +1831,16 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     if (
       ingestResult.loreSource.tenantId !== viewer.authUserId ||
       ingestResult.loreDelivery.tenantId !== viewer.authUserId
+    ) {
+      return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
+    }
+    const expectedRepositoryId = loreRepositoryIdForCreator(
+      viewer.authUserId,
+      requireLoreBackstageConfig(config.lore).repoNamespaceSalt
+    );
+    if (
+      ingestResult.loreSource.repositoryId !== expectedRepositoryId ||
+      ingestResult.loreDelivery.repositoryId !== expectedRepositoryId
     ) {
       return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
     }

@@ -89,7 +89,24 @@ describe('backstage ingest signing', () => {
 
 describe('parseIngestResult', () => {
   it('accepts a complete signed-result payload', () => {
-    expect(parseIngestResult(validIngestResult())).toEqual(validIngestResult());
+    const result = validIngestResult();
+
+    expect(parseIngestResult(result)).toEqual(result);
+  });
+
+  it('rejects bundle metadata that does not match the Lore artifact references', () => {
+    expect(() => parseIngestResult({ ...validIngestResult(), rawSha256: '8'.repeat(64) })).toThrow(
+      'loreSource'
+    );
+    expect(() => parseIngestResult({ ...validIngestResult(), rawByteSize: 1235 })).toThrow(
+      'loreSource'
+    );
+    expect(() =>
+      parseIngestResult({ ...validIngestResult(), deliverableSha256: '9'.repeat(64) })
+    ).toThrow('loreDelivery');
+    expect(() => parseIngestResult({ ...validIngestResult(), deliverableByteSize: 2346 })).toThrow(
+      'loreDelivery'
+    );
   });
 
   it('rejects the wrong result type and malformed artifact references', () => {
