@@ -52,6 +52,10 @@ function trimTrailingSlashes(value: string): string {
   return value.slice(0, end);
 }
 
+function normalizeLoreApiBaseUrl(url: URL): string {
+  return `${url.origin}${trimTrailingSlashes(url.pathname)}`;
+}
+
 function hexDecode(value: string, fieldName: string): Uint8Array<ArrayBuffer> {
   if (value.length % 2 !== 0 || !HEX_RE.test(value)) {
     throw new Error(`${fieldName} must be an even-length hexadecimal string.`);
@@ -131,7 +135,7 @@ export function requireLoreBackstageConfig(
   config: LoreBackstageConfig | undefined
 ): ConfiguredLoreBackstageConfig {
   const apiBaseUrlValue = requireNonEmpty(config?.apiBaseUrl, 'LORE_API_BASE_URL');
-  assertSecureLoreUrl(apiBaseUrlValue, 'LORE_API_BASE_URL');
+  const apiBaseUrl = assertSecureLoreUrl(apiBaseUrlValue, 'LORE_API_BASE_URL');
 
   const presignHmacKey = config?.presignHmacKey?.trim().toLowerCase();
   if (presignHmacKey) {
@@ -142,7 +146,7 @@ export function requireLoreBackstageConfig(
   }
 
   return {
-    apiBaseUrl: trimTrailingSlashes(apiBaseUrlValue),
+    apiBaseUrl: normalizeLoreApiBaseUrl(apiBaseUrl),
     presignHmacKey,
     repoNamespaceSalt: requireNonEmpty(config?.repoNamespaceSalt, 'LORE_REPO_NAMESPACE_SALT'),
     accessClientId: requireNonEmpty(config?.accessClientId, 'LORE_ACCESS_CLIENT_ID'),

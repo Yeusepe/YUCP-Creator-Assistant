@@ -42,7 +42,7 @@ const { url } = await mintLorePresignedUrl({
   address: put.address,
   contentType: 'application/octet-stream',
 });
-const res = await fetch(url);
+const res = await fetch(url, { signal: AbortSignal.timeout(cfg.timeoutMs) });
 if (res.status !== 200) {
   console.error(`FAIL: presigned GET ${res.status}`);
   process.exit(1);

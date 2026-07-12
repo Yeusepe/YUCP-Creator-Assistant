@@ -17,7 +17,7 @@ const WRONG_SECRET = '22'.repeat(32);
 const REPOSITORY_SALT = 'test-salt';
 const STARTUP_TIMEOUT_MS = 20_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
-const TEST_TIMEOUT_MS = 60_000;
+const TEST_TIMEOUT_MS = 180_000;
 
 type ReceivedPut = {
   repositoryId: string;

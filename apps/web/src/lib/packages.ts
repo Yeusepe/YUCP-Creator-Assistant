@@ -255,14 +255,29 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function sha256File(file: File) {
+function abortError(signal: AbortSignal): DOMException {
+  const message = signal.reason instanceof Error ? signal.reason.message : 'Upload aborted';
+  return new DOMException(message, 'AbortError');
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw abortError(signal);
+  }
+}
+
+async function sha256File(file: File, signal?: AbortSignal) {
+  throwIfAborted(signal);
   const hasher = sha256.create();
   const chunkSize = 16 * 1024 * 1024;
   for (let offset = 0; offset < file.size; offset += chunkSize) {
+    throwIfAborted(signal);
     const chunk = new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
+    throwIfAborted(signal);
     hasher.update(chunk);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
+  throwIfAborted(signal);
   return bytesToHex(hasher.digest());
 }
 
@@ -286,7 +301,9 @@ export async function uploadBackstageReleaseSource(input: {
   const deliveryName = input.deliveryName ?? input.file.name;
   const sourceContentType =
     input.sourceContentType || input.file.type || 'application/octet-stream';
-  const sha256 = await sha256File(input.file);
+  throwIfAborted(input.signal);
+  const sha256 = await sha256File(input.file, input.signal);
+  throwIfAborted(input.signal);
   const authorization = await apiClient.post<BackstageUploadAuthorizationResponse>(
     `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-authorization`,
     {
@@ -296,9 +313,12 @@ export async function uploadBackstageReleaseSource(input: {
       sourceContentType,
       byteSize: input.file.size,
       materializeMetadata: input.materializeMetadata,
-    }
+    },
+    { signal: input.signal }
   );
+  throwIfAborted(input.signal);
   const tus = await import('tus-js-client');
+  throwIfAborted(input.signal);
   const uploadSpan = startHyperdxBrowserSpan('backstage.ingest.upload', {
     packageId: input.packageId,
     version: input.version,

@@ -214,6 +214,14 @@ describe('requireLoreBackstageConfig', () => {
     });
   });
 
+  it('preserves a base path while ignoring query and hash components', () => {
+    expect(
+      configuredLore({
+        apiBaseUrl: 'https://lore.test/storage/api///?tenant=ignored#fragment',
+      }).apiBaseUrl
+    ).toBe('https://lore.test/storage/api');
+  });
+
   it('rejects presign keys shorter than 32 bytes', () => {
     expect(() =>
       requireLoreBackstageConfig({

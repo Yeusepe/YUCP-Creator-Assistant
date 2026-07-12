@@ -57,6 +57,23 @@ beforeEach(() => {
 });
 
 describe('uploadBackstageReleaseSource', () => {
+  it('rejects an already-aborted upload before hashing or authorization', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      uploadBackstageReleaseSource({
+        packageId: 'com.yucp.bundle',
+        file: new File(['package bytes'], 'bundle.zip'),
+        version: '1.2.3',
+        signal: controller.signal,
+      })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+
+    expect(apiPostMock).not.toHaveBeenCalled();
+    expect(createdUploads).toHaveLength(0);
+  });
+
   it('authorizes and uploads with tus, then returns the signed ingest result header', async () => {
     apiPostMock.mockResolvedValueOnce(authorization);
     const file = new File(['package bytes'], 'bundle.zip', { type: 'application/zip' });
@@ -87,7 +104,8 @@ describe('uploadBackstageReleaseSource', () => {
           displayName: 'Bundle',
           metadata: { channel: 'stable' },
         },
-      }
+      },
+      { signal: undefined }
     );
 
     const upload = createdUploads[0];
@@ -154,6 +172,11 @@ describe('uploadBackstageReleaseSource', () => {
     });
 
     await vi.waitFor(() => expect(createdUploads).toHaveLength(1));
+    expect(apiPostMock).toHaveBeenCalledWith(
+      '/api/packages/com.yucp.bundle/backstage/upload-authorization',
+      expect.any(Object),
+      { signal: controller.signal }
+    );
     controller.abort();
 
     await expect(resultPromise).rejects.toMatchObject({ name: 'AbortError' });
