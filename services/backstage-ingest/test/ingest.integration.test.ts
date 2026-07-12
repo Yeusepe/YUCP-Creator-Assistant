@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -9,6 +9,7 @@ import {
   verify,
 } from '@yucp/shared/backstageIngest';
 import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
+import { RedisClient } from 'bun';
 import { strToU8, zipSync } from 'fflate';
 import { Upload } from 'tus-js-client';
 
@@ -16,7 +17,9 @@ const INGEST_SECRET = '11'.repeat(32);
 const WRONG_SECRET = '22'.repeat(32);
 const REPOSITORY_SALT = 'test-salt';
 const STARTUP_TIMEOUT_MS = 20_000;
+const REDIS_STARTUP_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
+const JOB_TIMEOUT_MS = 60_000;
 const TEST_TIMEOUT_MS = 180_000;
 
 type ReceivedPut = {
@@ -26,8 +29,17 @@ type ReceivedPut = {
 };
 
 type TusUploadResult = {
+  uploadUrl: string;
   ingestResultHeader?: string;
 };
+
+type JobStatus =
+  | { state: 'processing' }
+  | { state: 'completed'; result: string }
+  | { state: 'failed'; reason: string };
+
+let redisUrl = '';
+let redisContainerId: string | undefined;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
@@ -52,6 +64,98 @@ async function getFreePort(): Promise<number> {
   await reservation.stop(true);
   return port;
 }
+
+async function runProcess(command: string[]): Promise<{
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}> {
+  const process = Bun.spawn(command, { stdout: 'pipe', stderr: 'pipe' });
+  const [exitCode, stdout, stderr] = await Promise.all([
+    process.exited,
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+  ]);
+  return { exitCode, stdout, stderr };
+}
+
+async function waitForRedis(url: string): Promise<void> {
+  const deadline = Date.now() + REDIS_STARTUP_TIMEOUT_MS;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    const client = new RedisClient(url);
+    try {
+      const response = await Promise.race([
+        client.send('PING', []),
+        delay(1_000).then(() => {
+          throw new Error('Redis PING timed out.');
+        }),
+      ]);
+      if (response === 'PONG') {
+        client.close();
+        return;
+      }
+      lastError = new Error(`Redis PING returned ${String(response)}.`);
+    } catch (error) {
+      lastError = error;
+    } finally {
+      client.close();
+    }
+    await delay(200);
+  }
+
+  const detail = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Redis at ${url} did not answer within ${REDIS_STARTUP_TIMEOUT_MS}ms: ${detail}`);
+}
+
+beforeAll(async () => {
+  const configuredRedisUrl = process.env.REDIS_URL?.trim();
+  if (configuredRedisUrl) {
+    redisUrl = configuredRedisUrl;
+    await waitForRedis(redisUrl);
+    process.stdout.write(`Using real Redis from REDIS_URL: ${redisUrl}\n`);
+    return;
+  }
+
+  const dockerVersion = await runProcess(['docker', 'version', '--format', '{{.Server.Version}}']);
+  if (dockerVersion.exitCode !== 0) {
+    throw new Error(
+      `REDIS_URL is unset and Docker is unavailable. A real Redis is required.\n${dockerVersion.stderr}`
+    );
+  }
+
+  const redisPort = await getFreePort();
+  const started = await runProcess([
+    'docker',
+    'run',
+    '--rm',
+    '-d',
+    '-p',
+    `${redisPort}:6379`,
+    'redis:7-alpine',
+  ]);
+  if (started.exitCode !== 0) {
+    throw new Error(`Failed to start redis:7-alpine.\n${started.stderr}`);
+  }
+
+  redisContainerId = started.stdout.trim();
+  if (!redisContainerId) {
+    throw new Error('Docker did not return a Redis container id.');
+  }
+  redisUrl = `redis://127.0.0.1:${redisPort}`;
+  await waitForRedis(redisUrl);
+  process.stdout.write(`Started real Redis container ${redisContainerId} at ${redisUrl}\n`);
+}, TEST_TIMEOUT_MS);
+
+afterAll(async () => {
+  if (!redisContainerId) {
+    return;
+  }
+  const stopped = await runProcess(['docker', 'stop', redisContainerId]);
+  if (stopped.exitCode !== 0) {
+    throw new Error(`Failed to stop Redis container ${redisContainerId}.\n${stopped.stderr}`);
+  }
+}, TEST_TIMEOUT_MS);
 
 function captureSidecarOutput(
   stream: ReadableStream<Uint8Array>,
@@ -165,7 +269,11 @@ async function uploadWithTus(input: {
         if (!settled) {
           settled = true;
           clearTimeout(timeout);
-          resolveUpload({ ingestResultHeader });
+          if (!upload.url) {
+            rejectUpload(new Error('TUS upload completed without an upload URL.'));
+            return;
+          }
+          resolveUpload({ uploadUrl: upload.url, ingestResultHeader });
         }
       },
     });
@@ -178,6 +286,63 @@ async function uploadWithTus(input: {
     }, UPLOAD_TIMEOUT_MS);
     upload.start();
   });
+}
+
+function jobUrlFromUploadUrl(uploadUrl: string): string {
+  const url = new URL(uploadUrl);
+  const jobPath = url.pathname.replace('/files/', '/jobs/');
+  if (jobPath === url.pathname) {
+    throw new Error(`TUS upload URL does not contain /files/: ${uploadUrl}`);
+  }
+  url.pathname = jobPath;
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+}
+
+async function getJobStatus(jobUrl: string, uploadToken: string): Promise<Response> {
+  return await fetch(jobUrl, {
+    headers: { Authorization: `Bearer ${uploadToken}` },
+  });
+}
+
+async function waitForJobState(input: {
+  jobUrl: string;
+  uploadToken: string;
+  terminalState: 'completed' | 'failed';
+}): Promise<JobStatus> {
+  const deadline = Date.now() + JOB_TIMEOUT_MS;
+  let previousState: string | undefined;
+  while (Date.now() < deadline) {
+    const response = await getJobStatus(input.jobUrl, input.uploadToken);
+    if (!response.ok) {
+      throw new Error(`Job polling returned HTTP ${response.status}: ${await response.text()}`);
+    }
+    const status = (await response.json()) as JobStatus;
+    if (status.state !== previousState) {
+      process.stdout.write(`Job ${input.jobUrl} state: ${status.state}\n`);
+      previousState = status.state;
+    }
+    if (status.state === input.terminalState) {
+      return status;
+    }
+    if (status.state === 'completed' || status.state === 'failed') {
+      throw new Error(`Job reached ${status.state}, expected ${input.terminalState}.`);
+    }
+    await delay(500);
+  }
+  throw new Error(`Job did not reach ${input.terminalState} within ${JOB_TIMEOUT_MS}ms.`);
+}
+
+async function waitForDirectoryEmpty(directory: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  let entries = await readdir(directory);
+  while (entries.length > 0 && Date.now() < deadline) {
+    await delay(50);
+    entries = await readdir(directory);
+  }
+  expect(entries).toEqual([]);
+  process.stdout.write('Staged tus file cleanup assertion passed.\n');
 }
 
 function responseStatus(error: unknown): number | undefined {
@@ -209,6 +374,9 @@ describe('backstage ingest resumable upload integration', () => {
             byteLength: body.byteLength,
             sha256,
           });
+          process.stdout.write(
+            `Fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
+          );
           return Response.json({
             data: { address: `${sha256}-${'0'.repeat(32)}` },
           });
@@ -226,6 +394,8 @@ describe('backstage ingest resumable upload integration', () => {
         env: {
           ...process.env,
           PORT: String(sidecarPort),
+          REDIS_URL: redisUrl,
+          BACKSTAGE_INGEST_CONCURRENCY: '2',
           BACKSTAGE_INGEST_TUS_DIR: tempDirectory,
           BACKSTAGE_INGEST_SECRET: INGEST_SECRET,
           BACKSTAGE_INGEST_ALLOWED_ORIGINS: 'http://localhost:3000',
@@ -291,19 +461,62 @@ describe('backstage ingest resumable upload integration', () => {
           endpoint: `${sidecarOrigin}/files`,
           uploadToken,
         });
-        expect(uploadResult.ingestResultHeader).toBeTruthy();
+        expect(uploadResult.ingestResultHeader).toBeUndefined();
+        const jobUrl = jobUrlFromUploadUrl(uploadResult.uploadUrl);
 
-        const signedResult = uploadResult.ingestResultHeader as string;
+        const preflight = await fetch(jobUrl, {
+          method: 'OPTIONS',
+          headers: {
+            Origin: 'http://localhost:3000',
+            'Access-Control-Request-Headers': 'authorization',
+            'Access-Control-Request-Method': 'GET',
+          },
+        });
+        expect(preflight.status).toBe(204);
+        expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:3000');
+        expect(preflight.headers.get('Access-Control-Allow-Headers')).toContain('Authorization');
+
+        const missingJobUrl = new URL(jobUrl);
+        missingJobUrl.pathname = '/jobs/not-found';
+        expect((await getJobStatus(missingJobUrl.toString(), uploadToken)).status).toBe(404);
+
+        const ownershipToken = await sign(INGEST_SECRET, {
+          ...claims,
+          packageId: 'com.yucp.other-package',
+        });
+        expect((await getJobStatus(jobUrl, ownershipToken)).status).toBe(403);
+
+        const firstUploadTokenCharacter = uploadToken.at(0);
+        const tamperedUploadToken = `${firstUploadTokenCharacter === 'A' ? 'B' : 'A'}${uploadToken.slice(1)}`;
+        expect((await getJobStatus(jobUrl, tamperedUploadToken)).status).toBe(401);
+
+        const completed = await waitForJobState({
+          jobUrl,
+          uploadToken,
+          terminalState: 'completed',
+        });
+        expect(completed.state).toBe('completed');
+        if (completed.state !== 'completed') {
+          throw new Error('Expected a completed job result.');
+        }
+
+        const signedResult = completed.result;
         const bundle = parseIngestResult(await verify(INGEST_SECRET, signedResult));
         expect(bundle.typ).toBe('backstage-ingest-result');
         expect(bundle.authUserId).toBe(authUserId);
         expect(bundle.packageId).toBe(packageId);
         expect(bundle.version).toBe(version);
+        expect(bundle.loreSource).toBeDefined();
+        expect(bundle.loreDelivery).toBeDefined();
         expect(bundle.loreSource.sha256).toBe(sourceSha256);
         expect(bundle.loreSource.repositoryId).toBe(repositoryId);
         expect(bundle.loreDelivery.sha256).not.toBe(bundle.loreSource.sha256);
         expect(bundle.loreSource.tenantId).toBe(authUserId);
         expect(bundle.loreDelivery.tenantId).toBe(authUserId);
+        expect(bundle.rawSha256).toBe(bundle.loreSource.sha256);
+        expect(bundle.rawByteSize).toBe(bundle.loreSource.byteSize);
+        expect(bundle.deliverableSha256).toBe(bundle.loreDelivery.sha256);
+        expect(bundle.deliverableByteSize).toBe(bundle.loreDelivery.byteSize);
 
         expect(receivedPuts).toHaveLength(2);
         expect(receivedPuts.map((put) => put.repositoryId)).toEqual([repositoryId, repositoryId]);
@@ -314,6 +527,7 @@ describe('backstage ingest resumable upload integration', () => {
         });
         expect(receivedPuts[1].sha256).toBe(bundle.loreDelivery.sha256);
         expect(receivedPuts[1].byteLength).toBe(bundle.loreDelivery.byteSize);
+        await waitForDirectoryEmpty(tempDirectory);
 
         const firstCharacter = signedResult.at(0);
         const tamperedHeader = `${firstCharacter === 'A' ? 'B' : 'A'}${signedResult.slice(1)}`;
@@ -326,23 +540,19 @@ describe('backstage ingest resumable upload integration', () => {
           declaredSha256: await sha256Hex(invalidArchiveBytes),
           byteSize: invalidArchiveBytes.byteLength,
         });
-        let invalidArchiveUploadSucceeded = false;
-        let invalidArchiveUploadError: unknown;
-        try {
-          await uploadWithTus({
-            bytes: invalidArchiveBytes,
-            endpoint: `${sidecarOrigin}/files`,
-            uploadToken: invalidArchiveToken,
-          });
-          invalidArchiveUploadSucceeded = true;
-        } catch (error) {
-          invalidArchiveUploadError = error;
-        }
-        expect(invalidArchiveUploadSucceeded).toBe(false);
-        expect(invalidArchiveUploadError).toBeInstanceOf(Error);
-        expect(responseStatus(invalidArchiveUploadError)).toBe(422);
+        const invalidArchiveUpload = await uploadWithTus({
+          bytes: invalidArchiveBytes,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken: invalidArchiveToken,
+        });
+        const failed = await waitForJobState({
+          jobUrl: jobUrlFromUploadUrl(invalidArchiveUpload.uploadUrl),
+          uploadToken: invalidArchiveToken,
+          terminalState: 'failed',
+        });
+        expect(failed).toEqual({ state: 'failed', reason: 'ingest_failed' });
         expect(receivedPuts).toHaveLength(2);
-        expect(await readdir(tempDirectory)).toEqual([]);
+        await waitForDirectoryEmpty(tempDirectory);
         expect(stdout.join('')).not.toContain(repositoryId);
         expect(stderr.join('')).not.toContain(repositoryId);
         expect(stderr.join('')).not.toContain('invalid zip data');
@@ -386,7 +596,6 @@ describe('backstage ingest resumable upload integration', () => {
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
         expect(receivedPuts).toHaveLength(2);
-        expect(await readdir(tempDirectory)).toEqual([]);
       } catch (error) {
         process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
         throw error;

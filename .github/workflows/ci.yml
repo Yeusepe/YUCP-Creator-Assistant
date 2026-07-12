@@ -94,6 +94,12 @@ jobs:
     name: Backstage Ingest Integration
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
@@ -108,6 +114,8 @@ jobs:
 
       # The live ops/backstage-lore-download-e2e.ts smoke requires deployed services and stays manual.
       - name: Run Backstage ingest integration
+        env:
+          REDIS_URL: redis://localhost:6379
         run: bun run test:ingest:integration
 
   convex-real:
