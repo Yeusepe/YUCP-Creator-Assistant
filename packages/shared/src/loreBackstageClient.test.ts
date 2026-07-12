@@ -3,7 +3,6 @@ import { blake3 } from '@noble/hashes/blake3.js';
 
 import {
   type ConfiguredLoreBackstageConfig,
-  getBackstageBytesFromLore,
   LoreApiRequestError,
   loreRepositoryIdForCreator,
   mintLorePresignedUrl,
@@ -170,28 +169,24 @@ describe('putBackstageBytesToLore', () => {
     expect((error as LoreApiRequestError).status).toBe(503);
     expect((error as LoreApiRequestError).detail).toContain('repository unavailable');
   });
-});
 
-describe('getBackstageBytesFromLore', () => {
-  it('reads byte-exact content from the authenticated repository endpoint', async () => {
-    const expectedBytes = new Uint8Array([80, 75, 3, 4]);
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe(
-        `https://lore.test/v1/repository/${repositoryId}/content/${address}`
-      );
-      expect(init?.method).toBe('GET');
-      const headers = new Headers(init?.headers);
-      expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
-      expect(headers.get('CF-Access-Client-Secret')).toBe('access-client-secret');
-      return new Response(expectedBytes);
-    }) as typeof fetch;
+  it('normalizes network and timeout failures to LoreApiRequestError', async () => {
+    const failures = [new TypeError('fetch failed'), new DOMException('timed out', 'AbortError')];
 
-    const bytes = await getBackstageBytesFromLore({
-      config: configuredLore(),
-      repositoryId,
-      address,
-    });
-    expect(new Uint8Array(bytes)).toEqual(expectedBytes);
+    for (const failure of failures) {
+      globalThis.fetch = (async () => {
+        throw failure;
+      }) as unknown as typeof fetch;
+
+      const error = await putBackstageBytesToLore({
+        config: configuredLore(),
+        repositoryId,
+        bytes: new Uint8Array([1]),
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(LoreApiRequestError);
+      expect((error as LoreApiRequestError).detail).toBe(failure.message);
+    }
   });
 });
 

@@ -46,6 +46,12 @@ function requireNonEmpty(value: string | undefined, variableName: string): strin
   return normalized;
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 0x2f /* '/' */) end -= 1;
+  return value.slice(0, end);
+}
+
 function hexDecode(value: string, fieldName: string): Uint8Array<ArrayBuffer> {
   if (value.length % 2 !== 0 || !HEX_RE.test(value)) {
     throw new Error(`${fieldName} must be an even-length hexadecimal string.`);
@@ -112,7 +118,7 @@ export function requireLoreBackstageConfig(
   }
 
   return {
-    apiBaseUrl: apiBaseUrlValue.replace(/\/+$/, ''),
+    apiBaseUrl: trimTrailingSlashes(apiBaseUrlValue),
     presignHmacKey,
     repoNamespaceSalt: requireNonEmpty(config?.repoNamespaceSalt, 'LORE_REPO_NAMESPACE_SALT'),
     accessClientId: requireNonEmpty(config?.accessClientId, 'LORE_ACCESS_CLIENT_ID'),
@@ -197,13 +203,21 @@ export async function putBackstageBytesToLore(input: {
 }): Promise<{ address: string; sha256: string; byteSize: number }> {
   validateRepositoryId(input.repositoryId);
   const bytes = asOwnedBytes(input.bytes);
-  const sha256 = await sha256ArrayBuffer(bytes);
-  const response = await fetch(`${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}`, {
-    body: bytes,
-    headers: accessHeaders(input.config),
-    method: 'PUT',
-    signal: AbortSignal.timeout(input.config.timeoutMs),
-  });
+  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
+  const sha256 = toHex(new Uint8Array(digest));
+  let response: Response;
+  try {
+    response = await fetch(`${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}`, {
+      body: bytes,
+      headers: accessHeaders(input.config),
+      method: 'PUT',
+      signal: AbortSignal.timeout(input.config.timeoutMs),
+    });
+  } catch (error) {
+    throw new LoreApiRequestError({
+      detail: error instanceof Error ? error.message : 'Lore request failed',
+    });
+  }
   const boundedText = await readResponseTextBounded(response, LORE_RESPONSE_MAX_BYTES);
   if (!response.ok) {
     throwLoreResponseError(response, boundedText);
@@ -224,30 +238,6 @@ export async function putBackstageBytesToLore(input: {
   }
   validateAddress(address);
   return { address, sha256, byteSize: bytes.byteLength };
-}
-
-export async function getBackstageBytesFromLore(input: {
-  config: ConfiguredLoreBackstageConfig;
-  repositoryId: string;
-  address: string;
-}): Promise<ArrayBuffer> {
-  validateRepositoryId(input.repositoryId);
-  validateAddress(input.address);
-  const response = await fetch(
-    `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content/${input.address}`,
-    {
-      headers: accessHeaders(input.config),
-      method: 'GET',
-      signal: AbortSignal.timeout(input.config.timeoutMs),
-    }
-  );
-  if (!response.ok) {
-    throwLoreResponseError(
-      response,
-      await readResponseTextBounded(response, LORE_RESPONSE_MAX_BYTES)
-    );
-  }
-  return await response.arrayBuffer();
 }
 
 export async function mintLorePresignedUrl(input: {
