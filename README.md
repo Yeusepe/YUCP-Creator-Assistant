@@ -138,11 +138,13 @@ docs/          product docs and engineering playbooks
 | `BETTER_AUTH_SECRET`                         | api      | Better Auth session encryption   |
 | `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
 | `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
-| `LORE_API_BASE_URL`                          | api      | Lore API origin for Backstage artifact storage and delivery |
+| `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Shared signing secret for upload tokens and ingest results |
+| `LORE_INGEST_BASE_URL`                       | api      | Public base URL of the Backstage TUS ingest sidecar |
+| `LORE_API_BASE_URL`                          | api, ingest | Lore API origin for Backstage artifact storage and delivery |
 | `LORE_PRESIGN_HMAC_KEY`                      | api      | Hex HMAC key for client-minted Lore delivery URLs |
-| `LORE_REPO_NAMESPACE_SALT`                   | api      | Private salt for deterministic per-creator Lore repository IDs |
-| `LORE_ACCESS_CLIENT_ID`                      | api      | Cloudflare Access service-token client ID for Lore |
-| `LORE_ACCESS_CLIENT_SECRET`                  | api      | Cloudflare Access service-token client secret for Lore |
+| `LORE_REPO_NAMESPACE_SALT`                   | api, ingest | Private salt for deterministic per-creator Lore repository IDs |
+| `LORE_ACCESS_CLIENT_ID`                      | api, ingest | Cloudflare Access service-token client ID for Lore |
+| `LORE_ACCESS_CLIENT_SECRET`                  | api, ingest | Cloudflare Access service-token client secret for Lore |
 | `LORE_PRESIGN_DEFAULT_TTL_SECONDS`           | api      | Default lifetime for presigned Lore delivery URLs |
 | `LORE_TIMEOUT_MS`                            | api      | Timeout budget for Lore repository calls |
 | `YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS` | convex      | Emergency/test-only escape hatch for legacy Convex Backstage upload functions; leave unset in production |
@@ -150,6 +152,18 @@ docs/          product docs and engineering playbooks
 
 
 Do not commit real values. Infisical is the source of truth for deploy and production env; gitignored env files are local fallback only and should not be treated as production configuration.
+
+### Backstage ingest sidecar (`services/backstage-ingest`)
+
+The sidecar uses:
+
+- `BACKSTAGE_INGEST_SECRET`: required signing secret shared with the API Worker.
+- `BACKSTAGE_INGEST_TUS_DIR`: persistent temporary upload directory, default `/data/tus`.
+- `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload cross-origin.
+- `PORT`: listening port, default `8080`.
+- `LORE_API_BASE_URL`, `LORE_ACCESS_CLIENT_ID`, `LORE_ACCESS_CLIENT_SECRET`, and `LORE_REPO_NAMESPACE_SALT`: required Lore connection, Cloudflare Access, and creator repository values.
+
+Deploy it next to loreserver with persistent storage and network capacity sized for multi-GB resumable uploads. Raise loreserver's `MAX_FILE_SIZE` above the largest accepted Backstage artifact.
 
 ### Auth URL model
 
@@ -205,7 +219,7 @@ Full options and catalog: `apps/bot/src/commands/index.ts`.
 - Production issue -> invariant -> regression loop: when a prod bug lands in any of those surfaces, update `ops/production-regression-loop.ts`, write the invariant it broke, add the primary regression in the listed contract home, add the nearest consumer regression, and run `bun run test:external-integrations`. If bad state may already exist, add the listed remediation or Convex regression too. The loop is enforced by `ops/production-regression-loop.test.ts`, so missing homes or uncovered surfaces fail in `bun run test:ops`.
 - Manual live-smoke drift checks stay out of normal CI. Use `bun run smoke:providers -- --provider gumroad --strict` for low-impact read/verify probes, then `bun run smoke:providers:refresh-fixtures -- --provider gumroad --case gumroad-products,gumroad-license-verify` to write sanitized fixture payloads into `packages/providers/test/fixtures/live-smoke/` for review. Current Gumroad coverage targets the post-connect `/v2/user` readback, catalog `/v2/products`, and manual verification `/v2/licenses/verify` boundaries. Provide smoke-only secrets via env (`GUMROAD_SMOKE_ACCESS_TOKEN`, `GUMROAD_SMOKE_LICENSE_PRODUCT_ID`, `GUMROAD_SMOKE_LICENSE_KEY`) and review fixture diffs before feeding them back into deterministic tests.
 - Backstage repo smoke stays manual too. Use `bun run smoke:backstage-repo -- --addRepoUrl="vcc://vpm/addRepo?..." --packageDir="C:\\Users\\<you>\\Documents\\PACKAGES"` to fetch the repo with its embedded headers, probe every package endpoint, and optionally assert that the repo exposes the display-name and version pairs inferred from a configurable local fixture directory. You can also use `--repositoryUrl` plus `--repoToken` instead of an add-repo URL, or set the same values through `YUCP_BACKSTAGE_ADD_REPO_URL`, `YUCP_BACKSTAGE_REPOSITORY_URL`, `YUCP_BACKSTAGE_REPO_TOKEN`, `YUCP_BACKSTAGE_REPO_TOKEN_HEADER`, and `YUCP_BACKSTAGE_PACKAGE_DIR`.
-- Backstage package artifacts are stored in Lore. Uploaders hash the selected file, send the raw bytes through the API upload route, and publish the returned content-addressed `loreSource` reference. Lore repositories are derived per creator, and buyer downloads still resolve entitlement before the API mints a short-lived presigned Lore delivery URL. See `docs/backstage-lore-delivery.md` for the storage and delivery contract.
+- Backstage package artifacts are stored in Lore. Uploaders hash the selected file, obtain a signed upload token from the API, upload directly to the resumable TUS ingest sidecar, and publish the sidecar's signed result bundle. Lore repositories are derived per creator, and buyer downloads still resolve entitlement before the API mints a short-lived presigned Lore delivery URL. See `docs/backstage-lore-delivery.md` for the storage and delivery contract.
 - Live smoke is not a pull request gate. Keep `bun run smoke:providers` for manual drift checks and any separate scheduled/manual automation, while `bun run test:external-integrations` stays deterministic and safe for normal CI.
 - Full dev stack (Convex + API + bot + HyperDX + optional tunnel): prefer `bun run dev:infisical`. The non-Infisical `bun run dev` path is a local fallback and logs a warning before using process env plus `.env.local`. In the Infisical path, the web leg now runs through `infisical run --watch` so frontend secret changes restart the local Worker loop with fresh bindings. The optional Tailscale tunnel logs and exits without tearing down the main app processes if it fails after startup begins. Set the `LORE_*` environment variables to use the deployed Lore server in local development.
 - Local Cloudflare Worker frontend loop: `bun run --filter @yucp/web worker:env:dev` to write `apps/web/.dev.vars`, then `bun run --filter @yucp/web worker:dev`. For an Infisical-backed local loop, use `bun run dev:web:infisical` so the Worker dev server is wrapped in `infisical run --watch`. When the watched process restarts, `worker:dev` rewrites `apps/web/.dev.vars` from the injected env before starting Vite. Use `bun run --filter @yucp/web worker:preview` for a Wrangler-local deploy-shape check.
