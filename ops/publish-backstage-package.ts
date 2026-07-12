@@ -12,9 +12,12 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
+import { Upload } from 'tus-js-client';
 
 type FetchLike = typeof fetch;
+
+const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
+const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
 export type PublishBackstageReleaseConfig = {
   apiBaseUrl: string;
@@ -39,16 +42,18 @@ export type PublishBackstagePackageConfig = PublishBackstageReleaseConfig & {
   sourcePath: string;
 };
 
-type UploadStorageResponse = {
-  loreSource?: LoreBackstageArtifactReference;
-  deliveryName?: string;
-  sourceContentType?: string;
+type UploadAuthorizationResponse = {
+  tusEndpoint: string;
+  uploadToken: string;
+  uploadMetadataKey: string;
+  maxByteSize: number;
 };
 
 type UploadedBackstageSource = {
-  loreSource: LoreBackstageArtifactReference;
-  deliveryName?: string;
-  sourceContentType?: string;
+  ingestResult: string;
+  deliveryName: string;
+  sourceContentType: string;
+  version: string;
 };
 
 export type PublishBackstagePackageResult = {
@@ -228,6 +233,10 @@ function buildApiUrl(apiBaseUrl: string, path: string): string {
   return new URL(path, apiBaseUrl.endsWith('/') ? apiBaseUrl : `${apiBaseUrl}/`).toString();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 async function sha256FilePath(sourcePath: string): Promise<{ byteSize: number; sha256: string }> {
   const hash = createHash('sha256');
   let byteSize = 0;
@@ -257,35 +266,89 @@ export async function uploadBackstagePackageArtifactDirect(
   const sourcePath = config.sourcePath;
   const deliveryName = config.deliveryName ?? sourcePath.split(/[\\/]/).pop() ?? sourcePath;
   const contentType = config.contentType ?? inferBackstageArtifactContentType(sourcePath);
-  const { sha256 } = await sha256FilePath(sourcePath);
-  const uploadUrl = new URL(
+  const { byteSize, sha256 } = await sha256FilePath(sourcePath);
+  const materializeMetadata = {
+    ...(config.displayName ? { displayName: config.displayName } : {}),
+    ...(isRecord(config.metadata) ? { metadata: config.metadata } : {}),
+  };
+  const authorizationResponse = await fetchImpl(
     buildApiUrl(
       config.apiBaseUrl,
-      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload`
-    )
+      `/api/packages/${encodeURIComponent(config.packageId)}/backstage/upload-authorization`
+    ),
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        version: config.version,
+        deliveryName,
+        sourceContentType: contentType,
+        sha256,
+        byteSize,
+        ...(Object.keys(materializeMetadata).length > 0 ? { materializeMetadata } : {}),
+      }),
+    }
   );
-  uploadUrl.searchParams.set('sha256', sha256);
-  uploadUrl.searchParams.set('deliveryName', deliveryName);
-  uploadUrl.searchParams.set('sourceContentType', contentType);
-  const uploadResponse = await fetchImpl(uploadUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.accessToken}`,
-      'Content-Type': contentType,
-    },
-    body: Bun.file(sourcePath),
-  });
-  const payload = await assertApiResponse<UploadStorageResponse>(
-    uploadResponse,
-    'Failed to upload Backstage package artifact to Lore'
+  const authorization = await assertApiResponse<UploadAuthorizationResponse>(
+    authorizationResponse,
+    'Failed to authorize Backstage package artifact upload'
   );
-  if (!payload?.loreSource) {
-    throw new Error('Backstage artifact upload did not return Lore source coordinates');
+  const tusEndpoint = authorization.tusEndpoint?.trim();
+  const uploadToken = authorization.uploadToken?.trim();
+  const uploadMetadataKey = authorization.uploadMetadataKey?.trim();
+  if (!tusEndpoint || !uploadToken || !uploadMetadataKey) {
+    throw new Error('Backstage upload authorization response is missing TUS upload fields');
   }
+  const parsedTusEndpoint = new URL(tusEndpoint);
+  if (parsedTusEndpoint.protocol !== 'http:' && parsedTusEndpoint.protocol !== 'https:') {
+    throw new Error('Backstage upload authorization returned a non-HTTP TUS endpoint');
+  }
+  if (!Number.isSafeInteger(authorization.maxByteSize) || authorization.maxByteSize < 1) {
+    throw new Error('Backstage upload authorization returned an invalid maxByteSize');
+  }
+  if (byteSize > authorization.maxByteSize) {
+    throw new Error(
+      `Source exceeds the authorized upload limit. bytes=${byteSize} maxByteSize=${authorization.maxByteSize}`
+    );
+  }
+
+  const sourceBuffer = Buffer.from(await Bun.file(sourcePath).arrayBuffer());
+  const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
+    let signedIngestResult: string | undefined;
+    const upload = new Upload(sourceBuffer, {
+      endpoint: tusEndpoint,
+      metadata: {
+        [uploadMetadataKey]: uploadToken,
+      },
+      chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
+      retryDelays: [0, 1000, 3000, 5000],
+      removeFingerprintOnSuccess: true,
+      onAfterResponse: (_request, response) => {
+        const signedResult = response.getHeader(BACKSTAGE_INGEST_RESULT_HEADER)?.trim();
+        if (signedResult) {
+          signedIngestResult = signedResult;
+        }
+      },
+      onSuccess: () => {
+        if (!signedIngestResult) {
+          rejectUpload(new Error('Backstage ingest sidecar did not return a signed result'));
+          return;
+        }
+        resolveUpload(signedIngestResult);
+      },
+      onError: rejectUpload,
+    });
+    upload.start();
+  });
+
   return {
-    loreSource: payload.loreSource,
-    deliveryName: payload.deliveryName,
-    sourceContentType: payload.sourceContentType,
+    ingestResult,
+    deliveryName,
+    sourceContentType: contentType,
+    version: config.version,
   };
 }
 
@@ -307,8 +370,8 @@ export async function publishBackstageRelease(
       },
       body: JSON.stringify({
         catalogProductId: config.catalogProductId,
-        loreSource: uploadedSource.loreSource,
-        version: config.version,
+        ingestResult: uploadedSource.ingestResult,
+        version: uploadedSource.version,
         ...(config.channel ? { channel: config.channel } : {}),
         ...(config.packageName ? { packageName: config.packageName } : {}),
         ...(config.displayName ? { displayName: config.displayName } : {}),
