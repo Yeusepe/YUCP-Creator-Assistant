@@ -315,8 +315,8 @@ describe('backstage ingest resumable upload integration', () => {
         expect(receivedPuts[1].sha256).toBe(bundle.loreDelivery.sha256);
         expect(receivedPuts[1].byteLength).toBe(bundle.loreDelivery.byteSize);
 
-        const finalCharacter = signedResult.at(-1);
-        const tamperedHeader = `${signedResult.slice(0, -1)}${finalCharacter === 'A' ? 'B' : 'A'}`;
+        const firstCharacter = signedResult.at(0);
+        const tamperedHeader = `${firstCharacter === 'A' ? 'B' : 'A'}${signedResult.slice(1)}`;
         await expect(verify(INGEST_SECRET, tamperedHeader)).rejects.toThrow();
         await expect(verify(WRONG_SECRET, signedResult)).rejects.toThrow();
 
