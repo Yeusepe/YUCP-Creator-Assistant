@@ -197,7 +197,7 @@ describe('backstage ingest resumable upload integration', () => {
         port: 0,
         async fetch(request) {
           const url = new URL(request.url);
-          const match = /^\/v1\/repository\/([0-9a-f]{32})$/.exec(url.pathname);
+          const match = /^\/v1\/repository\/([0-9a-f]{32})\/content$/.exec(url.pathname);
           if (request.method !== 'PUT' || !match) {
             return new Response('Not found', { status: 404 });
           }

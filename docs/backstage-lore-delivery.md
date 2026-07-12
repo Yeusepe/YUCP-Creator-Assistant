@@ -16,6 +16,8 @@ Large package bytes do not pass through the Cloudflare Worker. Backstage artifac
 
 The Worker handles only authorization and signed result verification, avoiding Worker request-body and execution limits while keeping Lore credentials and repository ownership server-controlled. Lore addresses identify immutable bytes, and `zipSha256` remains the SHA-256 digest of the final installable ZIP.
 
+Lore ingest uses `PUT /v1/repository/{repositoryId}/content`. Run `bun run verify:lore:real` for a live round-trip check covering the real PUT, a client-minted presigned URL, and byte-exact retrieval against a running loreserver.
+
 ## Entitled delivery
 
 Buyer download requests first resolve entitlement through the existing Backstage access model. After authorization, the API client mints a short-lived presigned Lore delivery URL using `LORE_PRESIGN_HMAC_KEY` and redirects the buyer to that URL. Token minting happens locally in the API, while Lore serves the immutable bytes from the creator's repository at the recorded address.

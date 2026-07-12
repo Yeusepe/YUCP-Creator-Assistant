@@ -95,6 +95,7 @@
     "smoke:providers:refresh-fixtures": "bun run ops/provider-live-smoke.ts --refresh-fixtures",
     "smoke:backstage-repo": "bun run ops/test-backstage-repo.ts",
     "smoke:lore": "bun run ops/backstage-lore-download-e2e.ts",
+    "verify:lore:real": "bun run ops/lore-real-roundtrip.ts",
     "cloudflare:worker:deploy": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:deploy -- --prod",
     "cloudflare:worker:version:upload": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:version:upload",
     "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",

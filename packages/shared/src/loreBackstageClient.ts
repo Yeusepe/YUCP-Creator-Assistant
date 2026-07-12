@@ -207,12 +207,15 @@ export async function putBackstageBytesToLore(input: {
   const sha256 = toHex(new Uint8Array(digest));
   let response: Response;
   try {
-    response = await fetch(`${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}`, {
-      body: bytes,
-      headers: accessHeaders(input.config),
-      method: 'PUT',
-      signal: AbortSignal.timeout(input.config.timeoutMs),
-    });
+    response = await fetch(
+      `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content`,
+      {
+        body: bytes,
+        headers: accessHeaders(input.config),
+        method: 'PUT',
+        signal: AbortSignal.timeout(input.config.timeoutMs),
+      }
+    );
   } catch (error) {
     throw new LoreApiRequestError({
       detail: error instanceof Error ? error.message : 'Lore request failed',
