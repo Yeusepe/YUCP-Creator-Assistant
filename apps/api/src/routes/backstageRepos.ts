@@ -7,6 +7,11 @@ import {
 } from '@yucp/shared/backstagePackageMedia';
 import { sha256Hex } from '@yucp/shared/crypto';
 import {
+  type LoreBackstageConfig,
+  mintLorePresignedUrl,
+  requireLoreBackstageConfig,
+} from '@yucp/shared/loreBackstageClient';
+import {
   isLoreBackstageArtifactReference,
   type LoreBackstageArtifactReference,
 } from '@yucp/shared/loreBackstageDelivery';
@@ -24,11 +29,6 @@ import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/bac
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import {
-  type LoreBackstageConfig,
-  mintLorePresignedUrl,
-  requireLoreBackstageConfig,
-} from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import {
   RequestBodyError,

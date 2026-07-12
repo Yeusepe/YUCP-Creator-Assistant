@@ -16,11 +16,11 @@
  */
 
 import path from 'node:path';
+import type { LoreBackstageConfig } from '@yucp/shared/loreBackstageClient';
 import type { Auth } from './auth';
 import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
-import type { LoreBackstageConfig } from './lib/loreBackstage';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,

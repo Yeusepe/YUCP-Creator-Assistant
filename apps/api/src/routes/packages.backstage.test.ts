@@ -203,7 +203,7 @@ mock.module('../internalRpc/router', () => ({
 const originalBackstageLiveSyncTimeoutMs = process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
 process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = '25';
 const { createPackageRoutes, trimTrailingForwardSlashes } = await import('./packages');
-const { loreRepositoryIdForCreator } = await import('../lib/loreBackstage');
+const { loreRepositoryIdForCreator } = await import('@yucp/shared/loreBackstageClient');
 const loreRepositoryId = loreRepositoryIdForCreator('auth-user-1', 'test-repository-salt');
 loreSourceFixture.repositoryId = loreRepositoryId;
 if (originalBackstageLiveSyncTimeoutMs === undefined) {

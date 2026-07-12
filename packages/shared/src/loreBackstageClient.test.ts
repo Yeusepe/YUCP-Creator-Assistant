@@ -9,7 +9,7 @@ import {
   mintLorePresignedUrl,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
-} from './loreBackstage';
+} from './loreBackstageClient';
 
 const originalFetch = globalThis.fetch;
 const repositoryId = '0123456789abcdef0123456789abcdef';

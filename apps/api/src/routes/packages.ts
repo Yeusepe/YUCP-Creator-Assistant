@@ -17,6 +17,16 @@ import {
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
+  type ConfiguredLoreBackstageConfig,
+  getBackstageBytesFromLore,
+  LoreApiRequestError,
+  type LoreBackstageConfig,
+  loreRepositoryIdForCreator,
+  putBackstageBytesToLore,
+  requireLoreBackstageConfig,
+  sha256ArrayBuffer,
+} from '@yucp/shared/loreBackstageClient';
+import {
   isLoreBackstageArtifactReference,
   type LoreBackstageArtifactReference,
 } from '@yucp/shared/loreBackstageDelivery';
@@ -31,16 +41,6 @@ import { buildBackstageRepositoryUrls, getCreatorRepoIdentity } from '../lib/bac
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import {
-  type ConfiguredLoreBackstageConfig,
-  getBackstageBytesFromLore,
-  LoreApiRequestError,
-  type LoreBackstageConfig,
-  loreRepositoryIdForCreator,
-  putBackstageBytesToLore,
-  requireLoreBackstageConfig,
-  sha256ArrayBuffer,
-} from '../lib/loreBackstage';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
 import { readBoundedArrayBuffer, readContentLength } from '../lib/readBoundedArrayBuffer';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '../lib/requestBodyLimits';
