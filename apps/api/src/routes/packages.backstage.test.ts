@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { gzipSync, unzipSync, zipSync } from 'fflate';
+import {
+  type BackstageIngestResult,
+  parseUploadClaims,
+  sign,
+  verify,
+} from '@yucp/shared/backstageIngest';
+import { zipSync } from 'fflate';
 
 let mutationImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
 let actionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -20,6 +26,8 @@ let listProviderTiersViaApiImpl: (...args: unknown[]) => Promise<unknown> = asyn
 let lastActionArgs: unknown;
 const originalFetch = globalThis.fetch;
 let lorePutBodies: Uint8Array[] = [];
+const BACKSTAGE_INGEST_SECRET = '33'.repeat(32);
+const MAX_BACKSTAGE_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 
 function failUnmockedFetch(input: string | URL | Request): never {
   throw new Error(`Unexpected outbound fetch in packages.backstage.test.ts: ${String(input)}`);
@@ -70,59 +78,38 @@ const loreSourceFixture = {
   uploadedAt: '2024-03-09T16:00:00.000Z',
 };
 
-function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
-  const encoded = new TextEncoder().encode(value);
-  target.set(encoded.subarray(0, length), offset);
+const loreDeliveryFixture = {
+  repositoryId: '',
+  address: `${'3'.repeat(64)}-${'4'.repeat(32)}`,
+  byteSize: 4321,
+  sha256: 'd'.repeat(64),
+  tenantId: 'auth-user-1',
+  uploadedAt: '2024-03-09T16:01:00.000Z',
+};
+
+function makeIngestResult(overrides: Partial<BackstageIngestResult> = {}): BackstageIngestResult {
+  return {
+    typ: 'backstage-ingest-result',
+    authUserId: 'auth-user-1',
+    packageId: 'com.yucp.example',
+    version: '1.2.3',
+    loreSource: loreSourceFixture,
+    loreDelivery: loreDeliveryFixture,
+    rawSha256: loreSourceFixture.sha256,
+    rawByteSize: loreSourceFixture.byteSize,
+    rawDeliveryName: 'example.unitypackage',
+    rawContentType: 'application/octet-stream',
+    deliverableSha256: loreDeliveryFixture.sha256,
+    deliverableByteSize: loreDeliveryFixture.byteSize,
+    deliverableDeliveryName: 'com.yucp.example.zip',
+    deliverableContentType: 'application/zip',
+    exp: Math.floor(Date.now() / 1000) + 15 * 60,
+    ...overrides,
+  };
 }
 
-function writeOctal(target: Uint8Array, offset: number, length: number, value: number) {
-  const encoded = value.toString(8).padStart(length - 1, '0');
-  writeAscii(target, offset, length - 1, encoded);
-  target[offset + length - 1] = 0;
-}
-
-function writeChecksum(target: Uint8Array, value: number) {
-  const encoded = value.toString(8).padStart(6, '0');
-  writeAscii(target, 148, 6, encoded);
-  target[154] = 0;
-  target[155] = 0x20;
-}
-
-function buildTarHeader(path: string, size: number): Uint8Array {
-  const header = new Uint8Array(512);
-  writeAscii(header, 0, 100, path);
-  writeOctal(header, 100, 8, 0o644);
-  writeOctal(header, 108, 8, 0);
-  writeOctal(header, 116, 8, 0);
-  writeOctal(header, 124, 12, size);
-  writeOctal(header, 136, 12, 315619200);
-  header.fill(0x20, 148, 156);
-  header[156] = '0'.charCodeAt(0);
-  writeAscii(header, 257, 6, 'ustar');
-  writeAscii(header, 263, 2, '00');
-  const checksum = header.reduce((sum, value) => sum + value, 0);
-  writeChecksum(header, checksum);
-  return header;
-}
-
-function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>): Uint8Array {
-  const blocks: Uint8Array[] = [];
-  for (const entry of entries) {
-    blocks.push(buildTarHeader(entry.path, entry.content.byteLength));
-    blocks.push(entry.content);
-    const remainder = entry.content.byteLength % 512;
-    if (remainder !== 0) {
-      blocks.push(new Uint8Array(512 - remainder));
-    }
-  }
-  blocks.push(new Uint8Array(1024));
-  const bytes = new Uint8Array(blocks.reduce((sum, block) => sum + block.byteLength, 0));
-  let offset = 0;
-  for (const block of blocks) {
-    bytes.set(block, offset);
-    offset += block.byteLength;
-  }
-  return gzipSync(bytes, { level: 9, mtime: 315619200 });
+async function signedIngestResult(overrides: Partial<BackstageIngestResult> = {}): Promise<string> {
+  return sign(BACKSTAGE_INGEST_SECRET, makeIngestResult(overrides));
 }
 
 function bodyToUint8Array(body: BodyInit | null | undefined): Uint8Array {
@@ -206,6 +193,7 @@ const { createPackageRoutes, trimTrailingForwardSlashes } = await import('./pack
 const { loreRepositoryIdForCreator } = await import('@yucp/shared/loreBackstageClient');
 const loreRepositoryId = loreRepositoryIdForCreator('auth-user-1', 'test-repository-salt');
 loreSourceFixture.repositoryId = loreRepositoryId;
+loreDeliveryFixture.repositoryId = loreRepositoryId;
 if (originalBackstageLiveSyncTimeoutMs === undefined) {
   delete process.env.BACKSTAGE_LIVE_SYNC_TIMEOUT_MS;
 } else {
@@ -223,6 +211,8 @@ describe('package Backstage publishing routes', () => {
       convexApiSecret: 'convex-secret',
       convexSiteUrl: 'https://convex.test',
       convexUrl: 'https://convex.cloud',
+      backstageIngestSecret: BACKSTAGE_INGEST_SECRET,
+      ingestBaseUrl: 'https://ingest.test///',
       lore: {
         apiBaseUrl: 'https://lore.test',
         presignHmacKey: '11'.repeat(32),
@@ -434,218 +424,106 @@ describe('package Backstage publishing routes', () => {
     expect(performance.now() - startedAt).toBeLessThan(100);
   });
 
-  it('uploads Backstage source bytes directly to Lore with an integrity-checked reference', async () => {
-    const sourceBytes = new TextEncoder().encode('lore backstage source');
-    const sourceSha256 = await sha256HexForTest(sourceBytes);
-    const address = `${'a'.repeat(64)}-${'b'.repeat(32)}`;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toMatch(/^https:\/\/lore\.test\/v1\/repository\/[a-f0-9]{32}$/);
-      expect(init?.method).toBe('PUT');
-      expect(bodyToUint8Array(init?.body)).toEqual(sourceBytes);
-      return Response.json({ data: { address } });
-    }) as typeof fetch;
-
-    const uploadBackstageReleaseSource = (
-      routes as unknown as {
-        uploadBackstageReleaseSource: (request: Request, packageId: string) => Promise<Response>;
-      }
-    ).uploadBackstageReleaseSource;
-    expect(typeof uploadBackstageReleaseSource).toBe('function');
-    const response = await uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${sourceSha256}&deliveryName=source.zip&sourceContentType=application%2Fzip`,
-        {
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-          body: sourceBytes,
-        }
-      ),
+  it('authorizes a TUS upload with creator-scoped signed claims', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.unitypackage',
+          sourceContentType: 'application/x-gzip',
+          sha256: 'a'.repeat(64),
+          byteSize: 2_500_000_000,
+          materializeMetadata: {
+            displayName: 'Example Package',
+            metadata: { source: 'creator' },
+          },
+        }),
+      }),
       'com.yucp.example'
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      deliveryName: 'source.zip',
-      sourceContentType: 'application/zip',
-      loreSource: {
-        address,
-        byteSize: sourceBytes.byteLength,
-        sha256: sourceSha256,
-        tenantId: 'auth-user-1',
+    const payload = (await response.json()) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      tusEndpoint: 'https://ingest.test/files',
+      uploadMetadataKey: 'uploadToken',
+      maxByteSize: MAX_BACKSTAGE_UPLOAD_BYTES,
+    });
+    expect(payload.uploadToken).toBeString();
+    const claims = parseUploadClaims(
+      await verify(BACKSTAGE_INGEST_SECRET, payload.uploadToken as string)
+    );
+    expect(claims).toMatchObject({
+      typ: 'backstage-upload',
+      authUserId: 'auth-user-1',
+      packageId: 'com.yucp.example',
+      version: '1.2.3',
+      repositoryId: loreRepositoryId,
+      deliveryName: 'example.unitypackage',
+      sourceContentType: 'application/x-gzip',
+      declaredSha256: 'a'.repeat(64),
+      byteSize: 2_500_000_000,
+      materializeMetadata: {
+        displayName: 'Example Package',
+        metadata: { source: 'creator' },
       },
     });
+    expect(claims.exp).toBeGreaterThan(before);
+    expect(claims.exp).toBeLessThanOrEqual(before + 3601);
+    expect(lorePutBodies).toHaveLength(0);
   });
 
-  it('exposes only the single-request Lore Backstage source upload route', () => {
+  it('exposes upload authorization and removes the worker byte-upload handler', () => {
     const routeSurface = routes as unknown as Record<string, unknown>;
 
-    expect(routeSurface.uploadBackstageReleaseSource).toBeFunction();
-    expect(routeSurface.createBackstageReleaseUploadSession).toBeUndefined();
-    expect(routeSurface.completeBackstageReleaseUploadSession).toBeUndefined();
+    expect(routeSurface.authorizeBackstageReleaseUpload).toBeFunction();
+    expect(routeSurface.uploadBackstageReleaseSource).toBeUndefined();
   });
 
-  it('sends source bytes through the API worker to the creator Lore repository', async () => {
-    const bytes = new TextEncoder().encode('source-through-worker');
-    const sha256 = await sha256HexForTest(bytes);
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${sha256}&deliveryName=example.unitypackage`,
-        {
-          body: bytes,
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
+  it('defaults the signed upload content type without reading package bytes', async () => {
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.zip',
+          sha256: 'b'.repeat(64),
+          byteSize: 1234,
+        }),
+      }),
       'com.yucp.example'
     );
 
     expect(response.status).toBe(200);
-    expect(lorePutBodies).toHaveLength(1);
-    expect(lorePutBodies[0]).toEqual(bytes);
-    await expect(response.json()).resolves.toMatchObject({
-      loreSource: {
-        repositoryId: loreRepositoryId,
-        byteSize: bytes.byteLength,
-        sha256,
-        tenantId: 'auth-user-1',
-        uploadedAt: expect.any(String),
-      },
-      deliveryName: 'example.unitypackage',
-      sourceContentType: 'application/octet-stream',
-    });
-  });
-
-  it('accepts a fresh Lore PUT when the same Backstage source is retried', async () => {
-    const bytes = new TextEncoder().encode('retry-source');
-    const sha256 = await sha256HexForTest(bytes);
-    const makeRequest = () =>
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${sha256}&deliveryName=example.unitypackage`,
-        { body: bytes, method: 'POST', headers: { authorization: 'Bearer oauth-token' } }
-      );
-
-    const firstResponse = await routes.uploadBackstageReleaseSource(
-      makeRequest(),
-      'com.yucp.example'
-    );
-    const secondResponse = await routes.uploadBackstageReleaseSource(
-      makeRequest(),
-      'com.yucp.example'
-    );
-
-    expect(firstResponse.status).toBe(200);
-    expect(secondResponse.status).toBe(200);
-    expect(lorePutBodies).toHaveLength(2);
-    expect(lorePutBodies[0]).toEqual(bytes);
-    expect(lorePutBodies[1]).toEqual(bytes);
-  });
-
-  it('rejects Backstage source uploads larger than the Unity package limit', async () => {
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${'f'.repeat(64)}&deliveryName=too-large.unitypackage`,
-        {
-          body: new Uint8Array([1]),
-          method: 'POST',
-          headers: {
-            authorization: 'Bearer oauth-token',
-            'content-length': String(5 * 1024 * 1024 * 1024 + 1),
-          },
-        }
-      ),
-      'com.yucp.example'
-    );
-
-    expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Backstage package uploads are limited to 5 GiB.',
-    });
+    const payload = (await response.json()) as { uploadToken: string };
+    const claims = parseUploadClaims(await verify(BACKSTAGE_INGEST_SECRET, payload.uploadToken));
+    expect(claims.sourceContentType).toBe('application/octet-stream');
+    expect(claims.byteSize).toBe(1234);
     expect(lorePutBodies).toHaveLength(0);
   });
 
-  it('rejects a Lore source upload when received bytes do not match the declared digest', async () => {
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${'e'.repeat(64)}&deliveryName=example.unitypackage`,
-        {
-          body: new TextEncoder().encode('different bytes'),
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
-      'com.yucp.example'
-    );
-
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Received bytes do not match the declared sha256',
-    });
-    expect(lorePutBodies).toHaveLength(0);
-  });
-
-  it('maps Lore ingest outages to a temporary Backstage upload response', async () => {
-    globalThis.fetch = (async () =>
-      new Response('Lore unavailable', {
-        status: 503,
-        statusText: 'Unavailable',
-      })) as unknown as typeof fetch;
-    const bytes = new TextEncoder().encode('source bytes');
-    const sha256 = await sha256HexForTest(bytes);
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${sha256}&deliveryName=example.zip`,
-        {
-          body: bytes,
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
-      'com.yucp.example'
-    );
-
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Backstage upload service is temporarily unavailable',
-    });
-  });
-
-  it('requires Lore configuration before accepting Backstage source bytes', async () => {
-    const unconfiguredRoutes = createPackageRoutes({ getSession: async () => null } as never, {
-      apiBaseUrl: 'https://api.test',
-      frontendBaseUrl: 'https://creators.test',
-      convexApiSecret: 'convex-secret',
-      convexSiteUrl: 'https://convex.test',
-      convexUrl: 'https://convex.cloud',
-    });
-    const response = await unconfiguredRoutes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${'e'.repeat(64)}&deliveryName=example.zip`,
-        {
-          body: new Uint8Array([1]),
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
-      'com.yucp.example'
-    );
-
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Lore Backstage storage is not configured',
-    });
-    expect(lorePutBodies).toHaveLength(0);
-  });
-
-  it('rejects malformed Lore upload digests before reading or storing bytes', async () => {
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        'https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=not-a-digest&deliveryName=example.zip',
-        {
-          method: 'POST',
-          body: new Uint8Array([1]),
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
+  it('rejects malformed upload authorization digests', async () => {
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/upload-authorization', {
+        method: 'POST',
+        headers: { authorization: 'Bearer oauth-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.zip',
+          sha256: 'not-a-digest',
+          byteSize: 1234,
+        }),
+      }),
       'com.yucp.example'
     );
 
@@ -653,33 +531,63 @@ describe('package Backstage publishing routes', () => {
     await expect(response.json()).resolves.toEqual({
       error: 'sha256 must be a lowercase hex SHA-256 digest',
     });
-    expect(lorePutBodies).toHaveLength(0);
   });
 
-  it('uses the fileName query fallback and default source content type for Lore ingest', async () => {
-    const bytes = new TextEncoder().encode('fallback-name-source');
-    const sha256 = await sha256HexForTest(bytes);
-    const response = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${sha256}&fileName=${encodeURIComponent('Source File.zip')}`,
-        {
-          body: bytes,
-          method: 'POST',
-          headers: { authorization: 'Bearer oauth-token' },
-        }
-      ),
+  it('rejects upload authorization above the 5 GiB limit', async () => {
+    const response = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/upload-authorization', {
+        method: 'POST',
+        headers: { authorization: 'Bearer oauth-token', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'too-large.unitypackage',
+          sha256: 'c'.repeat(64),
+          byteSize: MAX_BACKSTAGE_UPLOAD_BYTES + 1,
+        }),
+      }),
       'com.yucp.example'
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      deliveryName: 'Source File.zip',
-      sourceContentType: 'application/octet-stream',
-      loreSource: {
-        repositoryId: loreRepositoryId,
-        sha256,
-      },
+    expect(response.status).toBe(413);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage package uploads are limited to 5 GiB.',
     });
+  });
+
+  it('requires the sidecar, signing, and Lore configuration for upload authorization', async () => {
+    const baseConfig = {
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://creators.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+    };
+    const bodies = [
+      createPackageRoutes({ getSession: async () => null } as never, baseConfig),
+      createPackageRoutes({ getSession: async () => null } as never, {
+        ...baseConfig,
+        backstageIngestSecret: BACKSTAGE_INGEST_SECRET,
+        ingestBaseUrl: 'https://ingest.test',
+      }),
+    ];
+
+    for (const unconfiguredRoutes of bodies) {
+      const response = await unconfiguredRoutes.authorizeBackstageReleaseUpload(
+        new Request('https://api.test/upload-authorization', {
+          method: 'POST',
+          headers: { authorization: 'Bearer oauth-token', 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: '1.2.3',
+            deliveryName: 'example.zip',
+            sha256: 'd'.repeat(64),
+            byteSize: 1234,
+          }),
+        }),
+        'com.yucp.example'
+      );
+
+      expect(response.status).toBe(503);
+    }
   });
 
   it('uploads Backstage package media as separate Lore delivery references', async () => {
@@ -1839,7 +1747,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          loreSource: loreSourceFixture,
+          ingestResult: await signedIngestResult(),
           version: '1.2.3',
         }),
       }),
@@ -1869,17 +1777,20 @@ describe('package Backstage publishing routes', () => {
       };
     };
 
-    const uploadSessionResponse = await routes.uploadBackstageReleaseSource(
-      new Request(
-        `https://api.test/api/packages/com.yucp.example/backstage/upload?sha256=${'e'.repeat(64)}&deliveryName=example.unitypackage`,
-        {
-          body: new Uint8Array([1]),
-          method: 'POST',
-          headers: {
-            authorization: 'Bearer oauth-token',
-          },
-        }
-      ),
+    const uploadSessionResponse = await routes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.unitypackage',
+          sha256: 'e'.repeat(64),
+          byteSize: 1,
+        }),
+      }),
       'com.yucp.example'
     );
     const mediaResponse = await routes.uploadBackstageReleaseMedia(
@@ -1952,7 +1863,47 @@ describe('package Backstage publishing routes', () => {
     expect(lorePutBodies).toHaveLength(0);
   });
 
+  it('requires signing configuration before publishing a sidecar result', async () => {
+    const unconfiguredRoutes = createPackageRoutes({ getSession: async () => null } as never, {
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://creators.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      ingestBaseUrl: 'https://ingest.test',
+      lore: {
+        apiBaseUrl: 'https://lore.test',
+        presignHmacKey: '11'.repeat(32),
+        repoNamespaceSalt: 'test-repository-salt',
+        accessClientId: 'lore-client-id',
+        accessClientSecret: 'lore-client-secret',
+      },
+    });
+    const response = await unconfiguredRoutes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          ingestResult: await signedIngestResult(),
+          version: '1.2.3',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage ingest service is not configured',
+    });
+    expect(lastActionArgs).toBeUndefined();
+  });
+
   it('publishes uploaded Backstage releases for the authenticated creator', async () => {
+    const bundle = makeIngestResult();
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
         method: 'POST',
@@ -1962,7 +1913,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1', 'product_2'],
-          loreSource: loreSourceFixture,
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
           version: '1.2.3',
           channel: 'stable',
         }),
@@ -1990,21 +1941,22 @@ describe('package Backstage publishing routes', () => {
     expect(payload).not.toHaveProperty('deliverableArtifactId');
     expect(payload).not.toHaveProperty('deliveryArtifactMode');
     expect(payload).not.toHaveProperty('materializationStrategy');
-    expect(lorePutBodies).toHaveLength(1);
-    expect(Array.from(lorePutBodies[0].slice(0, 4))).toEqual([80, 75, 3, 4]);
     expect(lastActionArgs).toMatchObject({
-      loreDelivery: {
-        repositoryId: loreRepositoryId,
-        address: `${'0'.repeat(63)}1-${'a'.repeat(32)}`,
-        tenantId: 'auth-user-1',
-      },
-      loreSource: loreSourceFixture,
-      deliverableContentType: 'application/zip',
-      deliverableDeliveryName: 'com.yucp.example.zip',
+      loreSource: bundle.loreSource,
+      loreDelivery: bundle.loreDelivery,
+      rawSha256: bundle.rawSha256,
+      rawByteSize: bundle.rawByteSize,
+      rawDeliveryName: bundle.rawDeliveryName,
+      rawContentType: bundle.rawContentType,
+      deliverableSha256: bundle.deliverableSha256,
+      deliverableByteSize: bundle.deliverableByteSize,
+      deliverableDeliveryName: bundle.deliverableDeliveryName,
+      deliverableContentType: bundle.deliverableContentType,
     });
+    expect(lorePutBodies).toHaveLength(0);
   });
 
-  it('rejects Lore source references that are not owned by the authenticated creator', async () => {
+  it('rejects ingest results owned by another creator or tenant', async () => {
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
         method: 'POST',
@@ -2014,11 +1966,8 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          loreSource: {
-            ...loreSourceFixture,
-            tenantId: 'other-auth-user',
-          },
-          version: '1.2.4',
+          ingestResult: await signedIngestResult({ authUserId: 'other-auth-user' }),
+          version: '1.2.3',
           channel: 'stable',
         }),
       }),
@@ -2027,152 +1976,128 @@ describe('package Backstage publishing routes', () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
-      error: 'Lore source is not owned by this creator',
+      error: 'Ingest result is not owned by this creator',
     });
 
-    const wrongRepositoryResponse = await routes.publishBackstageRelease(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer oauth-token',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          catalogProductIds: ['product_1'],
-          loreSource: {
-            ...loreSourceFixture,
-            repositoryId: 'f'.repeat(32),
-          },
-          version: '1.2.4',
-          channel: 'stable',
-        }),
+    for (const wrongTenantResult of [
+      makeIngestResult({
+        loreSource: { ...loreSourceFixture, tenantId: 'other-auth-user' },
       }),
-      'com.yucp.example'
-    );
-    expect(wrongRepositoryResponse.status).toBe(403);
-    await expect(wrongRepositoryResponse.json()).resolves.toEqual({
-      error: 'Lore source is not owned by this creator',
-    });
+      makeIngestResult({
+        loreDelivery: { ...loreDeliveryFixture, tenantId: 'other-auth-user' },
+      }),
+    ]) {
+      const wrongTenantResponse = await routes.publishBackstageRelease(
+        new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            catalogProductIds: ['product_1'],
+            ingestResult: await sign(BACKSTAGE_INGEST_SECRET, wrongTenantResult),
+            version: '1.2.3',
+            channel: 'stable',
+          }),
+        }),
+        'com.yucp.example'
+      );
+      expect(wrongTenantResponse.status).toBe(403);
+      await expect(wrongTenantResponse.json()).resolves.toEqual({
+        error: 'Ingest result is not owned by this creator',
+      });
+    }
     expect(lorePutBodies).toHaveLength(0);
     expect(lastActionArgs).toBeUndefined();
   });
 
-  it('maps aborted Lore source downloads to temporary upstream failures', async () => {
-    let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(`/v1/repository/${loreRepositoryId}/content/`)) {
-        sourceDownloadCount += 1;
-        const abortError = new Error('The operation was aborted.');
-        abortError.name = 'AbortError';
-        throw abortError;
-      }
-      return failUnmockedFetch(input);
-    }) as unknown as typeof fetch;
+  it('rejects tampered and expired ingest results', async () => {
+    const validToken = await signedIngestResult();
+    const tamperedToken = `${validToken.slice(0, -1)}${validToken.endsWith('a') ? 'b' : 'a'}`;
+    const expiredToken = await signedIngestResult({ exp: Math.floor(Date.now() / 1000) - 1 });
 
-    const response = await routes.publishBackstageRelease(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer oauth-token',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          catalogProductIds: ['product_1'],
-          loreSource: loreSourceFixture,
-          version: '1.2.5',
-          channel: 'stable',
-        }),
-      }),
-      'com.yucp.example'
-    );
-
-    expect(sourceDownloadCount).toBe(1);
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Backstage package delivery is temporarily unavailable',
-    });
-    expect(lastActionArgs).toBeUndefined();
-  });
-
-  it('rejects oversized Lore Backstage sources before in-process materialization', async () => {
-    const oversizedSourceBytes = 300 * 1024 * 1024;
-    let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, _init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(`/v1/repository/${loreRepositoryId}/content/`)) {
-        sourceDownloadCount += 1;
-        throw new Error('Oversized Lore sources must be rejected before download');
-      }
-      return failUnmockedFetch(input);
-    }) as unknown as typeof fetch;
-
-    const response = await routes.publishBackstageRelease(
-      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer oauth-token',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          catalogProductIds: ['product_1'],
-          loreSource: {
-            ...loreSourceFixture,
-            byteSize: oversizedSourceBytes,
-            sha256: 'f'.repeat(64),
+    for (const ingestResult of [tamperedToken, expiredToken]) {
+      const response = await routes.publishBackstageRelease(
+        new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+            'Content-Type': 'application/json',
           },
-          version: '1.2.6',
-          channel: 'stable',
+          body: JSON.stringify({
+            catalogProductIds: ['product_1'],
+            ingestResult,
+            version: '1.2.3',
+          }),
+        }),
+        'com.yucp.example'
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Invalid or expired ingest result',
+      });
+    }
+    expect(lastActionArgs).toBeUndefined();
+  });
+
+  it('rejects release-version and package mismatches in signed ingest results', async () => {
+    const versionResponse = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          ingestResult: await signedIngestResult(),
+          version: '9.9.9',
         }),
       }),
       'com.yucp.example'
     );
 
-    expect(sourceDownloadCount).toBe(0);
-    expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Backstage source exceeds the in-process publish limit',
-      limitBytes: 268435456,
+    expect(versionResponse.status).toBe(409);
+    await expect(versionResponse.json()).resolves.toEqual({
+      error: 'Ingest result does not match the release version — re-upload',
     });
-    expect(lorePutBodies).toHaveLength(0);
+
+    const packageResponse = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          ingestResult: await signedIngestResult({ packageId: 'com.yucp.other' }),
+          version: '1.2.3',
+        }),
+      }),
+      'com.yucp.example'
+    );
+    expect(packageResponse.status).toBe(400);
+    await expect(packageResponse.json()).resolves.toEqual({
+      error: 'Ingest result does not match the release package',
+    });
     expect(lastActionArgs).toBeUndefined();
   });
 
-  it('materializes unitypackage Lore sources into VPM ZIP deliverables before publishing', async () => {
-    const sourceBytes = buildUnitypackage([
-      {
-        path: 'asset',
-        content: new TextEncoder().encode('song thing payload'),
-      },
-      {
-        path: 'asset.meta',
-        content: new TextEncoder().encode('fileFormatVersion: 2'),
-      },
-    ]);
-    const sourceSha256 = await sha256HexForTest(sourceBytes);
-    let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(`/v1/repository/${loreRepositoryId}/content/`)) {
-        sourceDownloadCount += 1;
-        const sourceBuffer = sourceBytes.buffer.slice(
-          sourceBytes.byteOffset,
-          sourceBytes.byteOffset + sourceBytes.byteLength
-        ) as ArrayBuffer;
-        return new Response(new Blob([sourceBuffer], { type: 'application/octet-stream' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/octet-stream' },
-        });
-      }
-      if (url === `https://lore.test/v1/repository/${loreRepositoryId}` && init?.method === 'PUT') {
-        lorePutBodies.push(bodyToUint8Array(init.body));
-        return Response.json({
-          data: { address: `${'3'.repeat(64)}-${'4'.repeat(32)}` },
-        });
-      }
+  it('publishes sidecar materialization results without touching artifact bytes', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      fetchCount += 1;
       return failUnmockedFetch(input);
-    }) as typeof fetch;
-
+    }) as unknown as typeof fetch;
+    const bundle = makeIngestResult({
+      packageId: 'com.yucp.songthing',
+      version: '1.0.6',
+      rawDeliveryName: 'Song Thing_1.0.6.unitypackage',
+      deliverableDeliveryName: 'vrc-get-com.yucp.songthing-1.0.6.zip',
+    });
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.songthing/backstage/releases', {
         method: 'POST',
@@ -2182,15 +2107,9 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          loreSource: {
-            ...loreSourceFixture,
-            byteSize: sourceBytes.byteLength,
-            sha256: sourceSha256,
-          },
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
           version: '1.0.6',
           channel: 'stable',
-          deliveryName: 'Song Thing_1.0.6.unitypackage',
-          sourceContentType: 'application/octet-stream',
           displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
         }),
       }),
@@ -2198,37 +2117,20 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(sourceDownloadCount).toBe(1);
-    expect(lorePutBodies).toHaveLength(1);
-    expect(Array.from(lorePutBodies[0].slice(0, 4))).toEqual([80, 75, 3, 4]);
-    const shimArchive = unzipSync(lorePutBodies[0]);
-    expect(Object.keys(shimArchive).sort()).toEqual(['package.json']);
-    expect(JSON.parse(new TextDecoder().decode(shimArchive['package.json']))).toMatchObject({
-      name: 'com.yucp.songthing',
-      version: '1.0.6',
-      displayName: 'Song Thing - Your Spotify® library within VRChat - VRCFury Ready',
-      vpmDependencies: {
-        'com.yucp.importer': '>=0.1.9',
-      },
-      yucp: {
-        kind: 'alias-v1',
-        importerPackage: 'com.yucp.importer',
-        packageDisplayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
-      },
-    });
+    expect(fetchCount).toBe(0);
+    expect(lorePutBodies).toHaveLength(0);
     expect(lastActionArgs).toMatchObject({
-      loreDelivery: {
-        repositoryId: loreRepositoryId,
-        address: `${'3'.repeat(64)}-${'4'.repeat(32)}`,
-        tenantId: 'auth-user-1',
-      },
-      deliverableContentType: 'application/zip',
-      deliverableDeliveryName: 'vrc-get-com.yucp.songthing-1.0.6.zip',
-      rawDeliveryName: 'Song Thing_1.0.6.unitypackage',
+      loreSource: bundle.loreSource,
+      loreDelivery: bundle.loreDelivery,
+      rawSha256: bundle.rawSha256,
+      rawByteSize: bundle.rawByteSize,
+      rawDeliveryName: bundle.rawDeliveryName,
+      rawContentType: bundle.rawContentType,
+      deliverableSha256: bundle.deliverableSha256,
+      deliverableByteSize: bundle.deliverableByteSize,
+      deliverableDeliveryName: bundle.deliverableDeliveryName,
+      deliverableContentType: bundle.deliverableContentType,
     });
-    expect((lastActionArgs as { deliverableSha256: string }).deliverableSha256).not.toBe(
-      sourceSha256
-    );
   });
 
   it('preserves alias package metadata when publishing Backstage releases', async () => {
@@ -2253,7 +2155,9 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          loreSource: loreSourceFixture,
+          ingestResult: await signedIngestResult({
+            packageId: 'com.yucp.alias.song',
+          }),
           version: '1.2.3',
           channel: 'stable',
           metadata,
@@ -2276,35 +2180,11 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
-  it('publishes server-generated metadata inputs for unitypackage sources', async () => {
-    const sourceBytes = buildUnitypackage([
-      { path: 'asset-guid/asset', content: new TextEncoder().encode('avatar payload') },
-      { path: 'asset-guid/pathname', content: new TextEncoder().encode('Assets/Avatar.prefab') },
-    ]);
-    const sourceSha256 = await sha256HexForTest(sourceBytes);
-    let sourceDownloadCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(`/v1/repository/${loreRepositoryId}/content/`)) {
-        sourceDownloadCount += 1;
-        const sourceBuffer = sourceBytes.buffer.slice(
-          sourceBytes.byteOffset,
-          sourceBytes.byteOffset + sourceBytes.byteLength
-        ) as ArrayBuffer;
-        return new Response(new Blob([sourceBuffer], { type: 'application/octet-stream' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/octet-stream' },
-        });
-      }
-      if (url === `https://lore.test/v1/repository/${loreRepositoryId}` && init?.method === 'PUT') {
-        lorePutBodies.push(bodyToUint8Array(init.body));
-        return Response.json({
-          data: { address: `${'5'.repeat(64)}-${'6'.repeat(32)}` },
-        });
-      }
-      return failUnmockedFetch(input);
-    }) as typeof fetch;
-
+  it('publishes server-generated metadata alongside the verified sidecar bundle', async () => {
+    const bundle = makeIngestResult({
+      version: '4.0.0',
+      rawDeliveryName: 'avatar-installer.unitypackage',
+    });
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
         method: 'POST',
@@ -2314,14 +2194,8 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          loreSource: {
-            ...loreSourceFixture,
-            byteSize: sourceBytes.byteLength,
-            sha256: sourceSha256,
-          },
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
           version: '4.0.0',
-          deliveryName: 'avatar-installer.unitypackage',
-          sourceContentType: 'application/octet-stream',
           displayName: 'Avatar Installer',
           description: 'Server-generated wrapper metadata',
           unityVersion: '2022.3',
@@ -2332,11 +2206,12 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(sourceDownloadCount).toBe(1);
-    expect(lorePutBodies).toHaveLength(1);
+    expect(lorePutBodies).toHaveLength(0);
     expect(lastActionArgs).toMatchObject({
-      rawDeliveryName: 'avatar-installer.unitypackage',
-      rawContentType: 'application/octet-stream',
+      loreSource: bundle.loreSource,
+      loreDelivery: bundle.loreDelivery,
+      rawDeliveryName: bundle.rawDeliveryName,
+      rawContentType: bundle.rawContentType,
       displayName: 'Avatar Installer',
       description: 'Server-generated wrapper metadata',
       unityVersion: '2022.3',
@@ -2359,7 +2234,7 @@ describe('package Backstage publishing routes', () => {
             { kind: 'catalogProduct', catalogProductId: 'product_1' },
             { kind: 'catalogTier', catalogTierId: 'tier_1' },
           ],
-          loreSource: loreSourceFixture,
+          ingestResult: await signedIngestResult({ version: '5.0.0' }),
           version: '5.0.0',
         }),
       }),

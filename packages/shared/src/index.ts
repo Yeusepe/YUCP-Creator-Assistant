@@ -65,6 +65,7 @@ export * from './logging/audit';
 export * from './logging/correlation';
 export * from './logging/redaction';
 export * from './loreBackstageClient';
+export * from './backstageIngest';
 export * from './loreBackstageDelivery';
 export * from './observability';
 export * from './product';

@@ -73,6 +73,8 @@ export interface TestServerConfig {
   /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
+  backstageIngestSecret?: string;
+  ingestBaseUrl?: string;
   lore?: LoreBackstageConfig;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;

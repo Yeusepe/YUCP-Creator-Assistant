@@ -1,5 +1,13 @@
 import { FileStore } from '@tus/file-store';
 import { Server } from '@tus/server';
+import {
+  type BackstageIngestResult,
+  type BackstageUploadClaims,
+  parseUploadClaims,
+  sign,
+  validateSigningSecret,
+  verify,
+} from '@yucp/shared/backstageIngest';
 import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import {
   type ConfiguredLoreBackstageConfig,
@@ -9,13 +17,6 @@ import {
   sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
-
-import {
-  type BackstageIngestResult,
-  type BackstageUploadClaims,
-  parseUploadClaims,
-} from './contracts';
-import { sign, validateSigningSecret, verify } from './signing';
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_TUS_DIRECTORY = '/data/tus';

@@ -10,15 +10,20 @@ import {
 } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
+  type BackstageIngestResult,
+  type BackstageUploadClaims,
+  parseIngestResult,
+  parseUploadClaims,
+  sign,
+  verify,
+} from '@yucp/shared/backstageIngest';
+import {
   BACKSTAGE_PACKAGE_MEDIA_KINDS,
   type BackstagePackageMediaKind,
   type BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
-import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
-  type ConfiguredLoreBackstageConfig,
-  getBackstageBytesFromLore,
   LoreApiRequestError,
   type LoreBackstageConfig,
   loreRepositoryIdForCreator,
@@ -26,10 +31,7 @@ import {
   requireLoreBackstageConfig,
   sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
-import {
-  isLoreBackstageArtifactReference,
-  type LoreBackstageArtifactReference,
-} from '@yucp/shared/loreBackstageDelivery';
+import { type LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { legacyProductIdsToSelectors, normalizeProductSelectorList } from '@yucp/shared/product';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
@@ -50,7 +52,6 @@ const BACKSTAGE_REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
-const MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES = 256 * 1024 * 1024;
 const BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES = new Set([
   'image/gif',
   'image/jpeg',
@@ -64,6 +65,8 @@ export type PackagesConfig = {
   convexApiSecret: string;
   convexSiteUrl: string;
   convexUrl: string;
+  backstageIngestSecret?: string;
+  ingestBaseUrl?: string;
   lore?: LoreBackstageConfig;
 };
 
@@ -181,16 +184,6 @@ class BackstageLiveSyncTimeoutError extends Error {
   }
 }
 
-class BackstageSourceMaterializationLimitError extends Error {
-  readonly limitBytes: number;
-
-  constructor(limitBytes: number) {
-    super('Backstage source exceeds the in-process publish limit');
-    this.name = 'BackstageSourceMaterializationLimitError';
-    this.limitBytes = limitBytes;
-  }
-}
-
 class BackstagePackageMediaLimitError extends Error {
   readonly limitBytes: number;
 
@@ -233,20 +226,6 @@ function isFetchAbortOrTimeoutError(error: unknown): boolean {
 
 function loreBackstageUnavailableResponse(error: string): Response {
   return jsonResponse({ error }, 502);
-}
-
-function getLoreSourceOwnershipError(input: {
-  authUserId: string;
-  salt: string;
-  source: LoreBackstageArtifactReference;
-}): string | null {
-  if (input.source.tenantId !== input.authUserId) {
-    return 'Lore source is not owned by this creator';
-  }
-  if (input.source.repositoryId !== loreRepositoryIdForCreator(input.authUserId, input.salt)) {
-    return 'Lore source is not owned by this creator';
-  }
-  return null;
 }
 
 export function trimTrailingForwardSlashes(value: string): string {
@@ -1465,7 +1444,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  async function uploadBackstageReleaseSource(
+  async function authorizeBackstageReleaseUpload(
     request: Request,
     packageIdParam: string
   ): Promise<Response> {
@@ -1483,75 +1462,85 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         400
       );
     }
-    if (!config.lore) {
-      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
+    if (!config.backstageIngestSecret || !config.ingestBaseUrl || !config.lore) {
+      return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
 
-    const requestUrl = new URL(request.url);
-    const sha256 = requestUrl.searchParams.get('sha256')?.trim().toLowerCase() ?? '';
-    const deliveryName =
-      requestUrl.searchParams.get('deliveryName')?.trim() ||
-      requestUrl.searchParams.get('fileName')?.trim() ||
-      '';
+    let body: {
+      version?: unknown;
+      deliveryName?: unknown;
+      sourceContentType?: unknown;
+      sha256?: unknown;
+      byteSize?: unknown;
+      materializeMetadata?: unknown;
+    };
+    try {
+      body = (await request.json()) as typeof body;
+    } catch {
+      return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const version = typeof body.version === 'string' ? body.version.trim() : '';
+    const deliveryName = typeof body.deliveryName === 'string' ? body.deliveryName.trim() : '';
     const sourceContentType =
-      requestUrl.searchParams.get('sourceContentType')?.trim() || 'application/octet-stream';
+      typeof body.sourceContentType === 'string' && body.sourceContentType.trim()
+        ? body.sourceContentType.trim()
+        : 'application/octet-stream';
+    const sha256 = typeof body.sha256 === 'string' ? body.sha256.trim() : '';
     if (!/^[a-f0-9]{64}$/u.test(sha256)) {
       return jsonResponse({ error: 'sha256 must be a lowercase hex SHA-256 digest' }, 400);
+    }
+    if (!Number.isSafeInteger(body.byteSize) || (body.byteSize as number) < 0) {
+      return jsonResponse({ error: 'byteSize must be a non-negative safe integer' }, 400);
+    }
+    if ((body.byteSize as number) > MAX_BACKSTAGE_PACKAGE_BYTES) {
+      return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
+    }
+    if (!version) {
+      return jsonResponse({ error: 'version is required' }, 400);
     }
     if (!deliveryName) {
       return jsonResponse({ error: 'deliveryName is required' }, 400);
     }
 
-    const contentLength = readContentLength(request.headers);
-    if (contentLength !== null && contentLength > MAX_BACKSTAGE_PACKAGE_BYTES) {
-      return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
-    }
-
     try {
-      const cfg = requireLoreBackstageConfig(config.lore);
-      const bytes = await readBoundedArrayBuffer(
-        request,
-        MAX_BACKSTAGE_PACKAGE_BYTES,
-        () => new BackstageSourceMaterializationLimitError(MAX_BACKSTAGE_PACKAGE_BYTES)
+      const loreConfig = requireLoreBackstageConfig(config.lore);
+      const repositoryId = loreRepositoryIdForCreator(
+        viewer.authUserId,
+        loreConfig.repoNamespaceSalt
       );
-      const receivedSha256 = await sha256ArrayBuffer(bytes);
-      if (receivedSha256 !== sha256) {
-        return jsonResponse({ error: 'Received bytes do not match the declared sha256' }, 400);
-      }
-      const repositoryId = loreRepositoryIdForCreator(viewer.authUserId, cfg.repoNamespaceSalt);
-      const stored = await putBackstageBytesToLore({ config: cfg, repositoryId, bytes });
-      return jsonResponse({
-        loreSource: {
-          repositoryId,
-          address: stored.address,
-          sha256: stored.sha256,
-          byteSize: stored.byteSize,
-          uploadedAt: new Date().toISOString(),
-          tenantId: viewer.authUserId,
-        },
+      const claims = parseUploadClaims({
+        typ: 'backstage-upload',
+        authUserId: viewer.authUserId,
+        packageId,
+        version,
+        repositoryId,
         deliveryName,
         sourceContentType,
+        declaredSha256: sha256,
+        byteSize: body.byteSize,
+        ...(body.materializeMetadata !== undefined
+          ? { materializeMetadata: body.materializeMetadata }
+          : {}),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }) satisfies BackstageUploadClaims;
+      const uploadToken = await sign(config.backstageIngestSecret, claims);
+      return jsonResponse({
+        tusEndpoint: `${config.ingestBaseUrl.replace(/\/+$/u, '')}/files`,
+        uploadToken,
+        uploadMetadataKey: 'uploadToken',
+        maxByteSize: MAX_BACKSTAGE_PACKAGE_BYTES,
       });
     } catch (error) {
-      if (error instanceof BackstageSourceMaterializationLimitError) {
-        return jsonResponse({ error: 'Backstage package uploads are limited to 5 GiB.' }, 413);
-      }
-      if (isLoreBackstageDependencyError(error)) {
-        logger.warn('Backstage Lore upload is temporarily unavailable', {
-          authUserId: viewer.authUserId,
-          packageId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return loreBackstageUnavailableResponse(
-          'Backstage upload service is temporarily unavailable'
-        );
-      }
-      logger.error('Failed to upload Backstage source to Lore', {
+      logger.warn('Backstage ingest authorization configuration is invalid', {
         authUserId: viewer.authUserId,
         packageId,
         error: error instanceof Error ? error.message : String(error),
       });
-      return jsonResponse({ error: 'Failed to upload Backstage source' }, 500);
+      if (error instanceof Error && error.message.startsWith('Upload token materializeMetadata')) {
+        return jsonResponse({ error: error.message }, 400);
+      }
+      return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
   }
 
@@ -1675,82 +1664,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     }
   }
 
-  async function materializeLoreSourceDeliverableForPublish(input: {
-    authUserId: string;
-    loreSource: LoreBackstageArtifactReference;
-    contentType?: string;
-    deliveryName?: string;
-    displayName?: string;
-    metadata?: Record<string, unknown>;
-    packageId: string;
-    version: string;
-    config: ConfiguredLoreBackstageConfig;
-    repositoryId: string;
-  }): Promise<{
-    loreDelivery: LoreBackstageArtifactReference;
-    contentType: 'application/zip' | 'application/octet-stream';
-    deliveryName: string;
-    byteSize: number;
-    sha256: string;
-    sourceContentType: string;
-    sourceDeliveryName: string;
-  }> {
-    if (input.loreSource.byteSize > MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES) {
-      throw new BackstageSourceMaterializationLimitError(
-        MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES
-      );
-    }
-    const sourceBuffer = await getBackstageBytesFromLore({
-      config: input.config,
-      repositoryId: input.repositoryId,
-      address: input.loreSource.address,
-    });
-    if (sourceBuffer.byteLength > MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES) {
-      throw new BackstageSourceMaterializationLimitError(
-        MAX_BACKSTAGE_IN_PROCESS_MATERIALIZATION_BYTES
-      );
-    }
-    const sourceDeliveryName = input.deliveryName?.trim() || `${input.packageId}.zip`;
-    const sourceContentType = input.contentType?.trim() || 'application/octet-stream';
-    const sourceSha256 = await sha256ArrayBuffer(sourceBuffer);
-    if (sourceSha256 !== input.loreSource.sha256.trim().toLowerCase()) {
-      throw new Error('Lore source download digest did not match the upload record.');
-    }
-    const sourceBytes = new Uint8Array(sourceBuffer);
-    const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes,
-      deliveryName: sourceDeliveryName,
-      contentType: sourceContentType,
-      packageId: input.packageId,
-      version: input.version,
-      displayName: input.displayName,
-      metadata: input.metadata,
-    });
-    const uploadedDeliverable = await putBackstageBytesToLore({
-      bytes: materialized.bytes,
-      config: input.config,
-      repositoryId: input.repositoryId,
-    });
-    const loreDelivery: LoreBackstageArtifactReference = {
-      repositoryId: input.repositoryId,
-      address: uploadedDeliverable.address,
-      sha256: uploadedDeliverable.sha256,
-      byteSize: uploadedDeliverable.byteSize,
-      uploadedAt: new Date().toISOString(),
-      tenantId: input.authUserId,
-    };
-
-    return {
-      byteSize: uploadedDeliverable.byteSize,
-      loreDelivery,
-      contentType: materialized.contentType,
-      deliveryName: materialized.deliveryName,
-      sha256: uploadedDeliverable.sha256,
-      sourceContentType,
-      sourceDeliveryName,
-    };
-  }
-
   async function publishBackstageRelease(
     request: Request,
     packageIdParam: string
@@ -1775,7 +1688,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       catalogProductId?: string;
       catalogProductIds?: string[];
       accessSelectors?: unknown[];
-      loreSource?: LoreBackstageArtifactReference;
+      ingestResult?: unknown;
       version?: string;
       channel?: string;
       packageName?: string;
@@ -1786,8 +1699,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       unityVersion?: string;
       dependencyVersions?: Array<{ packageId?: string; version?: string }>;
       metadata?: unknown;
-      deliveryName?: string;
-      sourceContentType?: string;
       releaseStatus?: 'draft' | 'published' | 'revoked' | 'superseded';
     };
     try {
@@ -1849,38 +1760,41 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         400
       );
     }
-    if (
-      accessSelectors.length === 0 ||
-      !isLoreBackstageArtifactReference(body.loreSource) ||
-      !body.version
-    ) {
-      return jsonResponse({ error: 'accessSelectors, loreSource, and version are required' }, 400);
+    if (accessSelectors.length === 0 || typeof body.ingestResult !== 'string' || !body.version) {
+      return jsonResponse(
+        { error: 'accessSelectors, ingestResult, and version are required' },
+        400
+      );
     }
-    if (!config.lore) {
-      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
+    if (!config.backstageIngestSecret) {
+      return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
-    let loreConfig: ConfiguredLoreBackstageConfig;
+
+    let ingestResult: BackstageIngestResult;
     try {
-      loreConfig = requireLoreBackstageConfig(config.lore);
-    } catch (error) {
-      logger.error('Lore Backstage storage configuration is invalid', {
-        authUserId: viewer.authUserId,
-        packageId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return jsonResponse({ error: 'Lore Backstage storage is not configured' }, 503);
+      ingestResult = parseIngestResult(
+        await verify(config.backstageIngestSecret, body.ingestResult)
+      );
+    } catch {
+      return jsonResponse({ error: 'Invalid or expired ingest result' }, 400);
     }
-    const repositoryId = loreRepositoryIdForCreator(
-      viewer.authUserId,
-      loreConfig.repoNamespaceSalt
-    );
-    const loreSourceOwnershipError = getLoreSourceOwnershipError({
-      authUserId: viewer.authUserId,
-      salt: loreConfig.repoNamespaceSalt,
-      source: body.loreSource,
-    });
-    if (loreSourceOwnershipError) {
-      return jsonResponse({ error: loreSourceOwnershipError }, 403);
+    if (ingestResult.authUserId !== viewer.authUserId) {
+      return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
+    }
+    if (ingestResult.packageId !== packageId) {
+      return jsonResponse({ error: 'Ingest result does not match the release package' }, 400);
+    }
+    if (ingestResult.version !== body.version) {
+      return jsonResponse(
+        { error: 'Ingest result does not match the release version — re-upload' },
+        409
+      );
+    }
+    if (
+      ingestResult.loreSource.tenantId !== viewer.authUserId ||
+      ingestResult.loreDelivery.tenantId !== viewer.authUserId
+    ) {
+      return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
     }
 
     try {
@@ -1913,18 +1827,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }),
         dependencyVersions,
       });
-      const deliverable = await materializeLoreSourceDeliverableForPublish({
-        authUserId: viewer.authUserId,
-        loreSource: body.loreSource,
-        contentType: body.sourceContentType?.trim(),
-        deliveryName: body.deliveryName,
-        displayName: body.displayName,
-        metadata,
-        packageId,
-        version: body.version,
-        config: loreConfig,
-        repositoryId,
-      });
       const preparedArtifact = prepareBackstageArtifactDescriptorForPublish({
         packageId,
         version: body.version,
@@ -1932,9 +1834,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         description: body.description,
         unityVersion: body.unityVersion,
         metadata,
-        sourceContentType: deliverable.sourceContentType,
-        sourceFileName: deliverable.sourceDeliveryName,
-        sourceSha256: body.loreSource.sha256,
+        sourceContentType: ingestResult.rawContentType,
+        sourceFileName: ingestResult.rawDeliveryName,
+        sourceSha256: ingestResult.rawSha256,
       });
       const result = await convex.mutation(api.backstageRepos.publishLoreReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
@@ -1961,44 +1863,20 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         defaultChannel: body.defaultChannel,
         unityVersion: body.unityVersion,
         metadata: preparedArtifact.metadata,
-        rawDeliveryName: deliverable.sourceDeliveryName,
-        rawContentType: deliverable.sourceContentType,
-        rawSha256: body.loreSource.sha256,
-        rawByteSize: body.loreSource.byteSize,
-        loreSource: body.loreSource,
-        deliverableDeliveryName: deliverable.deliveryName,
-        deliverableContentType: deliverable.contentType,
-        deliverableSha256: deliverable.sha256,
-        deliverableByteSize: deliverable.byteSize,
-        loreDelivery: deliverable.loreDelivery,
+        rawDeliveryName: ingestResult.rawDeliveryName,
+        rawContentType: ingestResult.rawContentType,
+        rawSha256: ingestResult.rawSha256,
+        rawByteSize: ingestResult.rawByteSize,
+        loreSource: ingestResult.loreSource,
+        deliverableDeliveryName: ingestResult.deliverableDeliveryName,
+        deliverableContentType: ingestResult.deliverableContentType,
+        deliverableSha256: ingestResult.deliverableSha256,
+        deliverableByteSize: ingestResult.deliverableByteSize,
+        loreDelivery: ingestResult.loreDelivery,
         releaseStatus: body.releaseStatus,
       });
       return jsonResponse(result, 201);
     } catch (error) {
-      if (error instanceof BackstageSourceMaterializationLimitError) {
-        logger.warn('Backstage source exceeds the in-process publish limit', {
-          authUserId: viewer.authUserId,
-          packageId,
-          limitBytes: error.limitBytes,
-        });
-        return jsonResponse(
-          {
-            error: 'Backstage source exceeds the in-process publish limit',
-            limitBytes: error.limitBytes,
-          },
-          413
-        );
-      }
-      if (isLoreBackstageDependencyError(error)) {
-        logger.warn('Backstage package delivery publication is temporarily unavailable', {
-          authUserId: viewer.authUserId,
-          packageId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return loreBackstageUnavailableResponse(
-          'Backstage package delivery is temporarily unavailable'
-        );
-      }
       logger.error('Failed to publish Backstage release', {
         authUserId: viewer.authUserId,
         packageId,
@@ -2021,7 +1899,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
     deleteBackstageProduct,
     archiveBackstageRelease,
     deleteBackstageRelease,
-    uploadBackstageReleaseSource,
+    authorizeBackstageReleaseUpload,
     uploadBackstageReleaseMedia,
     publishBackstageRelease,
   };

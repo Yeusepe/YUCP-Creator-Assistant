@@ -389,6 +389,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexSiteUrl,
     convexUrl,
+    backstageIngestSecret: env.BACKSTAGE_INGEST_SECRET?.trim(),
+    ingestBaseUrl: env.LORE_INGEST_BASE_URL?.trim(),
     lore: getLoreBackstageApiConfig(env),
   });
 
@@ -1128,10 +1130,15 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
-  const backstageUploadMatch = pathname.match(/^\/api\/packages\/([^/]+)\/backstage\/upload$/);
-  if (backstageUploadMatch && packageRoutes) {
+  const backstageUploadAuthorizationMatch = pathname.match(
+    /^\/api\/packages\/([^/]+)\/backstage\/upload-authorization$/
+  );
+  if (backstageUploadAuthorizationMatch && packageRoutes) {
     if (request.method === 'POST') {
-      return packageRoutes.uploadBackstageReleaseSource(request, backstageUploadMatch[1]);
+      return packageRoutes.authorizeBackstageReleaseUpload(
+        request,
+        backstageUploadAuthorizationMatch[1]
+      );
     }
     return Response.json({ error: 'Method not allowed' }, { status: 405 });
   }
