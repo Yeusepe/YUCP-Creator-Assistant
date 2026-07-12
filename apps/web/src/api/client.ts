@@ -6,12 +6,6 @@ type FetchOptions = RequestInit & {
   params?: Record<string, string>;
 };
 
-type UploadOptions = {
-  headers?: HeadersInit;
-  onProgress?: (progress: { loaded: number; total: number }) => void;
-  params?: Record<string, string>;
-};
-
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -169,97 +163,6 @@ async function apiFetch<T = unknown>(path: string, options: FetchOptions = {}): 
   return response.json() as Promise<T>;
 }
 
-async function apiUpload<T = unknown>(
-  path: string,
-  body: XMLHttpRequestBodyInit,
-  options: UploadOptions = {}
-): Promise<T> {
-  const url = buildApiUrl(path, options.params);
-  const method = 'POST';
-  const routeCategory = inferApiRouteCategory(path);
-  const startedAt = performance.now();
-
-  return await new Promise<T>((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open(method, url);
-    request.withCredentials = true;
-    request.setRequestHeader('Accept', 'application/json');
-    const headers = new Headers(options.headers);
-    headers.forEach((value, name) => {
-      request.setRequestHeader(name, value);
-    });
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        options.onProgress?.({ loaded: event.loaded, total: event.total });
-      }
-    };
-    request.onload = () => {
-      const durationMs = Number((performance.now() - startedAt).toFixed(2));
-      const requestId = request.getResponseHeader('X-Request-Id') ?? undefined;
-      const serverTimingMetrics = parseServerTimingHeader(
-        request.getResponseHeader('Server-Timing')
-      );
-      const serverTimingTotalMs = serverTimingMetrics.find(
-        (metric) => metric.name === 'total'
-      )?.durationMs;
-      const attributes = toActionAttributes({
-        path,
-        method,
-        routeCategory,
-        requestId: requestId ?? 'unknown',
-        status: request.status,
-        durationMs,
-        serverTimingStageCount: serverTimingMetrics.length,
-        serverTimingTotalMs,
-      });
-      addHyperdxAction('api.request.completed', attributes);
-      for (const metric of serverTimingMetrics) {
-        addHyperdxAction(
-          'api.request.stage',
-          toActionAttributes({
-            path,
-            method,
-            routeCategory,
-            requestId: requestId ?? 'unknown',
-            stage: metric.name,
-            durationMs: metric.durationMs,
-          })
-        );
-      }
-
-      let responseBody: unknown = null;
-      if (request.responseText) {
-        try {
-          responseBody = JSON.parse(request.responseText);
-        } catch (error) {
-          if (request.status >= 200 && request.status < 300) {
-            reject(error);
-            return;
-          }
-        }
-      }
-      if (request.status < 200 || request.status >= 300) {
-        const apiError = new ApiError(request.status, responseBody, requestId);
-        captureHyperdxException(apiError, attributes);
-        addHyperdxAction('api.request.failed', attributes);
-        reject(apiError);
-        return;
-      }
-      resolve(responseBody as T);
-    };
-    request.onerror = () => {
-      const error = new Error('API upload request failed');
-      captureHyperdxException(error, {
-        path,
-        method,
-        routeCategory,
-      });
-      reject(error);
-    };
-    request.send(body);
-  });
-}
-
 const apiClient = {
   get: <T = unknown>(path: string, opts?: FetchOptions) =>
     apiFetch<T>(path, { ...opts, method: 'GET' }),
@@ -274,9 +177,6 @@ const apiClient = {
         ...(opts?.headers as Record<string, string>),
       },
     }),
-
-  upload: <T = unknown>(path: string, body: XMLHttpRequestBodyInit, opts?: UploadOptions) =>
-    apiUpload<T>(path, body, opts),
 
   put: <T = unknown>(path: string, body?: unknown, opts?: FetchOptions) =>
     apiFetch<T>(path, {
@@ -305,4 +205,4 @@ const apiClient = {
 };
 
 export { ApiError, apiFetch, apiClient };
-export type { FetchOptions, UploadOptions };
+export type { FetchOptions };

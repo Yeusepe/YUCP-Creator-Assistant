@@ -871,14 +871,8 @@ describe('dashboard packages route', () => {
       expiresAt: 1_710_000_100_000,
     });
     uploadBackstageReleaseSourceMock.mockResolvedValue({
-      loreSource: {
-        repositoryId: 'repo_uploaded_1',
-        address: `sha256:${'f'.repeat(64)}`,
-        byteSize: 128,
-        sha256: 'f'.repeat(64),
-        tenantId: 'auth-user-1',
-        uploadedAt: '2024-03-09T16:00:00.000Z',
-      },
+      ingestResult: 'signed-ingest-result',
+      version: '1.2.3',
       deliveryName: 'bundle.unitypackage',
       sourceContentType: 'application/octet-stream',
     });
@@ -1315,10 +1309,19 @@ describe('dashboard packages route', () => {
         expect.objectContaining({
           file: largePackage,
           packageId: 'pkg.creator.bundle',
+          version: '1.2.4',
         })
       )
     );
     await waitFor(() => expect(publishBackstageReleaseMock).toHaveBeenCalled());
+    expect(publishBackstageReleaseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          ingestResult: 'signed-ingest-result',
+          version: '1.2.4',
+        }),
+      })
+    );
 
     expect(arrayBufferMock).not.toHaveBeenCalled();
     expect(uploadBackstageReleaseMediaMock).not.toHaveBeenCalled();

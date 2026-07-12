@@ -147,52 +147,24 @@ describe('proxyApiRequest', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('streams Backstage source uploads without applying the generic proxy body limit', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          loreSource: {
-            repositoryId: 'repo_1',
-            address: `sha256:${'f'.repeat(64)}`,
-            sha256: 'f'.repeat(64),
-            byteSize: 17 * 1024 * 1024,
-            uploadedAt: '2024-03-09T16:00:00.000Z',
-          },
-        }),
-        {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    );
-    const requestBody = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2, 3]));
-        controller.close();
-      },
-    });
+  it('applies the generic proxy body limit to the retired Backstage upload route', async () => {
     const { proxyApiRequest } = await import('@/lib/server/api-proxy');
 
     const response = await proxyApiRequest({
-      url: `http://localhost:3000/api/packages/com.yucp.song/backstage/upload?sha256=${'f'.repeat(64)}&deliveryName=song.zip&sourceContentType=application%2Fzip`,
+      url: 'http://localhost:3000/api/packages/com.yucp.song/backstage/upload',
       method: 'POST',
       headers: new Headers({
         'content-length': String(17 * 1024 * 1024),
         'content-type': 'application/zip',
       }),
-      body: requestBody,
+      body: null,
+      arrayBuffer: () => {
+        throw new Error('oversized body should be rejected before buffering');
+      },
     } as unknown as Request);
 
-    expect(response.status).toBe(200);
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pathname: '/api/packages/com.yucp.song/backstage/upload',
-      }),
-      expect.objectContaining({
-        body: requestBody,
-        method: 'POST',
-      })
-    );
+    expect(response.status).toBe(413);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('times out hung upstream API fetches with a controlled response', async () => {

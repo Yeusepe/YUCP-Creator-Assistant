@@ -1680,6 +1680,10 @@ export function PackageRegistryPanel({
       if (!selectedUpload?.file) {
         throw new Error('Choose a package file before uploading.');
       }
+      const version = draft.version.trim();
+      if (!version) {
+        throw new Error('Enter a version before uploading the package.');
+      }
 
       setSelectedUpload((current) =>
         current
@@ -1742,26 +1746,6 @@ export function PackageRegistryPanel({
           })()
         : [];
 
-      const upload = await uploadBackstageReleaseSource({
-        packageId,
-        file: selectedUpload.file,
-        onProgress: (progress) => {
-          setSelectedUpload((current) =>
-            current
-              ? {
-                  ...current,
-                  progressLabel:
-                    progress.stage === 'hashing'
-                      ? 'Hashing'
-                      : progress.stage === 'uploading'
-                        ? 'Uploading'
-                        : 'Finishing',
-                  progressValue: progress.progress,
-                }
-              : current
-          );
-        },
-      });
       const uploadedMedia =
         extractedMedia.length > 0
           ? await Promise.all(
@@ -1786,17 +1770,54 @@ export function PackageRegistryPanel({
               })
             )
           : [];
-      if (uploadedMedia.length > 0) {
-        setSelectedUpload((current) =>
-          current
-            ? {
-                ...current,
-                progressLabel: 'Publishing',
-                progressValue: 100,
-              }
-            : current
-        );
-      }
+      const releaseMetadata =
+        uploadedMedia.length > 0
+          ? {
+              [BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY]: Object.fromEntries(
+                uploadedMedia.map((media) => [media.kind, media])
+              ),
+            }
+          : undefined;
+      setSelectedUpload((current) =>
+        current
+          ? {
+              ...current,
+              progressLabel: 'Hashing',
+              progressValue: 0,
+            }
+          : current
+      );
+      const upload = await uploadBackstageReleaseSource({
+        packageId,
+        file: selectedUpload.file,
+        version,
+        deliveryName: selectedUpload.file.name,
+        sourceContentType: selectedUpload.contentType,
+        materializeMetadata: {
+          displayName: resolvedDisplayName,
+          ...(releaseMetadata ? { metadata: releaseMetadata } : {}),
+        },
+        onProgress: ({ loaded, total }) => {
+          setSelectedUpload((current) =>
+            current
+              ? {
+                  ...current,
+                  progressLabel: 'Uploading',
+                  progressValue: total > 0 ? Math.min(99, Math.round((loaded / total) * 100)) : 0,
+                }
+              : current
+          );
+        },
+      });
+      setSelectedUpload((current) =>
+        current
+          ? {
+              ...current,
+              progressLabel: 'Publishing',
+              progressValue: 100,
+            }
+          : current
+      );
       const accessSelectors =
         draft.accessMode === 'tiers' && draft.catalogTierIds.length > 0
           ? draft.catalogTierIds.map((catalogTierId) => ({
@@ -1812,8 +1833,8 @@ export function PackageRegistryPanel({
         packageId,
         body: {
           accessSelectors,
-          loreSource: upload.loreSource,
-          version: draft.version.trim(),
+          ingestResult: upload.ingestResult,
+          version,
           channel: draft.channel.trim() || 'stable',
           packageName: packageId,
           displayName: resolvedDisplayName,
@@ -1825,17 +1846,9 @@ export function PackageRegistryPanel({
             dependencyVersions.dependencies.length > 0
               ? dependencyVersions.dependencies
               : undefined,
-          metadata:
-            uploadedMedia.length > 0
-              ? {
-                  [BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY]: Object.fromEntries(
-                    uploadedMedia.map((media) => [media.kind, media])
-                  ),
-                }
-              : undefined,
-          deliveryName: upload.deliveryName ?? selectedUpload.file.name,
-          sourceContentType:
-            upload.sourceContentType ?? selectedUpload.file.type ?? 'application/octet-stream',
+          metadata: releaseMetadata,
+          deliveryName: upload.deliveryName,
+          sourceContentType: upload.sourceContentType,
         },
       });
 

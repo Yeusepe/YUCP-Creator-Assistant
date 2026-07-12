@@ -25,6 +25,7 @@ const RESULT_TTL_SECONDS = 15 * 60;
 const RESULT_HEADER = 'X-Backstage-Ingest-Result';
 
 type ServiceConfig = {
+  allowedOrigins: string[];
   port: number;
   tusDirectory: string;
   ingestSecret: string;
@@ -56,6 +57,21 @@ function optionalPositiveInteger(name: string): number | undefined {
   return parsed;
 }
 
+function optionalCommaSeparatedList(name: string): string[] {
+  const value = Bun.env[name]?.trim();
+  if (!value) {
+    return [];
+  }
+  return Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function loadConfig(): ServiceConfig {
   const port = optionalPositiveInteger('PORT') ?? DEFAULT_PORT;
   if (port > 65_535) {
@@ -66,6 +82,7 @@ function loadConfig(): ServiceConfig {
   validateSigningSecret(ingestSecret);
 
   return {
+    allowedOrigins: optionalCommaSeparatedList('BACKSTAGE_INGEST_ALLOWED_ORIGINS'),
     port,
     tusDirectory: Bun.env.BACKSTAGE_INGEST_TUS_DIR?.trim() || DEFAULT_TUS_DIRECTORY,
     ingestSecret,
@@ -96,6 +113,21 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
+function isSameOriginRequest(request: Request): boolean {
+  const origin = request.headers.get('origin');
+  return !origin || origin === new URL(request.url).origin;
+}
+
+function removeCorsWildcard(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.delete('Access-Control-Allow-Origin');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 function buildLoreReference(input: {
   repositoryId: string;
   stored: { address: string; sha256: string; byteSize: number };
@@ -120,6 +152,7 @@ const server = new Server({
   datastore: store,
   maxSize: MAX_UPLOAD_BYTES,
   respectForwardedHeaders: true,
+  allowedOrigins: config.allowedOrigins,
   exposedHeaders: [RESULT_HEADER],
   async onUploadCreate(_request, upload) {
     const uploadToken = upload.metadata?.uploadToken;
@@ -332,12 +365,16 @@ const server = new Server({
 
 Bun.serve({
   port: config.port,
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/health') {
       return Response.json({ ok: true });
     }
-    return server.handleWeb(request);
+    if (config.allowedOrigins.length === 0 && !isSameOriginRequest(request)) {
+      return new Response('Cross-origin uploads are not allowed.\n', { status: 403 });
+    }
+    const response = await server.handleWeb(request);
+    return config.allowedOrigins.length === 0 ? removeCorsWildcard(response) : response;
   },
 });
 

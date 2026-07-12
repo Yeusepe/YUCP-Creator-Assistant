@@ -39,12 +39,6 @@ function readContentLength(headers: Headers): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function isBackstageReleaseSourceUpload(request: Request, url: URL): boolean {
-  return (
-    request.method === 'POST' && /^\/api\/packages\/[^/]+\/backstage\/upload$/u.test(url.pathname)
-  );
-}
-
 async function readRequestBodyWithLimit(request: Request, maxBytes: number): Promise<ArrayBuffer> {
   const contentLength = readContentLength(request.headers);
   if (contentLength !== null && contentLength > maxBytes) {
@@ -134,13 +128,11 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
-  const shouldStreamBody = isBackstageReleaseSourceUpload(request, url);
   let body: ArrayBuffer | undefined;
   try {
-    body =
-      hasBody && !shouldStreamBody
-        ? await readRequestBodyWithLimit(request, API_PROXY_REQUEST_BODY_MAX_BYTES)
-        : undefined;
+    body = hasBody
+      ? await readRequestBodyWithLimit(request, API_PROXY_REQUEST_BODY_MAX_BYTES)
+      : undefined;
   } catch (error) {
     if (error instanceof ApiProxyRequestBodyTooLargeError) {
       return Response.json(
@@ -156,16 +148,13 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
 
   let response: Response;
   try {
-    const init: RequestInit & { duplex?: 'half' } = {
+    const init: RequestInit = {
       method: request.method,
       headers,
-      body: shouldStreamBody ? request.body : body,
+      body,
       redirect: 'manual',
-      ...(shouldStreamBody ? { duplex: 'half' as const } : {}),
     };
-    response = shouldStreamBody
-      ? await fetch(targetUrl, init)
-      : await fetchApiTargetWithTimeout(targetUrl, init, API_PROXY_UPSTREAM_TIMEOUT_MS);
+    response = await fetchApiTargetWithTimeout(targetUrl, init, API_PROXY_UPSTREAM_TIMEOUT_MS);
   } catch (error) {
     if (error instanceof ApiProxyUpstreamTimeoutError) {
       return Response.json(

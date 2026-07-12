@@ -3,8 +3,11 @@ import type {
   BackstagePackageMediaKind,
   BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
-import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { apiClient } from '@/api/client';
+import { startHyperdxBrowserSpan } from '@/lib/hyperdx';
+
+const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
+const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
 export interface CreatorPackageSummary {
   packageId: string;
@@ -111,9 +114,15 @@ export interface BackstageRepoAccessResponse {
 }
 
 export interface BackstageReleaseUploadResult {
-  loreSource: LoreBackstageArtifactReference;
-  deliveryName?: string;
-  sourceContentType?: string;
+  ingestResult: string;
+  version: string;
+  deliveryName: string;
+  sourceContentType: string;
+}
+
+export interface BackstageReleaseMaterializeMetadata {
+  displayName?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface BackstageReleaseMediaUploadInput {
@@ -125,19 +134,10 @@ export interface BackstageReleaseMediaUploadInput {
   sourcePath?: string;
 }
 
-export type BackstageReleaseUploadProgress =
-  | {
-      progress: number;
-      stage: 'hashing';
-    }
-  | {
-      progress: number;
-      stage: 'uploading';
-    }
-  | {
-      progress: 100;
-      stage: 'complete';
-    };
+export interface BackstageReleaseUploadProgress {
+  loaded: number;
+  total: number;
+}
 
 export interface BackstagePackageDependencyVersion {
   packageId: string;
@@ -148,7 +148,7 @@ export interface PublishBackstageReleaseInput {
   catalogProductId?: string;
   catalogProductIds?: string[];
   accessSelectors?: BackstageAccessSelector[];
-  loreSource: LoreBackstageArtifactReference;
+  ingestResult: string;
   version: string;
   channel?: string;
   packageName?: string;
@@ -255,65 +255,126 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function sha256File(
-  file: File,
-  onProgress?: (progress: BackstageReleaseUploadProgress) => void
-) {
+async function sha256File(file: File) {
   const hasher = sha256.create();
   const chunkSize = 16 * 1024 * 1024;
   for (let offset = 0; offset < file.size; offset += chunkSize) {
     const chunk = new Uint8Array(await file.slice(offset, offset + chunkSize).arrayBuffer());
     hasher.update(chunk);
-    onProgress?.({
-      progress: Math.min(99, Math.round(((offset + chunk.byteLength) / file.size) * 100)),
-      stage: 'hashing',
-    });
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   return bytesToHex(hasher.digest());
 }
 
+interface BackstageUploadAuthorizationResponse {
+  maxByteSize: number;
+  tusEndpoint: string;
+  uploadMetadataKey: string;
+  uploadToken: string;
+}
+
 export async function uploadBackstageReleaseSource(input: {
   deliveryName?: string;
   file: File;
+  materializeMetadata?: BackstageReleaseMaterializeMetadata;
   onProgress?: (progress: BackstageReleaseUploadProgress) => void;
   packageId: string;
+  signal?: AbortSignal;
   sourceContentType?: string;
+  version: string;
 }): Promise<BackstageReleaseUploadResult> {
-  const deliveryName = input.deliveryName || input.file.name;
+  const deliveryName = input.deliveryName ?? input.file.name;
   const sourceContentType =
     input.sourceContentType || input.file.type || 'application/octet-stream';
-  const sha256 = await sha256File(input.file, input.onProgress);
-  input.onProgress?.({ progress: 0, stage: 'uploading' });
-  const payload = await apiClient.upload<{
-    loreSource?: LoreBackstageArtifactReference;
-    deliveryName?: string;
-    sourceContentType?: string;
-  }>(`/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload`, input.file, {
-    headers: {
-      'Content-Type': sourceContentType,
-    },
-    params: {
+  const sha256 = await sha256File(input.file);
+  const authorization = await apiClient.post<BackstageUploadAuthorizationResponse>(
+    `/api/packages/${encodeURIComponent(input.packageId)}/backstage/upload-authorization`,
+    {
+      version: input.version,
       sha256,
       deliveryName,
       sourceContentType,
-    },
-    onProgress: ({ loaded, total }) => {
-      input.onProgress?.({
-        progress: Math.min(99, Math.round((loaded / total) * 100)),
-        stage: 'uploading',
-      });
-    },
+      byteSize: input.file.size,
+      materializeMetadata: input.materializeMetadata,
+    }
+  );
+  const tus = await import('tus-js-client');
+  const uploadSpan = startHyperdxBrowserSpan('backstage.ingest.upload', {
+    packageId: input.packageId,
+    version: input.version,
+    byteSize: input.file.size,
   });
-  if (!payload?.loreSource) {
-    throw new Error('Backstage source upload did not return Lore source coordinates');
-  }
-  input.onProgress?.({ progress: 100, stage: 'uploading' });
-  input.onProgress?.({ progress: 100, stage: 'complete' });
+
+  const ingestResult = await new Promise<string>((resolve, reject) => {
+    let latestIngestResult: string | undefined;
+    let settled = false;
+
+    const cleanup = () => input.signal?.removeEventListener('abort', handleAbort);
+    const resolveOnce = (value: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      uploadSpan.end({ status: 'success' });
+      resolve(value);
+    };
+    const rejectOnce = (error: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      uploadSpan.fail(error);
+      reject(error);
+    };
+    const upload = new tus.Upload(input.file, {
+      endpoint: authorization.tusEndpoint,
+      metadata: {
+        [authorization.uploadMetadataKey]: authorization.uploadToken,
+      },
+      chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
+      retryDelays: [0, 1000, 3000, 5000],
+      removeFingerprintOnSuccess: true,
+      onProgress: (bytesSent, bytesTotal) => {
+        input.onProgress?.({ loaded: bytesSent, total: bytesTotal });
+      },
+      onAfterResponse: (_request, response) => {
+        const result = response.getHeader(BACKSTAGE_INGEST_RESULT_HEADER)?.trim();
+        if (result) {
+          latestIngestResult = result;
+        }
+      },
+      onSuccess: () => {
+        if (!latestIngestResult) {
+          rejectOnce(new Error('Ingest service did not return a signed result'));
+          return;
+        }
+        resolveOnce(latestIngestResult);
+      },
+      onError: rejectOnce,
+    });
+
+    function handleAbort() {
+      const abortError =
+        input.signal?.reason instanceof Error
+          ? input.signal.reason
+          : new DOMException('Upload aborted', 'AbortError');
+      void upload.abort().then(
+        () => rejectOnce(abortError),
+        (error) => rejectOnce(error)
+      );
+    }
+
+    input.signal?.addEventListener('abort', handleAbort, { once: true });
+    if (input.signal?.aborted) {
+      handleAbort();
+      return;
+    }
+    upload.start();
+  });
+
   return {
-    loreSource: payload.loreSource,
-    deliveryName: payload.deliveryName,
-    sourceContentType: payload.sourceContentType,
+    ingestResult,
+    version: input.version,
+    deliveryName,
+    sourceContentType,
   };
 }
 
