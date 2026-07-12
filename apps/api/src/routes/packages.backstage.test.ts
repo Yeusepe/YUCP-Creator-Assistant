@@ -234,7 +234,10 @@ describe('package Backstage publishing routes', () => {
     lorePutBodies = [];
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
-      if (url === `https://lore.test/v1/repository/${loreRepositoryId}` && init?.method === 'PUT') {
+      if (
+        url === `https://lore.test/v1/repository/${loreRepositoryId}/content` &&
+        init?.method === 'PUT'
+      ) {
         lorePutBodies.push(bodyToUint8Array(init.body));
         const address = `${String(lorePutBodies.length).padStart(64, '0')}-${'a'.repeat(32)}`;
         return Response.json({ data: { address } });
@@ -477,6 +480,48 @@ describe('package Backstage publishing routes', () => {
     expect(claims.exp).toBeGreaterThan(before);
     expect(claims.exp).toBeLessThanOrEqual(before + 3601);
     expect(lorePutBodies).toHaveLength(0);
+  });
+
+  it('rejects a public plaintext HTTP ingest endpoint before emitting an upload token', async () => {
+    const insecureRoutes = createPackageRoutes({ getSession: async () => null } as never, {
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://creators.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      backstageIngestSecret: BACKSTAGE_INGEST_SECRET,
+      ingestBaseUrl: 'http://public.example.com',
+      lore: {
+        apiBaseUrl: 'https://lore.test',
+        presignHmacKey: '11'.repeat(32),
+        repoNamespaceSalt: 'test-repository-salt',
+        accessClientId: 'lore-client-id',
+        accessClientSecret: 'lore-client-secret',
+      },
+    });
+
+    const response = await insecureRoutes.authorizeBackstageReleaseUpload(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/upload-authorization', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          version: '1.2.3',
+          deliveryName: 'example.zip',
+          sha256: 'a'.repeat(64),
+          byteSize: 1234,
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        'LORE_INGEST_BASE_URL must use HTTPS (plaintext HTTP is only allowed for loopback/private/internal hosts).',
+    });
   });
 
   it('exposes upload authorization and removes the worker byte-upload handler', () => {

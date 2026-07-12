@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { blake3 } from '@noble/hashes/blake3.js';
 
 import {
+  assertSecureLoreUrl,
   type ConfiguredLoreBackstageConfig,
   LoreApiRequestError,
   loreRepositoryIdForCreator,
@@ -134,7 +135,7 @@ describe('putBackstageBytesToLore', () => {
   it('uploads raw bytes with Access headers and returns the parsed address and digest', async () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe(`https://lore.test/v1/repository/${repositoryId}`);
+      expect(String(input)).toBe(`https://lore.test/v1/repository/${repositoryId}/content`);
       expect(init?.method).toBe('PUT');
       const headers = new Headers(init?.headers);
       expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
@@ -191,6 +192,20 @@ describe('putBackstageBytesToLore', () => {
 });
 
 describe('requireLoreBackstageConfig', () => {
+  it('requires HTTPS for public hosts while allowing trusted HTTP hosts', () => {
+    expect(assertSecureLoreUrl('https://x.example', 'testUrl').href).toBe('https://x.example/');
+    expect(assertSecureLoreUrl('http://localhost:41339', 'testUrl').href).toBe(
+      'http://localhost:41339/'
+    );
+    expect(assertSecureLoreUrl('http://10.0.0.5', 'testUrl').href).toBe('http://10.0.0.5/');
+    expect(assertSecureLoreUrl('http://sidecar.svc.cluster.local', 'testUrl').href).toBe(
+      'http://sidecar.svc.cluster.local/'
+    );
+    expect(() => assertSecureLoreUrl('http://public.example.com', 'testUrl')).toThrow(
+      'testUrl must use HTTPS'
+    );
+  });
+
   it('normalizes the base URL and applies timeout and presign TTL defaults', () => {
     expect(configuredLore()).toMatchObject({
       apiBaseUrl: 'https://lore.test',

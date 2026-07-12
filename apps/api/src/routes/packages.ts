@@ -24,6 +24,7 @@ import {
 } from '@yucp/shared/backstagePackageMedia';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
+  assertSecureLoreUrl,
   LoreApiRequestError,
   type LoreBackstageConfig,
   loreRepositoryIdForCreator,
@@ -1466,6 +1467,20 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
 
+    let ingestBaseUrl: URL;
+    try {
+      ingestBaseUrl = assertSecureLoreUrl(config.ingestBaseUrl, 'LORE_INGEST_BASE_URL');
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'LORE_INGEST_BASE_URL configuration is invalid.';
+      logger.warn('Backstage ingest authorization endpoint configuration is invalid', {
+        authUserId: viewer.authUserId,
+        packageId,
+        error: message,
+      });
+      return jsonResponse({ error: message }, 503);
+    }
+
     let body: {
       version?: unknown;
       deliveryName?: unknown;
@@ -1526,7 +1541,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       }) satisfies BackstageUploadClaims;
       const uploadToken = await sign(config.backstageIngestSecret, claims);
       return jsonResponse({
-        tusEndpoint: `${config.ingestBaseUrl.replace(/\/+$/u, '')}/files`,
+        tusEndpoint: `${trimTrailingForwardSlashes(ingestBaseUrl.toString())}/files`,
         uploadToken,
         uploadMetadataKey: 'uploadToken',
         maxByteSize: MAX_BACKSTAGE_PACKAGE_BYTES,

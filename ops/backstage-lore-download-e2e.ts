@@ -31,6 +31,7 @@
 import { createHash } from 'node:crypto';
 import { basename, extname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { assertSecureLoreUrl } from '@yucp/shared/loreBackstageClient';
 import { strToU8, unzipSync, type Zippable, zipSync } from 'fflate';
 import { Upload } from 'tus-js-client';
 import type {
@@ -310,10 +311,7 @@ async function authorizeUpload(
   if (!tusEndpoint || !uploadToken || !uploadMetadataKey) {
     throw new Error('Backstage upload authorization response is missing TUS upload fields.');
   }
-  const parsedTusEndpoint = new URL(tusEndpoint);
-  if (parsedTusEndpoint.protocol !== 'http:' && parsedTusEndpoint.protocol !== 'https:') {
-    throw new Error('Backstage upload authorization returned a non-HTTP TUS endpoint.');
-  }
+  assertSecureLoreUrl(tusEndpoint, 'tusEndpoint');
   if (!Number.isSafeInteger(authorization.maxByteSize) || authorization.maxByteSize < 1) {
     throw new Error('Backstage upload authorization returned an invalid maxByteSize.');
   }

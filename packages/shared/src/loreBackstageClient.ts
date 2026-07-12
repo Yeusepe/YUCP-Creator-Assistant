@@ -95,19 +95,43 @@ function validateAddress(address: string): void {
   }
 }
 
+function isHttpTrustedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h === '127.0.0.1' || h.startsWith('127.') || h === '::1') return true;
+  if (/^10\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (!h.includes('.')) return true;
+  if (/\.(internal|local|cluster\.local|svc|svc\.cluster\.local|lan|home\.arpa)$/.test(h)) {
+    return true;
+  }
+  return false;
+}
+
+export function assertSecureLoreUrl(rawUrl: string, fieldName: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`${fieldName} must be a valid HTTP or HTTPS URL.`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${fieldName} must be a valid HTTP or HTTPS URL.`);
+  }
+  if (url.protocol === 'http:' && !isHttpTrustedHost(url.hostname)) {
+    throw new Error(
+      `${fieldName} must use HTTPS (plaintext HTTP is only allowed for loopback/private/internal hosts).`
+    );
+  }
+  return url;
+}
+
 export function requireLoreBackstageConfig(
   config: LoreBackstageConfig | undefined
 ): ConfiguredLoreBackstageConfig {
   const apiBaseUrlValue = requireNonEmpty(config?.apiBaseUrl, 'LORE_API_BASE_URL');
-  let apiBaseUrl: URL;
-  try {
-    apiBaseUrl = new URL(apiBaseUrlValue);
-  } catch {
-    throw new Error('LORE_API_BASE_URL must be a valid HTTP or HTTPS URL.');
-  }
-  if (apiBaseUrl.protocol !== 'http:' && apiBaseUrl.protocol !== 'https:') {
-    throw new Error('LORE_API_BASE_URL must be a valid HTTP or HTTPS URL.');
-  }
+  assertSecureLoreUrl(apiBaseUrlValue, 'LORE_API_BASE_URL');
 
   const presignHmacKey = config?.presignHmacKey?.trim().toLowerCase();
   if (presignHmacKey) {

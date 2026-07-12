@@ -55,7 +55,11 @@ type FetchCall = {
   body: string;
 };
 
-function createFetch(calls: FetchCall[], releaseResult: Record<string, unknown>): typeof fetch {
+function createFetch(
+  calls: FetchCall[],
+  releaseResult: Record<string, unknown>,
+  tusEndpoint = 'https://ingest.test/files'
+): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
     const call = {
@@ -68,7 +72,7 @@ function createFetch(calls: FetchCall[], releaseResult: Record<string, unknown>)
 
     if (call.url.endsWith('/api/packages/com.yucp.example/backstage/upload-authorization')) {
       return Response.json({
-        tusEndpoint: 'https://ingest.test/files',
+        tusEndpoint,
         uploadToken: 'upload-token',
         uploadMetadataKey: 'backstageUploadToken',
         maxByteSize: 1024,
@@ -162,6 +166,29 @@ describe('publish-backstage-package', () => {
       deliveryName: 'example.zip',
       sourceContentType: 'application/zip',
     });
+  });
+
+  it('rejects a public plaintext HTTP TUS endpoint before uploading the signed token', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
+    const sourcePath = join(tempDir, 'example.zip');
+    writeFileSync(sourcePath, Buffer.from('zip-bytes'));
+
+    const calls: FetchCall[] = [];
+    await expect(
+      publishBackstagePackage(
+        {
+          apiBaseUrl: 'https://api.test',
+          accessToken: 'oauth-token',
+          packageId: 'com.yucp.example',
+          catalogProductId: 'product_123',
+          version: '1.2.3',
+          sourcePath,
+        },
+        createFetch(calls, {}, 'http://public.example.com/files')
+      )
+    ).rejects.toThrow('tusEndpoint must use HTTPS');
+    expect(calls).toHaveLength(1);
+    expect(tusUploadCalls).toHaveLength(0);
   });
 
   it('requires a sourcePath because new Backstage package files cannot be reused from Convex storage', () => {
