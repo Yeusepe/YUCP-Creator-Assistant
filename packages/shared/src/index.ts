@@ -39,6 +39,7 @@ export * from './accountRecoveryPasskey';
 export * from './apiActor';
 export * from './authOrigins';
 export * from './authRedirects';
+export * from './backstageIngest';
 export * from './backstagePackageMedia';
 export * from './backstageVpmDelivery';
 // Binding module exports
@@ -65,7 +66,6 @@ export * from './logging/audit';
 export * from './logging/correlation';
 export * from './logging/redaction';
 export * from './loreBackstageClient';
-export * from './backstageIngest';
 export * from './loreBackstageDelivery';
 export * from './observability';
 export * from './product';
