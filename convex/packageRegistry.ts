@@ -48,6 +48,7 @@ import {
   type CatalogProductAliasSource,
   type SyntheticAliasMetadataSeed,
 } from './lib/backstageAliasMetadata';
+import { loreBackstageArtifactReferenceValidator } from './releaseArtifacts';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
@@ -182,14 +183,7 @@ type AuthorizedAliasInstallPlanRecord = {
   packages: AuthorizedAliasInstallPlanPackageRecord[];
 };
 
-export const LoreBackstageArtifactReferenceV = v.object({
-  repositoryId: v.string(),
-  address: v.string(),
-  sha256: v.string(),
-  byteSize: v.number(),
-  uploadedAt: v.string(),
-  tenantId: v.optional(v.string()),
-});
+export const LoreBackstageArtifactReferenceV = loreBackstageArtifactReferenceValidator;
 
 const BackstagePackageMediaKindV = v.union(v.literal('banner'), v.literal('icon'));
 

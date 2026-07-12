@@ -42,6 +42,7 @@ const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 const REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const REPOSITORY_PATH = '/v1/backstage/repos/index.json';
+const FETCH_TIMEOUT_MS = 60_000;
 const LORE_PRESIGNED_URL_PATTERN =
   /^https?:\/\/.+\/v1\/presigned\/[0-9a-f]{32}\/[0-9a-f]{64}-[0-9a-f]{32}\?token=/;
 const FIXED_ZIP_MTIME = new Date('1980-01-01T00:00:00.000Z');
@@ -284,6 +285,7 @@ async function authorizeUpload(
     ),
     {
       method: 'POST',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${config.accessToken}`,
         'Content-Type': 'application/json',
@@ -373,6 +375,7 @@ async function publishAuthorizedRelease(
     ),
     {
       method: 'POST',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${config.accessToken}`,
         'Content-Type': 'application/json',
@@ -432,6 +435,7 @@ async function resolveRepositoryManifest(
 ): Promise<RepositoryManifest> {
   const repositoryUrl = buildApiUrl(config.apiBaseUrl, REPOSITORY_PATH);
   const repositoryResponse = await fetch(repositoryUrl, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: { [REPO_TOKEN_HEADER]: config.repoToken },
   });
   const repository = await requireJsonResponse<Record<string, unknown>>(
@@ -474,6 +478,7 @@ async function resolveRepositoryManifest(
 
 async function downloadThroughRedirect(manifest: RepositoryManifest): Promise<DownloadedArtifact> {
   const packageResponse = await fetch(manifest.url, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: manifest.headers,
     redirect: 'manual',
   });
@@ -491,6 +496,7 @@ async function downloadThroughRedirect(manifest: RepositoryManifest): Promise<Do
   }
 
   const downloadResponse = await fetch(location, {
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     headers: {
       Accept: 'application/zip',
       'Accept-Encoding': 'identity',

@@ -8,6 +8,7 @@ import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from './_generated/server';
 import { ApiActorBindingV, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import { loreBackstageArtifactReferenceValidator } from './releaseArtifacts';
 
 const BackstageAccessSelectorV = v.union(
   v.object({
@@ -20,14 +21,7 @@ const BackstageAccessSelectorV = v.union(
   })
 );
 
-const LoreBackstageArtifactReferenceV = v.object({
-  repositoryId: v.string(),
-  address: v.string(),
-  sha256: v.string(),
-  byteSize: v.number(),
-  uploadedAt: v.string(),
-  tenantId: v.optional(v.string()),
-});
+const LoreBackstageArtifactReferenceV = loreBackstageArtifactReferenceValidator;
 
 type BackstageRepoAccessRecord = {
   tokenId: Id<'delivery_repo_tokens'>;
