@@ -1,0 +1,1 @@
+export const MAX_BACKSTAGE_PACKAGE_BYTES = 5 * 1024 * 1024 * 1024;
