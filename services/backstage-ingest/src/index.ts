@@ -17,8 +17,8 @@ import {
   requireLoreBackstageConfig,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
-import { createBunRedisClient, Queue, Worker } from 'bullmq';
-import { RedisClient } from 'bun';
+import { Queue, Worker } from 'bullmq';
+import { Redis as IORedis } from 'ioredis';
 
 const DEFAULT_PORT = 8080;
 const DEFAULT_TUS_DIRECTORY = '/data/tus';
@@ -181,10 +181,8 @@ async function streamSha256Hex(path: string): Promise<string> {
 
 const config = loadConfig();
 const store = new FileStore({ directory: config.tusDirectory });
-const redisClient = new RedisClient(config.redisUrl);
-const connection = createBunRedisClient(
-  redisClient as unknown as Parameters<typeof createBunRedisClient>[0]
-);
+// ponytail: ioredis is BullMQ's default and stable on Bun; Bun's native Redis client dropped connections on 1.3.9.
+const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
 const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
   connection,
   defaultJobOptions: {
@@ -554,7 +552,7 @@ process.once('SIGTERM', () => {
   void (async () => {
     await worker.close();
     await queue.close();
-    redisClient.close();
+    await connection.quit();
     await httpServer.stop(false);
   })();
 });
