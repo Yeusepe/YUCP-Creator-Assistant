@@ -90,6 +90,26 @@ jobs:
       - name: Run full test gate (fast, boundary mock ratchet, Convex, API integration)
         run: bun run test:ci
 
+  backstage-ingest-integration:
+    name: Backstage Ingest Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      # The live ops/backstage-lore-download-e2e.ts smoke requires deployed services and stays manual.
+      - name: Run Backstage ingest integration
+        run: bun run test:ingest:integration
+
   convex-real:
     name: Convex Real Backend
     runs-on: ubuntu-latest
