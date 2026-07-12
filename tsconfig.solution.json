@@ -5,6 +5,7 @@
     { "path": "./packages/application" },
     { "path": "./packages/providers" },
     { "path": "./packages/policy" },
-    { "path": "./packages/private-rpc" }
+    { "path": "./packages/private-rpc" },
+    { "path": "./services/backstage-ingest" }
   ]
 }

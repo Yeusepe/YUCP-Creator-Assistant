@@ -40,6 +40,19 @@ afterEach(() => {
 });
 
 describe('mintLorePresignedUrl', () => {
+  it('requires a presign key when a PUT-only config attempts to presign', async () => {
+    const config = requireLoreBackstageConfig({
+      apiBaseUrl: 'https://lore.test',
+      repoNamespaceSalt: 'salt',
+      accessClientId: 'client-id',
+      accessClientSecret: 'client-secret',
+    });
+
+    await expect(mintLorePresignedUrl({ config, repositoryId, address })).rejects.toThrow(
+      'LORE_PRESIGN_HMAC_KEY'
+    );
+  });
+
   it('mints a token whose payload and HMAC are independently verifiable', async () => {
     const ttlSeconds = 900;
     const before = Math.floor(Date.now() / 1000);
@@ -203,10 +216,20 @@ describe('requireLoreBackstageConfig', () => {
     ).toThrow('at least 32 bytes');
   });
 
+  it('allows PUT-only clients to omit the presign key', () => {
+    expect(
+      requireLoreBackstageConfig({
+        apiBaseUrl: 'https://lore.test',
+        repoNamespaceSalt: 'salt',
+        accessClientId: 'client-id',
+        accessClientSecret: 'client-secret',
+      }).presignHmacKey
+    ).toBeUndefined();
+  });
+
   it('rejects every missing required field', () => {
     const completeConfig = {
       apiBaseUrl: 'https://lore.test',
-      presignHmacKey: keyHex,
       repoNamespaceSalt: 'salt',
       accessClientId: 'client-id',
       accessClientSecret: 'client-secret',

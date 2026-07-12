@@ -4,7 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "services/*"
   ],
   "overrides": {
     "@opentelemetry/auto-instrumentations-node": ">=0.75.0",

@@ -2,7 +2,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 
 export type LoreBackstageConfig = {
   apiBaseUrl: string;
-  presignHmacKey: string;
+  presignHmacKey?: string;
   repoNamespaceSalt: string;
   accessClientId: string;
   accessClientSecret: string;
@@ -10,7 +10,8 @@ export type LoreBackstageConfig = {
   defaultTtlSeconds?: number;
 };
 
-export type ConfiguredLoreBackstageConfig = Required<LoreBackstageConfig>;
+export type ConfiguredLoreBackstageConfig = Required<Omit<LoreBackstageConfig, 'presignHmacKey'>> &
+  Pick<LoreBackstageConfig, 'presignHmacKey'>;
 
 export class LoreApiRequestError extends Error {
   readonly detail: string;
@@ -102,13 +103,12 @@ export function requireLoreBackstageConfig(
     throw new Error('LORE_API_BASE_URL must be a valid HTTP or HTTPS URL.');
   }
 
-  const presignHmacKey = requireNonEmpty(
-    config?.presignHmacKey,
-    'LORE_PRESIGN_HMAC_KEY'
-  ).toLowerCase();
-  const keyBytes = hexDecode(presignHmacKey, 'LORE_PRESIGN_HMAC_KEY');
-  if (keyBytes.byteLength < 32) {
-    throw new Error('LORE_PRESIGN_HMAC_KEY must decode to at least 32 bytes.');
+  const presignHmacKey = config?.presignHmacKey?.trim().toLowerCase();
+  if (presignHmacKey) {
+    const keyBytes = hexDecode(presignHmacKey, 'LORE_PRESIGN_HMAC_KEY');
+    if (keyBytes.byteLength < 32) {
+      throw new Error('LORE_PRESIGN_HMAC_KEY must decode to at least 32 bytes.');
+    }
   }
 
   return {
@@ -265,7 +265,8 @@ export async function mintLorePresignedUrl(input: {
     throw new Error('Lore presign TTL must be a positive integer number of seconds.');
   }
 
-  const keyBytes = hexDecode(input.config.presignHmacKey, 'LORE_PRESIGN_HMAC_KEY');
+  const presignHmacKey = requireNonEmpty(input.config.presignHmacKey, 'LORE_PRESIGN_HMAC_KEY');
+  const keyBytes = hexDecode(presignHmacKey, 'LORE_PRESIGN_HMAC_KEY');
   if (keyBytes.byteLength < 32) {
     throw new Error('LORE_PRESIGN_HMAC_KEY must decode to at least 32 bytes.');
   }
