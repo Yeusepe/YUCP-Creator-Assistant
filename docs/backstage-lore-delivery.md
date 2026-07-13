@@ -24,7 +24,7 @@ Lore ingest uses `PUT /v1/repository/{repositoryId}/content`. Run `bun run verif
 
 Configure the ingest sidecar with:
 
-- `REDIS_URL`: connection string for the dedicated BullMQ Redis-compatible store, for example `redis://creator-assistant-queue.zeabur.internal:6379`.
+- `REDIS_URL`: connection string for the dedicated BullMQ Redis-compatible store, for example `redis://<your-queue-host>:6379`.
 - `BACKSTAGE_INGEST_SECRET`: signing secret shared with the API authorization and result-verification flow.
 - `LORE_API_BASE_URL`, `LORE_REPO_NAMESPACE_SALT`, `LORE_ACCESS_CLIENT_ID`, and `LORE_ACCESS_CLIENT_SECRET`: Lore endpoint, repository derivation salt, and service credentials. `LORE_TIMEOUT_MS` optionally overrides the Lore request timeout.
 - `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload and poll jobs.
