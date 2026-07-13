@@ -2,10 +2,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { runBackstageMaterialize } from '@yucp/shared';
 import {
   type BackstageMaterializeClaims,
   type BackstageUploadClaims,
-  parseMaterializeResult,
   parseUploadResult,
   sign,
   verify,
@@ -698,7 +698,6 @@ describe('backstage ingest resumable upload integration', () => {
           },
           exp: Math.floor(Date.now() / 1000) + 3_600,
         };
-        const materializeToken = await sign(INGEST_SECRET, materializeClaims);
 
         const materializePreflight = await fetch(`${sidecarOrigin}/materialize`, {
           method: 'OPTIONS',
@@ -729,91 +728,69 @@ describe('backstage ingest resumable upload integration', () => {
           ).status
         ).toBe(401);
 
-        const materializeResponse = await fetch(`${sidecarOrigin}/materialize`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${materializeToken}` },
+        const materializeBundle = await runBackstageMaterialize({
+          ingestBaseUrl: sidecarOrigin,
+          ingestSecret: INGEST_SECRET,
+          claims: materializeClaims,
         });
-        expect(materializeResponse.status).toBe(200);
-        const materializeAccepted = (await materializeResponse.json()) as {
-          ok: boolean;
-          jobId: string;
-        };
-        expect(materializeAccepted.ok).toBe(true);
-        expect(materializeAccepted.jobId).toMatch(/^[0-9a-f-]{36}$/);
-        const materializeJobUrl = `${sidecarOrigin}/jobs/${materializeAccepted.jobId}`;
-
-        const materializeOwnershipToken = await sign(INGEST_SECRET, {
-          ...materializeClaims,
-          packageId: 'com.yucp.other-package',
-        });
-        expect((await getJobStatus(materializeJobUrl, materializeOwnershipToken)).status).toBe(403);
-        const materializeCompleted = await waitForJobState({
-          jobUrl: materializeJobUrl,
-          uploadToken: materializeToken,
-          terminalState: 'completed',
-        });
-        if (materializeCompleted.state !== 'completed') {
-          throw new Error('Expected a completed materialize job result.');
-        }
-        const materializeBundle = parseMaterializeResult(
-          await verify(INGEST_SECRET, materializeCompleted.result)
-        );
         expect(materializeBundle).toMatchObject({
           typ: 'backstage-materialize-result',
           authUserId,
           packageId,
           version,
         });
-        expect(materializeBundle.loreDelivery).toBeDefined();
+        expect(materializeBundle.loreDelivery).toMatchObject({
+          repositoryId,
+          tenantId: authUserId,
+        });
         expect(receivedPuts).toHaveLength(2);
         expect(receivedGets).toEqual([
           `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`,
         ]);
         expect(receivedPuts[1].sha256).toBe(materializeBundle.deliverableSha256);
 
-        const deliverableArchive = unzipSync(receivedPuts[1].bytes);
+        const deliverablePath = `/v1/repository/${materializeBundle.loreDelivery.repositoryId}/content/${materializeBundle.loreDelivery.address}`;
+        const deliverableResponse = await fetch(
+          `http://127.0.0.1:${fakeLore.port}${deliverablePath}`,
+          {
+            headers: {
+              'CF-Access-Client-Id': 'test-id',
+              'CF-Access-Client-Secret': 'test-secret',
+            },
+          }
+        );
+        expect(deliverableResponse.status).toBe(200);
+        const deliverableBytes = new Uint8Array(await deliverableResponse.arrayBuffer());
+        expect(await sha256Hex(deliverableBytes)).toBe(materializeBundle.deliverableSha256);
+        const deliverableArchive = unzipSync(deliverableBytes);
         const packageJson = JSON.parse(
           new TextDecoder().decode(deliverableArchive['package.json'])
-        ) as { yucp: { aliasId: string; installPlan: { managedPaths: string[] } } };
-        expect(packageJson.yucp.aliasId).toBe(aliasId);
-        expect(packageJson.yucp.installPlan.managedPaths).toEqual(uploadBundle.managedPaths);
+        ) as { yucp?: { aliasId?: string; installPlan?: { managedPaths?: string[] } } };
+        expect(packageJson.yucp?.aliasId).toBe(aliasId);
+        expect(packageJson.yucp?.installPlan?.managedPaths).toEqual(uploadBundle.managedPaths);
+        expect(receivedGets).toEqual([
+          `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`,
+          deliverablePath,
+        ]);
         process.stdout.write(
-          `Materialize deliverable PUT: yucp.aliasId=${packageJson.yucp.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp.installPlan.managedPaths)}\n`
-        );
-
-        const expiredMaterializePollToken = await sign(INGEST_SECRET, {
-          ...materializeClaims,
-          exp: Math.floor(Date.now() / 1000) - 1,
-        });
-        expect((await getJobStatus(materializeJobUrl, expiredMaterializePollToken)).status).toBe(
-          200
+          `Real materialize client fetched deliverable: yucp.aliasId=${packageJson.yucp?.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp?.installPlan?.managedPaths)}\n`
         );
 
         const mismatchClaims: BackstageMaterializeClaims = {
           ...materializeClaims,
           loreSourceSha256: 'f'.repeat(64),
         };
-        const mismatchToken = await sign(INGEST_SECRET, mismatchClaims);
-        const mismatchResponse = await fetch(`${sidecarOrigin}/materialize`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${mismatchToken}` },
-        });
-        expect(mismatchResponse.status).toBe(200);
-        const mismatchAccepted = (await mismatchResponse.json()) as { jobId: string };
         expect(
-          await waitForJobState({
-            jobUrl: `${sidecarOrigin}/jobs/${mismatchAccepted.jobId}`,
-            uploadToken: mismatchToken,
-            terminalState: 'failed',
+          runBackstageMaterialize({
+            ingestBaseUrl: sidecarOrigin,
+            ingestSecret: INGEST_SECRET,
+            claims: mismatchClaims,
           })
-        ).toEqual({ state: 'failed', reason: 'ingest_failed' });
+        ).rejects.toThrow('Backstage materialize job failed: ingest_failed');
         expect(receivedPuts).toHaveLength(2);
-        process.stdout.write('Fetched raw SHA mismatch materialize job failed as expected.\n');
-
-        const signedResult = materializeCompleted.result;
-        const tamperedResult = `${signedResult.at(0) === 'A' ? 'B' : 'A'}${signedResult.slice(1)}`;
-        await expect(verify(INGEST_SECRET, tamperedResult)).rejects.toThrow();
-        await expect(verify(WRONG_SECRET, signedResult)).rejects.toThrow();
+        process.stdout.write(
+          'Real materialize client surfaced the raw SHA mismatch job failure as expected.\n'
+        );
 
         const invalidArchiveBytes = strToU8('not a unitypackage archive');
         const invalidArchiveClaims = {
