@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import {
-  type BackstageIngestResult,
+  type BackstageMaterializeClaims,
+  type BackstageMaterializeResult,
+  type BackstageUploadResult,
+  parseMaterializeClaims,
   parseUploadClaims,
   sign,
   verify,
@@ -26,6 +29,9 @@ let listProviderTiersViaApiImpl: (...args: unknown[]) => Promise<unknown> = asyn
 let lastActionArgs: unknown;
 const originalFetch = globalThis.fetch;
 let lorePutBodies: Uint8Array[] = [];
+let materializeClaimsSeen: BackstageMaterializeClaims[] = [];
+let materializePollsByJob = new Map<string, number>();
+let materializeTokenByJob = new Map<string, string>();
 const BACKSTAGE_INGEST_SECRET = '33'.repeat(32);
 const MAX_BACKSTAGE_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 
@@ -87,29 +93,51 @@ const loreDeliveryFixture = {
   uploadedAt: '2024-03-09T16:01:00.000Z',
 };
 
-function makeIngestResult(overrides: Partial<BackstageIngestResult> = {}): BackstageIngestResult {
+function makeUploadResult(overrides: Partial<BackstageUploadResult> = {}): BackstageUploadResult {
   return {
-    typ: 'backstage-ingest-result',
+    typ: 'backstage-upload-result',
     authUserId: 'auth-user-1',
     packageId: 'com.yucp.example',
     version: '1.2.3',
     loreSource: loreSourceFixture,
-    loreDelivery: loreDeliveryFixture,
     rawSha256: loreSourceFixture.sha256,
     rawByteSize: loreSourceFixture.byteSize,
     rawDeliveryName: 'example.unitypackage',
     rawContentType: 'application/octet-stream',
+    sourceKind: 'unitypackage',
+    managedPaths: ['Assets/Example.prefab', 'Assets/Example.prefab.meta'],
+    exp: Math.floor(Date.now() / 1000) + 15 * 60,
+    ...overrides,
+  };
+}
+
+function makeMaterializeResult(
+  claims: BackstageMaterializeClaims,
+  overrides: Partial<BackstageMaterializeResult> = {}
+): BackstageMaterializeResult {
+  return {
+    typ: 'backstage-materialize-result',
+    authUserId: claims.authUserId,
+    packageId: claims.packageId,
+    version: claims.version,
+    loreDelivery: loreDeliveryFixture,
     deliverableSha256: loreDeliveryFixture.sha256,
     deliverableByteSize: loreDeliveryFixture.byteSize,
-    deliverableDeliveryName: 'com.yucp.example.zip',
+    deliverableDeliveryName: `vrc-get-${claims.packageId}-${claims.version}.zip`,
     deliverableContentType: 'application/zip',
     exp: Math.floor(Date.now() / 1000) + 15 * 60,
     ...overrides,
   };
 }
 
-async function signedIngestResult(overrides: Partial<BackstageIngestResult> = {}): Promise<string> {
-  return sign(BACKSTAGE_INGEST_SECRET, makeIngestResult(overrides));
+async function signedUploadResult(overrides: Partial<BackstageUploadResult> = {}): Promise<string> {
+  return sign(BACKSTAGE_INGEST_SECRET, makeUploadResult(overrides));
+}
+
+function bearerToken(init: RequestInit | undefined): string {
+  const authorization = new Headers(init?.headers).get('Authorization');
+  expect(authorization).toMatch(/^Bearer \S+$/);
+  return authorization?.slice('Bearer '.length) ?? '';
 }
 
 function bodyToUint8Array(body: BodyInit | null | undefined): Uint8Array {
@@ -232,8 +260,48 @@ describe('package Backstage publishing routes', () => {
       },
     });
     lorePutBodies = [];
+    materializeClaimsSeen = [];
+    materializePollsByJob = new Map();
+    materializeTokenByJob = new Map();
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
+      if (url === 'https://ingest.test/materialize') {
+        expect(init?.method).toBe('POST');
+        const materializeToken = bearerToken(init);
+        const claims = parseMaterializeClaims(
+          await verify(BACKSTAGE_INGEST_SECRET, materializeToken)
+        );
+        materializeClaimsSeen.push(claims);
+        const jobId = `materialize-job-${materializeClaimsSeen.length}`;
+        materializeTokenByJob.set(jobId, materializeToken);
+        return Response.json({ ok: true, jobId });
+      }
+      const materializeJobMatch = /^https:\/\/ingest\.test\/jobs\/(materialize-job-\d+)$/u.exec(
+        url
+      );
+      if (materializeJobMatch) {
+        expect(init?.method).toBe('GET');
+        const jobId = materializeJobMatch[1] ?? '';
+        const materializeToken = bearerToken(init);
+        const expectedMaterializeToken = materializeTokenByJob.get(jobId);
+        if (!expectedMaterializeToken) {
+          throw new Error(`Missing materialize token for ${jobId}`);
+        }
+        expect(materializeToken).toBe(expectedMaterializeToken);
+        const polls = (materializePollsByJob.get(jobId) ?? 0) + 1;
+        materializePollsByJob.set(jobId, polls);
+        if (polls === 1) {
+          return Response.json({ state: 'processing' });
+        }
+        const claims = materializeClaimsSeen[Number(jobId.slice('materialize-job-'.length)) - 1];
+        if (!claims) {
+          throw new Error(`Missing materialize claims for ${jobId}`);
+        }
+        return Response.json({
+          state: 'completed',
+          result: await sign(BACKSTAGE_INGEST_SECRET, makeMaterializeResult(claims)),
+        });
+      }
       if (
         url === `https://lore.test/v1/repository/${loreRepositoryId}/content` &&
         init?.method === 'PUT'
@@ -1842,7 +1910,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult(),
+          ingestResult: await signedUploadResult(),
           version: '1.2.3',
         }),
       }),
@@ -1983,7 +2051,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult(),
+          ingestResult: await signedUploadResult(),
           version: '1.2.3',
         }),
       }),
@@ -1998,7 +2066,7 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes uploaded Backstage releases for the authenticated creator', async () => {
-    const bundle = makeIngestResult();
+    const uploadResult = makeUploadResult();
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
         method: 'POST',
@@ -2008,9 +2076,10 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1', 'product_2'],
-          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, uploadResult),
           version: '1.2.3',
           channel: 'stable',
+          displayName: 'Resolved Example Package',
         }),
       }),
       'com.yucp.example'
@@ -2036,19 +2105,102 @@ describe('package Backstage publishing routes', () => {
     expect(payload).not.toHaveProperty('deliverableArtifactId');
     expect(payload).not.toHaveProperty('deliveryArtifactMode');
     expect(payload).not.toHaveProperty('materializationStrategy');
+    expect(materializeClaimsSeen).toEqual([
+      {
+        typ: 'backstage-materialize',
+        authUserId: 'auth-user-1',
+        packageId: 'com.yucp.example',
+        version: '1.2.3',
+        repositoryId: loreRepositoryId,
+        loreSourceAddress: uploadResult.loreSource.address,
+        loreSourceSha256: uploadResult.rawSha256,
+        deliveryName: uploadResult.rawDeliveryName,
+        sourceContentType: uploadResult.rawContentType,
+        sourceKind: uploadResult.sourceKind,
+        materializeMetadata: {
+          displayName: 'Resolved Example Package',
+          metadata: {
+            yucp: {
+              kind: 'alias-v1',
+              aliasId: 'backstage-bundle',
+              installStrategy: 'server-authorized',
+              importerPackage: 'com.yucp.importer',
+              minImporterVersion: '0.1.9',
+              catalogProductIds: ['product_1'],
+              channel: 'stable',
+            },
+          },
+        },
+        exp: expect.any(Number),
+      },
+    ]);
+    expect(materializePollsByJob.get('materialize-job-1')).toBe(2);
     expect(lastActionArgs).toMatchObject({
-      loreSource: bundle.loreSource,
-      loreDelivery: bundle.loreDelivery,
-      rawSha256: bundle.rawSha256,
-      rawByteSize: bundle.rawByteSize,
-      rawDeliveryName: bundle.rawDeliveryName,
-      rawContentType: bundle.rawContentType,
-      deliverableSha256: bundle.deliverableSha256,
-      deliverableByteSize: bundle.deliverableByteSize,
-      deliverableDeliveryName: bundle.deliverableDeliveryName,
-      deliverableContentType: bundle.deliverableContentType,
+      loreSource: uploadResult.loreSource,
+      loreDelivery: loreDeliveryFixture,
+      rawSha256: uploadResult.rawSha256,
+      rawByteSize: uploadResult.rawByteSize,
+      rawDeliveryName: uploadResult.rawDeliveryName,
+      rawContentType: uploadResult.rawContentType,
+      deliverableSha256: loreDeliveryFixture.sha256,
+      deliverableByteSize: loreDeliveryFixture.byteSize,
+      deliverableDeliveryName: 'vrc-get-com.yucp.example-1.2.3.zip',
+      deliverableContentType: 'application/zip',
     });
     expect(lorePutBodies).toHaveLength(0);
+  });
+
+  it('returns 502 and does not persist when sidecar materialization fails', async () => {
+    let materializeToken = '';
+    let pollCount = 0;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url === 'https://ingest.test/materialize') {
+        expect(init?.method).toBe('POST');
+        materializeToken = bearerToken(init);
+        const claims = parseMaterializeClaims(
+          await verify(BACKSTAGE_INGEST_SECRET, materializeToken)
+        );
+        expect(claims.materializeMetadata?.metadata?.yucp).toMatchObject({
+          aliasId: 'backstage-bundle',
+        });
+        return Response.json({ ok: true, jobId: 'failed-materialize-job' });
+      }
+      if (url === 'https://ingest.test/jobs/failed-materialize-job') {
+        expect(init?.method).toBe('GET');
+        expect(bearerToken(init)).toBe(materializeToken);
+        pollCount += 1;
+        return Response.json(
+          pollCount === 1
+            ? { state: 'processing' }
+            : { state: 'failed', reason: 'materialize_failed' }
+        );
+      }
+      return failUnmockedFetch(input);
+    }) as typeof fetch;
+
+    const response = await routes.publishBackstageRelease(
+      new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer oauth-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          catalogProductIds: ['product_1'],
+          ingestResult: await signedUploadResult(),
+          version: '1.2.3',
+        }),
+      }),
+      'com.yucp.example'
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Backstage materialize job failed: materialize_failed',
+    });
+    expect(pollCount).toBe(2);
+    expect(lastActionArgs).toBeUndefined();
   });
 
   it('rejects ingest results owned by another creator or tenant', async () => {
@@ -2061,7 +2213,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult({ authUserId: 'other-auth-user' }),
+          ingestResult: await signedUploadResult({ authUserId: 'other-auth-user' }),
           version: '1.2.3',
           channel: 'stable',
         }),
@@ -2075,11 +2227,8 @@ describe('package Backstage publishing routes', () => {
     });
 
     for (const wrongTenantResult of [
-      makeIngestResult({
+      makeUploadResult({
         loreSource: { ...loreSourceFixture, tenantId: 'other-auth-user' },
-      }),
-      makeIngestResult({
-        loreDelivery: { ...loreDeliveryFixture, tenantId: 'other-auth-user' },
       }),
     ]) {
       const wrongTenantResponse = await routes.publishBackstageRelease(
@@ -2109,11 +2258,8 @@ describe('package Backstage publishing routes', () => {
 
   it('rejects ingest results with repository ids outside the creator repository', async () => {
     for (const wrongRepositoryResult of [
-      makeIngestResult({
+      makeUploadResult({
         loreSource: { ...loreSourceFixture, repositoryId: 'a'.repeat(32) },
-      }),
-      makeIngestResult({
-        loreDelivery: { ...loreDeliveryFixture, repositoryId: 'b'.repeat(32) },
       }),
     ]) {
       const response = await routes.publishBackstageRelease(
@@ -2141,11 +2287,75 @@ describe('package Backstage publishing routes', () => {
     expect(lastActionArgs).toBeUndefined();
   });
 
+  it('rejects materialized deliveries outside the authenticated creator ownership boundary', async () => {
+    const mismatchedResults: Array<
+      (claims: BackstageMaterializeClaims) => BackstageMaterializeResult
+    > = [
+      (claims) =>
+        makeMaterializeResult(claims, {
+          loreDelivery: { ...loreDeliveryFixture, tenantId: 'other-auth-user' },
+        }),
+      (claims) =>
+        makeMaterializeResult(claims, {
+          loreDelivery: { ...loreDeliveryFixture, repositoryId: 'b'.repeat(32) },
+        }),
+      (claims) => makeMaterializeResult(claims, { authUserId: 'other-auth-user' }),
+    ];
+
+    for (const makeMismatchedResult of mismatchedResults) {
+      let materializeToken = '';
+      let claims: BackstageMaterializeClaims | undefined;
+      globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url === 'https://ingest.test/materialize') {
+          expect(init?.method).toBe('POST');
+          materializeToken = bearerToken(init);
+          claims = parseMaterializeClaims(await verify(BACKSTAGE_INGEST_SECRET, materializeToken));
+          return Response.json({ ok: true, jobId: 'ownership-job' });
+        }
+        if (url === 'https://ingest.test/jobs/ownership-job') {
+          expect(init?.method).toBe('GET');
+          expect(bearerToken(init)).toBe(materializeToken);
+          if (!claims) {
+            throw new Error('Materialize claims were not captured before polling');
+          }
+          return Response.json({
+            state: 'completed',
+            result: await sign(BACKSTAGE_INGEST_SECRET, makeMismatchedResult(claims)),
+          });
+        }
+        return failUnmockedFetch(input);
+      }) as typeof fetch;
+
+      const response = await routes.publishBackstageRelease(
+        new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer oauth-token',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            catalogProductIds: ['product_1'],
+            ingestResult: await signedUploadResult(),
+            version: '1.2.3',
+          }),
+        }),
+        'com.yucp.example'
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: 'Materialize result is not owned by this creator',
+      });
+      expect(lastActionArgs).toBeUndefined();
+    }
+  });
+
   it('rejects tampered and expired ingest results', async () => {
-    const validToken = await signedIngestResult();
+    const validToken = await signedUploadResult();
     const firstCharacter = validToken.at(0);
     const tamperedToken = `${firstCharacter === 'A' ? 'B' : 'A'}${validToken.slice(1)}`;
-    const expiredToken = await signedIngestResult({ exp: Math.floor(Date.now() / 1000) - 1 });
+    const expiredToken = await signedUploadResult({ exp: Math.floor(Date.now() / 1000) - 1 });
 
     for (const ingestResult of [tamperedToken, expiredToken]) {
       const response = await routes.publishBackstageRelease(
@@ -2182,7 +2392,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult(),
+          ingestResult: await signedUploadResult(),
           version: '9.9.9',
         }),
       }),
@@ -2203,7 +2413,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult({ packageId: 'com.yucp.other' }),
+          ingestResult: await signedUploadResult({ packageId: 'com.yucp.other' }),
           version: '1.2.3',
         }),
       }),
@@ -2217,16 +2427,10 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes sidecar materialization results without touching artifact bytes', async () => {
-    let fetchCount = 0;
-    globalThis.fetch = (async (input: string | URL | Request) => {
-      fetchCount += 1;
-      return failUnmockedFetch(input);
-    }) as unknown as typeof fetch;
-    const bundle = makeIngestResult({
+    const uploadResult = makeUploadResult({
       packageId: 'com.yucp.songthing',
       version: '1.0.6',
       rawDeliveryName: 'Song Thing_1.0.6.unitypackage',
-      deliverableDeliveryName: 'vrc-get-com.yucp.songthing-1.0.6.zip',
     });
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.songthing/backstage/releases', {
@@ -2237,7 +2441,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, uploadResult),
           version: '1.0.6',
           channel: 'stable',
           displayName: 'Song Thing | Your Spotify® library within VRChat | VRCFury Ready',
@@ -2247,19 +2451,20 @@ describe('package Backstage publishing routes', () => {
     );
 
     expect(response.status).toBe(201);
-    expect(fetchCount).toBe(0);
+    expect(materializeClaimsSeen).toHaveLength(1);
+    expect(materializePollsByJob.get('materialize-job-1')).toBe(2);
     expect(lorePutBodies).toHaveLength(0);
     expect(lastActionArgs).toMatchObject({
-      loreSource: bundle.loreSource,
-      loreDelivery: bundle.loreDelivery,
-      rawSha256: bundle.rawSha256,
-      rawByteSize: bundle.rawByteSize,
-      rawDeliveryName: bundle.rawDeliveryName,
-      rawContentType: bundle.rawContentType,
-      deliverableSha256: bundle.deliverableSha256,
-      deliverableByteSize: bundle.deliverableByteSize,
-      deliverableDeliveryName: bundle.deliverableDeliveryName,
-      deliverableContentType: bundle.deliverableContentType,
+      loreSource: uploadResult.loreSource,
+      loreDelivery: loreDeliveryFixture,
+      rawSha256: uploadResult.rawSha256,
+      rawByteSize: uploadResult.rawByteSize,
+      rawDeliveryName: uploadResult.rawDeliveryName,
+      rawContentType: uploadResult.rawContentType,
+      deliverableSha256: loreDeliveryFixture.sha256,
+      deliverableByteSize: loreDeliveryFixture.byteSize,
+      deliverableDeliveryName: 'vrc-get-com.yucp.songthing-1.0.6.zip',
+      deliverableContentType: 'application/zip',
     });
   });
 
@@ -2285,7 +2490,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await signedIngestResult({
+          ingestResult: await signedUploadResult({
             packageId: 'com.yucp.alias.song',
           }),
           version: '1.2.3',
@@ -2311,7 +2516,7 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes server-generated metadata alongside the verified sidecar bundle', async () => {
-    const bundle = makeIngestResult({
+    const uploadResult = makeUploadResult({
       version: '4.0.0',
       rawDeliveryName: 'avatar-installer.unitypackage',
     });
@@ -2324,7 +2529,7 @@ describe('package Backstage publishing routes', () => {
         },
         body: JSON.stringify({
           catalogProductIds: ['product_1'],
-          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, bundle),
+          ingestResult: await sign(BACKSTAGE_INGEST_SECRET, uploadResult),
           version: '4.0.0',
           displayName: 'Avatar Installer',
           description: 'Server-generated wrapper metadata',
@@ -2338,10 +2543,10 @@ describe('package Backstage publishing routes', () => {
     expect(response.status).toBe(201);
     expect(lorePutBodies).toHaveLength(0);
     expect(lastActionArgs).toMatchObject({
-      loreSource: bundle.loreSource,
-      loreDelivery: bundle.loreDelivery,
-      rawDeliveryName: bundle.rawDeliveryName,
-      rawContentType: bundle.rawContentType,
+      loreSource: uploadResult.loreSource,
+      loreDelivery: loreDeliveryFixture,
+      rawDeliveryName: uploadResult.rawDeliveryName,
+      rawContentType: uploadResult.rawContentType,
       displayName: 'Avatar Installer',
       description: 'Server-generated wrapper metadata',
       unityVersion: '2022.3',
@@ -2364,7 +2569,7 @@ describe('package Backstage publishing routes', () => {
             { kind: 'catalogProduct', catalogProductId: 'product_1' },
             { kind: 'catalogTier', catalogTierId: 'tier_1' },
           ],
-          ingestResult: await signedIngestResult({ version: '5.0.0' }),
+          ingestResult: await signedUploadResult({ version: '5.0.0' }),
           version: '5.0.0',
         }),
       }),
