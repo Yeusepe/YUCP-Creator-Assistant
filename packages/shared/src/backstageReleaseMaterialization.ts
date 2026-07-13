@@ -13,7 +13,7 @@ import { applyYucpAliasPackageManifestDefaults } from './yucpAliasPackageContrac
 
 const FIXED_ZIP_MTIME = new Date(315619200000);
 
-type ArchiveSourceKind = 'unitypackage' | 'zip';
+export type ArchiveSourceKind = 'unitypackage' | 'zip';
 
 export type MaterializedBackstageReleaseArtifact = {
   bytes: Uint8Array;
@@ -188,7 +188,7 @@ function assertSafeProjectImportPath(input: string): string {
   return normalized;
 }
 
-function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[] {
+export function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[] {
   const tarBytes = gunzipSync(sourceBytes);
   const entriesByDirectory = new Map<
     string,
@@ -248,6 +248,13 @@ function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[] {
   }
 
   return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
+}
+
+export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
+  return Object.keys(unzipSync(sourceBytes))
+    .filter((entryPath) => !entryPath.endsWith('/'))
+    .map(assertSafeArchivePath)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function withAliasInstallPlanFootprint(

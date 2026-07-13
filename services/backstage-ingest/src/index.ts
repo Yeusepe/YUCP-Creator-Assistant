@@ -1,20 +1,30 @@
 import { FileStore } from '@tus/file-store';
 import { Server } from '@tus/server';
 import {
-  type BackstageIngestResult,
+  type BackstageMaterializeClaims,
+  type BackstageMaterializeResult,
   type BackstageUploadClaims,
+  type BackstageUploadResult,
+  parseMaterializeClaims,
   parseUploadClaims,
   sign,
   validateSigningSecret,
   verify,
 } from '@yucp/shared/backstageIngest';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '@yucp/shared/backstageLimits';
-import { materializeBackstageReleaseArtifact } from '@yucp/shared/backstageReleaseMaterialization';
+import {
+  collectUnityPackageImportPaths,
+  collectZipArchiveEntryPaths,
+  materializeBackstageReleaseArtifact,
+} from '@yucp/shared/backstageReleaseMaterialization';
+import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmDelivery';
 import {
   type ConfiguredLoreBackstageConfig,
+  getBackstageBytesFromLore,
   loreRepositoryIdForCreator,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
+  sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { Queue, Worker } from 'bullmq';
@@ -52,6 +62,16 @@ type BackstageIngestJobData = {
   stagedPath: string;
   claims: BackstageUploadClaims;
 };
+
+type BackstageMaterializeJobData = {
+  claims: BackstageMaterializeClaims;
+};
+
+type BackstageJobData = BackstageIngestJobData | BackstageMaterializeJobData;
+
+function isUploadJobData(data: BackstageJobData): data is BackstageIngestJobData {
+  return 'uploadId' in data && 'stagedPath' in data;
+}
 
 function requiredEnv(name: string): string {
   const value = Bun.env[name]?.trim();
@@ -193,7 +213,7 @@ const store = new FileStore({
 });
 // ponytail: ioredis is BullMQ's default and stable on Bun; Bun's native Redis client dropped connections on 1.3.9.
 const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
-const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
+const queue = new Queue<BackstageJobData, string>(QUEUE_NAME, {
   connection,
   prefix: config.queuePrefix,
   defaultJobOptions: {
@@ -204,123 +224,230 @@ const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
   },
 });
 
-const worker = new Worker<BackstageIngestJobData, string>(
-  QUEUE_NAME,
-  async (job) => {
-    const startedAt = performance.now();
-    const { claims, stagedPath, uploadId } = job.data;
-    let bytes: ArrayBuffer;
-    let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
-    try {
-      // ponytail: per-job peak is about 2x package size for source plus deliverable; concurrency and RAM provisioning govern it until streaming materialization is available.
-      bytes = await Bun.file(stagedPath).arrayBuffer();
-      materialized = await materializeBackstageReleaseArtifact({
-        sourceBytes: new Uint8Array(bytes),
-        deliveryName: claims.deliveryName,
-        contentType: claims.sourceContentType,
-        packageId: claims.packageId,
-        version: claims.version,
-        displayName: claims.materializeMetadata?.displayName,
-        metadata: claims.materializeMetadata?.metadata,
-      });
-    } catch {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.materialization_failed',
-          uploadId,
-          reason: 'materialization_failed',
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('materialization_failed');
-    }
-
-    const repositoryId = claims.repositoryId;
-    let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-    try {
-      rawStored = await putBackstageBytesToLore({
-        config: config.lore,
-        repositoryId,
-        bytes,
-      });
-    } catch {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.lore_source_failed',
-          uploadId,
-          reason: 'lore_source_put_failed',
-          rawByteSize: bytes.byteLength,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('lore_source_put_failed');
-    }
-
-    let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-    try {
-      deliverableStored = await putBackstageBytesToLore({
-        config: config.lore,
-        repositoryId,
-        bytes: materialized.bytes,
-      });
-    } catch {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.lore_delivery_failed',
-          uploadId,
-          reason: 'lore_deliverable_put_failed',
-          rawByteSize: rawStored.byteSize,
-          deliverableByteSize: materialized.bytes.byteLength,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('lore_deliverable_put_failed');
-    }
-
-    const uploadedAt = new Date().toISOString();
-    const loreSource = buildLoreReference({
-      repositoryId,
-      stored: rawStored,
-      authUserId: claims.authUserId,
-      uploadedAt,
+async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
+  const startedAt = performance.now();
+  const { claims, stagedPath, uploadId } = data;
+  let bytes: ArrayBuffer;
+  let sourceKind: BackstageUploadResult['sourceKind'];
+  let managedPaths: string[];
+  try {
+    // ponytail: upload jobs hold about 1x source bytes in memory while deriving the install footprint; concurrency bounds aggregate memory.
+    bytes = await Bun.file(stagedPath).arrayBuffer();
+    const sourceBytes = new Uint8Array(bytes);
+    sourceKind = detectBackstageVpmDeliverySourceKind({
+      deliveryName: claims.deliveryName,
+      contentType: claims.sourceContentType,
+      bytes: sourceBytes,
     });
-    const loreDelivery = buildLoreReference({
-      repositoryId,
-      stored: deliverableStored,
-      authUserId: claims.authUserId,
-      uploadedAt,
-    });
-    const result: BackstageIngestResult = {
-      typ: 'backstage-ingest-result',
-      authUserId: claims.authUserId,
-      packageId: claims.packageId,
-      version: claims.version,
-      loreSource,
-      loreDelivery,
-      rawSha256: rawStored.sha256,
-      rawByteSize: rawStored.byteSize,
-      rawDeliveryName: claims.deliveryName,
-      rawContentType: claims.sourceContentType,
-      deliverableSha256: deliverableStored.sha256,
-      deliverableByteSize: deliverableStored.byteSize,
-      deliverableDeliveryName: materialized.deliveryName,
-      deliverableContentType: materialized.contentType,
-      exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
-    };
-    const signedResult = await sign(config.ingestSecret, result);
-
-    console.info(
+    managedPaths =
+      sourceKind === 'unitypackage'
+        ? Array.from(
+            new Set([
+              `Packages/${claims.packageId}/package.json`,
+              ...collectUnityPackageImportPaths(sourceBytes),
+            ])
+          )
+        : collectZipArchiveEntryPaths(sourceBytes);
+  } catch {
+    console.error(
       JSON.stringify({
-        event: 'backstage_ingest.completed',
+        event: 'backstage_ingest.managed_paths_failed',
         uploadId,
-        rawByteSize: rawStored.byteSize,
-        deliverableByteSize: deliverableStored.byteSize,
+        reason: 'managed_paths_failed',
         durationMs: Math.round(performance.now() - startedAt),
       })
     );
+    throw new Error('managed_paths_failed');
+  }
 
-    return signedResult;
-  },
+  let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+  try {
+    rawStored = await putBackstageBytesToLore({
+      config: config.lore,
+      repositoryId: claims.repositoryId,
+      bytes,
+    });
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.lore_source_failed',
+        uploadId,
+        reason: 'lore_source_put_failed',
+        rawByteSize: bytes.byteLength,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new Error('lore_source_put_failed');
+  }
+
+  const loreSource = buildLoreReference({
+    repositoryId: claims.repositoryId,
+    stored: rawStored,
+    authUserId: claims.authUserId,
+    uploadedAt: new Date().toISOString(),
+  });
+  const result: BackstageUploadResult = {
+    typ: 'backstage-upload-result',
+    authUserId: claims.authUserId,
+    packageId: claims.packageId,
+    version: claims.version,
+    loreSource,
+    rawSha256: rawStored.sha256,
+    rawByteSize: rawStored.byteSize,
+    rawDeliveryName: claims.deliveryName,
+    rawContentType: claims.sourceContentType,
+    sourceKind,
+    managedPaths,
+    exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
+  };
+  const signedResult = await sign(config.ingestSecret, result);
+
+  console.info(
+    JSON.stringify({
+      event: 'backstage_ingest.upload_completed',
+      uploadId,
+      rawByteSize: rawStored.byteSize,
+      managedPathCount: managedPaths.length,
+      durationMs: Math.round(performance.now() - startedAt),
+    })
+  );
+  return signedResult;
+}
+
+async function processMaterializeJob(
+  data: BackstageMaterializeJobData,
+  materializeJobId: string
+): Promise<string> {
+  const startedAt = performance.now();
+  const { claims } = data;
+  let sourceBytes: ArrayBuffer;
+  try {
+    sourceBytes = await getBackstageBytesFromLore({
+      config: config.lore,
+      repositoryId: claims.repositoryId,
+      address: claims.loreSourceAddress,
+    });
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_source_failed',
+        materializeJobId,
+        reason: 'lore_source_get_failed',
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new Error('lore_source_get_failed');
+  }
+
+  if ((await sha256ArrayBuffer(sourceBytes)) !== claims.loreSourceSha256) {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_source_integrity_failed',
+        materializeJobId,
+        reason: 'source_integrity_failed',
+        rawByteSize: sourceBytes.byteLength,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new Error('source_integrity_failed');
+  }
+
+  let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
+  try {
+    // ponytail: materialize jobs hold about 1x source plus 1x deliverable in memory; worker concurrency bounds aggregate memory.
+    const ownedSourceBytes = new Uint8Array(sourceBytes);
+    const detectedSourceKind = detectBackstageVpmDeliverySourceKind({
+      deliveryName: claims.deliveryName,
+      contentType: claims.sourceContentType,
+      bytes: ownedSourceBytes,
+    });
+    if (detectedSourceKind !== claims.sourceKind) {
+      throw new Error('source_kind_mismatch');
+    }
+    materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: ownedSourceBytes,
+      deliveryName: claims.deliveryName,
+      contentType: claims.sourceContentType,
+      packageId: claims.packageId,
+      version: claims.version,
+      displayName: claims.materializeMetadata?.displayName,
+      metadata: claims.materializeMetadata?.metadata,
+    });
+    if (materialized.originalSourceKind !== claims.sourceKind) {
+      throw new Error('source_kind_mismatch');
+    }
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_failed',
+        materializeJobId,
+        reason: 'materialization_failed',
+        rawByteSize: sourceBytes.byteLength,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new Error('materialization_failed');
+  }
+
+  let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+  try {
+    deliverableStored = await putBackstageBytesToLore({
+      config: config.lore,
+      repositoryId: claims.repositoryId,
+      bytes: materialized.bytes,
+    });
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_delivery_failed',
+        materializeJobId,
+        reason: 'lore_deliverable_put_failed',
+        rawByteSize: sourceBytes.byteLength,
+        deliverableByteSize: materialized.bytes.byteLength,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new Error('lore_deliverable_put_failed');
+  }
+
+  const loreDelivery = buildLoreReference({
+    repositoryId: claims.repositoryId,
+    stored: deliverableStored,
+    authUserId: claims.authUserId,
+    uploadedAt: new Date().toISOString(),
+  });
+  const result: BackstageMaterializeResult = {
+    typ: 'backstage-materialize-result',
+    authUserId: claims.authUserId,
+    packageId: claims.packageId,
+    version: claims.version,
+    loreDelivery,
+    deliverableSha256: deliverableStored.sha256,
+    deliverableByteSize: deliverableStored.byteSize,
+    deliverableDeliveryName: materialized.deliveryName,
+    deliverableContentType: materialized.contentType,
+    exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
+  };
+  const signedResult = await sign(config.ingestSecret, result);
+
+  console.info(
+    JSON.stringify({
+      event: 'backstage_ingest.materialize_completed',
+      materializeJobId,
+      rawByteSize: sourceBytes.byteLength,
+      deliverableByteSize: deliverableStored.byteSize,
+      durationMs: Math.round(performance.now() - startedAt),
+    })
+  );
+  return signedResult;
+}
+
+const worker = new Worker<BackstageJobData, string>(
+  QUEUE_NAME,
+  async (job) =>
+    isUploadJobData(job.data)
+      ? await processUploadJob(job.data)
+      : await processMaterializeJob(job.data, job.id ?? 'unknown'),
   { connection, prefix: config.queuePrefix, concurrency: config.concurrency }
 );
 
@@ -362,11 +489,13 @@ async function removePermanentlyRejectedUpload(uploadId: string): Promise<void> 
 }
 
 worker.on('completed', (job) => {
-  void removeStagedUpload(job.id);
+  if (isUploadJobData(job.data)) {
+    void removeStagedUpload(job.id);
+  }
 });
 
 worker.on('failed', (job) => {
-  if (job && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+  if (job && isUploadJobData(job.data) && job.attemptsMade >= (job.opts.attempts ?? 1)) {
     void removeStagedUpload(job.id);
   }
 });
@@ -472,7 +601,7 @@ const server = new Server({
       await store.configstore.set(upload.id, upload);
       try {
         await queue.add(
-          'materialize',
+          'ingest-upload',
           { uploadId: upload.id, stagedPath, claims },
           { jobId: upload.id }
         );
@@ -531,9 +660,13 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }
 
-  let claims: BackstageUploadClaims;
+  let claims: BackstageUploadClaims | BackstageMaterializeClaims;
   try {
-    claims = parseUploadClaims(await verify(config.ingestSecret, token, { ignoreExpiry: true }));
+    const payload = await verify(config.ingestSecret, token, { ignoreExpiry: true });
+    claims =
+      payload.typ === 'backstage-materialize'
+        ? parseMaterializeClaims(payload)
+        : parseUploadClaims(payload);
   } catch {
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }
@@ -544,11 +677,17 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
   }
 
   const jobClaims = job.data.claims;
-  if (
-    claims.authUserId !== jobClaims.authUserId ||
-    claims.packageId !== jobClaims.packageId ||
-    claims.declaredSha256 !== jobClaims.declaredSha256
-  ) {
+  const commonOwnershipMismatch =
+    claims.authUserId !== jobClaims.authUserId || claims.packageId !== jobClaims.packageId;
+  let uploadOwnershipMismatch = false;
+  let materializeOwnershipMismatch = false;
+  if (isUploadJobData(job.data)) {
+    uploadOwnershipMismatch =
+      claims.typ !== 'backstage-upload' || claims.declaredSha256 !== job.data.claims.declaredSha256;
+  } else {
+    materializeOwnershipMismatch = claims.typ !== 'backstage-materialize';
+  }
+  if (commonOwnershipMismatch || uploadOwnershipMismatch || materializeOwnershipMismatch) {
     return applyJobCors(request, Response.json({ error: 'Forbidden' }, { status: 403 }));
   }
 
@@ -560,6 +699,56 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     return applyJobCors(request, Response.json({ state: 'failed', reason: FAILED_JOB_REASON }));
   }
   return applyJobCors(request, Response.json({ state: 'processing' }));
+}
+
+async function handleMaterializeRequest(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return applyJobCors(
+      request,
+      new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        },
+      })
+    );
+  }
+
+  const token = bearerToken(request);
+  if (!token) {
+    return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
+  }
+
+  let claims: BackstageMaterializeClaims;
+  try {
+    claims = parseMaterializeClaims(await verify(config.ingestSecret, token));
+  } catch {
+    return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
+  }
+
+  const expectedRepositoryId = loreRepositoryIdForCreator(
+    claims.authUserId,
+    config.lore.repoNamespaceSalt
+  );
+  if (expectedRepositoryId !== claims.repositoryId) {
+    return applyJobCors(request, Response.json({ error: 'Forbidden' }, { status: 403 }));
+  }
+
+  const jobId = crypto.randomUUID();
+  try {
+    await queue.add('materialize', { claims }, { jobId });
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_enqueue_failed',
+        materializeJobId: jobId,
+        reason: 'materialize_enqueue_failed',
+      })
+    );
+    return applyJobCors(request, Response.json({ error: 'Unavailable' }, { status: 503 }));
+  }
+  return applyJobCors(request, Response.json({ ok: true, jobId }));
 }
 
 const httpServer = Bun.serve({
@@ -576,6 +765,13 @@ const httpServer = Bun.serve({
     const jobMatch = /^\/jobs\/([^/]+)$/.exec(url.pathname);
     if (jobMatch && (request.method === 'GET' || request.method === 'OPTIONS')) {
       return await handleJobRequest(request, decodeURIComponent(jobMatch[1]));
+    }
+
+    if (
+      url.pathname === '/materialize' &&
+      (request.method === 'POST' || request.method === 'OPTIONS')
+    ) {
+      return await handleMaterializeRequest(request);
     }
 
     const response = await server.handleWeb(request);
