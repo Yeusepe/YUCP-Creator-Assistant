@@ -50,7 +50,7 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
   - `POLAR_ACCESS_TOKEN`
   - `POLAR_WEBHOOK_SECRET`
   - `POLAR_SERVER`
-  - `BACKSTAGE_INGEST_SECRET`
+  - `BACKSTAGE_INGEST_SECRET` (hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
   - `LORE_INGEST_BASE_URL`
   - `LORE_API_BASE_URL`
   - `LORE_PRESIGN_HMAC_KEY`
@@ -167,7 +167,7 @@ These keys back certificate issuance, protected materialization grants, broker a
 
 - `YUCP_COUPLING_SERVICE_BASE_URL`
 - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
-- `BACKSTAGE_INGEST_SECRET`
+- `BACKSTAGE_INGEST_SECRET` (hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
 - `LORE_INGEST_BASE_URL`
 - `LORE_API_BASE_URL`
 - `LORE_PRESIGN_HMAC_KEY`

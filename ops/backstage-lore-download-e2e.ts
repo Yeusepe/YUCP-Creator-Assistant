@@ -18,8 +18,9 @@
  * Infrastructure prerequisites:
  *   - The public API URL above is reachable and accepts the supplied OAuth token.
  *   - The API-returned TUS sidecar endpoint and loreserver are reachable from this process.
- *   - BACKSTAGE_INGEST_SECRET is shared by the API and sidecar, and all required LORE_* and
- *     Cloudflare Access values are configured for the API, sidecar, and loreserver.
+ *   - BACKSTAGE_INGEST_SECRET is a shared hex string of at least 64 characters (32 bytes), and
+ *     all required LORE_* and Cloudflare Access values are configured for the API, sidecar,
+ *     and loreserver. Generate the shared secret with `openssl rand -hex 32`.
  *   - The repo token's buyer subject is entitled to YUCP_CATALOG_PRODUCT_ID.
  *   - Each configured package version is unused before the run.
  *

@@ -138,7 +138,7 @@ docs/          product docs and engineering playbooks
 | `BETTER_AUTH_SECRET`                         | api      | Better Auth session encryption   |
 | `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
 | `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
-| `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Shared signing secret for upload tokens and ingest results |
+| `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Hex signing secret for upload tokens and ingest results; at least 64 hex characters (32 bytes) |
 | `LORE_INGEST_BASE_URL`                       | api      | Public base URL of the Backstage TUS ingest sidecar |
 | `LORE_API_BASE_URL`                          | api, ingest | Lore API origin for Backstage artifact storage and delivery |
 | `LORE_PRESIGN_HMAC_KEY`                      | api      | Hex HMAC key for client-minted Lore delivery URLs |
@@ -157,7 +157,7 @@ Do not commit real values. Infisical is the source of truth for deploy and produ
 
 The sidecar uses:
 
-- `BACKSTAGE_INGEST_SECRET`: required signing secret shared with the API Worker.
+- `BACKSTAGE_INGEST_SECRET`: required hex signing secret shared with the API Worker. It must contain at least 64 hex characters (at least 32 bytes); generate one with `openssl rand -hex 32`.
 - `BACKSTAGE_INGEST_TUS_DIR`: persistent temporary upload directory, default `/data/tus`.
 - `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload cross-origin.
 - `PORT`: listening port, default `8080`.
