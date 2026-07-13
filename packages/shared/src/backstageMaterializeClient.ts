@@ -9,7 +9,7 @@ import { assertSecureLoreUrl } from './loreBackstageClient';
 
 const BACKSTAGE_MATERIALIZE_REQUEST_TIMEOUT_MS = 5_000;
 const BACKSTAGE_MATERIALIZE_POLL_INTERVAL_MS = 500;
-const BACKSTAGE_MATERIALIZE_DEADLINE_MS = 20_000;
+const BACKSTAGE_MATERIALIZE_DEADLINE_MS = 120_000;
 
 export class BackstageMaterializeError extends Error {
   constructor(message: string) {
@@ -115,9 +115,9 @@ export async function runBackstageMaterialize(input: {
   }
   const jobUrl = `${ingestBaseUrl}/jobs/${encodeURIComponent(jobId)}`;
 
-  // ponytail: a unitypackage shim materializes in seconds with a few polls. A very large .zip
-  // repack could exceed the Worker's subrequest or time budget and would need a client-async
-  // publish handoff, which is intentionally out of scope here.
+  // ponytail: unitypackage shims materialize in milliseconds without downloading the raw. A
+  // multi-GB .zip repack can still exceed the Worker's synchronous budget and would need the
+  // async-publish handoff tracked as a follow-up.
   for (;;) {
     if (Date.now() >= deadline) {
       throw new BackstageMaterializeError('Timed out waiting for Backstage materialization');

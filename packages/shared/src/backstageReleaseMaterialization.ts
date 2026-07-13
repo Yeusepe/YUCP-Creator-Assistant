@@ -403,12 +403,13 @@ async function buildImporterShimZip(input: {
 }
 
 export async function materializeBackstageReleaseArtifact(input: {
-  sourceBytes: Uint8Array;
+  sourceBytes?: Uint8Array;
   deliveryName: string;
   contentType?: string;
   packageId?: string;
   version?: string;
   displayName?: string;
+  managedPaths?: string[];
   metadata?: Record<string, unknown>;
 }): Promise<MaterializedBackstageReleaseArtifact> {
   const sourceKind =
@@ -424,13 +425,26 @@ export async function materializeBackstageReleaseArtifact(input: {
         'Backstage unitypackage materialization requires packageId and version to build the deliverable wrapper.'
       );
     }
+    let managedPaths = input.managedPaths;
+    if (!managedPaths) {
+      if (!input.sourceBytes) {
+        throw new Error(
+          'Backstage unitypackage materialization requires managedPaths or sourceBytes.'
+        );
+      }
+      managedPaths = collectUnityPackageImportPaths(input.sourceBytes);
+    }
     return await buildImporterShimZip({
       packageId: input.packageId.trim(),
       version: input.version.trim(),
       displayName: input.displayName?.trim(),
-      managedPaths: collectUnityPackageImportPaths(input.sourceBytes),
+      managedPaths,
       metadata: input.metadata,
     });
+  }
+
+  if (!input.sourceBytes) {
+    throw new Error('Backstage zip materialization requires sourceBytes.');
   }
 
   const bytes = materializeZip({

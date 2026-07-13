@@ -1887,6 +1887,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         deliveryName: uploadResult.rawDeliveryName,
         sourceContentType: uploadResult.rawContentType,
         sourceKind: uploadResult.sourceKind,
+        managedPaths: uploadResult.managedPaths,
         materializeMetadata: {
           displayName: body.displayName?.trim() || packageId,
           metadata,

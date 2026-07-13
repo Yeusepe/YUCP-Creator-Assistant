@@ -320,49 +320,54 @@ async function processMaterializeJob(
 ): Promise<string> {
   const startedAt = performance.now();
   const { claims } = data;
-  let sourceBytes: ArrayBuffer;
-  try {
-    sourceBytes = await getBackstageBytesFromLore({
-      config: config.lore,
-      repositoryId: claims.repositoryId,
-      address: claims.loreSourceAddress,
-    });
-  } catch {
-    console.error(
-      JSON.stringify({
-        event: 'backstage_ingest.materialize_source_failed',
-        materializeJobId,
-        reason: 'lore_source_get_failed',
-        durationMs: Math.round(performance.now() - startedAt),
-      })
-    );
-    throw new Error('lore_source_get_failed');
-  }
+  let sourceBytes: ArrayBuffer | undefined;
+  if (claims.sourceKind === 'zip') {
+    try {
+      sourceBytes = await getBackstageBytesFromLore({
+        config: config.lore,
+        repositoryId: claims.repositoryId,
+        address: claims.loreSourceAddress,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.materialize_source_failed',
+          materializeJobId,
+          reason: 'lore_source_get_failed',
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('lore_source_get_failed');
+    }
 
-  if ((await sha256ArrayBuffer(sourceBytes)) !== claims.loreSourceSha256) {
-    console.error(
-      JSON.stringify({
-        event: 'backstage_ingest.materialize_source_integrity_failed',
-        materializeJobId,
-        reason: 'source_integrity_failed',
-        rawByteSize: sourceBytes.byteLength,
-        durationMs: Math.round(performance.now() - startedAt),
-      })
-    );
-    throw new Error('source_integrity_failed');
+    if ((await sha256ArrayBuffer(sourceBytes)) !== claims.loreSourceSha256) {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.materialize_source_integrity_failed',
+          materializeJobId,
+          reason: 'source_integrity_failed',
+          rawByteSize: sourceBytes.byteLength,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('source_integrity_failed');
+    }
   }
 
   let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
   try {
-    // ponytail: materialize jobs hold about 1x source plus 1x deliverable in memory; worker concurrency bounds aggregate memory.
-    const ownedSourceBytes = new Uint8Array(sourceBytes);
-    const detectedSourceKind = detectBackstageVpmDeliverySourceKind({
-      deliveryName: claims.deliveryName,
-      contentType: claims.sourceContentType,
-      bytes: ownedSourceBytes,
-    });
-    if (detectedSourceKind !== claims.sourceKind) {
-      throw new Error('source_kind_mismatch');
+    let ownedSourceBytes: Uint8Array | undefined;
+    if (sourceBytes) {
+      // ponytail: zip materialize jobs hold about 1x source plus 1x deliverable in memory; worker concurrency bounds aggregate memory.
+      ownedSourceBytes = new Uint8Array(sourceBytes);
+      const detectedSourceKind = detectBackstageVpmDeliverySourceKind({
+        deliveryName: claims.deliveryName,
+        contentType: claims.sourceContentType,
+        bytes: ownedSourceBytes,
+      });
+      if (detectedSourceKind !== claims.sourceKind) {
+        throw new Error('source_kind_mismatch');
+      }
     }
     materialized = await materializeBackstageReleaseArtifact({
       sourceBytes: ownedSourceBytes,
@@ -371,6 +376,7 @@ async function processMaterializeJob(
       packageId: claims.packageId,
       version: claims.version,
       displayName: claims.materializeMetadata?.displayName,
+      managedPaths: claims.managedPaths,
       metadata: claims.materializeMetadata?.metadata,
     });
     if (materialized.originalSourceKind !== claims.sourceKind) {
@@ -382,7 +388,9 @@ async function processMaterializeJob(
         event: 'backstage_ingest.materialize_failed',
         materializeJobId,
         reason: 'materialization_failed',
-        rawByteSize: sourceBytes.byteLength,
+        ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+        sourceKind: claims.sourceKind,
+        managedPathCount: claims.managedPaths.length,
         durationMs: Math.round(performance.now() - startedAt),
       })
     );
@@ -402,7 +410,8 @@ async function processMaterializeJob(
         event: 'backstage_ingest.materialize_delivery_failed',
         materializeJobId,
         reason: 'lore_deliverable_put_failed',
-        rawByteSize: sourceBytes.byteLength,
+        ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+        sourceKind: claims.sourceKind,
         deliverableByteSize: materialized.bytes.byteLength,
         durationMs: Math.round(performance.now() - startedAt),
       })
@@ -434,7 +443,9 @@ async function processMaterializeJob(
     JSON.stringify({
       event: 'backstage_ingest.materialize_completed',
       materializeJobId,
-      rawByteSize: sourceBytes.byteLength,
+      ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+      sourceKind: claims.sourceKind,
+      rawDownloadSkipped: claims.sourceKind === 'unitypackage',
       deliverableByteSize: deliverableStored.byteSize,
       durationMs: Math.round(performance.now() - startedAt),
     })

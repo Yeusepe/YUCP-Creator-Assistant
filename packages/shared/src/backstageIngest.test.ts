@@ -56,6 +56,7 @@ function validMaterializeClaims() {
     deliveryName: upload.rawDeliveryName,
     sourceContentType: upload.rawContentType,
     sourceKind: upload.sourceKind,
+    managedPaths: upload.managedPaths,
     materializeMetadata: {
       displayName: 'Example Package',
       metadata: { yucp: { aliasId: 'alias-123' } },
@@ -206,6 +207,21 @@ describe('parseMaterializeClaims', () => {
     expect(() =>
       parseMaterializeClaims({ ...validMaterializeClaims(), sourceKind: 'tar' })
     ).toThrow('sourceKind');
+    for (const managedPaths of [
+      ['../escape'],
+      ['/absolute'],
+      ['Assets//empty'],
+      ['Assets/./dot'],
+      ['C:/absolute'],
+      ['Assets\\backslash'],
+      [''],
+      [1],
+      'Assets/not-an-array',
+    ]) {
+      expect(() => parseMaterializeClaims({ ...validMaterializeClaims(), managedPaths })).toThrow(
+        'managedPaths'
+      );
+    }
     expect(() =>
       parseMaterializeClaims({ ...validMaterializeClaims(), materializeMetadata: [] })
     ).toThrow('materializeMetadata');

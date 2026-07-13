@@ -2127,6 +2127,7 @@ describe('package Backstage publishing routes', () => {
         deliveryName: uploadResult.rawDeliveryName,
         sourceContentType: uploadResult.rawContentType,
         sourceKind: uploadResult.sourceKind,
+        managedPaths: uploadResult.managedPaths,
         materializeMetadata: {
           displayName: 'Resolved Example Package',
           metadata: {

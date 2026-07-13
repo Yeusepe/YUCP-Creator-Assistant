@@ -53,6 +53,7 @@ export type BackstageMaterializeClaims = {
   deliveryName: string;
   sourceContentType: string;
   sourceKind: BackstageSourceKind;
+  managedPaths: string[];
   materializeMetadata?: {
     displayName?: string;
     metadata?: Record<string, unknown>;
@@ -172,6 +173,13 @@ function assertSafeRelativePath(value: unknown, label: string): string {
   return value;
 }
 
+function requiredManagedPaths(payload: Record<string, unknown>, label: string): string[] {
+  if (!Array.isArray(payload.managedPaths)) {
+    throw new Error(`${label} managedPaths must be an array of safe relative path strings.`);
+  }
+  return payload.managedPaths.map((path) => assertSafeRelativePath(path, `${label} managedPaths`));
+}
+
 export function parseUploadClaims(value: unknown): BackstageUploadClaims {
   if (!isRecord(value)) {
     throw new Error('Upload token payload must be an object.');
@@ -209,10 +217,6 @@ export function parseUploadResult(value: unknown): BackstageUploadResult {
   if (!isLoreBackstageArtifactReference(value.loreSource)) {
     throw new Error('Upload result loreSource must be a Lore artifact reference.');
   }
-  if (!Array.isArray(value.managedPaths)) {
-    throw new Error('Upload result managedPaths must be an array of safe relative path strings.');
-  }
-
   const result: BackstageUploadResult = {
     typ: 'backstage-upload-result',
     authUserId: requiredString(value, 'authUserId', 'Upload result'),
@@ -224,9 +228,7 @@ export function parseUploadResult(value: unknown): BackstageUploadResult {
     rawDeliveryName: requiredString(value, 'rawDeliveryName', 'Upload result'),
     rawContentType: requiredString(value, 'rawContentType', 'Upload result'),
     sourceKind: requiredSourceKind(value, 'Upload result'),
-    managedPaths: value.managedPaths.map((path) =>
-      assertSafeRelativePath(path, 'Upload result managedPaths')
-    ),
+    managedPaths: requiredManagedPaths(value, 'Upload result'),
     exp: requiredExpiration(value, 'Upload result'),
   };
 
@@ -268,6 +270,7 @@ export function parseMaterializeClaims(value: unknown): BackstageMaterializeClai
     deliveryName: requiredString(value, 'deliveryName', 'Materialize token'),
     sourceContentType: requiredString(value, 'sourceContentType', 'Materialize token'),
     sourceKind: requiredSourceKind(value, 'Materialize token'),
+    managedPaths: requiredManagedPaths(value, 'Materialize token'),
     ...(materializeMetadata ? { materializeMetadata } : {}),
     exp: requiredExpiration(value, 'Materialize token'),
   };

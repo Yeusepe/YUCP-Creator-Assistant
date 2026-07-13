@@ -12,7 +12,7 @@ import {
 } from '@yucp/shared/backstageIngest';
 import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
 import { RedisClient } from 'bun';
-import { gzipSync, strToU8, unzipSync } from 'fflate';
+import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { Upload } from 'tus-js-client';
 
 const INGEST_SECRET = '11'.repeat(32);
@@ -685,6 +685,7 @@ describe('backstage ingest resumable upload integration', () => {
           deliveryName: uploadBundle.rawDeliveryName,
           sourceContentType: uploadBundle.rawContentType,
           sourceKind: uploadBundle.sourceKind,
+          managedPaths: uploadBundle.managedPaths,
           materializeMetadata: {
             displayName: 'Ingest Integration',
             metadata: {
@@ -728,6 +729,7 @@ describe('backstage ingest resumable upload integration', () => {
           ).status
         ).toBe(401);
 
+        const loreGetsBeforeMaterialize = receivedGets.length;
         const materializeBundle = await runBackstageMaterialize({
           ingestBaseUrl: sidecarOrigin,
           ingestSecret: INGEST_SECRET,
@@ -744,9 +746,8 @@ describe('backstage ingest resumable upload integration', () => {
           tenantId: authUserId,
         });
         expect(receivedPuts).toHaveLength(2);
-        expect(receivedGets).toEqual([
-          `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`,
-        ]);
+        const unitypackageMaterializeGets = receivedGets.slice(loreGetsBeforeMaterialize);
+        expect(unitypackageMaterializeGets).toEqual([]);
         expect(receivedPuts[1].sha256).toBe(materializeBundle.deliverableSha256);
 
         const deliverablePath = `/v1/repository/${materializeBundle.loreDelivery.repositoryId}/content/${materializeBundle.loreDelivery.address}`;
@@ -768,28 +769,76 @@ describe('backstage ingest resumable upload integration', () => {
         ) as { yucp?: { aliasId?: string; installPlan?: { managedPaths?: string[] } } };
         expect(packageJson.yucp?.aliasId).toBe(aliasId);
         expect(packageJson.yucp?.installPlan?.managedPaths).toEqual(uploadBundle.managedPaths);
-        expect(receivedGets).toEqual([
-          `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`,
-          deliverablePath,
-        ]);
+        expect(receivedGets).toEqual([deliverablePath]);
         process.stdout.write(
-          `Real materialize client fetched deliverable: yucp.aliasId=${packageJson.yucp?.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp?.installPlan?.managedPaths)}\n`
+          `Unitypackage materialize raw Lore GETs: ${unitypackageMaterializeGets.length}; yucp.aliasId=${packageJson.yucp?.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp?.installPlan?.managedPaths)}\n`
         );
 
-        const mismatchClaims: BackstageMaterializeClaims = {
-          ...materializeClaims,
+        const zipVersion = '1.2.4';
+        const zipSourceBytes = zipSync({
+          'package.json': strToU8(
+            JSON.stringify({ name: packageId, version: zipVersion, displayName: 'Zip Integration' })
+          ),
+        });
+        const zipSourceSha256 = await sha256Hex(zipSourceBytes);
+        const zipUploadClaims: BackstageUploadClaims = {
+          ...claims,
+          version: zipVersion,
+          deliveryName: `${packageId}-${zipVersion}.zip`,
+          sourceContentType: 'application/zip',
+          declaredSha256: zipSourceSha256,
+          byteSize: zipSourceBytes.byteLength,
+        };
+        const zipUploadToken = await sign(INGEST_SECRET, zipUploadClaims);
+        const zipTusUpload = await uploadWithTus({
+          bytes: zipSourceBytes,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken: zipUploadToken,
+        });
+        const zipUploadCompleted = await waitForJobState({
+          jobUrl: jobUrlFromUploadUrl(zipTusUpload.uploadUrl),
+          uploadToken: zipUploadToken,
+          terminalState: 'completed',
+        });
+        if (zipUploadCompleted.state !== 'completed') {
+          throw new Error('Expected a completed zip upload job result.');
+        }
+        const zipUploadBundle = parseUploadResult(
+          await verify(INGEST_SECRET, zipUploadCompleted.result)
+        );
+        expect(zipUploadBundle.sourceKind).toBe('zip');
+        expect(receivedPuts).toHaveLength(3);
+
+        const zipGetsBeforeMaterialize = receivedGets.length;
+        const zipMismatchClaims: BackstageMaterializeClaims = {
+          typ: 'backstage-materialize',
+          authUserId,
+          packageId,
+          version: zipVersion,
+          repositoryId,
+          loreSourceAddress: zipUploadBundle.loreSource.address,
           loreSourceSha256: 'f'.repeat(64),
+          deliveryName: zipUploadBundle.rawDeliveryName,
+          sourceContentType: zipUploadBundle.rawContentType,
+          sourceKind: zipUploadBundle.sourceKind,
+          managedPaths: zipUploadBundle.managedPaths,
+          exp: Math.floor(Date.now() / 1000) + 3_600,
         };
         expect(
           runBackstageMaterialize({
             ingestBaseUrl: sidecarOrigin,
             ingestSecret: INGEST_SECRET,
-            claims: mismatchClaims,
+            claims: zipMismatchClaims,
           })
         ).rejects.toThrow('Backstage materialize job failed: ingest_failed');
-        expect(receivedPuts).toHaveLength(2);
+        const zipMaterializeGets = receivedGets.slice(zipGetsBeforeMaterialize);
+        expect(zipMaterializeGets.length).toBeGreaterThan(0);
+        expect(new Set(zipMaterializeGets)).toEqual(
+          new Set([`/v1/repository/${repositoryId}/content/${zipUploadBundle.loreSource.address}`])
+        );
+        expect(receivedPuts).toHaveLength(3);
         process.stdout.write(
-          'Real materialize client surfaced the raw SHA mismatch job failure as expected.\n'
+          `Zip materialize raw Lore GETs: ${zipMaterializeGets.length}; SHA mismatch rejected.\n`
         );
 
         const invalidArchiveBytes = strToU8('not a unitypackage archive');
@@ -811,7 +860,7 @@ describe('backstage ingest resumable upload integration', () => {
             terminalState: 'failed',
           })
         ).toEqual({ state: 'failed', reason: 'ingest_failed' });
-        expect(receivedPuts).toHaveLength(2);
+        expect(receivedPuts).toHaveLength(3);
         await waitForDirectoryEmpty(tempDirectory);
 
         const abandonedUploadId = await createAbandonedTusUpload({
@@ -851,7 +900,7 @@ describe('backstage ingest resumable upload integration', () => {
         }
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
-        expect(receivedPuts).toHaveLength(2);
+        expect(receivedPuts).toHaveLength(3);
         expect(await readdir(tempDirectory)).toEqual([]);
         process.stdout.write('SHA mismatch immediate staged upload cleanup assertion passed.\n');
 
