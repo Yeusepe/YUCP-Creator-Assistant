@@ -3,14 +3,16 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  type BackstageMaterializeClaims,
   type BackstageUploadClaims,
-  parseIngestResult,
+  parseMaterializeResult,
+  parseUploadResult,
   sign,
   verify,
 } from '@yucp/shared/backstageIngest';
 import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
 import { RedisClient } from 'bun';
-import { strToU8, zipSync } from 'fflate';
+import { gzipSync, strToU8, unzipSync } from 'fflate';
 import { Upload } from 'tus-js-client';
 
 const INGEST_SECRET = '11'.repeat(32);
@@ -25,7 +27,9 @@ const ABANDONED_UPLOAD_TTL_MS = 250;
 
 type ReceivedPut = {
   repositoryId: string;
+  address: string;
   byteLength: number;
+  bytes: Uint8Array;
   sha256: string;
 };
 
@@ -52,6 +56,54 @@ function createSignal(): { promise: Promise<void>; resolve: () => void } {
     resolveSignal = resolve;
   });
   return { promise, resolve: resolveSignal };
+}
+
+function writeAscii(target: Uint8Array, offset: number, length: number, value: string): void {
+  target.set(new TextEncoder().encode(value).subarray(0, length), offset);
+}
+
+function writeOctal(target: Uint8Array, offset: number, length: number, value: number): void {
+  writeAscii(target, offset, length - 1, value.toString(8).padStart(length - 1, '0'));
+  target[offset + length - 1] = 0;
+}
+
+function buildTarHeader(path: string, size: number): Uint8Array {
+  const header = new Uint8Array(512);
+  writeAscii(header, 0, 100, path);
+  writeOctal(header, 100, 8, 0o644);
+  writeOctal(header, 108, 8, 0);
+  writeOctal(header, 116, 8, 0);
+  writeOctal(header, 124, 12, size);
+  writeOctal(header, 136, 12, 123);
+  header.fill(0x20, 148, 156);
+  header[156] = '0'.charCodeAt(0);
+  writeAscii(header, 257, 6, 'ustar');
+  writeAscii(header, 263, 2, '00');
+  const checksum = header.reduce((sum, value) => sum + value, 0);
+  writeAscii(header, 148, 6, checksum.toString(8).padStart(6, '0'));
+  header[154] = 0;
+  header[155] = 0x20;
+  return header;
+}
+
+function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>): Uint8Array {
+  const blocks: Uint8Array[] = [];
+  for (const entry of entries) {
+    blocks.push(buildTarHeader(entry.path, entry.content.byteLength), entry.content);
+    const remainder = entry.content.byteLength % 512;
+    if (remainder !== 0) {
+      blocks.push(new Uint8Array(512 - remainder));
+    }
+  }
+  blocks.push(new Uint8Array(1024));
+
+  const tarBytes = new Uint8Array(blocks.reduce((sum, block) => sum + block.byteLength, 0));
+  let offset = 0;
+  for (const block of blocks) {
+    tarBytes.set(block, offset);
+    offset += block.byteLength;
+  }
+  return gzipSync(tarBytes, { level: 9, mtime: 123 });
 }
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
@@ -415,37 +467,55 @@ function responseStatus(error: unknown): number | undefined {
 
 describe('backstage ingest resumable upload integration', () => {
   test(
-    'uploads, materializes, stores, and signs a release while enforcing upload authentication',
+    'stores raw at upload and materializes resolved metadata in a publish-time job',
     async () => {
       const receivedPuts: ReceivedPut[] = [];
+      const storedObjects = new Map<string, Uint8Array>();
+      const receivedGets: string[] = [];
       const firstLorePutStarted = createSignal();
       const releaseFirstLorePut = createSignal();
       const fakeLore = Bun.serve({
         port: 0,
         async fetch(request) {
           const url = new URL(request.url);
-          const match = /^\/v1\/repository\/([0-9a-f]{32})\/content$/.exec(url.pathname);
-          if (request.method !== 'PUT' || !match) {
-            return new Response('Not found', { status: 404 });
+          const putMatch = /^\/v1\/repository\/([0-9a-f]{32})\/content$/.exec(url.pathname);
+          if (request.method === 'PUT' && putMatch) {
+            expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+            expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+            const body = new Uint8Array(await request.arrayBuffer());
+            const sha256 = await sha256Hex(body);
+            const address = `${sha256}-${'0'.repeat(32)}`;
+            receivedPuts.push({
+              repositoryId: putMatch[1],
+              address,
+              byteLength: body.byteLength,
+              bytes: body,
+              sha256,
+            });
+            storedObjects.set(`${putMatch[1]}/${address}`, body);
+            process.stdout.write(
+              `Fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
+            );
+            if (receivedPuts.length === 1) {
+              firstLorePutStarted.resolve();
+              await releaseFirstLorePut.promise;
+            }
+            return Response.json({ data: { address } });
           }
 
-          const body = await request.arrayBuffer();
-          const sha256 = await sha256Hex(body);
-          receivedPuts.push({
-            repositoryId: match[1],
-            byteLength: body.byteLength,
-            sha256,
-          });
-          process.stdout.write(
-            `Fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
-          );
-          if (receivedPuts.length === 1) {
-            firstLorePutStarted.resolve();
-            await releaseFirstLorePut.promise;
+          const getMatch =
+            /^\/v1\/repository\/([0-9a-f]{32})\/content\/([0-9a-f]{64}-[0-9a-f]{32})$/.exec(
+              url.pathname
+            );
+          if (request.method === 'GET' && getMatch) {
+            expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+            expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+            const key = `${getMatch[1]}/${getMatch[2]}`;
+            receivedGets.push(url.pathname);
+            const bytes = storedObjects.get(key);
+            return bytes ? new Response(bytes) : new Response('Not found', { status: 404 });
           }
-          return Response.json({
-            data: { address: `${sha256}-${'0'.repeat(32)}` },
-          });
+          return new Response('Not found', { status: 404 });
         },
       });
 
@@ -487,27 +557,18 @@ describe('backstage ingest resumable upload integration', () => {
       );
 
       try {
-        await waitForSidecar({
-          origin: sidecarOrigin,
-          getExitCode: () => exitCode,
-          stderr,
-        });
+        await waitForSidecar({ origin: sidecarOrigin, getExitCode: () => exitCode, stderr });
 
         const packageId = 'com.yucp.ingest-integration';
         const version = '1.2.3';
+        const aliasId = 'resolved-alias-id';
         const authUserId = 'auth-user-ingest-integration';
         const repositoryId = loreRepositoryIdForCreator(authUserId, REPOSITORY_SALT);
-        const archiveMtime = new Date('2024-01-01T00:00:00.000Z');
-        const sourceBytes = zipSync(
-          {
-            'package.json': [
-              strToU8(JSON.stringify({ name: packageId, version })),
-              { mtime: archiveMtime },
-            ],
-            'Assets/integration.txt': [strToU8('real resumable ingest'), { mtime: archiveMtime }],
-          },
-          { level: 9 }
-        );
+        const sourceBytes = buildUnitypackage([
+          { path: 'asset-guid/asset', content: strToU8('real resumable ingest') },
+          { path: 'asset-guid/asset.meta', content: strToU8('fileFormatVersion: 2\n') },
+          { path: 'asset-guid/pathname', content: strToU8('Assets/YUCP/Integration.txt') },
+        ]);
         const sourceSha256 = await sha256Hex(sourceBytes);
         const claims: BackstageUploadClaims = {
           typ: 'backstage-upload',
@@ -515,25 +576,25 @@ describe('backstage ingest resumable upload integration', () => {
           packageId,
           version,
           repositoryId,
-          deliveryName: `${packageId}-${version}.zip`,
-          sourceContentType: 'application/zip',
+          deliveryName: `${packageId}-${version}.unitypackage`,
+          sourceContentType: 'application/octet-stream',
           declaredSha256: sourceSha256,
           byteSize: sourceBytes.byteLength,
           exp: Math.floor(Date.now() / 1000) + 3_600,
         };
 
         const uploadToken = await sign(INGEST_SECRET, claims);
-        const uploadResult = await uploadWithTus({
+        const tusUpload = await uploadWithTus({
           bytes: sourceBytes,
           endpoint: `${sidecarOrigin}/files`,
           uploadToken,
         });
-        expect(uploadResult.ingestResultHeader).toBeUndefined();
-        const jobUrl = jobUrlFromUploadUrl(uploadResult.uploadUrl);
+        expect(tusUpload.ingestResultHeader).toBeUndefined();
+        const uploadJobUrl = jobUrlFromUploadUrl(tusUpload.uploadUrl);
 
         await firstLorePutStarted.promise;
         await delay(ABANDONED_UPLOAD_TTL_MS * 3);
-        const processingUploadId = new URL(uploadResult.uploadUrl).pathname
+        const processingUploadId = new URL(tusUpload.uploadUrl).pathname
           .split('/')
           .filter(Boolean)
           .at(-1);
@@ -544,7 +605,7 @@ describe('backstage ingest resumable upload integration', () => {
         process.stdout.write('In-flight worker staged file retention assertion passed.\n');
         releaseFirstLorePut.resolve();
 
-        const preflight = await fetch(jobUrl, {
+        const preflight = await fetch(uploadJobUrl, {
           method: 'OPTIONS',
           headers: {
             Origin: 'http://localhost:3000',
@@ -556,103 +617,225 @@ describe('backstage ingest resumable upload integration', () => {
         expect(preflight.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:3000');
         expect(preflight.headers.get('Access-Control-Allow-Headers')).toContain('Authorization');
 
-        const missingJobUrl = new URL(jobUrl);
+        const missingJobUrl = new URL(uploadJobUrl);
         missingJobUrl.pathname = '/jobs/not-found';
         expect((await getJobStatus(missingJobUrl.toString(), uploadToken)).status).toBe(404);
-
-        const ownershipToken = await sign(INGEST_SECRET, {
+        const uploadOwnershipToken = await sign(INGEST_SECRET, {
           ...claims,
           packageId: 'com.yucp.other-package',
         });
-        expect((await getJobStatus(jobUrl, ownershipToken)).status).toBe(403);
+        expect((await getJobStatus(uploadJobUrl, uploadOwnershipToken)).status).toBe(403);
+        const tamperedUploadToken = `${uploadToken.at(0) === 'A' ? 'B' : 'A'}${uploadToken.slice(1)}`;
+        expect((await getJobStatus(uploadJobUrl, tamperedUploadToken)).status).toBe(401);
 
-        const firstUploadTokenCharacter = uploadToken.at(0);
-        const tamperedUploadToken = `${firstUploadTokenCharacter === 'A' ? 'B' : 'A'}${uploadToken.slice(1)}`;
-        expect((await getJobStatus(jobUrl, tamperedUploadToken)).status).toBe(401);
-
-        const completed = await waitForJobState({
-          jobUrl,
+        const uploadCompleted = await waitForJobState({
+          jobUrl: uploadJobUrl,
           uploadToken,
           terminalState: 'completed',
         });
-        expect(completed.state).toBe('completed');
-        if (completed.state !== 'completed') {
-          throw new Error('Expected a completed job result.');
+        if (uploadCompleted.state !== 'completed') {
+          throw new Error('Expected a completed upload job result.');
         }
-
-        const signedResult = completed.result;
-        const bundle = parseIngestResult(await verify(INGEST_SECRET, signedResult));
-        expect(bundle.typ).toBe('backstage-ingest-result');
-        expect(bundle.authUserId).toBe(authUserId);
-        expect(bundle.packageId).toBe(packageId);
-        expect(bundle.version).toBe(version);
-        expect(bundle.loreSource).toBeDefined();
-        expect(bundle.loreDelivery).toBeDefined();
-        expect(bundle.loreSource.sha256).toBe(sourceSha256);
-        expect(bundle.loreSource.repositoryId).toBe(repositoryId);
-        expect(bundle.loreDelivery.sha256).not.toBe(bundle.loreSource.sha256);
-        expect(bundle.loreSource.tenantId).toBe(authUserId);
-        expect(bundle.loreDelivery.tenantId).toBe(authUserId);
-        expect(bundle.rawSha256).toBe(bundle.loreSource.sha256);
-        expect(bundle.rawByteSize).toBe(bundle.loreSource.byteSize);
-        expect(bundle.deliverableSha256).toBe(bundle.loreDelivery.sha256);
-        expect(bundle.deliverableByteSize).toBe(bundle.loreDelivery.byteSize);
-
-        const expiredPollToken = await sign(INGEST_SECRET, {
-          ...claims,
-          exp: Math.floor(Date.now() / 1000) - 1,
+        const uploadBundle = parseUploadResult(await verify(INGEST_SECRET, uploadCompleted.result));
+        expect(uploadBundle).toMatchObject({
+          typ: 'backstage-upload-result',
+          authUserId,
+          packageId,
+          version,
+          rawSha256: sourceSha256,
+          sourceKind: 'unitypackage',
         });
-        const expiredPollResponse = await getJobStatus(jobUrl, expiredPollToken);
-        expect(expiredPollResponse.status).toBe(200);
-        expect(await expiredPollResponse.json()).toEqual(completed);
-        process.stdout.write('Expired upload token job polling assertion passed.\n');
-
-        const wrongSignatureExpiredPollToken = await sign(WRONG_SECRET, {
-          ...claims,
-          exp: Math.floor(Date.now() / 1000) - 1,
-        });
-        expect((await getJobStatus(jobUrl, wrongSignatureExpiredPollToken)).status).toBe(401);
-        process.stdout.write('Wrong-signature expired job polling assertion passed.\n');
-
-        expect(receivedPuts).toHaveLength(2);
-        expect(receivedPuts.map((put) => put.repositoryId)).toEqual([repositoryId, repositoryId]);
-        expect(receivedPuts[0]).toEqual({
+        expect(uploadBundle.loreSource.repositoryId).toBe(repositoryId);
+        expect(uploadBundle.managedPaths).toEqual([
+          `Packages/${packageId}/package.json`,
+          'Assets/YUCP/Integration.txt',
+          'Assets/YUCP/Integration.txt.meta',
+        ]);
+        expect(receivedPuts).toHaveLength(1);
+        expect(receivedPuts[0]).toMatchObject({
           repositoryId,
           byteLength: sourceBytes.byteLength,
           sha256: sourceSha256,
         });
-        expect(receivedPuts[1].sha256).toBe(bundle.loreDelivery.sha256);
-        expect(receivedPuts[1].byteLength).toBe(bundle.loreDelivery.byteSize);
+        expect(receivedGets).toHaveLength(0);
+        process.stdout.write(
+          `Upload result managedPaths: ${JSON.stringify(uploadBundle.managedPaths)}; Lore PUTs: ${receivedPuts.length} raw only\n`
+        );
         await waitForDirectoryEmpty(tempDirectory);
 
-        const firstCharacter = signedResult.at(0);
-        const tamperedHeader = `${firstCharacter === 'A' ? 'B' : 'A'}${signedResult.slice(1)}`;
-        await expect(verify(INGEST_SECRET, tamperedHeader)).rejects.toThrow();
+        const expiredUploadPollToken = await sign(INGEST_SECRET, {
+          ...claims,
+          exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        expect((await getJobStatus(uploadJobUrl, expiredUploadPollToken)).status).toBe(200);
+        const wrongSignatureExpiredPollToken = await sign(WRONG_SECRET, {
+          ...claims,
+          exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        expect((await getJobStatus(uploadJobUrl, wrongSignatureExpiredPollToken)).status).toBe(401);
+
+        const materializeClaims: BackstageMaterializeClaims = {
+          typ: 'backstage-materialize',
+          authUserId,
+          packageId,
+          version,
+          repositoryId,
+          loreSourceAddress: uploadBundle.loreSource.address,
+          loreSourceSha256: uploadBundle.rawSha256,
+          deliveryName: uploadBundle.rawDeliveryName,
+          sourceContentType: uploadBundle.rawContentType,
+          sourceKind: uploadBundle.sourceKind,
+          materializeMetadata: {
+            displayName: 'Ingest Integration',
+            metadata: {
+              yucp: {
+                kind: 'alias-v1',
+                installStrategy: 'server-authorized',
+                aliasId,
+                importerPackage: 'com.yucp.importer',
+              },
+            },
+          },
+          exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const materializeToken = await sign(INGEST_SECRET, materializeClaims);
+
+        const materializePreflight = await fetch(`${sidecarOrigin}/materialize`, {
+          method: 'OPTIONS',
+          headers: { Origin: 'http://localhost:3000' },
+        });
+        expect(materializePreflight.status).toBe(204);
+        expect(materializePreflight.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+
+        const mismatchedRepositoryToken = await sign(INGEST_SECRET, {
+          ...materializeClaims,
+          repositoryId: 'f'.repeat(32),
+        });
+        expect(
+          (
+            await fetch(`${sidecarOrigin}/materialize`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${mismatchedRepositoryToken}` },
+            })
+          ).status
+        ).toBe(403);
+        const wrongMaterializeToken = await sign(WRONG_SECRET, materializeClaims);
+        expect(
+          (
+            await fetch(`${sidecarOrigin}/materialize`, {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${wrongMaterializeToken}` },
+            })
+          ).status
+        ).toBe(401);
+
+        const materializeResponse = await fetch(`${sidecarOrigin}/materialize`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${materializeToken}` },
+        });
+        expect(materializeResponse.status).toBe(200);
+        const materializeAccepted = (await materializeResponse.json()) as {
+          ok: boolean;
+          jobId: string;
+        };
+        expect(materializeAccepted.ok).toBe(true);
+        expect(materializeAccepted.jobId).toMatch(/^[0-9a-f-]{36}$/);
+        const materializeJobUrl = `${sidecarOrigin}/jobs/${materializeAccepted.jobId}`;
+
+        const materializeOwnershipToken = await sign(INGEST_SECRET, {
+          ...materializeClaims,
+          packageId: 'com.yucp.other-package',
+        });
+        expect((await getJobStatus(materializeJobUrl, materializeOwnershipToken)).status).toBe(403);
+        const materializeCompleted = await waitForJobState({
+          jobUrl: materializeJobUrl,
+          uploadToken: materializeToken,
+          terminalState: 'completed',
+        });
+        if (materializeCompleted.state !== 'completed') {
+          throw new Error('Expected a completed materialize job result.');
+        }
+        const materializeBundle = parseMaterializeResult(
+          await verify(INGEST_SECRET, materializeCompleted.result)
+        );
+        expect(materializeBundle).toMatchObject({
+          typ: 'backstage-materialize-result',
+          authUserId,
+          packageId,
+          version,
+        });
+        expect(materializeBundle.loreDelivery).toBeDefined();
+        expect(receivedPuts).toHaveLength(2);
+        expect(receivedGets).toEqual([
+          `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`,
+        ]);
+        expect(receivedPuts[1].sha256).toBe(materializeBundle.deliverableSha256);
+
+        const deliverableArchive = unzipSync(receivedPuts[1].bytes);
+        const packageJson = JSON.parse(
+          new TextDecoder().decode(deliverableArchive['package.json'])
+        ) as { yucp: { aliasId: string; installPlan: { managedPaths: string[] } } };
+        expect(packageJson.yucp.aliasId).toBe(aliasId);
+        expect(packageJson.yucp.installPlan.managedPaths).toEqual(uploadBundle.managedPaths);
+        process.stdout.write(
+          `Materialize deliverable PUT: yucp.aliasId=${packageJson.yucp.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp.installPlan.managedPaths)}\n`
+        );
+
+        const expiredMaterializePollToken = await sign(INGEST_SECRET, {
+          ...materializeClaims,
+          exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        expect((await getJobStatus(materializeJobUrl, expiredMaterializePollToken)).status).toBe(
+          200
+        );
+
+        const mismatchClaims: BackstageMaterializeClaims = {
+          ...materializeClaims,
+          loreSourceSha256: 'f'.repeat(64),
+        };
+        const mismatchToken = await sign(INGEST_SECRET, mismatchClaims);
+        const mismatchResponse = await fetch(`${sidecarOrigin}/materialize`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${mismatchToken}` },
+        });
+        expect(mismatchResponse.status).toBe(200);
+        const mismatchAccepted = (await mismatchResponse.json()) as { jobId: string };
+        expect(
+          await waitForJobState({
+            jobUrl: `${sidecarOrigin}/jobs/${mismatchAccepted.jobId}`,
+            uploadToken: mismatchToken,
+            terminalState: 'failed',
+          })
+        ).toEqual({ state: 'failed', reason: 'ingest_failed' });
+        expect(receivedPuts).toHaveLength(2);
+        process.stdout.write('Fetched raw SHA mismatch materialize job failed as expected.\n');
+
+        const signedResult = materializeCompleted.result;
+        const tamperedResult = `${signedResult.at(0) === 'A' ? 'B' : 'A'}${signedResult.slice(1)}`;
+        await expect(verify(INGEST_SECRET, tamperedResult)).rejects.toThrow();
         await expect(verify(WRONG_SECRET, signedResult)).rejects.toThrow();
 
-        const invalidArchiveBytes = strToU8('not a zip archive');
-        const invalidArchiveToken = await sign(INGEST_SECRET, {
+        const invalidArchiveBytes = strToU8('not a unitypackage archive');
+        const invalidArchiveClaims = {
           ...claims,
           declaredSha256: await sha256Hex(invalidArchiveBytes),
           byteSize: invalidArchiveBytes.byteLength,
-        });
+        };
+        const invalidArchiveToken = await sign(INGEST_SECRET, invalidArchiveClaims);
         const invalidArchiveUpload = await uploadWithTus({
           bytes: invalidArchiveBytes,
           endpoint: `${sidecarOrigin}/files`,
           uploadToken: invalidArchiveToken,
         });
-        const failed = await waitForJobState({
-          jobUrl: jobUrlFromUploadUrl(invalidArchiveUpload.uploadUrl),
-          uploadToken: invalidArchiveToken,
-          terminalState: 'failed',
-        });
-        expect(failed).toEqual({ state: 'failed', reason: 'ingest_failed' });
+        expect(
+          await waitForJobState({
+            jobUrl: jobUrlFromUploadUrl(invalidArchiveUpload.uploadUrl),
+            uploadToken: invalidArchiveToken,
+            terminalState: 'failed',
+          })
+        ).toEqual({ state: 'failed', reason: 'ingest_failed' });
         expect(receivedPuts).toHaveLength(2);
         await waitForDirectoryEmpty(tempDirectory);
-        expect(stdout.join('')).not.toContain(repositoryId);
-        expect(stderr.join('')).not.toContain(repositoryId);
-        expect(stderr.join('')).not.toContain('invalid zip data');
-        expect(stderr.join('')).toContain('"reason":"materialization_failed"');
 
         const abandonedUploadId = await createAbandonedTusUpload({
           endpoint: `${sidecarOrigin}/files`,
@@ -661,29 +844,24 @@ describe('backstage ingest resumable upload integration', () => {
         });
         await waitForAbandonedUploadSweep(tempDirectory, abandonedUploadId, stdout);
 
-        const wrongToken = await sign(WRONG_SECRET, claims);
-        let wrongSecretUploadSucceeded = false;
+        const wrongUploadToken = await sign(WRONG_SECRET, claims);
         let wrongSecretUploadError: unknown;
         try {
           await uploadWithTus({
             bytes: sourceBytes,
             endpoint: `${sidecarOrigin}/files`,
-            uploadToken: wrongToken,
+            uploadToken: wrongUploadToken,
           });
-          wrongSecretUploadSucceeded = true;
         } catch (error) {
           wrongSecretUploadError = error;
         }
-        expect(wrongSecretUploadSucceeded).toBe(false);
         expect(wrongSecretUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongSecretUploadError)).toBe(401);
-        expect(receivedPuts).toHaveLength(2);
 
         const wrongShaToken = await sign(INGEST_SECRET, {
           ...claims,
           declaredSha256: 'f'.repeat(64),
         });
-        let wrongShaUploadSucceeded = false;
         let wrongShaUploadError: unknown;
         try {
           await uploadWithTus({
@@ -691,16 +869,18 @@ describe('backstage ingest resumable upload integration', () => {
             endpoint: `${sidecarOrigin}/files`,
             uploadToken: wrongShaToken,
           });
-          wrongShaUploadSucceeded = true;
         } catch (error) {
           wrongShaUploadError = error;
         }
-        expect(wrongShaUploadSucceeded).toBe(false);
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
         expect(receivedPuts).toHaveLength(2);
         expect(await readdir(tempDirectory)).toEqual([]);
         process.stdout.write('SHA mismatch immediate staged upload cleanup assertion passed.\n');
+
+        expect(stdout.join('')).not.toContain(repositoryId);
+        expect(stderr.join('')).not.toContain(repositoryId);
+        expect(stderr.join('')).not.toContain('invalid gzip data');
       } catch (error) {
         process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
         throw error;
