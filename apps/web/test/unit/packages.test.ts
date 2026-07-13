@@ -145,14 +145,42 @@ describe('uploadBackstageReleaseSource', () => {
       sourceContentType: 'application/zip',
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const call of fetchMock.mock.calls) {
-      expect(call).toEqual([
-        'https://ingest.test/jobs/job_123',
-        {
-          headers: { Authorization: 'Bearer signed-upload-token' },
-          signal: undefined,
-        },
-      ]);
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(url).toBe('https://ingest.test/jobs/job_123');
+      expect(init?.headers).toEqual({ Authorization: 'Bearer signed-upload-token' });
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it('retries a timed-out ingest job poll and accepts a later completed result', async () => {
+    apiPostMock.mockResolvedValueOnce(authorization);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new DOMException('The operation timed out', 'TimeoutError'))
+      .mockResolvedValueOnce(Response.json({ state: 'completed', result: 'signed-ingest-result' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resultPromise = uploadBackstageReleaseSource({
+      packageId: 'com.yucp.bundle',
+      file: new File(['package bytes'], 'bundle.zip'),
+      version: '1.2.3',
+    });
+
+    await vi.waitFor(() => expect(createdUploads).toHaveLength(1));
+    vi.useFakeTimers();
+    createdUploads[0].options.onSuccess?.({ lastResponse: {} });
+    const resultExpectation = expect(resultPromise).resolves.toMatchObject({
+      ingestResult: 'signed-ingest-result',
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await resultExpectation;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(url).toBe('https://ingest.test/jobs/job_123');
+      expect(init?.headers).toEqual({ Authorization: 'Bearer signed-upload-token' });
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
   });
 
@@ -172,10 +200,10 @@ describe('uploadBackstageReleaseSource', () => {
     createdUploads[0].options.onSuccess?.({ lastResponse: {} });
 
     await expect(resultPromise).rejects.toThrow('materialize_failed');
-    expect(fetchMock).toHaveBeenCalledWith('https://ingest.test/jobs/job_123', {
-      headers: { Authorization: 'Bearer signed-upload-token' },
-      signal: undefined,
-    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://ingest.test/jobs/job_123');
+    expect(init?.headers).toEqual({ Authorization: 'Bearer signed-upload-token' });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('aborts the tus upload when the caller signal is aborted', async () => {

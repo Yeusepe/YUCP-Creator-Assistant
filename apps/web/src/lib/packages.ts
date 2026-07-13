@@ -7,6 +7,7 @@ import { apiClient } from '@/api/client';
 import { startHyperdxBrowserSpan } from '@/lib/hyperdx';
 
 const BACKSTAGE_INGEST_POLL_INTERVAL_MS = 1000;
+const BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const BACKSTAGE_INGEST_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
@@ -324,10 +325,23 @@ async function pollBackstageIngestJob(input: {
       throw new Error('Timed out waiting for the Backstage ingest job to complete');
     }
 
-    const response = await fetch(input.jobUrl, {
-      headers: { Authorization: `Bearer ${input.uploadToken}` },
-      signal: input.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(input.jobUrl, {
+        headers: { Authorization: `Bearer ${input.uploadToken}` },
+        signal: AbortSignal.any(
+          [input.signal, AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS)].filter(
+            (signal): signal is AbortSignal => signal !== undefined
+          )
+        ),
+      });
+    } catch (error) {
+      if (input.signal?.aborted) {
+        throw error;
+      }
+      await waitForBackstageIngestPoll(input.signal);
+      continue;
+    }
     if (!response.ok) {
       throw new Error(
         `Backstage ingest job polling failed (${response.status} ${response.statusText})`
