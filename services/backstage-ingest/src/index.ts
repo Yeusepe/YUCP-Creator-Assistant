@@ -29,7 +29,7 @@ import {
   sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
-import { Queue, Worker } from 'bullmq';
+import { Queue, UnrecoverableError, Worker } from 'bullmq';
 import { Redis as IORedis } from 'ioredis';
 
 const DEFAULT_PORT = 8080;
@@ -38,12 +38,20 @@ const DEFAULT_LORE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_UPLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_UPLOAD_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES;
-// ponytail: 8 MiB bounds abuse while allowing large managed-path lists. If they exceed this,
-// move the list to server-side storage keyed by the upload instead of embedding it in the token.
+// ponytail: The 8 MiB materialize request cap remains defense in depth against oversized bodies.
 const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
+// ponytail: MAX_MANAGED_PATHS_SERIALIZED_BYTES * ~1.34 + metadata/signature overhead must stay
+// below MAX_MATERIALIZE_BODY_BYTES. If very large packages need more, move the path list to
+// server-side storage keyed by the upload instead of embedding it in the token.
+const MAX_MANAGED_PATHS_SERIALIZED_BYTES = 4 * 1024 * 1024;
+if (MAX_MANAGED_PATHS_SERIALIZED_BYTES * 2 > MAX_MATERIALIZE_BODY_BYTES) {
+  throw new Error('Managed-paths payload limit must leave 2x materialize request headroom.');
+}
 const RESULT_TTL_SECONDS = 15 * 60;
 const QUEUE_NAME = 'backstage-ingest';
 const FAILED_JOB_REASON = 'ingest_failed';
+const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
+  'Backstage package has too many or too long managed asset paths.';
 
 type ServiceConfig = {
   allowedOrigins: string[];
@@ -288,6 +296,22 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
       })
     );
     throw new Error('managed_paths_failed');
+  }
+
+  const managedPathsSerializedBytes = Buffer.byteLength(JSON.stringify(managedPaths));
+  if (managedPathsSerializedBytes > MAX_MANAGED_PATHS_SERIALIZED_BYTES) {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.managed_paths_rejected',
+        uploadId,
+        reason: 'managed_paths_payload_too_large',
+        managedPathCount: managedPaths.length,
+        managedPathsSerializedBytes,
+        limitBytes: MAX_MANAGED_PATHS_SERIALIZED_BYTES,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    throw new UnrecoverableError(MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON);
   }
 
   let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
@@ -536,7 +560,12 @@ worker.on('completed', (job) => {
 });
 
 worker.on('failed', (job) => {
-  if (job && isUploadJobData(job.data) && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+  if (
+    job &&
+    isUploadJobData(job.data) &&
+    (job.failedReason === MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON ||
+      job.attemptsMade >= (job.opts.attempts ?? 1))
+  ) {
     void removeStagedUpload(job.id);
   }
 });
@@ -746,7 +775,11 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     );
   }
   if (state === 'failed') {
-    return applyJobCors(request, Response.json({ state: 'failed', reason: FAILED_JOB_REASON }));
+    const reason =
+      isUploadJobData(job.data) && job.failedReason === MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON
+        ? MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON
+        : FAILED_JOB_REASON;
+    return applyJobCors(request, Response.json({ state: 'failed', reason }));
   }
   return applyJobCors(request, Response.json({ state: 'processing' }));
 }

@@ -12,6 +12,7 @@ import {
   sign,
   verify,
 } from '@yucp/shared/backstageIngest';
+import { collectZipArchiveEntryPaths } from '@yucp/shared/backstageReleaseMaterialization';
 import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
 import { Queue } from 'bullmq';
 import { RedisClient } from 'bun';
@@ -28,7 +29,10 @@ const UPLOAD_TIMEOUT_MS = 30_000;
 const JOB_TIMEOUT_MS = 60_000;
 const TEST_TIMEOUT_MS = 180_000;
 const ABANDONED_UPLOAD_TTL_MS = 250;
+const MAX_MANAGED_PATHS_SERIALIZED_BYTES = 4 * 1024 * 1024;
 const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
+const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
+  'Backstage package has too many or too long managed asset paths.';
 
 type ReceivedPut = {
   repositoryId: string;
@@ -109,6 +113,19 @@ function buildUnitypackage(entries: Array<{ path: string; content: Uint8Array }>
     offset += block.byteLength;
   }
   return gzipSync(tarBytes, { level: 9, mtime: 123 });
+}
+
+function buildZipWithManagedPathsOverLimit(): Uint8Array {
+  const archiveEntries: Record<string, Uint8Array> = {};
+  let serializedSize = 2;
+  let index = 0;
+  while (serializedSize <= MAX_MANAGED_PATHS_SERIALIZED_BYTES) {
+    const path = `Assets/YUCP/Oversized/${String(index).padStart(5, '0')}-${'x'.repeat(64)}.asset`;
+    serializedSize += (index === 0 ? 0 : 1) + Buffer.byteLength(JSON.stringify(path));
+    archiveEntries[path] = new Uint8Array();
+    index += 1;
+  }
+  return zipSync(archiveEntries, { level: 0 });
 }
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
@@ -301,6 +318,7 @@ async function stopSidecar(process: Bun.Subprocess): Promise<void> {
 
 async function uploadWithTus(input: {
   bytes: Uint8Array;
+  chunkSize?: number;
   endpoint: string;
   uploadToken: string;
 }): Promise<TusUploadResult> {
@@ -315,7 +333,7 @@ async function uploadWithTus(input: {
     const upload = new Upload(sourceBuffer, {
       endpoint: input.endpoint,
       metadata: { uploadToken: input.uploadToken },
-      chunkSize: Math.min(5 * 1024 * 1024, input.bytes.byteLength),
+      chunkSize: Math.min(input.chunkSize ?? 5 * 1024 * 1024, input.bytes.byteLength),
       retryDelays: null,
       removeFingerprintOnSuccess: true,
       onAfterResponse: (_request, response) => {
@@ -844,7 +862,52 @@ describe('backstage ingest resumable upload integration', () => {
           `Unitypackage materialize raw Lore GETs: ${unitypackageMaterializeGets.length}; yucp.aliasId=${packageJson.yucp?.aliasId}; managedPaths=${JSON.stringify(packageJson.yucp?.installPlan?.managedPaths)}\n`
         );
 
-        const zipVersion = '1.2.4';
+        const oversizedVersion = '1.2.4';
+        const oversizedSourceBytes = buildZipWithManagedPathsOverLimit();
+        const oversizedManagedPaths = collectZipArchiveEntryPaths(oversizedSourceBytes);
+        const oversizedManagedPathsSerializedBytes = Buffer.byteLength(
+          JSON.stringify(oversizedManagedPaths)
+        );
+        expect(oversizedManagedPathsSerializedBytes).toBeGreaterThan(
+          MAX_MANAGED_PATHS_SERIALIZED_BYTES
+        );
+        const oversizedUploadClaims: BackstageUploadClaims = {
+          ...claims,
+          version: oversizedVersion,
+          deliveryName: `${packageId}-${oversizedVersion}.zip`,
+          sourceContentType: 'application/zip',
+          declaredSha256: await sha256Hex(oversizedSourceBytes),
+          byteSize: oversizedSourceBytes.byteLength,
+        };
+        const oversizedUploadToken = await sign(INGEST_SECRET, oversizedUploadClaims);
+        const lorePutsBeforeOversizedUpload = receivedPuts.length;
+        const oversizedTusUpload = await uploadWithTus({
+          bytes: oversizedSourceBytes,
+          chunkSize: 1024 * 1024,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken: oversizedUploadToken,
+        });
+        const oversizedUploadStatus = await waitForJobState({
+          jobUrl: jobUrlFromUploadUrl(oversizedTusUpload.uploadUrl),
+          uploadToken: oversizedUploadToken,
+          terminalState: 'failed',
+        });
+        expect(oversizedUploadStatus).toEqual({
+          state: 'failed',
+          reason: MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON,
+        });
+        expect(oversizedUploadStatus).not.toHaveProperty('result');
+        expect(receivedPuts).toHaveLength(lorePutsBeforeOversizedUpload);
+        const oversizedVersionJobNames = (await queue.getJobs())
+          .filter((job) => job.data?.claims?.version === oversizedVersion)
+          .map((job) => job.name);
+        expect(oversizedVersionJobNames).toEqual(['ingest-upload']);
+        await waitForDirectoryEmpty(tempDirectory);
+        process.stdout.write(
+          `Oversized managed paths (${oversizedManagedPathsSerializedBytes} serialized bytes) rejected during upload; no upload result, Lore PUT, or materialize attempt.\n`
+        );
+
+        const zipVersion = '1.2.5';
         const zipSourceBytes = zipSync({
           'package.json': strToU8(
             JSON.stringify({ name: packageId, version: zipVersion, displayName: 'Zip Integration' })
