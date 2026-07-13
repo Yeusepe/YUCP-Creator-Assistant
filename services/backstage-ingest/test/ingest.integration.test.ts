@@ -866,7 +866,7 @@ describe('backstage ingest resumable upload integration', () => {
           managedPaths: zipUploadBundle.managedPaths,
           exp: Math.floor(Date.now() / 1000) + 3_600,
         };
-        expect(
+        await expect(
           runBackstageMaterialize({
             ingestBaseUrl: sidecarOrigin,
             ingestSecret: INGEST_SECRET,
