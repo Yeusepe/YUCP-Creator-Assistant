@@ -1890,7 +1890,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         managedPaths: uploadResult.managedPaths,
         materializeMetadata: {
           displayName: body.displayName?.trim() || packageId,
-          metadata,
+          metadata: preparedArtifact.metadata,
         },
         exp: Math.floor(Date.now() / 1000) + 3600,
       }) satisfies BackstageMaterializeClaims;

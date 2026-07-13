@@ -2121,6 +2121,8 @@ describe('package Backstage publishing routes', () => {
           version: '1.2.3',
           channel: 'stable',
           displayName: 'Resolved Example Package',
+          description: 'Prepared release description',
+          unityVersion: '2022.3.22f1',
         }),
       }),
       'com.yucp.example'
@@ -2171,6 +2173,13 @@ describe('package Backstage publishing routes', () => {
         materializeMetadata: {
           displayName: 'Resolved Example Package',
           metadata: {
+            description: 'Prepared release description',
+            unity: '2022.3.22f1',
+            vpmDependencies: {
+              'com.yucp.importer': '>=0.1.9',
+            },
+            yucpDeliverySourceKind: 'unitypackage',
+            yucpDeliverySourceKindTrust: 'server-derived-v1',
             yucp: {
               kind: 'alias-v1',
               aliasId: 'backstage-bundle',
@@ -2185,6 +2194,9 @@ describe('package Backstage publishing routes', () => {
         exp: expect.any(Number),
       },
     ]);
+    expect(materializeClaims?.materializeMetadata?.metadata).toEqual(
+      (lastActionArgs as { metadata: Record<string, unknown> }).metadata
+    );
     expect(materializePollsByJob.get('materialize-job-1')).toBe(2);
     expect(lastActionArgs).toMatchObject({
       loreSource: uploadResult.loreSource,
