@@ -33,6 +33,8 @@ const MAX_MANAGED_PATHS_SERIALIZED_BYTES = 4 * 1024 * 1024;
 const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
 const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
   'Backstage package has too many or too long managed asset paths.';
+const MANAGED_PATHS_PARSE_FAILED_REASON = 'managed_paths_failed';
+const OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES = 0xffff_fff0;
 
 type ReceivedPut = {
   repositoryId: string;
@@ -126,6 +128,34 @@ function buildZipWithManagedPathsOverLimit(): Uint8Array {
     index += 1;
   }
   return zipSync(archiveEntries, { level: 0 });
+}
+
+function writeUint32LittleEndian(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >>> 8) & 0xff;
+  bytes[offset + 2] = (value >>> 16) & 0xff;
+  bytes[offset + 3] = (value >>> 24) & 0xff;
+}
+
+function buildZipWithDeclaredDecompressedSizeOverLimit(): Uint8Array {
+  const archive = zipSync({
+    'package.json': new Uint8Array(),
+    'Runtime/First.asset': new Uint8Array(),
+    'Runtime/Second.asset': new Uint8Array(),
+  });
+  const centralDirectorySignature = [0x50, 0x4b, 0x01, 0x02] as const;
+  let patchedEntries = 0;
+  for (let offset = 0; offset + 46 <= archive.byteLength; offset += 1) {
+    if (!centralDirectorySignature.every((value, index) => archive[offset + index] === value)) {
+      continue;
+    }
+    writeUint32LittleEndian(archive, offset + 24, OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES);
+    patchedEntries += 1;
+  }
+  if (patchedEntries !== 3) {
+    throw new Error(`Expected to patch 3 ZIP central-directory entries, got ${patchedEntries}.`);
+  }
+  return archive;
 }
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
@@ -907,7 +937,49 @@ describe('backstage ingest resumable upload integration', () => {
           `Oversized managed paths (${oversizedManagedPathsSerializedBytes} serialized bytes) rejected during upload; no upload result, Lore PUT, or materialize attempt.\n`
         );
 
-        const zipVersion = '1.2.5';
+        const zipBombVersion = '1.2.5';
+        const zipBombSourceBytes = buildZipWithDeclaredDecompressedSizeOverLimit();
+        const zipBombUploadClaims: BackstageUploadClaims = {
+          ...claims,
+          version: zipBombVersion,
+          deliveryName: `${packageId}-${zipBombVersion}.zip`,
+          sourceContentType: 'application/zip',
+          declaredSha256: await sha256Hex(zipBombSourceBytes),
+          byteSize: zipBombSourceBytes.byteLength,
+        };
+        const zipBombUploadToken = await sign(INGEST_SECRET, zipBombUploadClaims);
+        const lorePutsBeforeZipBombUpload = receivedPuts.length;
+        const zipBombTusUpload = await uploadWithTus({
+          bytes: zipBombSourceBytes,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken: zipBombUploadToken,
+        });
+        const zipBombUploadId = new URL(zipBombTusUpload.uploadUrl).pathname
+          .split('/')
+          .filter(Boolean)
+          .at(-1);
+        expect(zipBombUploadId).toBeTruthy();
+        expect(
+          await waitForJobState({
+            jobUrl: jobUrlFromUploadUrl(zipBombTusUpload.uploadUrl),
+            uploadToken: zipBombUploadToken,
+            terminalState: 'failed',
+          })
+        ).toEqual({ state: 'failed', reason: 'ingest_failed' });
+        const zipBombJob = await queue.getJob(zipBombUploadId as string);
+        expect(zipBombJob?.failedReason).toBe(MANAGED_PATHS_PARSE_FAILED_REASON);
+        expect(zipBombJob?.attemptsMade).toBe(1);
+        expect(receivedPuts).toHaveLength(lorePutsBeforeZipBombUpload);
+        const zipBombVersionJobNames = (await queue.getJobs())
+          .filter((job) => job.data?.claims?.version === zipBombVersion)
+          .map((job) => job.name);
+        expect(zipBombVersionJobNames).toEqual(['ingest-upload']);
+        await waitForDirectoryEmpty(tempDirectory);
+        process.stdout.write(
+          `Over-cap declared ZIP rejected as unrecoverable during upload after ${zipBombJob?.attemptsMade} attempt; no Lore PUT or materialize attempt.\n`
+        );
+
+        const zipVersion = '1.2.6';
         const zipSourceBytes = zipSync({
           'package.json': strToU8(
             JSON.stringify({ name: packageId, version: zipVersion, displayName: 'Zip Integration' })
@@ -942,20 +1014,43 @@ describe('backstage ingest resumable upload integration', () => {
         expect(zipUploadBundle.sourceKind).toBe('zip');
         expect(receivedPuts).toHaveLength(3);
 
-        const zipGetsBeforeMaterialize = receivedGets.length;
-        const zipMismatchClaims: BackstageMaterializeClaims = {
+        const zipMaterializeClaims: BackstageMaterializeClaims = {
           typ: 'backstage-materialize',
           authUserId,
           packageId,
           version: zipVersion,
           repositoryId,
           loreSourceAddress: zipUploadBundle.loreSource.address,
-          loreSourceSha256: 'f'.repeat(64),
+          loreSourceSha256: zipUploadBundle.rawSha256,
           deliveryName: zipUploadBundle.rawDeliveryName,
           sourceContentType: zipUploadBundle.rawContentType,
           sourceKind: zipUploadBundle.sourceKind,
           managedPaths: zipUploadBundle.managedPaths,
           exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const zipMaterializeBundle = await runBackstageMaterialize({
+          ingestBaseUrl: sidecarOrigin,
+          ingestSecret: INGEST_SECRET,
+          claims: zipMaterializeClaims,
+        });
+        expect(zipMaterializeBundle).toMatchObject({
+          typ: 'backstage-materialize-result',
+          authUserId,
+          packageId,
+          version: zipVersion,
+        });
+        expect(receivedPuts).toHaveLength(4);
+        expect(Object.keys(unzipSync(receivedPuts[3]?.bytes ?? new Uint8Array()))).toEqual([
+          'package.json',
+        ]);
+        process.stdout.write(
+          `Normal ZIP uploaded and materialized; Lore PUTs: ${receivedPuts.length}.\n`
+        );
+
+        const zipGetsBeforeMaterialize = receivedGets.length;
+        const zipMismatchClaims: BackstageMaterializeClaims = {
+          ...zipMaterializeClaims,
+          loreSourceSha256: 'f'.repeat(64),
         };
         await expect(
           runBackstageMaterialize({
@@ -969,7 +1064,7 @@ describe('backstage ingest resumable upload integration', () => {
         expect(new Set(zipMaterializeGets)).toEqual(
           new Set([`/v1/repository/${repositoryId}/content/${zipUploadBundle.loreSource.address}`])
         );
-        expect(receivedPuts).toHaveLength(3);
+        expect(receivedPuts).toHaveLength(4);
         process.stdout.write(
           `Zip materialize raw Lore GETs: ${zipMaterializeGets.length}; SHA mismatch rejected.\n`
         );
@@ -993,7 +1088,7 @@ describe('backstage ingest resumable upload integration', () => {
             terminalState: 'failed',
           })
         ).toEqual({ state: 'failed', reason: 'ingest_failed' });
-        expect(receivedPuts).toHaveLength(3);
+        expect(receivedPuts).toHaveLength(4);
         await waitForDirectoryEmpty(tempDirectory);
 
         const abandonedUploadId = await createAbandonedTusUpload({
@@ -1033,7 +1128,7 @@ describe('backstage ingest resumable upload integration', () => {
         }
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
-        expect(receivedPuts).toHaveLength(3);
+        expect(receivedPuts).toHaveLength(4);
         expect(await readdir(tempDirectory)).toEqual([]);
         process.stdout.write('SHA mismatch immediate staged upload cleanup assertion passed.\n');
 

@@ -17,6 +17,9 @@ const TAR_MTIME_A = 123;
 const TAR_MTIME_B = 456;
 const TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES = 1024 * 1024;
 const TEST_UNITYPACKAGE_BOMB_DECOMPRESSED_BYTES = 1024 * 1024 + 512;
+const ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE = 'Backstage ZIP exceeds the decompressed size limit.';
+const OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES = 0xffff_fff0;
+const OVER_LIMIT_ZIP64_DECLARED_BYTES = 11 * 1024 * 1024 * 1024;
 
 function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
   const encoded = new TextEncoder().encode(value);
@@ -102,6 +105,105 @@ function writeUint16LittleEndian(bytes: Uint8Array, offset: number, value: numbe
   bytes[offset + 1] = (value >>> 8) & 0xff;
 }
 
+function readUint16LittleEndian(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset] ?? 0) | ((bytes[offset + 1] ?? 0) << 8);
+}
+
+function readUint32LittleEndian(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset] ?? 0) |
+      ((bytes[offset + 1] ?? 0) << 8) |
+      ((bytes[offset + 2] ?? 0) << 16) |
+      ((bytes[offset + 3] ?? 0) << 24)) >>>
+    0
+  );
+}
+
+function writeUint32LittleEndian(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >>> 8) & 0xff;
+  bytes[offset + 2] = (value >>> 16) & 0xff;
+  bytes[offset + 3] = (value >>> 24) & 0xff;
+}
+
+function writeUint64LittleEndian(bytes: Uint8Array, offset: number, value: number): void {
+  writeUint32LittleEndian(bytes, offset, value % 0x1_0000_0000);
+  writeUint32LittleEndian(bytes, offset + 4, Math.floor(value / 0x1_0000_0000));
+}
+
+function patchZipCentralDirectoryDeclaredSizes(archive: Uint8Array, declaredBytes: number): void {
+  const signature = [0x50, 0x4b, 0x01, 0x02] as const;
+  let patchedEntries = 0;
+  for (let offset = 0; offset + 46 <= archive.byteLength; offset += 1) {
+    if (!signature.every((value, index) => archive[offset + index] === value)) {
+      continue;
+    }
+    writeUint32LittleEndian(archive, offset + 24, declaredBytes);
+    patchedEntries += 1;
+  }
+  if (patchedEntries === 0) {
+    throw new Error('Expected at least one ZIP central-directory entry to patch.');
+  }
+}
+
+function patchZipCompressionMethod(archive: Uint8Array, compressionMethod: number): void {
+  const signatures = [
+    { signature: [0x50, 0x4b, 0x03, 0x04] as const, methodOffset: 8 },
+    { signature: [0x50, 0x4b, 0x01, 0x02] as const, methodOffset: 10 },
+  ];
+  for (const { signature, methodOffset } of signatures) {
+    for (let offset = 0; offset + 46 <= archive.byteLength; offset += 1) {
+      if (signature.every((value, index) => archive[offset + index] === value)) {
+        writeUint16LittleEndian(archive, offset + methodOffset, compressionMethod);
+      }
+    }
+  }
+}
+
+function buildZipWithDeclaredDecompressedSizeOverLimit(): Uint8Array {
+  const archive = zipSync({
+    'Packages/com.yucp.example/package.json': new Uint8Array(),
+    'Packages/com.yucp.example/Runtime/First.asset': new Uint8Array(),
+    'Packages/com.yucp.example/Runtime/Second.asset': new Uint8Array(),
+  });
+  patchZipCentralDirectoryDeclaredSizes(archive, OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES);
+  return archive;
+}
+
+function buildZipWithZip64DeclaredDecompressedSize(declaredBytes: number): Uint8Array {
+  const archive = zipSync({
+    'Packages/com.yucp.example/package.json': new Uint8Array(),
+  });
+  const centralHeaderOffset = findZipSignature(archive, [0x50, 0x4b, 0x01, 0x02]);
+  const endOfCentralDirectoryOffset = findZipSignature(archive, [0x50, 0x4b, 0x05, 0x06]);
+  const fileNameLength = readUint16LittleEndian(archive, centralHeaderOffset + 28);
+  const extraFieldLength = readUint16LittleEndian(archive, centralHeaderOffset + 30);
+  const zip64ExtraFieldLength = 12;
+  const zip64ExtraFieldOffset = centralHeaderOffset + 46 + fileNameLength;
+  const patched = new Uint8Array(archive.byteLength + zip64ExtraFieldLength);
+  patched.set(archive.subarray(0, zip64ExtraFieldOffset));
+  writeUint16LittleEndian(patched, zip64ExtraFieldOffset, 0x0001);
+  writeUint16LittleEndian(patched, zip64ExtraFieldOffset + 2, 8);
+  writeUint64LittleEndian(patched, zip64ExtraFieldOffset + 4, declaredBytes);
+  patched.set(
+    archive.subarray(zip64ExtraFieldOffset),
+    zip64ExtraFieldOffset + zip64ExtraFieldLength
+  );
+
+  writeUint32LittleEndian(patched, centralHeaderOffset + 24, 0xffff_ffff);
+  writeUint16LittleEndian(
+    patched,
+    centralHeaderOffset + 30,
+    extraFieldLength + zip64ExtraFieldLength
+  );
+  writeUint32LittleEndian(
+    patched,
+    endOfCentralDirectoryOffset + zip64ExtraFieldLength + 12,
+    readUint32LittleEndian(archive, endOfCentralDirectoryOffset + 12) + zip64ExtraFieldLength
+  );
+  return patched;
+}
+
 describe('collectZipArchiveEntryPaths', () => {
   it('collects file names from a ZIP central directory', () => {
     const archive = zipSync({
@@ -127,6 +229,22 @@ describe('collectZipArchiveEntryPaths', () => {
     expect(collectZipArchiveEntryPaths(archive)).toEqual([
       'Packages/com.yucp.example/package.json',
     ]);
+  });
+
+  it('rejects a ZIP whose summed declared decompressed size exceeds the limit without inflating', () => {
+    const archive = buildZipWithDeclaredDecompressedSizeOverLimit();
+
+    expect(() => collectZipArchiveEntryPaths(archive)).toThrow(
+      ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE
+    );
+  });
+
+  it('rejects an over-limit ZIP64 uncompressed size from the extended information field', () => {
+    const archive = buildZipWithZip64DeclaredDecompressedSize(OVER_LIMIT_ZIP64_DECLARED_BYTES);
+
+    expect(() => collectZipArchiveEntryPaths(archive)).toThrow(
+      ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE
+    );
   });
 
   it('rejects a central-directory entry-count mismatch', () => {
@@ -187,6 +305,19 @@ describe('collectUnityPackageImportPaths', () => {
 });
 
 describe('materializeBackstageReleaseArtifact', () => {
+  it('rejects an over-limit declared ZIP before attempting to inflate it', async () => {
+    const archive = buildZipWithDeclaredDecompressedSizeOverLimit();
+    patchZipCompressionMethod(archive, 99);
+
+    await expect(
+      materializeBackstageReleaseArtifact({
+        sourceBytes: archive,
+        deliveryName: 'declared-size-bomb.zip',
+        contentType: 'application/zip',
+      })
+    ).rejects.toThrow(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
+  });
+
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
     const firstInput = zipSync(
       {

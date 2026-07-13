@@ -14,11 +14,15 @@ import { applyYucpAliasPackageManifestDefaults } from './yucpAliasPackageContrac
 
 const FIXED_ZIP_MTIME = new Date(315619200000);
 export const MAX_UNITYPACKAGE_DECOMPRESSED_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES * 2;
+export const MAX_ZIP_DECOMPRESSED_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES * 2;
 export const MAX_UNITYPACKAGE_ENTRIES = 100_000;
 const MAX_UNITYPACKAGE_PATHNAME_BYTES = 64 * 1024;
 const UNITYPACKAGE_GUNZIP_INPUT_CHUNK_BYTES = 64 * 1024;
 const UNITYPACKAGE_LIMIT_ERROR_MESSAGE =
   'Backstage unitypackage exceeds the decompressed size/entry limit.';
+const ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE = 'Backstage ZIP exceeds the decompressed size limit.';
+const ZIP64_UNCOMPRESSED_SIZE_MALFORMED_ERROR_MESSAGE =
+  'Backstage ZIP64 uncompressed size is malformed.';
 // ponytail: These ceilings allow twice the accepted source-package bytes and 100,000 tar entries.
 // A truly larger legitimate package needs an end-to-end streaming materialization redesign first.
 const MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES = 100_000;
@@ -27,6 +31,7 @@ const ZIP_CENTRAL_DIRECTORY_DIGITAL_SIGNATURE = 0x05054b50;
 const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06064b50;
 const ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE = 0x07064b50;
+const ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD_ID = 0x0001;
 const ZIP_UTF8_FILE_NAME_FLAG = 0x0800;
 const CP437_HIGH_CHARACTERS = Array.from(
   'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ '
@@ -587,6 +592,52 @@ function decodeZipFileName(bytes: Uint8Array, utf8: boolean): string {
   ).join('');
 }
 
+function readZipCentralDirectoryEntryUncompressedSize(input: {
+  sourceBytes: Uint8Array;
+  recordOffset: number;
+  fileNameLength: number;
+  extraFieldLength: number;
+}): number {
+  const uncompressedSize = readZipUint32(
+    input.sourceBytes,
+    input.recordOffset + 24,
+    'central-directory uncompressed size'
+  );
+  if (uncompressedSize !== 0xffff_ffff) {
+    return uncompressedSize;
+  }
+
+  const extraFieldOffset = input.recordOffset + 46 + input.fileNameLength;
+  assertZipRange(
+    input.sourceBytes,
+    extraFieldOffset,
+    input.extraFieldLength,
+    'central-directory extra field'
+  );
+  const extraFieldEnd = extraFieldOffset + input.extraFieldLength;
+  let blockOffset = extraFieldOffset;
+  while (blockOffset < extraFieldEnd) {
+    if (blockOffset > extraFieldEnd - 4) {
+      throw new Error(ZIP64_UNCOMPRESSED_SIZE_MALFORMED_ERROR_MESSAGE);
+    }
+    const headerId = readZipUint16(input.sourceBytes, blockOffset, 'extra-field header ID');
+    const dataSize = readZipUint16(input.sourceBytes, blockOffset + 2, 'extra-field data size');
+    const blockDataOffset = blockOffset + 4;
+    if (blockDataOffset > extraFieldEnd - dataSize) {
+      throw new Error(ZIP64_UNCOMPRESSED_SIZE_MALFORMED_ERROR_MESSAGE);
+    }
+    if (headerId === ZIP64_EXTENDED_INFORMATION_EXTRA_FIELD_ID) {
+      if (dataSize < 8) {
+        throw new Error(ZIP64_UNCOMPRESSED_SIZE_MALFORMED_ERROR_MESSAGE);
+      }
+      return readZipUint64(input.sourceBytes, blockDataOffset, 'ZIP64 uncompressed size');
+    }
+    blockOffset = blockDataOffset + dataSize;
+  }
+
+  throw new Error(ZIP64_UNCOMPRESSED_SIZE_MALFORMED_ERROR_MESSAGE);
+}
+
 export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
   const centralDirectory = readZipCentralDirectoryLocation(sourceBytes);
   if (centralDirectory.entryCount > MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES) {
@@ -597,6 +648,7 @@ export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
   assertZipRange(sourceBytes, centralDirectory.offset, centralDirectory.size, 'central directory');
   const centralDirectoryEnd = centralDirectory.offset + centralDirectory.size;
   const managedPaths = new Set<string>();
+  let declaredDecompressedBytes = 0;
   let offset = centralDirectory.offset;
 
   for (let index = 0; index < centralDirectory.entryCount; index += 1) {
@@ -626,6 +678,15 @@ export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
     const recordSize = 46 + fileNameLength + extraFieldLength + commentLength;
     if (offset + recordSize > centralDirectoryEnd) {
       throw new Error('Backstage ZIP central-directory file header is truncated.');
+    }
+    declaredDecompressedBytes += readZipCentralDirectoryEntryUncompressedSize({
+      sourceBytes,
+      recordOffset: offset,
+      fileNameLength,
+      extraFieldLength,
+    });
+    if (declaredDecompressedBytes > MAX_ZIP_DECOMPRESSED_BYTES) {
+      throw new Error(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
     }
     const fileName = decodeZipFileName(
       sourceBytes.subarray(offset + 46, offset + 46 + fileNameLength),
@@ -703,6 +764,10 @@ function materializeZip(input: {
   displayName?: string;
   metadata?: Record<string, unknown>;
 }): Uint8Array {
+  // ponytail: This declared-size guard catches standard and accidental oversized ZIPs, but
+  // unzipSync still follows the actual deflate stream. A forged ZIP that declares small sizes can
+  // still inflate beyond this limit; streaming inflate with a hard output cap is the upgrade path.
+  collectZipArchiveEntryPaths(input.sourceBytes);
   const archive = unzipSync(input.sourceBytes);
   const sanitizedMetadata = sanitizePackageManifestMetadata(input.metadata);
   const normalizedEntries = Object.fromEntries(
