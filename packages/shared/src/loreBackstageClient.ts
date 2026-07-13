@@ -136,6 +136,9 @@ export function requireLoreBackstageConfig(
 ): ConfiguredLoreBackstageConfig {
   const apiBaseUrlValue = requireNonEmpty(config?.apiBaseUrl, 'LORE_API_BASE_URL');
   const apiBaseUrl = assertSecureLoreUrl(apiBaseUrlValue, 'LORE_API_BASE_URL');
+  if (apiBaseUrl.search || apiBaseUrl.hash) {
+    throw new Error('LORE_API_BASE_URL must not contain a query string or fragment.');
+  }
 
   const presignHmacKey = config?.presignHmacKey?.trim().toLowerCase();
   if (presignHmacKey) {
