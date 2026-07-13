@@ -10,10 +10,14 @@ import {
 } from '@yucp/shared';
 import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
-  type BackstageIngestResult,
+  type BackstageMaterializeClaims,
+  type BackstageMaterializeResult,
   type BackstageUploadClaims,
-  parseIngestResult,
+  type BackstageUploadResult,
+  parseMaterializeClaims,
+  parseMaterializeResult,
   parseUploadClaims,
+  parseUploadResult,
   sign,
   verify,
 } from '@yucp/shared/backstageIngest';
@@ -54,6 +58,9 @@ const BACKSTAGE_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_BACKSTAGE_LIVE_SYNC_TIMEOUT_MS = 1_500;
 const MAX_BACKSTAGE_UPLOAD_AUTHORIZATION_BYTES = 16 * 1024;
 const MAX_BACKSTAGE_PACKAGE_MEDIA_BYTES = 5 * 1024 * 1024;
+const BACKSTAGE_MATERIALIZE_REQUEST_TIMEOUT_MS = 5_000;
+const BACKSTAGE_MATERIALIZE_POLL_INTERVAL_MS = 500;
+const BACKSTAGE_MATERIALIZE_DEADLINE_MS = 20_000;
 const BACKSTAGE_PACKAGE_MEDIA_CONTENT_TYPES = new Set([
   'image/gif',
   'image/jpeg',
@@ -203,6 +210,13 @@ class BackstageUploadAuthorizationLimitError extends Error {
   }
 }
 
+class BackstageMaterializeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BackstageMaterializeError';
+  }
+}
+
 function jsonResponse(body: object, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -243,6 +257,132 @@ export function trimTrailingForwardSlashes(value: string): string {
     end -= 1;
   }
   return end === value.length ? value : value.slice(0, end);
+}
+
+function materializeRequestSignal(deadline: number): AbortSignal {
+  return AbortSignal.timeout(
+    Math.max(1, Math.min(BACKSTAGE_MATERIALIZE_REQUEST_TIMEOUT_MS, deadline - Date.now()))
+  );
+}
+
+async function parseMaterializeJsonResponse(
+  response: Response,
+  operation: string
+): Promise<unknown> {
+  if (!response.ok) {
+    throw new BackstageMaterializeError(
+      `${operation} failed (${response.status} ${response.statusText})`
+    );
+  }
+  try {
+    return await response.json();
+  } catch {
+    throw new BackstageMaterializeError(`${operation} returned invalid JSON`);
+  }
+}
+
+async function runBackstageMaterialize(
+  config: PackagesConfig,
+  claims: BackstageMaterializeClaims
+): Promise<BackstageMaterializeResult> {
+  if (!config.backstageIngestSecret || !config.ingestBaseUrl) {
+    throw new BackstageMaterializeError('Backstage ingest service is not configured');
+  }
+  const ingestBaseUrl = trimTrailingForwardSlashes(
+    assertSecureLoreUrl(config.ingestBaseUrl, 'LORE_INGEST_BASE_URL').toString()
+  );
+  const materializeToken = await sign(config.backstageIngestSecret, claims);
+  const deadline = Date.now() + BACKSTAGE_MATERIALIZE_DEADLINE_MS;
+
+  let enqueueResponse: Response;
+  try {
+    enqueueResponse = await fetch(`${ingestBaseUrl}/materialize`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${materializeToken}` },
+      signal: materializeRequestSignal(deadline),
+    });
+  } catch (error) {
+    throw new BackstageMaterializeError(
+      `Backstage materialize request failed: ${
+        isFetchAbortOrTimeoutError(error) ? 'request timed out' : 'sidecar unavailable'
+      }`
+    );
+  }
+  const enqueuePayload = await parseMaterializeJsonResponse(
+    enqueueResponse,
+    'Backstage materialize request'
+  );
+  if (!isRecord(enqueuePayload) || typeof enqueuePayload.jobId !== 'string') {
+    throw new BackstageMaterializeError(
+      'Backstage materialize request did not return a valid jobId'
+    );
+  }
+  const jobId = enqueuePayload.jobId.trim();
+  if (!jobId) {
+    throw new BackstageMaterializeError(
+      'Backstage materialize request did not return a valid jobId'
+    );
+  }
+  const jobUrl = `${ingestBaseUrl}/jobs/${encodeURIComponent(jobId)}`;
+
+  // ponytail: a unitypackage shim materializes in seconds with a few polls. A very large .zip
+  // repack could exceed the Worker's subrequest or time budget and would need a client-async
+  // publish handoff, which is intentionally out of scope here.
+  for (;;) {
+    if (Date.now() >= deadline) {
+      throw new BackstageMaterializeError('Timed out waiting for Backstage materialization');
+    }
+
+    let jobResponse: Response;
+    try {
+      jobResponse = await fetch(jobUrl, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${materializeToken}` },
+        signal: materializeRequestSignal(deadline),
+      });
+    } catch (error) {
+      throw new BackstageMaterializeError(
+        `Backstage materialize job polling failed: ${
+          isFetchAbortOrTimeoutError(error) ? 'request timed out' : 'sidecar unavailable'
+        }`
+      );
+    }
+    const jobPayload = await parseMaterializeJsonResponse(
+      jobResponse,
+      'Backstage materialize job polling'
+    );
+    if (!isRecord(jobPayload)) {
+      throw new BackstageMaterializeError('Backstage materialize job returned an invalid state');
+    }
+    if (jobPayload.state === 'completed') {
+      if (typeof jobPayload.result !== 'string' || !jobPayload.result.trim()) {
+        throw new BackstageMaterializeError(
+          'Completed Backstage materialize job did not return a signed result'
+        );
+      }
+      try {
+        return parseMaterializeResult(
+          await verify(config.backstageIngestSecret, jobPayload.result)
+        );
+      } catch {
+        throw new BackstageMaterializeError(
+          'Completed Backstage materialize job returned an invalid signed result'
+        );
+      }
+    }
+    if (jobPayload.state === 'failed') {
+      const reason =
+        typeof jobPayload.reason === 'string' && jobPayload.reason.trim()
+          ? jobPayload.reason.trim()
+          : 'unknown failure';
+      throw new BackstageMaterializeError(`Backstage materialize job failed: ${reason}`);
+    }
+    if (jobPayload.state !== 'processing') {
+      throw new BackstageMaterializeError('Backstage materialize job returned an invalid state');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, BACKSTAGE_MATERIALIZE_POLL_INTERVAL_MS));
+  }
 }
 
 function getBackstageLiveSyncTimeoutMs(): number {
@@ -1804,44 +1944,38 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         400
       );
     }
-    if (!config.backstageIngestSecret) {
+    if (!config.backstageIngestSecret || !config.ingestBaseUrl || !config.lore) {
       return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
 
-    let ingestResult: BackstageIngestResult;
+    let uploadResult: BackstageUploadResult;
     try {
-      ingestResult = parseIngestResult(
+      uploadResult = parseUploadResult(
         await verify(config.backstageIngestSecret, body.ingestResult)
       );
     } catch {
       return jsonResponse({ error: 'Invalid or expired ingest result' }, 400);
     }
-    if (ingestResult.authUserId !== viewer.authUserId) {
+    if (uploadResult.authUserId !== viewer.authUserId) {
       return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
     }
-    if (ingestResult.packageId !== packageId) {
+    if (uploadResult.packageId !== packageId) {
       return jsonResponse({ error: 'Ingest result does not match the release package' }, 400);
     }
-    if (ingestResult.version !== body.version) {
+    if (uploadResult.version !== body.version) {
       return jsonResponse(
         { error: 'Ingest result does not match the release version — re-upload' },
         409
       );
     }
-    if (
-      ingestResult.loreSource.tenantId !== viewer.authUserId ||
-      ingestResult.loreDelivery.tenantId !== viewer.authUserId
-    ) {
+    if (uploadResult.loreSource.tenantId !== viewer.authUserId) {
       return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
     }
     const expectedRepositoryId = loreRepositoryIdForCreator(
       viewer.authUserId,
       requireLoreBackstageConfig(config.lore).repoNamespaceSalt
     );
-    if (
-      ingestResult.loreSource.repositoryId !== expectedRepositoryId ||
-      ingestResult.loreDelivery.repositoryId !== expectedRepositoryId
-    ) {
+    if (uploadResult.loreSource.repositoryId !== expectedRepositoryId) {
       return jsonResponse({ error: 'Ingest result is not owned by this creator' }, 403);
     }
 
@@ -1875,6 +2009,9 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         }),
         dependencyVersions,
       });
+      if (!metadata) {
+        throw new Error('Resolved Backstage metadata is required for materialization.');
+      }
       const preparedArtifact = prepareBackstageArtifactDescriptorForPublish({
         packageId,
         version: body.version,
@@ -1882,10 +2019,37 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         description: body.description,
         unityVersion: body.unityVersion,
         metadata,
-        sourceContentType: ingestResult.rawContentType,
-        sourceFileName: ingestResult.rawDeliveryName,
-        sourceSha256: ingestResult.rawSha256,
+        sourceContentType: uploadResult.rawContentType,
+        sourceFileName: uploadResult.rawDeliveryName,
+        sourceSha256: uploadResult.rawSha256,
       });
+      const materializeClaims = parseMaterializeClaims({
+        typ: 'backstage-materialize',
+        authUserId: viewer.authUserId,
+        packageId,
+        version: body.version,
+        repositoryId: expectedRepositoryId,
+        loreSourceAddress: uploadResult.loreSource.address,
+        loreSourceSha256: uploadResult.rawSha256,
+        deliveryName: uploadResult.rawDeliveryName,
+        sourceContentType: uploadResult.rawContentType,
+        sourceKind: uploadResult.sourceKind,
+        materializeMetadata: {
+          displayName: body.displayName?.trim() || packageId,
+          metadata,
+        },
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      }) satisfies BackstageMaterializeClaims;
+      const materializeResult = await runBackstageMaterialize(config, materializeClaims);
+      if (
+        materializeResult.authUserId !== viewer.authUserId ||
+        materializeResult.packageId !== packageId ||
+        materializeResult.version !== body.version ||
+        materializeResult.loreDelivery.tenantId !== viewer.authUserId ||
+        materializeResult.loreDelivery.repositoryId !== expectedRepositoryId
+      ) {
+        return jsonResponse({ error: 'Materialize result is not owned by this creator' }, 403);
+      }
       const result = await convex.mutation(api.backstageRepos.publishLoreReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
@@ -1911,20 +2075,28 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         defaultChannel: body.defaultChannel,
         unityVersion: body.unityVersion,
         metadata: preparedArtifact.metadata,
-        rawDeliveryName: ingestResult.rawDeliveryName,
-        rawContentType: ingestResult.rawContentType,
-        rawSha256: ingestResult.rawSha256,
-        rawByteSize: ingestResult.rawByteSize,
-        loreSource: ingestResult.loreSource,
-        deliverableDeliveryName: ingestResult.deliverableDeliveryName,
-        deliverableContentType: ingestResult.deliverableContentType,
-        deliverableSha256: ingestResult.deliverableSha256,
-        deliverableByteSize: ingestResult.deliverableByteSize,
-        loreDelivery: ingestResult.loreDelivery,
+        rawDeliveryName: uploadResult.rawDeliveryName,
+        rawContentType: uploadResult.rawContentType,
+        rawSha256: uploadResult.rawSha256,
+        rawByteSize: uploadResult.rawByteSize,
+        loreSource: uploadResult.loreSource,
+        deliverableDeliveryName: materializeResult.deliverableDeliveryName,
+        deliverableContentType: materializeResult.deliverableContentType,
+        deliverableSha256: materializeResult.deliverableSha256,
+        deliverableByteSize: materializeResult.deliverableByteSize,
+        loreDelivery: materializeResult.loreDelivery,
         releaseStatus: body.releaseStatus,
       });
       return jsonResponse(result, 201);
     } catch (error) {
+      if (error instanceof BackstageMaterializeError) {
+        logger.warn('Backstage release materialization failed', {
+          authUserId: viewer.authUserId,
+          packageId,
+          error: error.message,
+        });
+        return jsonResponse({ error: error.message }, 502);
+      }
       logger.error('Failed to publish Backstage release', {
         authUserId: viewer.authUserId,
         packageId,
