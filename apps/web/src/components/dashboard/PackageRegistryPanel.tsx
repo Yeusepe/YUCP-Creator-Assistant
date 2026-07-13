@@ -1808,6 +1808,17 @@ export function PackageRegistryPanel({
               : current
           );
         },
+        onProcessing: () => {
+          setSelectedUpload((current) =>
+            current
+              ? {
+                  ...current,
+                  progressLabel: 'Processing',
+                  progressValue: 100,
+                }
+              : current
+          );
+        },
       });
       setSelectedUpload((current) =>
         current

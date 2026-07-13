@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { apiPostMock, createdUploads } = vi.hoisted(() => ({
   apiPostMock: vi.fn(),
   createdUploads: [] as Array<{
     file: File;
+    url: string | null;
     options: {
       endpoint?: string | null;
       metadata?: Record<string, string>;
@@ -11,9 +12,6 @@ const { apiPostMock, createdUploads } = vi.hoisted(() => ({
       retryDelays?: number[] | null;
       removeFingerprintOnSuccess?: boolean;
       onProgress?: ((bytesSent: number, bytesTotal: number) => void) | null;
-      onAfterResponse?:
-        | ((request: unknown, response: { getHeader(name: string): string | undefined }) => void)
-        | null;
       onSuccess?: ((payload: { lastResponse: unknown }) => void) | null;
       onError?: ((error: Error) => void) | null;
     };
@@ -32,6 +30,7 @@ vi.mock('tus-js-client', () => ({
   Upload: class MockTusUpload {
     readonly start = vi.fn();
     readonly abort = vi.fn(() => Promise.resolve());
+    readonly url = 'https://ingest.test/files/job_123';
 
     constructor(
       readonly file: File,
@@ -56,6 +55,11 @@ beforeEach(() => {
   createdUploads.length = 0;
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 describe('uploadBackstageReleaseSource', () => {
   it('rejects an already-aborted upload before hashing or authorization', async () => {
     const controller = new AbortController();
@@ -74,10 +78,16 @@ describe('uploadBackstageReleaseSource', () => {
     expect(createdUploads).toHaveLength(0);
   });
 
-  it('authorizes and uploads with tus, then returns the signed ingest result header', async () => {
+  it('authorizes and uploads with tus, then polls processing until the signed result completes', async () => {
     apiPostMock.mockResolvedValueOnce(authorization);
     const file = new File(['package bytes'], 'bundle.zip', { type: 'application/zip' });
     const onProgress = vi.fn();
+    const onProcessing = vi.fn();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ state: 'processing' }))
+      .mockResolvedValueOnce(Response.json({ state: 'completed', result: 'signed-ingest-result' }));
+    vi.stubGlobal('fetch', fetchMock);
 
     const resultPromise = uploadBackstageReleaseSource({
       packageId: 'com.yucp.bundle',
@@ -89,6 +99,7 @@ describe('uploadBackstageReleaseSource', () => {
         metadata: { channel: 'stable' },
       },
       onProgress,
+      onProcessing,
     });
 
     await vi.waitFor(() => expect(createdUploads).toHaveLength(1));
@@ -122,22 +133,10 @@ describe('uploadBackstageReleaseSource', () => {
     upload.options.onProgress?.(32, 128);
     expect(onProgress).toHaveBeenCalledWith({ loaded: 32, total: 128 });
 
-    upload.options.onAfterResponse?.(
-      {},
-      {
-        getHeader: (name) =>
-          name === 'X-Backstage-Ingest-Result' ? 'superseded-ingest-result' : undefined,
-      }
-    );
-    upload.options.onAfterResponse?.(
-      {},
-      {
-        getHeader: (name) =>
-          name === 'X-Backstage-Ingest-Result' ? 'signed-ingest-result' : undefined,
-      }
-    );
-    upload.options.onAfterResponse?.({}, { getHeader: () => undefined });
+    vi.useFakeTimers();
     upload.options.onSuccess?.({ lastResponse: {} });
+    expect(onProcessing).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1000);
 
     await expect(resultPromise).resolves.toEqual({
       ingestResult: 'signed-ingest-result',
@@ -145,10 +144,24 @@ describe('uploadBackstageReleaseSource', () => {
       deliveryName: 'release.zip',
       sourceContentType: 'application/zip',
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const call of fetchMock.mock.calls) {
+      expect(call).toEqual([
+        'https://ingest.test/jobs/job_123',
+        {
+          headers: { Authorization: 'Bearer signed-upload-token' },
+          signal: undefined,
+        },
+      ]);
+    }
   });
 
-  it('rejects a completed upload when the ingest result header is missing', async () => {
+  it('rejects when the ingest job reports a failed state', async () => {
     apiPostMock.mockResolvedValueOnce(authorization);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ state: 'failed', reason: 'materialize_failed' }));
+    vi.stubGlobal('fetch', fetchMock);
     const resultPromise = uploadBackstageReleaseSource({
       packageId: 'com.yucp.bundle',
       file: new File(['package bytes'], 'bundle.zip'),
@@ -158,7 +171,11 @@ describe('uploadBackstageReleaseSource', () => {
     await vi.waitFor(() => expect(createdUploads).toHaveLength(1));
     createdUploads[0].options.onSuccess?.({ lastResponse: {} });
 
-    await expect(resultPromise).rejects.toThrow('Ingest service did not return a signed result');
+    await expect(resultPromise).rejects.toThrow('materialize_failed');
+    expect(fetchMock).toHaveBeenCalledWith('https://ingest.test/jobs/job_123', {
+      headers: { Authorization: 'Bearer signed-upload-token' },
+      signal: undefined,
+    });
   });
 
   it('aborts the tus upload when the caller signal is aborted', async () => {

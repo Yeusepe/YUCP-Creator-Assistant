@@ -6,7 +6,8 @@ import type {
 import { apiClient } from '@/api/client';
 import { startHyperdxBrowserSpan } from '@/lib/hyperdx';
 
-const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
+const BACKSTAGE_INGEST_POLL_INTERVAL_MS = 1000;
+const BACKSTAGE_INGEST_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
 export interface CreatorPackageSummary {
@@ -288,10 +289,71 @@ interface BackstageUploadAuthorizationResponse {
   uploadToken: string;
 }
 
+type BackstageIngestJobResponse =
+  | { state: 'processing' }
+  | { state: 'completed'; result: string }
+  | { state: 'failed'; reason: string };
+
+function waitForBackstageIngestPoll(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', handleAbort);
+      resolve();
+    }, BACKSTAGE_INGEST_POLL_INTERVAL_MS);
+
+    function handleAbort() {
+      clearTimeout(timeout);
+      reject(signal ? abortError(signal) : new DOMException('Upload aborted', 'AbortError'));
+    }
+
+    signal?.addEventListener('abort', handleAbort, { once: true });
+  });
+}
+
+async function pollBackstageIngestJob(input: {
+  jobUrl: string;
+  signal?: AbortSignal;
+  uploadToken: string;
+}): Promise<string> {
+  const deadline = Date.now() + BACKSTAGE_INGEST_POLL_TIMEOUT_MS;
+
+  for (;;) {
+    throwIfAborted(input.signal);
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for the Backstage ingest job to complete');
+    }
+
+    const response = await fetch(input.jobUrl, {
+      headers: { Authorization: `Bearer ${input.uploadToken}` },
+      signal: input.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Backstage ingest job polling failed (${response.status} ${response.statusText})`
+      );
+    }
+
+    const job = (await response.json()) as BackstageIngestJobResponse;
+    if (job.state === 'completed') {
+      if (typeof job.result !== 'string' || !job.result.trim()) {
+        throw new Error('Completed Backstage ingest job did not return a signed result');
+      }
+      return job.result;
+    }
+    if (job.state === 'failed') {
+      throw new Error(`Backstage ingest job failed: ${job.reason}`);
+    }
+
+    await waitForBackstageIngestPoll(input.signal);
+  }
+}
+
 export async function uploadBackstageReleaseSource(input: {
   deliveryName?: string;
   file: File;
   materializeMetadata?: BackstageReleaseMaterializeMetadata;
+  onProcessing?: () => void;
   onProgress?: (progress: BackstageReleaseUploadProgress) => void;
   packageId: string;
   signal?: AbortSignal;
@@ -326,7 +388,6 @@ export async function uploadBackstageReleaseSource(input: {
   });
 
   const ingestResult = await new Promise<string>((resolve, reject) => {
-    let latestIngestResult: string | undefined;
     let settled = false;
 
     const cleanup = () => input.signal?.removeEventListener('abort', handleAbort);
@@ -355,18 +416,25 @@ export async function uploadBackstageReleaseSource(input: {
       onProgress: (bytesSent, bytesTotal) => {
         input.onProgress?.({ loaded: bytesSent, total: bytesTotal });
       },
-      onAfterResponse: (_request, response) => {
-        const result = response.getHeader(BACKSTAGE_INGEST_RESULT_HEADER)?.trim();
-        if (result) {
-          latestIngestResult = result;
-        }
-      },
       onSuccess: () => {
-        if (!latestIngestResult) {
-          rejectOnce(new Error('Ingest service did not return a signed result'));
+        const uploadUrl = upload.url;
+        if (!uploadUrl) {
+          rejectOnce(new Error('Ingest service did not return the completed upload URL'));
           return;
         }
-        resolveOnce(latestIngestResult);
+        if (!uploadUrl.includes('/files/')) {
+          rejectOnce(
+            new Error('Ingest service upload URL does not contain the expected /files/ path')
+          );
+          return;
+        }
+        const jobUrl = uploadUrl.replace('/files/', '/jobs/');
+        input.onProcessing?.();
+        void pollBackstageIngestJob({
+          jobUrl,
+          signal: input.signal,
+          uploadToken: authorization.uploadToken,
+        }).then(resolveOnce, rejectOnce);
       },
       onError: rejectOnce,
     });
