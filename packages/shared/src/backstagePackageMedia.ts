@@ -1,6 +1,9 @@
 import { gunzipSync, unzipSync } from 'fflate';
 import { sha256Hex } from './crypto';
-import type { LoreBackstageArtifactReference } from './loreBackstageDelivery';
+import {
+  isLoreBackstageArtifactReference,
+  type LoreBackstageArtifactReference,
+} from './loreBackstageDelivery';
 
 export const BACKSTAGE_PACKAGE_MEDIA_METADATA_KEY = 'yucpPackageMedia';
 
@@ -99,7 +102,7 @@ export function stripBackstagePackageMediaManifestMetadata(
 function normalizeLoreDeliveryReference(
   value: unknown
 ): LoreBackstageArtifactReference | undefined {
-  if (!isRecord(value)) {
+  if (!isLoreBackstageArtifactReference(value)) {
     return undefined;
   }
   const repositoryId = readString(value.repositoryId);
@@ -152,9 +155,12 @@ function normalizePackageMediaReference(
     return undefined;
   }
   const loreDelivery = normalizeLoreDeliveryReference(value.loreDelivery);
+  if (!loreDelivery) {
+    return undefined;
+  }
   return {
     byteSize: value.byteSize,
-    ...(loreDelivery ? { loreDelivery } : {}),
+    loreDelivery,
     contentType,
     deliveryName,
     kind,
