@@ -313,6 +313,7 @@ export async function uploadBackstagePackageArtifactDirect(
     );
   }
 
+  // ponytail: buffering a full 2-3 GB source can OOM the operator or CI host; upgrade the TUS upload to use a file-stream source.
   const sourceBuffer = Buffer.from(await Bun.file(sourcePath).arrayBuffer());
   const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
     const upload = new Upload(sourceBuffer, {

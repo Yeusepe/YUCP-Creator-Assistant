@@ -20,6 +20,10 @@ The Worker handles only authorization and signed result verification, avoiding W
 
 Lore ingest uses `PUT /v1/repository/{repositoryId}/content`. Run `bun run verify:lore:real` for a live round-trip check covering the real PUT, a client-minted presigned URL, and byte-exact retrieval against a running loreserver.
 
+## Known limitations / follow-ups
+
+- The ops publisher still buffers the complete source before its TUS upload, so 2 to 3 GB packages can exhaust operator or CI host memory even though the browser path streams; upgrade it to use a file-stream upload source. Multi-GB `.zip` publish-materialize work can also exceed the synchronous Worker budget and needs an asynchronous publish handoff.
+
 ## Sidecar configuration
 
 Configure the ingest sidecar with:
