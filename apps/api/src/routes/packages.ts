@@ -1488,7 +1488,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       sourceContentType?: unknown;
       sha256?: unknown;
       byteSize?: unknown;
-      materializeMetadata?: unknown;
     };
     const contentLength = readContentLength(request.headers);
     if (contentLength !== null && contentLength > MAX_BACKSTAGE_UPLOAD_AUTHORIZATION_BYTES) {
@@ -1550,9 +1549,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         sourceContentType,
         declaredSha256: sha256,
         byteSize: body.byteSize,
-        ...(body.materializeMetadata !== undefined
-          ? { materializeMetadata: body.materializeMetadata }
-          : {}),
         exp: Math.floor(Date.now() / 1000) + 3600,
       }) satisfies BackstageUploadClaims;
       const uploadToken = await sign(config.backstageIngestSecret, claims);
@@ -1568,9 +1564,6 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         packageId,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (error instanceof Error && error.message.startsWith('Upload token materializeMetadata')) {
-        return jsonResponse({ error: error.message }, 400);
-      }
       return jsonResponse({ error: 'Backstage ingest service is not configured' }, 503);
     }
   }

@@ -1793,10 +1793,6 @@ export function PackageRegistryPanel({
         version,
         deliveryName: selectedUpload.file.name,
         sourceContentType: selectedUpload.contentType,
-        materializeMetadata: {
-          displayName: resolvedDisplayName,
-          ...(releaseMetadata ? { metadata: releaseMetadata } : {}),
-        },
         onProgress: ({ loaded, total }) => {
           setSelectedUpload((current) =>
             current

@@ -276,10 +276,6 @@ async function authorizeUpload(
   version: string
 ): Promise<UploadAuthorization> {
   const declaredSha256 = sha256Hex(source.bytes);
-  const materializeMetadata = {
-    ...(config.displayName ? { displayName: config.displayName } : {}),
-    ...(isRecord(config.metadata) ? { metadata: config.metadata } : {}),
-  };
   const response = await fetch(
     buildApiUrl(
       config.apiBaseUrl,
@@ -298,7 +294,6 @@ async function authorizeUpload(
         sourceContentType: source.contentType,
         sha256: declaredSha256,
         byteSize: source.bytes.byteLength,
-        ...(Object.keys(materializeMetadata).length > 0 ? { materializeMetadata } : {}),
       }),
     }
   );

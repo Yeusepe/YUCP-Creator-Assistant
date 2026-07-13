@@ -551,10 +551,6 @@ describe('package Backstage publishing routes', () => {
           sourceContentType: 'application/x-gzip',
           sha256: 'a'.repeat(64),
           byteSize: 2_500_000_000,
-          materializeMetadata: {
-            displayName: 'Example Package',
-            metadata: { source: 'creator' },
-          },
         }),
       }),
       'com.yucp.example'
@@ -581,10 +577,6 @@ describe('package Backstage publishing routes', () => {
       sourceContentType: 'application/x-gzip',
       declaredSha256: 'a'.repeat(64),
       byteSize: 2_500_000_000,
-      materializeMetadata: {
-        displayName: 'Example Package',
-        metadata: { source: 'creator' },
-      },
     });
     expect(claims.exp).toBeGreaterThan(before);
     expect(claims.exp).toBeLessThanOrEqual(before + 3601);
@@ -691,7 +683,7 @@ describe('package Backstage publishing routes', () => {
     });
   });
 
-  it('rejects upload authorization when the body exceeds the request limit while reading', async () => {
+  it('keeps publish metadata out of the signed upload token', async () => {
     const response = await routes.authorizeBackstageReleaseUpload(
       new Request('https://api.test/upload-authorization', {
         method: 'POST',
@@ -704,16 +696,18 @@ describe('package Backstage publishing routes', () => {
           deliveryName: 'example.zip',
           sha256: 'b'.repeat(64),
           byteSize: 1234,
-          materializeMetadata: { displayName: 'a'.repeat(16 * 1024) },
         }),
       }),
       'com.yucp.example'
     );
 
-    expect(response.status).toBe(413);
-    await expect(response.json()).resolves.toEqual({
-      error: 'Upload authorization request body exceeds the maximum allowed size',
-    });
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { uploadToken: string };
+    const decodedClaims = await verify<Record<string, unknown>>(
+      BACKSTAGE_INGEST_SECRET,
+      payload.uploadToken
+    );
+    expect(decodedClaims).not.toHaveProperty('materializeMetadata');
   });
 
   it('rejects malformed upload authorization digests', async () => {

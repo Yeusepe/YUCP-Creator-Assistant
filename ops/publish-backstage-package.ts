@@ -268,10 +268,6 @@ export async function uploadBackstagePackageArtifactDirect(
   const deliveryName = config.deliveryName ?? sourcePath.split(/[\\/]/).pop() ?? sourcePath;
   const contentType = config.contentType ?? inferBackstageArtifactContentType(sourcePath);
   const { byteSize, sha256 } = await sha256FilePath(sourcePath);
-  const materializeMetadata = {
-    ...(config.displayName ? { displayName: config.displayName } : {}),
-    ...(isRecord(config.metadata) ? { metadata: config.metadata } : {}),
-  };
   const authorizationResponse = await fetchImpl(
     buildApiUrl(
       config.apiBaseUrl,
@@ -289,7 +285,6 @@ export async function uploadBackstagePackageArtifactDirect(
         sourceContentType: contentType,
         sha256,
         byteSize,
-        ...(Object.keys(materializeMetadata).length > 0 ? { materializeMetadata } : {}),
       }),
     }
   );

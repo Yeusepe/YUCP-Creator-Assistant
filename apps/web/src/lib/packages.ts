@@ -366,7 +366,6 @@ async function pollBackstageIngestJob(input: {
 export async function uploadBackstageReleaseSource(input: {
   deliveryName?: string;
   file: File;
-  materializeMetadata?: BackstageReleaseMaterializeMetadata;
   onProcessing?: () => void;
   onProgress?: (progress: BackstageReleaseUploadProgress) => void;
   packageId: string;
@@ -388,7 +387,6 @@ export async function uploadBackstageReleaseSource(input: {
       deliveryName,
       sourceContentType,
       byteSize: input.file.size,
-      materializeMetadata: input.materializeMetadata,
     },
     { signal: input.signal }
   );

@@ -18,10 +18,6 @@ export type BackstageUploadClaims = {
   sourceContentType: string;
   declaredSha256: string;
   byteSize: number;
-  materializeMetadata?: {
-    displayName?: string;
-    metadata?: Record<string, unknown>;
-  };
   exp: number;
 };
 
@@ -201,7 +197,6 @@ export function parseUploadClaims(value: unknown): BackstageUploadClaims {
 
   const declaredSha256 = requiredSha256(value, 'declaredSha256', 'Upload token');
   const repositoryId = requiredRepositoryId(value, 'repositoryId', 'Upload token');
-  const materializeMetadata = parseMaterializeMetadata(value.materializeMetadata, 'Upload token');
 
   return {
     typ: 'backstage-upload',
@@ -213,7 +208,6 @@ export function parseUploadClaims(value: unknown): BackstageUploadClaims {
     sourceContentType: requiredString(value, 'sourceContentType', 'Upload token'),
     declaredSha256,
     byteSize: requiredNonNegativeSafeInteger(value, 'byteSize', 'Upload token'),
-    ...(materializeMetadata ? { materializeMetadata } : {}),
     exp: requiredExpiration(value, 'Upload token'),
   };
 }

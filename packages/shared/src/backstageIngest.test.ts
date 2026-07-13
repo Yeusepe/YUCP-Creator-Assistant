@@ -4,6 +4,7 @@ import {
   parseMaterializeClaims,
   parseMaterializePollClaims,
   parseMaterializeResult,
+  parseUploadClaims,
   parseUploadResult,
   sign,
   verify,
@@ -16,6 +17,21 @@ function futurePayload() {
   return {
     typ: 'backstage-upload',
     authUserId: 'auth-user-1',
+    exp: Math.floor(Date.now() / 1000) + 60,
+  };
+}
+
+function validUploadClaims() {
+  return {
+    typ: 'backstage-upload' as const,
+    authUserId: 'auth-user-1',
+    packageId: 'com.yucp.example',
+    version: '1.2.3',
+    repositoryId: '1'.repeat(32),
+    deliveryName: 'example.unitypackage',
+    sourceContentType: 'application/octet-stream',
+    declaredSha256: '4'.repeat(64),
+    byteSize: 1234,
     exp: Math.floor(Date.now() / 1000) + 60,
   };
 }
@@ -158,6 +174,23 @@ describe('backstage ingest signing', () => {
     const token = await sign(SECRET, futurePayload());
 
     await expect(verify(WRONG_SECRET, token)).rejects.toThrow('signature');
+  });
+});
+
+describe('parseUploadClaims', () => {
+  it('keeps upload claims limited to upload invariants', () => {
+    const claims = validUploadClaims();
+
+    const parsed = parseUploadClaims({
+      ...claims,
+      materializeMetadata: {
+        displayName: 'Example Package',
+        metadata: { yucp: { aliasId: 'alias-123' } },
+      },
+    });
+
+    expect(parsed).toEqual(claims);
+    expect(parsed).not.toHaveProperty('materializeMetadata');
   });
 });
 

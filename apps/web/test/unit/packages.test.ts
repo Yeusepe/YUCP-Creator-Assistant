@@ -94,10 +94,6 @@ describe('uploadBackstageReleaseSource', () => {
       file,
       version: '1.2.3',
       deliveryName: 'release.zip',
-      materializeMetadata: {
-        displayName: 'Bundle',
-        metadata: { channel: 'stable' },
-      },
       onProgress,
       onProcessing,
     });
@@ -111,13 +107,10 @@ describe('uploadBackstageReleaseSource', () => {
         sourceContentType: 'application/zip',
         sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
         byteSize: file.size,
-        materializeMetadata: {
-          displayName: 'Bundle',
-          metadata: { channel: 'stable' },
-        },
       },
       { signal: undefined }
     );
+    expect(apiPostMock.mock.calls[0]?.[1]).not.toHaveProperty('materializeMetadata');
 
     const upload = createdUploads[0];
     expect(upload.file).toBe(file);
