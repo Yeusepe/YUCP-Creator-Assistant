@@ -13,8 +13,10 @@ import {
   verify,
 } from '@yucp/shared/backstageIngest';
 import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
+import { Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
+import { Redis as IORedis } from 'ioredis';
 import { Upload } from 'tus-js-client';
 
 const INGEST_SECRET = '11'.repeat(32);
@@ -26,6 +28,7 @@ const UPLOAD_TIMEOUT_MS = 30_000;
 const JOB_TIMEOUT_MS = 60_000;
 const TEST_TIMEOUT_MS = 180_000;
 const ABANDONED_UPLOAD_TTL_MS = 250;
+const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
 
 type ReceivedPut = {
   repositoryId: string;
@@ -524,6 +527,12 @@ describe('backstage ingest resumable upload integration', () => {
       const tempDirectory = await mkdtemp(join(tmpdir(), 'yucp-backstage-ingest-'));
       const sidecarPort = await getFreePort();
       const sidecarOrigin = `http://127.0.0.1:${sidecarPort}`;
+      const queuePrefix = `{backstage-ingest-integration-${crypto.randomUUID()}}`;
+      const queueConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+      const queue = new Queue('backstage-ingest', {
+        connection: queueConnection,
+        prefix: queuePrefix,
+      });
       const entrypoint = resolve(import.meta.dir, '../src/index.ts');
       const stdout: string[] = [];
       const stderr: string[] = [];
@@ -533,6 +542,7 @@ describe('backstage ingest resumable upload integration', () => {
           ...process.env,
           PORT: String(sidecarPort),
           REDIS_URL: redisUrl,
+          BACKSTAGE_INGEST_QUEUE_PREFIX: queuePrefix,
           BACKSTAGE_INGEST_CONCURRENCY: '2',
           BACKSTAGE_INGEST_TUS_DIR: tempDirectory,
           BACKSTAGE_INGEST_UPLOAD_TTL_MS: String(ABANDONED_UPLOAD_TTL_MS),
@@ -708,6 +718,24 @@ describe('backstage ingest resumable upload integration', () => {
         });
         expect(materializePreflight.status).toBe(204);
         expect(materializePreflight.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+
+        const jobCountsBeforeOversizedRequest = await queue.getJobCounts();
+        const oversizedMaterializeBody = JSON.stringify({
+          token: 'x'.repeat(MAX_MATERIALIZE_BODY_BYTES),
+        });
+        const oversizedMaterializeResponse = await fetch(`${sidecarOrigin}/materialize`, {
+          method: 'POST',
+          headers: {
+            'Content-Length': String(Buffer.byteLength(oversizedMaterializeBody)),
+            'Content-Type': 'application/json',
+          },
+          body: oversizedMaterializeBody,
+        });
+        expect(oversizedMaterializeResponse.status).toBe(413);
+        expect(await queue.getJobCounts()).toEqual(jobCountsBeforeOversizedRequest);
+        process.stdout.write(
+          `Oversized materialize body (${Buffer.byteLength(oversizedMaterializeBody)} bytes) rejected with HTTP ${oversizedMaterializeResponse.status}; no job enqueued.\n`
+        );
 
         const mismatchedRepositoryToken = await sign(INGEST_SECRET, {
           ...materializeClaims,
@@ -956,6 +984,9 @@ describe('backstage ingest resumable upload integration', () => {
         releaseFirstLorePut.resolve();
         await stopSidecar(sidecar);
         await Promise.all([stdoutCapture, stderrCapture]);
+        await queue.obliterate({ force: true });
+        await queue.close();
+        await queueConnection.quit();
         await fakeLore.stop(true);
         await rm(tempDirectory, { recursive: true, force: true });
       }

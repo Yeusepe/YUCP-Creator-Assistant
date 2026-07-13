@@ -38,6 +38,9 @@ const DEFAULT_LORE_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_UPLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_UPLOAD_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES;
+// ponytail: 8 MiB bounds abuse while allowing large managed-path lists. If they exceed this,
+// move the list to server-side storage keyed by the upload instead of embedding it in the token.
+const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
 const RESULT_TTL_SECONDS = 15 * 60;
 const QUEUE_NAME = 'backstage-ingest';
 const FAILED_JOB_REASON = 'ingest_failed';
@@ -71,8 +74,33 @@ type BackstageMaterializeJobData = {
 
 type BackstageJobData = BackstageIngestJobData | BackstageMaterializeJobData;
 
+class MaterializeRequestBodyTooLargeError extends Error {
+  constructor() {
+    super('Materialize request body too large');
+    this.name = 'MaterializeRequestBodyTooLargeError';
+  }
+}
+
 function isUploadJobData(data: BackstageJobData): data is BackstageIngestJobData {
   return 'uploadId' in data && 'stagedPath' in data;
+}
+
+async function readMaterializeRequestJson(request: Request): Promise<unknown> {
+  const contentLengthHeader = request.headers.get('content-length')?.trim();
+  if (!contentLengthHeader || !/^\d+$/.test(contentLengthHeader)) {
+    throw new MaterializeRequestBodyTooLargeError();
+  }
+
+  const contentLength = Number(contentLengthHeader);
+  if (!Number.isSafeInteger(contentLength) || contentLength > MAX_MATERIALIZE_BODY_BYTES) {
+    throw new MaterializeRequestBodyTooLargeError();
+  }
+
+  const bodyBytes = await request.arrayBuffer();
+  if (bodyBytes.byteLength > MAX_MATERIALIZE_BODY_BYTES) {
+    throw new MaterializeRequestBodyTooLargeError();
+  }
+  return JSON.parse(new TextDecoder().decode(bodyBytes)) as unknown;
 }
 
 function requiredEnv(name: string): string {
@@ -739,7 +767,7 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
 
   let token: string | undefined;
   try {
-    const body = (await request.json()) as unknown;
+    const body = await readMaterializeRequestJson(request);
     token =
       typeof body === 'object' &&
       body !== null &&
@@ -747,7 +775,16 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
       typeof (body as { token?: unknown }).token === 'string'
         ? (body as { token: string }).token.trim() || undefined
         : undefined;
-  } catch {
+  } catch (error) {
+    if (error instanceof MaterializeRequestBodyTooLargeError) {
+      return applyJobCors(
+        request,
+        Response.json(
+          { error: 'Request body too large', limitBytes: MAX_MATERIALIZE_BODY_BYTES },
+          { status: 413 }
+        )
+      );
+    }
     token = undefined;
   }
   if (!token) {
