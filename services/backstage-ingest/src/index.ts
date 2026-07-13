@@ -34,6 +34,7 @@ type ServiceConfig = {
   tusDirectory: string;
   ingestSecret: string;
   redisUrl: string;
+  queuePrefix: string;
   concurrency: number;
   lore: ConfiguredLoreBackstageConfig;
 };
@@ -99,6 +100,8 @@ function loadConfig(): ServiceConfig {
     tusDirectory: Bun.env.BACKSTAGE_INGEST_TUS_DIR?.trim() || DEFAULT_TUS_DIRECTORY,
     ingestSecret,
     redisUrl: requiredEnv('REDIS_URL'),
+    // ponytail: the {...} is a Redis/Dragonfly hashtag so all BullMQ keys share one slot/lock (required by --lock_on_hashtags), and it namespaces the queue on a shared instance.
+    queuePrefix: Bun.env.BACKSTAGE_INGEST_QUEUE_PREFIX?.trim() || '{backstage-ingest}',
     concurrency: optionalPositiveInteger('BACKSTAGE_INGEST_CONCURRENCY') ?? 1,
     lore: requireLoreBackstageConfig({
       apiBaseUrl: requiredEnv('LORE_API_BASE_URL'),
@@ -185,6 +188,7 @@ const store = new FileStore({ directory: config.tusDirectory });
 const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
 const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
   connection,
+  prefix: config.queuePrefix,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 5_000 },
@@ -310,7 +314,7 @@ const worker = new Worker<BackstageIngestJobData, string>(
 
     return signedResult;
   },
-  { connection, concurrency: config.concurrency }
+  { connection, prefix: config.queuePrefix, concurrency: config.concurrency }
 );
 
 async function removeStagedUpload(uploadId: string | undefined): Promise<void> {
