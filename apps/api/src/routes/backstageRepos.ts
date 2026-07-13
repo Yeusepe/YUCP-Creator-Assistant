@@ -8,6 +8,7 @@ import {
 import { sha256Hex } from '@yucp/shared/crypto';
 import {
   type LoreBackstageConfig,
+  loreRepositoryIdForCreator,
   mintLorePresignedUrl,
   requireLoreBackstageConfig,
 } from '@yucp/shared/loreBackstageClient';
@@ -1380,6 +1381,17 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
     }
 
     try {
+      const expectedRepositoryId = loreRepositoryIdForCreator(
+        product.creatorAuthUserId,
+        requireLoreBackstageConfig(config.lore).repoNamespaceSalt
+      );
+      if (
+        media.loreDelivery.repositoryId !== expectedRepositoryId ||
+        (media.loreDelivery.tenantId !== undefined &&
+          media.loreDelivery.tenantId !== product.creatorAuthUserId)
+      ) {
+        return errorResponse('Package media is temporarily unavailable', 502);
+      }
       const downloadUrl = await resolveLoreDeliveryDownloadUrl({
         lore: config.lore,
         delivery: media.loreDelivery,

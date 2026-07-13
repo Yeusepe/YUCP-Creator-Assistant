@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
 import { createTestLogger } from '../testSupport/loggerMock';
 
 let sessionImpl: (...args: unknown[]) => Promise<unknown> = async () => null;
@@ -74,7 +75,7 @@ function makeTestLoreArtifactReference(
   overrides: Partial<Omit<TestLoreArtifactReference, 'tenantId'>> = {}
 ): TestLoreArtifactReference {
   return {
-    repositoryId: '1'.repeat(32),
+    repositoryId: loreRepositoryIdForCreator(authUserId, loreTestConfig.repoNamespaceSalt),
     address: `${'2'.repeat(64)}-${'3'.repeat(32)}`,
     tenantId: authUserId,
     sha256: 'b'.repeat(64),
@@ -875,7 +876,7 @@ describe('backstage repo routes', () => {
     expect(response?.headers.get('cache-control')).toBe('no-store');
     expect(fetchCount).toBe(0);
     expect(decodeLorePresignPayload(location)).toMatchObject({
-      repository: '1'.repeat(32),
+      repository: loreRepositoryIdForCreator('auth-user-1', loreTestConfig.repoNamespaceSalt),
       address: `${'2'.repeat(64)}-${'3'.repeat(32)}`,
       content_type: 'application/zip',
       content_disposition: 'attachment; filename="example-1.2.3.zip"',
@@ -1567,6 +1568,91 @@ describe('backstage repo routes', () => {
     await expect(response?.json()).resolves.toEqual({
       error: 'Package media is temporarily unavailable',
     });
+    expect(fetchCount).toBe(0);
+  });
+
+  it('rejects Lore package media references owned by another creator repository', async () => {
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      throw new Error('Lore media presigning must not make a network request');
+    }) as unknown as typeof fetch;
+    queryImpl = async (ref: unknown) => {
+      switch (ref) {
+        case 'backstageRepos.getSubjectByAuthUserForApi':
+          return { _id: 'subject_1' };
+        case 'packageRegistry.getBuyerAccessContextByCatalogProductId':
+          return {
+            catalogProductId: 'catalog_1',
+            creatorAuthUserId: 'auth-user-1',
+            productId: 'product_1',
+            provider: 'gumroad',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            displayName: 'Song Thing',
+            status: 'active',
+          };
+        case 'packageRegistry.getAuthorizedAliasInstallPlanByRef':
+          return {
+            creatorAuthUserId: 'auth-user-1',
+            providerProductRef: 'song-thing',
+            canonicalSlug: 'song-thing',
+            packages: [
+              {
+                packageId: 'com.yucp.song',
+                displayName: 'Song Thing Package',
+                version: '1.2.3',
+                channel: 'stable',
+                media: {
+                  icon: {
+                    kind: 'icon',
+                    byteSize: 10,
+                    contentType: 'image/png',
+                    deliveryName: 'song-icon.png',
+                    sha256: 'd'.repeat(64),
+                    loreDelivery: makeTestLoreArtifactReference('auth-user-1', {
+                      repositoryId: loreRepositoryIdForCreator(
+                        'different-creator',
+                        loreTestConfig.repoNamespaceSalt
+                      ),
+                      sha256: 'd'.repeat(64),
+                      byteSize: 10,
+                    }),
+                  },
+                },
+              },
+            ],
+          };
+        default:
+          return null;
+      }
+    };
+
+    const loreRoutes = createBackstageRepoRoutes({
+      apiBaseUrl: 'https://api.test',
+      frontendBaseUrl: 'https://app.test',
+      convexApiSecret: 'convex-secret',
+      convexSiteUrl: 'https://convex.test',
+      convexUrl: 'https://convex.cloud',
+      lore: loreTestConfig,
+    });
+
+    const response = await loreRoutes.handleRequest(
+      new Request(
+        'https://api.test/api/backstage/access/products/catalog_1/packages/com.yucp.song/media/icon',
+        {
+          headers: {
+            authorization: 'Bearer oauth-token',
+          },
+        }
+      )
+    );
+
+    expect(response?.status).toBe(502);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'Package media is temporarily unavailable',
+    });
+    expect(response?.headers.get('location')).toBeNull();
     expect(fetchCount).toBe(0);
   });
 
