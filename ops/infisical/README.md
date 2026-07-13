@@ -50,7 +50,7 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
   - `POLAR_ACCESS_TOKEN`
   - `POLAR_WEBHOOK_SECRET`
   - `POLAR_SERVER`
-  - `BACKSTAGE_INGEST_SECRET` (hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
+  - `BACKSTAGE_INGEST_SECRET` (shared upload/materialize token and result signing secret; hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
   - `LORE_INGEST_BASE_URL`
   - `LORE_API_BASE_URL`
   - `LORE_PRESIGN_HMAC_KEY`
@@ -71,6 +71,18 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
   - `OTEL_EXPORTER_OTLP_PROTOCOL`
+
+### Backstage ingest sidecar
+
+- `BACKSTAGE_INGEST_SECRET`: shared upload, poll, and result signing secret. It must be hex with at least 64 characters / 32 bytes; generate it with `openssl rand -hex 32` and rotate the API and sidecar together.
+- `REDIS_URL`: connection string for the dedicated BullMQ Redis-compatible queue. Do not point it at the application's state-store instance.
+- `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload and poll jobs.
+- `BACKSTAGE_INGEST_CONCURRENCY`: maximum concurrent ingest and materialize jobs. The default is `1`.
+- `BACKSTAGE_INGEST_QUEUE_PREFIX`: BullMQ key prefix. The default `{backstage-ingest}` includes the Redis/Dragonfly hashtag required by the production queue topology.
+- `LORE_API_BASE_URL`: Lore API origin used by sidecar jobs.
+- `LORE_REPO_NAMESPACE_SALT`: private salt for deterministic per-creator Lore repository IDs.
+- `LORE_ACCESS_CLIENT_ID` and `LORE_ACCESS_CLIENT_SECRET`: Cloudflare Access service-token credentials for Lore.
+- `LORE_TIMEOUT_MS`: optional sidecar Lore request timeout. The sidecar default is 30 minutes.
 
 ### Bot runtime
 
@@ -167,7 +179,11 @@ These keys back certificate issuance, protected materialization grants, broker a
 
 - `YUCP_COUPLING_SERVICE_BASE_URL`
 - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
-- `BACKSTAGE_INGEST_SECRET` (hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
+- `BACKSTAGE_INGEST_SECRET` (shared upload/materialize token and result signing secret; hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
+- `REDIS_URL` (dedicated Backstage BullMQ queue only; do not reuse the application state store)
+- `BACKSTAGE_INGEST_ALLOWED_ORIGINS`
+- `BACKSTAGE_INGEST_CONCURRENCY` (default `1`)
+- `BACKSTAGE_INGEST_QUEUE_PREFIX` (default `{backstage-ingest}`)
 - `LORE_INGEST_BASE_URL`
 - `LORE_API_BASE_URL`
 - `LORE_PRESIGN_HMAC_KEY`

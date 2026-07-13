@@ -138,15 +138,20 @@ docs/          product docs and engineering playbooks
 | `BETTER_AUTH_SECRET`                         | api      | Better Auth session encryption   |
 | `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
 | `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
-| `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Hex signing secret for upload tokens and ingest results; at least 64 hex characters (32 bytes) |
-| `LORE_INGEST_BASE_URL`                       | api      | Public base URL of the Backstage TUS ingest sidecar |
+| `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Hex signing secret for upload/materialize tokens and results; at least 64 hex characters (32 bytes) |
+| `REDIS_URL`                                  | ingest   | Redis/Dragonfly connection for the dedicated BullMQ queue |
+| `BACKSTAGE_INGEST_CONCURRENCY`               | ingest   | Maximum concurrent ingest and materialize jobs; default `1` |
+| `BACKSTAGE_INGEST_QUEUE_PREFIX`              | ingest   | BullMQ key prefix; default `{backstage-ingest}`, including the Redis/Dragonfly hashtag braces |
+| `BACKSTAGE_INGEST_ALLOWED_ORIGINS`            | ingest   | Comma-separated browser origins allowed to upload and poll jobs |
+| `BACKSTAGE_INGEST_UPLOAD_TTL_MS`              | ingest   | TTL before an abandoned tus upload is swept; default 24 hours |
+| `LORE_INGEST_BASE_URL`                       | api      | Public base URL of the Backstage ingest and materialize sidecar |
 | `LORE_API_BASE_URL`                          | api, ingest | Lore API origin for Backstage artifact storage and delivery |
 | `LORE_PRESIGN_HMAC_KEY`                      | api      | Hex HMAC key for client-minted Lore delivery URLs |
 | `LORE_REPO_NAMESPACE_SALT`                   | api, ingest | Private salt for deterministic per-creator Lore repository IDs |
 | `LORE_ACCESS_CLIENT_ID`                      | api, ingest | Cloudflare Access service-token client ID for Lore |
 | `LORE_ACCESS_CLIENT_SECRET`                  | api, ingest | Cloudflare Access service-token client secret for Lore |
 | `LORE_PRESIGN_DEFAULT_TTL_SECONDS`           | api      | Default lifetime for presigned Lore delivery URLs |
-| `LORE_TIMEOUT_MS`                            | api      | Timeout budget for Lore repository calls |
+| `LORE_TIMEOUT_MS`                            | api, ingest | Timeout budget for Lore repository calls |
 | `YUCP_ALLOW_LEGACY_CONVEX_BACKSTAGE_UPLOADS` | convex      | Emergency/test-only escape hatch for legacy Convex Backstage upload functions; leave unset in production |
 | `INFISICAL_URL`                              | all      | Infisical endpoint (optional)    |
 
@@ -155,15 +160,26 @@ Do not commit real values. Infisical is the source of truth for deploy and produ
 
 ### Backstage ingest sidecar (`services/backstage-ingest`)
 
-The sidecar uses:
+Backstage package storage and delivery run on content-addressed Lore. CDNgine is not part of this path. The browser or ops publisher first requests API `upload-authorization`, then `tus-js-client` sends the source directly to the sidecar's resumable `/files/*` endpoint. When the upload finishes, the sidecar enqueues an `ingest-upload` BullMQ job. Its durable worker computes managed paths, stores the raw source in Lore, and returns a signed upload result through `GET /jobs/:id` polling.
 
-- `BACKSTAGE_INGEST_SECRET`: required hex signing secret shared with the API Worker. It must contain at least 64 hex characters (at least 32 bytes); generate one with `openssl rand -hex 32`.
+At publish, the API resolves final dependencies, `unityVersion`, and the `yucp` alias contract including `aliasId`. It submits a `materialize` job with `POST /materialize` and polls `GET /jobs/:id`. For a `.unitypackage`, the worker builds a small importer shim from the stored managed paths without downloading the raw source again. For a `.zip`, it retrieves and normalizes the source into a repacked deliverable. The deliverable is stored in Lore and carries the server-authorized alias contract used by the `com.yucp.importer` VCC tool.
+
+The sidecar configuration is:
+
+- `BACKSTAGE_INGEST_SECRET`: required hex signing secret shared with the API. It must contain at least 64 hex characters (at least 32 bytes); generate one with `openssl rand -hex 32`.
+- `REDIS_URL`: required connection string for the dedicated BullMQ Redis-compatible queue.
+- `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload and poll jobs. Without it, only same-origin requests are accepted.
+- `BACKSTAGE_INGEST_CONCURRENCY`: maximum concurrent ingest and materialize jobs, default `1`.
+- `BACKSTAGE_INGEST_QUEUE_PREFIX`: BullMQ key prefix, default `{backstage-ingest}`. The braces are the Redis/Dragonfly hashtag.
 - `BACKSTAGE_INGEST_TUS_DIR`: persistent temporary upload directory, default `/data/tus`.
-- `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload cross-origin.
+- `BACKSTAGE_INGEST_UPLOAD_TTL_MS`: time before an abandoned tus upload is swept, default 24 hours.
+- `LORE_API_BASE_URL`, `LORE_REPO_NAMESPACE_SALT`, `LORE_ACCESS_CLIENT_ID`, and `LORE_ACCESS_CLIENT_SECRET`: required Lore connection, creator repository derivation, and Cloudflare Access credentials.
+- `LORE_TIMEOUT_MS`: optional Lore request timeout. The sidecar default is 30 minutes.
 - `PORT`: listening port, default `8080`.
-- `LORE_API_BASE_URL`, `LORE_ACCESS_CLIENT_ID`, `LORE_ACCESS_CLIENT_SECRET`, and `LORE_REPO_NAMESPACE_SALT`: required Lore connection, Cloudflare Access, and creator repository values.
 
-Deploy it next to loreserver with persistent storage and network capacity sized for multi-GB resumable uploads. Raise loreserver's `MAX_FILE_SIZE` above the largest accepted Backstage artifact.
+Production requires a dedicated, non-evicting, internal-only Dragonfly instance launched with `--cluster_mode=emulated --lock_on_hashtags`. Do not share the ingest queue with the application's state-store Dragonfly instance. Deploy the sidecar with persistent tus storage and network capacity sized for multi-GB resumable uploads, and raise loreserver's `MAX_FILE_SIZE` above the largest accepted artifact.
+
+See [Backstage Lore delivery](docs/backstage-lore-delivery.md) for the architecture deep dive and the [sidecar README](services/backstage-ingest/README.md) for runtime details.
 
 ### Auth URL model
 
