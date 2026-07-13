@@ -497,7 +497,7 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
 
   let claims: BackstageUploadClaims;
   try {
-    claims = parseUploadClaims(await verify(config.ingestSecret, token));
+    claims = parseUploadClaims(await verify(config.ingestSecret, token, { ignoreExpiry: true }));
   } catch {
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }

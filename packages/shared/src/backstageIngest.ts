@@ -260,7 +260,8 @@ export async function sign(secretHex: string, obj: object): Promise<string> {
 
 export async function verify<T = Record<string, unknown>>(
   secretHex: string,
-  token: string
+  token: string,
+  options: { ignoreExpiry?: boolean } = {}
 ): Promise<T> {
   const segments = token.split('.');
   if (segments.length !== 2) {
@@ -287,7 +288,10 @@ export async function verify<T = Record<string, unknown>>(
     throw new Error('Backstage ingest token payload must be an object.');
   }
   const exp = payload.exp;
-  if (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000)) {
+  if (
+    !options.ignoreExpiry &&
+    (typeof exp !== 'number' || !Number.isFinite(exp) || exp <= Math.floor(Date.now() / 1000))
+  ) {
     throw new Error('Backstage ingest token is expired or has an invalid expiration.');
   }
 

@@ -518,6 +518,22 @@ describe('backstage ingest resumable upload integration', () => {
         expect(bundle.deliverableSha256).toBe(bundle.loreDelivery.sha256);
         expect(bundle.deliverableByteSize).toBe(bundle.loreDelivery.byteSize);
 
+        const expiredPollToken = await sign(INGEST_SECRET, {
+          ...claims,
+          exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        const expiredPollResponse = await getJobStatus(jobUrl, expiredPollToken);
+        expect(expiredPollResponse.status).toBe(200);
+        expect(await expiredPollResponse.json()).toEqual(completed);
+        process.stdout.write('Expired upload token job polling assertion passed.\n');
+
+        const wrongSignatureExpiredPollToken = await sign(WRONG_SECRET, {
+          ...claims,
+          exp: Math.floor(Date.now() / 1000) - 1,
+        });
+        expect((await getJobStatus(jobUrl, wrongSignatureExpiredPollToken)).status).toBe(401);
+        process.stdout.write('Wrong-signature expired job polling assertion passed.\n');
+
         expect(receivedPuts).toHaveLength(2);
         expect(receivedPuts.map((put) => put.repositoryId)).toEqual([repositoryId, repositoryId]);
         expect(receivedPuts[0]).toEqual({

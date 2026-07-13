@@ -71,13 +71,34 @@ describe('backstage ingest signing', () => {
     expect(encodedPayload).not.toBe(tamperedPayload);
   });
 
-  it('rejects an expired token', async () => {
+  it('rejects an expired token by default', async () => {
     const token = await sign(SECRET, {
       ...futurePayload(),
       exp: Math.floor(Date.now() / 1000) - 1,
     });
 
     await expect(verify(SECRET, token)).rejects.toThrow('expired');
+  });
+
+  it('accepts an expired correctly signed token when expiry is ignored', async () => {
+    const payload = {
+      ...futurePayload(),
+      exp: Math.floor(Date.now() / 1000) - 1,
+    };
+    const token = await sign(SECRET, payload);
+
+    await expect(verify<typeof payload>(SECRET, token, { ignoreExpiry: true })).resolves.toEqual(
+      payload
+    );
+  });
+
+  it('rejects a wrong signature when expiry is ignored', async () => {
+    const token = await sign(WRONG_SECRET, {
+      ...futurePayload(),
+      exp: Math.floor(Date.now() / 1000) - 1,
+    });
+
+    await expect(verify(SECRET, token, { ignoreExpiry: true })).rejects.toThrow('signature');
   });
 
   it('rejects a token signed with a different secret', async () => {
