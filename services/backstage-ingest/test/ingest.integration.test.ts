@@ -699,6 +699,8 @@ describe('backstage ingest resumable upload integration', () => {
         expect(wrongShaUploadError).toBeInstanceOf(Error);
         expect(responseStatus(wrongShaUploadError)).toBe(422);
         expect(receivedPuts).toHaveLength(2);
+        expect(await readdir(tempDirectory)).toEqual([]);
+        process.stdout.write('SHA mismatch immediate staged upload cleanup assertion passed.\n');
       } catch (error) {
         process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
         throw error;

@@ -348,6 +348,19 @@ async function removeStagedUpload(uploadId: string | undefined): Promise<void> {
   }
 }
 
+async function removePermanentlyRejectedUpload(uploadId: string): Promise<void> {
+  try {
+    await store.remove(uploadId);
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.rejected_upload_cleanup_failed',
+        reason: 'rejected_upload_cleanup_failed',
+      })
+    );
+  }
+}
+
 worker.on('completed', (job) => {
   void removeStagedUpload(job.id);
 });
@@ -431,21 +444,28 @@ const server = new Server({
         throw tusError(500, 'Staged upload does not have file storage metadata.');
       }
 
-      const stagedFile = Bun.file(stagedPath);
-      if (stagedFile.size !== claims.byteSize) {
-        throw tusError(422, 'Uploaded byte size does not match the upload token.');
-      }
-      const rawSha256 = await streamSha256Hex(stagedPath);
-      if (rawSha256 !== claims.declaredSha256) {
-        throw tusError(422, 'Uploaded SHA-256 does not match declaredSha256.');
-      }
+      try {
+        const stagedFile = Bun.file(stagedPath);
+        if (stagedFile.size !== claims.byteSize) {
+          throw tusError(422, 'Uploaded byte size does not match the upload token.');
+        }
+        const rawSha256 = await streamSha256Hex(stagedPath);
+        if (rawSha256 !== claims.declaredSha256) {
+          throw tusError(422, 'Uploaded SHA-256 does not match declaredSha256.');
+        }
 
-      const repositoryId = loreRepositoryIdForCreator(
-        claims.authUserId,
-        config.lore.repoNamespaceSalt
-      );
-      if (repositoryId !== claims.repositoryId) {
-        throw tusError(403, 'Upload token repositoryId does not match the authenticated tenant.');
+        const repositoryId = loreRepositoryIdForCreator(
+          claims.authUserId,
+          config.lore.repoNamespaceSalt
+        );
+        if (repositoryId !== claims.repositoryId) {
+          throw tusError(403, 'Upload token repositoryId does not match the authenticated tenant.');
+        }
+      } catch (error) {
+        if (isTusHookError(error)) {
+          await removePermanentlyRejectedUpload(upload.id);
+        }
+        throw error;
       }
 
       const incompleteUpload = await store.configstore.get(upload.id);
