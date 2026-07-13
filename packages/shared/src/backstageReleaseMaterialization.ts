@@ -12,6 +12,16 @@ import { sha256Hex } from './crypto';
 import { applyYucpAliasPackageManifestDefaults } from './yucpAliasPackageContract';
 
 const FIXED_ZIP_MTIME = new Date(315619200000);
+const MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES = 100_000;
+const ZIP_CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE = 0x02014b50;
+const ZIP_CENTRAL_DIRECTORY_DIGITAL_SIGNATURE = 0x05054b50;
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+const ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06064b50;
+const ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE = 0x07064b50;
+const ZIP_UTF8_FILE_NAME_FLAG = 0x0800;
+const CP437_HIGH_CHARACTERS = Array.from(
+  'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ '
+);
 
 export type ArchiveSourceKind = 'unitypackage' | 'zip';
 
@@ -250,11 +260,244 @@ export function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[
   return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
 }
 
+function assertZipRange(bytes: Uint8Array, offset: number, length: number, label: string): void {
+  if (
+    !Number.isSafeInteger(offset) ||
+    !Number.isSafeInteger(length) ||
+    offset < 0 ||
+    length < 0 ||
+    offset > bytes.byteLength - length
+  ) {
+    throw new Error(`Backstage ZIP ${label} is outside the archive bounds.`);
+  }
+}
+
+function readZipUint16(bytes: Uint8Array, offset: number, label: string): number {
+  assertZipRange(bytes, offset, 2, label);
+  return (bytes[offset] ?? 0) | ((bytes[offset + 1] ?? 0) << 8);
+}
+
+function readZipUint32(bytes: Uint8Array, offset: number, label: string): number {
+  assertZipRange(bytes, offset, 4, label);
+  return (
+    ((bytes[offset] ?? 0) |
+      ((bytes[offset + 1] ?? 0) << 8) |
+      ((bytes[offset + 2] ?? 0) << 16) |
+      ((bytes[offset + 3] ?? 0) << 24)) >>>
+    0
+  );
+}
+
+function readZipUint64(bytes: Uint8Array, offset: number, label: string): number {
+  const low = readZipUint32(bytes, offset, label);
+  const high = readZipUint32(bytes, offset + 4, label);
+  const value = high * 0x1_0000_0000 + low;
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`Backstage ZIP ${label} exceeds the supported safe integer range.`);
+  }
+  return value;
+}
+
+function findZipEndOfCentralDirectory(sourceBytes: Uint8Array): number {
+  const minimumRecordSize = 22;
+  const maximumCommentSize = 0xffff;
+  const firstCandidate = sourceBytes.byteLength - minimumRecordSize;
+  const lastCandidate = Math.max(0, firstCandidate - maximumCommentSize);
+  for (let offset = firstCandidate; offset >= lastCandidate; offset -= 1) {
+    if (
+      readZipUint32(sourceBytes, offset, 'end-of-central-directory signature') ===
+        ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE &&
+      offset + minimumRecordSize + readZipUint16(sourceBytes, offset + 20, 'comment length') ===
+        sourceBytes.byteLength
+    ) {
+      return offset;
+    }
+  }
+  throw new Error('Backstage ZIP end-of-central-directory record is missing or malformed.');
+}
+
+function readZipCentralDirectoryLocation(sourceBytes: Uint8Array): {
+  entryCount: number;
+  offset: number;
+  size: number;
+} {
+  const endOffset = findZipEndOfCentralDirectory(sourceBytes);
+  const diskNumber = readZipUint16(sourceBytes, endOffset + 4, 'disk number');
+  const centralDirectoryDisk = readZipUint16(
+    sourceBytes,
+    endOffset + 6,
+    'central-directory disk number'
+  );
+  const diskEntryCount = readZipUint16(sourceBytes, endOffset + 8, 'disk entry count');
+  const totalEntryCount = readZipUint16(sourceBytes, endOffset + 10, 'total entry count');
+  const centralDirectorySize = readZipUint32(sourceBytes, endOffset + 12, 'central-directory size');
+  const centralDirectoryOffset = readZipUint32(
+    sourceBytes,
+    endOffset + 16,
+    'central-directory offset'
+  );
+  const usesZip64 =
+    diskEntryCount === 0xffff ||
+    totalEntryCount === 0xffff ||
+    centralDirectorySize === 0xffff_ffff ||
+    centralDirectoryOffset === 0xffff_ffff;
+
+  if (!usesZip64) {
+    if (diskNumber !== 0 || centralDirectoryDisk !== 0 || diskEntryCount !== totalEntryCount) {
+      throw new Error('Backstage ZIP multi-disk archives are not supported.');
+    }
+    return {
+      entryCount: totalEntryCount,
+      offset: centralDirectoryOffset,
+      size: centralDirectorySize,
+    };
+  }
+
+  const locatorOffset = endOffset - 20;
+  if (
+    locatorOffset < 0 ||
+    readZipUint32(sourceBytes, locatorOffset, 'ZIP64 locator signature') !==
+      ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR_SIGNATURE
+  ) {
+    throw new Error('Backstage ZIP64 end-of-central-directory locator is missing.');
+  }
+  if (
+    readZipUint32(sourceBytes, locatorOffset + 4, 'ZIP64 record disk number') !== 0 ||
+    readZipUint32(sourceBytes, locatorOffset + 16, 'ZIP64 disk count') !== 1
+  ) {
+    throw new Error('Backstage ZIP multi-disk archives are not supported.');
+  }
+
+  const zip64EndOffset = readZipUint64(
+    sourceBytes,
+    locatorOffset + 8,
+    'ZIP64 end-of-central-directory offset'
+  );
+  if (
+    readZipUint32(sourceBytes, zip64EndOffset, 'ZIP64 end-of-central-directory signature') !==
+    ZIP64_END_OF_CENTRAL_DIRECTORY_SIGNATURE
+  ) {
+    throw new Error('Backstage ZIP64 end-of-central-directory record is missing.');
+  }
+  const zip64RecordSize = readZipUint64(
+    sourceBytes,
+    zip64EndOffset + 4,
+    'ZIP64 end-of-central-directory record size'
+  );
+  if (zip64RecordSize < 44 || zip64EndOffset + 12 + zip64RecordSize > locatorOffset) {
+    throw new Error('Backstage ZIP64 end-of-central-directory record is malformed.');
+  }
+  const zip64DiskNumber = readZipUint32(sourceBytes, zip64EndOffset + 16, 'ZIP64 disk number');
+  const zip64CentralDirectoryDisk = readZipUint32(
+    sourceBytes,
+    zip64EndOffset + 20,
+    'ZIP64 central-directory disk number'
+  );
+  const zip64DiskEntryCount = readZipUint64(
+    sourceBytes,
+    zip64EndOffset + 24,
+    'ZIP64 disk entry count'
+  );
+  const zip64TotalEntryCount = readZipUint64(
+    sourceBytes,
+    zip64EndOffset + 32,
+    'ZIP64 total entry count'
+  );
+  if (
+    zip64DiskNumber !== 0 ||
+    zip64CentralDirectoryDisk !== 0 ||
+    zip64DiskEntryCount !== zip64TotalEntryCount
+  ) {
+    throw new Error('Backstage ZIP multi-disk archives are not supported.');
+  }
+
+  return {
+    entryCount: zip64TotalEntryCount,
+    size: readZipUint64(sourceBytes, zip64EndOffset + 40, 'ZIP64 central-directory size'),
+    offset: readZipUint64(sourceBytes, zip64EndOffset + 48, 'ZIP64 central-directory offset'),
+  };
+}
+
+function decodeZipFileName(bytes: Uint8Array, utf8: boolean): string {
+  if (utf8) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw new Error('Backstage ZIP contains an invalid UTF-8 file name.');
+    }
+  }
+  return Array.from(bytes, (byte) =>
+    byte < 0x80 ? String.fromCharCode(byte) : (CP437_HIGH_CHARACTERS[byte - 0x80] ?? '')
+  ).join('');
+}
+
 export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
-  return Object.keys(unzipSync(sourceBytes))
-    .filter((entryPath) => !entryPath.endsWith('/'))
-    .map(assertSafeArchivePath)
-    .sort((left, right) => left.localeCompare(right));
+  const centralDirectory = readZipCentralDirectoryLocation(sourceBytes);
+  if (centralDirectory.entryCount > MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES) {
+    throw new Error(
+      `Backstage ZIP central directory entry count exceeds ${MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES}.`
+    );
+  }
+  assertZipRange(sourceBytes, centralDirectory.offset, centralDirectory.size, 'central directory');
+  const centralDirectoryEnd = centralDirectory.offset + centralDirectory.size;
+  const managedPaths = new Set<string>();
+  let offset = centralDirectory.offset;
+
+  for (let index = 0; index < centralDirectory.entryCount; index += 1) {
+    if (
+      offset + 46 > centralDirectoryEnd ||
+      readZipUint32(sourceBytes, offset, 'central-directory file header signature') !==
+        ZIP_CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE
+    ) {
+      throw new Error('Backstage ZIP central directory entry count does not match its headers.');
+    }
+    const flags = readZipUint16(sourceBytes, offset + 8, 'central-directory flags');
+    const fileNameLength = readZipUint16(
+      sourceBytes,
+      offset + 28,
+      'central-directory file name length'
+    );
+    const extraFieldLength = readZipUint16(
+      sourceBytes,
+      offset + 30,
+      'central-directory extra field length'
+    );
+    const commentLength = readZipUint16(
+      sourceBytes,
+      offset + 32,
+      'central-directory comment length'
+    );
+    const recordSize = 46 + fileNameLength + extraFieldLength + commentLength;
+    if (offset + recordSize > centralDirectoryEnd) {
+      throw new Error('Backstage ZIP central-directory file header is truncated.');
+    }
+    const fileName = decodeZipFileName(
+      sourceBytes.subarray(offset + 46, offset + 46 + fileNameLength),
+      (flags & ZIP_UTF8_FILE_NAME_FLAG) !== 0
+    );
+    if (!fileName.endsWith('/')) {
+      managedPaths.add(assertSafeArchivePath(fileName));
+    }
+    offset += recordSize;
+  }
+
+  if (offset < centralDirectoryEnd) {
+    const isDigitalSignature =
+      readZipUint32(sourceBytes, offset, 'central-directory trailing record signature') ===
+      ZIP_CENTRAL_DIRECTORY_DIGITAL_SIGNATURE;
+    const digitalSignatureSize = isDigitalSignature
+      ? 6 + readZipUint16(sourceBytes, offset + 4, 'central-directory digital signature size')
+      : 0;
+    if (!isDigitalSignature || offset + digitalSignatureSize !== centralDirectoryEnd) {
+      throw new Error('Backstage ZIP central directory entry count does not match its headers.');
+    }
+    offset += digitalSignatureSize;
+  }
+  if (offset !== centralDirectoryEnd) {
+    throw new Error('Backstage ZIP central directory entry count does not match its size.');
+  }
+
+  return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
 }
 
 function withAliasInstallPlanFootprint(

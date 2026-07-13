@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'bun:test';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { extractBackstagePackageMediaAssetsFromSource } from './backstagePackageMedia';
-import { materializeBackstageReleaseArtifact } from './backstageReleaseMaterialization';
+import {
+  collectZipArchiveEntryPaths,
+  materializeBackstageReleaseArtifact,
+} from './backstageReleaseMaterialization';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY,
@@ -72,6 +75,59 @@ function buildUnitypackage(
   }
   return gzipSync(tarBytes, { level: 9, mtime: mtimeSeconds });
 }
+
+function findZipSignature(bytes: Uint8Array, signature: readonly number[]): number {
+  for (let offset = 0; offset + signature.length <= bytes.byteLength; offset += 1) {
+    if (signature.every((value, index) => bytes[offset + index] === value)) {
+      return offset;
+    }
+  }
+  throw new Error(`ZIP signature ${signature.join(',')} was not found.`);
+}
+
+function writeUint16LittleEndian(bytes: Uint8Array, offset: number, value: number): void {
+  bytes[offset] = value & 0xff;
+  bytes[offset + 1] = (value >>> 8) & 0xff;
+}
+
+describe('collectZipArchiveEntryPaths', () => {
+  it('collects file names from a ZIP central directory', () => {
+    const archive = zipSync({
+      'Packages/com.yucp.example/package.json': strToU8('{"name":"com.yucp.example"}'),
+      'Packages/com.yucp.example/Runtime/Example.cs': strToU8('export class Example {}'),
+    });
+
+    expect(collectZipArchiveEntryPaths(archive)).toEqual([
+      'Packages/com.yucp.example/package.json',
+      'Packages/com.yucp.example/Runtime/Example.cs',
+    ]);
+  });
+
+  it('collects central-directory names without inflating unsupported entry contents', () => {
+    const archive = zipSync({
+      'Packages/com.yucp.example/package.json': strToU8('{"name":"com.yucp.example"}'),
+    });
+    const centralHeaderOffset = findZipSignature(archive, [0x50, 0x4b, 0x01, 0x02]);
+    writeUint16LittleEndian(archive, 8, 99);
+    writeUint16LittleEndian(archive, centralHeaderOffset + 10, 99);
+
+    expect(() => unzipSync(archive)).toThrow('unknown compression type');
+    expect(collectZipArchiveEntryPaths(archive)).toEqual([
+      'Packages/com.yucp.example/package.json',
+    ]);
+  });
+
+  it('rejects a central-directory entry-count mismatch', () => {
+    const archive = zipSync({
+      'Packages/com.yucp.example/package.json': strToU8('{"name":"com.yucp.example"}'),
+    });
+    const endOfCentralDirectoryOffset = findZipSignature(archive, [0x50, 0x4b, 0x05, 0x06]);
+    writeUint16LittleEndian(archive, endOfCentralDirectoryOffset + 8, 2);
+    writeUint16LittleEndian(archive, endOfCentralDirectoryOffset + 10, 2);
+
+    expect(() => collectZipArchiveEntryPaths(archive)).toThrow('central directory entry count');
+  });
+});
 
 describe('materializeBackstageReleaseArtifact', () => {
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
