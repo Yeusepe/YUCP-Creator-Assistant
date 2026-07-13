@@ -40,13 +40,14 @@ type FetchCall = {
   method: string;
   headers: Headers;
   body: string;
+  signal?: AbortSignal | null;
 };
 
 function createFetch(
   calls: FetchCall[],
   releaseResult: Record<string, unknown>,
   tusEndpoint = 'https://ingest.test/files',
-  jobResponses: Array<Record<string, unknown>> = [
+  jobResponses: Array<Record<string, unknown> | Error> = [
     { state: 'processing' },
     { state: 'completed', result: 'signed-ingest-result' },
   ]
@@ -59,6 +60,7 @@ function createFetch(
       method: request.method,
       headers: request.headers,
       body: await request.text(),
+      signal: init?.signal,
     };
     calls.push(call);
 
@@ -75,6 +77,9 @@ function createFetch(
       jobResponseIndex += 1;
       if (!response) {
         throw new Error('Unexpected extra ingest job poll');
+      }
+      if (response instanceof Error) {
+        throw response;
       }
       return Response.json(response);
     }
@@ -310,6 +315,46 @@ describe('publish-backstage-package', () => {
     expect(calls[1].url).toBe('https://ingest.test/jobs/job_123');
     expect(calls[1].method).toBe('GET');
     expect(calls[1].headers.get('authorization')).toBe('Bearer upload-token');
+  });
+
+  it('retries a timed-out ingest job poll and publishes after a later completion', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
+    const sourcePath = join(tempDir, 'example.zip');
+    writeFileSync(sourcePath, Buffer.from('zip-bytes'));
+    const calls: FetchCall[] = [];
+
+    const result = await publishBackstagePackage(
+      {
+        apiBaseUrl: 'https://api.test',
+        accessToken: 'oauth-token',
+        packageId: 'com.yucp.example',
+        catalogProductId: 'product_123',
+        version: '1.2.3',
+        sourcePath,
+      },
+      createFetch(
+        calls,
+        {
+          deliveryPackageReleaseId: 'release_1',
+          zipSha256: 'a'.repeat(64),
+          version: '1.2.3',
+          channel: 'stable',
+        },
+        'https://ingest.test/files',
+        [
+          new DOMException('The operation timed out', 'TimeoutError'),
+          { state: 'completed', result: 'signed-ingest-result' },
+        ]
+      )
+    );
+
+    expect(result.deliveryPackageReleaseId).toBe('release_1');
+    const pollCalls = calls.filter((call) => call.url === 'https://ingest.test/jobs/job_123');
+    expect(pollCalls).toHaveLength(2);
+    for (const pollCall of pollCalls) {
+      expect(pollCall.headers.get('authorization')).toBe('Bearer upload-token');
+      expect(pollCall.signal).toBeInstanceOf(AbortSignal);
+    }
   });
 
   it('documents the products:write scope required for package publishing', () => {

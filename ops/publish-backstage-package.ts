@@ -18,6 +18,7 @@ import { Upload } from 'tus-js-client';
 type FetchLike = typeof fetch;
 
 const BACKSTAGE_INGEST_POLL_INTERVAL_MS = 1000;
+const BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS = 15_000;
 const BACKSTAGE_INGEST_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
@@ -248,9 +249,16 @@ async function pollBackstageIngestJob(
       throw new Error('Timed out waiting for the Backstage ingest job to complete');
     }
 
-    const response = await fetchImpl(jobUrl, {
-      headers: { Authorization: `Bearer ${uploadToken}` },
-    });
+    let response: Response;
+    try {
+      response = await fetchImpl(jobUrl, {
+        headers: { Authorization: `Bearer ${uploadToken}` },
+        signal: AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
+      continue;
+    }
     if (!response.ok) {
       throw new Error(
         `Backstage ingest job polling failed (${response.status} ${response.statusText})`
