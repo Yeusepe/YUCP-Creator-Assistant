@@ -41,6 +41,7 @@ export * from './authOrigins';
 export * from './authRedirects';
 export * from './backstageIngest';
 export * from './backstageLimits';
+export * from './backstageMaterializeClient';
 export * from './backstagePackageMedia';
 export * from './backstageVpmDelivery';
 // Binding module exports
