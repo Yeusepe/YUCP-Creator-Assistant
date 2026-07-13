@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { getYucpAliasPackageContract } from '@yucp/shared';
 import {
   type BackstageMaterializeClaims,
+  type BackstageMaterializePollClaims,
   type BackstageMaterializeResult,
   type BackstageUploadResult,
   parseMaterializeClaims,
+  parseMaterializePollClaims,
   parseUploadClaims,
   sign,
   verify,
@@ -32,7 +34,7 @@ const originalFetch = globalThis.fetch;
 let lorePutBodies: Uint8Array[] = [];
 let materializeClaimsSeen: BackstageMaterializeClaims[] = [];
 let materializePollsByJob = new Map<string, number>();
-let materializeTokenByJob = new Map<string, string>();
+let materializePollTokenByJob = new Map<string, string>();
 const BACKSTAGE_INGEST_SECRET = '33'.repeat(32);
 const MAX_BACKSTAGE_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 
@@ -139,6 +141,33 @@ function bearerToken(init: RequestInit | undefined): string {
   const authorization = new Headers(init?.headers).get('Authorization');
   expect(authorization).toMatch(/^Bearer \S+$/);
   return authorization?.slice('Bearer '.length) ?? '';
+}
+
+function materializeTokenFromBody(init: RequestInit | undefined): string {
+  const headers = new Headers(init?.headers);
+  expect(headers.get('Authorization')).toBeNull();
+  expect(headers.get('Content-Type')).toBe('application/json');
+  if (typeof init?.body !== 'string') {
+    throw new Error('Expected the materialize request body to be JSON text.');
+  }
+  const body = JSON.parse(init.body) as { token?: unknown };
+  expect(body).toEqual({ token: expect.any(String) });
+  return body.token as string;
+}
+
+async function signedMaterializePollToken(
+  claims: BackstageMaterializeClaims,
+  jobId: string
+): Promise<string> {
+  const pollClaims: BackstageMaterializePollClaims = {
+    typ: 'backstage-materialize-poll',
+    authUserId: claims.authUserId,
+    packageId: claims.packageId,
+    version: claims.version,
+    jobId,
+    exp: claims.exp,
+  };
+  return await sign(BACKSTAGE_INGEST_SECRET, pollClaims);
 }
 
 function bodyToUint8Array(body: BodyInit | null | undefined): Uint8Array {
@@ -263,19 +292,20 @@ describe('package Backstage publishing routes', () => {
     lorePutBodies = [];
     materializeClaimsSeen = [];
     materializePollsByJob = new Map();
-    materializeTokenByJob = new Map();
+    materializePollTokenByJob = new Map();
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url === 'https://ingest.test/materialize') {
         expect(init?.method).toBe('POST');
-        const materializeToken = bearerToken(init);
+        const materializeToken = materializeTokenFromBody(init);
         const claims = parseMaterializeClaims(
           await verify(BACKSTAGE_INGEST_SECRET, materializeToken)
         );
         materializeClaimsSeen.push(claims);
         const jobId = `materialize-job-${materializeClaimsSeen.length}`;
-        materializeTokenByJob.set(jobId, materializeToken);
-        return Response.json({ ok: true, jobId });
+        const pollToken = await signedMaterializePollToken(claims, jobId);
+        materializePollTokenByJob.set(jobId, pollToken);
+        return Response.json({ jobId, pollToken });
       }
       const materializeJobMatch = /^https:\/\/ingest\.test\/jobs\/(materialize-job-\d+)$/u.exec(
         url
@@ -283,20 +313,30 @@ describe('package Backstage publishing routes', () => {
       if (materializeJobMatch) {
         expect(init?.method).toBe('GET');
         const jobId = materializeJobMatch[1] ?? '';
-        const materializeToken = bearerToken(init);
-        const expectedMaterializeToken = materializeTokenByJob.get(jobId);
-        if (!expectedMaterializeToken) {
-          throw new Error(`Missing materialize token for ${jobId}`);
+        const claims = materializeClaimsSeen[Number(jobId.slice('materialize-job-'.length)) - 1];
+        if (!claims) {
+          throw new Error(`Missing materialize claims for ${jobId}`);
         }
-        expect(materializeToken).toBe(expectedMaterializeToken);
+        const pollToken = bearerToken(init);
+        const expectedPollToken = materializePollTokenByJob.get(jobId);
+        if (!expectedPollToken) {
+          throw new Error(`Missing materialize poll token for ${jobId}`);
+        }
+        expect(pollToken).toBe(expectedPollToken);
+        expect(
+          parseMaterializePollClaims(await verify(BACKSTAGE_INGEST_SECRET, pollToken))
+        ).toEqual({
+          typ: 'backstage-materialize-poll',
+          authUserId: claims.authUserId,
+          packageId: claims.packageId,
+          version: claims.version,
+          jobId,
+          exp: claims.exp,
+        });
         const polls = (materializePollsByJob.get(jobId) ?? 0) + 1;
         materializePollsByJob.set(jobId, polls);
         if (polls === 1) {
           return Response.json({ state: 'processing' });
-        }
-        const claims = materializeClaimsSeen[Number(jobId.slice('materialize-job-'.length)) - 1];
-        if (!claims) {
-          throw new Error(`Missing materialize claims for ${jobId}`);
         }
         return Response.json({
           state: 'completed',
@@ -2162,24 +2202,28 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('returns 502 and does not persist when sidecar materialization fails', async () => {
-    let materializeToken = '';
+    let materializePollToken = '';
     let pollCount = 0;
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       if (url === 'https://ingest.test/materialize') {
         expect(init?.method).toBe('POST');
-        materializeToken = bearerToken(init);
+        const materializeToken = materializeTokenFromBody(init);
         const claims = parseMaterializeClaims(
           await verify(BACKSTAGE_INGEST_SECRET, materializeToken)
         );
         expect(claims.materializeMetadata?.metadata?.yucp).toMatchObject({
           aliasId: 'backstage-bundle',
         });
-        return Response.json({ ok: true, jobId: 'failed-materialize-job' });
+        materializePollToken = await signedMaterializePollToken(claims, 'failed-materialize-job');
+        return Response.json({
+          jobId: 'failed-materialize-job',
+          pollToken: materializePollToken,
+        });
       }
       if (url === 'https://ingest.test/jobs/failed-materialize-job') {
         expect(init?.method).toBe('GET');
-        expect(bearerToken(init)).toBe(materializeToken);
+        expect(bearerToken(init)).toBe(materializePollToken);
         pollCount += 1;
         return Response.json(
           pollCount === 1
@@ -2314,19 +2358,20 @@ describe('package Backstage publishing routes', () => {
     ];
 
     for (const makeMismatchedResult of mismatchedResults) {
-      let materializeToken = '';
+      let materializePollToken = '';
       let claims: BackstageMaterializeClaims | undefined;
       globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
         if (url === 'https://ingest.test/materialize') {
           expect(init?.method).toBe('POST');
-          materializeToken = bearerToken(init);
+          const materializeToken = materializeTokenFromBody(init);
           claims = parseMaterializeClaims(await verify(BACKSTAGE_INGEST_SECRET, materializeToken));
-          return Response.json({ ok: true, jobId: 'ownership-job' });
+          materializePollToken = await signedMaterializePollToken(claims, 'ownership-job');
+          return Response.json({ jobId: 'ownership-job', pollToken: materializePollToken });
         }
         if (url === 'https://ingest.test/jobs/ownership-job') {
           expect(init?.method).toBe('GET');
-          expect(bearerToken(init)).toBe(materializeToken);
+          expect(bearerToken(init)).toBe(materializePollToken);
           if (!claims) {
             throw new Error('Materialize claims were not captured before polling');
           }

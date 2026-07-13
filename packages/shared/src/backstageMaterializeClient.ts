@@ -1,6 +1,7 @@
 import {
   type BackstageMaterializeClaims,
   type BackstageMaterializeResult,
+  parseMaterializePollClaims,
   parseMaterializeResult,
   sign,
   verify,
@@ -88,7 +89,8 @@ export async function runBackstageMaterialize(input: {
   try {
     enqueueResponse = await fetchImpl(`${ingestBaseUrl}/materialize`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${materializeToken}` },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: materializeToken }),
       signal: materializeRequestSignal(deadline),
     });
   } catch (error) {
@@ -102,15 +104,35 @@ export async function runBackstageMaterialize(input: {
     enqueueResponse,
     'Backstage materialize request'
   );
-  if (!isRecord(enqueuePayload) || typeof enqueuePayload.jobId !== 'string') {
+  if (
+    !isRecord(enqueuePayload) ||
+    typeof enqueuePayload.jobId !== 'string' ||
+    typeof enqueuePayload.pollToken !== 'string'
+  ) {
     throw new BackstageMaterializeError(
-      'Backstage materialize request did not return a valid jobId'
+      'Backstage materialize request did not return a valid jobId and pollToken'
     );
   }
   const jobId = enqueuePayload.jobId.trim();
-  if (!jobId) {
+  const pollToken = enqueuePayload.pollToken.trim();
+  if (!jobId || !pollToken) {
     throw new BackstageMaterializeError(
-      'Backstage materialize request did not return a valid jobId'
+      'Backstage materialize request did not return a valid jobId and pollToken'
+    );
+  }
+  try {
+    const pollClaims = parseMaterializePollClaims(await verify(input.ingestSecret, pollToken));
+    if (
+      pollClaims.jobId !== jobId ||
+      pollClaims.authUserId !== input.claims.authUserId ||
+      pollClaims.packageId !== input.claims.packageId ||
+      pollClaims.version !== input.claims.version
+    ) {
+      throw new Error('Materialize poll token ownership mismatch.');
+    }
+  } catch {
+    throw new BackstageMaterializeError(
+      'Backstage materialize request did not return a valid pollToken'
     );
   }
   const jobUrl = `${ingestBaseUrl}/jobs/${encodeURIComponent(jobId)}`;
@@ -127,7 +149,7 @@ export async function runBackstageMaterialize(input: {
     try {
       jobResponse = await fetchImpl(jobUrl, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${materializeToken}` },
+        headers: { Authorization: `Bearer ${pollToken}` },
         signal: materializeRequestSignal(deadline),
       });
     } catch (error) {

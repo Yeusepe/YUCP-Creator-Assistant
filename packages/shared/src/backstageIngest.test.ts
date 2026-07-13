@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 
 import {
   parseMaterializeClaims,
+  parseMaterializePollClaims,
   parseMaterializeResult,
   parseUploadResult,
   sign,
@@ -85,6 +86,17 @@ function validMaterializeResult() {
     deliverableDeliveryName: 'com.yucp.example.zip',
     deliverableContentType: 'application/zip',
     exp: upload.exp,
+  };
+}
+
+function validMaterializePollClaims() {
+  return {
+    typ: 'backstage-materialize-poll' as const,
+    authUserId: 'auth-user-1',
+    packageId: 'com.yucp.example',
+    version: '1.2.3',
+    jobId: 'materialize-job-1',
+    exp: Math.floor(Date.now() / 1000) + 60,
   };
 }
 
@@ -231,6 +243,28 @@ describe('parseMaterializeClaims', () => {
         materializeMetadata: { metadata: [] },
       })
     ).toThrow('materializeMetadata.metadata');
+  });
+});
+
+describe('parseMaterializePollClaims', () => {
+  it('accepts a small materialization poll claim without release metadata', () => {
+    const claims = validMaterializePollClaims();
+
+    expect(parseMaterializePollClaims(claims)).toEqual(claims);
+    expect(parseMaterializePollClaims(claims)).not.toHaveProperty('managedPaths');
+    expect(parseMaterializePollClaims(claims)).not.toHaveProperty('materializeMetadata');
+  });
+
+  it('rejects malformed poll claim fields', () => {
+    expect(() =>
+      parseMaterializePollClaims({ ...validMaterializePollClaims(), typ: 'backstage-materialize' })
+    ).toThrow('typ');
+    expect(() =>
+      parseMaterializePollClaims({ ...validMaterializePollClaims(), jobId: '' })
+    ).toThrow('jobId');
+    expect(() =>
+      parseMaterializePollClaims({ ...validMaterializePollClaims(), managedPaths: ['large'] })
+    ).toThrow('unexpected field managedPaths');
   });
 });
 

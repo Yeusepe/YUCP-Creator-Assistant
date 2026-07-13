@@ -6,6 +6,8 @@ import { runBackstageMaterialize } from '@yucp/shared';
 import {
   type BackstageMaterializeClaims,
   type BackstageUploadClaims,
+  parseMaterializeClaims,
+  parseMaterializePollClaims,
   parseUploadResult,
   sign,
   verify,
@@ -715,7 +717,8 @@ describe('backstage ingest resumable upload integration', () => {
           (
             await fetch(`${sidecarOrigin}/materialize`, {
               method: 'POST',
-              headers: { Authorization: `Bearer ${mismatchedRepositoryToken}` },
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: mismatchedRepositoryToken }),
             })
           ).status
         ).toBe(403);
@@ -724,17 +727,56 @@ describe('backstage ingest resumable upload integration', () => {
           (
             await fetch(`${sidecarOrigin}/materialize`, {
               method: 'POST',
-              headers: { Authorization: `Bearer ${wrongMaterializeToken}` },
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: wrongMaterializeToken }),
             })
           ).status
         ).toBe(401);
 
         const loreGetsBeforeMaterialize = receivedGets.length;
+        let materializePostObserved = false;
+        let materializePollObserved = false;
         const materializeBundle = await runBackstageMaterialize({
           ingestBaseUrl: sidecarOrigin,
           ingestSecret: INGEST_SECRET,
           claims: materializeClaims,
+          fetchImpl: async (input, init) => {
+            const url = new URL(String(input));
+            if (url.pathname === '/materialize') {
+              materializePostObserved = true;
+              expect(new Headers(init?.headers).get('Authorization')).toBeNull();
+              expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json');
+              if (typeof init?.body !== 'string') {
+                throw new Error('Expected JSON text for the materialize request body.');
+              }
+              const body = JSON.parse(init.body) as { token?: unknown };
+              expect(body).toEqual({ token: expect.any(String) });
+              expect(
+                parseMaterializeClaims(await verify(INGEST_SECRET, body.token as string))
+              ).toEqual(materializeClaims);
+            } else if (url.pathname.startsWith('/jobs/')) {
+              materializePollObserved = true;
+              const authorization = new Headers(init?.headers).get('Authorization');
+              expect(authorization).toMatch(/^Bearer \S+$/);
+              const pollClaims = parseMaterializePollClaims(
+                await verify(INGEST_SECRET, authorization?.slice('Bearer '.length) ?? '')
+              );
+              expect(pollClaims).toEqual({
+                typ: 'backstage-materialize-poll',
+                authUserId,
+                packageId,
+                version,
+                jobId: url.pathname.slice('/jobs/'.length),
+                exp: materializeClaims.exp,
+              });
+              expect(pollClaims).not.toHaveProperty('managedPaths');
+              expect(pollClaims).not.toHaveProperty('materializeMetadata');
+            }
+            return await fetch(input, init);
+          },
         });
+        expect(materializePostObserved).toBe(true);
+        expect(materializePollObserved).toBe(true);
         expect(materializeBundle).toMatchObject({
           typ: 'backstage-materialize-result',
           authUserId,

@@ -61,6 +61,15 @@ export type BackstageMaterializeClaims = {
   exp: number;
 };
 
+export type BackstageMaterializePollClaims = {
+  typ: 'backstage-materialize-poll';
+  authUserId: string;
+  packageId: string;
+  version: string;
+  jobId: string;
+  exp: number;
+};
+
 export type BackstageMaterializeResult = {
   typ: 'backstage-materialize-result';
   authUserId: string;
@@ -273,6 +282,29 @@ export function parseMaterializeClaims(value: unknown): BackstageMaterializeClai
     managedPaths: requiredManagedPaths(value, 'Materialize token'),
     ...(materializeMetadata ? { materializeMetadata } : {}),
     exp: requiredExpiration(value, 'Materialize token'),
+  };
+}
+
+export function parseMaterializePollClaims(value: unknown): BackstageMaterializePollClaims {
+  if (!isRecord(value)) {
+    throw new Error('Materialize poll token payload must be an object.');
+  }
+  if (value.typ !== 'backstage-materialize-poll') {
+    throw new Error('Materialize poll token typ must be backstage-materialize-poll.');
+  }
+  const allowedFields = new Set(['typ', 'authUserId', 'packageId', 'version', 'jobId', 'exp']);
+  const unexpectedField = Object.keys(value).find((field) => !allowedFields.has(field));
+  if (unexpectedField) {
+    throw new Error(`Materialize poll token contains unexpected field ${unexpectedField}.`);
+  }
+
+  return {
+    typ: 'backstage-materialize-poll',
+    authUserId: requiredString(value, 'authUserId', 'Materialize poll token'),
+    packageId: requiredString(value, 'packageId', 'Materialize poll token'),
+    version: requiredString(value, 'version', 'Materialize poll token'),
+    jobId: requiredString(value, 'jobId', 'Materialize poll token'),
+    exp: requiredExpiration(value, 'Materialize poll token'),
   };
 }
 

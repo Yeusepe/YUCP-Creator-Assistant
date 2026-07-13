@@ -2,10 +2,12 @@ import { FileStore } from '@tus/file-store';
 import { Server } from '@tus/server';
 import {
   type BackstageMaterializeClaims,
+  type BackstageMaterializePollClaims,
   type BackstageMaterializeResult,
   type BackstageUploadClaims,
   type BackstageUploadResult,
   parseMaterializeClaims,
+  parseMaterializePollClaims,
   parseUploadClaims,
   sign,
   validateSigningSecret,
@@ -671,12 +673,12 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }
 
-  let claims: BackstageUploadClaims | BackstageMaterializeClaims;
+  let claims: BackstageUploadClaims | BackstageMaterializePollClaims;
   try {
     const payload = await verify(config.ingestSecret, token, { ignoreExpiry: true });
     claims =
-      payload.typ === 'backstage-materialize'
-        ? parseMaterializeClaims(payload)
+      payload.typ === 'backstage-materialize-poll'
+        ? parseMaterializePollClaims(await verify(config.ingestSecret, token))
         : parseUploadClaims(payload);
   } catch {
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
@@ -696,7 +698,10 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     uploadOwnershipMismatch =
       claims.typ !== 'backstage-upload' || claims.declaredSha256 !== job.data.claims.declaredSha256;
   } else {
-    materializeOwnershipMismatch = claims.typ !== 'backstage-materialize';
+    materializeOwnershipMismatch =
+      claims.typ !== 'backstage-materialize-poll' ||
+      claims.jobId !== jobId ||
+      claims.version !== job.data.claims.version;
   }
   if (commonOwnershipMismatch || uploadOwnershipMismatch || materializeOwnershipMismatch) {
     return applyJobCors(request, Response.json({ error: 'Forbidden' }, { status: 403 }));
@@ -704,7 +709,13 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
 
   const state = await job.getState();
   if (state === 'completed') {
-    return applyJobCors(request, Response.json({ state: 'completed', result: job.returnvalue }));
+    // BullMQ does not refresh this Job instance when the worker completes during getState().
+    // Reload it so a completed response always carries the persisted signed result.
+    const completedJob = await queue.getJob(jobId);
+    return applyJobCors(
+      request,
+      Response.json({ state: 'completed', result: completedJob?.returnvalue })
+    );
   }
   if (state === 'failed') {
     return applyJobCors(request, Response.json({ state: 'failed', reason: FAILED_JOB_REASON }));
@@ -719,14 +730,26 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
       new Response(null, {
         status: 204,
         headers: {
-          'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type',
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
         },
       })
     );
   }
 
-  const token = bearerToken(request);
+  let token: string | undefined;
+  try {
+    const body = (await request.json()) as unknown;
+    token =
+      typeof body === 'object' &&
+      body !== null &&
+      !Array.isArray(body) &&
+      typeof (body as { token?: unknown }).token === 'string'
+        ? (body as { token: string }).token.trim() || undefined
+        : undefined;
+  } catch {
+    token = undefined;
+  }
   if (!token) {
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }
@@ -747,6 +770,15 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
   }
 
   const jobId = crypto.randomUUID();
+  const pollClaims: BackstageMaterializePollClaims = {
+    typ: 'backstage-materialize-poll',
+    authUserId: claims.authUserId,
+    packageId: claims.packageId,
+    version: claims.version,
+    jobId,
+    exp: claims.exp,
+  };
+  const pollToken = await sign(config.ingestSecret, pollClaims);
   try {
     await queue.add('materialize', { claims }, { jobId });
   } catch {
@@ -759,7 +791,7 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
     );
     return applyJobCors(request, Response.json({ error: 'Unavailable' }, { status: 503 }));
   }
-  return applyJobCors(request, Response.json({ ok: true, jobId }));
+  return applyJobCors(request, Response.json({ jobId, pollToken }));
 }
 
 const httpServer = Bun.serve({
