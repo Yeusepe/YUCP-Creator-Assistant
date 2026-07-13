@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { getYucpAliasPackageContract } from '@yucp/shared';
 import {
   type BackstageMaterializeClaims,
   type BackstageMaterializeResult,
@@ -2105,6 +2106,15 @@ describe('package Backstage publishing routes', () => {
     expect(payload).not.toHaveProperty('deliverableArtifactId');
     expect(payload).not.toHaveProperty('deliveryArtifactMode');
     expect(payload).not.toHaveProperty('materializationStrategy');
+    expect(materializeClaimsSeen).toHaveLength(1);
+    const materializeClaims = materializeClaimsSeen[0];
+    const aliasContract = getYucpAliasPackageContract(
+      materializeClaims?.materializeMetadata?.metadata
+    );
+    expect(aliasContract?.aliasId).toBe('backstage-bundle');
+    expect(aliasContract?.catalogProductIds).toContain('product_1');
+    expect(materializeClaims?.loreSourceAddress).toBe(uploadResult.loreSource.address);
+    expect(materializeClaims?.loreSourceSha256).toBe(uploadResult.rawSha256);
     expect(materializeClaimsSeen).toEqual([
       {
         typ: 'backstage-materialize',
