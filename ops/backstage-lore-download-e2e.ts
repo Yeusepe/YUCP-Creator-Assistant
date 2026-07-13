@@ -39,7 +39,9 @@ import type {
   PublishBackstageReleaseConfig,
 } from './publish-backstage-package';
 
-const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
+const BACKSTAGE_INGEST_POLL_INTERVAL_MS = 1000;
+const BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS = 15_000;
+const BACKSTAGE_INGEST_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 const REPO_TOKEN_HEADER = 'X-YUCP-Repo-Token';
 const REPOSITORY_PATH = '/v1/backstage/repos/index.json';
@@ -66,6 +68,11 @@ type UploadAuthorization = {
   uploadMetadataKey: string;
   maxByteSize: number;
 };
+
+type BackstageIngestJobResponse =
+  | { state: 'processing' }
+  | { state: 'completed'; result: string }
+  | { state: 'failed'; reason: string };
 
 type RepositoryManifest = {
   headers: Record<string, string>;
@@ -323,6 +330,45 @@ async function authorizeUpload(
   return { tusEndpoint, uploadToken, uploadMetadataKey, maxByteSize: authorization.maxByteSize };
 }
 
+async function pollBackstageIngestJob(jobUrl: string, uploadToken: string): Promise<string> {
+  const deadline = Date.now() + BACKSTAGE_INGEST_POLL_TIMEOUT_MS;
+
+  for (;;) {
+    if (Date.now() >= deadline) {
+      throw new Error('Timed out waiting for the Backstage ingest job to complete.');
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(jobUrl, {
+        headers: { Authorization: `Bearer ${uploadToken}` },
+        signal: AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS),
+      });
+    } catch {
+      await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
+      continue;
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Backstage ingest job polling failed (${response.status} ${response.statusText}).`
+      );
+    }
+
+    const job = (await response.json()) as BackstageIngestJobResponse;
+    if (job.state === 'completed') {
+      if (typeof job.result !== 'string' || !job.result.trim()) {
+        throw new Error('Completed Backstage ingest job did not return a signed result.');
+      }
+      return job.result;
+    }
+    if (job.state === 'failed') {
+      throw new Error(`Backstage ingest job failed: ${job.reason}`);
+    }
+
+    await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
+  }
+}
+
 async function uploadSourceResumably(
   authorization: UploadAuthorization,
   source: SourceArtifact
@@ -333,7 +379,6 @@ async function uploadSourceResumably(
     source.bytes.byteLength
   );
   return await new Promise<string>((resolveUpload, rejectUpload) => {
-    let ingestResult: string | undefined;
     const upload = new Upload(sourceBuffer, {
       endpoint: authorization.tusEndpoint,
       metadata: {
@@ -342,18 +387,31 @@ async function uploadSourceResumably(
       chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,
-      onAfterResponse: (_request, response) => {
-        const signedResult = response.getHeader(BACKSTAGE_INGEST_RESULT_HEADER)?.trim();
-        if (signedResult) {
-          ingestResult = signedResult;
-        }
-      },
       onSuccess: () => {
-        if (!ingestResult) {
-          rejectUpload(new Error('Backstage ingest sidecar did not return a signed result.'));
+        const uploadUrl = upload.url;
+        if (!uploadUrl) {
+          rejectUpload(
+            new Error('Backstage ingest sidecar did not return the completed upload URL.')
+          );
           return;
         }
-        resolveUpload(ingestResult);
+        if (!uploadUrl.includes('/files/')) {
+          rejectUpload(
+            new Error('Backstage ingest upload URL does not contain the expected /files/ path.')
+          );
+          return;
+        }
+        const jobUrl = uploadUrl.replace('/files/', '/jobs/');
+        try {
+          assertSecureLoreUrl(jobUrl, 'jobUrl');
+        } catch (error) {
+          rejectUpload(error);
+          return;
+        }
+        void pollBackstageIngestJob(jobUrl, authorization.uploadToken).then(
+          resolveUpload,
+          rejectUpload
+        );
       },
       onError: rejectUpload,
     });
