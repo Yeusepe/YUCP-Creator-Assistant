@@ -4,6 +4,7 @@ import { blake3 } from '@noble/hashes/blake3.js';
 import {
   assertSecureLoreUrl,
   type ConfiguredLoreBackstageConfig,
+  getBackstageBytesFromLore,
   LoreApiRequestError,
   loreRepositoryIdForCreator,
   mintLorePresignedUrl,
@@ -188,6 +189,56 @@ describe('putBackstageBytesToLore', () => {
       expect(error).toBeInstanceOf(LoreApiRequestError);
       expect((error as LoreApiRequestError).detail).toBe(failure.message);
     }
+  });
+});
+
+describe('getBackstageBytesFromLore', () => {
+  it('downloads an addressed object with Access headers and the configured timeout', async () => {
+    const expectedBytes = new Uint8Array([4, 3, 2, 1]);
+    let timeoutObserved = false;
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe(
+        `https://lore.test/v1/repository/${repositoryId}/content/${address}`
+      );
+      expect(init?.method).toBe('GET');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
+      expect(headers.get('CF-Access-Client-Secret')).toBe('access-client-secret');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      init?.signal?.addEventListener('abort', () => {
+        timeoutObserved = true;
+      });
+      await Bun.sleep(20);
+      expect(init?.signal?.aborted).toBe(true);
+      return new Response(expectedBytes);
+    }) as typeof fetch;
+
+    await expect(
+      getBackstageBytesFromLore({
+        config: configuredLore({ timeoutMs: 5 }),
+        repositoryId,
+        address,
+      })
+    ).resolves.toEqual(expectedBytes.buffer);
+    expect(timeoutObserved).toBe(true);
+  });
+
+  it('classifies non-2xx responses', async () => {
+    globalThis.fetch = (async () =>
+      new Response('object unavailable', {
+        status: 404,
+        statusText: 'Not Found',
+      })) as unknown as typeof fetch;
+
+    const error = await getBackstageBytesFromLore({
+      config: configuredLore(),
+      repositoryId,
+      address,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(LoreApiRequestError);
+    expect((error as LoreApiRequestError).status).toBe(404);
+    expect((error as LoreApiRequestError).detail).toContain('object unavailable');
   });
 });
 

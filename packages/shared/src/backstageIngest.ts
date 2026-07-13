@@ -5,6 +5,7 @@ import {
 
 const HEX_RE = /^[0-9a-f]+$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const LORE_ADDRESS_RE = /^[0-9a-f]{64}-[0-9a-f]{32}$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+$/;
 
 export type BackstageUploadClaims = {
@@ -35,6 +36,54 @@ export type BackstageIngestResult = {
   rawByteSize: number;
   rawDeliveryName: string;
   rawContentType: string;
+  deliverableSha256: string;
+  deliverableByteSize: number;
+  deliverableDeliveryName: string;
+  deliverableContentType: string;
+  exp: number;
+};
+
+export type BackstageSourceKind = 'zip' | 'unitypackage';
+
+export type BackstageUploadResult = {
+  typ: 'backstage-upload-result';
+  authUserId: string;
+  packageId: string;
+  version: string;
+  loreSource: LoreBackstageArtifactReference;
+  rawSha256: string;
+  rawByteSize: number;
+  rawDeliveryName: string;
+  rawContentType: string;
+  sourceKind: BackstageSourceKind;
+  managedPaths: string[];
+  exp: number;
+};
+
+export type BackstageMaterializeClaims = {
+  typ: 'backstage-materialize';
+  authUserId: string;
+  packageId: string;
+  version: string;
+  repositoryId: string;
+  loreSourceAddress: string;
+  loreSourceSha256: string;
+  deliveryName: string;
+  sourceContentType: string;
+  sourceKind: BackstageSourceKind;
+  materializeMetadata?: {
+    displayName?: string;
+    metadata?: Record<string, unknown>;
+  };
+  exp: number;
+};
+
+export type BackstageMaterializeResult = {
+  typ: 'backstage-materialize-result';
+  authUserId: string;
+  packageId: string;
+  version: string;
+  loreDelivery: LoreBackstageArtifactReference;
   deliverableSha256: string;
   deliverableByteSize: number;
   deliverableDeliveryName: string;
@@ -82,6 +131,65 @@ function requiredExpiration(payload: Record<string, unknown>, label: string): nu
   return value as number;
 }
 
+function requiredRepositoryId(
+  payload: Record<string, unknown>,
+  field: string,
+  label: string
+): string {
+  const repositoryId = requiredString(payload, field, label);
+  if (!/^[0-9a-f]{32}$/.test(repositoryId)) {
+    throw new Error(`${label} ${field} must be 32 lowercase hexadecimal characters.`);
+  }
+  return repositoryId;
+}
+
+function requiredSourceKind(payload: Record<string, unknown>, label: string): BackstageSourceKind {
+  if (payload.sourceKind !== 'zip' && payload.sourceKind !== 'unitypackage') {
+    throw new Error(`${label} sourceKind must be zip or unitypackage.`);
+  }
+  return payload.sourceKind;
+}
+
+function parseMaterializeMetadata(
+  value: unknown,
+  label: string
+): BackstageMaterializeClaims['materializeMetadata'] {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error(`${label} materializeMetadata must be an object.`);
+  }
+  const displayName = value.displayName;
+  if (displayName !== undefined && typeof displayName !== 'string') {
+    throw new Error(`${label} materializeMetadata.displayName must be a string.`);
+  }
+  const metadata = value.metadata;
+  if (metadata !== undefined && !isRecord(metadata)) {
+    throw new Error(`${label} materializeMetadata.metadata must be an object.`);
+  }
+  return {
+    ...(displayName !== undefined ? { displayName } : {}),
+    ...(metadata !== undefined ? { metadata } : {}),
+  };
+}
+
+function assertSafeRelativePath(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`${label} must contain non-empty strings.`);
+  }
+  if (
+    value.trim() !== value ||
+    value.includes('\\') ||
+    value.startsWith('/') ||
+    /^[a-zA-Z]:/.test(value) ||
+    value.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`${label} must contain safe relative path strings.`);
+  }
+  return value;
+}
+
 export function parseUploadClaims(value: unknown): BackstageUploadClaims {
   if (!isRecord(value)) {
     throw new Error('Upload token payload must be an object.');
@@ -91,29 +199,8 @@ export function parseUploadClaims(value: unknown): BackstageUploadClaims {
   }
 
   const declaredSha256 = requiredSha256(value, 'declaredSha256', 'Upload token');
-  const repositoryId = requiredString(value, 'repositoryId', 'Upload token');
-  if (!/^[0-9a-f]{32}$/.test(repositoryId)) {
-    throw new Error('Upload token repositoryId must be 32 lowercase hexadecimal characters.');
-  }
-
-  let materializeMetadata: BackstageUploadClaims['materializeMetadata'];
-  if (value.materializeMetadata !== undefined) {
-    if (!isRecord(value.materializeMetadata)) {
-      throw new Error('Upload token materializeMetadata must be an object.');
-    }
-    const displayName = value.materializeMetadata.displayName;
-    if (displayName !== undefined && typeof displayName !== 'string') {
-      throw new Error('Upload token materializeMetadata.displayName must be a string.');
-    }
-    const metadata = value.materializeMetadata.metadata;
-    if (metadata !== undefined && !isRecord(metadata)) {
-      throw new Error('Upload token materializeMetadata.metadata must be an object.');
-    }
-    materializeMetadata = {
-      ...(displayName !== undefined ? { displayName } : {}),
-      ...(metadata !== undefined ? { metadata } : {}),
-    };
-  }
+  const repositoryId = requiredRepositoryId(value, 'repositoryId', 'Upload token');
+  const materializeMetadata = parseMaterializeMetadata(value.materializeMetadata, 'Upload token');
 
   return {
     typ: 'backstage-upload',
@@ -128,6 +215,117 @@ export function parseUploadClaims(value: unknown): BackstageUploadClaims {
     ...(materializeMetadata ? { materializeMetadata } : {}),
     exp: requiredExpiration(value, 'Upload token'),
   };
+}
+
+export function parseUploadResult(value: unknown): BackstageUploadResult {
+  if (!isRecord(value)) {
+    throw new Error('Upload result payload must be an object.');
+  }
+  if (value.typ !== 'backstage-upload-result') {
+    throw new Error('Upload result typ must be backstage-upload-result.');
+  }
+  if (!isLoreBackstageArtifactReference(value.loreSource)) {
+    throw new Error('Upload result loreSource must be a Lore artifact reference.');
+  }
+  if (!Array.isArray(value.managedPaths)) {
+    throw new Error('Upload result managedPaths must be an array of safe relative path strings.');
+  }
+
+  const result: BackstageUploadResult = {
+    typ: 'backstage-upload-result',
+    authUserId: requiredString(value, 'authUserId', 'Upload result'),
+    packageId: requiredString(value, 'packageId', 'Upload result'),
+    version: requiredString(value, 'version', 'Upload result'),
+    loreSource: value.loreSource,
+    rawSha256: requiredSha256(value, 'rawSha256', 'Upload result'),
+    rawByteSize: requiredNonNegativeSafeInteger(value, 'rawByteSize', 'Upload result'),
+    rawDeliveryName: requiredString(value, 'rawDeliveryName', 'Upload result'),
+    rawContentType: requiredString(value, 'rawContentType', 'Upload result'),
+    sourceKind: requiredSourceKind(value, 'Upload result'),
+    managedPaths: value.managedPaths.map((path) =>
+      assertSafeRelativePath(path, 'Upload result managedPaths')
+    ),
+    exp: requiredExpiration(value, 'Upload result'),
+  };
+
+  if (
+    result.rawSha256 !== result.loreSource.sha256 ||
+    result.rawByteSize !== result.loreSource.byteSize
+  ) {
+    throw new Error('Upload result raw bundle metadata must match loreSource.');
+  }
+  return result;
+}
+
+export function parseMaterializeClaims(value: unknown): BackstageMaterializeClaims {
+  if (!isRecord(value)) {
+    throw new Error('Materialize token payload must be an object.');
+  }
+  if (value.typ !== 'backstage-materialize') {
+    throw new Error('Materialize token typ must be backstage-materialize.');
+  }
+
+  const materializeMetadata = parseMaterializeMetadata(
+    value.materializeMetadata,
+    'Materialize token'
+  );
+  const loreSourceAddress = requiredString(value, 'loreSourceAddress', 'Materialize token');
+  if (!LORE_ADDRESS_RE.test(loreSourceAddress)) {
+    throw new Error(
+      'Materialize token loreSourceAddress must match <64 lowercase hex>-<32 lowercase hex>.'
+    );
+  }
+  return {
+    typ: 'backstage-materialize',
+    authUserId: requiredString(value, 'authUserId', 'Materialize token'),
+    packageId: requiredString(value, 'packageId', 'Materialize token'),
+    version: requiredString(value, 'version', 'Materialize token'),
+    repositoryId: requiredRepositoryId(value, 'repositoryId', 'Materialize token'),
+    loreSourceAddress,
+    loreSourceSha256: requiredSha256(value, 'loreSourceSha256', 'Materialize token'),
+    deliveryName: requiredString(value, 'deliveryName', 'Materialize token'),
+    sourceContentType: requiredString(value, 'sourceContentType', 'Materialize token'),
+    sourceKind: requiredSourceKind(value, 'Materialize token'),
+    ...(materializeMetadata ? { materializeMetadata } : {}),
+    exp: requiredExpiration(value, 'Materialize token'),
+  };
+}
+
+export function parseMaterializeResult(value: unknown): BackstageMaterializeResult {
+  if (!isRecord(value)) {
+    throw new Error('Materialize result payload must be an object.');
+  }
+  if (value.typ !== 'backstage-materialize-result') {
+    throw new Error('Materialize result typ must be backstage-materialize-result.');
+  }
+  if (!isLoreBackstageArtifactReference(value.loreDelivery)) {
+    throw new Error('Materialize result loreDelivery must be a Lore artifact reference.');
+  }
+
+  const result: BackstageMaterializeResult = {
+    typ: 'backstage-materialize-result',
+    authUserId: requiredString(value, 'authUserId', 'Materialize result'),
+    packageId: requiredString(value, 'packageId', 'Materialize result'),
+    version: requiredString(value, 'version', 'Materialize result'),
+    loreDelivery: value.loreDelivery,
+    deliverableSha256: requiredSha256(value, 'deliverableSha256', 'Materialize result'),
+    deliverableByteSize: requiredNonNegativeSafeInteger(
+      value,
+      'deliverableByteSize',
+      'Materialize result'
+    ),
+    deliverableDeliveryName: requiredString(value, 'deliverableDeliveryName', 'Materialize result'),
+    deliverableContentType: requiredString(value, 'deliverableContentType', 'Materialize result'),
+    exp: requiredExpiration(value, 'Materialize result'),
+  };
+
+  if (
+    result.deliverableSha256 !== result.loreDelivery.sha256 ||
+    result.deliverableByteSize !== result.loreDelivery.byteSize
+  ) {
+    throw new Error('Materialize result deliverable bundle metadata must match loreDelivery.');
+  }
+  return result;
 }
 
 export function parseIngestResult(value: unknown): BackstageIngestResult {

@@ -274,6 +274,39 @@ export async function putBackstageBytesToLore(input: {
   return { address, sha256, byteSize: bytes.byteLength };
 }
 
+export async function getBackstageBytesFromLore(input: {
+  config: ConfiguredLoreBackstageConfig;
+  repositoryId: string;
+  address: string;
+}): Promise<ArrayBuffer> {
+  validateRepositoryId(input.repositoryId);
+  validateAddress(input.address);
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content/${input.address}`,
+      {
+        headers: accessHeaders(input.config),
+        method: 'GET',
+        signal: AbortSignal.timeout(input.config.timeoutMs),
+      }
+    );
+  } catch (error) {
+    throw new LoreApiRequestError({
+      detail: error instanceof Error ? error.message : 'Lore request failed',
+    });
+  }
+
+  if (!response.ok) {
+    throwLoreResponseError(
+      response,
+      await readResponseTextBounded(response, LORE_RESPONSE_MAX_BYTES)
+    );
+  }
+  return await response.arrayBuffer();
+}
+
 export async function mintLorePresignedUrl(input: {
   config: ConfiguredLoreBackstageConfig;
   repositoryId: string;

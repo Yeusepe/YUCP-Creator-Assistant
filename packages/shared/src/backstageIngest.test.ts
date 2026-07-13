@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'bun:test';
 
-import { parseIngestResult, sign, verify } from './backstageIngest';
+import {
+  parseIngestResult,
+  parseMaterializeClaims,
+  parseMaterializeResult,
+  parseUploadResult,
+  sign,
+  verify,
+} from './backstageIngest';
 
 const SECRET = '11'.repeat(32);
 const WRONG_SECRET = '22'.repeat(32);
@@ -44,6 +51,61 @@ function validIngestResult() {
     deliverableDeliveryName: 'com.yucp.example.zip',
     deliverableContentType: 'application/zip',
     exp: Math.floor(Date.now() / 1000) + 60,
+  };
+}
+
+function validUploadResult() {
+  const ingest = validIngestResult();
+  return {
+    typ: 'backstage-upload-result' as const,
+    authUserId: ingest.authUserId,
+    packageId: ingest.packageId,
+    version: ingest.version,
+    loreSource: ingest.loreSource,
+    rawSha256: ingest.rawSha256,
+    rawByteSize: ingest.rawByteSize,
+    rawDeliveryName: ingest.rawDeliveryName,
+    rawContentType: ingest.rawContentType,
+    sourceKind: 'unitypackage' as const,
+    managedPaths: ['Assets/Example.prefab', 'Assets/Example.prefab.meta'],
+    exp: ingest.exp,
+  };
+}
+
+function validMaterializeClaims() {
+  const upload = validUploadResult();
+  return {
+    typ: 'backstage-materialize' as const,
+    authUserId: upload.authUserId,
+    packageId: upload.packageId,
+    version: upload.version,
+    repositoryId: upload.loreSource.repositoryId,
+    loreSourceAddress: upload.loreSource.address,
+    loreSourceSha256: upload.rawSha256,
+    deliveryName: upload.rawDeliveryName,
+    sourceContentType: upload.rawContentType,
+    sourceKind: upload.sourceKind,
+    materializeMetadata: {
+      displayName: 'Example Package',
+      metadata: { yucp: { aliasId: 'alias-123' } },
+    },
+    exp: upload.exp,
+  };
+}
+
+function validMaterializeResult() {
+  const ingest = validIngestResult();
+  return {
+    typ: 'backstage-materialize-result' as const,
+    authUserId: ingest.authUserId,
+    packageId: ingest.packageId,
+    version: ingest.version,
+    loreDelivery: ingest.loreDelivery,
+    deliverableSha256: ingest.deliverableSha256,
+    deliverableByteSize: ingest.deliverableByteSize,
+    deliverableDeliveryName: ingest.deliverableDeliveryName,
+    deliverableContentType: ingest.deliverableContentType,
+    exp: ingest.exp,
   };
 }
 
@@ -153,5 +215,92 @@ describe('parseIngestResult', () => {
       'rawDeliveryName'
     );
     expect(() => parseIngestResult({ ...validIngestResult(), exp: 0 })).toThrow('exp');
+  });
+});
+
+describe('parseUploadResult', () => {
+  it('accepts a raw-only upload result with safe managed paths', () => {
+    const result = validUploadResult();
+
+    expect(parseUploadResult(result)).toEqual(result);
+  });
+
+  it('rejects malformed source kinds and unsafe managed paths', () => {
+    expect(() => parseUploadResult({ ...validUploadResult(), sourceKind: 'tar' })).toThrow(
+      'sourceKind'
+    );
+    for (const managedPaths of [
+      ['../escape'],
+      ['/absolute'],
+      ['Assets//empty'],
+      ['Assets/./dot'],
+      ['C:/absolute'],
+      ['Assets\\backslash'],
+      [''],
+      [1],
+      'Assets/not-an-array',
+    ]) {
+      expect(() => parseUploadResult({ ...validUploadResult(), managedPaths })).toThrow(
+        'managedPaths'
+      );
+    }
+  });
+
+  it('rejects source metadata that does not match loreSource', () => {
+    expect(() => parseUploadResult({ ...validUploadResult(), rawSha256: '8'.repeat(64) })).toThrow(
+      'loreSource'
+    );
+    expect(() => parseUploadResult({ ...validUploadResult(), rawByteSize: 1235 })).toThrow(
+      'loreSource'
+    );
+  });
+});
+
+describe('parseMaterializeClaims', () => {
+  it('accepts fully resolved materialization claims', () => {
+    const claims = validMaterializeClaims();
+
+    expect(parseMaterializeClaims(claims)).toEqual(claims);
+  });
+
+  it('rejects malformed repository, digest, source kind, and metadata fields', () => {
+    expect(() =>
+      parseMaterializeClaims({ ...validMaterializeClaims(), repositoryId: 'ABC' })
+    ).toThrow('repositoryId');
+    expect(() =>
+      parseMaterializeClaims({ ...validMaterializeClaims(), loreSourceSha256: 'bad' })
+    ).toThrow('loreSourceSha256');
+    expect(() =>
+      parseMaterializeClaims({ ...validMaterializeClaims(), loreSourceAddress: 'bad' })
+    ).toThrow('loreSourceAddress');
+    expect(() =>
+      parseMaterializeClaims({ ...validMaterializeClaims(), sourceKind: 'tar' })
+    ).toThrow('sourceKind');
+    expect(() =>
+      parseMaterializeClaims({ ...validMaterializeClaims(), materializeMetadata: [] })
+    ).toThrow('materializeMetadata');
+    expect(() =>
+      parseMaterializeClaims({
+        ...validMaterializeClaims(),
+        materializeMetadata: { metadata: [] },
+      })
+    ).toThrow('materializeMetadata.metadata');
+  });
+});
+
+describe('parseMaterializeResult', () => {
+  it('accepts a deliverable-only materialization result', () => {
+    const result = validMaterializeResult();
+
+    expect(parseMaterializeResult(result)).toEqual(result);
+  });
+
+  it('rejects deliverable metadata that does not match loreDelivery', () => {
+    expect(() =>
+      parseMaterializeResult({ ...validMaterializeResult(), deliverableSha256: '9'.repeat(64) })
+    ).toThrow('loreDelivery');
+    expect(() =>
+      parseMaterializeResult({ ...validMaterializeResult(), deliverableByteSize: 2346 })
+    ).toThrow('loreDelivery');
   });
 });
