@@ -25,24 +25,6 @@ export type BackstageUploadClaims = {
   exp: number;
 };
 
-export type BackstageIngestResult = {
-  typ: 'backstage-ingest-result';
-  authUserId: string;
-  packageId: string;
-  version: string;
-  loreSource: LoreBackstageArtifactReference;
-  loreDelivery: LoreBackstageArtifactReference;
-  rawSha256: string;
-  rawByteSize: number;
-  rawDeliveryName: string;
-  rawContentType: string;
-  deliverableSha256: string;
-  deliverableByteSize: number;
-  deliverableDeliveryName: string;
-  deliverableContentType: string;
-  exp: number;
-};
-
 export type BackstageSourceKind = 'zip' | 'unitypackage';
 
 export type BackstageUploadResult = {
@@ -325,58 +307,6 @@ export function parseMaterializeResult(value: unknown): BackstageMaterializeResu
   ) {
     throw new Error('Materialize result deliverable bundle metadata must match loreDelivery.');
   }
-  return result;
-}
-
-export function parseIngestResult(value: unknown): BackstageIngestResult {
-  if (!isRecord(value)) {
-    throw new Error('Ingest result payload must be an object.');
-  }
-  if (value.typ !== 'backstage-ingest-result') {
-    throw new Error('Ingest result typ must be backstage-ingest-result.');
-  }
-  if (!isLoreBackstageArtifactReference(value.loreSource)) {
-    throw new Error('Ingest result loreSource must be a Lore artifact reference.');
-  }
-  if (!isLoreBackstageArtifactReference(value.loreDelivery)) {
-    throw new Error('Ingest result loreDelivery must be a Lore artifact reference.');
-  }
-
-  const result: BackstageIngestResult = {
-    typ: 'backstage-ingest-result',
-    authUserId: requiredString(value, 'authUserId', 'Ingest result'),
-    packageId: requiredString(value, 'packageId', 'Ingest result'),
-    version: requiredString(value, 'version', 'Ingest result'),
-    loreSource: value.loreSource,
-    loreDelivery: value.loreDelivery,
-    rawSha256: requiredSha256(value, 'rawSha256', 'Ingest result'),
-    rawByteSize: requiredNonNegativeSafeInteger(value, 'rawByteSize', 'Ingest result'),
-    rawDeliveryName: requiredString(value, 'rawDeliveryName', 'Ingest result'),
-    rawContentType: requiredString(value, 'rawContentType', 'Ingest result'),
-    deliverableSha256: requiredSha256(value, 'deliverableSha256', 'Ingest result'),
-    deliverableByteSize: requiredNonNegativeSafeInteger(
-      value,
-      'deliverableByteSize',
-      'Ingest result'
-    ),
-    deliverableDeliveryName: requiredString(value, 'deliverableDeliveryName', 'Ingest result'),
-    deliverableContentType: requiredString(value, 'deliverableContentType', 'Ingest result'),
-    exp: requiredExpiration(value, 'Ingest result'),
-  };
-
-  if (
-    result.rawSha256 !== result.loreSource.sha256 ||
-    result.rawByteSize !== result.loreSource.byteSize
-  ) {
-    throw new Error('Ingest result raw bundle metadata must match loreSource.');
-  }
-  if (
-    result.deliverableSha256 !== result.loreDelivery.sha256 ||
-    result.deliverableByteSize !== result.loreDelivery.byteSize
-  ) {
-    throw new Error('Ingest result deliverable bundle metadata must match loreDelivery.');
-  }
-
   return result;
 }
 

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
-  parseIngestResult,
   parseMaterializeClaims,
   parseMaterializeResult,
   parseUploadResult,
@@ -20,9 +19,9 @@ function futurePayload() {
   };
 }
 
-function validIngestResult() {
+function validUploadResult() {
   return {
-    typ: 'backstage-ingest-result' as const,
+    typ: 'backstage-upload-result' as const,
     authUserId: 'auth-user-1',
     packageId: 'com.yucp.example',
     version: '1.2.3',
@@ -34,41 +33,13 @@ function validIngestResult() {
       uploadedAt: '2026-07-11T12:00:00.000Z',
       tenantId: 'auth-user-1',
     },
-    loreDelivery: {
-      repositoryId: '1'.repeat(32),
-      address: `${'5'.repeat(64)}-${'6'.repeat(32)}`,
-      sha256: '7'.repeat(64),
-      byteSize: 2345,
-      uploadedAt: '2026-07-11T12:01:00.000Z',
-      tenantId: 'auth-user-1',
-    },
     rawSha256: '4'.repeat(64),
     rawByteSize: 1234,
     rawDeliveryName: 'example.unitypackage',
     rawContentType: 'application/octet-stream',
-    deliverableSha256: '7'.repeat(64),
-    deliverableByteSize: 2345,
-    deliverableDeliveryName: 'com.yucp.example.zip',
-    deliverableContentType: 'application/zip',
-    exp: Math.floor(Date.now() / 1000) + 60,
-  };
-}
-
-function validUploadResult() {
-  const ingest = validIngestResult();
-  return {
-    typ: 'backstage-upload-result' as const,
-    authUserId: ingest.authUserId,
-    packageId: ingest.packageId,
-    version: ingest.version,
-    loreSource: ingest.loreSource,
-    rawSha256: ingest.rawSha256,
-    rawByteSize: ingest.rawByteSize,
-    rawDeliveryName: ingest.rawDeliveryName,
-    rawContentType: ingest.rawContentType,
     sourceKind: 'unitypackage' as const,
     managedPaths: ['Assets/Example.prefab', 'Assets/Example.prefab.meta'],
-    exp: ingest.exp,
+    exp: Math.floor(Date.now() / 1000) + 60,
   };
 }
 
@@ -94,18 +65,25 @@ function validMaterializeClaims() {
 }
 
 function validMaterializeResult() {
-  const ingest = validIngestResult();
+  const upload = validUploadResult();
   return {
     typ: 'backstage-materialize-result' as const,
-    authUserId: ingest.authUserId,
-    packageId: ingest.packageId,
-    version: ingest.version,
-    loreDelivery: ingest.loreDelivery,
-    deliverableSha256: ingest.deliverableSha256,
-    deliverableByteSize: ingest.deliverableByteSize,
-    deliverableDeliveryName: ingest.deliverableDeliveryName,
-    deliverableContentType: ingest.deliverableContentType,
-    exp: ingest.exp,
+    authUserId: upload.authUserId,
+    packageId: upload.packageId,
+    version: upload.version,
+    loreDelivery: {
+      repositoryId: '1'.repeat(32),
+      address: `${'5'.repeat(64)}-${'6'.repeat(32)}`,
+      sha256: '7'.repeat(64),
+      byteSize: 2345,
+      uploadedAt: '2026-07-11T12:01:00.000Z',
+      tenantId: 'auth-user-1',
+    },
+    deliverableSha256: '7'.repeat(64),
+    deliverableByteSize: 2345,
+    deliverableDeliveryName: 'com.yucp.example.zip',
+    deliverableContentType: 'application/zip',
+    exp: upload.exp,
   };
 }
 
@@ -167,54 +145,6 @@ describe('backstage ingest signing', () => {
     const token = await sign(SECRET, futurePayload());
 
     await expect(verify(WRONG_SECRET, token)).rejects.toThrow('signature');
-  });
-});
-
-describe('parseIngestResult', () => {
-  it('accepts a complete signed-result payload', () => {
-    const result = validIngestResult();
-
-    expect(parseIngestResult(result)).toEqual(result);
-  });
-
-  it('rejects bundle metadata that does not match the Lore artifact references', () => {
-    expect(() => parseIngestResult({ ...validIngestResult(), rawSha256: '8'.repeat(64) })).toThrow(
-      'loreSource'
-    );
-    expect(() => parseIngestResult({ ...validIngestResult(), rawByteSize: 1235 })).toThrow(
-      'loreSource'
-    );
-    expect(() =>
-      parseIngestResult({ ...validIngestResult(), deliverableSha256: '9'.repeat(64) })
-    ).toThrow('loreDelivery');
-    expect(() => parseIngestResult({ ...validIngestResult(), deliverableByteSize: 2346 })).toThrow(
-      'loreDelivery'
-    );
-  });
-
-  it('rejects the wrong result type and malformed artifact references', () => {
-    expect(() => parseIngestResult({ ...validIngestResult(), typ: 'backstage-upload' })).toThrow(
-      'typ'
-    );
-    expect(() =>
-      parseIngestResult({
-        ...validIngestResult(),
-        loreDelivery: { ...validIngestResult().loreDelivery, byteSize: '2345' },
-      })
-    ).toThrow('loreDelivery');
-  });
-
-  it('rejects malformed digest, byte-size, string, and expiration fields', () => {
-    expect(() => parseIngestResult({ ...validIngestResult(), rawSha256: 'not-a-digest' })).toThrow(
-      'rawSha256'
-    );
-    expect(() => parseIngestResult({ ...validIngestResult(), rawByteSize: -1 })).toThrow(
-      'rawByteSize'
-    );
-    expect(() => parseIngestResult({ ...validIngestResult(), rawDeliveryName: '' })).toThrow(
-      'rawDeliveryName'
-    );
-    expect(() => parseIngestResult({ ...validIngestResult(), exp: 0 })).toThrow('exp');
   });
 });
 
