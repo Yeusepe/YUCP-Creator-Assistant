@@ -359,36 +359,17 @@ function sanitizeDeliveryName(deliveryName: string): string {
   }).join('');
 }
 
-async function resolveLoreDeliveryDownloadUrl(input: {
+async function resolveLoreArtifactDownloadUrl(input: {
   lore: LoreBackstageConfig;
-  delivery: LoreBackstageArtifactReference;
+  artifact: LoreBackstageArtifactReference;
   deliveryName?: string;
   contentType?: string;
 }): Promise<string> {
   const cfg = requireLoreBackstageConfig(input.lore);
   const { url } = await mintLorePresignedUrl({
     config: cfg,
-    repositoryId: input.delivery.repositoryId,
-    address: input.delivery.address,
-    contentType: input.contentType,
-    contentDisposition: input.deliveryName
-      ? `attachment; filename="${sanitizeDeliveryName(input.deliveryName)}"`
-      : undefined,
-  });
-  return url;
-}
-
-async function resolveLoreSourceDownloadUrl(input: {
-  lore: LoreBackstageConfig;
-  source: LoreBackstageArtifactReference;
-  deliveryName?: string;
-  contentType?: string;
-}): Promise<string> {
-  const cfg = requireLoreBackstageConfig(input.lore);
-  const { url } = await mintLorePresignedUrl({
-    config: cfg,
-    repositoryId: input.source.repositoryId,
-    address: input.source.address,
+    repositoryId: input.artifact.repositoryId,
+    address: input.artifact.address,
     contentType: input.contentType,
     contentDisposition: input.deliveryName
       ? `attachment; filename="${sanitizeDeliveryName(input.deliveryName)}"`
@@ -1262,9 +1243,9 @@ async function issueAuthorizedPackageDownloadForCatalogProduct(
     }
     let downloadUrl: string;
     try {
-      downloadUrl = await resolveLoreSourceDownloadUrl({
+      downloadUrl = await resolveLoreArtifactDownloadUrl({
         lore: config.lore,
-        source: sourceDownload.loreSource,
+        artifact: sourceDownload.loreSource,
         deliveryName: resolved.deliveryName,
         contentType: resolved.contentType,
       });
@@ -1392,9 +1373,9 @@ async function issueAuthorizedPackageMediaDownloadForCatalogProduct(
       ) {
         return errorResponse('Package media is temporarily unavailable', 502);
       }
-      const downloadUrl = await resolveLoreDeliveryDownloadUrl({
+      const downloadUrl = await resolveLoreArtifactDownloadUrl({
         lore: config.lore,
-        delivery: media.loreDelivery,
+        artifact: media.loreDelivery,
         deliveryName: media.deliveryName,
         contentType: media.contentType,
       });
@@ -1722,9 +1703,9 @@ async function servePackageDownload(
       return errorResponse('Package delivery is temporarily unavailable', 502);
     }
     try {
-      const loreUrl = await resolveLoreDeliveryDownloadUrl({
+      const loreUrl = await resolveLoreArtifactDownloadUrl({
         lore: config.lore,
-        delivery: resolved.loreDelivery,
+        artifact: resolved.loreDelivery,
         deliveryName: resolved.deliveryName,
         contentType: resolved.contentType,
       });
