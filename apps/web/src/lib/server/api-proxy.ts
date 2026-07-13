@@ -4,6 +4,10 @@ import { getWebApiBaseUrl, getWebRuntimeEnv } from './runtimeEnv';
 
 const API_PROXY_REQUEST_BODY_MAX_BYTES = 16 * 1024 * 1024;
 const API_PROXY_UPSTREAM_TIMEOUT_MS = 30_000;
+// ponytail: 130 seconds bounds the synchronous publish wait to the materialize deadline. A very
+// large .zip that needs longer still calls for the previously flagged async-publish handoff.
+const BACKSTAGE_PUBLISH_PROXY_TIMEOUT_MS = 130_000;
+const BACKSTAGE_PUBLISH_PATH_PATTERN = /^\/api\/packages\/[^/]+\/backstage\/releases$/;
 
 class ApiProxyRequestBodyTooLargeError extends Error {
   constructor(readonly limitBytes: number) {
@@ -25,6 +29,12 @@ function getApiBaseUrl(): string {
 
 function getInternalSecret(): string {
   return getInternalRpcSharedSecret(getWebRuntimeEnv());
+}
+
+function getUpstreamTimeoutMs(method: string, pathname: string): number {
+  return method === 'POST' && BACKSTAGE_PUBLISH_PATH_PATTERN.test(pathname)
+    ? BACKSTAGE_PUBLISH_PROXY_TIMEOUT_MS
+    : API_PROXY_UPSTREAM_TIMEOUT_MS;
 }
 
 function copyHeaderIfPresent(source: Headers, target: Headers, headerName: string) {
@@ -154,7 +164,11 @@ export async function proxyApiRequest(request: Request): Promise<Response> {
       body,
       redirect: 'manual',
     };
-    response = await fetchApiTargetWithTimeout(targetUrl, init, API_PROXY_UPSTREAM_TIMEOUT_MS);
+    response = await fetchApiTargetWithTimeout(
+      targetUrl,
+      init,
+      getUpstreamTimeoutMs(request.method, url.pathname)
+    );
   } catch (error) {
     if (error instanceof ApiProxyUpstreamTimeoutError) {
       return Response.json(

@@ -201,6 +201,32 @@ describe('proxyApiRequest', () => {
     });
   });
 
+  it('gives Backstage publish requests a longer upstream timeout than normal API requests', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { proxyApiRequest } = await import('@/lib/server/api-proxy');
+
+    await proxyApiRequest(
+      new Request('http://localhost:3000/api/connect/user/accounts', { method: 'GET' })
+    );
+    expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 30_000);
+
+    await proxyApiRequest(
+      new Request('http://localhost:3000/api/packages/com.yucp.song/backstage/releases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+    );
+    expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 130_000);
+  });
+
   it('converts upstream fetch resets into a controlled 502 response instead of throwing', async () => {
     mockFetch.mockRejectedValueOnce(
       Object.assign(new TypeError('fetch failed'), {
