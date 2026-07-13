@@ -4,25 +4,19 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const BACKSTAGE_INGEST_RESULT_HEADER = 'X-Backstage-Ingest-Result';
-
 type TusUploadOptions = {
   endpoint?: string;
   metadata?: Record<string, string>;
-  onAfterResponse?: (
-    request: unknown,
-    response: { getHeader(name: string): string | undefined }
-  ) => void;
   onSuccess?: () => void;
   onError?: (error: Error) => void;
 };
 
 const tusUploadCalls: Array<{ source: unknown; options: TusUploadOptions }> = [];
-let nextIngestResult: string | undefined = 'signed-ingest-result';
 
 mock.module('tus-js-client', () => ({
   Upload: class {
     readonly options: TusUploadOptions;
+    readonly url = 'https://ingest.test/files/job_123';
 
     constructor(source: unknown, options: TusUploadOptions) {
       this.options = options;
@@ -30,13 +24,6 @@ mock.module('tus-js-client', () => ({
     }
 
     start(): void {
-      this.options.onAfterResponse?.(
-        {},
-        {
-          getHeader: (name) =>
-            name === BACKSTAGE_INGEST_RESULT_HEADER ? nextIngestResult : undefined,
-        }
-      );
       this.options.onSuccess?.();
     }
   },
@@ -58,8 +45,13 @@ type FetchCall = {
 function createFetch(
   calls: FetchCall[],
   releaseResult: Record<string, unknown>,
-  tusEndpoint = 'https://ingest.test/files'
+  tusEndpoint = 'https://ingest.test/files',
+  jobResponses: Array<Record<string, unknown>> = [
+    { state: 'processing' },
+    { state: 'completed', result: 'signed-ingest-result' },
+  ]
 ): typeof fetch {
+  let jobResponseIndex = 0;
   return async (input, init) => {
     const request = new Request(input, init);
     const call = {
@@ -77,6 +69,14 @@ function createFetch(
         uploadMetadataKey: 'backstageUploadToken',
         maxByteSize: 1024,
       });
+    }
+    if (call.url === 'https://ingest.test/jobs/job_123') {
+      const response = jobResponses[jobResponseIndex];
+      jobResponseIndex += 1;
+      if (!response) {
+        throw new Error('Unexpected extra ingest job poll');
+      }
+      return Response.json(response);
     }
     if (call.url.endsWith('/api/packages/com.yucp.example/backstage/releases')) {
       return new Response(JSON.stringify(releaseResult), {
@@ -97,10 +97,9 @@ describe('publish-backstage-package', () => {
       tempDir = undefined;
     }
     tusUploadCalls.length = 0;
-    nextIngestResult = 'signed-ingest-result';
   });
 
-  it('authorizes a resumable upload, reads its ingest result, and publishes the release', async () => {
+  it('authorizes a resumable upload, polls its ingest job, and publishes the release', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
     const sourcePath = join(tempDir, 'example.zip');
     writeFileSync(sourcePath, Buffer.from('zip-bytes'));
@@ -133,7 +132,7 @@ describe('publish-backstage-package', () => {
       version: '1.2.3',
       channel: 'stable',
     });
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(4);
     expect(calls[0].url).toBe(
       'https://api.test/api/packages/com.yucp.example/backstage/upload-authorization'
     );
@@ -155,11 +154,18 @@ describe('publish-backstage-package', () => {
     });
     expect(Buffer.from(tusUploadCalls[0].source as Uint8Array).toString('utf8')).toBe('zip-bytes');
 
-    expect(calls[1].url).toBe('https://api.test/api/packages/com.yucp.example/backstage/releases');
-    expect(calls[1].method).toBe('POST');
-    expect(calls[1].headers.get('authorization')).toBe('Bearer oauth-token');
-    expect(calls[1].headers.get('content-type')).toBe('application/json');
-    expect(JSON.parse(calls[1].body)).toEqual({
+    for (const pollCall of calls.slice(1, 3)) {
+      expect(pollCall.url).toBe('https://ingest.test/jobs/job_123');
+      expect(pollCall.method).toBe('GET');
+      expect(pollCall.headers.get('authorization')).toBe('Bearer upload-token');
+      expect(pollCall.body).toBe('');
+    }
+
+    expect(calls[3].url).toBe('https://api.test/api/packages/com.yucp.example/backstage/releases');
+    expect(calls[3].method).toBe('POST');
+    expect(calls[3].headers.get('authorization')).toBe('Bearer oauth-token');
+    expect(calls[3].headers.get('content-type')).toBe('application/json');
+    expect(JSON.parse(calls[3].body)).toEqual({
       catalogProductId: 'product_123',
       ingestResult: 'signed-ingest-result',
       version: '1.2.3',
@@ -272,7 +278,7 @@ describe('publish-backstage-package', () => {
     expect(Buffer.from(tusUploadCalls[0].source as Uint8Array).toString('utf8')).toBe(
       'unitypackage-bytes'
     );
-    expect(JSON.parse(calls[1].body)).toMatchObject({
+    expect(JSON.parse(calls[3].body)).toMatchObject({
       ingestResult: 'signed-ingest-result',
       version: '3.0.0',
       deliveryName: 'example.unitypackage',
@@ -280,12 +286,10 @@ describe('publish-backstage-package', () => {
     });
   });
 
-  it('fails clearly when the TUS sidecar omits the signed ingest result header', async () => {
+  it('fails clearly when the ingest job reports a failed state', async () => {
     tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
     const sourcePath = join(tempDir, 'example.zip');
     writeFileSync(sourcePath, Buffer.from('zip-bytes'));
-    nextIngestResult = undefined;
-
     const calls: FetchCall[] = [];
     await expect(
       publishBackstagePackage(
@@ -297,10 +301,15 @@ describe('publish-backstage-package', () => {
           version: '1.2.3',
           sourcePath,
         },
-        createFetch(calls, {})
+        createFetch(calls, {}, 'https://ingest.test/files', [
+          { state: 'failed', reason: 'materialize_failed' },
+        ])
       )
-    ).rejects.toThrow('Backstage ingest sidecar did not return a signed result');
-    expect(calls).toHaveLength(1);
+    ).rejects.toThrow('materialize_failed');
+    expect(calls).toHaveLength(2);
+    expect(calls[1].url).toBe('https://ingest.test/jobs/job_123');
+    expect(calls[1].method).toBe('GET');
+    expect(calls[1].headers.get('authorization')).toBe('Bearer upload-token');
   });
 
   it('documents the products:write scope required for package publishing', () => {
