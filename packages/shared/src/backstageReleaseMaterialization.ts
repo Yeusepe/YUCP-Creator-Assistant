@@ -1,4 +1,5 @@
-import { gunzipSync, unzipSync, type Zippable, zipSync } from 'fflate';
+import { Gunzip, unzipSync, type Zippable, zipSync } from 'fflate';
+import { MAX_BACKSTAGE_PACKAGE_BYTES } from './backstageLimits';
 import { stripBackstagePackageMediaManifestMetadata } from './backstagePackageMedia';
 import {
   BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY,
@@ -12,6 +13,14 @@ import { sha256Hex } from './crypto';
 import { applyYucpAliasPackageManifestDefaults } from './yucpAliasPackageContract';
 
 const FIXED_ZIP_MTIME = new Date(315619200000);
+export const MAX_UNITYPACKAGE_DECOMPRESSED_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES * 2;
+export const MAX_UNITYPACKAGE_ENTRIES = 100_000;
+const MAX_UNITYPACKAGE_PATHNAME_BYTES = 64 * 1024;
+const UNITYPACKAGE_GUNZIP_INPUT_CHUNK_BYTES = 64 * 1024;
+const UNITYPACKAGE_LIMIT_ERROR_MESSAGE =
+  'Backstage unitypackage exceeds the decompressed size/entry limit.';
+// ponytail: These ceilings allow twice the accepted source-package bytes and 100,000 tar entries.
+// A truly larger legitimate package needs an end-to-end streaming materialization redesign first.
 const MAX_ZIP_CENTRAL_DIRECTORY_ENTRIES = 100_000;
 const ZIP_CENTRAL_DIRECTORY_FILE_HEADER_SIGNATURE = 0x02014b50;
 const ZIP_CENTRAL_DIRECTORY_DIGITAL_SIGNATURE = 0x05054b50;
@@ -198,8 +207,43 @@ function assertSafeProjectImportPath(input: string): string {
   return normalized;
 }
 
-export function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[] {
-  const tarBytes = gunzipSync(sourceBytes);
+export type UnityPackageImportPathCollectionLimits = Readonly<{
+  maxDecompressedBytes?: number;
+  maxEntries?: number;
+}>;
+
+function resolveUnityPackageCollectionLimit(
+  requestedLimit: number | undefined,
+  hardLimit: number,
+  label: string
+): number {
+  if (requestedLimit === undefined) {
+    return hardLimit;
+  }
+  if (!Number.isSafeInteger(requestedLimit) || requestedLimit <= 0) {
+    throw new Error(`Backstage unitypackage ${label} limit must be a positive safe integer.`);
+  }
+  return Math.min(requestedLimit, hardLimit);
+}
+
+function throwUnityPackageLimitError(): never {
+  throw new Error(UNITYPACKAGE_LIMIT_ERROR_MESSAGE);
+}
+
+export function collectUnityPackageImportPaths(
+  sourceBytes: Uint8Array,
+  limits: UnityPackageImportPathCollectionLimits = {}
+): string[] {
+  const maxDecompressedBytes = resolveUnityPackageCollectionLimit(
+    limits.maxDecompressedBytes,
+    MAX_UNITYPACKAGE_DECOMPRESSED_BYTES,
+    'decompressed byte'
+  );
+  const maxEntries = resolveUnityPackageCollectionLimit(
+    limits.maxEntries,
+    MAX_UNITYPACKAGE_ENTRIES,
+    'entry'
+  );
   const entriesByDirectory = new Map<
     string,
     {
@@ -208,40 +252,152 @@ export function collectUnityPackageImportPaths(sourceBytes: Uint8Array): string[
       pathname?: string;
     }
   >();
+  const headerBytes = new Uint8Array(512);
+  let headerByteLength = 0;
+  let totalDecompressed = 0;
+  let entryCount = 0;
+  let tarEnded = false;
+  let currentEntry:
+    | {
+        dataRemaining: number;
+        directory?: string;
+        paddingRemaining: number;
+        pathnameBytes?: Uint8Array;
+        pathnameOffset: number;
+      }
+    | undefined;
 
-  for (let offset = 0; offset + 512 <= tarBytes.byteLength; ) {
-    if (isEmptyTarBlock(tarBytes, offset)) {
-      break;
+  const completeCurrentEntryContent = (): void => {
+    if (!currentEntry) {
+      return;
     }
+    if (currentEntry.pathnameBytes && currentEntry.directory !== undefined) {
+      const entry = entriesByDirectory.get(currentEntry.directory);
+      if (entry) {
+        entry.pathname = new TextDecoder().decode(currentEntry.pathnameBytes).trim();
+      }
+    }
+    currentEntry.pathnameBytes = undefined;
+    if (currentEntry.paddingRemaining === 0) {
+      currentEntry = undefined;
+    }
+  };
 
-    const entryPath = readTarString(tarBytes, offset, 100);
-    const size = readTarOctal(tarBytes, offset + 124, 12);
-    const dataOffset = offset + 512;
-    const nextOffset = dataOffset + Math.ceil(size / 512) * 512;
+  const consumeTarBytes = (chunk: Uint8Array): void => {
+    let offset = 0;
+    while (offset < chunk.byteLength && !tarEnded) {
+      if (!currentEntry) {
+        const headerBytesNeeded = 512 - headerByteLength;
+        const headerBytesAvailable = Math.min(headerBytesNeeded, chunk.byteLength - offset);
+        headerBytes.set(chunk.subarray(offset, offset + headerBytesAvailable), headerByteLength);
+        headerByteLength += headerBytesAvailable;
+        offset += headerBytesAvailable;
+        if (headerByteLength < 512) {
+          continue;
+        }
+        headerByteLength = 0;
+        if (isEmptyTarBlock(headerBytes, 0)) {
+          tarEnded = true;
+          continue;
+        }
 
-    if (entryPath) {
-      const slashIndex = entryPath.lastIndexOf('/');
-      const directory = slashIndex >= 0 ? entryPath.slice(0, slashIndex) : '';
-      const fileName = slashIndex >= 0 ? entryPath.slice(slashIndex + 1) : entryPath;
-      const entry = entriesByDirectory.get(directory) ?? {
-        asset: false,
-        assetMeta: false,
-      };
+        entryCount += 1;
+        if (entryCount > maxEntries) {
+          throwUnityPackageLimitError();
+        }
 
-      if (fileName === 'pathname') {
-        entry.pathname = new TextDecoder()
-          .decode(tarBytes.subarray(dataOffset, dataOffset + size))
-          .trim();
-      } else if (fileName === 'asset') {
-        entry.asset = true;
-      } else if (fileName === 'asset.meta') {
-        entry.assetMeta = true;
+        const entryPath = readTarString(headerBytes, 0, 100);
+        const size = readTarOctal(headerBytes, 124, 12);
+        if (!Number.isSafeInteger(size) || size < 0) {
+          throw new Error('Backstage unitypackage contains an invalid tar entry size.');
+        }
+
+        let directory: string | undefined;
+        let pathnameBytes: Uint8Array | undefined;
+        if (entryPath) {
+          const slashIndex = entryPath.lastIndexOf('/');
+          directory = slashIndex >= 0 ? entryPath.slice(0, slashIndex) : '';
+          const fileName = slashIndex >= 0 ? entryPath.slice(slashIndex + 1) : entryPath;
+          const entry = entriesByDirectory.get(directory) ?? {
+            asset: false,
+            assetMeta: false,
+          };
+
+          if (fileName === 'pathname') {
+            if (size > MAX_UNITYPACKAGE_PATHNAME_BYTES) {
+              throwUnityPackageLimitError();
+            }
+            pathnameBytes = new Uint8Array(size);
+          } else if (fileName === 'asset') {
+            entry.asset = true;
+          } else if (fileName === 'asset.meta') {
+            entry.assetMeta = true;
+          }
+
+          entriesByDirectory.set(directory, entry);
+        }
+
+        currentEntry = {
+          dataRemaining: size,
+          directory,
+          paddingRemaining: (512 - (size % 512)) % 512,
+          pathnameBytes,
+          pathnameOffset: 0,
+        };
+        if (size === 0) {
+          completeCurrentEntryContent();
+        }
+        continue;
       }
 
-      entriesByDirectory.set(directory, entry);
-    }
+      if (currentEntry.dataRemaining > 0) {
+        const dataBytesAvailable = Math.min(currentEntry.dataRemaining, chunk.byteLength - offset);
+        if (currentEntry.pathnameBytes) {
+          currentEntry.pathnameBytes.set(
+            chunk.subarray(offset, offset + dataBytesAvailable),
+            currentEntry.pathnameOffset
+          );
+          currentEntry.pathnameOffset += dataBytesAvailable;
+        }
+        currentEntry.dataRemaining -= dataBytesAvailable;
+        offset += dataBytesAvailable;
+        if (currentEntry.dataRemaining === 0) {
+          completeCurrentEntryContent();
+        }
+        continue;
+      }
 
-    offset = nextOffset;
+      const paddingBytesAvailable = Math.min(
+        currentEntry.paddingRemaining,
+        chunk.byteLength - offset
+      );
+      currentEntry.paddingRemaining -= paddingBytesAvailable;
+      offset += paddingBytesAvailable;
+      if (currentEntry.paddingRemaining === 0) {
+        currentEntry = undefined;
+      }
+    }
+  };
+
+  const gunzip = new Gunzip((chunk) => {
+    totalDecompressed += chunk.byteLength;
+    if (totalDecompressed > maxDecompressedBytes) {
+      throwUnityPackageLimitError();
+    }
+    consumeTarBytes(chunk);
+  });
+
+  if (sourceBytes.byteLength === 0) {
+    gunzip.push(sourceBytes, true);
+  } else {
+    for (
+      let offset = 0;
+      offset < sourceBytes.byteLength;
+      offset += UNITYPACKAGE_GUNZIP_INPUT_CHUNK_BYTES
+    ) {
+      const end = Math.min(offset + UNITYPACKAGE_GUNZIP_INPUT_CHUNK_BYTES, sourceBytes.byteLength);
+      gunzip.push(sourceBytes.subarray(offset, end), end === sourceBytes.byteLength);
+    }
   }
 
   const managedPaths = new Set<string>();

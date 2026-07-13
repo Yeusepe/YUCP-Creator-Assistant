@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { extractBackstagePackageMediaAssetsFromSource } from './backstagePackageMedia';
 import {
+  collectUnityPackageImportPaths,
   collectZipArchiveEntryPaths,
   materializeBackstageReleaseArtifact,
 } from './backstageReleaseMaterialization';
@@ -14,6 +15,8 @@ const ZIP_DATE_A = new Date(315705600000);
 const ZIP_DATE_B = new Date(315964800000);
 const TAR_MTIME_A = 123;
 const TAR_MTIME_B = 456;
+const TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES = 1024 * 1024;
+const TEST_UNITYPACKAGE_BOMB_DECOMPRESSED_BYTES = 1024 * 1024 + 512;
 
 function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
   const encoded = new TextEncoder().encode(value);
@@ -76,6 +79,15 @@ function buildUnitypackage(
   return gzipSync(tarBytes, { level: 9, mtime: mtimeSeconds });
 }
 
+function buildUnitypackageEntryBomb(entryCount: number): Uint8Array {
+  const tarBytes = new Uint8Array(entryCount * 512 + 1024);
+  const header = buildTarHeader('repeated-guid/asset', 0, TAR_MTIME_A);
+  for (let index = 0; index < entryCount; index += 1) {
+    tarBytes.set(header, index * 512);
+  }
+  return gzipSync(tarBytes, { level: 9, mtime: TAR_MTIME_A });
+}
+
 function findZipSignature(bytes: Uint8Array, signature: readonly number[]): number {
   for (let offset = 0; offset + signature.length <= bytes.byteLength; offset += 1) {
     if (signature.every((value, index) => bytes[offset + index] === value)) {
@@ -126,6 +138,51 @@ describe('collectZipArchiveEntryPaths', () => {
     writeUint16LittleEndian(archive, endOfCentralDirectoryOffset + 10, 2);
 
     expect(() => collectZipArchiveEntryPaths(archive)).toThrow('central directory entry count');
+  });
+});
+
+describe('collectUnityPackageImportPaths', () => {
+  it('collects managed paths from a normal unitypackage', () => {
+    const archive = buildUnitypackage(
+      [
+        { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+        { path: 'asset-guid/asset.meta', content: strToU8('meta-bytes') },
+        { path: 'asset-guid/pathname', content: strToU8('Assets/Avatar/readme.txt') },
+      ],
+      TAR_MTIME_A
+    );
+
+    expect(collectUnityPackageImportPaths(archive)).toEqual([
+      'Assets/Avatar/readme.txt',
+      'Assets/Avatar/readme.txt.meta',
+    ]);
+  });
+
+  it('rejects a highly compressed unitypackage entry bomb before materializing', async () => {
+    const archive = buildUnitypackageEntryBomb(100_001);
+
+    await expect(
+      materializeBackstageReleaseArtifact({
+        sourceBytes: archive,
+        deliveryName: 'entry-bomb.unitypackage',
+        contentType: 'application/octet-stream',
+        packageId: 'com.yucp.entry-bomb',
+        version: '1.0.0',
+      })
+    ).rejects.toThrow('Backstage unitypackage exceeds the decompressed size/entry limit.');
+  });
+
+  it('rejects a gzip bomb when decompressed bytes exceed the configured hard limit', () => {
+    const archive = gzipSync(new Uint8Array(TEST_UNITYPACKAGE_BOMB_DECOMPRESSED_BYTES), {
+      level: 9,
+      mtime: TAR_MTIME_A,
+    });
+
+    expect(() =>
+      collectUnityPackageImportPaths(archive, {
+        maxDecompressedBytes: TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES,
+      })
+    ).toThrow('Backstage unitypackage exceeds the decompressed size/entry limit.');
   });
 });
 
