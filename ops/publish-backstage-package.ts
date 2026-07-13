@@ -14,12 +14,10 @@ import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { assertSecureLoreUrl } from '@yucp/shared/loreBackstageClient';
 import { Upload } from 'tus-js-client';
+import { pollBackstageIngestJob } from './lib/backstageIngestPoll';
 
 type FetchLike = typeof fetch;
 
-const BACKSTAGE_INGEST_POLL_INTERVAL_MS = 1000;
-const BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS = 15_000;
-const BACKSTAGE_INGEST_POLL_TIMEOUT_MS = 20 * 60 * 1000;
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
 
 export type PublishBackstageReleaseConfig = {
@@ -58,11 +56,6 @@ type UploadedBackstageSource = {
   sourceContentType: string;
   version: string;
 };
-
-type BackstageIngestJobResponse =
-  | { state: 'processing' }
-  | { state: 'completed'; result: string }
-  | { state: 'failed'; reason: string };
 
 export type PublishBackstagePackageResult = {
   deliveryPackageReleaseId: string;
@@ -237,49 +230,6 @@ async function assertApiResponse<T>(response: Response, fallback: string): Promi
   return payload as T;
 }
 
-async function pollBackstageIngestJob(
-  jobUrl: string,
-  uploadToken: string,
-  fetchImpl: FetchLike
-): Promise<string> {
-  const deadline = Date.now() + BACKSTAGE_INGEST_POLL_TIMEOUT_MS;
-
-  for (;;) {
-    if (Date.now() >= deadline) {
-      throw new Error('Timed out waiting for the Backstage ingest job to complete');
-    }
-
-    let response: Response;
-    try {
-      response = await fetchImpl(jobUrl, {
-        headers: { Authorization: `Bearer ${uploadToken}` },
-        signal: AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS),
-      });
-    } catch {
-      await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
-      continue;
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Backstage ingest job polling failed (${response.status} ${response.statusText})`
-      );
-    }
-
-    const job = (await response.json()) as BackstageIngestJobResponse;
-    if (job.state === 'completed') {
-      if (typeof job.result !== 'string' || !job.result.trim()) {
-        throw new Error('Completed Backstage ingest job did not return a signed result');
-      }
-      return job.result;
-    }
-    if (job.state === 'failed') {
-      throw new Error(`Backstage ingest job failed: ${job.reason}`);
-    }
-
-    await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
-  }
-}
-
 function buildApiUrl(apiBaseUrl: string, path: string): string {
   return new URL(path, apiBaseUrl.endsWith('/') ? apiBaseUrl : `${apiBaseUrl}/`).toString();
 }
@@ -392,7 +342,7 @@ export async function uploadBackstagePackageArtifactDirect(
           rejectUpload(error);
           return;
         }
-        void pollBackstageIngestJob(jobUrl, uploadToken, fetchImpl).then(
+        void pollBackstageIngestJob(jobUrl, uploadToken, { fetchImpl }).then(
           resolveUpload,
           rejectUpload
         );
