@@ -52,6 +52,14 @@ const QUEUE_NAME = 'backstage-ingest';
 const FAILED_JOB_REASON = 'ingest_failed';
 const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
   'Backstage package has too many or too long managed asset paths.';
+const MANAGED_PATHS_PARSE_FAILED_REASON = 'managed_paths_failed';
+const STAGED_READ_FAILED_REASON = 'staged_read_failed';
+// ponytail: deterministic upload failures BullMQ must not retry (parsing a corrupt/bomb archive
+// fails identically each attempt); a transient staged read stays retriable and is not listed here.
+const UNRECOVERABLE_UPLOAD_FAILURE_REASONS = new Set<string>([
+  MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON,
+  MANAGED_PATHS_PARSE_FAILED_REASON,
+]);
 
 type ServiceConfig = {
   allowedOrigins: string[];
@@ -161,7 +169,7 @@ function loadConfig(): ServiceConfig {
     tusDirectory: Bun.env.BACKSTAGE_INGEST_TUS_DIR?.trim() || DEFAULT_TUS_DIRECTORY,
     uploadTtlMs: optionalPositiveInteger('BACKSTAGE_INGEST_UPLOAD_TTL_MS') ?? DEFAULT_UPLOAD_TTL_MS,
     ingestSecret,
-    redisUrl: requiredEnv('REDIS_URL'),
+    redisUrl: requiredEnv('BACKSTAGE_INGEST_REDIS_URL'),
     // ponytail: the {...} is a Redis/Dragonfly hashtag so all BullMQ keys share one slot/lock (required by --lock_on_hashtags), and it namespaces the queue on a shared instance.
     queuePrefix: Bun.env.BACKSTAGE_INGEST_QUEUE_PREFIX?.trim() || '{backstage-ingest}',
     concurrency: optionalPositiveInteger('BACKSTAGE_INGEST_CONCURRENCY') ?? 1,
@@ -244,6 +252,40 @@ async function streamSha256Hex(path: string): Promise<string> {
   return hasher.digest('hex');
 }
 
+// Mirror apps/api and apps/bot: pull secrets from Infisical at startup so the container only needs
+// the machine-identity creds (INFISICAL_PROJECT_ID + INFISICAL_CLIENT_ID/SECRET). fetchInfisicalSecrets
+// returns {} when those are absent, so local dev / the integration test (which inject env directly)
+// are unaffected. Explicit container env wins; Infisical only fills gaps.
+async function hydrateEnvFromInfisical(): Promise<void> {
+  try {
+    const { fetchInfisicalSecrets } = await import('@yucp/shared/infisical/fetchSecrets');
+    const secrets = await fetchInfisicalSecrets();
+    let applied = 0;
+    for (const [key, value] of Object.entries(secrets)) {
+      if (value !== undefined && !process.env[key]?.trim()) {
+        process.env[key] = value;
+        applied += 1;
+      }
+    }
+    if (applied > 0) {
+      console.log(
+        JSON.stringify({ event: 'backstage_ingest.infisical_hydrated', appliedCount: applied })
+      );
+    }
+  } catch (error) {
+    // ponytail: a fetch failure must not crash boot — explicit container env still works, and
+    // loadConfig() below raises a clear missing-variable error if a required secret is truly absent.
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.infisical_hydrate_failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+}
+
+await hydrateEnvFromInfisical();
+
 const config = loadConfig();
 const store = new FileStore({
   directory: config.tusDirectory,
@@ -266,11 +308,25 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
   const startedAt = performance.now();
   const { claims, stagedPath, uploadId } = data;
   let bytes: ArrayBuffer;
-  let sourceKind: BackstageUploadResult['sourceKind'];
-  let managedPaths: string[];
   try {
     // ponytail: upload jobs hold about 1x source bytes in memory while deriving the install footprint; concurrency bounds aggregate memory.
     bytes = await Bun.file(stagedPath).arrayBuffer();
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.staged_read_failed',
+        uploadId,
+        reason: STAGED_READ_FAILED_REASON,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
+    );
+    // ponytail: reading the local staged file can fail transiently (I/O), so let BullMQ retry.
+    throw new Error(STAGED_READ_FAILED_REASON);
+  }
+
+  let sourceKind: BackstageUploadResult['sourceKind'];
+  let managedPaths: string[];
+  try {
     const sourceBytes = new Uint8Array(bytes);
     sourceKind = detectBackstageVpmDeliverySourceKind({
       deliveryName: claims.deliveryName,
@@ -291,11 +347,13 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
       JSON.stringify({
         event: 'backstage_ingest.managed_paths_failed',
         uploadId,
-        reason: 'managed_paths_failed',
+        reason: MANAGED_PATHS_PARSE_FAILED_REASON,
         durationMs: Math.round(performance.now() - startedAt),
       })
     );
-    throw new Error('managed_paths_failed');
+    // ponytail: archive parsing is deterministic — a corrupt or bomb archive fails identically on
+    // retry, so fail fast and don't burn repeated decompression CPU.
+    throw new UnrecoverableError(MANAGED_PATHS_PARSE_FAILED_REASON);
   }
 
   const managedPathsSerializedBytes = Buffer.byteLength(JSON.stringify(managedPaths));
@@ -563,7 +621,7 @@ worker.on('failed', (job) => {
   if (
     job &&
     isUploadJobData(job.data) &&
-    (job.failedReason === MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON ||
+    (UNRECOVERABLE_UPLOAD_FAILURE_REASONS.has(job.failedReason ?? '') ||
       job.attemptsMade >= (job.opts.attempts ?? 1))
   ) {
     void removeStagedUpload(job.id);

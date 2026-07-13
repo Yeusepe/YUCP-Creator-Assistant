@@ -75,7 +75,7 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
 ### Backstage ingest sidecar
 
 - `BACKSTAGE_INGEST_SECRET`: shared upload, poll, and result signing secret. It must be hex with at least 64 characters / 32 bytes; generate it with `openssl rand -hex 32` and rotate the API and sidecar together.
-- `REDIS_URL`: connection string for the dedicated BullMQ Redis-compatible queue. Do not point it at the application's state-store instance.
+- `BACKSTAGE_INGEST_REDIS_URL`: connection string for the dedicated BullMQ Redis-compatible queue. Do not point it at the application's state-store instance.
 - `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload and poll jobs.
 - `BACKSTAGE_INGEST_CONCURRENCY`: maximum concurrent ingest and materialize jobs. The default is `1`.
 - `BACKSTAGE_INGEST_QUEUE_PREFIX`: BullMQ key prefix. The default `{backstage-ingest}` includes the Redis/Dragonfly hashtag required by the production queue topology.
@@ -180,7 +180,7 @@ These keys back certificate issuance, protected materialization grants, broker a
 - `YUCP_COUPLING_SERVICE_BASE_URL`
 - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
 - `BACKSTAGE_INGEST_SECRET` (shared upload/materialize token and result signing secret; hex, at least 64 characters / 32 bytes; generate with `openssl rand -hex 32`)
-- `REDIS_URL` (dedicated Backstage BullMQ queue only; do not reuse the application state store)
+- `BACKSTAGE_INGEST_REDIS_URL` (dedicated Backstage BullMQ queue only; do not reuse the application state store)
 - `BACKSTAGE_INGEST_ALLOWED_ORIGINS`
 - `BACKSTAGE_INGEST_CONCURRENCY` (default `1`)
 - `BACKSTAGE_INGEST_QUEUE_PREFIX` (default `{backstage-ingest}`)

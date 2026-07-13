@@ -117,7 +117,7 @@ jobs:
       # The live ops/backstage-lore-download-e2e.ts smoke requires deployed services and stays manual.
       - name: Run Backstage ingest integration
         env:
-          REDIS_URL: redis://localhost:6379
+          BACKSTAGE_INGEST_REDIS_URL: redis://localhost:6379
         run: bun run test:ingest:integration
 
   convex-real:

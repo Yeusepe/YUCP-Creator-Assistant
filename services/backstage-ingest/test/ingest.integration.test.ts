@@ -192,18 +192,18 @@ async function waitForRedis(url: string): Promise<void> {
 }
 
 beforeAll(async () => {
-  const configuredRedisUrl = process.env.REDIS_URL?.trim();
+  const configuredRedisUrl = process.env.BACKSTAGE_INGEST_REDIS_URL?.trim();
   if (configuredRedisUrl) {
     redisUrl = configuredRedisUrl;
     await waitForRedis(redisUrl);
-    process.stdout.write(`Using real Redis from REDIS_URL: ${redisUrl}\n`);
+    process.stdout.write(`Using real Redis from BACKSTAGE_INGEST_REDIS_URL: ${redisUrl}\n`);
     return;
   }
 
   const dockerVersion = await runProcess(['docker', 'version', '--format', '{{.Server.Version}}']);
   if (dockerVersion.exitCode !== 0) {
     throw new Error(
-      `REDIS_URL is unset and Docker is unavailable. A real Redis is required.\n${dockerVersion.stderr}`
+      `BACKSTAGE_INGEST_REDIS_URL is unset and Docker is unavailable. A real Redis is required.\n${dockerVersion.stderr}`
     );
   }
 
@@ -559,7 +559,7 @@ describe('backstage ingest resumable upload integration', () => {
         env: {
           ...process.env,
           PORT: String(sidecarPort),
-          REDIS_URL: redisUrl,
+          BACKSTAGE_INGEST_REDIS_URL: redisUrl,
           BACKSTAGE_INGEST_QUEUE_PREFIX: queuePrefix,
           BACKSTAGE_INGEST_CONCURRENCY: '2',
           BACKSTAGE_INGEST_TUS_DIR: tempDirectory,

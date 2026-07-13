@@ -24,10 +24,17 @@ The worker retries failed jobs up to three times with exponential backoff. Worke
 
 ## Environment
 
+At startup the sidecar fetches secrets from Infisical (same as `apps/api` and `apps/bot`): given a machine identity it pulls the project's secrets and hydrates any variable not already set in the container environment. So a deployment only needs the Infisical credentials below — the rest can live in Infisical. Explicitly-set container env always wins; if the Infisical credentials are absent the fetch is skipped and every variable must be provided directly (as in local dev and the integration test).
+
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
+| `INFISICAL_PROJECT_ID` | For Infisical | None | Infisical project to pull secrets from. Omit all three Infisical vars to disable the fetch and supply env directly. |
+| `INFISICAL_CLIENT_ID` | For Infisical | None | Machine-identity client ID (`INFISICAL_MACHINE_IDENTITY_ID` also accepted). |
+| `INFISICAL_CLIENT_SECRET` | For Infisical | None | Machine-identity client secret (`INFISICAL_MACHINE_IDENTITY_SECRET` also accepted). |
+| `INFISICAL_URL` | No | `https://app.infisical.com` | Infisical site URL. |
+| `INFISICAL_ENV` | No | `dev` | Infisical environment slug to read. |
 | `BACKSTAGE_INGEST_SECRET` | Yes | None | Hex signing secret shared with the API. It must contain at least 64 hex characters, or 32 bytes. |
-| `REDIS_URL` | Yes | None | ioredis connection string for the dedicated BullMQ Redis-compatible store. |
+| `BACKSTAGE_INGEST_REDIS_URL` | Yes | None | ioredis connection string for the dedicated BullMQ Redis-compatible store. Sidecar-specific; do not reuse the API's `DRAGONFLY_URI`/`REDIS_URL` state store. |
 | `BACKSTAGE_INGEST_ALLOWED_ORIGINS` | No | None | Comma-separated browser origins allowed to upload and poll. When unset, cross-origin requests are rejected. |
 | `BACKSTAGE_INGEST_CONCURRENCY` | No | `1` | Maximum concurrent jobs across upload ingest and materialize work. |
 | `BACKSTAGE_INGEST_QUEUE_PREFIX` | No | `{backstage-ingest}` | BullMQ key prefix. The braces form the Redis/Dragonfly hashtag. |
@@ -55,7 +62,7 @@ In another shell:
 bun run --filter @yucp/backstage-ingest start
 ```
 
-Set `REDIS_URL=redis://localhost:6379` for that local Redis container. A local Dragonfly instance can be used instead.
+Set `BACKSTAGE_INGEST_REDIS_URL=redis://localhost:6379` for that local Redis container. A local Dragonfly instance can be used instead.
 
 ## Production queue
 

@@ -139,7 +139,7 @@ docs/          product docs and engineering playbooks
 | `GUMROAD_CLIENT_ID`, `GUMROAD_CLIENT_SECRET` | api      | Gumroad OAuth and connect        |
 | `JINXXY_API_KEY`                             | api      | Jinxxy integration               |
 | `BACKSTAGE_INGEST_SECRET`                    | api, ingest | Hex signing secret for upload/materialize tokens and results; at least 64 hex characters (32 bytes) |
-| `REDIS_URL`                                  | ingest   | Redis/Dragonfly connection for the dedicated BullMQ queue |
+| `BACKSTAGE_INGEST_REDIS_URL`                 | ingest   | Redis/Dragonfly connection for the dedicated BullMQ queue |
 | `BACKSTAGE_INGEST_CONCURRENCY`               | ingest   | Maximum concurrent ingest and materialize jobs; default `1` |
 | `BACKSTAGE_INGEST_QUEUE_PREFIX`              | ingest   | BullMQ key prefix; default `{backstage-ingest}`, including the Redis/Dragonfly hashtag braces |
 | `BACKSTAGE_INGEST_ALLOWED_ORIGINS`            | ingest   | Comma-separated browser origins allowed to upload and poll jobs |
@@ -164,10 +164,12 @@ Backstage package storage and delivery run on content-addressed Lore. CDNgine is
 
 At publish, the API resolves final dependencies, `unityVersion`, and the `yucp` alias contract including `aliasId`. It submits a `materialize` job with `POST /materialize` and polls `GET /jobs/:id`. For a `.unitypackage`, the worker builds a small importer shim from the stored managed paths without downloading the raw source again. For a `.zip`, it retrieves and normalizes the source into a repacked deliverable. The deliverable is stored in Lore and carries the server-authorized alias contract used by the `com.yucp.importer` VCC tool.
 
+Like `apps/api` and `apps/bot`, the sidecar fetches secrets from Infisical at startup: given a machine identity (`INFISICAL_PROJECT_ID` + `INFISICAL_CLIENT_ID`/`INFISICAL_CLIENT_SECRET`) it hydrates any of the variables below that are not already set in the container. Explicit container env wins; if the Infisical credentials are absent the fetch is skipped and every variable must be supplied directly.
+
 The sidecar configuration is:
 
 - `BACKSTAGE_INGEST_SECRET`: required hex signing secret shared with the API. It must contain at least 64 hex characters (at least 32 bytes); generate one with `openssl rand -hex 32`.
-- `REDIS_URL`: required connection string for the dedicated BullMQ Redis-compatible queue.
+- `BACKSTAGE_INGEST_REDIS_URL`: required connection string for the dedicated BullMQ Redis-compatible queue. Sidecar-specific and intentionally distinct from the API's `DRAGONFLY_URI`/`REDIS_URL` state store.
 - `BACKSTAGE_INGEST_ALLOWED_ORIGINS`: comma-separated browser origins allowed to upload and poll jobs. Without it, only same-origin requests are accepted.
 - `BACKSTAGE_INGEST_CONCURRENCY`: maximum concurrent ingest and materialize jobs, default `1`.
 - `BACKSTAGE_INGEST_QUEUE_PREFIX`: BullMQ key prefix, default `{backstage-ingest}`. The braces are the Redis/Dragonfly hashtag.
