@@ -173,6 +173,7 @@ describe('parseUploadResult', () => {
       'sourceKind'
     );
     for (const managedPaths of [
+      [],
       ['../escape'],
       ['/absolute'],
       ['Assets//empty'],
@@ -220,6 +221,7 @@ describe('parseMaterializeClaims', () => {
       parseMaterializeClaims({ ...validMaterializeClaims(), sourceKind: 'tar' })
     ).toThrow('sourceKind');
     for (const managedPaths of [
+      [],
       ['../escape'],
       ['/absolute'],
       ['Assets//empty'],

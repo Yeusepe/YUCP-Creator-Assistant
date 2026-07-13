@@ -669,7 +669,7 @@ export async function materializeBackstageReleaseArtifact(input: {
       );
     }
     let managedPaths = input.managedPaths;
-    if (!managedPaths) {
+    if (!managedPaths || managedPaths.length === 0) {
       if (!input.sourceBytes) {
         throw new Error(
           'Backstage unitypackage materialization requires managedPaths or sourceBytes.'

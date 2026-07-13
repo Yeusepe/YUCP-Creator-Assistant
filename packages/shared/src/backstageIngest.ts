@@ -183,8 +183,10 @@ function assertSafeRelativePath(value: unknown, label: string): string {
 }
 
 function requiredManagedPaths(payload: Record<string, unknown>, label: string): string[] {
-  if (!Array.isArray(payload.managedPaths)) {
-    throw new Error(`${label} managedPaths must be an array of safe relative path strings.`);
+  if (!Array.isArray(payload.managedPaths) || payload.managedPaths.length === 0) {
+    throw new Error(
+      `${label} managedPaths must be a non-empty array of safe relative path strings.`
+    );
   }
   return payload.managedPaths.map((path) => assertSafeRelativePath(path, `${label} managedPaths`));
 }

@@ -650,6 +650,26 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(packageJson.yucp.installPlan.managedPaths).toEqual(managedPaths);
   });
 
+  it('rejects an empty precomputed unitypackage install plan without source bytes', async () => {
+    await expect(
+      materializeBackstageReleaseArtifact({
+        deliveryName: 'song-thing.unitypackage',
+        contentType: 'application/octet-stream',
+        packageId: 'com.yucp.songthing',
+        version: '1.0.12',
+        managedPaths: [],
+        metadata: {
+          yucp: {
+            kind: 'alias-v1',
+            aliasId: 'song-thing',
+            installStrategy: 'server-authorized',
+            importerPackage: 'com.yucp.importer',
+          },
+        },
+      })
+    ).rejects.toThrow('requires managedPaths or sourceBytes');
+  });
+
   it('rejects unsafe archive paths during materialization', async () => {
     const input = zipSync(
       {
