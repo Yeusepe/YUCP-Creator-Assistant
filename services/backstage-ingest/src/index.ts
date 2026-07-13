@@ -23,6 +23,8 @@ import { Redis as IORedis } from 'ioredis';
 const DEFAULT_PORT = 8080;
 const DEFAULT_TUS_DIRECTORY = '/data/tus';
 const DEFAULT_LORE_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_UPLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_UPLOAD_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES;
 const RESULT_TTL_SECONDS = 15 * 60;
 const QUEUE_NAME = 'backstage-ingest';
@@ -32,6 +34,7 @@ type ServiceConfig = {
   allowedOrigins: string[];
   port: number;
   tusDirectory: string;
+  uploadTtlMs: number;
   ingestSecret: string;
   redisUrl: string;
   queuePrefix: string;
@@ -98,6 +101,7 @@ function loadConfig(): ServiceConfig {
     allowedOrigins: optionalCommaSeparatedList('BACKSTAGE_INGEST_ALLOWED_ORIGINS'),
     port,
     tusDirectory: Bun.env.BACKSTAGE_INGEST_TUS_DIR?.trim() || DEFAULT_TUS_DIRECTORY,
+    uploadTtlMs: optionalPositiveInteger('BACKSTAGE_INGEST_UPLOAD_TTL_MS') ?? DEFAULT_UPLOAD_TTL_MS,
     ingestSecret,
     redisUrl: requiredEnv('REDIS_URL'),
     // ponytail: the {...} is a Redis/Dragonfly hashtag so all BullMQ keys share one slot/lock (required by --lock_on_hashtags), and it namespaces the queue on a shared instance.
@@ -183,7 +187,10 @@ async function streamSha256Hex(path: string): Promise<string> {
 }
 
 const config = loadConfig();
-const store = new FileStore({ directory: config.tusDirectory });
+const store = new FileStore({
+  directory: config.tusDirectory,
+  expirationPeriodInMilliseconds: config.uploadTtlMs,
+});
 // ponytail: ioredis is BullMQ's default and stable on Bun; Bun's native Redis client dropped connections on 1.3.9.
 const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
 const queue = new Queue<BackstageIngestJobData, string>(QUEUE_NAME, {
@@ -441,11 +448,20 @@ const server = new Server({
         throw tusError(403, 'Upload token repositoryId does not match the authenticated tenant.');
       }
 
-      await queue.add(
-        'materialize',
-        { uploadId: upload.id, stagedPath, claims },
-        { jobId: upload.id }
-      );
+      const incompleteUpload = await store.configstore.get(upload.id);
+      await store.configstore.set(upload.id, upload);
+      try {
+        await queue.add(
+          'materialize',
+          { uploadId: upload.id, stagedPath, claims },
+          { jobId: upload.id }
+        );
+      } catch (error) {
+        if (incompleteUpload) {
+          await store.configstore.set(upload.id, incompleteUpload);
+        }
+        throw error;
+      }
 
       return {
         status_code: request.method === 'POST' ? 201 : 200,
@@ -547,12 +563,47 @@ const httpServer = Bun.serve({
   },
 });
 
+let uploadSweepRunning = false;
+async function sweepAbandonedUploads(): Promise<void> {
+  if (uploadSweepRunning) {
+    return;
+  }
+  uploadSweepRunning = true;
+  try {
+    const count = await server.cleanUpExpiredUploads();
+    if (count > 0) {
+      console.info(
+        JSON.stringify({
+          event: 'backstage_ingest.abandoned_upload_swept',
+          count,
+        })
+      );
+    }
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.abandoned_upload_sweep_failed',
+        reason: 'abandoned_upload_sweep_failed',
+      })
+    );
+  } finally {
+    uploadSweepRunning = false;
+  }
+}
+
+const uploadSweepInterval = setInterval(
+  () => void sweepAbandonedUploads(),
+  Math.min(DEFAULT_UPLOAD_SWEEP_INTERVAL_MS, config.uploadTtlMs)
+);
+uploadSweepInterval.unref();
+
 let shuttingDown = false;
 process.once('SIGTERM', () => {
   if (shuttingDown) {
     return;
   }
   shuttingDown = true;
+  clearInterval(uploadSweepInterval);
   void (async () => {
     await worker.close();
     await queue.close();

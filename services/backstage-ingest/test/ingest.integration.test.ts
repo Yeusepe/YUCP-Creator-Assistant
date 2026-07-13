@@ -21,6 +21,7 @@ const REDIS_STARTUP_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 30_000;
 const JOB_TIMEOUT_MS = 60_000;
 const TEST_TIMEOUT_MS = 180_000;
+const ABANDONED_UPLOAD_TTL_MS = 250;
 
 type ReceivedPut = {
   repositoryId: string;
@@ -43,6 +44,14 @@ let redisContainerId: string | undefined;
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+}
+
+function createSignal(): { promise: Promise<void>; resolve: () => void } {
+  let resolveSignal!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    resolveSignal = resolve;
+  });
+  return { promise, resolve: resolveSignal };
 }
 
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
@@ -288,6 +297,32 @@ async function uploadWithTus(input: {
   });
 }
 
+async function createAbandonedTusUpload(input: {
+  endpoint: string;
+  uploadToken: string;
+  byteSize: number;
+}): Promise<string> {
+  const encodedUploadToken = Buffer.from(input.uploadToken, 'utf8').toString('base64');
+  const response = await fetch(input.endpoint, {
+    method: 'POST',
+    headers: {
+      'Tus-Resumable': '1.0.0',
+      'Upload-Length': String(input.byteSize),
+      'Upload-Metadata': `uploadToken ${encodedUploadToken}`,
+    },
+  });
+  expect(response.status).toBe(201);
+
+  const location = response.headers.get('Location');
+  expect(location).toBeTruthy();
+  const uploadPath = new URL(location as string, input.endpoint).pathname;
+  const uploadId = uploadPath.split('/').filter(Boolean).at(-1);
+  if (!uploadId) {
+    throw new Error('TUS create response did not identify the abandoned upload.');
+  }
+  return decodeURIComponent(uploadId);
+}
+
 function jobUrlFromUploadUrl(uploadUrl: string): string {
   const url = new URL(uploadUrl);
   const jobPath = url.pathname.replace('/files/', '/jobs/');
@@ -345,6 +380,31 @@ async function waitForDirectoryEmpty(directory: string): Promise<void> {
   process.stdout.write('Staged tus file cleanup assertion passed.\n');
 }
 
+async function waitForAbandonedUploadSweep(
+  directory: string,
+  uploadId: string,
+  sidecarStdout: string[]
+): Promise<void> {
+  const stagedNames = [uploadId, `${uploadId}.json`];
+  const initialEntries = await readdir(directory);
+  expect(initialEntries).toEqual(expect.arrayContaining(stagedNames));
+
+  const deadline = Date.now() + 5_000;
+  let entries = initialEntries;
+  while (stagedNames.some((name) => entries.includes(name)) && Date.now() < deadline) {
+    await delay(50);
+    entries = await readdir(directory);
+  }
+
+  for (const stagedName of stagedNames) {
+    expect(entries).not.toContain(stagedName);
+  }
+  expect(sidecarStdout.join('')).toContain(
+    '"event":"backstage_ingest.abandoned_upload_swept","count":1'
+  );
+  process.stdout.write('Abandoned tus upload sweep assertion passed.\n');
+}
+
 function responseStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null || !('originalResponse' in error)) {
     return undefined;
@@ -358,6 +418,8 @@ describe('backstage ingest resumable upload integration', () => {
     'uploads, materializes, stores, and signs a release while enforcing upload authentication',
     async () => {
       const receivedPuts: ReceivedPut[] = [];
+      const firstLorePutStarted = createSignal();
+      const releaseFirstLorePut = createSignal();
       const fakeLore = Bun.serve({
         port: 0,
         async fetch(request) {
@@ -377,6 +439,10 @@ describe('backstage ingest resumable upload integration', () => {
           process.stdout.write(
             `Fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
           );
+          if (receivedPuts.length === 1) {
+            firstLorePutStarted.resolve();
+            await releaseFirstLorePut.promise;
+          }
           return Response.json({
             data: { address: `${sha256}-${'0'.repeat(32)}` },
           });
@@ -397,6 +463,7 @@ describe('backstage ingest resumable upload integration', () => {
           REDIS_URL: redisUrl,
           BACKSTAGE_INGEST_CONCURRENCY: '2',
           BACKSTAGE_INGEST_TUS_DIR: tempDirectory,
+          BACKSTAGE_INGEST_UPLOAD_TTL_MS: String(ABANDONED_UPLOAD_TTL_MS),
           BACKSTAGE_INGEST_SECRET: INGEST_SECRET,
           BACKSTAGE_INGEST_ALLOWED_ORIGINS: 'http://localhost:3000',
           LORE_API_BASE_URL: `http://127.0.0.1:${fakeLore.port}`,
@@ -463,6 +530,19 @@ describe('backstage ingest resumable upload integration', () => {
         });
         expect(uploadResult.ingestResultHeader).toBeUndefined();
         const jobUrl = jobUrlFromUploadUrl(uploadResult.uploadUrl);
+
+        await firstLorePutStarted.promise;
+        await delay(ABANDONED_UPLOAD_TTL_MS * 3);
+        const processingUploadId = new URL(uploadResult.uploadUrl).pathname
+          .split('/')
+          .filter(Boolean)
+          .at(-1);
+        expect(processingUploadId).toBeTruthy();
+        expect(await readdir(tempDirectory)).toEqual(
+          expect.arrayContaining([processingUploadId as string, `${processingUploadId}.json`])
+        );
+        process.stdout.write('In-flight worker staged file retention assertion passed.\n');
+        releaseFirstLorePut.resolve();
 
         const preflight = await fetch(jobUrl, {
           method: 'OPTIONS',
@@ -574,6 +654,13 @@ describe('backstage ingest resumable upload integration', () => {
         expect(stderr.join('')).not.toContain('invalid zip data');
         expect(stderr.join('')).toContain('"reason":"materialization_failed"');
 
+        const abandonedUploadId = await createAbandonedTusUpload({
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken,
+          byteSize: sourceBytes.byteLength,
+        });
+        await waitForAbandonedUploadSweep(tempDirectory, abandonedUploadId, stdout);
+
         const wrongToken = await sign(WRONG_SECRET, claims);
         let wrongSecretUploadSucceeded = false;
         let wrongSecretUploadError: unknown;
@@ -616,6 +703,7 @@ describe('backstage ingest resumable upload integration', () => {
         process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
         throw error;
       } finally {
+        releaseFirstLorePut.resolve();
         await stopSidecar(sidecar);
         await Promise.all([stdoutCapture, stderrCapture]);
         await fakeLore.stop(true);
