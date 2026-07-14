@@ -76,7 +76,7 @@ function toHex(bytes: Uint8Array): string {
 }
 
 function asOwnedBytes(bytes: ArrayBuffer | Uint8Array): Uint8Array<ArrayBuffer> {
-  return new Uint8Array(bytes instanceof ArrayBuffer ? bytes.slice(0) : bytes);
+  return bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : (bytes as Uint8Array<ArrayBuffer>);
 }
 
 function base64UrlNoPad(bytes: Uint8Array): string {
@@ -169,7 +169,7 @@ export function loreRepositoryIdForCreator(authUserId: string, salt: string): st
 
 export async function sha256ArrayBuffer(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const ownedBytes = asOwnedBytes(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', ownedBytes.buffer);
+  const digest = await crypto.subtle.digest('SHA-256', ownedBytes);
   return toHex(new Uint8Array(digest));
 }
 
@@ -235,7 +235,7 @@ export async function putBackstageBytesToLore(input: {
 }): Promise<{ address: string; sha256: string; byteSize: number }> {
   validateRepositoryId(input.repositoryId);
   const bytes = asOwnedBytes(input.bytes);
-  const digest = await crypto.subtle.digest('SHA-256', bytes.buffer);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
   const sha256 = toHex(new Uint8Array(digest));
   let response: Response;
   try {

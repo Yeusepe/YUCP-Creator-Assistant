@@ -13,6 +13,7 @@ describe('isLoreBackstageArtifactReference', () => {
     };
 
     expect(isLoreBackstageArtifactReference(reference)).toBe(true);
+    expect(isLoreBackstageArtifactReference({ ...reference, byteSize: -1 })).toBe(false);
     expect(isLoreBackstageArtifactReference({ ...reference, byteSize: Number.NaN })).toBe(false);
     expect(
       isLoreBackstageArtifactReference({ ...reference, byteSize: Number.POSITIVE_INFINITY })
