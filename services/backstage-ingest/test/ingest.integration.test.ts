@@ -13,7 +13,11 @@ import {
   verify,
 } from '@yucp/shared/backstageIngest';
 import { collectZipArchiveEntryPaths } from '@yucp/shared/backstageReleaseMaterialization';
-import { loreRepositoryIdForCreator } from '@yucp/shared/loreBackstageClient';
+import {
+  loreRepositoryIdForCreator,
+  mintLorePresignedUrl,
+  requireLoreBackstageConfig,
+} from '@yucp/shared/loreBackstageClient';
 import { Queue } from 'bullmq';
 import { RedisClient } from 'bun';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
@@ -1250,6 +1254,325 @@ describe('backstage ingest resumable upload integration', () => {
     },
     TEST_TIMEOUT_MS
   );
+
+  test('runs the full upload, download, and materialize lifecycle end to end for unitypackage and zip', async () => {
+    const storedObjects = new Map<string, Uint8Array>();
+    const fakeLore = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        const putMatch = /^\/v1\/repository\/([0-9a-f]{32})\/content$/.exec(url.pathname);
+        if (request.method === 'PUT' && putMatch) {
+          expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+          expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+          const body = new Uint8Array(await request.arrayBuffer());
+          const sha256 = await sha256Hex(body);
+          const address = `${sha256}-${'0'.repeat(32)}`;
+          storedObjects.set(`${putMatch[1]}/${address}`, body);
+          return Response.json({ data: { address } });
+        }
+
+        const getMatch =
+          /^\/v1\/repository\/([0-9a-f]{32})\/content\/([0-9a-f]{64}-[0-9a-f]{32})$/.exec(
+            url.pathname
+          );
+        if (request.method === 'GET' && getMatch) {
+          expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+          expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+          const bytes = storedObjects.get(`${getMatch[1]}/${getMatch[2]}`);
+          return bytes ? new Response(bytes) : new Response('Not found', { status: 404 });
+        }
+
+        const presignedGetMatch =
+          /^\/v1\/presigned\/([0-9a-f]{32})\/([0-9a-f]{64}-[0-9a-f]{32})$/.exec(url.pathname);
+        if (request.method === 'GET' && presignedGetMatch) {
+          if (!url.searchParams.get('token')?.trim()) {
+            return new Response('Missing token', { status: 401 });
+          }
+          const bytes = storedObjects.get(`${presignedGetMatch[1]}/${presignedGetMatch[2]}`);
+          return bytes ? new Response(bytes) : new Response('Not found', { status: 404 });
+        }
+
+        return new Response('Not found', { status: 404 });
+      },
+    });
+
+    const fakeLoreBase = `http://127.0.0.1:${fakeLore.port}`;
+    const loreConfig = requireLoreBackstageConfig({
+      apiBaseUrl: fakeLoreBase,
+      presignHmacKey: 'a'.repeat(64),
+      repoNamespaceSalt: REPOSITORY_SALT,
+      accessClientId: 'test-id',
+      accessClientSecret: 'test-secret',
+      timeoutMs: 15_000,
+    });
+    const tempDirectory = await mkdtemp(join(tmpdir(), 'yucp-backstage-full-lifecycle-'));
+    const sidecarPort = await getFreePort();
+    const sidecarOrigin = `http://127.0.0.1:${sidecarPort}`;
+    const queuePrefix = `{backstage-full-lifecycle-${crypto.randomUUID()}}`;
+    const queueConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+    const queue = new Queue('backstage-ingest', {
+      connection: queueConnection,
+      prefix: queuePrefix,
+    });
+    const entrypoint = resolve(import.meta.dir, '../src/index.ts');
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    const sidecar = Bun.spawn(['bun', 'run', entrypoint], {
+      cwd: resolve(import.meta.dir, '../../..'),
+      env: {
+        ...process.env,
+        PORT: String(sidecarPort),
+        BACKSTAGE_INGEST_REDIS_URL: redisUrl,
+        BACKSTAGE_INGEST_QUEUE_PREFIX: queuePrefix,
+        BACKSTAGE_INGEST_CONCURRENCY: '2',
+        BACKSTAGE_INGEST_TUS_DIR: tempDirectory,
+        BACKSTAGE_INGEST_UPLOAD_TTL_MS: String(ABANDONED_UPLOAD_TTL_MS),
+        BACKSTAGE_INGEST_SECRET: INGEST_SECRET,
+        BACKSTAGE_INGEST_ALLOWED_ORIGINS: 'http://localhost:3000',
+        LORE_API_BASE_URL: fakeLoreBase,
+        LORE_ACCESS_CLIENT_ID: 'test-id',
+        LORE_ACCESS_CLIENT_SECRET: 'test-secret',
+        LORE_REPO_NAMESPACE_SALT: REPOSITORY_SALT,
+        LORE_TIMEOUT_MS: '15000',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    let exitCode: number | null = null;
+    void sidecar.exited.then((code) => {
+      exitCode = code;
+    });
+    const stdoutCapture = captureSidecarOutput(sidecar.stdout, stdout, (value) =>
+      process.stdout.write(value)
+    );
+    const stderrCapture = captureSidecarOutput(sidecar.stderr, stderr, (value) =>
+      process.stderr.write(value)
+    );
+
+    try {
+      await waitForSidecar({ origin: sidecarOrigin, getExitCode: () => exitCode, stderr });
+
+      const authUserId = 'auth-user-full-lifecycle-integration';
+      const repositoryId = loreRepositoryIdForCreator(authUserId, REPOSITORY_SALT);
+      const identities = {
+        unitypackage: {
+          packageId: 'com.yucp.full-lifecycle-unitypackage',
+          version: '1.0.0',
+          aliasId: 'full-lifecycle-unitypackage-alias',
+          displayName: 'Full Lifecycle Unitypackage',
+        },
+        zip: {
+          packageId: 'com.yucp.full-lifecycle-zip',
+          version: '2.0.0',
+          aliasId: 'full-lifecycle-zip-alias',
+          displayName: 'Full Lifecycle ZIP',
+        },
+      } as const;
+      const completedSourceKinds: Array<'unitypackage' | 'zip'> = [];
+
+      async function runFullFlow(input: {
+        sourceKind: 'unitypackage' | 'zip';
+        sourceBytes: Uint8Array;
+        deliveryName: string;
+      }): Promise<void> {
+        const { sourceKind, sourceBytes, deliveryName } = input;
+        const { packageId, version, aliasId, displayName } = identities[sourceKind];
+        const sourceSha256 = await sha256Hex(sourceBytes);
+        const uploadClaims: BackstageUploadClaims = {
+          typ: 'backstage-upload',
+          authUserId,
+          packageId,
+          version,
+          repositoryId,
+          deliveryName,
+          sourceContentType: sourceKind === 'zip' ? 'application/zip' : 'application/octet-stream',
+          declaredSha256: sourceSha256,
+          byteSize: sourceBytes.byteLength,
+          exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const uploadToken = await sign(INGEST_SECRET, uploadClaims);
+        const tusUpload = await uploadWithTus({
+          bytes: sourceBytes,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken,
+        });
+        expect(tusUpload.pollToken).toBeTruthy();
+        const uploadPollToken = tusUpload.pollToken;
+        if (!uploadPollToken) {
+          throw new Error(`Expected a poll token for the ${sourceKind} upload job.`);
+        }
+        const uploadCompleted = await waitForJobState({
+          jobUrl: jobUrlFromUploadUrl(tusUpload.uploadUrl),
+          uploadToken: uploadPollToken,
+          terminalState: 'completed',
+        });
+        if (uploadCompleted.state !== 'completed') {
+          throw new Error(`Expected the ${sourceKind} upload job to complete.`);
+        }
+        const uploadBundle = parseUploadResult(await verify(INGEST_SECRET, uploadCompleted.result));
+        expect(uploadBundle.rawSha256).toBe(sourceSha256);
+        expect(uploadBundle.sourceKind).toBe(sourceKind);
+
+        const rawPresigned = await mintLorePresignedUrl({
+          config: loreConfig,
+          repositoryId,
+          address: uploadBundle.loreSource.address,
+          contentType: 'application/octet-stream',
+        });
+        const rawDownloadResponse = await fetch(rawPresigned.url);
+        expect(rawDownloadResponse.status).toBe(200);
+        const rawDownloadBytes = new Uint8Array(await rawDownloadResponse.arrayBuffer());
+        expect(rawDownloadBytes.byteLength).toBe(sourceBytes.byteLength);
+        expect(rawDownloadBytes).toEqual(sourceBytes);
+        expect(await sha256Hex(rawDownloadBytes)).toBe(sourceSha256);
+
+        const materializeClaims: BackstageMaterializeClaims = {
+          typ: 'backstage-materialize',
+          authUserId,
+          packageId,
+          version,
+          repositoryId,
+          loreSourceAddress: uploadBundle.loreSource.address,
+          loreSourceSha256: uploadBundle.rawSha256,
+          deliveryName: uploadBundle.rawDeliveryName,
+          sourceContentType: uploadBundle.rawContentType,
+          sourceKind: uploadBundle.sourceKind,
+          managedPaths: uploadBundle.managedPaths,
+          materializeMetadata: {
+            displayName,
+            metadata: {
+              yucp: {
+                kind: 'alias-v1',
+                installStrategy: 'server-authorized',
+                aliasId,
+                importerPackage: 'com.yucp.importer',
+                installPlan: {
+                  operation: 'uninstall',
+                  managedPaths: ['Assets/Publisher Supplied/Unexpected.asset'],
+                  generatedPaths: ['Assets/Publisher Supplied/Generated.asset'],
+                  sharedPaths: ['Assets/Publisher Supplied/Shared.asset'],
+                  status: 'ready',
+                  planId: 'publisher-supplied-plan',
+                },
+              },
+            },
+          },
+          exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const materializeBundle = await runBackstageMaterialize({
+          ingestBaseUrl: sidecarOrigin,
+          ingestSecret: INGEST_SECRET,
+          claims: materializeClaims,
+        });
+        expect(materializeBundle).toMatchObject({
+          typ: 'backstage-materialize-result',
+          authUserId,
+          packageId,
+          version,
+        });
+        expect(materializeBundle.loreDelivery.repositoryId).toBe(repositoryId);
+
+        const deliverablePresigned = await mintLorePresignedUrl({
+          config: loreConfig,
+          repositoryId,
+          address: materializeBundle.loreDelivery.address,
+          contentType: materializeBundle.deliverableContentType,
+        });
+        const deliverableDownloadResponse = await fetch(deliverablePresigned.url);
+        expect(deliverableDownloadResponse.status).toBe(200);
+        const deliverableBytes = new Uint8Array(await deliverableDownloadResponse.arrayBuffer());
+        expect(await sha256Hex(deliverableBytes)).toBe(materializeBundle.deliverableSha256);
+        const storedDeliverable = storedObjects.get(
+          `${repositoryId}/${materializeBundle.loreDelivery.address}`
+        );
+        expect(storedDeliverable).toBeDefined();
+        expect(deliverableBytes).toEqual(storedDeliverable);
+
+        const deliverableArchive = unzipSync(deliverableBytes);
+        const packageJsonBytes = deliverableArchive['package.json'];
+        expect(packageJsonBytes).toBeDefined();
+        const packageJson = JSON.parse(new TextDecoder().decode(packageJsonBytes)) as {
+          name?: string;
+          version?: string;
+          yucp?: {
+            aliasId?: string;
+            installPlan?: {
+              operation?: string;
+              managedPaths?: string[];
+              generatedPaths?: string[];
+              sharedPaths?: string[];
+              status?: string;
+              planId?: string;
+            };
+          };
+        };
+        expect(packageJson.name).toBe(packageId);
+        expect(packageJson.version).toBe(version);
+        expect(packageJson.yucp?.aliasId).toBe(aliasId);
+        expect(packageJson.yucp?.installPlan?.operation).toBe('install');
+        expect(packageJson.yucp?.installPlan?.managedPaths).toEqual(uploadBundle.managedPaths);
+        expect(packageJson.yucp?.installPlan).not.toHaveProperty('generatedPaths');
+        expect(packageJson.yucp?.installPlan).not.toHaveProperty('sharedPaths');
+        expect(packageJson.yucp?.installPlan).not.toHaveProperty('status');
+        expect(packageJson.yucp?.installPlan).not.toHaveProperty('planId');
+
+        process.stdout.write(
+          `Full lifecycle ${sourceKind}: uploaded ${sourceBytes.byteLength} bytes; raw download byte-exact; deliverable sha ${materializeBundle.deliverableSha256}; managedPaths ${uploadBundle.managedPaths.length}.\n`
+        );
+        completedSourceKinds.push(sourceKind);
+      }
+
+      await runFullFlow({
+        sourceKind: 'unitypackage',
+        sourceBytes: buildUnitypackage([
+          { path: 'first-guid/asset', content: strToU8('first lifecycle asset') },
+          { path: 'first-guid/asset.meta', content: strToU8('fileFormatVersion: 2\n') },
+          {
+            path: 'first-guid/pathname',
+            content: strToU8('Assets/YUCP/FullLifecycle/First.asset'),
+          },
+          { path: 'second-guid/asset', content: strToU8('second lifecycle asset') },
+          { path: 'second-guid/asset.meta', content: strToU8('fileFormatVersion: 2\n') },
+          {
+            path: 'second-guid/pathname',
+            content: strToU8('Assets/YUCP/FullLifecycle/Second.asset'),
+          },
+        ]),
+        deliveryName: 'com.yucp.full-lifecycle-unitypackage-1.0.0.unitypackage',
+      });
+      await runFullFlow({
+        sourceKind: 'zip',
+        sourceBytes: zipSync({
+          'package.json': strToU8(
+            JSON.stringify({
+              name: 'com.yucp.unresolved-lifecycle-zip',
+              version: '0.0.1',
+              displayName: 'Unresolved Lifecycle ZIP',
+            })
+          ),
+          'Assets/YUCP/FullLifecycle/ZipFirst.asset': strToU8('first zip lifecycle asset'),
+          'Assets/YUCP/FullLifecycle/ZipSecond.asset': strToU8('second zip lifecycle asset'),
+        }),
+        deliveryName: 'com.yucp.full-lifecycle-zip-2.0.0.zip',
+      });
+      expect(completedSourceKinds).toEqual(['unitypackage', 'zip']);
+
+      await waitForDirectoryEmpty(tempDirectory);
+      expect(await readdir(tempDirectory)).toEqual([]);
+    } catch (error) {
+      process.stderr.write(`\nCaptured sidecar stderr:\n${stderr.join('')}\n`);
+      throw error;
+    } finally {
+      await stopSidecar(sidecar);
+      await Promise.all([stdoutCapture, stderrCapture]);
+      await queue.obliterate({ force: true });
+      await queue.close();
+      await queueConnection.quit();
+      await fakeLore.stop(true);
+      await rm(tempDirectory, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   test(
     'materializes a multi-entry ZIP end-to-end as a thin importer shim',
