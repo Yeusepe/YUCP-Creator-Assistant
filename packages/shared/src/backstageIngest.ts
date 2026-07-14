@@ -1,4 +1,11 @@
 import {
+  base64UrlDecodeToBytes,
+  base64UrlEncode,
+  bytesToHex,
+  timingSafeStringEqual,
+} from '@yucp/shared/crypto';
+
+import {
   isLoreBackstageArtifactReference,
   type LoreBackstageArtifactReference,
 } from './loreBackstageDelivery';
@@ -357,33 +364,11 @@ function decodeSecret(secretHex: string): Uint8Array<ArrayBuffer> {
   return secret;
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-}
-
-function base64UrlDecode(value: string): Uint8Array<ArrayBuffer> {
+function base64UrlDecode(value: string): Uint8Array {
   if (!value || !BASE64URL_RE.test(value) || value.length % 4 === 1) {
     throw new Error('Backstage ingest token contains invalid base64url data.');
   }
-
-  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-  let binary: string;
-  try {
-    binary = atob(padded);
-  } catch {
-    throw new Error('Backstage ingest token contains invalid base64url data.');
-  }
-
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
+  return base64UrlDecodeToBytes(value);
 }
 
 async function hmacSha256(secret: Uint8Array<ArrayBuffer>, value: string): Promise<Uint8Array> {
@@ -395,15 +380,6 @@ async function hmacSha256(secret: Uint8Array<ArrayBuffer>, value: string): Promi
     ['sign']
   );
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)));
-}
-
-function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
-  const length = Math.max(left.length, right.length);
-  let difference = left.length ^ right.length;
-  for (let index = 0; index < length; index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
-  }
-  return difference === 0;
 }
 
 export function validateSigningSecret(secretHex: string): void {
@@ -431,7 +407,7 @@ export async function verify<T = Record<string, unknown>>(
   const secret = decodeSecret(secretHex);
   const expectedSignature = await hmacSha256(secret, encodedPayload);
   const receivedSignature = base64UrlDecode(encodedSignature);
-  if (!constantTimeEqual(expectedSignature, receivedSignature)) {
+  if (!timingSafeStringEqual(bytesToHex(expectedSignature), bytesToHex(receivedSignature))) {
     throw new Error('Backstage ingest token signature is invalid.');
   }
 

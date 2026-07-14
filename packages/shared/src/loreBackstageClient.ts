@@ -1,4 +1,5 @@
 import { blake3 } from '@noble/hashes/blake3.js';
+import { base64UrlEncode, bytesToHex, sha256Hex } from '@yucp/shared/crypto';
 
 export type LoreBackstageConfig = {
   apiBaseUrl: string;
@@ -67,24 +68,8 @@ function hexDecode(value: string, fieldName: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-function toHex(bytes: Uint8Array): string {
-  let hex = '';
-  for (const byte of bytes) {
-    hex += byte.toString(16).padStart(2, '0');
-  }
-  return hex;
-}
-
 function asOwnedBytes(bytes: ArrayBuffer | Uint8Array): Uint8Array<ArrayBuffer> {
   return bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : (bytes as Uint8Array<ArrayBuffer>);
-}
-
-function base64UrlNoPad(bytes: Uint8Array): string {
-  let binary = '';
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 function validateRepositoryId(repositoryId: string): void {
@@ -164,13 +149,11 @@ export function requireLoreBackstageConfig(
 }
 
 export function loreRepositoryIdForCreator(authUserId: string, salt: string): string {
-  return toHex(blake3(new TextEncoder().encode(`${salt}:${authUserId}`))).slice(0, 32);
+  return bytesToHex(blake3(new TextEncoder().encode(`${salt}:${authUserId}`))).slice(0, 32);
 }
 
 export async function sha256ArrayBuffer(bytes: ArrayBuffer | Uint8Array): Promise<string> {
-  const ownedBytes = asOwnedBytes(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', ownedBytes);
-  return toHex(new Uint8Array(digest));
+  return sha256Hex(bytes);
 }
 
 type BoundedText = {
@@ -281,7 +264,7 @@ export async function putBackstageBytesToLore(input: {
   validateRepositoryId(input.repositoryId);
   const bytes = asOwnedBytes(input.bytes);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const sha256 = toHex(new Uint8Array(digest));
+  const sha256 = bytesToHex(new Uint8Array(digest));
   const address = await putBackstageBytesToLoreRequest({
     config: input.config,
     repositoryId: input.repositoryId,
@@ -344,7 +327,7 @@ export async function mintLorePresignedUrl(input: {
   if (keyBytes.byteLength < 32) {
     throw new Error('LORE_PRESIGN_HMAC_KEY must decode to at least 32 bytes.');
   }
-  const keyId = toHex(blake3(keyBytes)).slice(0, 16);
+  const keyId = bytesToHex(blake3(keyBytes)).slice(0, 16);
   const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
   const payload = {
     version: 1,
@@ -355,7 +338,7 @@ export async function mintLorePresignedUrl(input: {
     ...(input.contentType ? { content_type: input.contentType } : {}),
     ...(input.contentDisposition ? { content_disposition: input.contentDisposition } : {}),
   };
-  const encodedPayload = base64UrlNoPad(new TextEncoder().encode(JSON.stringify(payload)));
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   const hmacKey = await crypto.subtle.importKey(
     'raw',
     keyBytes.buffer,
@@ -368,7 +351,7 @@ export async function mintLorePresignedUrl(input: {
     hmacKey,
     new TextEncoder().encode(encodedPayload)
   );
-  const token = `${encodedPayload}.${base64UrlNoPad(new Uint8Array(signature))}`;
+  const token = `${encodedPayload}.${base64UrlEncode(new Uint8Array(signature))}`;
   return {
     url: `${input.config.apiBaseUrl}/v1/presigned/${input.repositoryId}/${input.address}?token=${token}`,
     expiresAt,
