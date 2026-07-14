@@ -414,7 +414,7 @@ export function collectUnityPackageImportPaths(
     }
   }
 
-  return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
+  return Array.from(managedPaths).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 function assertZipRange(bytes: Uint8Array, offset: number, length: number, label: string): void {
@@ -710,7 +710,7 @@ export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
     throw new Error('Backstage ZIP central directory entry count does not match its size.');
   }
 
-  return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
+  return Array.from(managedPaths).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 export function withAliasInstallPlanFootprint(
@@ -735,7 +735,13 @@ export function withAliasInstallPlanFootprint(
         .map((path) => assertSafeProjectImportPath(path))
         .filter(Boolean)
     )
-  );
+  ).sort((left, right) => {
+    if (input.originalSourceKind === 'unitypackage') {
+      if (left === packageJsonPath) return -1;
+      if (right === packageJsonPath) return 1;
+    }
+    return left < right ? -1 : left > right ? 1 : 0;
+  });
 
   return {
     ...metadata,

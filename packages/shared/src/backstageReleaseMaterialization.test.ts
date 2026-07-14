@@ -207,8 +207,8 @@ describe('collectZipArchiveEntryPaths', () => {
     });
 
     expect(collectZipArchiveEntryPaths(archive)).toEqual([
-      'Packages/com.yucp.example/package.json',
       'Packages/com.yucp.example/Runtime/Example.cs',
+      'Packages/com.yucp.example/package.json',
     ]);
   });
 
@@ -349,7 +349,38 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(Object.keys(archive)).toEqual(['package.json']);
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
     expect(packageJson.yucp.aliasId).toBe('creator-alias');
-    expect(packageJson.yucp.installPlan.managedPaths).toEqual(managedPaths);
+    expect(packageJson.yucp.installPlan.managedPaths).toEqual([
+      'README.md',
+      'Runtime/Example.cs',
+      'package.json',
+    ]);
+  });
+
+  it('canonicalizes managed paths with deterministic code-unit ordering', async () => {
+    const managedPaths = ['b/z.cs', 'a/a.cs', 'a/a.cs.meta'];
+    const input = {
+      deliveryName: 'deterministic.zip',
+      contentType: 'application/zip',
+      packageId: 'com.yucp.deterministic',
+      version: '1.0.0',
+      managedPaths,
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'deterministic-alias',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+        },
+      },
+    };
+
+    const first = await materializeBackstageReleaseArtifact(input);
+    const second = await materializeBackstageReleaseArtifact(input);
+
+    expect(first.deliverable.sha256).toBe(second.deliverable.sha256);
+    const archive = unzipSync(materializedBytes(first));
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    expect(packageJson.yucp.installPlan.managedPaths).toEqual(['a/a.cs', 'a/a.cs.meta', 'b/z.cs']);
   });
 
   it('materializes unitypackage uploads as importer-driven shim package zips', async () => {
