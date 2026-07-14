@@ -1,4 +1,4 @@
-import { Gunzip, unzipSync, type Zippable, zipSync } from 'fflate';
+import { Gunzip, Unzip, UnzipInflate, UnzipPassThrough, type Zippable, zipSync } from 'fflate';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from './backstageLimits';
 import { stripBackstagePackageMediaManifestMetadata } from './backstagePackageMedia';
 import {
@@ -18,6 +18,7 @@ export const MAX_ZIP_DECOMPRESSED_BYTES = MAX_BACKSTAGE_PACKAGE_BYTES * 2;
 export const MAX_UNITYPACKAGE_ENTRIES = 100_000;
 const MAX_UNITYPACKAGE_PATHNAME_BYTES = 64 * 1024;
 const UNITYPACKAGE_GUNZIP_INPUT_CHUNK_BYTES = 64 * 1024;
+const ZIP_UNZIP_INPUT_CHUNK_BYTES = 64 * 1024;
 const UNITYPACKAGE_LIMIT_ERROR_MESSAGE =
   'Backstage unitypackage exceeds the decompressed size/entry limit.';
 const ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE = 'Backstage ZIP exceeds the decompressed size limit.';
@@ -763,12 +764,59 @@ function materializeZip(input: {
   version?: string;
   displayName?: string;
   metadata?: Record<string, unknown>;
+  maxDecompressedBytes?: number;
 }): Uint8Array {
-  // ponytail: This declared-size guard catches standard and accidental oversized ZIPs, but
-  // unzipSync still follows the actual deflate stream. A forged ZIP that declares small sizes can
-  // still inflate beyond this limit; streaming inflate with a hard output cap is the upgrade path.
+  // ponytail: The central-directory scan is a cheap declared-size fast path for standard bombs.
+  // The streaming inflation below separately caps actual output, including forged ZIPs whose local
+  // and central-directory headers understate their uncompressed sizes.
   collectZipArchiveEntryPaths(input.sourceBytes);
-  const archive = unzipSync(input.sourceBytes);
+  const maxDecompressedBytes = input.maxDecompressedBytes ?? MAX_ZIP_DECOMPRESSED_BYTES;
+  if (!Number.isSafeInteger(maxDecompressedBytes) || maxDecompressedBytes <= 0) {
+    throw new Error('Backstage ZIP decompressed byte limit must be a positive safe integer.');
+  }
+
+  const archive: Record<string, Uint8Array> = {};
+  let totalDecompressedBytes = 0;
+  const unzip = new Unzip((file) => {
+    const chunks: Uint8Array[] = [];
+    let entryDecompressedBytes = 0;
+    file.ondata = (error, chunk, final) => {
+      if (error) {
+        throw error;
+      }
+      if (chunk.byteLength > maxDecompressedBytes - totalDecompressedBytes) {
+        throw new Error(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
+      }
+      totalDecompressedBytes += chunk.byteLength;
+      entryDecompressedBytes += chunk.byteLength;
+      chunks.push(chunk);
+
+      if (final) {
+        const entryBytes = new Uint8Array(entryDecompressedBytes);
+        let offset = 0;
+        for (const entryChunk of chunks) {
+          entryBytes.set(entryChunk, offset);
+          offset += entryChunk.byteLength;
+        }
+        archive[file.name] = entryBytes;
+      }
+    };
+    file.start();
+  });
+  unzip.register(UnzipPassThrough);
+  unzip.register(UnzipInflate);
+  if (input.sourceBytes.byteLength === 0) {
+    unzip.push(input.sourceBytes, true);
+  } else {
+    for (
+      let offset = 0;
+      offset < input.sourceBytes.byteLength;
+      offset += ZIP_UNZIP_INPUT_CHUNK_BYTES
+    ) {
+      const end = Math.min(offset + ZIP_UNZIP_INPUT_CHUNK_BYTES, input.sourceBytes.byteLength);
+      unzip.push(input.sourceBytes.subarray(offset, end), end === input.sourceBytes.byteLength);
+    }
+  }
   const sanitizedMetadata = sanitizePackageManifestMetadata(input.metadata);
   const normalizedEntries = Object.fromEntries(
     Object.entries(archive).map(
@@ -875,6 +923,7 @@ export async function materializeBackstageReleaseArtifact(input: {
   displayName?: string;
   managedPaths?: string[];
   metadata?: Record<string, unknown>;
+  maxZipDecompressedBytes?: number;
 }): Promise<MaterializedBackstageReleaseArtifact> {
   const sourceKind =
     resolvePersistedSourceKind(input.metadata) ??
@@ -917,6 +966,7 @@ export async function materializeBackstageReleaseArtifact(input: {
     version: input.version,
     displayName: input.displayName,
     metadata: input.metadata,
+    maxDecompressedBytes: input.maxZipDecompressedBytes,
   });
 
   return {

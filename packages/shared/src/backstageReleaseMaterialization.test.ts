@@ -18,6 +18,8 @@ const TAR_MTIME_B = 456;
 const TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES = 1024 * 1024;
 const TEST_UNITYPACKAGE_BOMB_DECOMPRESSED_BYTES = 1024 * 1024 + 512;
 const ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE = 'Backstage ZIP exceeds the decompressed size limit.';
+const TEST_ZIP_DECOMPRESSED_LIMIT_BYTES = 64 * 1024;
+const TEST_ZIP_BOMB_DECOMPRESSED_BYTES = 256 * 1024;
 const OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES = 0xffff_fff0;
 const OVER_LIMIT_ZIP64_DECLARED_BYTES = 11 * 1024 * 1024 * 1024;
 
@@ -143,6 +145,26 @@ function patchZipCentralDirectoryDeclaredSizes(archive: Uint8Array, declaredByte
   }
   if (patchedEntries === 0) {
     throw new Error('Expected at least one ZIP central-directory entry to patch.');
+  }
+}
+
+function patchZipDeclaredSizes(archive: Uint8Array, declaredBytes: number): void {
+  const headers = [
+    { signature: [0x50, 0x4b, 0x03, 0x04] as const, sizeOffset: 22, minimumSize: 30 },
+    { signature: [0x50, 0x4b, 0x01, 0x02] as const, sizeOffset: 24, minimumSize: 46 },
+  ];
+  for (const { signature, sizeOffset, minimumSize } of headers) {
+    let patchedEntries = 0;
+    for (let offset = 0; offset + minimumSize <= archive.byteLength; offset += 1) {
+      if (!signature.every((value, index) => archive[offset + index] === value)) {
+        continue;
+      }
+      writeUint32LittleEndian(archive, offset + sizeOffset, declaredBytes);
+      patchedEntries += 1;
+    }
+    if (patchedEntries === 0) {
+      throw new Error('Expected at least one ZIP entry to patch.');
+    }
   }
 }
 
@@ -318,6 +340,52 @@ describe('materializeBackstageReleaseArtifact', () => {
     ).rejects.toThrow(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
   });
 
+  it('rejects actual deflate output over the limit when declared sizes are forged small', async () => {
+    const archive = zipSync(
+      {
+        'Packages/com.yucp.example/Runtime/forged.bin': new Uint8Array(
+          TEST_ZIP_BOMB_DECOMPRESSED_BYTES
+        ).fill(0x61),
+      },
+      { level: 9 }
+    );
+    patchZipDeclaredSizes(archive, 0);
+    expect(collectZipArchiveEntryPaths(archive)).toEqual([
+      'Packages/com.yucp.example/Runtime/forged.bin',
+    ]);
+
+    await expect(
+      materializeBackstageReleaseArtifact({
+        sourceBytes: archive,
+        deliveryName: 'forged.zip',
+        contentType: 'application/zip',
+        maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
+      })
+    ).rejects.toThrow(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
+  });
+
+  it('materializes stored ZIP entries with byte-identical contents', async () => {
+    const storedBytes = strToU8('stored entry contents');
+    const input = zipSync(
+      {
+        'Packages/com.yucp.example/Runtime/stored.bin': [storedBytes, { level: 0 }],
+      },
+      { level: 0 }
+    );
+    expect(readUint16LittleEndian(input, 8)).toBe(0);
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'stored.zip',
+      contentType: 'application/zip',
+      maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
+    });
+
+    expect(unzipSync(materialized.bytes)['Packages/com.yucp.example/Runtime/stored.bin']).toEqual(
+      storedBytes
+    );
+  });
+
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
     const firstInput = zipSync(
       {
@@ -355,10 +423,15 @@ describe('materializeBackstageReleaseArtifact', () => {
     expect(first.bytes).toEqual(second.bytes);
     expect(first.sha256).toBe(second.sha256);
     expect(first.bytes).not.toEqual(firstInput);
-    expect(Object.keys(unzipSync(first.bytes)).sort()).toEqual([
+    const firstArchive = unzipSync(first.bytes);
+    expect(Object.keys(firstArchive).sort()).toEqual([
       'Packages/com.yucp.example/README.md',
       'Packages/com.yucp.example/package.json',
     ]);
+    expect(firstArchive['Packages/com.yucp.example/README.md']).toEqual(strToU8('hello'));
+    expect(firstArchive['Packages/com.yucp.example/package.json']).toEqual(
+      strToU8('{"name":"pkg"}')
+    );
   });
 
   it('rewrites ZIP package manifests to match normalized repo metadata', async () => {
