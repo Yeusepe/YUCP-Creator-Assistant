@@ -215,11 +215,8 @@ function accessHeaders(config: ConfiguredLoreBackstageConfig): HeadersInit {
   };
 }
 
-function throwLoreResponseError(response: Response, boundedText: BoundedText): never {
-  const snippet = boundedText.text.trim();
-  const detail = snippet
-    ? `${response.status} ${response.statusText}: ${snippet}${boundedText.truncated ? '...' : ''}`
-    : `${response.status} ${response.statusText}`.trim();
+function throwLoreResponseError(response: Response, _boundedText: BoundedText): never {
+  const detail = `${response.status} ${response.statusText}`.trim();
   throw new LoreApiRequestError({
     detail,
     status: response.status,

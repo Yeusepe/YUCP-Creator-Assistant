@@ -154,7 +154,7 @@ describe('putBackstageBytesToLore', () => {
     });
   });
 
-  it('throws LoreApiRequestError with status and a bounded response detail for non-2xx', async () => {
+  it('throws LoreApiRequestError with status and a redacted response detail for non-2xx', async () => {
     globalThis.fetch = (async () =>
       new Response('repository unavailable', {
         status: 503,
@@ -168,8 +168,13 @@ describe('putBackstageBytesToLore', () => {
     }).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(LoreApiRequestError);
-    expect((error as LoreApiRequestError).status).toBe(503);
-    expect((error as LoreApiRequestError).detail).toContain('repository unavailable');
+    const loreError = error as LoreApiRequestError;
+    expect(loreError.status).toBe(503);
+    expect(loreError.statusText).toBe('Service Unavailable');
+    expect(loreError.detail).toBe('503 Service Unavailable');
+    expect(loreError.message).toBe('Lore request failed: 503 Service Unavailable');
+    expect(loreError.detail).not.toContain('repository unavailable');
+    expect(loreError.message).not.toContain('repository unavailable');
   });
 
   it('normalizes network and timeout failures to LoreApiRequestError', async () => {
@@ -237,8 +242,13 @@ describe('getBackstageBytesFromLore', () => {
     }).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(LoreApiRequestError);
-    expect((error as LoreApiRequestError).status).toBe(404);
-    expect((error as LoreApiRequestError).detail).toContain('object unavailable');
+    const loreError = error as LoreApiRequestError;
+    expect(loreError.status).toBe(404);
+    expect(loreError.statusText).toBe('Not Found');
+    expect(loreError.detail).toBe('404 Not Found');
+    expect(loreError.message).toBe('Lore request failed: 404 Not Found');
+    expect(loreError.detail).not.toContain('object unavailable');
+    expect(loreError.message).not.toContain('object unavailable');
   });
 });
 

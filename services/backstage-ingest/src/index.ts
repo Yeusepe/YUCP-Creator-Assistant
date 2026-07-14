@@ -791,10 +791,12 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
   let claims: BackstageUploadClaims | BackstageMaterializePollClaims;
   try {
     const payload = await verify(config.ingestSecret, token, { ignoreExpiry: true });
+    // ponytail: Upload and processing must complete within the token lifetime; a dedicated
+    // short-lived poll token is the upgrade path for very long transfers.
     claims =
       payload.typ === 'backstage-materialize-poll'
         ? parseMaterializePollClaims(await verify(config.ingestSecret, token))
-        : parseUploadClaims(payload);
+        : parseUploadClaims(await verify(config.ingestSecret, token));
   } catch {
     return applyJobCors(request, Response.json({ error: 'Unauthorized' }, { status: 401 }));
   }

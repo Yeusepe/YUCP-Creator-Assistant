@@ -687,6 +687,7 @@ describe('backstage ingest resumable upload integration', () => {
         expect((await getJobStatus(uploadJobUrl, uploadOwnershipToken)).status).toBe(403);
         const tamperedUploadToken = `${uploadToken.at(0) === 'A' ? 'B' : 'A'}${uploadToken.slice(1)}`;
         expect((await getJobStatus(uploadJobUrl, tamperedUploadToken)).status).toBe(401);
+        expect((await getJobStatus(uploadJobUrl, uploadToken)).status).toBe(200);
 
         const uploadCompleted = await waitForJobState({
           jobUrl: uploadJobUrl,
@@ -727,7 +728,11 @@ describe('backstage ingest resumable upload integration', () => {
           ...claims,
           exp: Math.floor(Date.now() / 1000) - 1,
         });
-        expect((await getJobStatus(uploadJobUrl, expiredUploadPollToken)).status).toBe(200);
+        const expiredUploadPollResponse = await getJobStatus(uploadJobUrl, expiredUploadPollToken);
+        process.stdout.write(
+          `Expired upload poll token status: ${expiredUploadPollResponse.status}\n`
+        );
+        expect(expiredUploadPollResponse.status).toBe(401);
         const wrongSignatureExpiredPollToken = await sign(WRONG_SECRET, {
           ...claims,
           exp: Math.floor(Date.now() / 1000) - 1,
