@@ -726,7 +726,6 @@ function withAliasInstallPlanFootprint(
   }
 
   const packageJsonPath = `Packages/${input.packageId}/package.json`;
-  const existingPlan = isRecord(metadata.yucp.installPlan) ? metadata.yucp.installPlan : {};
   const managedPaths = Array.from(
     new Set(
       [
@@ -743,11 +742,7 @@ function withAliasInstallPlanFootprint(
     yucp: {
       ...metadata.yucp,
       installPlan: {
-        ...existingPlan,
-        operation:
-          typeof existingPlan.operation === 'string' && existingPlan.operation.trim()
-            ? existingPlan.operation.trim()
-            : 'install',
+        operation: 'install',
         managedPaths,
       },
     },

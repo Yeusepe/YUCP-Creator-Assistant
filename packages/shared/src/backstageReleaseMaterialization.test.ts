@@ -689,6 +689,63 @@ describe('materializeBackstageReleaseArtifact', () => {
     });
   });
 
+  it('replaces creator-controlled install plan fields with the server-owned footprint', async () => {
+    const input = buildUnitypackage(
+      [
+        { path: 'asset-guid/asset', content: strToU8('asset-bytes') },
+        { path: 'asset-guid/asset.meta', content: strToU8('fileFormatVersion: 2\n') },
+        {
+          path: 'asset-guid/pathname',
+          content: strToU8('Assets/YUCP Assets/Song Thing/Marker.txt'),
+        },
+      ],
+      TAR_MTIME_A
+    );
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'song-thing.unitypackage',
+      contentType: 'application/octet-stream',
+      packageId: 'com.yucp.songthing',
+      version: '1.0.12',
+      displayName: 'Song Thing',
+      metadata: {
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'song-thing',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          installPlan: {
+            operation: 'uninstall',
+            generatedPaths: ['Assets/Publisher Supplied/Generated.txt'],
+            sharedPaths: ['Assets/Publisher Supplied/Shared.txt'],
+            planId: 'creator-plan',
+            status: 'ready',
+            rawPlanJson: '{"operation":"uninstall"}',
+          },
+        },
+      },
+    });
+
+    const archive = unzipSync(materializedBytes(materialized));
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    const installPlan = packageJson.yucp.installPlan;
+    const artifactDerivedPaths = [
+      'Packages/com.yucp.songthing/package.json',
+      'Assets/YUCP Assets/Song Thing/Marker.txt',
+      'Assets/YUCP Assets/Song Thing/Marker.txt.meta',
+    ];
+
+    expect(installPlan).toEqual({ operation: 'install', managedPaths: artifactDerivedPaths });
+    expect(installPlan.operation).toBe('install');
+    expect(installPlan.managedPaths).toEqual(artifactDerivedPaths);
+    expect(installPlan.generatedPaths).toBeUndefined();
+    expect(installPlan.sharedPaths).toBeUndefined();
+    expect(installPlan.planId).toBeUndefined();
+    expect(installPlan.status).toBeUndefined();
+    expect(installPlan.rawPlanJson).toBeUndefined();
+  });
+
   it('builds a unitypackage importer shim from precomputed managed paths without source bytes', async () => {
     const managedPaths = [
       'Packages/com.yucp.songthing/package.json',
