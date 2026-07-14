@@ -315,10 +315,12 @@ function waitForBackstageIngestPoll(signal?: AbortSignal): Promise<void> {
 
 async function pollBackstageIngestJob(input: {
   jobUrl: string;
+  pollToken?: string;
   signal?: AbortSignal;
   uploadToken: string;
 }): Promise<string> {
   const deadline = Date.now() + BACKSTAGE_INGEST_POLL_TIMEOUT_MS;
+  const authorizationToken = input.pollToken || input.uploadToken;
 
   for (;;) {
     throwIfAborted(input.signal);
@@ -329,7 +331,7 @@ async function pollBackstageIngestJob(input: {
     let response: Response;
     try {
       response = await fetch(input.jobUrl, {
-        headers: { Authorization: `Bearer ${input.uploadToken}` },
+        headers: { Authorization: `Bearer ${authorizationToken}` },
         redirect: 'error',
         signal: AbortSignal.any(
           [input.signal, AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS)].filter(
@@ -403,6 +405,7 @@ export async function uploadBackstageReleaseSource(input: {
 
   const ingestResult = await new Promise<string>((resolve, reject) => {
     let settled = false;
+    let pollToken: string | undefined;
 
     const cleanup = () => input.signal?.removeEventListener('abort', handleAbort);
     const resolveOnce = (value: string) => {
@@ -427,6 +430,12 @@ export async function uploadBackstageReleaseSource(input: {
       chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,
+      onAfterResponse: (_request, response) => {
+        const responsePollToken = response.getHeader('X-Backstage-Ingest-Poll-Token')?.trim();
+        if (responsePollToken) {
+          pollToken = responsePollToken;
+        }
+      },
       onProgress: (bytesSent, bytesTotal) => {
         input.onProgress?.({ loaded: bytesSent, total: bytesTotal });
       },
@@ -469,6 +478,7 @@ export async function uploadBackstageReleaseSource(input: {
         input.onProcessing?.();
         void pollBackstageIngestJob({
           jobUrl,
+          pollToken,
           signal: input.signal,
           uploadToken: authorization.uploadToken,
         }).then(resolveOnce, rejectOnce);

@@ -45,8 +45,11 @@ type ReceivedPut = {
 };
 
 type TusUploadResult = {
+  completionBody?: string;
   uploadUrl: string;
   ingestResultHeader?: string;
+  pollToken?: string;
+  exposedHeaders?: string;
 };
 
 type JobStatus =
@@ -366,6 +369,9 @@ async function uploadWithTus(input: {
 }): Promise<TusUploadResult> {
   return await new Promise<TusUploadResult>((resolveUpload, rejectUpload) => {
     let ingestResultHeader: string | undefined;
+    let completionBody: string | undefined;
+    let pollToken: string | undefined;
+    let exposedHeaders: string | undefined;
     let settled = false;
     const sourceBuffer = Buffer.from(
       input.bytes.buffer,
@@ -383,6 +389,15 @@ async function uploadWithTus(input: {
         if (header) {
           ingestResultHeader = header;
         }
+        const responsePollToken = response.getHeader('X-Backstage-Ingest-Poll-Token')?.trim();
+        if (responsePollToken) {
+          pollToken = responsePollToken;
+          completionBody = response.getBody();
+        }
+        const responseExposedHeaders = response.getHeader('Access-Control-Expose-Headers')?.trim();
+        if (responseExposedHeaders) {
+          exposedHeaders = responseExposedHeaders;
+        }
       },
       onError: (error) => {
         if (!settled) {
@@ -399,7 +414,13 @@ async function uploadWithTus(input: {
             rejectUpload(new Error('TUS upload completed without an upload URL.'));
             return;
           }
-          resolveUpload({ uploadUrl: upload.url, ingestResultHeader });
+          resolveUpload({
+            completionBody,
+            uploadUrl: upload.url,
+            ingestResultHeader,
+            pollToken,
+            exposedHeaders,
+          });
         }
       },
     });
@@ -663,6 +684,23 @@ describe('backstage ingest resumable upload integration', () => {
         });
         expect(tusUpload.ingestResultHeader).toBeUndefined();
         const uploadJobUrl = jobUrlFromUploadUrl(tusUpload.uploadUrl);
+        expect(tusUpload.pollToken).toBeTruthy();
+        expect(tusUpload.exposedHeaders?.toLowerCase()).toContain('x-backstage-ingest-poll-token');
+        const uploadPollToken = tusUpload.pollToken as string;
+        const uploadJobId = new URL(uploadJobUrl).pathname.slice('/jobs/'.length);
+        expect(JSON.parse(tusUpload.completionBody ?? '')).toEqual({
+          ok: true,
+          jobId: uploadJobId,
+          pollToken: uploadPollToken,
+        });
+        expect(parseMaterializePollClaims(await verify(INGEST_SECRET, uploadPollToken))).toEqual({
+          typ: 'backstage-materialize-poll',
+          authUserId,
+          packageId,
+          version,
+          jobId: uploadJobId,
+          exp: expect.any(Number),
+        });
 
         await firstLorePutStarted.promise;
         await delay(ABANDONED_UPLOAD_TTL_MS * 3);
@@ -703,7 +741,7 @@ describe('backstage ingest resumable upload integration', () => {
 
         const uploadCompleted = await waitForJobState({
           jobUrl: uploadJobUrl,
-          uploadToken,
+          uploadToken: uploadPollToken,
           terminalState: 'completed',
         });
         if (uploadCompleted.state !== 'completed') {
@@ -745,6 +783,28 @@ describe('backstage ingest resumable upload integration', () => {
           `Expired upload poll token status: ${expiredUploadPollResponse.status}\n`
         );
         expect(expiredUploadPollResponse.status).toBe(401);
+        const freshPollResponse = await getJobStatus(uploadJobUrl, uploadPollToken);
+        expect(freshPollResponse.status).toBe(200);
+        expect(await freshPollResponse.json()).toEqual({
+          state: 'completed',
+          result: uploadCompleted.result,
+        });
+        process.stdout.write(
+          `Expired upload token returned ${expiredUploadPollResponse.status}; fresh upload completion poll token returned ${freshPollResponse.status} with the completed result.\n`
+        );
+        const wrongJobPollToken = await sign(INGEST_SECRET, {
+          typ: 'backstage-materialize-poll',
+          authUserId,
+          packageId,
+          version,
+          jobId: 'different-upload-job',
+          exp: Math.floor(Date.now() / 1000) + 60,
+        });
+        const wrongJobPollResponse = await getJobStatus(uploadJobUrl, wrongJobPollToken);
+        expect(wrongJobPollResponse.status).toBe(403);
+        process.stdout.write(
+          `Wrong-jobId upload poll token status: ${wrongJobPollResponse.status}\n`
+        );
         const wrongSignatureExpiredPollToken = await sign(WRONG_SECRET, {
           ...claims,
           exp: Math.floor(Date.now() / 1000) - 1,

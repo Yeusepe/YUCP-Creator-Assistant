@@ -313,6 +313,7 @@ export async function uploadBackstagePackageArtifactDirect(
   const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
     let uploadFinished = false;
     let uploadIdleTimeout: ReturnType<typeof setTimeout> | undefined;
+    let pollToken: string | undefined;
     let upload: Upload;
     const finishUpload = (): boolean => {
       if (uploadFinished) return false;
@@ -346,6 +347,12 @@ export async function uploadBackstagePackageArtifactDirect(
       chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,
+      onAfterResponse: (_request, response) => {
+        const responsePollToken = response.getHeader('X-Backstage-Ingest-Poll-Token')?.trim();
+        if (responsePollToken) {
+          pollToken = responsePollToken;
+        }
+      },
       onProgress: (_bytesUploaded, _bytesTotal) => {
         armUploadIdleTimeout();
       },
@@ -384,7 +391,7 @@ export async function uploadBackstagePackageArtifactDirect(
           rejectUpload(error);
           return;
         }
-        void pollBackstageIngestJob(jobUrl, uploadToken, { fetchImpl }).then(
+        void pollBackstageIngestJob(jobUrl, uploadToken, { fetchImpl, pollToken }).then(
           resolveUpload,
           rejectUpload
         );

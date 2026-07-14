@@ -51,6 +51,7 @@ if (MAX_MANAGED_PATHS_SERIALIZED_BYTES * 2 > MAX_MATERIALIZE_BODY_BYTES) {
   throw new Error('Managed-paths payload limit must leave 2x materialize request headroom.');
 }
 const RESULT_TTL_SECONDS = 15 * 60;
+const POLL_TOKEN_HEADER = 'X-Backstage-Ingest-Poll-Token';
 const QUEUE_NAME = 'backstage-ingest';
 const FAILED_JOB_REASON = 'ingest_failed';
 const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
@@ -207,6 +208,23 @@ function isSameOriginRequest(request: Request): boolean {
 function removeCorsWildcard(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.delete('Access-Control-Allow-Origin');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function exposeTusPollTokenHeader(response: Response): Response {
+  const headers = new Headers(response.headers);
+  const exposedHeaders = (headers.get('Access-Control-Expose-Headers') ?? '')
+    .split(',')
+    .map((header) => header.trim())
+    .filter(Boolean);
+  if (!exposedHeaders.some((header) => header.toLowerCase() === POLL_TOKEN_HEADER.toLowerCase())) {
+    exposedHeaders.push(POLL_TOKEN_HEADER);
+  }
+  headers.set('Access-Control-Expose-Headers', exposedHeaders.join(', '));
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -841,12 +859,24 @@ const server = new Server({
         throw error;
       }
 
+      // ponytail: BackstageMaterializePollClaims doubles as the generic job poll token for upload and materialize jobs.
+      const pollClaims: BackstageMaterializePollClaims = {
+        typ: 'backstage-materialize-poll',
+        authUserId: claims.authUserId,
+        packageId: claims.packageId,
+        version: claims.version,
+        jobId: upload.id,
+        exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
+      };
+      const pollToken = await sign(config.ingestSecret, pollClaims);
+
       return {
         status_code: request.method === 'POST' ? 201 : 200,
         headers: {
           'Content-Type': 'application/json',
+          [POLL_TOKEN_HEADER]: pollToken,
         },
-        body: JSON.stringify({ ok: true, jobId: upload.id }),
+        body: JSON.stringify({ ok: true, jobId: upload.id, pollToken }),
       };
     } catch (error) {
       if (isTusHookError(error)) {
@@ -892,8 +922,6 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
   let claims: BackstageUploadClaims | BackstageMaterializePollClaims;
   try {
     const payload = await verify(config.ingestSecret, token, { ignoreExpiry: true });
-    // ponytail: Upload and processing must complete within the token lifetime; a dedicated
-    // short-lived poll token is the upgrade path for very long transfers.
     claims =
       payload.typ === 'backstage-materialize-poll'
         ? parseMaterializePollClaims(await verify(config.ingestSecret, token))
@@ -910,18 +938,15 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
   const jobClaims = job.data.claims;
   const commonOwnershipMismatch =
     claims.authUserId !== jobClaims.authUserId || claims.packageId !== jobClaims.packageId;
-  let uploadOwnershipMismatch = false;
-  let materializeOwnershipMismatch = false;
-  if (isUploadJobData(job.data)) {
-    uploadOwnershipMismatch =
-      claims.typ !== 'backstage-upload' || claims.declaredSha256 !== job.data.claims.declaredSha256;
+  let jobOwnershipMismatch: boolean;
+  if (claims.typ === 'backstage-materialize-poll') {
+    jobOwnershipMismatch = claims.jobId !== jobId || claims.version !== jobClaims.version;
+  } else if (isUploadJobData(job.data)) {
+    jobOwnershipMismatch = claims.declaredSha256 !== job.data.claims.declaredSha256;
   } else {
-    materializeOwnershipMismatch =
-      claims.typ !== 'backstage-materialize-poll' ||
-      claims.jobId !== jobId ||
-      claims.version !== job.data.claims.version;
+    jobOwnershipMismatch = true;
   }
-  if (commonOwnershipMismatch || uploadOwnershipMismatch || materializeOwnershipMismatch) {
+  if (commonOwnershipMismatch || jobOwnershipMismatch) {
     return applyJobCors(request, Response.json({ error: 'Forbidden' }, { status: 403 }));
   }
 
@@ -1052,7 +1077,11 @@ const httpServer = Bun.serve({
     }
 
     const response = await server.handleWeb(request);
-    return config.allowedOrigins.length === 0 ? removeCorsWildcard(response) : response;
+    const tusResponse =
+      url.pathname === '/files' || url.pathname.startsWith('/files/')
+        ? exposeTusPollTokenHeader(response)
+        : response;
+    return config.allowedOrigins.length === 0 ? removeCorsWildcard(tusResponse) : tusResponse;
   },
 });
 

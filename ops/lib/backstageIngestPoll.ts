@@ -13,10 +13,12 @@ export async function pollBackstageIngestJob(
   options: {
     fetchImpl?: typeof fetch;
     errorMessageTerminator?: '' | '.';
+    pollToken?: string;
   } = {}
 ): Promise<string> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const errorMessageTerminator = options.errorMessageTerminator ?? '';
+  const authorizationToken = options.pollToken?.trim() || uploadToken;
   const deadline = Date.now() + BACKSTAGE_INGEST_POLL_TIMEOUT_MS;
 
   for (;;) {
@@ -29,7 +31,7 @@ export async function pollBackstageIngestJob(
     let response: Response;
     try {
       response = await fetchImpl(jobUrl, {
-        headers: { Authorization: `Bearer ${uploadToken}` },
+        headers: { Authorization: `Bearer ${authorizationToken}` },
         redirect: 'error',
         signal: AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS),
       });

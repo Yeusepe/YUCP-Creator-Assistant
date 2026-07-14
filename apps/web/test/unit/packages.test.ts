@@ -11,6 +11,10 @@ const { apiPostMock, createdUploads } = vi.hoisted(() => ({
       chunkSize?: number;
       retryDelays?: number[] | null;
       removeFingerprintOnSuccess?: boolean;
+      onAfterResponse?: (
+        request: unknown,
+        response: { getHeader: (name: string) => string | undefined }
+      ) => void;
       onProgress?: ((bytesSent: number, bytesTotal: number) => void) | null;
       onSuccess?: ((payload: { lastResponse: unknown }) => void) | null;
       onError?: ((error: Error) => void) | null;
@@ -127,6 +131,13 @@ describe('uploadBackstageReleaseSource', () => {
     expect(onProgress).toHaveBeenCalledWith({ loaded: 32, total: 128 });
 
     vi.useFakeTimers();
+    upload.options.onAfterResponse?.(
+      {},
+      {
+        getHeader: (name) =>
+          name === 'X-Backstage-Ingest-Poll-Token' ? 'signed-poll-token' : undefined,
+      }
+    );
     upload.options.onSuccess?.({ lastResponse: {} });
     expect(onProcessing).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1000);
@@ -140,7 +151,7 @@ describe('uploadBackstageReleaseSource', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://ingest.test/jobs/job_123');
-      expect(init?.headers).toEqual({ Authorization: 'Bearer signed-upload-token' });
+      expect(init?.headers).toEqual({ Authorization: 'Bearer signed-poll-token' });
       expect(init?.redirect).toBe('error');
       expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
