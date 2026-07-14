@@ -158,6 +158,18 @@ function buildZipWithDeclaredDecompressedSizeOverLimit(): Uint8Array {
   return archive;
 }
 
+function buildDeterministicVaryingBytes(byteLength: number, seed: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  let state = Math.imul(seed, 2_654_435_761) >>> 0;
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    bytes[index] = state >>> 24;
+  }
+  return bytes;
+}
+
 async function sha256Hex(bytes: ArrayBuffer | Uint8Array): Promise<string> {
   const ownedBytes = new Uint8Array(
     bytes instanceof ArrayBuffer
@@ -1147,6 +1159,313 @@ describe('backstage ingest resumable upload integration', () => {
         throw error;
       } finally {
         releaseFirstLorePut.resolve();
+        await stopSidecar(sidecar);
+        await Promise.all([stdoutCapture, stderrCapture]);
+        await queue.obliterate({ force: true });
+        await queue.close();
+        await queueConnection.quit();
+        await fakeLore.stop(true);
+        await rm(tempDirectory, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  test(
+    'materializes a multi-entry ZIP end-to-end via streaming with a valid, deterministic deliverable',
+    async () => {
+      const receivedPuts: ReceivedPut[] = [];
+      const storedObjects = new Map<string, Uint8Array>();
+      const receivedGets: string[] = [];
+      const fakeLore = Bun.serve({
+        port: 0,
+        async fetch(request) {
+          const url = new URL(request.url);
+          const putMatch = /^\/v1\/repository\/([0-9a-f]{32})\/content$/.exec(url.pathname);
+          if (request.method === 'PUT' && putMatch) {
+            expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+            expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+            const body = new Uint8Array(await request.arrayBuffer());
+            const sha256 = await sha256Hex(body);
+            const address = `${sha256}-${'0'.repeat(32)}`;
+            receivedPuts.push({
+              repositoryId: putMatch[1],
+              address,
+              byteLength: body.byteLength,
+              bytes: body,
+              sha256,
+            });
+            storedObjects.set(`${putMatch[1]}/${address}`, body);
+            process.stdout.write(
+              `Streaming ZIP fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
+            );
+            return Response.json({ data: { address } });
+          }
+
+          const getMatch =
+            /^\/v1\/repository\/([0-9a-f]{32})\/content\/([0-9a-f]{64}-[0-9a-f]{32})$/.exec(
+              url.pathname
+            );
+          if (request.method === 'GET' && getMatch) {
+            expect(request.headers.get('CF-Access-Client-Id')).toBe('test-id');
+            expect(request.headers.get('CF-Access-Client-Secret')).toBe('test-secret');
+            const key = `${getMatch[1]}/${getMatch[2]}`;
+            receivedGets.push(url.pathname);
+            const bytes = storedObjects.get(key);
+            return bytes ? new Response(bytes) : new Response('Not found', { status: 404 });
+          }
+          return new Response('Not found', { status: 404 });
+        },
+      });
+
+      const tempDirectory = await mkdtemp(join(tmpdir(), 'yucp-backstage-streaming-zip-'));
+      const sidecarPort = await getFreePort();
+      const sidecarOrigin = `http://127.0.0.1:${sidecarPort}`;
+      const queuePrefix = `{backstage-streaming-zip-${crypto.randomUUID()}}`;
+      const queueConnection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
+      const queue = new Queue('backstage-ingest', {
+        connection: queueConnection,
+        prefix: queuePrefix,
+      });
+      const entrypoint = resolve(import.meta.dir, '../src/index.ts');
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      const sidecar = Bun.spawn(['bun', 'run', entrypoint], {
+        cwd: resolve(import.meta.dir, '../../..'),
+        env: {
+          ...process.env,
+          PORT: String(sidecarPort),
+          BACKSTAGE_INGEST_REDIS_URL: redisUrl,
+          BACKSTAGE_INGEST_QUEUE_PREFIX: queuePrefix,
+          BACKSTAGE_INGEST_CONCURRENCY: '2',
+          BACKSTAGE_INGEST_TUS_DIR: tempDirectory,
+          BACKSTAGE_INGEST_UPLOAD_TTL_MS: String(ABANDONED_UPLOAD_TTL_MS),
+          BACKSTAGE_INGEST_SECRET: INGEST_SECRET,
+          BACKSTAGE_INGEST_ALLOWED_ORIGINS: 'http://localhost:3000',
+          LORE_API_BASE_URL: `http://127.0.0.1:${fakeLore.port}`,
+          LORE_ACCESS_CLIENT_ID: 'test-id',
+          LORE_ACCESS_CLIENT_SECRET: 'test-secret',
+          LORE_REPO_NAMESPACE_SALT: REPOSITORY_SALT,
+          LORE_TIMEOUT_MS: '15000',
+        },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      let exitCode: number | null = null;
+      void sidecar.exited.then((code) => {
+        exitCode = code;
+      });
+      const stdoutCapture = captureSidecarOutput(sidecar.stdout, stdout, (value) =>
+        process.stdout.write(value)
+      );
+      const stderrCapture = captureSidecarOutput(sidecar.stderr, stderr, (value) =>
+        process.stderr.write(value)
+      );
+
+      try {
+        await waitForSidecar({ origin: sidecarOrigin, getExitCode: () => exitCode, stderr });
+
+        const packageId = 'com.yucp.streaming-zip-integration';
+        const version = '2.3.4';
+        const displayName = 'Streaming ZIP Integration';
+        const aliasId = 'resolved-streaming-zip-alias';
+        const authUserId = 'auth-user-streaming-zip-integration';
+        const repositoryId = loreRepositoryIdForCreator(authUserId, REPOSITORY_SALT);
+        const intendedEntries: Record<string, Uint8Array> = {
+          'package.json': strToU8(
+            JSON.stringify({
+              name: 'com.yucp.unresolved-source',
+              version: '0.0.1',
+              displayName: 'Unresolved Source',
+            })
+          ),
+        };
+        for (let index = 0; index < 18; index += 1) {
+          const byteLength =
+            index === 0 ? 256 * 1024 : index === 1 ? 192 * 1024 : (48 + index) * 1024;
+          intendedEntries[`Runtime/Nested/Group${index % 4}/Asset${index}.bytes`] =
+            buildDeterministicVaryingBytes(byteLength, index + 1);
+        }
+        intendedEntries['Editor/Thing.cs'] = strToU8(
+          'namespace StreamingZipIntegration { public sealed class Thing {} }\n'
+        );
+        intendedEntries['Editor/Inspectors/ThingInspector.cs'] = strToU8(
+          'namespace StreamingZipIntegration.Editor { public sealed class ThingInspector {} }\n'
+        );
+        intendedEntries['Documentation~/getting-started.md'] = strToU8(
+          '# Streaming ZIP integration\n\nDeterministic end-to-end fixture.\n'
+        );
+        intendedEntries['Samples~/Nested/Example.prefab'] = strToU8(
+          '%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: Streaming ZIP Example\n'
+        );
+        const sourceManifestBytes = intendedEntries['package.json'];
+        if (!sourceManifestBytes) {
+          throw new Error('Expected the streaming ZIP fixture to include package.json.');
+        }
+        const sourceBytes = zipSync(intendedEntries, { level: 6 });
+        expect(sourceBytes.byteLength).toBeGreaterThan(1024 * 1024);
+        const sourceSha256 = await sha256Hex(sourceBytes);
+        const uploadClaims: BackstageUploadClaims = {
+          typ: 'backstage-upload',
+          authUserId,
+          packageId,
+          version,
+          repositoryId,
+          deliveryName: `${packageId}-${version}.zip`,
+          sourceContentType: 'application/zip',
+          declaredSha256: sourceSha256,
+          byteSize: sourceBytes.byteLength,
+          exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const uploadToken = await sign(INGEST_SECRET, uploadClaims);
+        const tusUpload = await uploadWithTus({
+          bytes: sourceBytes,
+          chunkSize: 64 * 1024,
+          endpoint: `${sidecarOrigin}/files`,
+          uploadToken,
+        });
+        const uploadCompleted = await waitForJobState({
+          jobUrl: jobUrlFromUploadUrl(tusUpload.uploadUrl),
+          uploadToken,
+          terminalState: 'completed',
+        });
+        if (uploadCompleted.state !== 'completed') {
+          throw new Error('Expected the multi-entry streaming ZIP upload job to complete.');
+        }
+        const uploadBundle = parseUploadResult(await verify(INGEST_SECRET, uploadCompleted.result));
+        expect(uploadBundle).toMatchObject({
+          typ: 'backstage-upload-result',
+          authUserId,
+          packageId,
+          version,
+          rawSha256: sourceSha256,
+          sourceKind: 'zip',
+        });
+        expect(uploadBundle.loreSource.repositoryId).toBe(repositoryId);
+        expect(receivedPuts).toHaveLength(1);
+        expect(receivedPuts[0]).toMatchObject({
+          repositoryId,
+          byteLength: sourceBytes.byteLength,
+          sha256: sourceSha256,
+        });
+        expect(receivedPuts[0]?.bytes).toEqual(sourceBytes);
+        await waitForDirectoryEmpty(tempDirectory);
+
+        const materializeClaims: BackstageMaterializeClaims = {
+          typ: 'backstage-materialize',
+          authUserId,
+          packageId,
+          version,
+          repositoryId,
+          loreSourceAddress: uploadBundle.loreSource.address,
+          loreSourceSha256: uploadBundle.rawSha256,
+          deliveryName: uploadBundle.rawDeliveryName,
+          sourceContentType: uploadBundle.rawContentType,
+          sourceKind: uploadBundle.sourceKind,
+          managedPaths: uploadBundle.managedPaths,
+          materializeMetadata: {
+            displayName,
+            metadata: {
+              description: 'Resolved by the streaming ZIP integration test',
+              yucp: {
+                kind: 'alias-v1',
+                installStrategy: 'server-authorized',
+                aliasId,
+                importerPackage: 'com.yucp.importer',
+              },
+            },
+          },
+          exp: Math.floor(Date.now() / 1000) + 3_600,
+        };
+        const rawSourcePath = `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`;
+        const getsBeforeFirstMaterialize = receivedGets.length;
+        const firstMaterializeBundle = await runBackstageMaterialize({
+          ingestBaseUrl: sidecarOrigin,
+          ingestSecret: INGEST_SECRET,
+          claims: materializeClaims,
+        });
+        const firstMaterializeGets = receivedGets.slice(getsBeforeFirstMaterialize);
+        expect(firstMaterializeGets).toEqual([rawSourcePath]);
+        expect(firstMaterializeBundle).toMatchObject({
+          typ: 'backstage-materialize-result',
+          authUserId,
+          packageId,
+          version,
+          loreDelivery: {
+            repositoryId,
+            tenantId: authUserId,
+          },
+        });
+        expect(receivedPuts).toHaveLength(2);
+        const firstDeliverable = receivedPuts[1];
+        if (!firstDeliverable) {
+          throw new Error('Expected the first materialized ZIP in fake Lore.');
+        }
+        expect(firstDeliverable.sha256).toBe(firstMaterializeBundle.deliverableSha256);
+        expect(firstDeliverable.address).toBe(firstMaterializeBundle.loreDelivery.address);
+        expect(firstDeliverable.byteLength).toBe(firstMaterializeBundle.deliverableByteSize);
+        const firstArchive = unzipSync(firstDeliverable.bytes);
+        expect(Object.keys(firstArchive).sort()).toEqual(Object.keys(intendedEntries).sort());
+        for (const [entryPath, intendedBytes] of Object.entries(intendedEntries)) {
+          if (entryPath !== 'package.json') {
+            expect(firstArchive[entryPath]).toEqual(intendedBytes);
+          }
+        }
+        const rewrittenManifestBytes = firstArchive['package.json'];
+        if (!rewrittenManifestBytes) {
+          throw new Error('Materialized streaming ZIP did not contain package.json.');
+        }
+        expect(rewrittenManifestBytes).not.toEqual(sourceManifestBytes);
+        const rewrittenManifest = JSON.parse(new TextDecoder().decode(rewrittenManifestBytes));
+        expect(rewrittenManifest).toMatchObject({
+          name: packageId,
+          version,
+          displayName,
+          description: 'Resolved by the streaming ZIP integration test',
+          yucp: {
+            kind: 'alias-v1',
+            installStrategy: 'server-authorized',
+            aliasId,
+            importerPackage: 'com.yucp.importer',
+          },
+        });
+        await waitForDirectoryEmpty(tempDirectory);
+        expect(await readdir(tempDirectory)).toEqual([]);
+
+        const getsBeforeSecondMaterialize = receivedGets.length;
+        const secondMaterializeBundle = await runBackstageMaterialize({
+          ingestBaseUrl: sidecarOrigin,
+          ingestSecret: INGEST_SECRET,
+          claims: materializeClaims,
+        });
+        const secondMaterializeGets = receivedGets.slice(getsBeforeSecondMaterialize);
+        expect(secondMaterializeGets).toEqual([rawSourcePath]);
+        expect(receivedPuts).toHaveLength(3);
+        const secondDeliverable = receivedPuts[2];
+        if (!secondDeliverable) {
+          throw new Error('Expected the repeated materialized ZIP in fake Lore.');
+        }
+        expect(secondMaterializeBundle.deliverableSha256).toBe(
+          firstMaterializeBundle.deliverableSha256
+        );
+        expect(secondMaterializeBundle.loreDelivery.address).toBe(
+          firstMaterializeBundle.loreDelivery.address
+        );
+        expect(secondDeliverable.sha256).toBe(firstDeliverable.sha256);
+        expect(secondDeliverable.address).toBe(firstDeliverable.address);
+        expect(secondDeliverable.bytes).toEqual(firstDeliverable.bytes);
+        await waitForDirectoryEmpty(tempDirectory);
+        expect(await readdir(tempDirectory)).toEqual([]);
+
+        process.stdout.write(
+          `Multi-entry streaming ZIP e2e passed: ${Object.keys(intendedEntries).length} decoded entries matched byte-for-byte, raw Lore GETs ${firstMaterializeGets.length}+${secondMaterializeGets.length}, deterministic SHA-256 ${firstDeliverable.sha256}, no temp files left.\n`
+        );
+        expect(stdout.join('')).not.toContain(repositoryId);
+        expect(stderr.join('')).not.toContain(repositoryId);
+      } catch (error) {
+        process.stderr.write(`\nCaptured streaming ZIP sidecar stderr:\n${stderr.join('')}\n`);
+        throw error;
+      } finally {
         await stopSidecar(sidecar);
         await Promise.all([stdoutCapture, stderrCapture]);
         await queue.obliterate({ force: true });
