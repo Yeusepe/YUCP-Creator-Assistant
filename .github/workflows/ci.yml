@@ -130,6 +130,11 @@ jobs:
         ports: ['41339:41339']
         env:
           LORE__SERVER__HTTP__PRESIGNED_URL_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      redis:
+        image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -163,6 +168,16 @@ jobs:
           LORE_ACCESS_CLIENT_ID: unused
           LORE_ACCESS_CLIENT_SECRET: unused
         run: bun run test:lore:contract
+
+      - name: Run Backstage real-Lore pipeline e2e
+        env:
+          BACKSTAGE_INGEST_REDIS_URL: redis://localhost:6379
+          LORE_API_BASE_URL: http://localhost:41339
+          LORE_PRESIGN_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          LORE_REPO_NAMESPACE_SALT: pipeline-e2e-ci
+          LORE_ACCESS_CLIENT_ID: unused
+          LORE_ACCESS_CLIENT_SECRET: unused
+        run: bun run test:ingest:reallore
 
   convex-real:
     name: Convex Real Backend
