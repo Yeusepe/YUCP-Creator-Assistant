@@ -2101,7 +2101,12 @@ describe('package Backstage publishing routes', () => {
   });
 
   it('publishes uploaded Backstage releases for the authenticated creator', async () => {
-    const uploadResult = makeUploadResult();
+    const serverManagedPaths = ['Assets/Example.prefab', 'Assets/Example.prefab.meta'];
+    const expectedPersistedManagedPaths = [
+      'Packages/com.yucp.example/package.json',
+      ...serverManagedPaths,
+    ];
+    const uploadResult = makeUploadResult({ managedPaths: serverManagedPaths });
     const response = await routes.publishBackstageRelease(
       new Request('https://api.test/api/packages/com.yucp.example/backstage/releases', {
         method: 'POST',
@@ -2117,6 +2122,19 @@ describe('package Backstage publishing routes', () => {
           displayName: 'Resolved Example Package',
           description: 'Prepared release description',
           unityVersion: '2022.3.22f1',
+          metadata: {
+            yucp: {
+              kind: 'alias-v1',
+              aliasId: 'creator-controlled-alias',
+              installStrategy: 'server-authorized',
+              importerPackage: 'com.yucp.importer',
+              installPlan: {
+                operation: 'uninstall',
+                managedPaths: ['Assets/Attacker.cs'],
+                generatedPaths: ['x'],
+              },
+            },
+          },
         }),
       }),
       'com.yucp.example'
@@ -2182,15 +2200,34 @@ describe('package Backstage publishing routes', () => {
               minImporterVersion: '0.1.9',
               catalogProductIds: ['product_1'],
               channel: 'stable',
+              installPlan: {
+                operation: 'uninstall',
+                managedPaths: ['Assets/Attacker.cs'],
+                generatedPaths: ['x'],
+              },
             },
           },
         },
         exp: expect.any(Number),
       },
     ]);
-    expect(materializeClaims?.materializeMetadata?.metadata).toEqual(
-      (lastActionArgs as { metadata: Record<string, unknown> }).metadata
-    );
+    const persistedMetadata = (lastActionArgs as { metadata: Record<string, unknown> }).metadata;
+    expect(persistedMetadata).toEqual({
+      ...materializeClaims?.materializeMetadata?.metadata,
+      yucp: {
+        ...(materializeClaims?.materializeMetadata?.metadata?.yucp as Record<string, unknown>),
+        installPlan: {
+          operation: 'install',
+          managedPaths: expectedPersistedManagedPaths,
+        },
+      },
+    });
+    const persistedInstallPlan = (persistedMetadata.yucp as Record<string, unknown>)
+      .installPlan as Record<string, unknown>;
+    expect(persistedInstallPlan.operation).toBe('install');
+    expect(persistedInstallPlan.managedPaths).toEqual(expectedPersistedManagedPaths);
+    expect(persistedInstallPlan.managedPaths).not.toContain('Assets/Attacker.cs');
+    expect(persistedInstallPlan).not.toHaveProperty('generatedPaths');
     expect(materializePollsByJob.get('materialize-job-1')).toBe(2);
     expect(lastActionArgs).toMatchObject({
       loreSource: uploadResult.loreSource,

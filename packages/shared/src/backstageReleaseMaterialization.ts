@@ -713,7 +713,7 @@ export function collectZipArchiveEntryPaths(sourceBytes: Uint8Array): string[] {
   return Array.from(managedPaths).sort((left, right) => left.localeCompare(right));
 }
 
-function withAliasInstallPlanFootprint(
+export function withAliasInstallPlanFootprint(
   metadata: Record<string, unknown>,
   input: {
     managedPaths: string[];

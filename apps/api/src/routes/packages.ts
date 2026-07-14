@@ -27,6 +27,7 @@ import {
   type BackstagePackageMediaKind,
   type BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
+import { withAliasInstallPlanFootprint } from '@yucp/shared/backstageReleaseMaterialization';
 import { prepareBackstageArtifactDescriptorForPublish } from '@yucp/shared/backstageVpmPackage';
 import {
   assertSecureLoreUrl,
@@ -1901,6 +1902,11 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
       ) {
         return jsonResponse({ error: 'Materialize result is not owned by this creator' }, 403);
       }
+      const persistedMetadata = withAliasInstallPlanFootprint(preparedArtifact.metadata, {
+        managedPaths: uploadResult.managedPaths,
+        packageId,
+        originalSourceKind: uploadResult.sourceKind,
+      });
       const result = await convex.mutation(api.backstageRepos.publishLoreReleaseForAuthUser, {
         apiSecret: config.convexApiSecret,
         actor: viewer.actorBinding,
@@ -1925,7 +1931,7 @@ export function createPackageRoutes(auth: Auth, config: PackagesConfig) {
         repositoryVisibility: body.repositoryVisibility,
         defaultChannel: body.defaultChannel,
         unityVersion: body.unityVersion,
-        metadata: preparedArtifact.metadata,
+        metadata: persistedMetadata,
         rawDeliveryName: uploadResult.rawDeliveryName,
         rawContentType: uploadResult.rawContentType,
         rawSha256: uploadResult.rawSha256,
