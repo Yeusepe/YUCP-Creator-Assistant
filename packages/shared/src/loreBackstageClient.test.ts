@@ -138,6 +138,7 @@ describe('putBackstageBytesToLore', () => {
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       expect(String(input)).toBe(`https://lore.test/v1/repository/${repositoryId}/content`);
       expect(init?.method).toBe('PUT');
+      expect(init?.redirect).toBe('error');
       const headers = new Headers(init?.headers);
       expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
       expect(headers.get('CF-Access-Client-Secret')).toBe('access-client-secret');
@@ -206,6 +207,7 @@ describe('getBackstageBytesFromLore', () => {
         `https://lore.test/v1/repository/${repositoryId}/content/${address}`
       );
       expect(init?.method).toBe('GET');
+      expect(init?.redirect).toBe('error');
       const headers = new Headers(init?.headers);
       expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
       expect(headers.get('CF-Access-Client-Secret')).toBe('access-client-secret');

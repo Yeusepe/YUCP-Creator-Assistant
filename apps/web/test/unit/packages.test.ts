@@ -141,6 +141,7 @@ describe('uploadBackstageReleaseSource', () => {
     for (const [url, init] of fetchMock.mock.calls) {
       expect(url).toBe('https://ingest.test/jobs/job_123');
       expect(init?.headers).toEqual({ Authorization: 'Bearer signed-upload-token' });
+      expect(init?.redirect).toBe('error');
       expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
   });

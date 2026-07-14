@@ -330,6 +330,7 @@ async function pollBackstageIngestJob(input: {
     try {
       response = await fetch(input.jobUrl, {
         headers: { Authorization: `Bearer ${input.uploadToken}` },
+        redirect: 'error',
         signal: AbortSignal.any(
           [input.signal, AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS)].filter(
             (signal): signal is AbortSignal => signal !== undefined

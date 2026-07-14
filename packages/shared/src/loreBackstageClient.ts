@@ -113,6 +113,10 @@ function isHttpTrustedHost(hostname: string): boolean {
   return false;
 }
 
+// ponytail: Callers pin jobUrl to the authorized tusEndpoint origin, credentialed fetches use
+// redirect: 'error', and URLs require HTTPS or a trusted loopback/private host. Static host
+// allowlists and post-DNS-resolution IP checks for DNS-rebind protection are intentionally
+// omitted because Lore hosts are operator-configurable and browser clients have no DNS API.
 export function assertSecureLoreUrl(rawUrl: string, fieldName: string): URL {
   let url: URL;
   try {
@@ -241,6 +245,7 @@ export async function putBackstageBytesToLore(input: {
         body: bytes,
         headers: accessHeaders(input.config),
         method: 'PUT',
+        redirect: 'error',
         signal: AbortSignal.timeout(input.config.timeoutMs),
       }
     );
@@ -286,6 +291,7 @@ export async function getBackstageBytesFromLore(input: {
       {
         headers: accessHeaders(input.config),
         method: 'GET',
+        redirect: 'error',
         signal: AbortSignal.timeout(input.config.timeoutMs),
       }
     );

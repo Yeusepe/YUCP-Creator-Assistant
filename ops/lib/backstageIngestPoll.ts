@@ -30,6 +30,7 @@ export async function pollBackstageIngestJob(
     try {
       response = await fetchImpl(jobUrl, {
         headers: { Authorization: `Bearer ${uploadToken}` },
+        redirect: 'error',
         signal: AbortSignal.timeout(BACKSTAGE_INGEST_POLL_REQUEST_TIMEOUT_MS),
       });
     } catch {
