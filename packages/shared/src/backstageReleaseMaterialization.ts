@@ -788,7 +788,19 @@ async function buildImporterShimZip(input: {
       { attrs: 0o644 << 16, level: 9, mtime: FIXED_ZIP_MTIME, os: 3 },
     ],
   };
-  const bytes = zipSync(zippable, { level: 9 });
+  // fflate writes DOS local time; force UTC so the shim is byte-for-byte reproducible regardless of host timezone.
+  const previousTz = process.env.TZ;
+  process.env.TZ = 'UTC';
+  let bytes: Uint8Array;
+  try {
+    bytes = zipSync(zippable, { level: 9 });
+  } finally {
+    if (previousTz === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = previousTz;
+    }
+  }
   return {
     contentType: 'application/zip',
     deliverable: {

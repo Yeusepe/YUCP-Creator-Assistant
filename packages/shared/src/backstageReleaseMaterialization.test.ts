@@ -356,7 +356,7 @@ describe('materializeBackstageReleaseArtifact', () => {
     ]);
   });
 
-  it('canonicalizes managed paths with deterministic code-unit ordering', async () => {
+  it('materializes timezone-independent shims with code-unit sorted managed paths', async () => {
     const managedPaths = ['b/z.cs', 'a/a.cs', 'a/a.cs.meta'];
     const input = {
       deliveryName: 'deterministic.zip',
@@ -374,13 +374,31 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     };
 
-    const first = await materializeBackstageReleaseArtifact(input);
-    const second = await materializeBackstageReleaseArtifact(input);
+    const previousTz = process.env.TZ;
+    try {
+      process.env.TZ = 'America/New_York';
+      const newYork = await materializeBackstageReleaseArtifact(input);
+      process.env.TZ = 'Asia/Tokyo';
+      const tokyo = await materializeBackstageReleaseArtifact(input);
 
-    expect(first.deliverable.sha256).toBe(second.deliverable.sha256);
-    const archive = unzipSync(materializedBytes(first));
-    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
-    expect(packageJson.yucp.installPlan.managedPaths).toEqual(['a/a.cs', 'a/a.cs.meta', 'b/z.cs']);
+      expect(newYork.deliverable.sha256).toBe(tokyo.deliverable.sha256);
+      expect(newYork.deliverable.sha256).toBe(
+        '8d02e88f42127d64abb352f404efc9ad8a5d1141a96e5c144b98f22ab30e9e0b'
+      );
+      const archive = unzipSync(materializedBytes(newYork));
+      const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+      expect(packageJson.yucp.installPlan.managedPaths).toEqual([
+        'a/a.cs',
+        'a/a.cs.meta',
+        'b/z.cs',
+      ]);
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
   });
 
   it('materializes unitypackage uploads as importer-driven shim package zips', async () => {
