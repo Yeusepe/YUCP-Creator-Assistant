@@ -19,7 +19,7 @@ import { pollBackstageIngestJob } from './lib/backstageIngestPoll';
 type FetchLike = typeof fetch;
 
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
-const BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
+const BACKSTAGE_TUS_UPLOAD_IDLE_TIMEOUT_MS = 2 * 60 * 1000;
 
 export type PublishBackstageReleaseConfig = {
   apiBaseUrl: string;
@@ -312,14 +312,32 @@ export async function uploadBackstagePackageArtifactDirect(
   // ponytail: stream the source to TUS with a bounded chunk size so peak upload memory stays near one chunk instead of the whole file.
   const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
     let uploadFinished = false;
-    let uploadTimeout: ReturnType<typeof setTimeout>;
+    let uploadIdleTimeout: ReturnType<typeof setTimeout> | undefined;
+    let upload: Upload;
     const finishUpload = (): boolean => {
       if (uploadFinished) return false;
       uploadFinished = true;
-      clearTimeout(uploadTimeout);
+      if (uploadIdleTimeout !== undefined) {
+        clearTimeout(uploadIdleTimeout);
+      }
       return true;
     };
-    const upload = new Upload(createReadStream(sourcePath), {
+    const armUploadIdleTimeout = (): void => {
+      if (uploadFinished) return;
+      if (uploadIdleTimeout !== undefined) {
+        clearTimeout(uploadIdleTimeout);
+      }
+      uploadIdleTimeout = setTimeout(() => {
+        if (!finishUpload()) return;
+        void upload.abort().catch(() => undefined);
+        rejectUpload(
+          new Error(
+            `Backstage TUS upload stalled with no progress for ${BACKSTAGE_TUS_UPLOAD_IDLE_TIMEOUT_MS}ms`
+          )
+        );
+      }, BACKSTAGE_TUS_UPLOAD_IDLE_TIMEOUT_MS);
+    };
+    upload = new Upload(createReadStream(sourcePath), {
       endpoint: tusEndpoint,
       metadata: {
         [uploadMetadataKey]: uploadToken,
@@ -328,6 +346,9 @@ export async function uploadBackstagePackageArtifactDirect(
       chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,
+      onProgress: (_bytesUploaded, _bytesTotal) => {
+        armUploadIdleTimeout();
+      },
       onSuccess: () => {
         if (!finishUpload()) return;
         const uploadUrl = upload.url;
@@ -372,13 +393,7 @@ export async function uploadBackstagePackageArtifactDirect(
         if (finishUpload()) rejectUpload(error);
       },
     });
-    uploadTimeout = setTimeout(() => {
-      if (!finishUpload()) return;
-      void upload.abort().catch(() => undefined);
-      rejectUpload(
-        new Error(`Backstage TUS upload timed out after ${BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS}ms`)
-      );
-    }, BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS);
+    armUploadIdleTimeout();
     try {
       upload.start();
     } catch (error) {

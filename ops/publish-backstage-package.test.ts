@@ -8,24 +8,42 @@ type TusUploadOptions = {
   endpoint?: string;
   metadata?: Record<string, string>;
   uploadSize?: number;
+  onProgress?: (bytesUploaded: number, bytesTotal: number) => void;
   onSuccess?: () => void;
   onError?: (error: Error) => void;
 };
 
-const tusUploadCalls: Array<{ source: unknown; options: TusUploadOptions }> = [];
+type TusUploadInstance = {
+  abortCalls: number;
+};
+
+const tusUploadCalls: Array<{
+  source: unknown;
+  options: TusUploadOptions;
+  upload: TusUploadInstance;
+}> = [];
+let completeTusUploadOnStart = true;
 
 mock.module('tus-js-client', () => ({
   Upload: class {
     readonly options: TusUploadOptions;
     readonly url = 'https://ingest.test/files/job_123';
+    abortCalls = 0;
 
     constructor(source: unknown, options: TusUploadOptions) {
       this.options = options;
-      tusUploadCalls.push({ source, options });
+      tusUploadCalls.push({ source, options, upload: this });
     }
 
     start(): void {
-      this.options.onSuccess?.();
+      if (completeTusUploadOnStart) {
+        this.options.onSuccess?.();
+      }
+    }
+
+    abort(): Promise<void> {
+      this.abortCalls += 1;
+      return Promise.resolve();
     }
   },
 }));
@@ -108,6 +126,7 @@ describe('publish-backstage-package', () => {
       tempDir = undefined;
     }
     tusUploadCalls.length = 0;
+    completeTusUploadOnStart = true;
   });
 
   it('authorizes a resumable upload, polls its ingest job, and publishes the release', async () => {
@@ -167,6 +186,7 @@ describe('publish-backstage-package', () => {
     expect(Buffer.isBuffer(tusUploadCalls[0].source)).toBe(false);
     expect((tusUploadCalls[0].source as ReadStream).path).toBe(sourcePath);
     expect(tusUploadCalls[0].options.uploadSize).toBe(9);
+    expect(tusUploadCalls[0].options.onProgress).toBeFunction();
 
     for (const pollCall of calls.slice(1, 3)) {
       expect(pollCall.url).toBe('https://ingest.test/jobs/job_123');
@@ -186,6 +206,91 @@ describe('publish-backstage-package', () => {
       deliveryName: 'example.zip',
       sourceContentType: 'application/zip',
     });
+  });
+
+  it('resets the TUS idle timeout on progress and rejects only after progress stalls', async () => {
+    tempDir = mkdtempSync(join(tmpdir(), 'publish-backstage-package-'));
+    const sourcePath = join(tempDir, 'example.zip');
+    writeFileSync(sourcePath, Buffer.from('zip-bytes'));
+    completeTusUploadOnStart = false;
+
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let elapsedMs = 0;
+    let nextTimerId = 1;
+    const timers = new Map<number, { callback: () => void; dueAt: number; delay: number }>();
+    globalThis.setTimeout = ((callback: (...args: unknown[]) => void, delay?: number) => {
+      const timerId = nextTimerId;
+      nextTimerId += 1;
+      timers.set(timerId, {
+        callback: () => callback(),
+        dueAt: elapsedMs + (delay ?? 0),
+        delay: delay ?? 0,
+      });
+      return timerId as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((timerId: ReturnType<typeof setTimeout>) => {
+      timers.delete(timerId as unknown as number);
+    }) as typeof clearTimeout;
+
+    const advanceBy = (durationMs: number): void => {
+      const targetMs = elapsedMs + durationMs;
+      for (;;) {
+        const nextTimer = [...timers.entries()]
+          .filter(([, timer]) => timer.dueAt <= targetMs)
+          .sort((left, right) => left[1].dueAt - right[1].dueAt)[0];
+        if (!nextTimer) break;
+        const [timerId, timer] = nextTimer;
+        timers.delete(timerId);
+        elapsedMs = timer.dueAt;
+        timer.callback();
+      }
+      elapsedMs = targetMs;
+    };
+
+    try {
+      const calls: FetchCall[] = [];
+      let rejection: unknown;
+      const publishPromise = publishBackstagePackage(
+        {
+          apiBaseUrl: 'https://api.test',
+          accessToken: 'oauth-token',
+          packageId: 'com.yucp.example',
+          catalogProductId: 'product_123',
+          version: '1.2.3',
+          sourcePath,
+        },
+        createFetch(calls, {})
+      ).catch((error: unknown) => {
+        rejection = error;
+      });
+
+      while (tusUploadCalls.length === 0) {
+        await new Promise<void>((resolve) => originalSetTimeout(resolve, 0));
+      }
+
+      const uploadCall = tusUploadCalls[0];
+      expect(uploadCall.options.onProgress).toBeFunction();
+      expect([...timers.values()].map((timer) => timer.delay)).toEqual([120_000]);
+
+      advanceBy(119_999);
+      uploadCall.options.onProgress?.(4, 9);
+      advanceBy(119_999);
+      uploadCall.options.onProgress?.(8, 9);
+      expect(uploadCall.upload.abortCalls).toBe(0);
+      expect(rejection).toBeUndefined();
+
+      advanceBy(120_000);
+      await publishPromise;
+      expect(uploadCall.upload.abortCalls).toBe(1);
+      expect(rejection).toBeInstanceOf(Error);
+      expect((rejection as Error).message).toBe(
+        'Backstage TUS upload stalled with no progress for 120000ms'
+      );
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
   });
 
   it('rejects a public plaintext HTTP TUS endpoint before uploading the signed token', async () => {
