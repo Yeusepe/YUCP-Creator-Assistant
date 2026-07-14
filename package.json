@@ -75,7 +75,7 @@
     "test:boundary-mocks": "node ./ops/check-boundary-mock-ratchet.mjs",
     "test:ci": "bun run test:ops && bun run test:fast:ci && bun run test:boundary-mocks && bun run test:convex && bun run test:api:integration",
     "test:ingest:integration": "bun test services/backstage-ingest/test/ingest.integration.test.ts",
-    "test:lore:contract": "bun test ./services/backstage-ingest/test/lore.storage.realtest.ts",
+    "test:lore:contract": "bun test ./services/backstage-ingest/test/lore.storage.contract.ts",
     "test:fast:ci": "bun run --filter '@yucp/api' test:ci && bun run --filter '@yucp/application' test:ci && bun run --filter '@yucp/policy' test:ci && bun run --filter '@yucp/providers' test:ci && bun run --filter '@yucp/shared' test:ci",
     "test:api:e2e": "bun run --filter '@yucp/api' test:e2e",
     "test:bot:e2e": "bun run --filter '@yucp/bot' test:e2e",
