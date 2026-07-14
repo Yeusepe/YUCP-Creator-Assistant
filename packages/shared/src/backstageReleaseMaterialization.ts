@@ -789,7 +789,7 @@ function materializeZip(input: {
       }
       totalDecompressedBytes += chunk.byteLength;
       entryDecompressedBytes += chunk.byteLength;
-      chunks.push(chunk);
+      chunks.push(chunk.slice());
 
       if (final) {
         const entryBytes = new Uint8Array(entryDecompressedBytes);

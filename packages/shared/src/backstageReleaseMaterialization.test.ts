@@ -386,6 +386,29 @@ describe('materializeBackstageReleaseArtifact', () => {
     );
   });
 
+  it('materializes multi-chunk deflated ZIP entries with byte-identical contents', async () => {
+    const entryPath = 'Packages/com.yucp.example/Runtime/large.bin';
+    const content = new Uint8Array(512 * 1024);
+    let state = 0x1234_5678;
+    for (let index = 0; index < content.length; index += 1) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      content[index] = state >>> 24;
+    }
+    const input = zipSync({ [entryPath]: content }, { level: 9 });
+
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: input,
+      deliveryName: 'large.zip',
+      contentType: 'application/zip',
+      packageId: 'com.yucp.example',
+      version: '1.0.0',
+    });
+
+    expect(unzipSync(materialized.bytes)[entryPath]).toEqual(content);
+  });
+
   it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
     const firstInput = zipSync(
       {
