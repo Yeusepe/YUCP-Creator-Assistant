@@ -833,6 +833,9 @@ async function handleJobRequest(request: Request, jobId: string): Promise<Respon
     );
   }
   if (state === 'failed') {
+    if (!job.failedReason) {
+      return applyJobCors(request, Response.json({ state: 'processing' }));
+    }
     const reason =
       isUploadJobData(job.data) && job.failedReason === MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON
         ? MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON

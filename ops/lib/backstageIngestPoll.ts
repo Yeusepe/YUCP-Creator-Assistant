@@ -54,6 +54,9 @@ export async function pollBackstageIngestJob(
     if (job.state === 'failed') {
       throw new Error(`Backstage ingest job failed: ${job.reason}`);
     }
+    if (job.state !== 'processing') {
+      throw new Error(`Backstage ingest job returned an unexpected state: ${String(job.state)}`);
+    }
 
     await Bun.sleep(BACKSTAGE_INGEST_POLL_INTERVAL_MS);
   }

@@ -218,6 +218,13 @@ describe('proxyApiRequest', () => {
     expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 30_000);
 
     await proxyApiRequest(
+      new Request('http://localhost:3000/api/packages/com.yucp.song/backstage/media', {
+        method: 'POST',
+      })
+    );
+    expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 30_000);
+
+    await proxyApiRequest(
       new Request('http://localhost:3000/api/packages/com.yucp.song/backstage/releases', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

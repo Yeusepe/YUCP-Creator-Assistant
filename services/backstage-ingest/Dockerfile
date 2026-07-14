@@ -33,6 +33,7 @@ WORKDIR /app/services/backstage-ingest
 
 VOLUME ["/data/tus"]
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD bun -e "fetch('http://127.0.0.1:8080/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
 
 USER backstage-ingest:backstage-ingest
 

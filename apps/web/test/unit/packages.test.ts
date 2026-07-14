@@ -145,6 +145,31 @@ describe('uploadBackstageReleaseSource', () => {
     }
   });
 
+  it('rejects a completed upload URL on a different origin before polling', async () => {
+    apiPostMock.mockResolvedValueOnce(authorization);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ state: 'completed', result: 'signed-ingest-result' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const resultPromise = uploadBackstageReleaseSource({
+      packageId: 'com.yucp.bundle',
+      file: new File(['package bytes'], 'bundle.zip'),
+      version: '1.2.3',
+    });
+
+    await vi.waitFor(() => expect(createdUploads).toHaveLength(1));
+    Object.defineProperty(createdUploads[0], 'url', {
+      value: 'https://foreign-ingest.test/files/job_123',
+    });
+    createdUploads[0].options.onSuccess?.({ lastResponse: {} });
+
+    await expect(resultPromise).rejects.toThrow(
+      'Backstage ingest completed upload URL does not match the authorized TUS endpoint origin'
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('retries a timed-out ingest job poll and accepts a later completed result', async () => {
     apiPostMock.mockResolvedValueOnce(authorization);
     const fetchMock = vi

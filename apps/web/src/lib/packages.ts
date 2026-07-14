@@ -3,6 +3,7 @@ import type {
   BackstagePackageMediaKind,
   BackstagePackageMediaReference,
 } from '@yucp/shared/backstagePackageMedia';
+import { assertSecureLoreUrl } from '@yucp/shared/loreBackstageClient';
 import { apiClient } from '@/api/client';
 import { startHyperdxBrowserSpan } from '@/lib/hyperdx';
 
@@ -441,6 +442,29 @@ export async function uploadBackstageReleaseSource(input: {
           return;
         }
         const jobUrl = uploadUrl.replace('/files/', '/jobs/');
+        try {
+          assertSecureLoreUrl(jobUrl, 'jobUrl');
+        } catch (error) {
+          rejectOnce(error);
+          return;
+        }
+        let authorizedOrigin: string;
+        let jobOrigin: string;
+        try {
+          authorizedOrigin = new URL(authorization.tusEndpoint).origin;
+          jobOrigin = new URL(jobUrl).origin;
+        } catch {
+          rejectOnce(new Error('Backstage ingest returned an invalid upload or authorization URL'));
+          return;
+        }
+        if (jobOrigin !== authorizedOrigin) {
+          rejectOnce(
+            new Error(
+              'Backstage ingest completed upload URL does not match the authorized TUS endpoint origin'
+            )
+          );
+          return;
+        }
         input.onProcessing?.();
         void pollBackstageIngestJob({
           jobUrl,

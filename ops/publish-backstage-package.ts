@@ -19,6 +19,7 @@ import { pollBackstageIngestJob } from './lib/backstageIngestPoll';
 type FetchLike = typeof fetch;
 
 const BACKSTAGE_TUS_CHUNK_SIZE = 64 * 1024 * 1024;
+const BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type PublishBackstageReleaseConfig = {
   apiBaseUrl: string;
@@ -311,6 +312,14 @@ export async function uploadBackstagePackageArtifactDirect(
   // ponytail: buffering a full 2-3 GB source can OOM the operator or CI host; upgrade the TUS upload to use a file-stream source.
   const sourceBuffer = Buffer.from(await Bun.file(sourcePath).arrayBuffer());
   const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
+    let uploadFinished = false;
+    let uploadTimeout: ReturnType<typeof setTimeout>;
+    const finishUpload = (): boolean => {
+      if (uploadFinished) return false;
+      uploadFinished = true;
+      clearTimeout(uploadTimeout);
+      return true;
+    };
     const upload = new Upload(sourceBuffer, {
       endpoint: tusEndpoint,
       metadata: {
@@ -320,6 +329,7 @@ export async function uploadBackstagePackageArtifactDirect(
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,
       onSuccess: () => {
+        if (!finishUpload()) return;
         const uploadUrl = upload.url;
         if (!uploadUrl) {
           rejectUpload(new Error('Backstage ingest sidecar did not return the completed upload URL'));
@@ -328,6 +338,21 @@ export async function uploadBackstagePackageArtifactDirect(
         if (!uploadUrl.includes('/files/')) {
           rejectUpload(
             new Error('Backstage ingest upload URL does not contain the expected /files/ path')
+          );
+          return;
+        }
+        let uploadOrigin: string;
+        try {
+          uploadOrigin = new URL(uploadUrl).origin;
+        } catch {
+          rejectUpload(new Error('Backstage ingest sidecar returned an invalid completed upload URL'));
+          return;
+        }
+        if (uploadOrigin !== new URL(tusEndpoint).origin) {
+          rejectUpload(
+            new Error(
+              'Backstage ingest completed upload URL does not match the authorized TUS endpoint origin'
+            )
           );
           return;
         }
@@ -343,9 +368,22 @@ export async function uploadBackstagePackageArtifactDirect(
           rejectUpload
         );
       },
-      onError: rejectUpload,
+      onError: (error) => {
+        if (finishUpload()) rejectUpload(error);
+      },
     });
-    upload.start();
+    uploadTimeout = setTimeout(() => {
+      if (!finishUpload()) return;
+      void upload.abort().catch(() => undefined);
+      rejectUpload(
+        new Error(`Backstage TUS upload timed out after ${BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS}ms`)
+      );
+    }, BACKSTAGE_TUS_UPLOAD_TIMEOUT_MS);
+    try {
+      upload.start();
+    } catch (error) {
+      if (finishUpload()) rejectUpload(error);
+    }
   });
 
   return {

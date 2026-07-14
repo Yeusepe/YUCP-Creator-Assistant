@@ -25,6 +25,8 @@ export function isLoreBackstageArtifactReference(
     typeof candidate.address === 'string' &&
     typeof candidate.sha256 === 'string' &&
     typeof candidate.byteSize === 'number' &&
+    Number.isFinite(candidate.byteSize) &&
+    candidate.byteSize >= 0 &&
     typeof candidate.uploadedAt === 'string' &&
     (candidate.tenantId === undefined || typeof candidate.tenantId === 'string')
   );
