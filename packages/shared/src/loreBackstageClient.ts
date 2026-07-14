@@ -228,21 +228,18 @@ function throwLoreResponseError(response: Response, _boundedText: BoundedText): 
   });
 }
 
-export async function putBackstageBytesToLore(input: {
+async function putBackstageBodyToLoreRequest(input: {
   config: ConfiguredLoreBackstageConfig;
   repositoryId: string;
-  bytes: ArrayBuffer | Uint8Array;
-}): Promise<{ address: string; sha256: string; byteSize: number }> {
+  body: BodyInit;
+}): Promise<string> {
   validateRepositoryId(input.repositoryId);
-  const bytes = asOwnedBytes(input.bytes);
-  const digest = await crypto.subtle.digest('SHA-256', bytes);
-  const sha256 = toHex(new Uint8Array(digest));
   let response: Response;
   try {
     response = await fetch(
       `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content`,
       {
-        body: bytes,
+        body: input.body,
         headers: accessHeaders(input.config),
         method: 'PUT',
         redirect: 'error',
@@ -273,7 +270,42 @@ export async function putBackstageBytesToLore(input: {
     throw new Error('Lore ingest response missing data.address.');
   }
   validateAddress(address);
+  return address;
+}
+
+export async function putBackstageBytesToLore(input: {
+  config: ConfiguredLoreBackstageConfig;
+  repositoryId: string;
+  bytes: ArrayBuffer | Uint8Array;
+}): Promise<{ address: string; sha256: string; byteSize: number }> {
+  validateRepositoryId(input.repositoryId);
+  const bytes = asOwnedBytes(input.bytes);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  const sha256 = toHex(new Uint8Array(digest));
+  const address = await putBackstageBodyToLoreRequest({
+    config: input.config,
+    repositoryId: input.repositoryId,
+    body: bytes,
+  });
   return { address, sha256, byteSize: bytes.byteLength };
+}
+
+export async function putBackstageBodyToLore(input: {
+  config: ConfiguredLoreBackstageConfig;
+  repositoryId: string;
+  body: BodyInit;
+  sha256: string;
+  byteSize: number;
+}): Promise<{ address: string; sha256: string; byteSize: number }> {
+  validateRepositoryId(input.repositoryId);
+  if (!/^[0-9a-f]{64}$/.test(input.sha256)) {
+    throw new Error('Lore body sha256 must be exactly 64 lowercase hexadecimal characters.');
+  }
+  if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 0) {
+    throw new Error('Lore body byteSize must be a non-negative safe integer.');
+  }
+  const address = await putBackstageBodyToLoreRequest(input);
+  return { address, sha256: input.sha256, byteSize: input.byteSize };
 }
 
 export async function getBackstageBytesFromLore(input: {

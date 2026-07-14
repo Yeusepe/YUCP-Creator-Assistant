@@ -12,7 +12,6 @@ import {
 } from './backstageVpmDelivery';
 
 const ZIP_DATE_A = new Date(315705600000);
-const ZIP_DATE_B = new Date(315964800000);
 const TAR_MTIME_A = 123;
 const TAR_MTIME_B = 456;
 const TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES = 1024 * 1024;
@@ -22,6 +21,24 @@ const TEST_ZIP_DECOMPRESSED_LIMIT_BYTES = 64 * 1024;
 const TEST_ZIP_BOMB_DECOMPRESSED_BYTES = 256 * 1024;
 const OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES = 0xffff_fff0;
 const OVER_LIMIT_ZIP64_DECLARED_BYTES = 11 * 1024 * 1024 * 1024;
+
+type MaterializedArtifact = Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
+
+async function drainMaterializedStream(materialized: MaterializedArtifact): Promise<Uint8Array> {
+  expect(materialized.deliverable.kind).toBe('stream');
+  if (materialized.deliverable.kind !== 'stream') {
+    throw new Error('Expected a streamed Backstage deliverable.');
+  }
+  return new Uint8Array(await new Response(materialized.deliverable.stream).arrayBuffer());
+}
+
+function materializedBytes(materialized: MaterializedArtifact): Uint8Array {
+  expect(materialized.deliverable.kind).toBe('bytes');
+  if (materialized.deliverable.kind !== 'bytes') {
+    throw new Error('Expected a byte-based Backstage deliverable.');
+  }
+  return materialized.deliverable.bytes;
+}
 
 function writeAscii(target: Uint8Array, offset: number, length: number, value: string) {
   const encoded = new TextEncoder().encode(value);
@@ -354,14 +371,16 @@ describe('materializeBackstageReleaseArtifact', () => {
       'Packages/com.yucp.example/Runtime/forged.bin',
     ]);
 
-    await expect(
-      materializeBackstageReleaseArtifact({
-        sourceBytes: archive,
-        deliveryName: 'forged.zip',
-        contentType: 'application/zip',
-        maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
-      })
-    ).rejects.toThrow(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
+    const materialized = await materializeBackstageReleaseArtifact({
+      sourceBytes: archive,
+      deliveryName: 'forged.zip',
+      contentType: 'application/zip',
+      maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
+    });
+
+    await expect(drainMaterializedStream(materialized)).rejects.toThrow(
+      ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE
+    );
   });
 
   it('materializes stored ZIP entries with byte-identical contents', async () => {
@@ -381,7 +400,8 @@ describe('materializeBackstageReleaseArtifact', () => {
       maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
     });
 
-    expect(unzipSync(materialized.bytes)['Packages/com.yucp.example/Runtime/stored.bin']).toEqual(
+    const deliverableBytes = await drainMaterializedStream(materialized);
+    expect(unzipSync(deliverableBytes)['Packages/com.yucp.example/Runtime/stored.bin']).toEqual(
       storedBytes
     );
   });
@@ -406,11 +426,12 @@ describe('materializeBackstageReleaseArtifact', () => {
       version: '1.0.0',
     });
 
-    expect(unzipSync(materialized.bytes)[entryPath]).toEqual(content);
+    const deliverableBytes = await drainMaterializedStream(materialized);
+    expect(unzipSync(deliverableBytes)[entryPath]).toEqual(content);
   });
 
-  it('canonicalizes ZIP uploads into deterministic deliverable bytes', async () => {
-    const firstInput = zipSync(
+  it('emits ZIP entries in source order and is deterministic for the same source', async () => {
+    const source = zipSync(
       {
         'Packages/com.yucp.example/package.json': [
           strToU8('{"name":"pkg"}'),
@@ -420,36 +441,27 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
       { level: 9 }
     );
-    const secondInput = zipSync(
-      {
-        'Packages/com.yucp.example/README.md': [strToU8('hello'), { mtime: ZIP_DATE_B }],
-        'Packages/com.yucp.example/package.json': [
-          strToU8('{"name":"pkg"}'),
-          { mtime: ZIP_DATE_B },
-        ],
-      },
-      { level: 9 }
-    );
 
     const first = await materializeBackstageReleaseArtifact({
-      sourceBytes: firstInput,
+      sourceBytes: source,
       deliveryName: 'example.zip',
       contentType: 'application/zip',
     });
     const second = await materializeBackstageReleaseArtifact({
-      sourceBytes: secondInput,
+      sourceBytes: source,
       deliveryName: 'example.zip',
       contentType: 'application/zip',
     });
 
     expect(first.materializationStrategy).toBe('normalized_repack');
-    expect(first.bytes).toEqual(second.bytes);
-    expect(first.sha256).toBe(second.sha256);
-    expect(first.bytes).not.toEqual(firstInput);
-    const firstArchive = unzipSync(first.bytes);
-    expect(Object.keys(firstArchive).sort()).toEqual([
-      'Packages/com.yucp.example/README.md',
+    const firstBytes = await drainMaterializedStream(first);
+    const secondBytes = await drainMaterializedStream(second);
+    expect(firstBytes).toEqual(secondBytes);
+    expect(firstBytes).not.toEqual(source);
+    const firstArchive = unzipSync(firstBytes);
+    expect(Object.keys(firstArchive)).toEqual([
       'Packages/com.yucp.example/package.json',
+      'Packages/com.yucp.example/README.md',
     ]);
     expect(firstArchive['Packages/com.yucp.example/README.md']).toEqual(strToU8('hello'));
     expect(firstArchive['Packages/com.yucp.example/package.json']).toEqual(
@@ -499,7 +511,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(await drainMaterializedStream(materialized));
     expect(
       JSON.parse(new TextDecoder().decode(archive['Packages/com.yucp.example/package.json']))
     ).toEqual({
@@ -562,7 +574,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(await drainMaterializedStream(materialized));
     expect(JSON.parse(new TextDecoder().decode(archive['package.json']))).toEqual({
       name: 'com.yucp.example',
       version: '1.2.3',
@@ -629,14 +641,19 @@ describe('materializeBackstageReleaseArtifact', () => {
     });
 
     expect(first.materializationStrategy).toBe('normalized_repack');
-    expect(first.bytes).toEqual(second.bytes);
-    expect(first.sha256).toBe(second.sha256);
-    expect(first.bytes).not.toEqual(firstInput);
+    expect(materializedBytes(first)).toEqual(materializedBytes(second));
+    expect(first.deliverable.kind).toBe('bytes');
+    expect(second.deliverable.kind).toBe('bytes');
+    if (first.deliverable.kind !== 'bytes' || second.deliverable.kind !== 'bytes') {
+      throw new Error('Expected byte-based unitypackage shim deliverables.');
+    }
+    expect(first.deliverable.sha256).toBe(second.deliverable.sha256);
+    expect(first.deliverable.bytes).not.toEqual(firstInput);
     expect(first.contentType).toBe('application/zip');
     expect(first.deliveryName).toBe('vrc-get-com.yucp.example-1.2.3.zip');
     expect(first.sourceKind).toBe('zip');
 
-    const archive = unzipSync(first.bytes);
+    const archive = unzipSync(first.deliverable.bytes);
     expect(Object.keys(archive).sort()).toEqual(['package.json']);
 
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
@@ -801,7 +818,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(materializedBytes(materialized));
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
 
     expect(packageJson).not.toHaveProperty('icon');
@@ -843,7 +860,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(materializedBytes(materialized));
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
     expect(packageJson).toMatchObject({
       name: 'com.yucp.songthing',
@@ -892,7 +909,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(materializedBytes(materialized));
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
     expect(packageJson.yucp.installPlan).toMatchObject({
       operation: 'install',
@@ -928,7 +945,7 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(materialized.bytes);
+    const archive = unzipSync(materializedBytes(materialized));
     const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
     expect(packageJson.yucp.aliasId).toBe('song-thing');
     expect(packageJson.yucp.installPlan.managedPaths).toEqual(managedPaths);
@@ -994,6 +1011,8 @@ describe('materializeBackstageReleaseArtifact', () => {
     });
 
     expect(materialized.deliveryName).toBe('vrc-get-com.yucp.example-1.2.3.zip');
-    expect(Object.keys(unzipSync(materialized.bytes)).sort()).toEqual(['package.json']);
+    expect(Object.keys(unzipSync(materializedBytes(materialized))).sort()).toEqual([
+      'package.json',
+    ]);
   });
 });

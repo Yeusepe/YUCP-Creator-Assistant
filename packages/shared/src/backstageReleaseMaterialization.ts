@@ -1,4 +1,13 @@
-import { Gunzip, Unzip, UnzipInflate, UnzipPassThrough, type Zippable, zipSync } from 'fflate';
+import {
+  Gunzip,
+  Unzip,
+  UnzipInflate,
+  UnzipPassThrough,
+  Zip,
+  ZipDeflate,
+  type Zippable,
+  zipSync,
+} from 'fflate';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from './backstageLimits';
 import { stripBackstagePackageMediaManifestMetadata } from './backstagePackageMedia';
 import {
@@ -40,16 +49,34 @@ const CP437_HIGH_CHARACTERS = Array.from(
 
 export type ArchiveSourceKind = 'unitypackage' | 'zip';
 
-export type MaterializedBackstageReleaseArtifact = {
-  bytes: Uint8Array;
-  byteSize: number;
+type MaterializedBackstageReleaseArtifactBase = {
   contentType: 'application/octet-stream' | 'application/zip';
   deliveryName: string;
   materializationStrategy: 'normalized_repack';
   originalSourceKind: ArchiveSourceKind;
-  sha256: string;
   sourceKind: ArchiveSourceKind;
 };
+
+export type ByteMaterializedBackstageReleaseArtifact = MaterializedBackstageReleaseArtifactBase & {
+  deliverable: {
+    kind: 'bytes';
+    bytes: Uint8Array;
+    byteSize: number;
+    sha256: string;
+  };
+};
+
+export type StreamMaterializedBackstageReleaseArtifact =
+  MaterializedBackstageReleaseArtifactBase & {
+    deliverable: {
+      kind: 'stream';
+      stream: ReadableStream<Uint8Array>;
+    };
+  };
+
+export type MaterializedBackstageReleaseArtifact =
+  | ByteMaterializedBackstageReleaseArtifact
+  | StreamMaterializedBackstageReleaseArtifact;
 
 function resolvePersistedSourceKind(
   metadata: Record<string, unknown> | undefined
@@ -758,6 +785,41 @@ function withAliasInstallPlanFootprint(
   };
 }
 
+function rewriteZipPackageManifest(
+  manifestBytes: Uint8Array,
+  input: {
+    packageJsonPath: string;
+    packageId?: string;
+    version?: string;
+    displayName?: string;
+    metadata?: Record<string, unknown>;
+  }
+): Uint8Array {
+  if (!input.metadata && !input.packageId && !input.version && !input.displayName) {
+    return manifestBytes;
+  }
+
+  const parsedManifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+  if (!isRecord(parsedManifest)) {
+    throw new Error(`Backstage ZIP package manifest must be an object: ${input.packageJsonPath}`);
+  }
+  const sanitizedManifest = stripBackstageVpmReservedMetadata(parsedManifest);
+  const sanitizedMetadata = sanitizePackageManifestMetadata(input.metadata);
+  return new TextEncoder().encode(
+    JSON.stringify(
+      {
+        ...sanitizedManifest,
+        ...sanitizedMetadata,
+        ...(input.packageId?.trim() ? { name: input.packageId.trim() } : {}),
+        ...(input.version?.trim() ? { version: input.version.trim() } : {}),
+        ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}),
+      },
+      null,
+      2
+    )
+  );
+}
+
 function materializeZip(input: {
   sourceBytes: Uint8Array;
   packageId?: string;
@@ -765,109 +827,184 @@ function materializeZip(input: {
   displayName?: string;
   metadata?: Record<string, unknown>;
   maxDecompressedBytes?: number;
-}): Uint8Array {
+}): ReadableStream<Uint8Array> {
   // ponytail: The central-directory scan is a cheap declared-size fast path for standard bombs.
   // The streaming inflation below separately caps actual output, including forged ZIPs whose local
   // and central-directory headers understate their uncompressed sizes.
-  collectZipArchiveEntryPaths(input.sourceBytes);
+  const archivePaths = collectZipArchiveEntryPaths(input.sourceBytes);
+  const packageJsonPath = resolveZipPackageJsonPath({
+    archivePaths,
+    packageId: input.packageId,
+  });
   const maxDecompressedBytes = input.maxDecompressedBytes ?? MAX_ZIP_DECOMPRESSED_BYTES;
   if (!Number.isSafeInteger(maxDecompressedBytes) || maxDecompressedBytes <= 0) {
     throw new Error('Backstage ZIP decompressed byte limit must be a positive safe integer.');
   }
 
-  const archive: Record<string, Uint8Array> = {};
   let totalDecompressedBytes = 0;
-  const unzip = new Unzip((file) => {
-    const chunks: Uint8Array[] = [];
-    let entryDecompressedBytes = 0;
-    file.ondata = (error, chunk, final) => {
-      if (error) {
-        throw error;
-      }
-      if (chunk.byteLength > maxDecompressedBytes - totalDecompressedBytes) {
-        throw new Error(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
-      }
-      totalDecompressedBytes += chunk.byteLength;
-      entryDecompressedBytes += chunk.byteLength;
-      chunks.push(chunk.slice());
+  let sourceOffset = 0;
+  let inputEnded = false;
+  let completed = false;
+  let failed = false;
+  let zip: Zip;
+  let unzip: Unzip;
+  const activeFiles = new Set<{ terminate: () => void }>();
 
-      if (final) {
-        const entryBytes = new Uint8Array(entryDecompressedBytes);
-        let offset = 0;
-        for (const entryChunk of chunks) {
-          entryBytes.set(entryChunk, offset);
-          offset += entryChunk.byteLength;
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const fail = (error: unknown): void => {
+        if (failed || completed) {
+          return;
         }
-        archive[file.name] = entryBytes;
-      }
-    };
-    file.start();
-  });
-  unzip.register(UnzipPassThrough);
-  unzip.register(UnzipInflate);
-  if (input.sourceBytes.byteLength === 0) {
-    unzip.push(input.sourceBytes, true);
-  } else {
-    for (
-      let offset = 0;
-      offset < input.sourceBytes.byteLength;
-      offset += ZIP_UNZIP_INPUT_CHUNK_BYTES
-    ) {
-      const end = Math.min(offset + ZIP_UNZIP_INPUT_CHUNK_BYTES, input.sourceBytes.byteLength);
-      unzip.push(input.sourceBytes.subarray(offset, end), end === input.sourceBytes.byteLength);
-    }
-  }
-  const sanitizedMetadata = sanitizePackageManifestMetadata(input.metadata);
-  const normalizedEntries = Object.fromEntries(
-    Object.entries(archive).map(
-      ([rawPath, bytes]) => [assertSafeArchivePath(rawPath), bytes] as const
-    )
-  );
-  const packageJsonPath = resolveZipPackageJsonPath({
-    archivePaths: Object.keys(normalizedEntries),
-    packageId: input.packageId,
-  });
-  if (
-    packageJsonPath &&
-    (input.metadata || input.packageId || input.version || input.displayName)
-  ) {
-    const existingManifestBytes = normalizedEntries[packageJsonPath];
-    const parsedManifest = JSON.parse(new TextDecoder().decode(existingManifestBytes));
-    if (!isRecord(parsedManifest)) {
-      throw new Error(`Backstage ZIP package manifest must be an object: ${packageJsonPath}`);
-    }
-    const sanitizedManifest = stripBackstageVpmReservedMetadata(parsedManifest);
-    normalizedEntries[packageJsonPath] = new TextEncoder().encode(
-      JSON.stringify(
-        {
-          ...sanitizedManifest,
-          ...sanitizedMetadata,
-          ...(input.packageId?.trim() ? { name: input.packageId.trim() } : {}),
-          ...(input.version?.trim() ? { version: input.version.trim() } : {}),
-          ...(input.displayName?.trim() ? { displayName: input.displayName.trim() } : {}),
-        },
-        null,
-        2
-      )
-    );
-  }
-  const canonicalEntries = Object.entries(normalizedEntries)
-    .map(([rawPath, bytes]) => [assertSafeArchivePath(rawPath), bytes] as const)
-    .sort(([left], [right]) => left.localeCompare(right));
+        failed = true;
+        for (const file of activeFiles) {
+          file.terminate();
+        }
+        zip.terminate();
+        controller.error(error);
+      };
 
-  const zippable: Zippable = {};
-  for (const [entryPath, entryBytes] of canonicalEntries) {
-    zippable[entryPath] = [
-      entryBytes,
-      {
-        attrs: 0o644 << 16,
-        level: 9,
-        mtime: FIXED_ZIP_MTIME,
-        os: 3,
-      },
-    ];
-  }
-  return zipSync(zippable, { level: 9 });
+      const createZipEntry = (entryPath: string): ZipDeflate => {
+        const outputFile = new ZipDeflate(entryPath, { level: 9 });
+        outputFile.mtime = FIXED_ZIP_MTIME;
+        outputFile.os = 3;
+        outputFile.attrs = 0o644 << 16;
+        return outputFile;
+      };
+
+      zip = new Zip((error, chunk, final) => {
+        if (error) {
+          fail(error);
+          return;
+        }
+        if (failed || completed) {
+          return;
+        }
+        if (chunk.byteLength > 0) {
+          controller.enqueue(chunk);
+        }
+        if (final) {
+          completed = true;
+          controller.close();
+        }
+      });
+
+      unzip = new Unzip((file) => {
+        const entryPath = assertSafeArchivePath(file.name);
+        activeFiles.add(file);
+        if (entryPath === packageJsonPath) {
+          const chunks: Uint8Array[] = [];
+          let entryDecompressedBytes = 0;
+          file.ondata = (error, chunk, final) => {
+            if (error) {
+              fail(error);
+              return;
+            }
+            if (failed) {
+              return;
+            }
+            if (chunk.byteLength > maxDecompressedBytes - totalDecompressedBytes) {
+              fail(new Error(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE));
+              return;
+            }
+            totalDecompressedBytes += chunk.byteLength;
+            entryDecompressedBytes += chunk.byteLength;
+            chunks.push(chunk.slice());
+            if (!final) {
+              return;
+            }
+
+            activeFiles.delete(file);
+            const manifestBytes = new Uint8Array(entryDecompressedBytes);
+            let manifestOffset = 0;
+            for (const entryChunk of chunks) {
+              manifestBytes.set(entryChunk, manifestOffset);
+              manifestOffset += entryChunk.byteLength;
+            }
+            try {
+              const rewrittenBytes = rewriteZipPackageManifest(manifestBytes, {
+                packageJsonPath: entryPath,
+                packageId: input.packageId,
+                version: input.version,
+                displayName: input.displayName,
+                metadata: input.metadata,
+              });
+              const outputFile = createZipEntry(entryPath);
+              zip.add(outputFile);
+              outputFile.push(rewrittenBytes, true);
+            } catch (manifestError) {
+              fail(manifestError);
+            }
+          };
+          file.start();
+          return;
+        }
+
+        const outputFile = createZipEntry(entryPath);
+        zip.add(outputFile);
+        file.ondata = (error, chunk, final) => {
+          if (error) {
+            fail(error);
+            return;
+          }
+          if (failed) {
+            return;
+          }
+          if (chunk.byteLength > maxDecompressedBytes - totalDecompressedBytes) {
+            fail(new Error(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE));
+            return;
+          }
+          totalDecompressedBytes += chunk.byteLength;
+          try {
+            outputFile.push(chunk, final);
+            if (final) {
+              activeFiles.delete(file);
+            }
+          } catch (zipError) {
+            fail(zipError);
+          }
+        };
+        file.start();
+      });
+      unzip.register(UnzipPassThrough);
+      unzip.register(UnzipInflate);
+    },
+    pull(controller) {
+      if (failed || completed || inputEnded) {
+        return;
+      }
+      const end = Math.min(
+        sourceOffset + ZIP_UNZIP_INPUT_CHUNK_BYTES,
+        input.sourceBytes.byteLength
+      );
+      const final = end === input.sourceBytes.byteLength;
+      const chunk = input.sourceBytes.subarray(sourceOffset, end);
+      sourceOffset = end;
+      if (final) {
+        inputEnded = true;
+      }
+      try {
+        unzip.push(chunk, final);
+        if (final && !failed) {
+          zip.end();
+        }
+      } catch (error) {
+        failed = true;
+        for (const file of activeFiles) {
+          file.terminate();
+        }
+        zip.terminate();
+        controller.error(error);
+      }
+    },
+    cancel() {
+      failed = true;
+      for (const file of activeFiles) {
+        file.terminate();
+      }
+      zip.terminate();
+    },
+  });
 }
 
 async function buildImporterShimZip(input: {
@@ -903,13 +1040,16 @@ async function buildImporterShimZip(input: {
   };
   const bytes = zipSync(zippable, { level: 9 });
   return {
-    bytes,
-    byteSize: bytes.byteLength,
     contentType: 'application/zip',
+    deliverable: {
+      kind: 'bytes',
+      bytes,
+      byteSize: bytes.byteLength,
+      sha256: await sha256Hex(bytes),
+    },
     deliveryName: `vrc-get-${input.packageId}-${input.version}.zip`,
     materializationStrategy: 'normalized_repack',
     originalSourceKind: 'unitypackage',
-    sha256: await sha256Hex(bytes),
     sourceKind: 'zip',
   };
 }
@@ -960,7 +1100,7 @@ export async function materializeBackstageReleaseArtifact(input: {
     throw new Error('Backstage zip materialization requires sourceBytes.');
   }
 
-  const bytes = materializeZip({
+  const stream = materializeZip({
     sourceBytes: input.sourceBytes,
     packageId: input.packageId,
     version: input.version,
@@ -970,13 +1110,14 @@ export async function materializeBackstageReleaseArtifact(input: {
   });
 
   return {
-    bytes,
-    byteSize: bytes.byteLength,
     contentType: 'application/zip',
+    deliverable: {
+      kind: 'stream',
+      stream,
+    },
     deliveryName: input.deliveryName,
     materializationStrategy: 'normalized_repack',
     originalSourceKind: 'zip',
-    sha256: await sha256Hex(bytes),
     sourceKind: 'zip',
   };
 }

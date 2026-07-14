@@ -1,3 +1,5 @@
+import { unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { FileStore } from '@tus/file-store';
 import { Server } from '@tus/server';
 import {
@@ -24,6 +26,7 @@ import {
   type ConfiguredLoreBackstageConfig,
   getBackstageBytesFromLore,
   loreRepositoryIdForCreator,
+  putBackstageBodyToLore,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
   sha256ArrayBuffer,
@@ -252,6 +255,47 @@ async function streamSha256Hex(path: string): Promise<string> {
   return hasher.digest('hex');
 }
 
+async function drainReadableStreamToFile(
+  stream: ReadableStream<Uint8Array>,
+  path: string
+): Promise<number> {
+  const reader = stream.getReader();
+  const writer = Bun.file(path).writer({ highWaterMark: 64 * 1024 });
+  let byteSize = 0;
+  let writerEnded = false;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      await writer.write(chunk.value);
+      byteSize += chunk.value.byteLength;
+    }
+    await writer.end();
+    writerEnded = true;
+    return byteSize;
+  } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+    if (!writerEnded) {
+      await Promise.resolve(writer.end()).catch(() => undefined);
+    }
+  }
+}
+
+async function removeMaterializedTempFile(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
 // Mirror apps/api and apps/bot: pull secrets from Infisical at startup so the container only needs
 // the machine-identity creds (INFISICAL_PROJECT_ID + INFISICAL_CLIENT_ID/SECRET). fetchInfisicalSecrets
 // returns {} when those are absent, so local dev / the integration test (which inject env directly)
@@ -470,7 +514,8 @@ async function processMaterializeJob(
   try {
     let ownedSourceBytes: Uint8Array | undefined;
     if (sourceBytes) {
-      // ponytail: zip materialize jobs hold about 1x source plus 1x deliverable in memory; worker concurrency bounds aggregate memory.
+      // ponytail: The source remains bounded by the upload limit. The repacked deliverable streams
+      // to disk so worker concurrency does not multiply full output archives in memory.
       ownedSourceBytes = new Uint8Array(sourceBytes);
       const detectedSourceKind = detectBackstageVpmDeliverySourceKind({
         deliveryName: claims.deliveryName,
@@ -510,25 +555,81 @@ async function processMaterializeJob(
   }
 
   let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-  try {
-    deliverableStored = await putBackstageBytesToLore({
-      config: config.lore,
-      repositoryId: claims.repositoryId,
-      bytes: materialized.bytes,
-    });
-  } catch {
-    console.error(
-      JSON.stringify({
-        event: 'backstage_ingest.materialize_delivery_failed',
-        materializeJobId,
-        reason: 'lore_deliverable_put_failed',
-        ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
-        sourceKind: claims.sourceKind,
-        deliverableByteSize: materialized.bytes.byteLength,
-        durationMs: Math.round(performance.now() - startedAt),
-      })
+  if (materialized.deliverable.kind === 'bytes') {
+    try {
+      deliverableStored = await putBackstageBytesToLore({
+        config: config.lore,
+        repositoryId: claims.repositoryId,
+        bytes: materialized.deliverable.bytes,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          event: 'backstage_ingest.materialize_delivery_failed',
+          materializeJobId,
+          reason: 'lore_deliverable_put_failed',
+          ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+          sourceKind: claims.sourceKind,
+          deliverableByteSize: materialized.deliverable.byteSize,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      throw new Error('lore_deliverable_put_failed');
+    }
+  } else {
+    const tempPath = join(
+      config.tusDirectory,
+      `.materialize-${materializeJobId}-${crypto.randomUUID()}.zip`
     );
-    throw new Error('lore_deliverable_put_failed');
+    let deliverableByteSize: number | undefined;
+    try {
+      let deliverableSha256: string;
+      try {
+        deliverableByteSize = await drainReadableStreamToFile(
+          materialized.deliverable.stream,
+          tempPath
+        );
+        deliverableSha256 = await streamSha256Hex(tempPath);
+      } catch {
+        console.error(
+          JSON.stringify({
+            event: 'backstage_ingest.materialize_failed',
+            materializeJobId,
+            reason: 'materialization_failed',
+            ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+            sourceKind: claims.sourceKind,
+            managedPathCount: claims.managedPaths.length,
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+        );
+        throw new Error('materialization_failed');
+      }
+
+      try {
+        deliverableStored = await putBackstageBodyToLore({
+          config: config.lore,
+          repositoryId: claims.repositoryId,
+          body: Bun.file(tempPath),
+          sha256: deliverableSha256,
+          byteSize: deliverableByteSize,
+        });
+      } catch {
+        console.error(
+          JSON.stringify({
+            event: 'backstage_ingest.materialize_delivery_failed',
+            materializeJobId,
+            reason: 'lore_deliverable_put_failed',
+            ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
+            sourceKind: claims.sourceKind,
+            deliverableByteSize,
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+        );
+        throw new Error('lore_deliverable_put_failed');
+      }
+    } finally {
+      await removeMaterializedTempFile(tempPath);
+    }
   }
 
   const loreDelivery = buildLoreReference({

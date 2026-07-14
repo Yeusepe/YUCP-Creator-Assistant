@@ -1048,8 +1048,10 @@ describe('backstage ingest resumable upload integration', () => {
         expect(Object.keys(unzipSync(receivedPuts[3]?.bytes ?? new Uint8Array()))).toEqual([
           'package.json',
         ]);
+        await waitForDirectoryEmpty(tempDirectory);
+        expect(await readdir(tempDirectory)).toEqual([]);
         process.stdout.write(
-          `Normal ZIP uploaded and materialized; Lore PUTs: ${receivedPuts.length}.\n`
+          `Normal ZIP uploaded and materialized via streaming with no temp files left; Lore PUTs: ${receivedPuts.length}.\n`
         );
 
         const zipGetsBeforeMaterialize = receivedGets.length;
