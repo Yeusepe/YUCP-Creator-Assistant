@@ -212,6 +212,22 @@ describe('collectZipArchiveEntryPaths', () => {
     ]);
   });
 
+  it('rejects absolute and drive-qualified ZIP entry paths', () => {
+    const absolutePathArchive = zipSync({
+      '/Assets/Foo.prefab': strToU8('prefab'),
+    });
+    const driveQualifiedArchive = zipSync({
+      'C:/Foo.cs': strToU8('export class Foo {}'),
+    });
+
+    expect(() => collectZipArchiveEntryPaths(absolutePathArchive)).toThrow(
+      'Backstage release artifact contains unsafe archive path: /Assets/Foo.prefab'
+    );
+    expect(() => collectZipArchiveEntryPaths(driveQualifiedArchive)).toThrow(
+      'Backstage release artifact contains unsafe archive path: C:/Foo.cs'
+    );
+  });
+
   it('collects central-directory names without inflating unsupported entry contents', () => {
     const archive = zipSync({
       'Packages/com.yucp.example/package.json': strToU8('{"name":"com.yucp.example"}'),
@@ -654,6 +670,9 @@ describe('materializeBackstageReleaseArtifact', () => {
           importerPackage: 'com.yucp.importer',
           catalogProductIds: ['product_1'],
           channel: 'stable',
+          installPlan: {
+            managedPaths: ['Assets/Publisher Supplied/Not In Artifact.txt'],
+          },
         },
       },
     });

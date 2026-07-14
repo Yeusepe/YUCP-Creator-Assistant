@@ -29,6 +29,7 @@ const UPLOAD_TIMEOUT_MS = 30_000;
 const JOB_TIMEOUT_MS = 60_000;
 const TEST_TIMEOUT_MS = 180_000;
 const ABANDONED_UPLOAD_TTL_MS = 250;
+const RESULT_TTL_SECONDS = 15 * 60;
 const MAX_MANAGED_PATHS_SERIALIZED_BYTES = 4 * 1024 * 1024;
 const MAX_MATERIALIZE_BODY_BYTES = 8 * 1024 * 1024;
 const MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON =
@@ -687,13 +688,17 @@ describe('backstage ingest resumable upload integration', () => {
         expect(tusUpload.pollToken).toBeTruthy();
         expect(tusUpload.exposedHeaders?.toLowerCase()).toContain('x-backstage-ingest-poll-token');
         const uploadPollToken = tusUpload.pollToken as string;
+        const pollTokenNowSeconds = Math.floor(Date.now() / 1000);
         const uploadJobId = new URL(uploadJobUrl).pathname.slice('/jobs/'.length);
         expect(JSON.parse(tusUpload.completionBody ?? '')).toEqual({
           ok: true,
           jobId: uploadJobId,
           pollToken: uploadPollToken,
         });
-        expect(parseMaterializePollClaims(await verify(INGEST_SECRET, uploadPollToken))).toEqual({
+        const uploadPollClaims = parseMaterializePollClaims(
+          await verify(INGEST_SECRET, uploadPollToken)
+        );
+        expect(uploadPollClaims).toEqual({
           typ: 'backstage-materialize-poll',
           authUserId,
           packageId,
@@ -701,6 +706,11 @@ describe('backstage ingest resumable upload integration', () => {
           jobId: uploadJobId,
           exp: expect.any(Number),
         });
+        const uploadPollTokenTtlSeconds = uploadPollClaims.exp - pollTokenNowSeconds;
+        expect(uploadPollTokenTtlSeconds).toBeGreaterThan(RESULT_TTL_SECONDS);
+        process.stdout.write(
+          `Upload poll token TTL: ${uploadPollTokenTtlSeconds}s; result TTL: ${RESULT_TTL_SECONDS}s.\n`
+        );
 
         await firstLorePutStarted.promise;
         await delay(ABANDONED_UPLOAD_TTL_MS * 3);

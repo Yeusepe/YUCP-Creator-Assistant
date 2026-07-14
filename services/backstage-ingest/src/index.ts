@@ -46,6 +46,7 @@ if (MAX_MANAGED_PATHS_SERIALIZED_BYTES * 2 > MAX_MATERIALIZE_BODY_BYTES) {
   throw new Error('Managed-paths payload limit must leave 2x materialize request headroom.');
 }
 const RESULT_TTL_SECONDS = 15 * 60;
+const INGEST_JOB_ATTEMPTS = 3;
 const POLL_TOKEN_HEADER = 'X-Backstage-Ingest-Poll-Token';
 const QUEUE_NAME = 'backstage-ingest';
 const FAILED_JOB_REASON = 'ingest_failed';
@@ -303,6 +304,9 @@ async function hydrateEnvFromInfisical(): Promise<void> {
 await hydrateEnvFromInfisical();
 
 const config = loadConfig();
+// ponytail: Keep upload polling valid past the client poll deadline plus worst-case retried job processing.
+const POLL_TOKEN_TTL_SECONDS =
+  Math.ceil((config.lore.timeoutMs * INGEST_JOB_ATTEMPTS) / 1000) + RESULT_TTL_SECONDS;
 const store = new FileStore({
   directory: config.tusDirectory,
   expirationPeriodInMilliseconds: config.uploadTtlMs,
@@ -313,7 +317,7 @@ const queue = new Queue<BackstageJobData, string>(QUEUE_NAME, {
   connection,
   prefix: config.queuePrefix,
   defaultJobOptions: {
-    attempts: 3,
+    attempts: INGEST_JOB_ATTEMPTS,
     backoff: { type: 'exponential', delay: 5_000 },
     removeOnComplete: { age: 3_600 },
     removeOnFail: { age: 86_400 },
@@ -712,7 +716,7 @@ const server = new Server({
         packageId: claims.packageId,
         version: claims.version,
         jobId: upload.id,
-        exp: Math.floor(Date.now() / 1000) + RESULT_TTL_SECONDS,
+        exp: Math.floor(Date.now() / 1000) + POLL_TOKEN_TTL_SECONDS,
       };
       const pollToken = await sign(config.ingestSecret, pollClaims);
 

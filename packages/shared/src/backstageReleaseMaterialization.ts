@@ -149,6 +149,10 @@ function normalizeRelativeArchivePath(input: string): string {
 }
 
 function assertSafeArchivePath(input: string): string {
+  const slashed = input.replace(/\\/g, '/');
+  if (slashed.startsWith('/') || /^[a-zA-Z]:/.test(slashed)) {
+    throw new Error(`Backstage release artifact contains unsafe archive path: ${input}`);
+  }
   const normalized = normalizeRelativeArchivePath(input);
   if (!normalized) {
     throw new Error('Backstage release artifact contains an empty archive path.');
@@ -723,15 +727,11 @@ function withAliasInstallPlanFootprint(
 
   const packageJsonPath = `Packages/${input.packageId}/package.json`;
   const existingPlan = isRecord(metadata.yucp.installPlan) ? metadata.yucp.installPlan : {};
-  const existingManagedPaths = Array.isArray(existingPlan.managedPaths)
-    ? existingPlan.managedPaths.filter((path): path is string => typeof path === 'string')
-    : [];
   const managedPaths = Array.from(
     new Set(
       [
         ...(input.originalSourceKind === 'unitypackage' ? [packageJsonPath] : []),
         ...input.managedPaths,
-        ...existingManagedPaths,
       ]
         .map((path) => assertSafeProjectImportPath(path))
         .filter(Boolean)
