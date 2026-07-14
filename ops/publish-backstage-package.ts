@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { assertSecureLoreUrl } from '@yucp/shared/loreBackstageClient';
 import { Upload } from 'tus-js-client';
@@ -309,8 +309,7 @@ export async function uploadBackstagePackageArtifactDirect(
     );
   }
 
-  // ponytail: buffering a full 2-3 GB source can OOM the operator or CI host; upgrade the TUS upload to use a file-stream source.
-  const sourceBuffer = Buffer.from(await Bun.file(sourcePath).arrayBuffer());
+  // ponytail: stream the source to TUS with a bounded chunk size so peak upload memory stays near one chunk instead of the whole file.
   const ingestResult = await new Promise<string>((resolveUpload, rejectUpload) => {
     let uploadFinished = false;
     let uploadTimeout: ReturnType<typeof setTimeout>;
@@ -320,11 +319,12 @@ export async function uploadBackstagePackageArtifactDirect(
       clearTimeout(uploadTimeout);
       return true;
     };
-    const upload = new Upload(sourceBuffer, {
+    const upload = new Upload(createReadStream(sourcePath), {
       endpoint: tusEndpoint,
       metadata: {
         [uploadMetadataKey]: uploadToken,
       },
+      uploadSize: byteSize,
       chunkSize: BACKSTAGE_TUS_CHUNK_SIZE,
       retryDelays: [0, 1000, 3000, 5000],
       removeFingerprintOnSuccess: true,

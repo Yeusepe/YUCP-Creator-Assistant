@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, ReadStream, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 type TusUploadOptions = {
   endpoint?: string;
   metadata?: Record<string, string>;
+  uploadSize?: number;
   onSuccess?: () => void;
   onError?: (error: Error) => void;
 };
@@ -97,6 +98,11 @@ describe('publish-backstage-package', () => {
   let tempDir: string | undefined;
 
   afterEach(() => {
+    for (const { source } of tusUploadCalls) {
+      if (source instanceof ReadStream) {
+        source.destroy();
+      }
+    }
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
       tempDir = undefined;
@@ -157,7 +163,10 @@ describe('publish-backstage-package', () => {
     expect(tusUploadCalls[0].options.metadata).toEqual({
       backstageUploadToken: 'upload-token',
     });
-    expect(Buffer.from(tusUploadCalls[0].source as Uint8Array).toString('utf8')).toBe('zip-bytes');
+    expect(tusUploadCalls[0].source).toBeInstanceOf(ReadStream);
+    expect(Buffer.isBuffer(tusUploadCalls[0].source)).toBe(false);
+    expect((tusUploadCalls[0].source as ReadStream).path).toBe(sourcePath);
+    expect(tusUploadCalls[0].options.uploadSize).toBe(9);
 
     for (const pollCall of calls.slice(1, 3)) {
       expect(pollCall.url).toBe('https://ingest.test/jobs/job_123');
@@ -280,9 +289,10 @@ describe('publish-backstage-package', () => {
       sha256: createHash('sha256').update('unitypackage-bytes').digest('hex'),
       byteSize: 18,
     });
-    expect(Buffer.from(tusUploadCalls[0].source as Uint8Array).toString('utf8')).toBe(
-      'unitypackage-bytes'
-    );
+    expect(tusUploadCalls[0].source).toBeInstanceOf(ReadStream);
+    expect(Buffer.isBuffer(tusUploadCalls[0].source)).toBe(false);
+    expect((tusUploadCalls[0].source as ReadStream).path).toBe(sourcePath);
+    expect(tusUploadCalls[0].options.uploadSize).toBe(18);
     expect(JSON.parse(calls[3].body)).toMatchObject({
       ingestResult: 'signed-ingest-result',
       version: '3.0.0',
