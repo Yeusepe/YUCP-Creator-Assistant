@@ -17,20 +17,10 @@ const TAR_MTIME_B = 456;
 const TEST_UNITYPACKAGE_DECOMPRESSED_LIMIT_BYTES = 1024 * 1024;
 const TEST_UNITYPACKAGE_BOMB_DECOMPRESSED_BYTES = 1024 * 1024 + 512;
 const ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE = 'Backstage ZIP exceeds the decompressed size limit.';
-const TEST_ZIP_DECOMPRESSED_LIMIT_BYTES = 64 * 1024;
-const TEST_ZIP_BOMB_DECOMPRESSED_BYTES = 256 * 1024;
 const OVER_LIMIT_ZIP_ENTRY_DECLARED_BYTES = 0xffff_fff0;
 const OVER_LIMIT_ZIP64_DECLARED_BYTES = 11 * 1024 * 1024 * 1024;
 
 type MaterializedArtifact = Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
-
-async function drainMaterializedStream(materialized: MaterializedArtifact): Promise<Uint8Array> {
-  expect(materialized.deliverable.kind).toBe('stream');
-  if (materialized.deliverable.kind !== 'stream') {
-    throw new Error('Expected a streamed Backstage deliverable.');
-  }
-  return new Uint8Array(await new Response(materialized.deliverable.stream).arrayBuffer());
-}
 
 function materializedBytes(materialized: MaterializedArtifact): Uint8Array {
   expect(materialized.deliverable.kind).toBe('bytes');
@@ -162,40 +152,6 @@ function patchZipCentralDirectoryDeclaredSizes(archive: Uint8Array, declaredByte
   }
   if (patchedEntries === 0) {
     throw new Error('Expected at least one ZIP central-directory entry to patch.');
-  }
-}
-
-function patchZipDeclaredSizes(archive: Uint8Array, declaredBytes: number): void {
-  const headers = [
-    { signature: [0x50, 0x4b, 0x03, 0x04] as const, sizeOffset: 22, minimumSize: 30 },
-    { signature: [0x50, 0x4b, 0x01, 0x02] as const, sizeOffset: 24, minimumSize: 46 },
-  ];
-  for (const { signature, sizeOffset, minimumSize } of headers) {
-    let patchedEntries = 0;
-    for (let offset = 0; offset + minimumSize <= archive.byteLength; offset += 1) {
-      if (!signature.every((value, index) => archive[offset + index] === value)) {
-        continue;
-      }
-      writeUint32LittleEndian(archive, offset + sizeOffset, declaredBytes);
-      patchedEntries += 1;
-    }
-    if (patchedEntries === 0) {
-      throw new Error('Expected at least one ZIP entry to patch.');
-    }
-  }
-}
-
-function patchZipCompressionMethod(archive: Uint8Array, compressionMethod: number): void {
-  const signatures = [
-    { signature: [0x50, 0x4b, 0x03, 0x04] as const, methodOffset: 8 },
-    { signature: [0x50, 0x4b, 0x01, 0x02] as const, methodOffset: 10 },
-  ];
-  for (const { signature, methodOffset } of signatures) {
-    for (let offset = 0; offset + 46 <= archive.byteLength; offset += 1) {
-      if (signature.every((value, index) => archive[offset + index] === value)) {
-        writeUint16LittleEndian(archive, offset + methodOffset, compressionMethod);
-      }
-    }
   }
 }
 
@@ -344,162 +300,18 @@ describe('collectUnityPackageImportPaths', () => {
 });
 
 describe('materializeBackstageReleaseArtifact', () => {
-  it('rejects an over-limit declared ZIP before attempting to inflate it', async () => {
-    const archive = buildZipWithDeclaredDecompressedSizeOverLimit();
-    patchZipCompressionMethod(archive, 99);
-
-    await expect(
-      materializeBackstageReleaseArtifact({
-        sourceBytes: archive,
-        deliveryName: 'declared-size-bomb.zip',
-        contentType: 'application/zip',
-      })
-    ).rejects.toThrow(ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE);
-  });
-
-  it('rejects actual deflate output over the limit when declared sizes are forged small', async () => {
-    const archive = zipSync(
-      {
-        'Packages/com.yucp.example/Runtime/forged.bin': new Uint8Array(
-          TEST_ZIP_BOMB_DECOMPRESSED_BYTES
-        ).fill(0x61),
-      },
-      { level: 9 }
-    );
-    patchZipDeclaredSizes(archive, 0);
-    expect(collectZipArchiveEntryPaths(archive)).toEqual([
-      'Packages/com.yucp.example/Runtime/forged.bin',
-    ]);
+  it('materializes ZIP uploads as thin importer shims from precomputed managed paths', async () => {
+    const managedPaths = ['package.json', 'Runtime/Example.cs', 'README.md'];
 
     const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: archive,
-      deliveryName: 'forged.zip',
-      contentType: 'application/zip',
-      maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
-    });
-
-    await expect(drainMaterializedStream(materialized)).rejects.toThrow(
-      ZIP_DECOMPRESSED_LIMIT_ERROR_MESSAGE
-    );
-  });
-
-  it('materializes stored ZIP entries with byte-identical contents', async () => {
-    const storedBytes = strToU8('stored entry contents');
-    const input = zipSync(
-      {
-        'Packages/com.yucp.example/Runtime/stored.bin': [storedBytes, { level: 0 }],
-      },
-      { level: 0 }
-    );
-    expect(readUint16LittleEndian(input, 8)).toBe(0);
-
-    const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: input,
-      deliveryName: 'stored.zip',
-      contentType: 'application/zip',
-      maxZipDecompressedBytes: TEST_ZIP_DECOMPRESSED_LIMIT_BYTES,
-    });
-
-    const deliverableBytes = await drainMaterializedStream(materialized);
-    expect(unzipSync(deliverableBytes)['Packages/com.yucp.example/Runtime/stored.bin']).toEqual(
-      storedBytes
-    );
-  });
-
-  it('materializes multi-chunk deflated ZIP entries with byte-identical contents', async () => {
-    const entryPath = 'Packages/com.yucp.example/Runtime/large.bin';
-    const content = new Uint8Array(512 * 1024);
-    let state = 0x1234_5678;
-    for (let index = 0; index < content.length; index += 1) {
-      state ^= state << 13;
-      state ^= state >>> 17;
-      state ^= state << 5;
-      content[index] = state >>> 24;
-    }
-    const input = zipSync({ [entryPath]: content }, { level: 9 });
-
-    const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: input,
-      deliveryName: 'large.zip',
-      contentType: 'application/zip',
-      packageId: 'com.yucp.example',
-      version: '1.0.0',
-    });
-
-    const deliverableBytes = await drainMaterializedStream(materialized);
-    expect(unzipSync(deliverableBytes)[entryPath]).toEqual(content);
-  });
-
-  it('emits ZIP entries in source order and is deterministic for the same source', async () => {
-    const source = zipSync(
-      {
-        'Packages/com.yucp.example/package.json': [
-          strToU8('{"name":"pkg"}'),
-          { mtime: ZIP_DATE_A },
-        ],
-        'Packages/com.yucp.example/README.md': [strToU8('hello'), { mtime: ZIP_DATE_A }],
-      },
-      { level: 9 }
-    );
-
-    const first = await materializeBackstageReleaseArtifact({
-      sourceBytes: source,
-      deliveryName: 'example.zip',
-      contentType: 'application/zip',
-    });
-    const second = await materializeBackstageReleaseArtifact({
-      sourceBytes: source,
-      deliveryName: 'example.zip',
-      contentType: 'application/zip',
-    });
-
-    expect(first.materializationStrategy).toBe('normalized_repack');
-    const firstBytes = await drainMaterializedStream(first);
-    const secondBytes = await drainMaterializedStream(second);
-    expect(firstBytes).toEqual(secondBytes);
-    expect(firstBytes).not.toEqual(source);
-    const firstArchive = unzipSync(firstBytes);
-    expect(Object.keys(firstArchive)).toEqual([
-      'Packages/com.yucp.example/package.json',
-      'Packages/com.yucp.example/README.md',
-    ]);
-    expect(firstArchive['Packages/com.yucp.example/README.md']).toEqual(strToU8('hello'));
-    expect(firstArchive['Packages/com.yucp.example/package.json']).toEqual(
-      strToU8('{"name":"pkg"}')
-    );
-  });
-
-  it('rewrites ZIP package manifests to match normalized repo metadata', async () => {
-    const input = zipSync(
-      {
-        'Packages/com.yucp.example/package.json': [
-          strToU8(
-            JSON.stringify({
-              name: 'com.yucp.backstage.raw',
-              version: '0.0.1',
-              [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'zip',
-              [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY]: 'server-derived-v1',
-            })
-          ),
-          { mtime: ZIP_DATE_A },
-        ],
-        'Packages/com.yucp.example/README.md': [strToU8('hello'), { mtime: ZIP_DATE_A }],
-      },
-      { level: 9 }
-    );
-
-    const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: input,
       deliveryName: 'example.zip',
       contentType: 'application/zip',
       packageId: 'com.yucp.example',
       version: '1.2.3',
       displayName: 'Example Package',
+      managedPaths,
       metadata: {
         description: 'Generated on the server',
-        dependencies: {
-          'com.yucp.importer': '1.4.0',
-        },
         [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'zip',
         [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY]: 'server-derived-v1',
         yucp: {
@@ -511,80 +323,17 @@ describe('materializeBackstageReleaseArtifact', () => {
       },
     });
 
-    const archive = unzipSync(await drainMaterializedStream(materialized));
-    expect(
-      JSON.parse(new TextDecoder().decode(archive['Packages/com.yucp.example/package.json']))
-    ).toEqual({
-      name: 'com.yucp.example',
-      version: '1.2.3',
-      displayName: 'Example Package',
-      description: 'Generated on the server',
-      vpmDependencies: {
-        'com.yucp.importer': '1.4.0',
-      },
-      yucp: {
-        kind: 'alias-v1',
-        aliasId: 'creator-alias',
-        installStrategy: 'server-authorized',
-        importerPackage: 'com.yucp.importer',
-      },
-    });
-    expect(
-      JSON.parse(new TextDecoder().decode(archive['Packages/com.yucp.example/package.json']))
-    ).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY);
-    expect(
-      JSON.parse(new TextDecoder().decode(archive['Packages/com.yucp.example/package.json']))
-    ).not.toHaveProperty(BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY);
-  });
+    expect(materialized.originalSourceKind).toBe('zip');
+    expect(materialized.sourceKind).toBe('zip');
+    expect(materialized.deliveryName).toBe('vrc-get-com.yucp.example-1.2.3.zip');
+    expect(materialized.deliverable.kind).toBe('bytes');
+    expect(materializedBytes(materialized).byteLength).toBeLessThan(4 * 1024);
 
-  it('rewrites root ZIP package manifests and strips reserved delivery keys', async () => {
-    const input = zipSync(
-      {
-        'nested/package.json': [
-          strToU8('{"name":"nested","version":"9.9.9"}'),
-          { mtime: ZIP_DATE_A },
-        ],
-        'package.json': [
-          strToU8(
-            JSON.stringify({
-              name: 'com.yucp.backstage.raw',
-              version: '0.0.1',
-              [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'zip',
-              [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY]: 'server-derived-v1',
-            })
-          ),
-          { mtime: ZIP_DATE_A },
-        ],
-        'README.md': [strToU8('hello'), { mtime: ZIP_DATE_A }],
-      },
-      { level: 9 }
-    );
-
-    const materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: input,
-      deliveryName: 'example.zip',
-      contentType: 'application/zip',
-      packageId: 'com.yucp.example',
-      version: '1.2.3',
-      displayName: 'Example Package',
-      metadata: {
-        description: 'Generated on the server',
-        [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_KEY]: 'zip',
-        [BACKSTAGE_VPM_DELIVERY_SOURCE_KIND_TRUST_KEY]: 'server-derived-v1',
-      },
-    });
-
-    const archive = unzipSync(await drainMaterializedStream(materialized));
-    expect(JSON.parse(new TextDecoder().decode(archive['package.json']))).toEqual({
-      name: 'com.yucp.example',
-      version: '1.2.3',
-      displayName: 'Example Package',
-      description: 'Generated on the server',
-    });
-    expect(JSON.parse(new TextDecoder().decode(archive['nested/package.json']))).toEqual({
-      name: 'nested',
-      version: '9.9.9',
-    });
+    const archive = unzipSync(materializedBytes(materialized));
+    expect(Object.keys(archive)).toEqual(['package.json']);
+    const packageJson = JSON.parse(new TextDecoder().decode(archive['package.json']));
+    expect(packageJson.yucp.aliasId).toBe('creator-alias');
+    expect(packageJson.yucp.installPlan.managedPaths).toEqual(managedPaths);
   });
 
   it('materializes unitypackage uploads as importer-driven shim package zips', async () => {
@@ -969,23 +718,6 @@ describe('materializeBackstageReleaseArtifact', () => {
         },
       })
     ).rejects.toThrow('requires managedPaths or sourceBytes');
-  });
-
-  it('rejects unsafe archive paths during materialization', async () => {
-    const input = zipSync(
-      {
-        '../escape.txt': [strToU8('oops'), { mtime: ZIP_DATE_A }],
-      },
-      { level: 9 }
-    );
-
-    await expect(
-      materializeBackstageReleaseArtifact({
-        sourceBytes: input,
-        deliveryName: 'unsafe.zip',
-        contentType: 'application/zip',
-      })
-    ).rejects.toThrow('unsafe archive path');
   });
 
   it('prefers persisted source kind metadata over wrapper-looking delivery names', async () => {

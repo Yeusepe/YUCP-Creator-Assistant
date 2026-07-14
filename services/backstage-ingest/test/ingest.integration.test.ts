@@ -1057,6 +1057,7 @@ describe('backstage ingest resumable upload integration', () => {
         );
 
         const zipVersion = '1.2.6';
+        const zipAliasId = 'resolved-zip-alias-id';
         const zipSourceBytes = zipSync({
           'package.json': strToU8(
             JSON.stringify({ name: packageId, version: zipVersion, displayName: 'Zip Integration' })
@@ -1090,6 +1091,12 @@ describe('backstage ingest resumable upload integration', () => {
         );
         expect(zipUploadBundle.sourceKind).toBe('zip');
         expect(receivedPuts).toHaveLength(3);
+        expect(receivedPuts[2]).toMatchObject({
+          repositoryId,
+          byteLength: zipSourceBytes.byteLength,
+          sha256: zipSourceSha256,
+        });
+        expect(receivedPuts[2]?.bytes).toEqual(zipSourceBytes);
 
         const zipMaterializeClaims: BackstageMaterializeClaims = {
           typ: 'backstage-materialize',
@@ -1103,8 +1110,20 @@ describe('backstage ingest resumable upload integration', () => {
           sourceContentType: zipUploadBundle.rawContentType,
           sourceKind: zipUploadBundle.sourceKind,
           managedPaths: zipUploadBundle.managedPaths,
+          materializeMetadata: {
+            displayName: 'Zip Integration',
+            metadata: {
+              yucp: {
+                kind: 'alias-v1',
+                installStrategy: 'server-authorized',
+                aliasId: zipAliasId,
+                importerPackage: 'com.yucp.importer',
+              },
+            },
+          },
           exp: Math.floor(Date.now() / 1000) + 3_600,
         };
+        const zipGetsBeforeMaterialize = receivedGets.length;
         const zipMaterializeBundle = await runBackstageMaterialize({
           ingestBaseUrl: sidecarOrigin,
           ingestSecret: INGEST_SECRET,
@@ -1117,35 +1136,26 @@ describe('backstage ingest resumable upload integration', () => {
           version: zipVersion,
         });
         expect(receivedPuts).toHaveLength(4);
-        expect(Object.keys(unzipSync(receivedPuts[3]?.bytes ?? new Uint8Array()))).toEqual([
-          'package.json',
-        ]);
+        const zipMaterializeGets = receivedGets.slice(zipGetsBeforeMaterialize);
+        expect(zipMaterializeGets).toEqual([]);
+        const zipDeliverable = receivedPuts[3];
+        if (!zipDeliverable) {
+          throw new Error('Expected the ZIP importer shim in fake Lore.');
+        }
+        expect(zipDeliverable.byteLength).toBeLessThan(4 * 1024);
+        const zipDeliverableArchive = unzipSync(zipDeliverable.bytes);
+        expect(Object.keys(zipDeliverableArchive)).toEqual(['package.json']);
+        const zipPackageJson = JSON.parse(
+          new TextDecoder().decode(zipDeliverableArchive['package.json'])
+        ) as { yucp?: { aliasId?: string; installPlan?: { managedPaths?: string[] } } };
+        expect(zipPackageJson.yucp?.aliasId).toBe(zipAliasId);
+        expect(zipPackageJson.yucp?.installPlan?.managedPaths).toEqual(
+          zipUploadBundle.managedPaths
+        );
         await waitForDirectoryEmpty(tempDirectory);
         expect(await readdir(tempDirectory)).toEqual([]);
         process.stdout.write(
-          `Normal ZIP uploaded and materialized via streaming with no temp files left; Lore PUTs: ${receivedPuts.length}.\n`
-        );
-
-        const zipGetsBeforeMaterialize = receivedGets.length;
-        const zipMismatchClaims: BackstageMaterializeClaims = {
-          ...zipMaterializeClaims,
-          loreSourceSha256: 'f'.repeat(64),
-        };
-        await expect(
-          runBackstageMaterialize({
-            ingestBaseUrl: sidecarOrigin,
-            ingestSecret: INGEST_SECRET,
-            claims: zipMismatchClaims,
-          })
-        ).rejects.toThrow('Backstage materialize job failed: ingest_failed');
-        const zipMaterializeGets = receivedGets.slice(zipGetsBeforeMaterialize);
-        expect(zipMaterializeGets.length).toBeGreaterThan(0);
-        expect(new Set(zipMaterializeGets)).toEqual(
-          new Set([`/v1/repository/${repositoryId}/content/${zipUploadBundle.loreSource.address}`])
-        );
-        expect(receivedPuts).toHaveLength(4);
-        process.stdout.write(
-          `Zip materialize raw Lore GETs: ${zipMaterializeGets.length}; SHA mismatch rejected.\n`
+          `ZIP raw stored unchanged; thin shim entries=package.json; raw Lore GETs=${zipMaterializeGets.length}; yucp.aliasId=${zipPackageJson.yucp?.aliasId}; managedPaths=${JSON.stringify(zipPackageJson.yucp?.installPlan?.managedPaths)}.\n`
         );
 
         const invalidArchiveBytes = strToU8('not a unitypackage archive');
@@ -1232,7 +1242,7 @@ describe('backstage ingest resumable upload integration', () => {
   );
 
   test(
-    'materializes a multi-entry ZIP end-to-end via streaming with a valid, deterministic deliverable',
+    'materializes a multi-entry ZIP end-to-end as a thin importer shim',
     async () => {
       const receivedPuts: ReceivedPut[] = [];
       const storedObjects = new Map<string, Uint8Array>();
@@ -1257,7 +1267,7 @@ describe('backstage ingest resumable upload integration', () => {
             });
             storedObjects.set(`${putMatch[1]}/${address}`, body);
             process.stdout.write(
-              `Streaming ZIP fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
+              `Multi-entry ZIP fake Lore PUT #${receivedPuts.length}: ${sha256} (${body.byteLength} bytes)\n`
             );
             return Response.json({ data: { address } });
           }
@@ -1358,10 +1368,6 @@ describe('backstage ingest resumable upload integration', () => {
         intendedEntries['Samples~/Nested/Example.prefab'] = strToU8(
           '%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: Streaming ZIP Example\n'
         );
-        const sourceManifestBytes = intendedEntries['package.json'];
-        if (!sourceManifestBytes) {
-          throw new Error('Expected the streaming ZIP fixture to include package.json.');
-        }
         const sourceBytes = zipSync(intendedEntries, { level: 6 });
         expect(sourceBytes.byteLength).toBeGreaterThan(1024 * 1024);
         const sourceSha256 = await sha256Hex(sourceBytes);
@@ -1390,7 +1396,7 @@ describe('backstage ingest resumable upload integration', () => {
           terminalState: 'completed',
         });
         if (uploadCompleted.state !== 'completed') {
-          throw new Error('Expected the multi-entry streaming ZIP upload job to complete.');
+          throw new Error('Expected the multi-entry ZIP upload job to complete.');
         }
         const uploadBundle = parseUploadResult(await verify(INGEST_SECRET, uploadCompleted.result));
         expect(uploadBundle).toMatchObject({
@@ -1426,7 +1432,7 @@ describe('backstage ingest resumable upload integration', () => {
           materializeMetadata: {
             displayName,
             metadata: {
-              description: 'Resolved by the streaming ZIP integration test',
+              description: 'Resolved by the multi-entry ZIP integration test',
               yucp: {
                 kind: 'alias-v1',
                 installStrategy: 'server-authorized',
@@ -1437,7 +1443,6 @@ describe('backstage ingest resumable upload integration', () => {
           },
           exp: Math.floor(Date.now() / 1000) + 3_600,
         };
-        const rawSourcePath = `/v1/repository/${repositoryId}/content/${uploadBundle.loreSource.address}`;
         const getsBeforeFirstMaterialize = receivedGets.length;
         const firstMaterializeBundle = await runBackstageMaterialize({
           ingestBaseUrl: sidecarOrigin,
@@ -1445,7 +1450,7 @@ describe('backstage ingest resumable upload integration', () => {
           claims: materializeClaims,
         });
         const firstMaterializeGets = receivedGets.slice(getsBeforeFirstMaterialize);
-        expect(firstMaterializeGets).toEqual([rawSourcePath]);
+        expect(firstMaterializeGets).toEqual([]);
         expect(firstMaterializeBundle).toMatchObject({
           typ: 'backstage-materialize-result',
           authUserId,
@@ -1464,29 +1469,27 @@ describe('backstage ingest resumable upload integration', () => {
         expect(firstDeliverable.sha256).toBe(firstMaterializeBundle.deliverableSha256);
         expect(firstDeliverable.address).toBe(firstMaterializeBundle.loreDelivery.address);
         expect(firstDeliverable.byteLength).toBe(firstMaterializeBundle.deliverableByteSize);
+        expect(firstDeliverable.byteLength).toBeLessThan(4 * 1024);
         const firstArchive = unzipSync(firstDeliverable.bytes);
-        expect(Object.keys(firstArchive).sort()).toEqual(Object.keys(intendedEntries).sort());
-        for (const [entryPath, intendedBytes] of Object.entries(intendedEntries)) {
-          if (entryPath !== 'package.json') {
-            expect(firstArchive[entryPath]).toEqual(intendedBytes);
-          }
-        }
+        expect(Object.keys(firstArchive)).toEqual(['package.json']);
         const rewrittenManifestBytes = firstArchive['package.json'];
         if (!rewrittenManifestBytes) {
-          throw new Error('Materialized streaming ZIP did not contain package.json.');
+          throw new Error('Materialized ZIP importer shim did not contain package.json.');
         }
-        expect(rewrittenManifestBytes).not.toEqual(sourceManifestBytes);
         const rewrittenManifest = JSON.parse(new TextDecoder().decode(rewrittenManifestBytes));
         expect(rewrittenManifest).toMatchObject({
           name: packageId,
           version,
           displayName,
-          description: 'Resolved by the streaming ZIP integration test',
+          description: 'Resolved by the multi-entry ZIP integration test',
           yucp: {
             kind: 'alias-v1',
             installStrategy: 'server-authorized',
             aliasId,
             importerPackage: 'com.yucp.importer',
+            installPlan: {
+              managedPaths: uploadBundle.managedPaths,
+            },
           },
         });
         await waitForDirectoryEmpty(tempDirectory);
@@ -1499,7 +1502,7 @@ describe('backstage ingest resumable upload integration', () => {
           claims: materializeClaims,
         });
         const secondMaterializeGets = receivedGets.slice(getsBeforeSecondMaterialize);
-        expect(secondMaterializeGets).toEqual([rawSourcePath]);
+        expect(secondMaterializeGets).toEqual([]);
         expect(receivedPuts).toHaveLength(3);
         const secondDeliverable = receivedPuts[2];
         if (!secondDeliverable) {
@@ -1518,12 +1521,12 @@ describe('backstage ingest resumable upload integration', () => {
         expect(await readdir(tempDirectory)).toEqual([]);
 
         process.stdout.write(
-          `Multi-entry streaming ZIP e2e passed: ${Object.keys(intendedEntries).length} decoded entries matched byte-for-byte, raw Lore GETs ${firstMaterializeGets.length}+${secondMaterializeGets.length}, deterministic SHA-256 ${firstDeliverable.sha256}, no temp files left.\n`
+          `Multi-entry ZIP thin shim e2e passed: raw ${sourceBytes.byteLength} bytes stored unchanged, shim entries package.json only, ${uploadBundle.managedPaths.length} managed paths preserved, raw Lore GETs ${firstMaterializeGets.length}+${secondMaterializeGets.length}, deterministic SHA-256 ${firstDeliverable.sha256}.\n`
         );
         expect(stdout.join('')).not.toContain(repositoryId);
         expect(stderr.join('')).not.toContain(repositoryId);
       } catch (error) {
-        process.stderr.write(`\nCaptured streaming ZIP sidecar stderr:\n${stderr.join('')}\n`);
+        process.stderr.write(`\nCaptured multi-entry ZIP sidecar stderr:\n${stderr.join('')}\n`);
         throw error;
       } finally {
         await stopSidecar(sidecar);

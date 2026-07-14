@@ -1,5 +1,3 @@
-import { unlink } from 'node:fs/promises';
-import { join } from 'node:path';
 import { FileStore } from '@tus/file-store';
 import { Server } from '@tus/server';
 import {
@@ -24,12 +22,9 @@ import {
 import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmDelivery';
 import {
   type ConfiguredLoreBackstageConfig,
-  getBackstageBytesFromLore,
   loreRepositoryIdForCreator,
-  putBackstageBodyToLore,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
-  sha256ArrayBuffer,
 } from '@yucp/shared/loreBackstageClient';
 import type { LoreBackstageArtifactReference } from '@yucp/shared/loreBackstageDelivery';
 import { Queue, UnrecoverableError, Worker } from 'bullmq';
@@ -273,47 +268,6 @@ async function streamSha256Hex(path: string): Promise<string> {
   return hasher.digest('hex');
 }
 
-async function drainReadableStreamToFile(
-  stream: ReadableStream<Uint8Array>,
-  path: string
-): Promise<number> {
-  const reader = stream.getReader();
-  const writer = Bun.file(path).writer({ highWaterMark: 64 * 1024 });
-  let byteSize = 0;
-  let writerEnded = false;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      await writer.write(chunk.value);
-      byteSize += chunk.value.byteLength;
-    }
-    await writer.end();
-    writerEnded = true;
-    return byteSize;
-  } catch (error) {
-    await reader.cancel(error).catch(() => undefined);
-    throw error;
-  } finally {
-    reader.releaseLock();
-    if (!writerEnded) {
-      await Promise.resolve(writer.end()).catch(() => undefined);
-    }
-  }
-}
-
-async function removeMaterializedTempFile(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-}
-
 // Mirror apps/api and apps/bot: pull secrets from Infisical at startup so the container only needs
 // the machine-identity creds (INFISICAL_PROJECT_ID + INFISICAL_CLIENT_ID/SECRET). fetchInfisicalSecrets
 // returns {} when those are absent, so local dev / the integration test (which inject env directly)
@@ -494,58 +448,9 @@ async function processMaterializeJob(
 ): Promise<string> {
   const startedAt = performance.now();
   const { claims } = data;
-  let sourceBytes: ArrayBuffer | undefined;
-  if (claims.sourceKind === 'zip') {
-    try {
-      sourceBytes = await getBackstageBytesFromLore({
-        config: config.lore,
-        repositoryId: claims.repositoryId,
-        address: claims.loreSourceAddress,
-      });
-    } catch {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.materialize_source_failed',
-          materializeJobId,
-          reason: 'lore_source_get_failed',
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('lore_source_get_failed');
-    }
-
-    if ((await sha256ArrayBuffer(sourceBytes)) !== claims.loreSourceSha256) {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.materialize_source_integrity_failed',
-          materializeJobId,
-          reason: 'source_integrity_failed',
-          rawByteSize: sourceBytes.byteLength,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('source_integrity_failed');
-    }
-  }
-
   let materialized: Awaited<ReturnType<typeof materializeBackstageReleaseArtifact>>;
   try {
-    let ownedSourceBytes: Uint8Array | undefined;
-    if (sourceBytes) {
-      // ponytail: The source remains bounded by the upload limit. The repacked deliverable streams
-      // to disk so worker concurrency does not multiply full output archives in memory.
-      ownedSourceBytes = new Uint8Array(sourceBytes);
-      const detectedSourceKind = detectBackstageVpmDeliverySourceKind({
-        deliveryName: claims.deliveryName,
-        contentType: claims.sourceContentType,
-        bytes: ownedSourceBytes,
-      });
-      if (detectedSourceKind !== claims.sourceKind) {
-        throw new Error('source_kind_mismatch');
-      }
-    }
     materialized = await materializeBackstageReleaseArtifact({
-      sourceBytes: ownedSourceBytes,
       deliveryName: claims.deliveryName,
       contentType: claims.sourceContentType,
       packageId: claims.packageId,
@@ -563,7 +468,6 @@ async function processMaterializeJob(
         event: 'backstage_ingest.materialize_failed',
         materializeJobId,
         reason: 'materialization_failed',
-        ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
         sourceKind: claims.sourceKind,
         managedPathCount: claims.managedPaths.length,
         durationMs: Math.round(performance.now() - startedAt),
@@ -573,81 +477,24 @@ async function processMaterializeJob(
   }
 
   let deliverableStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
-  if (materialized.deliverable.kind === 'bytes') {
-    try {
-      deliverableStored = await putBackstageBytesToLore({
-        config: config.lore,
-        repositoryId: claims.repositoryId,
-        bytes: materialized.deliverable.bytes,
-      });
-    } catch {
-      console.error(
-        JSON.stringify({
-          event: 'backstage_ingest.materialize_delivery_failed',
-          materializeJobId,
-          reason: 'lore_deliverable_put_failed',
-          ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
-          sourceKind: claims.sourceKind,
-          deliverableByteSize: materialized.deliverable.byteSize,
-          durationMs: Math.round(performance.now() - startedAt),
-        })
-      );
-      throw new Error('lore_deliverable_put_failed');
-    }
-  } else {
-    const tempPath = join(
-      config.tusDirectory,
-      `.materialize-${materializeJobId}-${crypto.randomUUID()}.zip`
+  try {
+    deliverableStored = await putBackstageBytesToLore({
+      config: config.lore,
+      repositoryId: claims.repositoryId,
+      bytes: materialized.deliverable.bytes,
+    });
+  } catch {
+    console.error(
+      JSON.stringify({
+        event: 'backstage_ingest.materialize_delivery_failed',
+        materializeJobId,
+        reason: 'lore_deliverable_put_failed',
+        sourceKind: claims.sourceKind,
+        deliverableByteSize: materialized.deliverable.byteSize,
+        durationMs: Math.round(performance.now() - startedAt),
+      })
     );
-    let deliverableByteSize: number | undefined;
-    try {
-      let deliverableSha256: string;
-      try {
-        deliverableByteSize = await drainReadableStreamToFile(
-          materialized.deliverable.stream,
-          tempPath
-        );
-        deliverableSha256 = await streamSha256Hex(tempPath);
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.materialize_failed',
-            materializeJobId,
-            reason: 'materialization_failed',
-            ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
-            sourceKind: claims.sourceKind,
-            managedPathCount: claims.managedPaths.length,
-            durationMs: Math.round(performance.now() - startedAt),
-          })
-        );
-        throw new Error('materialization_failed');
-      }
-
-      try {
-        deliverableStored = await putBackstageBodyToLore({
-          config: config.lore,
-          repositoryId: claims.repositoryId,
-          body: Bun.file(tempPath),
-          sha256: deliverableSha256,
-          byteSize: deliverableByteSize,
-        });
-      } catch {
-        console.error(
-          JSON.stringify({
-            event: 'backstage_ingest.materialize_delivery_failed',
-            materializeJobId,
-            reason: 'lore_deliverable_put_failed',
-            ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
-            sourceKind: claims.sourceKind,
-            deliverableByteSize,
-            durationMs: Math.round(performance.now() - startedAt),
-          })
-        );
-        throw new Error('lore_deliverable_put_failed');
-      }
-    } finally {
-      await removeMaterializedTempFile(tempPath);
-    }
+    throw new Error('lore_deliverable_put_failed');
   }
 
   const loreDelivery = buildLoreReference({
@@ -674,9 +521,8 @@ async function processMaterializeJob(
     JSON.stringify({
       event: 'backstage_ingest.materialize_completed',
       materializeJobId,
-      ...(sourceBytes ? { rawByteSize: sourceBytes.byteLength } : {}),
       sourceKind: claims.sourceKind,
-      rawDownloadSkipped: claims.sourceKind === 'unitypackage',
+      rawDownloadSkipped: true,
       deliverableByteSize: deliverableStored.byteSize,
       durationMs: Math.round(performance.now() - startedAt),
     })

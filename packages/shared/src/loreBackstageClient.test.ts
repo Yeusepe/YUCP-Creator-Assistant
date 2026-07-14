@@ -8,7 +8,6 @@ import {
   LoreApiRequestError,
   loreRepositoryIdForCreator,
   mintLorePresignedUrl,
-  putBackstageBodyToLore,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
 } from './loreBackstageClient';
@@ -196,46 +195,6 @@ describe('putBackstageBytesToLore', () => {
       expect(error).toBeInstanceOf(LoreApiRequestError);
       expect((error as LoreApiRequestError).detail).toBe(failure.message);
     }
-  });
-});
-
-describe('putBackstageBodyToLore', () => {
-  it('uploads a streaming body and returns the caller-provided digest and byte size', async () => {
-    const bytes = new Uint8Array([5, 6, 7, 8]);
-    const sha256 = 'c'.repeat(64);
-    const streamedAddress = `${sha256}-${'d'.repeat(32)}`;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(bytes);
-        controller.close();
-      },
-    });
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe(`https://lore.test/v1/repository/${repositoryId}/content`);
-      expect(init?.method).toBe('PUT');
-      expect(init?.redirect).toBe('error');
-      const requestBody = init?.body;
-      expect(requestBody).toBe(body);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('CF-Access-Client-Id')).toBe('access-client-id');
-      expect(headers.get('CF-Access-Client-Secret')).toBe('access-client-secret');
-      expect(new Uint8Array(await new Response(requestBody).arrayBuffer())).toEqual(bytes);
-      return Response.json({ data: { address: streamedAddress } });
-    }) as typeof fetch;
-
-    await expect(
-      putBackstageBodyToLore({
-        config: configuredLore(),
-        repositoryId,
-        body,
-        sha256,
-        byteSize: bytes.byteLength,
-      })
-    ).resolves.toEqual({
-      address: streamedAddress,
-      sha256,
-      byteSize: bytes.byteLength,
-    });
   });
 });
 
