@@ -189,7 +189,7 @@ describe('Lore storage real-backend contract', () => {
     unsignedUrl.search = '';
 
     const response = await fetch(unsignedUrl);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(400);
   });
 
   test('rejects a tampered presigned token', async () => {
@@ -221,7 +221,7 @@ describe('Lore storage real-backend contract', () => {
     tamperedUrl.searchParams.set('token', tamperedToken);
 
     const response = await fetch(tamperedUrl);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(401);
   });
 
   test('rejects a presigned URL signed with the wrong key', async () => {
@@ -245,7 +245,7 @@ describe('Lore storage real-backend contract', () => {
     });
 
     const response = await fetch(url);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(401);
   });
 
   test('rejects a presigned URL whose address was swapped', async () => {
@@ -274,7 +274,7 @@ describe('Lore storage real-backend contract', () => {
     swappedUrl.pathname = swappedUrl.pathname.replace(first.address, second.address);
 
     const response = await fetch(swappedUrl);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(401);
   });
 
   test('rejects an expired presigned URL', async () => {
@@ -296,7 +296,7 @@ describe('Lore storage real-backend contract', () => {
 
     await delay(2_100);
     const response = await fetch(url);
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(401);
   });
 
   test('rejects an empty-body PUT', async () => {
