@@ -231,10 +231,9 @@ function throwUnityPackageLimitError(): never {
   throw new Error(UNITYPACKAGE_LIMIT_ERROR_MESSAGE);
 }
 
-export function collectUnityPackageImportPaths(
-  sourceBytes: Uint8Array,
+function createUnityPackageImportPathCollector(
   limits: UnityPackageImportPathCollectionLimits = {}
-): string[] {
+): { gunzip: Gunzip; collectPaths: () => string[] } {
   const maxDecompressedBytes = resolveUnityPackageCollectionLimit(
     limits.maxDecompressedBytes,
     MAX_UNITYPACKAGE_DECOMPRESSED_BYTES,
@@ -388,6 +387,34 @@ export function collectUnityPackageImportPaths(
     consumeTarBytes(chunk);
   });
 
+  return {
+    gunzip,
+    collectPaths: () => {
+      const managedPaths = new Set<string>();
+      for (const entry of entriesByDirectory.values()) {
+        if (!entry.pathname || !entry.asset) {
+          continue;
+        }
+
+        const projectPath = assertSafeProjectImportPath(entry.pathname);
+        managedPaths.add(projectPath);
+        if (entry.assetMeta) {
+          managedPaths.add(`${projectPath}.meta`);
+        }
+      }
+
+      return Array.from(managedPaths).sort((left, right) =>
+        left < right ? -1 : left > right ? 1 : 0
+      );
+    },
+  };
+}
+
+export function collectUnityPackageImportPaths(
+  sourceBytes: Uint8Array,
+  limits: UnityPackageImportPathCollectionLimits = {}
+): string[] {
+  const { gunzip, collectPaths } = createUnityPackageImportPathCollector(limits);
   if (sourceBytes.byteLength === 0) {
     gunzip.push(sourceBytes, true);
   } else {
@@ -400,21 +427,19 @@ export function collectUnityPackageImportPaths(
       gunzip.push(sourceBytes.subarray(offset, end), end === sourceBytes.byteLength);
     }
   }
+  return collectPaths();
+}
 
-  const managedPaths = new Set<string>();
-  for (const entry of entriesByDirectory.values()) {
-    if (!entry.pathname || !entry.asset) {
-      continue;
-    }
-
-    const projectPath = assertSafeProjectImportPath(entry.pathname);
-    managedPaths.add(projectPath);
-    if (entry.assetMeta) {
-      managedPaths.add(`${projectPath}.meta`);
-    }
+export async function collectUnityPackageImportPathsFromStream(
+  chunks: AsyncIterable<Uint8Array>,
+  limits: UnityPackageImportPathCollectionLimits = {}
+): Promise<string[]> {
+  const { gunzip, collectPaths } = createUnityPackageImportPathCollector(limits);
+  for await (const chunk of chunks) {
+    gunzip.push(chunk, false);
   }
-
-  return Array.from(managedPaths).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  gunzip.push(new Uint8Array(0), true);
+  return collectPaths();
 }
 
 function assertZipRange(bytes: Uint8Array, offset: number, length: number, label: string): void {

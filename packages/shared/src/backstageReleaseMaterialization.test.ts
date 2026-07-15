@@ -3,6 +3,7 @@ import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { extractBackstagePackageMediaAssetsFromSource } from './backstagePackageMedia';
 import {
   collectUnityPackageImportPaths,
+  collectUnityPackageImportPathsFromStream,
   collectZipArchiveEntryPaths,
   materializeBackstageReleaseArtifact,
 } from './backstageReleaseMaterialization';
@@ -285,6 +286,37 @@ describe('collectUnityPackageImportPaths', () => {
       'Assets/Avatar/readme.txt',
       'Assets/Avatar/readme.txt.meta',
     ]);
+  });
+
+  it('collects the same managed paths from streamed unitypackage chunks', async () => {
+    const archive = buildUnitypackage(
+      [
+        { path: 'z-guid/asset', content: strToU8('z-asset-bytes') },
+        { path: 'z-guid/pathname', content: strToU8('Assets/Zeta/readme.txt') },
+        { path: 'a-guid/asset', content: strToU8('a-asset-bytes') },
+        { path: 'a-guid/asset.meta', content: strToU8('a-meta-bytes') },
+        { path: 'a-guid/pathname', content: strToU8('Assets/Alpha/readme.txt') },
+      ],
+      TAR_MTIME_A
+    );
+    const chunkSizes = [1, 7, 31, 3, 64, 11];
+    async function* chunks(): AsyncGenerator<Uint8Array> {
+      let offset = 0;
+      let chunkIndex = 0;
+      while (offset < archive.byteLength) {
+        const end = Math.min(
+          offset + chunkSizes[chunkIndex % chunkSizes.length],
+          archive.byteLength
+        );
+        yield archive.subarray(offset, end);
+        offset = end;
+        chunkIndex += 1;
+      }
+    }
+
+    expect(await collectUnityPackageImportPathsFromStream(chunks())).toEqual(
+      collectUnityPackageImportPaths(archive)
+    );
   });
 
   it('rejects a highly compressed unitypackage entry bomb before materializing', async () => {

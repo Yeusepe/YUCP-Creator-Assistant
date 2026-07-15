@@ -15,7 +15,7 @@ import {
 } from '@yucp/shared/backstageIngest';
 import { MAX_BACKSTAGE_PACKAGE_BYTES } from '@yucp/shared/backstageLimits';
 import {
-  collectUnityPackageImportPaths,
+  collectUnityPackageImportPathsFromStream,
   collectZipArchiveEntryPaths,
   materializeBackstageReleaseArtifact,
 } from '@yucp/shared/backstageReleaseMaterialization';
@@ -23,6 +23,7 @@ import { detectBackstageVpmDeliverySourceKind } from '@yucp/shared/backstageVpmD
 import {
   type ConfiguredLoreBackstageConfig,
   loreRepositoryIdForCreator,
+  putBackstageBodyToLore,
   putBackstageBytesToLore,
   requireLoreBackstageConfig,
 } from '@yucp/shared/loreBackstageClient';
@@ -327,10 +328,12 @@ const queue = new Queue<BackstageJobData, string>(QUEUE_NAME, {
 async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
   const startedAt = performance.now();
   const { claims, stagedPath, uploadId } = data;
-  let bytes: ArrayBuffer;
+  const fileSize = Bun.file(stagedPath).size;
+  let prefix: Uint8Array;
   try {
-    // ponytail: upload jobs hold about 1x source bytes in memory while deriving the install footprint; concurrency bounds aggregate memory.
-    bytes = await Bun.file(stagedPath).arrayBuffer();
+    // ponytail: unitypackage footprint extraction and raw Lore upload stream from disk; only a
+    // small format-detection prefix is buffered before archive-specific processing.
+    prefix = new Uint8Array(await Bun.file(stagedPath).slice(0, 65_536).arrayBuffer());
   } catch {
     console.error(
       JSON.stringify({
@@ -347,21 +350,25 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
   let sourceKind: BackstageUploadResult['sourceKind'];
   let managedPaths: string[];
   try {
-    const sourceBytes = new Uint8Array(bytes);
     sourceKind = detectBackstageVpmDeliverySourceKind({
       deliveryName: claims.deliveryName,
       contentType: claims.sourceContentType,
-      bytes: sourceBytes,
+      bytes: prefix,
     });
-    managedPaths =
-      sourceKind === 'unitypackage'
-        ? Array.from(
-            new Set([
-              `Packages/${claims.packageId}/package.json`,
-              ...collectUnityPackageImportPaths(sourceBytes),
-            ])
-          )
-        : collectZipArchiveEntryPaths(sourceBytes);
+    if (sourceKind === 'unitypackage') {
+      managedPaths = Array.from(
+        new Set([
+          `Packages/${claims.packageId}/package.json`,
+          ...(await collectUnityPackageImportPathsFromStream(
+            Bun.file(stagedPath).stream() as unknown as AsyncIterable<Uint8Array>
+          )),
+        ])
+      );
+    } else {
+      // ponytail: zip central-directory parse still buffers; stream it in a follow-up
+      const zipBytes = new Uint8Array(await Bun.file(stagedPath).arrayBuffer());
+      managedPaths = collectZipArchiveEntryPaths(zipBytes);
+    }
   } catch {
     console.error(
       JSON.stringify({
@@ -392,12 +399,14 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
     throw new UnrecoverableError(MANAGED_PATHS_PAYLOAD_TOO_LARGE_REASON);
   }
 
-  let rawStored: Awaited<ReturnType<typeof putBackstageBytesToLore>>;
+  let rawStored: Awaited<ReturnType<typeof putBackstageBodyToLore>>;
   try {
-    rawStored = await putBackstageBytesToLore({
+    rawStored = await putBackstageBodyToLore({
       config: config.lore,
       repositoryId: claims.repositoryId,
-      bytes,
+      body: Bun.file(stagedPath),
+      sha256: claims.declaredSha256,
+      byteSize: fileSize,
     });
   } catch {
     console.error(
@@ -405,7 +414,7 @@ async function processUploadJob(data: BackstageIngestJobData): Promise<string> {
         event: 'backstage_ingest.lore_source_failed',
         uploadId,
         reason: 'lore_source_put_failed',
-        rawByteSize: bytes.byteLength,
+        rawByteSize: fileSize,
         durationMs: Math.round(performance.now() - startedAt),
       })
     );

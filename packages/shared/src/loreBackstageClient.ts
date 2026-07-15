@@ -211,29 +211,7 @@ function throwLoreResponseError(response: Response, _boundedText: BoundedText): 
   });
 }
 
-async function putBackstageBytesToLoreRequest(input: {
-  config: ConfiguredLoreBackstageConfig;
-  repositoryId: string;
-  bytes: Uint8Array<ArrayBuffer>;
-}): Promise<string> {
-  validateRepositoryId(input.repositoryId);
-  let response: Response;
-  try {
-    response = await fetch(
-      `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content`,
-      {
-        body: input.bytes,
-        headers: accessHeaders(input.config),
-        method: 'PUT',
-        redirect: 'error',
-        signal: AbortSignal.timeout(input.config.timeoutMs),
-      }
-    );
-  } catch (error) {
-    throw new LoreApiRequestError({
-      detail: error instanceof Error ? error.message : 'Lore request failed',
-    });
-  }
+async function parseLorePutResponse(response: Response): Promise<string> {
   const boundedText = await readResponseTextBounded(response, LORE_RESPONSE_MAX_BYTES);
   if (!response.ok) {
     throwLoreResponseError(response, boundedText);
@@ -256,6 +234,37 @@ async function putBackstageBytesToLoreRequest(input: {
   return address;
 }
 
+async function putBackstageBodyToLoreRequest(input: {
+  config: ConfiguredLoreBackstageConfig;
+  repositoryId: string;
+  body: BodyInit;
+}): Promise<string> {
+  validateRepositoryId(input.repositoryId);
+  const requestInit: RequestInit & { duplex?: 'half' } = {
+    body: input.body,
+    headers: accessHeaders(input.config),
+    method: 'PUT',
+    redirect: 'error',
+    signal: AbortSignal.timeout(input.config.timeoutMs),
+  };
+  if (typeof ReadableStream !== 'undefined' && input.body instanceof ReadableStream) {
+    requestInit.duplex = 'half';
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `${input.config.apiBaseUrl}/v1/repository/${input.repositoryId}/content`,
+      requestInit
+    );
+  } catch (error) {
+    throw new LoreApiRequestError({
+      detail: error instanceof Error ? error.message : 'Lore request failed',
+    });
+  }
+  return await parseLorePutResponse(response);
+}
+
 export async function putBackstageBytesToLore(input: {
   config: ConfiguredLoreBackstageConfig;
   repositoryId: string;
@@ -265,12 +274,28 @@ export async function putBackstageBytesToLore(input: {
   const bytes = asOwnedBytes(input.bytes);
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   const sha256 = bytesToHex(new Uint8Array(digest));
-  const address = await putBackstageBytesToLoreRequest({
+  const address = await putBackstageBodyToLoreRequest({
     config: input.config,
     repositoryId: input.repositoryId,
-    bytes,
+    body: bytes,
   });
   return { address, sha256, byteSize: bytes.byteLength };
+}
+
+export async function putBackstageBodyToLore(input: {
+  config: ConfiguredLoreBackstageConfig;
+  repositoryId: string;
+  body: BodyInit;
+  sha256: string;
+  byteSize: number;
+}): Promise<{ address: string; sha256: string; byteSize: number }> {
+  validateRepositoryId(input.repositoryId);
+  const address = await putBackstageBodyToLoreRequest({
+    config: input.config,
+    repositoryId: input.repositoryId,
+    body: input.body,
+  });
+  return { address, sha256: input.sha256, byteSize: input.byteSize };
 }
 
 export async function getBackstageBytesFromLore(input: {
