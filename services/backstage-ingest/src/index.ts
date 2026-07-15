@@ -858,11 +858,12 @@ async function handleMaterializeRequest(request: Request): Promise<Response> {
         : undefined;
   } catch (error) {
     if (error instanceof MaterializeRequestBodyTooLargeError) {
+      await request.body?.cancel().catch(() => {});
       return applyJobCors(
         request,
         Response.json(
           { error: 'Request body too large', limitBytes: MAX_MATERIALIZE_BODY_BYTES },
-          { status: 413 }
+          { status: 413, headers: { Connection: 'close' } }
         )
       );
     }
