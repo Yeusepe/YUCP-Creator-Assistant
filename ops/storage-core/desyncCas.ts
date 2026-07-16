@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
 import { commandPathEnv, runCommand } from './process';
-import { putS3Object } from './s3Control';
+import { deleteS3Objects, getS3Object, putS3Object } from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
 
@@ -47,7 +47,7 @@ async function runDesyncWithUncompressedStore(
       `${JSON.stringify({ 'store-options': { [storeLocation]: { uncompressed: true } } })}\n`,
       { mode: 0o600 }
     );
-    return await runCommand('desync', ['--config', configPath, ...args], {
+    return await runCommand('desync', ['--config', configPath, '--digest', 'sha256', ...args], {
       ...options,
       env: options.env ?? commandPathEnv(),
     });
@@ -214,9 +214,13 @@ export async function inspectDesyncIndex(input: {
     input.store.kind === 'local'
       ? resolve(input.indexId)
       : buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  const { stdout } = await runCommand('desync', ['inspect-chunks', '--', indexLocation], {
-    env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
-  });
+  const { stdout } = await runCommand(
+    'desync',
+    ['--digest', 'sha256', 'inspect-chunks', '--', indexLocation],
+    {
+      env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
+    }
+  );
 
   let parsed: unknown;
   try {
@@ -264,6 +268,35 @@ export async function writeCasIndexObject(input: {
     contentType: input.contentType,
     key: `${input.store.config.indexPrefix}${input.indexId}`,
   });
+}
+
+export async function readCasIndexObject(input: {
+  indexId: string;
+  store: CasStore;
+}): Promise<string> {
+  if (input.store.kind === 'local') {
+    return readFile(resolve(input.indexId), 'utf8');
+  }
+
+  assertRemoteIndexId(input.indexId);
+  const response = await getS3Object(
+    input.store.config,
+    `${input.store.config.indexPrefix}${input.indexId}`
+  );
+  return response.text();
+}
+
+export async function deleteCasIndexObject(input: {
+  indexId: string;
+  store: CasStore;
+}): Promise<void> {
+  if (input.store.kind === 'local') {
+    await rm(resolve(input.indexId), { force: true });
+    return;
+  }
+
+  assertRemoteIndexId(input.indexId);
+  await deleteS3Objects(input.store.config, [`${input.store.config.indexPrefix}${input.indexId}`]);
 }
 
 export async function measureLocalStore(storePath: string): Promise<LocalStoreMeasurement> {

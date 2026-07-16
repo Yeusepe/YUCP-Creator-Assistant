@@ -14,12 +14,18 @@ import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
 import {
   inspectDesyncIndex,
+  localCasStore,
   type S3CasStore,
   s3CasStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
 import { createS3Bucket, deleteS3Objects, listS3Objects } from '../storage-core/s3Control';
-import { ingestVersion, promoteVersion, retrieveVersion } from './ingestPipeline';
+import {
+  ingestVersion,
+  promoteVersion,
+  resolvePipelineCasIndexId,
+  retrieveVersion,
+} from './ingestPipeline';
 
 const POSTGRES_IMAGE = 'postgres:17-alpine';
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -323,6 +329,15 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       inputPath: rawV1Path,
     });
     expect(assembledV1).toMatchObject({ state: 'ASSEMBLED' });
+    const wrongLocalStore = localCasStore(join(scratch, 'wrong-local-store'));
+    await expect(
+      retrieveVersion({
+        catalog: activeCatalog,
+        store: wrongLocalStore,
+        versionId: assembledV1.id,
+        outputPath: join(scratch, 'wrong-kind-retrieval.bin'),
+      })
+    ).rejects.toThrow('CAS index store kind s3 does not match local store');
     const readyV1 = await promoteVersion({
       catalog: activeCatalog,
       store: activeStore,
@@ -373,6 +388,24 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
     expect(v2DeltaBytes).toBeGreaterThan(0);
     expect(v2DeltaBytes).toBeLessThan(v1ChunkBytes / 3);
 
+    const assembledKindMismatch = await ingestVersion({
+      catalog: activeCatalog,
+      store: activeStore,
+      packageId: 'pipeline-package',
+      version: '2.5.0',
+      inputPath: rawV1Path,
+    });
+    await expect(
+      promoteVersion({
+        catalog: activeCatalog,
+        store: wrongLocalStore,
+        versionId: assembledKindMismatch.id,
+      })
+    ).rejects.toThrow('CAS index store kind s3 does not match local store');
+    expect(await activeCatalog.getVersion(assembledKindMismatch.id)).toMatchObject({
+      state: 'FAILED',
+    });
+
     const assembledBad = await ingestVersion({
       catalog: activeCatalog,
       store: activeStore,
@@ -384,7 +417,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       throw new Error('Bad-store fixture did not persist a CAS index ID');
     }
     const badChunks = await inspectDesyncIndex({
-      indexId: assembledBad.casIndexId,
+      indexId: resolvePipelineCasIndexId(activeStore, assembledBad.casIndexId),
       store: activeStore,
     });
     const missingChunk = badChunks[0];
@@ -418,7 +451,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
     expect(failedEvents).not.toContain('catalog.version.ready');
 
     console.log(
-      `PIPELINE_PROMOTE_E2E_RESULT lifecycle-to-READY=${readyV1.state} readiness-guard-FAILED-on-bad-store=${failed?.state} dedup-through-S3=v1ChunkBytes:${v1ChunkBytes},v2DeltaChunks:${v2DeltaChunks},v2DeltaBytes:${v2DeltaBytes}`
+      `PIPELINE_PROMOTE_E2E_RESULT lifecycle-to-READY=${readyV1.state} readiness-guard-FAILED-on-bad-store=${failed?.state} store-kind-mismatch=retrieve+promote dedup-through-S3=v1ChunkBytes:${v1ChunkBytes},v2DeltaChunks:${v2DeltaChunks},v2DeltaBytes:${v2DeltaBytes}`
     );
   });
 });

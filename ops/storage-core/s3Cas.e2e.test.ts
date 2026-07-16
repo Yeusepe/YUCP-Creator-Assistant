@@ -173,7 +173,7 @@ describe('desync S3 CAS against throwaway MinIO', () => {
         throw new Error(`S3 chunk object key did not contain a chunk ID: ${chunk.key}`);
       }
       expect(bytes.byteLength).toBe(chunk.size);
-      expect(createHash('sha512-256').update(bytes).digest('hex')).toBe(chunkId);
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(chunkId);
     }
 
     const reconstructedV1Path = join(scratchPath, 'reconstructed-v1.bin');

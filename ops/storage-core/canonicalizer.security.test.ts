@@ -8,6 +8,60 @@ import { runCommand } from './process';
 
 const scratchPaths: string[] = [];
 
+type TarEntry = {
+  body?: Buffer;
+  linkName?: string;
+  name: string;
+  type: '0' | '2';
+};
+
+function writeTarText(header: Buffer, offset: number, length: number, value: string): void {
+  const bytes = Buffer.from(value, 'utf8');
+  if (bytes.byteLength > length) {
+    throw new Error(`Tar fixture field is too long: ${value}`);
+  }
+  bytes.copy(header, offset);
+}
+
+function tarOctal(value: number, length: number): string {
+  return `${value.toString(8).padStart(length - 1, '0')}\0`;
+}
+
+function tarHeader(entry: TarEntry): Buffer {
+  const bodyLength = entry.body?.byteLength ?? 0;
+  const header = Buffer.alloc(512);
+  writeTarText(header, 0, 100, entry.name);
+  writeTarText(header, 100, 8, tarOctal(entry.type === '2' ? 0o777 : 0o644, 8));
+  writeTarText(header, 108, 8, tarOctal(0, 8));
+  writeTarText(header, 116, 8, tarOctal(0, 8));
+  writeTarText(header, 124, 12, tarOctal(bodyLength, 12));
+  writeTarText(header, 136, 12, tarOctal(0, 12));
+  header.fill(0x20, 148, 156);
+  writeTarText(header, 156, 1, entry.type);
+  if (entry.linkName) {
+    writeTarText(header, 157, 100, entry.linkName);
+  }
+  writeTarText(header, 257, 6, 'ustar\0');
+  writeTarText(header, 263, 2, '00');
+  const checksum = header.reduce((total, byte) => total + byte, 0);
+  writeTarText(header, 148, 8, `${checksum.toString(8).padStart(6, '0')}\0 `);
+  return header;
+}
+
+function createTar(entries: TarEntry[]): Buffer {
+  const blocks: Buffer[] = [];
+  for (const entry of entries) {
+    const body = entry.body ?? Buffer.alloc(0);
+    blocks.push(tarHeader(entry), body);
+    const padding = (512 - (body.byteLength % 512)) % 512;
+    if (padding > 0) {
+      blocks.push(Buffer.alloc(padding));
+    }
+  }
+  blocks.push(Buffer.alloc(1024));
+  return Buffer.concat(blocks);
+}
+
 function assertScratchPath(scratchPath: string): void {
   const scratchRelativePath = relative(resolve(tmpdir()), resolve(scratchPath));
   if (
@@ -93,6 +147,32 @@ describe('canonicalizer decompression budget', () => {
     await expect(
       canonicalizeArtifact({ inputPath, outputPath, maxDecompressedBytes })
     ).rejects.toThrow('decompressed byte budget');
+    expect(await pathExists(outputPath)).toBeFalse();
+    await expectNoCanonicalizerScratch(scratchPath);
+  });
+});
+
+describe('canonicalizer tar path safety', () => {
+  it('rejects a symlink escape without writing outside the extraction root', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-traversal-'));
+    scratchPaths.push(scratchPath);
+    const tarPath = join(scratchPath, 'traversal.tar');
+    const inputPath = join(scratchPath, 'traversal.tar.gz');
+    const outputPath = join(scratchPath, 'canonical.tar.gz');
+    const escapedPath = join(scratchPath, 'escaped-outside-extraction.txt');
+    await writeFile(
+      tarPath,
+      createTar([
+        { name: 'escape', type: '2', linkName: '..' },
+        { name: 'safe.txt', type: '0', body: Buffer.from('safe') },
+      ])
+    );
+    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+
+    await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
+      'unsafe tar entry'
+    );
+    expect(await pathExists(escapedPath)).toBeFalse();
     expect(await pathExists(outputPath)).toBeFalse();
     await expectNoCanonicalizerScratch(scratchPath);
   });

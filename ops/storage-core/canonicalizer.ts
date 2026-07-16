@@ -1,5 +1,15 @@
 import { closeSync, createReadStream, openSync, writeSync } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readlink,
+  realpath,
+  rm,
+  stat,
+} from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { createGunzip } from 'node:zlib';
 import {
@@ -11,6 +21,7 @@ import {
   type ZipInputFile,
   ZipPassThrough,
 } from 'fflate';
+import { list as listTar } from 'tar';
 import { commandPathEnv, runCommand } from './process';
 
 export const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024;
@@ -110,6 +121,95 @@ function canonicalZipEntryName(rawName: string): string {
   }
 
   return directory ? `${pathWithoutTrailingSlash}/` : pathWithoutTrailingSlash;
+}
+
+function canonicalTarEntryName(rawName: string): string | undefined {
+  let normalized = rawName.replace(/\\/g, '/');
+  while (normalized.startsWith('./')) {
+    normalized = normalized.slice(2);
+  }
+  if (normalized === '.' || normalized === '') {
+    return undefined;
+  }
+  const pathWithoutTrailingSlash = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+  const segments = pathWithoutTrailingSlash.split('/');
+  if (
+    normalized.startsWith('/') ||
+    /^[a-zA-Z]:/.test(normalized) ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`tar.gz contains an unsafe tar entry path: ${rawName}`);
+  }
+  return pathWithoutTrailingSlash;
+}
+
+function assertSafeTarTarget(extractedPath: string, targetPath: string, rawName: string): void {
+  try {
+    assertInside(extractedPath, targetPath);
+  } catch (error) {
+    throw new Error(`tar.gz contains an unsafe tar entry target: ${rawName}`, { cause: error });
+  }
+}
+
+async function validateTarArchiveEntries(
+  sourceTarPath: string,
+  extractedPath: string
+): Promise<void> {
+  let validationError: Error | undefined;
+  await listTar({
+    file: sourceTarPath,
+    onReadEntry(entry) {
+      if (validationError) {
+        return;
+      }
+      try {
+        const entryName = canonicalTarEntryName(entry.path);
+        if (!entryName) {
+          return;
+        }
+        assertSafeTarTarget(extractedPath, resolve(extractedPath, entryName), entry.path);
+        if (!entry.linkpath) {
+          return;
+        }
+        const linkName = entry.linkpath.replace(/\\/g, '/');
+        const linkTarget =
+          entry.type === 'SymbolicLink'
+            ? resolve(extractedPath, dirname(entryName), linkName)
+            : resolve(extractedPath, linkName);
+        assertSafeTarTarget(extractedPath, linkTarget, `${entry.path} -> ${entry.linkpath}`);
+      } catch (error) {
+        validationError = error instanceof Error ? error : new Error(String(error));
+      }
+    },
+  });
+  if (validationError) {
+    throw validationError;
+  }
+}
+
+async function validateExtractedTarEntries(extractedPath: string): Promise<void> {
+  async function visit(directoryPath: string): Promise<void> {
+    for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+      const entryPath = join(directoryPath, entry.name);
+      assertSafeTarTarget(extractedPath, entryPath, entryPath);
+      const entryStats = await lstat(entryPath);
+      if (entryStats.isSymbolicLink()) {
+        const linkTarget = resolve(dirname(entryPath), await readlink(entryPath));
+        assertSafeTarTarget(extractedPath, linkTarget, entryPath);
+        try {
+          assertSafeTarTarget(extractedPath, await realpath(entryPath), entryPath);
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+            throw error;
+          }
+        }
+      } else if (entryStats.isDirectory()) {
+        await visit(entryPath);
+      }
+    }
+  }
+
+  await visit(extractedPath);
 }
 
 async function extractZipEntries(
@@ -295,6 +395,7 @@ async function canonicalizeTarGzip(
   } finally {
     closeSync(sourceTarFile);
   }
+  await validateTarArchiveEntries(sourceTarPath, extractedPath);
   await runCommand(
     'tar',
     [
@@ -306,10 +407,11 @@ async function canonicalizeTarGzip(
       extractedPath,
       '--no-same-owner',
       '--no-same-permissions',
-      '--keep-directory-symlink',
+      '--no-overwrite-dir',
     ],
     { env: deterministicEnvironment }
   );
+  await validateExtractedTarEntries(extractedPath);
   await runCommand(
     'tar',
     [

@@ -1,4 +1,4 @@
-export const DESYNC_STORAGE_FORMAT_VERSION = 'desync-uncompressed-v1';
+export const DESYNC_STORAGE_FORMAT_VERSION = 'desync-uncompressed-sha256-v1';
 export const DESYNC_CHUNK_AVG_KIB = 64;
 
 export type DeliveryManifestChunk = {
@@ -13,6 +13,11 @@ export type DeliveryManifest = {
   contentType: string;
   chunkAvgKib: number;
   chunks: DeliveryManifestChunk[];
+};
+
+export type DeliveryAssemblyMetadata = {
+  contentType: string;
+  versionId: string;
 };
 
 const STORAGE_FORMAT_VERSION_PATTERN = /^[a-z0-9][a-z0-9.-]{0,63}$/;
@@ -30,9 +35,42 @@ function assertVersionId(versionId: string): void {
   }
 }
 
+function assertContentType(contentType: string): void {
+  if (contentType.length > 255 || !CONTENT_TYPE_PATTERN.test(contentType)) {
+    throw new Error('Delivery contentType is invalid');
+  }
+}
+
 export function deliveryManifestObjectId(versionId: string): string {
   assertVersionId(versionId);
   return `${versionId}.delivery.json`;
+}
+
+export function deliveryAssemblyMetadataObjectId(versionId: string): string {
+  assertVersionId(versionId);
+  return `${versionId}.delivery-meta.json`;
+}
+
+export function parseDeliveryAssemblyMetadata(value: unknown): DeliveryAssemblyMetadata {
+  if (!isRecord(value)) {
+    throw new Error('Delivery assembly metadata must be a JSON object');
+  }
+  const { contentType, versionId } = value;
+  if (typeof versionId !== 'string') {
+    throw new Error('Delivery assembly metadata has an invalid versionId');
+  }
+  assertVersionId(versionId);
+  if (typeof contentType !== 'string') {
+    throw new Error('Delivery assembly metadata has an invalid contentType');
+  }
+  assertContentType(contentType);
+  return { contentType, versionId };
+}
+
+export function createDeliveryAssemblyMetadata(
+  input: DeliveryAssemblyMetadata
+): DeliveryAssemblyMetadata {
+  return parseDeliveryAssemblyMetadata(input);
 }
 
 export function parseDeliveryManifest(value: unknown): DeliveryManifest {
@@ -54,13 +92,10 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
   if (!Number.isSafeInteger(totalSize) || (totalSize as number) < 0) {
     throw new Error('Delivery manifest has an invalid totalSize');
   }
-  if (
-    typeof contentType !== 'string' ||
-    contentType.length > 255 ||
-    !CONTENT_TYPE_PATTERN.test(contentType)
-  ) {
+  if (typeof contentType !== 'string') {
     throw new Error('Delivery manifest has an invalid contentType');
   }
+  assertContentType(contentType);
   if (!Number.isSafeInteger(chunkAvgKib) || (chunkAvgKib as number) <= 0) {
     throw new Error('Delivery manifest has an invalid chunkAvgKib');
   }

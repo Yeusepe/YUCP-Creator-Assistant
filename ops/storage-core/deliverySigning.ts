@@ -1,6 +1,7 @@
 import { deliveryManifestObjectId } from './deliveryManifest';
 
 export type SignDeliveryUrlInput = {
+  /** Expiration as a Date or Unix epoch milliseconds. Numeric epoch seconds are rejected. */
   expiresAt: Date | number;
   key: string;
   versionId: string;
@@ -9,6 +10,7 @@ export type SignDeliveryUrlInput = {
 export type VerifyDeliveryUrlInput = {
   exp: string;
   key: string;
+  /** Verification time as a Date or Unix epoch milliseconds. */
   now?: Date | number;
   sig: string;
   versionId: string;
@@ -22,11 +24,18 @@ export type DeliveryUrlSignature = {
 const textEncoder = new TextEncoder();
 const SIGNATURE_PATTERN = /^[0-9a-f]{64}$/;
 const EXPIRY_PATTERN = /^(0|[1-9][0-9]{0,15})$/;
+const MIN_UNAMBIGUOUS_EPOCH_MILLISECONDS = 1_000_000_000_000;
 
 function unixSeconds(value: Date | number): number {
   const milliseconds = value instanceof Date ? value.getTime() : value;
   if (!Number.isFinite(milliseconds)) {
     throw new Error('Delivery URL expiry must be a finite timestamp');
+  }
+  if (
+    typeof value === 'number' &&
+    (!Number.isSafeInteger(value) || value < MIN_UNAMBIGUOUS_EPOCH_MILLISECONDS)
+  ) {
+    throw new Error('Numeric delivery URL expiry must use Unix epoch milliseconds');
   }
   const seconds = Math.floor(milliseconds / 1000);
   if (!Number.isSafeInteger(seconds) || seconds < 0) {
