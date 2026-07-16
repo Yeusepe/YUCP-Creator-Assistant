@@ -6,6 +6,8 @@ import { FileStore } from '@tus/file-store';
 import { Server, type Upload } from '@tus/server';
 import type { Catalog } from '../catalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
+import { loadCasConfig } from '../storage-core/config';
+import { type CasStore, s3CasStore } from '../storage-core/desyncCas';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 export const INGEST_TUS_PATH = '/files';
@@ -34,14 +36,22 @@ type TusHookError = {
 
 export interface CreateIngestTusServerInput {
   catalog: Catalog;
-  storePath: string;
-  indexDir: string;
+  store?: CasStore;
+  indexDir?: string;
   uploadDir: string;
   maxBytes?: number;
 }
 
 function tusError(status_code: number, body: string): TusHookError {
   return { status_code, body: `${body}\n` };
+}
+
+function requiredLocalIndexDir(indexDir: string | undefined): string {
+  const normalized = indexDir?.trim();
+  if (!normalized) {
+    throw new Error('A local CAS store requires indexDir');
+  }
+  return normalized;
 }
 
 function requiredMetadata(metadata: Upload['metadata'], key: string, label = key): string {
@@ -145,6 +155,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new Error('maxBytes must be a positive safe integer');
   }
+  const store = input.store ?? s3CasStore(loadCasConfig());
+  const assemblyStorage =
+    store.kind === 's3' ? { store } : { store, indexDir: requiredLocalIndexDir(input.indexDir) };
 
   const uploadDir = resolve(input.uploadDir);
   mkdirSync(uploadDir, { recursive: true });
@@ -200,10 +213,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       try {
         const assembled = await assembleVersion({
           catalog: input.catalog,
-          storePath: input.storePath,
-          indexDir: input.indexDir,
           versionId,
           inputPath: storedUpload.storage.path,
+          ...assemblyStorage,
         });
         console.info(
           JSON.stringify({
