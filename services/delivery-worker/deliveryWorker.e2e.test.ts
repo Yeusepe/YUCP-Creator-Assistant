@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -12,7 +12,11 @@ import {
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../../ops/catalog';
-import { assembleVersion, beginVersion } from '../../ops/ingest-pipeline/ingestPipeline';
+import {
+  assembleVersion,
+  beginVersion,
+  promoteVersion,
+} from '../../ops/ingest-pipeline/ingestPipeline';
 import { canonicalizeArtifact } from '../../ops/storage-core/canonicalizer';
 import { loadCasConfig } from '../../ops/storage-core/config';
 import {
@@ -21,9 +25,15 @@ import {
   parseDeliveryManifest,
 } from '../../ops/storage-core/deliveryManifest';
 import { signDeliveryUrl } from '../../ops/storage-core/deliverySigning';
-import { s3CasStore, verifyDesyncCli } from '../../ops/storage-core/desyncCas';
+import { inspectDesyncIndex, s3CasStore, verifyDesyncCli } from '../../ops/storage-core/desyncCas';
 import { runCommand } from '../../ops/storage-core/process';
-import { createS3Bucket, getS3Object } from '../../ops/storage-core/s3Control';
+import {
+  createS3Bucket,
+  deleteS3Objects,
+  getS3Object,
+  listS3Objects,
+  putS3Object,
+} from '../../ops/storage-core/s3Control';
 import { createUnityPackageFixture } from '../../ops/testing/unityPackageFixture';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -438,6 +448,12 @@ async function main(): Promise<void> {
     });
     assert.equal(assembled.state, 'ASSEMBLED');
     assert.equal(assembled.canonicalSha256, canonicalSha256);
+    const ready = await promoteVersion({
+      catalog,
+      store: s3CasStore(casConfig),
+      versionId: assembled.id,
+    });
+    assert.equal(ready.state, 'READY');
 
     const secondRawPath = join(scratchPath, 'delivery-fixture-v2.unitypackage');
     await createUnityPackageFixture({
@@ -467,6 +483,12 @@ async function main(): Promise<void> {
     });
     assert.equal(secondAssembled.state, 'ASSEMBLED');
     assert.equal(secondAssembled.canonicalSha256, secondCanonicalSha256);
+    const secondReady = await promoteVersion({
+      catalog,
+      store: s3CasStore(casConfig),
+      versionId: secondAssembled.id,
+    });
+    assert.equal(secondReady.state, 'READY');
 
     const firstManifestResponse = await getS3Object(
       casConfig,
@@ -516,14 +538,98 @@ async function main(): Promise<void> {
         STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
       },
     });
+    const activeWorker = worker;
     const workerUrl = new URL(`http://127.0.0.1:${worker.port}`);
+
+    const nonReadyRawPath = join(scratchPath, 'non-ready-delivery.bin');
+    await writeFile(nonReadyRawPath, randomBytes(256 * 1024));
+    const nonReadyUploading = await beginVersion({
+      catalog,
+      packageId: 'delivery-package',
+      version: '3.0.0',
+    });
+    const nonReady = await assembleVersion({
+      catalog,
+      inputPath: nonReadyRawPath,
+      store: s3CasStore(casConfig),
+      versionId: nonReadyUploading.id,
+    });
+    assert.equal(nonReady.state, 'ASSEMBLED');
+    const nonReadyManifestKey = `${casConfig.indexPrefix}${deliveryManifestObjectId(nonReady.id)}`;
+    assert.deepEqual(await listS3Objects(casConfig, nonReadyManifestKey), []);
+    const nonReadySigned = await signDeliveryUrl({
+      expiresAt: Date.now() + 5 * 60_000,
+      key: hmacKey,
+      versionId: nonReady.id,
+    });
+    const nonReadyDeliveryUrl = new URL(`/d/${encodeURIComponent(nonReady.id)}`, workerUrl);
+    nonReadyDeliveryUrl.searchParams.set('exp', nonReadySigned.exp);
+    nonReadyDeliveryUrl.searchParams.set('sig', nonReadySigned.sig);
+    const nonReadyDeliveryResponse = await fetch(nonReadyDeliveryUrl);
+    assert.equal(nonReadyDeliveryResponse.status, 404);
+    await nonReadyDeliveryResponse.arrayBuffer();
+
+    const failedRawPath = join(scratchPath, 'failed-delivery.bin');
+    await writeFile(failedRawPath, randomBytes(512 * 1024));
+    const failedUploading = await beginVersion({
+      catalog,
+      packageId: 'delivery-package',
+      version: '4.0.0',
+    });
+    const failedAssembled = await assembleVersion({
+      catalog,
+      inputPath: failedRawPath,
+      store: s3CasStore(casConfig),
+      versionId: failedUploading.id,
+    });
+    if (!failedAssembled.casIndexId) {
+      throw new Error('Failed-version fixture did not persist a CAS index ID');
+    }
+    const failedChunks = await inspectDesyncIndex({
+      indexId: failedAssembled.casIndexId,
+      store: s3CasStore(casConfig),
+    });
+    const failedChunk = failedChunks[0];
+    if (!failedChunk) {
+      throw new Error('Failed-version fixture did not produce a CAS chunk');
+    }
+    await deleteS3Objects(casConfig, [
+      `${casConfig.chunkPrefix}${failedChunk.id.slice(0, 4)}/${failedChunk.id}`,
+    ]);
+    const failedManifestKey = `${casConfig.indexPrefix}${deliveryManifestObjectId(failedAssembled.id)}`;
+    await putS3Object({
+      body: '{"stale":true}',
+      config: casConfig,
+      contentType: 'application/json',
+      key: failedManifestKey,
+    });
+    await assert.rejects(
+      promoteVersion({
+        catalog,
+        store: s3CasStore(casConfig),
+        versionId: failedAssembled.id,
+      })
+    );
+    assert.equal((await catalog.getVersion(failedAssembled.id))?.state, 'FAILED');
+    assert.deepEqual(await listS3Objects(casConfig, failedManifestKey), []);
+    const failedSigned = await signDeliveryUrl({
+      expiresAt: Date.now() + 5 * 60_000,
+      key: hmacKey,
+      versionId: failedAssembled.id,
+    });
+    const failedDeliveryUrl = new URL(`/d/${encodeURIComponent(failedAssembled.id)}`, workerUrl);
+    failedDeliveryUrl.searchParams.set('exp', failedSigned.exp);
+    failedDeliveryUrl.searchParams.set('sig', failedSigned.sig);
+    const failedDeliveryResponse = await fetch(failedDeliveryUrl);
+    assert.equal(failedDeliveryResponse.status, 404);
+    await failedDeliveryResponse.arrayBuffer();
 
     const signed = await signDeliveryUrl({
       expiresAt: Date.now() + 5 * 60_000,
       key: hmacKey,
-      versionId: assembled.id,
+      versionId: ready.id,
     });
-    const deliveryUrl = new URL(`/d/${encodeURIComponent(assembled.id)}`, workerUrl);
+    const deliveryUrl = new URL(`/d/${encodeURIComponent(ready.id)}`, workerUrl);
     deliveryUrl.searchParams.set('exp', signed.exp);
     deliveryUrl.searchParams.set('sig', signed.sig);
 
@@ -542,7 +648,7 @@ async function main(): Promise<void> {
     const secondSigned = await signDeliveryUrl({
       expiresAt: Date.now() + 10 * 60_000,
       key: hmacKey,
-      versionId: assembled.id,
+      versionId: ready.id,
     });
     assert.notEqual(secondSigned.exp, signed.exp);
     assert.notEqual(secondSigned.sig, signed.sig);
@@ -562,15 +668,41 @@ async function main(): Promise<void> {
     const secondVersionSigned = await signDeliveryUrl({
       expiresAt: Date.now() + 15 * 60_000,
       key: hmacKey,
-      versionId: secondAssembled.id,
+      versionId: secondReady.id,
     });
-    const secondVersionDeliveryUrl = new URL(
-      `/d/${encodeURIComponent(secondAssembled.id)}`,
-      workerUrl
-    );
+    const secondVersionDeliveryUrl = new URL(`/d/${encodeURIComponent(secondReady.id)}`, workerUrl);
     secondVersionDeliveryUrl.searchParams.set('exp', secondVersionSigned.exp);
     secondVersionDeliveryUrl.searchParams.set('sig', secondVersionSigned.sig);
 
+    const corruptChunk = secondManifest.chunks.find((chunk) => newChunkIds.has(chunk.id));
+    if (!corruptChunk) {
+      throw new Error('The second version did not contain a unique chunk to corrupt');
+    }
+    const corruptChunkKey = `${casConfig.chunkPrefix}${corruptChunk.id.slice(0, 4)}/${corruptChunk.id}`;
+    const originalChunk = new Uint8Array(
+      await (await getS3Object(casConfig, corruptChunkKey)).arrayBuffer()
+    );
+    const corruptBytes = originalChunk.slice();
+    corruptBytes[0] = (corruptBytes[0] ?? 0) ^ 0xff;
+    try {
+      await putS3Object({
+        body: corruptBytes,
+        config: casConfig,
+        contentType: 'application/octet-stream',
+        key: corruptChunkKey,
+      });
+      await assert.rejects(async () => {
+        const corruptResponse = await activeWorker.fetch(secondVersionDeliveryUrl);
+        await corruptResponse.arrayBuffer();
+      });
+    } finally {
+      await putS3Object({
+        body: originalChunk,
+        config: casConfig,
+        contentType: 'application/octet-stream',
+        key: corruptChunkKey,
+      });
+    }
     const secondVersionChunksBefore = counts.chunkGets;
     const secondVersionResponse = await fetch(secondVersionDeliveryUrl);
     assert.equal(secondVersionResponse.status, 200);
@@ -596,7 +728,7 @@ async function main(): Promise<void> {
     const expired = await signDeliveryUrl({
       expiresAt: Date.now() - 60_000,
       key: hmacKey,
-      versionId: assembled.id,
+      versionId: ready.id,
     });
     const expiredUrl = new URL(deliveryUrl);
     expiredUrl.searchParams.set('exp', expired.exp);
@@ -632,6 +764,9 @@ async function main(): Promise<void> {
     console.log(
       `cross-version-shared-chunks-cache-hit=yes shared-chunks=${sharedChunkIds.size} new-chunks=${newChunkIds.size} origin-chunk-gets=${secondVersionOriginChunkGets}`
     );
+    console.log('corrupt-chunk-rejected=yes');
+    console.log('non-ready-manifest=absent non-ready-delivery=404');
+    console.log('failed-version-manifest-cleanup=yes failed-version-delivery=404');
     console.log(
       `bad-sig-403=yes expired-sig-403=yes auth-storage-fetches=${authFailureStorageGets}`
     );

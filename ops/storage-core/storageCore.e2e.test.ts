@@ -45,7 +45,7 @@ async function assertUncompressedChunkStore(storePath: string): Promise<void> {
       }
       expect(entry.isFile()).toBeTrue();
       const bytes = await readFile(entryPath);
-      expect(createHash('sha512-256').update(bytes).digest('hex')).toBe(basename(entryPath));
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(basename(entryPath));
       chunkCount += 1;
     }
   }

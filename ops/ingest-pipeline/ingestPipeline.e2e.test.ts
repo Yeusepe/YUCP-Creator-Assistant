@@ -11,12 +11,7 @@ import {
   runCatalogMigrations,
 } from '../catalog';
 import { CANONICAL_FORMAT_TAGS, canonicalizeArtifact } from '../storage-core/canonicalizer';
-import {
-  DESYNC_CHUNK_AVG_KIB,
-  DESYNC_STORAGE_FORMAT_VERSION,
-  deliveryManifestObjectId,
-  parseDeliveryManifest,
-} from '../storage-core/deliveryManifest';
+import { deliveryManifestObjectId } from '../storage-core/deliveryManifest';
 import {
   inspectDesyncIndex,
   localCasStore,
@@ -334,11 +329,9 @@ describe.serial('canonical ingest pipeline end to end', () => {
       'catalog.version.assembled',
     ]);
 
-    const manifest = parseDeliveryManifest(
-      JSON.parse(
-        await readFile(resolve(indexDir, deliveryManifestObjectId(assembledV1.id)), 'utf8')
-      )
-    );
+    await expect(
+      readFile(resolve(indexDir, deliveryManifestObjectId(assembledV1.id)), 'utf8')
+    ).rejects.toMatchObject({ code: 'ENOENT' });
     if (!assembledV1.casIndexId) {
       throw new Error('Assembled version did not persist its desync index ID');
     }
@@ -346,17 +339,9 @@ describe.serial('canonical ingest pipeline end to end', () => {
       indexId: assembledV1.casIndexId,
       store: localCasStore(storePath),
     });
-    expect(manifest).toMatchObject({
-      storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
-      versionId: assembledV1.id,
-      totalSize: expectedCanonical.byteLength,
-      contentType: 'application/octet-stream',
-      chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
-    });
-    expect(manifest.chunks).toEqual(indexChunks);
     const manifestBytes = Buffer.concat(
       await Promise.all(
-        manifest.chunks.map(async (chunk) => {
+        indexChunks.map(async (chunk) => {
           const bytes = await readFile(join(storePath, chunk.id.slice(0, 4), chunk.id));
           expect(bytes.byteLength).toBe(chunk.size);
           return bytes;
@@ -425,7 +410,7 @@ describe.serial('canonical ingest pipeline end to end', () => {
         'INGEST_E2E_RESULT',
         `happy=${assembledV1.state}`,
         'byte-exact-retrieve=yes',
-        `delivery-manifest=ordered(${manifest.chunks.length} chunks)`,
+        `delivery-manifest=withheld-until-ready index=ordered(${indexChunks.length} chunks)`,
         `single-version-store=${singleVersionStore.bytes} bytes (${singleVersionStore.chunks} chunks)`,
         `two-version-store=${twoVersionStore.bytes} bytes (${twoVersionStore.chunks} chunks)`,
         `dedup-ratio=${dedupRatio.toFixed(4)}`,

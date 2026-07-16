@@ -274,12 +274,23 @@ function chunkCacheRequest(
   return new Request(url, { method: 'GET' });
 }
 
-async function readExactChunk(response: Response, expectedSize: number): Promise<Uint8Array> {
+/** Web Crypto digest contract: https://developers.cloudflare.com/workers/runtime-apis/web-crypto/ */
+async function readExactChunk(
+  response: Response,
+  expectedSize: number,
+  expectedSha256: string
+): Promise<Uint8Array> {
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength !== expectedSize) {
     throw new Error(
       `CAS chunk size mismatch: expected ${expectedSize} bytes, received ${bytes.byteLength}`
     );
+  }
+  const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
+  if (sha256 !== expectedSha256) {
+    throw new Error(`CAS chunk SHA-256 mismatch: expected ${expectedSha256}, received ${sha256}`);
   }
   return bytes;
 }
@@ -305,7 +316,7 @@ async function loadChunk(
   const cached = await caches.default.match(cacheRequest);
   if (cached) {
     try {
-      const bytes = await readExactChunk(cached, chunk.size);
+      const bytes = await readExactChunk(cached, chunk.size, chunk.id);
       client.stats.cacheHits += 1;
       return bytes;
     } catch {
@@ -323,7 +334,7 @@ async function loadChunk(
     throw new Error(`CAS chunk storage request failed with ${response.status}`);
   }
 
-  const bytes = await readExactChunk(response, chunk.size);
+  const bytes = await readExactChunk(response, chunk.size, chunk.id);
   const cacheWrite = caches.default
     .put(
       cacheRequest,

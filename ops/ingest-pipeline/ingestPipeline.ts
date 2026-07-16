@@ -2,20 +2,25 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Catalog, type PackageVersion, PackageVersionNotFoundError } from '../catalog';
 import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import {
+  createDeliveryAssemblyMetadata,
   createDeliveryManifest,
   DESYNC_CHUNK_AVG_KIB,
   DESYNC_STORAGE_FORMAT_VERSION,
+  deliveryAssemblyMetadataObjectId,
   deliveryManifestObjectId,
+  parseDeliveryAssemblyMetadata,
 } from '../storage-core/deliveryManifest';
 import {
   type CasStore,
+  deleteCasIndexObject,
   inspectDesyncIndex,
   type LocalCasStore,
   localCasStore,
+  readCasIndexObject,
   reconstructArtifactFromStore,
   type S3CasStore,
   storeArtifactToStore,
@@ -89,8 +94,8 @@ export interface PromoteVersionInput {
 }
 
 type ResolvedAssemblyStorage = {
+  deliveryMetadataId: string;
   indexId: string;
-  manifestId: string;
   store: CasStore;
 };
 
@@ -101,8 +106,8 @@ function resolveAssemblyStorage(
 ): ResolvedAssemblyStorage {
   if (input.store?.kind === 's3') {
     return {
+      deliveryMetadataId: deliveryAssemblyMetadataObjectId(versionId),
       indexId: `${canonicalSha256}.caibx`,
-      manifestId: deliveryManifestObjectId(versionId),
       store: input.store,
     };
   }
@@ -113,10 +118,14 @@ function resolveAssemblyStorage(
   }
 
   return {
+    deliveryMetadataId: resolve(input.indexDir, deliveryAssemblyMetadataObjectId(versionId)),
     indexId: resolve(input.indexDir, `${canonicalSha256}.caibx`),
-    manifestId: resolve(input.indexDir, deliveryManifestObjectId(versionId)),
     store: localStore,
   };
+}
+
+function siblingIndexObjectId(store: CasStore, indexId: string, objectId: string): string {
+  return store.kind === 's3' ? objectId : resolve(dirname(indexId), objectId);
 }
 
 function deliveryContentType(inputPath: string, configuredContentType?: string): string {
@@ -183,22 +192,14 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         indexId: storage.indexId,
         store: storage.store,
       });
-      const chunks = await inspectDesyncIndex({
-        indexId: storage.indexId,
-        store: storage.store,
-      });
-      const manifest = createDeliveryManifest({
-        storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+      const deliveryMetadata = createDeliveryAssemblyMetadata({
         versionId: input.versionId,
-        totalSize: canonical.byteLength,
         contentType: deliveryContentType(input.inputPath, input.contentType),
-        chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
-        chunks,
       });
       await writeCasIndexObject({
-        body: JSON.stringify(manifest),
+        body: JSON.stringify(deliveryMetadata),
         contentType: 'application/json',
-        indexId: storage.manifestId,
+        indexId: storage.deliveryMetadataId,
         store: storage.store,
       });
 
@@ -243,6 +244,17 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     if (!promoting.casIndexId || !promoting.canonicalSha256) {
       throw new Error(`Package version ${promoting.id} has incomplete CAS assembly metadata`);
     }
+    const deliveryMetadataId = siblingIndexObjectId(
+      input.store,
+      promoting.casIndexId,
+      deliveryAssemblyMetadataObjectId(promoting.id)
+    );
+    const deliveryMetadata = parseDeliveryAssemblyMetadata(
+      JSON.parse(await readCasIndexObject({ indexId: deliveryMetadataId, store: input.store }))
+    );
+    if (deliveryMetadata.versionId !== promoting.id) {
+      throw new Error(`Delivery assembly metadata does not match package version ${promoting.id}`);
+    }
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-promote-'));
     const stagedPath = join(scratchPath, 'artifact.reassembled');
@@ -271,6 +283,27 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
       );
     }
 
+    const manifestId = siblingIndexObjectId(
+      input.store,
+      promoting.casIndexId,
+      deliveryManifestObjectId(promoting.id)
+    );
+    const manifest = createDeliveryManifest({
+      storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+      versionId: promoting.id,
+      totalSize: byteLength,
+      contentType: deliveryMetadata.contentType,
+      chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
+      chunks,
+    });
+    await writeCasIndexObject({
+      body: JSON.stringify(manifest),
+      contentType: 'application/json',
+      indexId: manifestId,
+      store: input.store,
+    });
+    await deleteCasIndexObject({ indexId: deliveryMetadataId, store: input.store });
+
     return await input.catalog.transition(promoting.id, 'READY', {
       event: {
         type: 'catalog.version.ready',
@@ -278,8 +311,32 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
       },
     });
   } catch (error) {
-    await input.catalog.markFailed(promoting.id, errorMessage(error));
-    throw error;
+    let failure = error;
+    if (promoting.casIndexId) {
+      // ponytail: Full orphan-chunk GC is a separate future task.
+      const cleanupErrors: unknown[] = [];
+      for (const objectId of [
+        deliveryManifestObjectId(promoting.id),
+        deliveryAssemblyMetadataObjectId(promoting.id),
+      ]) {
+        try {
+          await deleteCasIndexObject({
+            indexId: siblingIndexObjectId(input.store, promoting.casIndexId, objectId),
+            store: input.store,
+          });
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (cleanupErrors.length > 0) {
+        failure = new AggregateError(
+          [error, ...cleanupErrors],
+          `Promotion failed and cleanup was incomplete for package version ${promoting.id}`
+        );
+      }
+    }
+    await input.catalog.markFailed(promoting.id, errorMessage(failure));
+    throw failure;
   } finally {
     if (scratchPath) {
       await rm(scratchPath, { force: true, recursive: true });
