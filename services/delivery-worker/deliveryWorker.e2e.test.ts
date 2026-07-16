@@ -15,11 +15,15 @@ import {
 import { assembleVersion, beginVersion } from '../../ops/ingest-pipeline/ingestPipeline';
 import { canonicalizeArtifact } from '../../ops/storage-core/canonicalizer';
 import { loadCasConfig } from '../../ops/storage-core/config';
-import { DESYNC_STORAGE_FORMAT_VERSION } from '../../ops/storage-core/deliveryManifest';
+import {
+  DESYNC_STORAGE_FORMAT_VERSION,
+  deliveryManifestObjectId,
+  parseDeliveryManifest,
+} from '../../ops/storage-core/deliveryManifest';
 import { signDeliveryUrl } from '../../ops/storage-core/deliverySigning';
 import { s3CasStore, verifyDesyncCli } from '../../ops/storage-core/desyncCas';
 import { runCommand } from '../../ops/storage-core/process';
-import { createS3Bucket } from '../../ops/storage-core/s3Control';
+import { createS3Bucket, getS3Object } from '../../ops/storage-core/s3Control';
 import { createUnityPackageFixture } from '../../ops/testing/unityPackageFixture';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -434,6 +438,56 @@ async function main(): Promise<void> {
     });
     assert.equal(assembled.state, 'ASSEMBLED');
     assert.equal(assembled.canonicalSha256, canonicalSha256);
+
+    const secondRawPath = join(scratchPath, 'delivery-fixture-v2.unitypackage');
+    await createUnityPackageFixture({
+      byteScale: 0.125,
+      outputPath: secondRawPath,
+      timestamp: new Date('2026-01-01T00:00:00.000Z'),
+      treePath: join(scratchPath, 'fixture-tree-v2'),
+      versionSeed: 'delivery-version-v2',
+    });
+    const secondCanonicalPath = join(scratchPath, 'delivery-fixture-v2.canonical');
+    const secondCanonical = await canonicalizeArtifact({
+      inputPath: secondRawPath,
+      outputPath: secondCanonicalPath,
+    });
+    const secondCanonicalBytes = await readFile(secondCanonical.path);
+    const secondCanonicalSha256 = await sha256File(secondCanonical.path);
+    const secondUploading = await beginVersion({
+      catalog,
+      packageId: 'delivery-package',
+      version: '2.0.0',
+    });
+    const secondAssembled = await assembleVersion({
+      catalog,
+      inputPath: secondRawPath,
+      store: s3CasStore(casConfig),
+      versionId: secondUploading.id,
+    });
+    assert.equal(secondAssembled.state, 'ASSEMBLED');
+    assert.equal(secondAssembled.canonicalSha256, secondCanonicalSha256);
+
+    const firstManifestResponse = await getS3Object(
+      casConfig,
+      `${casConfig.indexPrefix}${deliveryManifestObjectId(assembled.id)}`
+    );
+    const firstManifest = parseDeliveryManifest(JSON.parse(await firstManifestResponse.text()));
+    const secondManifestResponse = await getS3Object(
+      casConfig,
+      `${casConfig.indexPrefix}${deliveryManifestObjectId(secondAssembled.id)}`
+    );
+    const secondManifest = parseDeliveryManifest(JSON.parse(await secondManifestResponse.text()));
+    const firstChunkIds = new Set(firstManifest.chunks.map((chunk) => chunk.id));
+    const secondChunkIds = new Set(secondManifest.chunks.map((chunk) => chunk.id));
+    const sharedChunkIds = new Set(
+      [...secondChunkIds].filter((chunkId) => firstChunkIds.has(chunkId))
+    );
+    const newChunkIds = new Set(
+      [...secondChunkIds].filter((chunkId) => !firstChunkIds.has(chunkId))
+    );
+    assert.ok(sharedChunkIds.size > 0, 'The two versions must share at least one CAS chunk');
+    assert.ok(newChunkIds.size > 0, 'The second version must contain at least one new CAS chunk');
     await waitForAuditIdle(counts);
 
     worker = await unstable_dev(resolve('services/delivery-worker/src/index.ts'), {
@@ -485,14 +539,51 @@ async function main(): Promise<void> {
     assert.equal(sha256Bytes(firstBytes), canonicalSha256);
     assert.deepEqual(firstBytes, new Uint8Array(canonicalBytes));
 
+    const secondSigned = await signDeliveryUrl({
+      expiresAt: Date.now() + 10 * 60_000,
+      key: hmacKey,
+      versionId: assembled.id,
+    });
+    assert.notEqual(secondSigned.exp, signed.exp);
+    assert.notEqual(secondSigned.sig, signed.sig);
+    const secondDeliveryUrl = new URL(deliveryUrl);
+    secondDeliveryUrl.searchParams.set('exp', secondSigned.exp);
+    secondDeliveryUrl.searchParams.set('sig', secondSigned.sig);
+
     const secondChunksBefore = counts.chunkGets;
-    const secondResponse = await fetch(deliveryUrl);
+    const secondResponse = await fetch(secondDeliveryUrl);
     assert.equal(secondResponse.status, 200);
     const secondBytes = new Uint8Array(await secondResponse.arrayBuffer());
     await waitForAuditIdle(counts);
     const secondOriginChunkGets = counts.chunkGets - secondChunksBefore;
     assert.equal(secondOriginChunkGets, 0);
     assert.equal(sha256Bytes(secondBytes), canonicalSha256);
+
+    const secondVersionSigned = await signDeliveryUrl({
+      expiresAt: Date.now() + 15 * 60_000,
+      key: hmacKey,
+      versionId: secondAssembled.id,
+    });
+    const secondVersionDeliveryUrl = new URL(
+      `/d/${encodeURIComponent(secondAssembled.id)}`,
+      workerUrl
+    );
+    secondVersionDeliveryUrl.searchParams.set('exp', secondVersionSigned.exp);
+    secondVersionDeliveryUrl.searchParams.set('sig', secondVersionSigned.sig);
+
+    const secondVersionChunksBefore = counts.chunkGets;
+    const secondVersionResponse = await fetch(secondVersionDeliveryUrl);
+    assert.equal(secondVersionResponse.status, 200);
+    assert.equal(
+      secondVersionResponse.headers.get('content-length'),
+      secondCanonicalBytes.byteLength.toString()
+    );
+    const secondVersionBytes = new Uint8Array(await secondVersionResponse.arrayBuffer());
+    await waitForAuditIdle(counts);
+    const secondVersionOriginChunkGets = counts.chunkGets - secondVersionChunksBefore;
+    assert.equal(secondVersionOriginChunkGets, newChunkIds.size);
+    assert.equal(sha256Bytes(secondVersionBytes), secondCanonicalSha256);
+    assert.deepEqual(secondVersionBytes, new Uint8Array(secondCanonicalBytes));
 
     const storageBeforeAuthFailures = counts.totalGets;
     const badUrl = new URL(deliveryUrl);
@@ -536,7 +627,10 @@ async function main(): Promise<void> {
       `byte-exact=yes sha256=match bytes=${canonicalBytes.byteLength} origin-chunks=${firstOriginChunkGets}`
     );
     console.log(
-      `second-request-cache-hit=yes first-origin-chunk-gets=${firstOriginChunkGets} second-origin-chunk-gets=${secondOriginChunkGets}`
+      `cross-signature-cache-hit=yes exp-different=yes sig-different=yes first-origin-chunk-gets=${firstOriginChunkGets} second-origin-chunk-gets=${secondOriginChunkGets}`
+    );
+    console.log(
+      `cross-version-shared-chunks-cache-hit=yes shared-chunks=${sharedChunkIds.size} new-chunks=${newChunkIds.size} origin-chunk-gets=${secondVersionOriginChunkGets}`
     );
     console.log(
       `bad-sig-403=yes expired-sig-403=yes auth-storage-fetches=${authFailureStorageGets}`
