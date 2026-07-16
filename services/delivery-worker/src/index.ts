@@ -265,6 +265,9 @@ function chunkCacheRequest(
   storageFormatVersion: string,
   chunkId: string
 ): Request {
+  // The Cache API keys by Request URL and is independent of front-of-Worker caching. Keep the
+  // deployment-stable route origin and immutable CAS identity, but remove delivery authorization.
+  // https://developers.cloudflare.com/workers/reference/how-the-cache-works/#cache-api
   const url = new URL(request.url);
   url.pathname = `/cas/${encodeURIComponent(storageFormatVersion)}/${chunkId}`;
   url.search = '';
