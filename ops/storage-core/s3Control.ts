@@ -9,6 +9,15 @@ export type S3Object = {
   size: number;
 };
 
+export type S3ObjectMetadata = S3Object & {
+  lastModified: Date;
+};
+
+export interface S3ObjectPage {
+  nextContinuationToken?: string;
+  objects: S3ObjectMetadata[];
+}
+
 type SignedRequestInput = {
   body?: BodyInit;
   config: CasConfig;
@@ -131,6 +140,83 @@ export async function listS3Objects(config: CasConfig, prefix?: string): Promise
   } while (continuationToken);
 
   return objects;
+}
+
+/**
+ * Bounded ListObjectsV2 page with the object age metadata needed by maintenance operations.
+ * Existing callers of listS3Objects retain their current all-pages behavior and return shape.
+ *
+ * ListObjectsV2 reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
+ */
+export async function listS3ObjectPage(
+  config: CasConfig,
+  input: {
+    continuationToken?: string;
+    maxKeys: number;
+    prefix: string;
+  }
+): Promise<S3ObjectPage> {
+  if (!Number.isSafeInteger(input.maxKeys) || input.maxKeys <= 0 || input.maxKeys > 1000) {
+    throw new RangeError('S3 ListObjectsV2 maxKeys must be an integer from 1 through 1000');
+  }
+
+  const query: Record<string, string> = {
+    'list-type': '2',
+    'max-keys': String(input.maxKeys),
+    prefix: input.prefix,
+  };
+  if (input.continuationToken) {
+    query['continuation-token'] = input.continuationToken;
+  }
+  const response = await signedRequest({
+    config,
+    method: 'GET',
+    operation: 'ListObjectsV2',
+    query,
+  });
+  const xml = await response.text();
+  const objects: S3ObjectMetadata[] = [];
+
+  for (const match of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+    const content = match[1] ?? '';
+    const key = content.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+    const size = content.match(/<Size>(\d+)<\/Size>/)?.[1];
+    const lastModified = content.match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1];
+    if (key === undefined || size === undefined || lastModified === undefined) {
+      throw new Error('S3 ListObjectsV2 returned an invalid object metadata entry');
+    }
+
+    const parsedSize = Number(size);
+    const parsedLastModified = new Date(xmlDecode(lastModified));
+    if (
+      !Number.isSafeInteger(parsedSize) ||
+      parsedSize < 0 ||
+      Number.isNaN(parsedLastModified.getTime())
+    ) {
+      throw new Error('S3 ListObjectsV2 returned invalid object size or LastModified metadata');
+    }
+    objects.push({
+      key: xmlDecode(key),
+      size: parsedSize,
+      lastModified: parsedLastModified,
+    });
+  }
+
+  const truncatedMatch = xml.match(/<IsTruncated>(true|false)<\/IsTruncated>/);
+  if (!truncatedMatch) {
+    throw new Error('S3 ListObjectsV2 omitted its IsTruncated value');
+  }
+  const truncated = truncatedMatch[1] === 'true';
+  const nextToken = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/)?.[1];
+  if (truncated && !nextToken) {
+    throw new Error('S3 ListObjectsV2 omitted its continuation token');
+  }
+
+  return {
+    objects,
+    nextContinuationToken: truncated && nextToken ? xmlDecode(nextToken) : undefined,
+  };
 }
 
 /**
