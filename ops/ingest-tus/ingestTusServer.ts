@@ -66,6 +66,12 @@ function validateArtifactMetadata(upload: Upload): {
   const filename = requiredMetadata(upload.metadata, 'filename');
   const packageId = requiredMetadata(upload.metadata, 'packageId');
   const version = requiredMetadata(upload.metadata, 'version');
+  if ([...packageId].length > 256) {
+    throw tusError(400, 'Upload metadata packageId must not exceed 256 characters.');
+  }
+  if ([...version].length > 256) {
+    throw tusError(400, 'Upload metadata version must not exceed 256 characters.');
+  }
   const extension = extname(filename).toLowerCase();
   if (!ALLOWED_EXTENSIONS.has(extension)) {
     throw tusError(415, 'Upload filename must end in .unitypackage, .zip, or .spp.');

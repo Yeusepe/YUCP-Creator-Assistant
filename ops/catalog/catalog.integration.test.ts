@@ -175,6 +175,39 @@ afterAll(async () => {
 });
 
 describe.serial('PostgreSQL catalog integration', () => {
+  it('schema-length-cap: rejects package_id and version longer than 256 characters', async () => {
+    const database = requireSql();
+    const oversizedValue = 'x'.repeat(257);
+
+    for (const input of [
+      {
+        constraintName: 'package_versions_package_id_check',
+        packageId: oversizedValue,
+        version: '1.0.0',
+      },
+      {
+        constraintName: 'package_versions_version_check',
+        packageId: 'schema-length-cap',
+        version: oversizedValue,
+      },
+    ]) {
+      let insertError: unknown;
+      try {
+        await database`
+          INSERT INTO package_versions (id, package_id, version, state)
+          VALUES (${randomUUID()}, ${input.packageId}, ${input.version}, 'CREATED')
+        `;
+      } catch (error) {
+        insertError = error;
+      }
+
+      expect(insertError).toMatchObject({
+        code: '23514',
+        constraint_name: input.constraintName,
+      });
+    }
+  });
+
   it('happy-path: persists the full lifecycle and every legal transition edge', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();
