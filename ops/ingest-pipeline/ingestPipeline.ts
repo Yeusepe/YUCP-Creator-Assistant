@@ -16,6 +16,20 @@ export interface IngestVersionInput {
   inputPath: string;
 }
 
+export interface BeginVersionInput {
+  catalog: Catalog;
+  packageId: string;
+  version: string;
+}
+
+export interface AssembleVersionInput {
+  catalog: Catalog;
+  storePath: string;
+  indexDir: string;
+  versionId: string;
+  inputPath: string;
+}
+
 export interface RetrieveVersionInput {
   catalog: Catalog;
   storePath: string;
@@ -39,48 +53,73 @@ function errorMessage(error: unknown): string {
   return message || 'Unknown ingest failure';
 }
 
-export async function ingestVersion(input: IngestVersionInput): Promise<PackageVersion> {
+export async function beginVersion(input: BeginVersionInput): Promise<PackageVersion> {
   const created = await input.catalog.createVersion({
     packageId: input.packageId,
     version: input.version,
   });
-  let scratchPath: string | undefined;
 
   try {
-    await input.catalog.transition(created.id, 'UPLOADING', {
+    return await input.catalog.transition(created.id, 'UPLOADING', {
       event: { type: 'catalog.version.uploading' },
-    });
-
-    scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-'));
-    const canonical = await canonicalizeArtifact({
-      inputPath: input.inputPath,
-      outputPath: join(scratchPath, 'artifact.canonical'),
-    });
-    const canonicalSha256 = await sha256File(canonical.path);
-    const casIndexId = resolve(input.indexDir, `${canonicalSha256}.caibx`);
-
-    await storeArtifact({
-      artifactPath: canonical.path,
-      indexPath: casIndexId,
-      storePath: input.storePath,
-    });
-
-    return await input.catalog.transition(created.id, 'ASSEMBLED', {
-      fields: {
-        formatTag: canonical.formatTag,
-        canonicalSha256,
-        casIndexId,
-      },
-      event: { type: 'catalog.version.assembled' },
     });
   } catch (error) {
     await input.catalog.markFailed(created.id, errorMessage(error));
     throw error;
-  } finally {
-    if (scratchPath) {
-      await rm(scratchPath, { force: true, recursive: true });
-    }
   }
+}
+
+export async function assembleVersion(input: AssembleVersionInput): Promise<PackageVersion> {
+  let scratchPath: string | undefined;
+
+  try {
+    try {
+      scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-'));
+      const canonical = await canonicalizeArtifact({
+        inputPath: input.inputPath,
+        outputPath: join(scratchPath, 'artifact.canonical'),
+      });
+      const canonicalSha256 = await sha256File(canonical.path);
+      const casIndexId = resolve(input.indexDir, `${canonicalSha256}.caibx`);
+
+      await storeArtifact({
+        artifactPath: canonical.path,
+        indexPath: casIndexId,
+        storePath: input.storePath,
+      });
+
+      return await input.catalog.transition(input.versionId, 'ASSEMBLED', {
+        fields: {
+          formatTag: canonical.formatTag,
+          canonicalSha256,
+          casIndexId,
+        },
+        event: { type: 'catalog.version.assembled' },
+      });
+    } finally {
+      if (scratchPath) {
+        await rm(scratchPath, { force: true, recursive: true });
+      }
+    }
+  } catch (error) {
+    await input.catalog.markFailed(input.versionId, errorMessage(error));
+    throw error;
+  }
+}
+
+export async function ingestVersion(input: IngestVersionInput): Promise<PackageVersion> {
+  const uploading = await beginVersion({
+    catalog: input.catalog,
+    packageId: input.packageId,
+    version: input.version,
+  });
+  return assembleVersion({
+    catalog: input.catalog,
+    storePath: input.storePath,
+    indexDir: input.indexDir,
+    versionId: uploading.id,
+    inputPath: input.inputPath,
+  });
 }
 
 const retrievableStates = new Set<PackageVersion['state']>(['ASSEMBLED', 'PROMOTING', 'READY']);
