@@ -62,6 +62,7 @@
     "smoke:cas:b2": "bun run --env-file=.env.infisical ops/storage-core/smoke-b2.ts",
     "test:catalog:integration": "bun test --timeout 180000 --max-concurrency 1 ./ops/catalog/catalog.integration.test.ts",
     "test:ingest:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-pipeline/ingestPipeline.e2e.test.ts",
+    "test:pipeline:promote:e2e": "bun test --timeout 300000 --max-concurrency 1 ./ops/ingest-pipeline/promotePipeline.e2e.test.ts",
     "test:ingest-tus:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-tus/ingestTusServer.e2e.test.ts",
     "test:delivery:e2e": "tsx ./services/delivery-worker/deliveryWorker.e2e.test.ts",
     "test": "bun run test:fast",
