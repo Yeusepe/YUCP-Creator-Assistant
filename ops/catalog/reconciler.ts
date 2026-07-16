@@ -11,7 +11,7 @@ interface StuckVersionRow {
   id: string;
   package_id: string;
   version: string;
-  format_tag: string;
+  format_tag: string | null;
   canonical_sha256: string | null;
   cas_index_id: string | null;
   state: (typeof transientStates)[number];

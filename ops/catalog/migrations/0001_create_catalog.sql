@@ -2,7 +2,7 @@ CREATE TABLE package_versions (
   id uuid PRIMARY KEY,
   package_id text NOT NULL,
   version text NOT NULL,
-  format_tag text NOT NULL CHECK (length(btrim(format_tag)) > 0),
+  format_tag text CHECK (length(btrim(format_tag)) > 0),
   canonical_sha256 text,
   cas_index_id text,
   state text NOT NULL,
@@ -18,7 +18,7 @@ CREATE TABLE package_versions (
   ),
   CONSTRAINT package_versions_assembled_fields_check CHECK (
     state NOT IN ('ASSEMBLED', 'PROMOTING', 'READY')
-    OR (canonical_sha256 IS NOT NULL AND cas_index_id IS NOT NULL)
+    OR (format_tag IS NOT NULL AND canonical_sha256 IS NOT NULL AND cas_index_id IS NOT NULL)
   ),
   CONSTRAINT package_versions_sha256_check CHECK (
     canonical_sha256 IS NULL OR canonical_sha256 ~ '^[0-9a-f]{64}$'

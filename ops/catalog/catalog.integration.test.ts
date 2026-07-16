@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   Catalog,
   type CatalogDatabase,
+  CatalogInvariantError,
   IllegalCatalogTransitionError,
   openCatalogDatabase,
   reconcileCatalog,
@@ -106,7 +107,6 @@ async function createUploadingVersion(version: string): Promise<string> {
   const created = await activeCatalog.createVersion({
     packageId: 'package-reconciler',
     version,
-    formatTag: 'CANONICAL_ZIP_V1',
   });
   await activeCatalog.advanceVersion(created.id, 'UPLOADING', {
     event: { type: 'catalog.version.uploading' },
@@ -182,14 +182,19 @@ describe.serial('PostgreSQL catalog integration', () => {
     const created = await activeCatalog.createVersion({
       packageId: 'avatar-package',
       version: '1.0.0',
-      formatTag: 'CANONICAL_TARGZ_V1',
     });
+
+    expect(created).toMatchObject({ state: 'CREATED', formatTag: null });
 
     await activeCatalog.advanceVersion(created.id, 'UPLOADING', {
       event: { type: 'catalog.version.uploading' },
     });
     await activeCatalog.advanceVersion(created.id, 'ASSEMBLED', {
-      fields: { canonicalSha256: sha256, casIndexId: 'indexes/avatar-package/1.0.0.caibx' },
+      fields: {
+        formatTag: 'CANONICAL_TARGZ_V1',
+        canonicalSha256: sha256,
+        casIndexId: 'indexes/avatar-package/1.0.0.caibx',
+      },
       event: { type: 'catalog.version.assembled' },
     });
     await activeCatalog.advanceVersion(created.id, 'PROMOTING', {
@@ -201,6 +206,7 @@ describe.serial('PostgreSQL catalog integration', () => {
 
     expect(ready).toMatchObject({
       state: 'READY',
+      formatTag: 'CANONICAL_TARGZ_V1',
       canonicalSha256: sha256,
       casIndexId: 'indexes/avatar-package/1.0.0.caibx',
       error: null,
@@ -221,7 +227,11 @@ describe.serial('PostgreSQL catalog integration', () => {
 
     const assembledFailureId = await createUploadingVersion('assembled-failure-edge');
     await activeCatalog.advanceVersion(assembledFailureId, 'ASSEMBLED', {
-      fields: { canonicalSha256: 'b'.repeat(64), casIndexId: 'indexes/assembled.caibx' },
+      fields: {
+        formatTag: 'CANONICAL_ZIP_V1',
+        canonicalSha256: 'b'.repeat(64),
+        casIndexId: 'indexes/assembled.caibx',
+      },
       event: { type: 'catalog.version.assembled' },
     });
     expect(
@@ -233,7 +243,11 @@ describe.serial('PostgreSQL catalog integration', () => {
 
     const promotingFailureId = await createUploadingVersion('promoting-failure-edge');
     await activeCatalog.advanceVersion(promotingFailureId, 'ASSEMBLED', {
-      fields: { canonicalSha256: 'c'.repeat(64), casIndexId: 'indexes/promoting.caibx' },
+      fields: {
+        formatTag: 'CANONICAL_ZIP_V1',
+        canonicalSha256: 'c'.repeat(64),
+        casIndexId: 'indexes/promoting.caibx',
+      },
       event: { type: 'catalog.version.assembled' },
     });
     await activeCatalog.advanceVersion(promotingFailureId, 'PROMOTING', {
@@ -254,13 +268,61 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(readyEvents[0]?.count).toBe(1);
   });
 
+  it('assembled-invariant: rejects ASSEMBLED without a format tag', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('missing-format-tag');
+
+    let transitionError: unknown;
+    try {
+      await activeCatalog.advanceVersion(versionId, 'ASSEMBLED', {
+        fields: {
+          canonicalSha256: 'd'.repeat(64),
+          casIndexId: 'indexes/missing-format-tag.caibx',
+        },
+        event: { type: 'catalog.version.assembled' },
+      });
+    } catch (error) {
+      transitionError = error;
+    }
+
+    expect(transitionError).toBeInstanceOf(CatalogInvariantError);
+    expect(transitionError).toHaveProperty(
+      'message',
+      'ASSEMBLED requires formatTag, canonicalSha256, and casIndexId'
+    );
+    expect(await activeCatalog.getVersion(versionId)).toMatchObject({
+      state: 'UPLOADING',
+      formatTag: null,
+      canonicalSha256: null,
+      casIndexId: null,
+    });
+  });
+
+  it('created-failure: records a failure directly from CREATED', async () => {
+    const activeCatalog = requireCatalog();
+    const created = await activeCatalog.createVersion({
+      packageId: 'creation-failure-package',
+      version: '1.0.0',
+    });
+
+    const failed = await activeCatalog.markFailed(created.id, 'failed before upload started');
+
+    expect(failed).toMatchObject({
+      state: 'FAILED',
+      formatTag: null,
+      canonicalSha256: null,
+      casIndexId: null,
+      error: 'failed before upload started',
+    });
+    expect(await activeCatalog.getVersion(created.id)).toEqual(failed);
+  });
+
   it('illegal-transition-rejected: throws a typed error without changing the row', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();
     const created = await activeCatalog.createVersion({
       packageId: 'illegal-transition-package',
       version: '1.0.0',
-      formatTag: 'RAW_OPAQUE_V1',
     });
 
     let transitionError: unknown;
@@ -292,7 +354,6 @@ describe.serial('PostgreSQL catalog integration', () => {
     const created = await activeCatalog.createVersion({
       packageId: 'atomicity-package',
       version: '1.0.0',
-      formatTag: 'CANONICAL_ZIP_V1',
     });
 
     let transitionError: unknown;

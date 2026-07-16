@@ -13,7 +13,7 @@ export const CATALOG_STATES = [
 export type CatalogState = (typeof CATALOG_STATES)[number];
 
 const allowedTransitions = {
-  CREATED: ['UPLOADING'],
+  CREATED: ['UPLOADING', 'FAILED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
   ASSEMBLED: ['PROMOTING', 'FAILED'],
   PROMOTING: ['READY', 'FAILED'],
@@ -39,7 +39,7 @@ export interface PackageVersion {
   id: string;
   packageId: string;
   version: string;
-  formatTag: string;
+  formatTag: string | null;
   canonicalSha256: string | null;
   casIndexId: string | null;
   state: CatalogState;
@@ -52,7 +52,7 @@ interface PackageVersionRow {
   id: string;
   package_id: string;
   version: string;
-  format_tag: string;
+  format_tag: string | null;
   canonical_sha256: string | null;
   cas_index_id: string | null;
   state: CatalogState;
@@ -65,11 +65,11 @@ export interface CreateVersionInput {
   id?: string;
   packageId: string;
   version: string;
-  formatTag: string;
   event?: CatalogEvent;
 }
 
 export interface TransitionFields {
+  formatTag?: string;
   canonicalSha256?: string;
   casIndexId?: string;
   error?: string;
@@ -130,7 +130,13 @@ function validateTransitionFields(
   current: PackageVersionRow,
   targetState: CatalogState,
   fields: TransitionFields
-): { canonicalSha256: string | null; casIndexId: string | null; error: string | null } {
+): {
+  formatTag: string | null;
+  canonicalSha256: string | null;
+  casIndexId: string | null;
+  error: string | null;
+} {
+  const formatTag = fields.formatTag ?? current.format_tag;
   const canonicalSha256 = fields.canonicalSha256 ?? current.canonical_sha256;
   const casIndexId = fields.casIndexId ?? current.cas_index_id;
 
@@ -141,22 +147,24 @@ function validateTransitionFields(
   }
   if (
     (targetState === 'ASSEMBLED' || targetState === 'PROMOTING' || targetState === 'READY') &&
-    (canonicalSha256 === null || casIndexId === null)
+    (formatTag === null || canonicalSha256 === null || casIndexId === null)
   ) {
-    throw new CatalogInvariantError(`${targetState} requires canonicalSha256 and casIndexId`);
+    throw new CatalogInvariantError(
+      `${targetState} requires formatTag, canonicalSha256, and casIndexId`
+    );
   }
 
   if (targetState === 'FAILED') {
     if (!fields.error?.trim()) {
       throw new CatalogInvariantError('FAILED requires a non-empty error');
     }
-    return { canonicalSha256, casIndexId, error: fields.error };
+    return { formatTag, canonicalSha256, casIndexId, error: fields.error };
   }
   if (fields.error !== undefined) {
     throw new CatalogInvariantError('error can only be set when transitioning to FAILED');
   }
 
-  return { canonicalSha256, casIndexId, error: null };
+  return { formatTag, canonicalSha256, casIndexId, error: null };
 }
 
 function eventPayload(
@@ -184,8 +192,8 @@ export class Catalog {
 
     return this.sql.begin(async (transaction) => {
       const rows = await transaction<PackageVersionRow[]>`
-        INSERT INTO package_versions (id, package_id, version, format_tag, state)
-        VALUES (${id}, ${input.packageId}, ${input.version}, ${input.formatTag}, 'CREATED')
+        INSERT INTO package_versions (id, package_id, version, state)
+        VALUES (${id}, ${input.packageId}, ${input.version}, 'CREATED')
         RETURNING *
       `;
       const created = rows[0];
@@ -235,6 +243,7 @@ export class Catalog {
         UPDATE package_versions
         SET
           state = ${targetState},
+          format_tag = ${fields.formatTag},
           canonical_sha256 = ${fields.canonicalSha256},
           cas_index_id = ${fields.casIndexId},
           error = ${fields.error},
