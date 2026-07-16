@@ -1,4 +1,5 @@
-import { mkdir, readdir, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
 import { runCommand } from './process';
@@ -28,6 +29,26 @@ export function localCasStore(storePath: string): LocalCasStore {
 
 export function s3CasStore(config: CasConfig): S3CasStore {
   return { kind: 's3', config };
+}
+
+async function runDesyncWithUncompressedStore(
+  storeLocation: string,
+  args: string[],
+  options: Parameters<typeof runCommand>[2] = {}
+): Promise<Awaited<ReturnType<typeof runCommand>>> {
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-config-'));
+  const configPath = join(scratchPath, 'config.json');
+
+  try {
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ 'store-options': { [storeLocation]: { uncompressed: true } } })}\n`,
+      { mode: 0o600 }
+    );
+    return await runCommand('desync', ['--config', configPath, ...args], options);
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
 }
 
 function encodeStorePath(value: string): string {
@@ -130,15 +151,25 @@ export async function storeArtifactToStore(input: {
     const storePath = resolve(input.store.storePath);
     await mkdir(dirname(indexPath), { recursive: true });
     await mkdir(storePath, { recursive: true });
-    await runCommand('desync', ['make', '--store', storePath, indexPath, artifactPath]);
+    await runDesyncWithUncompressedStore(storePath, [
+      'make',
+      '--store',
+      storePath,
+      indexPath,
+      artifactPath,
+    ]);
     return;
   }
 
   const storeUrl = buildDesyncS3StoreUrl(input.store.config);
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  await runCommand('desync', ['make', '--store', storeUrl, indexUrl, artifactPath], {
-    env: desyncS3ChildEnv(input.store.config),
-  });
+  await runDesyncWithUncompressedStore(
+    storeUrl,
+    ['make', '--store', storeUrl, indexUrl, artifactPath],
+    {
+      env: desyncS3ChildEnv(input.store.config),
+    }
+  );
 }
 
 export async function reconstructArtifactFromStore(input: {
@@ -150,10 +181,11 @@ export async function reconstructArtifactFromStore(input: {
   await mkdir(dirname(outputPath), { recursive: true });
 
   if (input.store.kind === 'local') {
-    await runCommand('desync', [
+    const storePath = resolve(input.store.storePath);
+    await runDesyncWithUncompressedStore(storePath, [
       'extract',
       '--store',
-      resolve(input.store.storePath),
+      storePath,
       resolve(input.indexId),
       outputPath,
     ]);
@@ -162,9 +194,13 @@ export async function reconstructArtifactFromStore(input: {
 
   const storeUrl = buildDesyncS3StoreUrl(input.store.config);
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  await runCommand('desync', ['extract', '--store', storeUrl, indexUrl, outputPath], {
-    env: desyncS3ChildEnv(input.store.config),
-  });
+  await runDesyncWithUncompressedStore(
+    storeUrl,
+    ['extract', '--store', storeUrl, indexUrl, outputPath],
+    {
+      env: desyncS3ChildEnv(input.store.config),
+    }
+  );
 }
 
 export async function measureLocalStore(storePath: string): Promise<LocalStoreMeasurement> {

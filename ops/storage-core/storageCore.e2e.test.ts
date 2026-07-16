@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { unzipSync, zipSync } from 'fflate';
 import { CANONICAL_FORMAT_TAGS, canonicalizeArtifact } from './canonicalizer';
 import {
@@ -26,6 +26,31 @@ async function sha256File(filePath: string): Promise<string> {
     hash.update(chunk);
   }
   return hash.digest('hex');
+}
+
+async function assertUncompressedChunkStore(storePath: string): Promise<void> {
+  const pending = [storePath];
+  let chunkCount = 0;
+
+  while (pending.length > 0) {
+    const directoryPath = pending.pop();
+    if (!directoryPath) {
+      throw new Error('Chunk store traversal lost its pending directory');
+    }
+    for (const entry of await readdir(directoryPath, { withFileTypes: true })) {
+      const entryPath = join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(entryPath);
+        continue;
+      }
+      expect(entry.isFile()).toBeTrue();
+      const bytes = await readFile(entryPath);
+      expect(createHash('sha512-256').update(bytes).digest('hex')).toBe(basename(entryPath));
+      chunkCount += 1;
+    }
+  }
+
+  expect(chunkCount).toBeGreaterThan(0);
 }
 
 async function writeFixtureTree(
@@ -196,6 +221,7 @@ describe('local canonical storage core', () => {
       storePath: canonicalStorePath,
     });
     const singleCanonicalStore = await measureLocalStore(canonicalStorePath);
+    await assertUncompressedChunkStore(canonicalStorePath);
     const reconstructedV1Path = join(scratchPath, 'reconstructed-v1.unitypackage');
     await reconstructArtifact({
       indexPath: canonicalV1IndexPath,
@@ -267,7 +293,7 @@ describe('local canonical storage core', () => {
     console.log(
       [
         'CAS_E2E_RESULT',
-        'byte-exact v1=yes v2=yes spp=yes; deterministic=yes',
+        'byte-exact v1=yes v2=yes spp=yes; deterministic=yes; uncompressed-chunks=yes',
         `single canonical version = ${singleCanonicalStore.bytes} bytes (${singleCanonicalStore.chunks} chunks)`,
         `two-version canonical store = ${twoVersionCanonicalStore.bytes} bytes (${twoVersionCanonicalStore.chunks} chunks)`,
         `canonical M/N = ${canonicalStoreRatio.toFixed(4)}`,

@@ -13,7 +13,7 @@ import {
   verifyDesyncCli,
 } from './desyncCas';
 import { runCommand } from './process';
-import { createS3Bucket, deleteS3Objects, listS3Objects } from './s3Control';
+import { createS3Bucket, deleteS3Objects, getS3Object, listS3Objects } from './s3Control';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
 const TEST_CONTAINER_LABEL = 'com.yucp.test=cas-s3';
@@ -161,6 +161,17 @@ describe('desync S3 CAS against throwaway MinIO', () => {
     const afterV1 = await listS3Objects(config);
     expect(afterV1.some((object) => object.key.startsWith(config.chunkPrefix))).toBeTrue();
     expect(afterV1.some((object) => object.key === `${config.indexPrefix}v1.caibx`)).toBeTrue();
+    const v1Chunks = afterV1.filter((object) => object.key.startsWith(config.chunkPrefix));
+    for (const chunk of v1Chunks) {
+      const response = await getS3Object(config, chunk.key);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const chunkId = chunk.key.split('/').at(-1);
+      if (!chunkId) {
+        throw new Error(`S3 chunk object key did not contain a chunk ID: ${chunk.key}`);
+      }
+      expect(bytes.byteLength).toBe(chunk.size);
+      expect(createHash('sha512-256').update(bytes).digest('hex')).toBe(chunkId);
+    }
 
     const reconstructedV1Path = join(scratchPath, 'reconstructed-v1.bin');
     await reconstructArtifactFromStore({
@@ -198,7 +209,7 @@ describe('desync S3 CAS against throwaway MinIO', () => {
     expect(await listS3Objects(config)).toEqual([]);
 
     console.log(
-      `CAS_S3_E2E_RESULT roundTripSha256=match v1Objects=${afterV1.length} v1StoredBytes=${v1StoredBytes} v2DeltaObjects=${v2DeltaObjects} v2DeltaBytes=${v2DeltaBytes} objectsDeleted=${objectsDeleted}`
+      `CAS_S3_E2E_RESULT roundTripSha256=match uncompressedChunks=yes v1Objects=${afterV1.length} v1StoredBytes=${v1StoredBytes} v2DeltaObjects=${v2DeltaObjects} v2DeltaBytes=${v2DeltaBytes} objectsDeleted=${objectsDeleted}`
     );
   });
 });

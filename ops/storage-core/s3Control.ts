@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { AwsClient } from 'aws4fetch';
 import type { CasConfig } from './config';
 
 export type S3Object = {
@@ -7,20 +7,14 @@ export type S3Object = {
 };
 
 type SignedRequestInput = {
+  body?: BodyInit;
   config: CasConfig;
+  headers?: HeadersInit;
   method: 'DELETE' | 'GET' | 'PUT';
   operation: string;
   key?: string;
   query?: Record<string, string>;
 };
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function hmac(key: Buffer | string, value: string): Buffer {
-  return createHmac('sha256', key).update(value).digest();
-}
 
 function encodeRfc3986(value: string): string {
   return encodeURIComponent(value).replace(
@@ -29,19 +23,18 @@ function encodeRfc3986(value: string): string {
   );
 }
 
-function canonicalPath(config: CasConfig, key?: string): string {
+function canonicalPath(config: Pick<CasConfig, 'bucket'>, key?: string): string {
   const segments = [config.bucket, ...(key === undefined ? [] : key.split('/'))];
   return `/${segments.map(encodeRfc3986).join('/')}`;
 }
 
-function canonicalQuery(query: Record<string, string> | undefined): string {
-  return Object.entries(query ?? {})
-    .map(([key, value]) => [encodeRfc3986(key), encodeRfc3986(value)] as const)
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
-      leftKey === rightKey ? leftValue.localeCompare(rightValue) : leftKey.localeCompare(rightKey)
-    )
-    .map(([key, value]) => `${key}=${value}`)
-    .join('&');
+export function buildS3ObjectUrl(
+  config: Pick<CasConfig, 'bucket' | 'endpoint'>,
+  key?: string
+): URL {
+  const url = new URL(config.endpoint);
+  url.pathname = canonicalPath(config, key);
+  return url;
 }
 
 function xmlDecode(value: string): string {
@@ -60,48 +53,27 @@ function xmlDecode(value: string): string {
 }
 
 /**
- * Minimal S3 control-plane request signing used only for bucket setup, object inventory, and smoke
- * cleanup. Artifact chunks and indexes are transferred by desync itself.
+ * S3 requests are signed by the pinned aws4fetch dependency. Artifact chunks and binary indexes
+ * are transferred by desync itself.
  *
  * AWS Signature V4: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
  */
 async function signedRequest(input: SignedRequestInput): Promise<Response> {
-  const endpoint = new URL(input.config.endpoint);
-  const path = canonicalPath(input.config, input.key);
-  const query = canonicalQuery(input.query);
-  const url = new URL(endpoint.origin);
-  url.pathname = path;
-  url.search = query;
-
-  const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
-  const shortDate = amzDate.slice(0, 8);
-  const payloadHash = sha256('');
-  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
-  const canonicalHeaders = `host:${url.host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
-  const canonicalRequest = [
-    input.method,
-    path,
-    query,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join('\n');
-  const scope = `${shortDate}/${input.config.region}/s3/aws4_request`;
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256(canonicalRequest)].join('\n');
-  const dateKey = hmac(`AWS4${input.config.secretAccessKey}`, shortDate);
-  const regionKey = hmac(dateKey, input.config.region);
-  const serviceKey = hmac(regionKey, 's3');
-  const signingKey = hmac(serviceKey, 'aws4_request');
-  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
-
-  const response = await fetch(url, {
+  const url = buildS3ObjectUrl(input.config, input.key);
+  for (const [key, value] of Object.entries(input.query ?? {})) {
+    url.searchParams.set(key, value);
+  }
+  const client = new AwsClient({
+    accessKeyId: input.config.accessKeyId,
+    secretAccessKey: input.config.secretAccessKey,
+    region: input.config.region,
+    service: 's3',
+    retries: 0,
+  });
+  const response = await client.fetch(url, {
+    body: input.body,
+    headers: input.headers,
     method: input.method,
-    headers: {
-      Authorization: `AWS4-HMAC-SHA256 Credential=${input.config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
-      'x-amz-content-sha256': payloadHash,
-      'x-amz-date': amzDate,
-    },
   });
   if (!response.ok) {
     throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
@@ -112,6 +84,28 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
 /** Create the throwaway MinIO bucket used by the local integration test. */
 export async function createS3Bucket(config: CasConfig): Promise<void> {
   await signedRequest({ config, method: 'PUT', operation: 'CreateBucket' });
+}
+
+/** GetObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html */
+export async function getS3Object(config: CasConfig, key: string): Promise<Response> {
+  return signedRequest({ config, key, method: 'GET', operation: 'GetObject' });
+}
+
+/** PutObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html */
+export async function putS3Object(input: {
+  body: BodyInit;
+  config: CasConfig;
+  contentType: string;
+  key: string;
+}): Promise<void> {
+  await signedRequest({
+    body: input.body,
+    config: input.config,
+    headers: { 'content-type': input.contentType },
+    key: input.key,
+    method: 'PUT',
+    operation: 'PutObject',
+  });
 }
 
 /**
