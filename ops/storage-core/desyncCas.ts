@@ -156,6 +156,7 @@ export async function storeArtifactToStore(input: {
       'make',
       '--store',
       storePath,
+      '--',
       indexPath,
       artifactPath,
     ]);
@@ -166,7 +167,7 @@ export async function storeArtifactToStore(input: {
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
   await runDesyncWithUncompressedStore(
     storeUrl,
-    ['make', '--store', storeUrl, indexUrl, artifactPath],
+    ['make', '--store', storeUrl, '--', indexUrl, artifactPath],
     {
       env: desyncS3ChildEnv(input.store.config),
     }
@@ -187,6 +188,7 @@ export async function reconstructArtifactFromStore(input: {
       'extract',
       '--store',
       storePath,
+      '--',
       resolve(input.indexId),
       outputPath,
     ]);
@@ -197,7 +199,7 @@ export async function reconstructArtifactFromStore(input: {
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
   await runDesyncWithUncompressedStore(
     storeUrl,
-    ['extract', '--store', storeUrl, indexUrl, outputPath],
+    ['extract', '--store', storeUrl, '--', indexUrl, outputPath],
     {
       env: desyncS3ChildEnv(input.store.config),
     }
@@ -212,7 +214,7 @@ export async function inspectDesyncIndex(input: {
     input.store.kind === 'local'
       ? resolve(input.indexId)
       : buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  const { stdout } = await runCommand('desync', ['inspect-chunks', indexLocation], {
+  const { stdout } = await runCommand('desync', ['inspect-chunks', '--', indexLocation], {
     env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
   });
 
