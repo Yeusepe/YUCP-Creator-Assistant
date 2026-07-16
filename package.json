@@ -55,6 +55,7 @@
     "typecheck:storage-core": "tsc --noEmit -p ops/storage-core/tsconfig.json --pretty false",
     "typecheck:catalog": "tsc --noEmit -p ops/catalog/tsconfig.json --pretty false",
     "test:cas:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/storage-core/storageCore.e2e.test.ts",
+    "test:catalog:integration": "bun test --timeout 180000 --max-concurrency 1 ./ops/catalog/catalog.integration.test.ts",
     "test": "bun run test:fast",
     "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/cdngine-dev.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/publish-backstage-package.test.ts ./ops/test-backstage-repo.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
     "test:external-integrations": "bun run ops/test-external-integrations.ts",
