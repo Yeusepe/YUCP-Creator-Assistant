@@ -57,6 +57,8 @@
     "typecheck:ingest": "tsc --noEmit -p ops/ingest-pipeline/tsconfig.json --pretty false",
     "typecheck:ingest-tus": "tsc --noEmit -p ops/ingest-tus/tsconfig.json --pretty false",
     "test:cas:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/storage-core/storageCore.e2e.test.ts",
+    "test:cas:s3": "bun test --timeout 300000 --max-concurrency 1 ./ops/storage-core/config.test.ts ./ops/storage-core/s3Cas.e2e.test.ts",
+    "smoke:cas:b2": "bun run --env-file=.env.infisical ops/storage-core/smoke-b2.ts",
     "test:catalog:integration": "bun test --timeout 180000 --max-concurrency 1 ./ops/catalog/catalog.integration.test.ts",
     "test:ingest:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-pipeline/ingestPipeline.e2e.test.ts",
     "test:ingest-tus:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-tus/ingestTusServer.e2e.test.ts",
