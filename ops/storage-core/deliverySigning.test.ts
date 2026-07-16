@@ -35,4 +35,17 @@ describe('delivery URL signing', () => {
       verifyDeliveryUrl({ ...signed, key, now, sig: 'not-hex', versionId: 'version_123' })
     ).resolves.toBe(false);
   });
+
+  test('rejects numeric epoch seconds and accepts documented epoch milliseconds', async () => {
+    await expect(
+      signDeliveryUrl({ expiresAt: 1_784_203_500, key, versionId: 'version_123' })
+    ).rejects.toThrow('epoch milliseconds');
+
+    const signed = await signDeliveryUrl({
+      expiresAt: expiresAt.getTime(),
+      key,
+      versionId: 'version_123',
+    });
+    expect(signed.exp).toBe('1784203500');
+  });
 });
