@@ -1,5 +1,8 @@
 import { AwsClient } from 'aws4fetch';
 import type { CasConfig } from './config';
+import { buildS3ObjectUrl } from './s3ObjectUrl';
+
+export { buildS3ObjectUrl } from './s3ObjectUrl';
 
 export type S3Object = {
   key: string;
@@ -15,27 +18,6 @@ type SignedRequestInput = {
   key?: string;
   query?: Record<string, string>;
 };
-
-function encodeRfc3986(value: string): string {
-  return encodeURIComponent(value).replace(
-    /[!'()*]/g,
-    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-}
-
-function canonicalPath(config: Pick<CasConfig, 'bucket'>, key?: string): string {
-  const segments = [config.bucket, ...(key === undefined ? [] : key.split('/'))];
-  return `/${segments.map(encodeRfc3986).join('/')}`;
-}
-
-export function buildS3ObjectUrl(
-  config: Pick<CasConfig, 'bucket' | 'endpoint'>,
-  key?: string
-): URL {
-  const url = new URL(config.endpoint);
-  url.pathname = canonicalPath(config, key);
-  return url;
-}
 
 function xmlDecode(value: string): string {
   return value
