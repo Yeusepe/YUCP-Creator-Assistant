@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import {
   Catalog,
   type CatalogDatabase,
@@ -23,7 +23,7 @@ import {
   measureLocalStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { runCommand } from '../storage-core/process';
+import { createUnityPackageFixture } from '../testing/unityPackageFixture';
 import { ingestVersion, retrieveVersion } from './ingestPipeline';
 
 const postgresImage = 'postgres:17-alpine';
@@ -145,75 +145,12 @@ function requireFixturePath(path: string | undefined, version: string): string {
   return path;
 }
 
-function deterministicBytes(seed: string, byteLength: number): Buffer {
-  return createHash('shake256', { outputLength: byteLength }).update(seed).digest();
-}
-
 async function sha256File(filePath: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(filePath)) {
     hash.update(chunk);
   }
   return hash.digest('hex');
-}
-
-async function writeFixtureTree(
-  rootPath: string,
-  versionSeed: string,
-  timestamp: Date
-): Promise<Map<string, string>> {
-  const files = new Map<string, Buffer>([
-    ['Assets/000-version.asset', deterministicBytes(versionSeed, 512 * 1024)],
-    ['Assets/Audio/preview.ogg', deterministicBytes('shared-preview-ogg', 1536 * 1024)],
-    ['Assets/Models/avatar.fbx', deterministicBytes('shared-avatar-fbx', 3 * 1024 * 1024)],
-    [
-      'Assets/Settings/package.asset',
-      Buffer.from('Material:\n  shader: Standard\n  renderQueue: 2000\n'.repeat(12_000)),
-    ],
-    ['Assets/Textures/albedo.png', deterministicBytes('shared-albedo-png', 3 * 1024 * 1024)],
-  ]);
-  const hashes = new Map<string, string>();
-
-  for (const [relativePath, bytes] of files) {
-    const filePath = join(rootPath, relativePath);
-    await mkdir(dirname(filePath), { recursive: true });
-    await writeFile(filePath, bytes);
-    await utimes(filePath, timestamp, timestamp);
-    hashes.set(relativePath, createHash('sha256').update(bytes).digest('hex'));
-  }
-  for (const relativeDirectory of [
-    'Assets/Audio',
-    'Assets/Models',
-    'Assets/Settings',
-    'Assets/Textures',
-    'Assets',
-    '.',
-  ]) {
-    await utimes(join(rootPath, relativeDirectory), timestamp, timestamp);
-  }
-  return hashes;
-}
-
-async function createRawUnityPackage(
-  sourcePath: string,
-  outputPath: string,
-  timestamp: Date
-): Promise<void> {
-  const tarPath = `${outputPath}.tar`;
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    sourcePath,
-    '.',
-  ]);
-  await utimes(tarPath, timestamp, timestamp);
-  await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: outputPath });
-  await rm(tarPath, { force: true });
 }
 
 function assertScratchPath(path: string): void {
@@ -292,18 +229,24 @@ beforeAll(async () => {
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-e2e-'));
     const v1TreePath = join(scratchPath, 'v1-tree');
     const v2TreePath = join(scratchPath, 'v2-tree');
-    await mkdir(v1TreePath);
-    await mkdir(v2TreePath);
-    const v1Hashes = await writeFixtureTree(v1TreePath, 'version-one', new Date('2025-01-01'));
-    const v2Hashes = await writeFixtureTree(v2TreePath, 'version-two', new Date('2026-01-01'));
+    const v1Hashes = await createUnityPackageFixture({
+      outputPath: join(scratchPath, 'fixture-v1.unitypackage'),
+      timestamp: new Date('2025-01-01'),
+      treePath: v1TreePath,
+      versionSeed: 'version-one',
+    });
+    const v2Hashes = await createUnityPackageFixture({
+      outputPath: join(scratchPath, 'fixture-v2.unitypackage'),
+      timestamp: new Date('2026-01-01'),
+      treePath: v2TreePath,
+      versionSeed: 'version-two',
+    });
     changedInnerFiles = Array.from(v1Hashes.keys()).filter(
       (path) => v1Hashes.get(path) !== v2Hashes.get(path)
     );
 
     rawV1Path = join(scratchPath, 'fixture-v1.unitypackage');
     rawV2Path = join(scratchPath, 'fixture-v2.unitypackage');
-    await createRawUnityPackage(v1TreePath, rawV1Path, new Date('2025-01-01'));
-    await createRawUnityPackage(v2TreePath, rawV2Path, new Date('2026-01-01'));
   } catch (error) {
     const activeSql = sql;
     sql = undefined;

@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "types": ["node", "bun"]
+  },
+  "include": ["./deliveryWorker.e2e.test.ts", "../../ops/testing/**/*.ts"]
+}

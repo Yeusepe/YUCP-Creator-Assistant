@@ -1,6 +1,6 @@
 name = "yucp-delivery-worker"
 main = "src/index.ts"
-compatibility_date = "2026-07-16"
+compatibility_date = "2026-04-22"
 workers_dev = false
 send_metrics = false
 

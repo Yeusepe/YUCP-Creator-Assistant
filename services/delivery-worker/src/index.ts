@@ -293,7 +293,10 @@ async function loadChunk(
   request: Request,
   client: StorageClient,
   manifest: DeliveryManifest,
-  chunk: DeliveryManifestChunk
+  chunk: DeliveryManifestChunk,
+  ctx: ExecutionContext,
+  requestId: string,
+  versionId: string
 ): Promise<Uint8Array> {
   const cacheRequest = chunkCacheRequest(request, manifest.storageFormatVersion, chunk.id);
   const cached = await caches.default.match(cacheRequest);
@@ -317,65 +320,108 @@ async function loadChunk(
     throw new Error(`CAS chunk storage request failed with ${response.status}`);
   }
 
-  const cacheResponse = response.clone();
-  const cacheWrite = caches.default.put(
-    cacheRequest,
-    new Response(cacheResponse.body, {
-      headers: {
-        'cache-control': 'public, max-age=31536000, immutable',
-        'content-length': chunk.size.toString(),
-        'content-type': 'application/octet-stream',
-        etag: `"${chunk.id}"`,
-      },
-    })
-  );
-  const [bytes] = await Promise.all([readExactChunk(response, chunk.size), cacheWrite]);
+  const bytes = await readExactChunk(response, chunk.size);
+  const cacheWrite = caches.default
+    .put(
+      cacheRequest,
+      new Response(bytes, {
+        headers: {
+          'cache-control': 'public, max-age=31536000, immutable',
+          'content-length': chunk.size.toString(),
+          'content-type': 'application/octet-stream',
+          etag: `"${chunk.id}"`,
+        },
+      })
+    )
+    .catch((error: unknown) => {
+      logError('delivery.cache_write_failed', {
+        requestId,
+        versionId,
+        message: error instanceof Error ? error.message : 'Unknown cache write error',
+      });
+    });
+  ctx.waitUntil(cacheWrite);
   return bytes;
 }
 
-async function streamDelivery(input: {
+function createDeliveryStream(input: {
   client: StorageClient;
+  ctx: ExecutionContext;
   manifest: DeliveryManifest;
   range?: DeliveryRange;
   request: Request;
   requestId: string;
   versionId: string;
-  writer: WritableStreamDefaultWriter<Uint8Array>;
-}): Promise<void> {
+}): ReadableStream<Uint8Array> {
   const deliveryStart = input.range?.start ?? 0;
   const deliveryEnd = input.range?.end ?? input.manifest.totalSize - 1;
+  let chunkIndex = 0;
   let chunkStart = 0;
+  let settled = false;
 
-  try {
-    for (const chunk of input.manifest.chunks) {
-      const chunkEnd = chunkStart + chunk.size - 1;
-      if (chunkEnd >= deliveryStart && chunkStart <= deliveryEnd) {
-        const bytes = await loadChunk(input.request, input.client, input.manifest, chunk);
-        const sliceStart = Math.max(0, deliveryStart - chunkStart);
-        const sliceEnd = Math.min(chunk.size, deliveryEnd - chunkStart + 1);
-        const output = bytes.subarray(sliceStart, sliceEnd);
-        await input.writer.write(output);
-        input.client.stats.bytesDelivered += output.byteLength;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        while (chunkIndex < input.manifest.chunks.length) {
+          const chunk = input.manifest.chunks[chunkIndex];
+          if (!chunk) {
+            throw new Error('Delivery manifest chunk order changed during streaming');
+          }
+          chunkIndex += 1;
+          const currentChunkStart = chunkStart;
+          const chunkEnd = currentChunkStart + chunk.size - 1;
+          chunkStart += chunk.size;
+          if (chunkEnd < deliveryStart || currentChunkStart > deliveryEnd) {
+            continue;
+          }
+
+          const bytes = await loadChunk(
+            input.request,
+            input.client,
+            input.manifest,
+            chunk,
+            input.ctx,
+            input.requestId,
+            input.versionId
+          );
+          const sliceStart = Math.max(0, deliveryStart - currentChunkStart);
+          const sliceEnd = Math.min(chunk.size, deliveryEnd - currentChunkStart + 1);
+          const output = bytes.subarray(sliceStart, sliceEnd);
+          input.client.stats.bytesDelivered += output.byteLength;
+          controller.enqueue(output);
+          return;
+        }
+
+        settled = true;
+        controller.close();
+        logEvent('delivery.completed', {
+          requestId: input.requestId,
+          versionId: input.versionId,
+          ...input.client.stats,
+          ranged: input.range !== undefined,
+        });
+      } catch (error) {
+        settled = true;
+        controller.error(error);
+        logError('delivery.stream_failed', {
+          requestId: input.requestId,
+          versionId: input.versionId,
+          ...input.client.stats,
+          message: error instanceof Error ? error.message : 'Unknown streaming error',
+        });
       }
-      chunkStart += chunk.size;
-    }
-    await input.writer.close();
-    logEvent('delivery.completed', {
-      requestId: input.requestId,
-      versionId: input.versionId,
-      ...input.client.stats,
-      ranged: input.range !== undefined,
-    });
-  } catch (error) {
-    await input.writer.abort(error);
-    logError('delivery.stream_failed', {
-      requestId: input.requestId,
-      versionId: input.versionId,
-      ...input.client.stats,
-      message: error instanceof Error ? error.message : 'Unknown streaming error',
-    });
-    throw error;
-  }
+    },
+    cancel() {
+      if (!settled) {
+        logEvent('delivery.cancelled', {
+          requestId: input.requestId,
+          versionId: input.versionId,
+          ...input.client.stats,
+          ranged: input.range !== undefined,
+        });
+      }
+    },
+  });
 }
 
 function errorResponse(error: unknown, id: string): Response {
@@ -456,28 +502,34 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
     const start = range?.start ?? 0;
     const end = range?.end ?? Math.max(0, manifest.totalSize - 1);
     const contentLength = manifest.totalSize === 0 ? 0 : end - start + 1;
-    const stream = new TransformStream<Uint8Array, Uint8Array>();
-    const streaming = streamDelivery({
+    const source = createDeliveryStream({
       client,
+      ctx,
       manifest,
       range,
       request,
       requestId: id,
       versionId,
-      writer: stream.writable.getWriter(),
     });
-    ctx.waitUntil(streaming);
+    const fixedLength = new FixedLengthStream(contentLength);
+    const pipeline = source.pipeTo(fixedLength.writable).catch((error: unknown) => {
+      logError('delivery.pipeline_failed', {
+        requestId: id,
+        versionId,
+        message: error instanceof Error ? error.message : 'Unknown pipeline error',
+      });
+    });
+    ctx.waitUntil(pipeline);
 
     const headers = new Headers({
       'accept-ranges': 'bytes',
       'cache-control': 'private, no-store',
-      'content-length': contentLength.toString(),
       'content-type': manifest.contentType,
     });
     if (range) {
       headers.set('content-range', `bytes ${range.start}-${range.end}/${manifest.totalSize}`);
     }
-    return new Response(stream.readable, { headers, status: range ? 206 : 200 });
+    return new Response(fixedLength.readable, { headers, status: range ? 206 : 200 });
   } catch (error) {
     return errorResponse(error, id);
   }
