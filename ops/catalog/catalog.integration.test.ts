@@ -307,12 +307,15 @@ describe.serial('PostgreSQL catalog integration', () => {
 
     const failed = await activeCatalog.markFailed(created.id, 'failed before upload started');
 
+    expect(failed.nextAttemptAt).toBeInstanceOf(Date);
+    expect(failed.nextAttemptAt?.getTime()).toBeGreaterThan(failed.updatedAt.getTime());
     expect(failed).toMatchObject({
       state: 'FAILED',
       formatTag: null,
       canonicalSha256: null,
       casIndexId: null,
       error: 'failed before upload started',
+      attempts: 1,
     });
     expect(await activeCatalog.getVersion(created.id)).toEqual(failed);
   });
@@ -391,7 +394,7 @@ describe.serial('PostgreSQL catalog integration', () => {
       reconcileCatalog(database, {
         stuckThresholdMs: 60 * 60 * 1000,
         redrive: async ({ version, idempotencyKey }) => {
-          expect(version).toMatchObject({ id: stuckVersionId, state: 'UPLOADING' });
+          expect(version).toMatchObject({ id: stuckVersionId, state: 'FAILED', attempts: 1 });
           redriveKeys.push(idempotencyKey);
         },
         publish: async (event) => {
@@ -400,15 +403,16 @@ describe.serial('PostgreSQL catalog integration', () => {
         },
       });
 
-    expect(await reconcile()).toEqual({ versionsRedriven: 1, outboxEventsPublished: 2 });
+    expect(await reconcile()).toEqual({ versionsRedriven: 1, outboxEventsPublished: 3 });
     expect(redriveKeys).toHaveLength(1);
-    expect(new Set(publishedIds).size).toBe(2);
+    expect(new Set(publishedIds).size).toBe(3);
 
     const persisted = await database<
-      { state: string; is_stuck: boolean; unpublished_count: number }[]
+      { state: string; attempts: number; is_stuck: boolean; unpublished_count: number }[]
     >`
       SELECT
         state,
+        attempts,
         updated_at <= clock_timestamp() - interval '1 hour' AS is_stuck,
         (
           SELECT count(*)::int
@@ -419,13 +423,165 @@ describe.serial('PostgreSQL catalog integration', () => {
       WHERE id = ${stuckVersionId}
     `;
     expect(persisted[0]).toEqual({
-      state: 'UPLOADING',
+      state: 'FAILED',
+      attempts: 1,
       is_stuck: false,
       unpublished_count: 0,
     });
 
     expect(await reconcile()).toEqual({ versionsRedriven: 0, outboxEventsPublished: 0 });
     expect(redriveKeys).toHaveLength(1);
-    expect(publishedIds).toHaveLength(2);
+    expect(publishedIds).toHaveLength(3);
+  });
+
+  it('no-infinite-retry: a perpetually failing row is never re-driven after the attempt cap', async () => {
+    const database = requireSql();
+    const versionId = await createUploadingVersion('perpetually-failing');
+    const maxAttempts = 3;
+    await database`
+      UPDATE package_versions
+      SET updated_at = clock_timestamp() - interval '2 hours'
+      WHERE id = ${versionId}
+    `;
+    await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
+
+    let redriveCalls = 0;
+    const reconcile = () =>
+      reconcileCatalog(database, {
+        stuckThresholdMs: 60 * 60 * 1000,
+        maxAttempts,
+        retryBackoffBaseMs: 30_000,
+        retryBackoffFactor: 2,
+        retryBackoffCapMs: 60 * 60 * 1000,
+        redrive: async ({ version }) => {
+          redriveCalls += 1;
+          expect(version).toMatchObject({
+            id: versionId,
+            state: 'FAILED',
+            attempts: redriveCalls,
+          });
+          throw new Error('permanent dispatch failure');
+        },
+        publish: async () => {},
+      });
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let redriveError: unknown;
+      try {
+        await reconcile();
+      } catch (error) {
+        redriveError = error;
+      }
+      expect(redriveError).toMatchObject({ message: 'permanent dispatch failure' });
+
+      const rows = await database<
+        {
+          state: string;
+          attempts: number;
+          next_attempt_is_future: boolean;
+          backoff_ms: number;
+        }[]
+      >`
+        SELECT
+          state,
+          attempts,
+          next_attempt_at > clock_timestamp() AS next_attempt_is_future,
+          round(extract(epoch FROM (next_attempt_at - updated_at)) * 1000)::int AS backoff_ms
+        FROM package_versions
+        WHERE id = ${versionId}
+      `;
+      expect(rows[0]).toMatchObject({
+        state: 'FAILED',
+        attempts: attempt,
+        next_attempt_is_future: true,
+      });
+      expect(Math.abs((rows[0]?.backoff_ms ?? 0) - 30_000 * 2 ** (attempt - 1))).toBeLessThan(100);
+
+      if (attempt < maxAttempts) {
+        await database`
+          UPDATE package_versions
+          SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+          WHERE id = ${versionId}
+        `;
+      }
+    }
+
+    expect(await reconcile()).toMatchObject({ versionsRedriven: 0 });
+    expect(redriveCalls).toBe(maxAttempts);
+    expect(await requireCatalog().getVersion(versionId)).toMatchObject({
+      state: 'FAILED',
+      attempts: maxAttempts,
+    });
+  });
+
+  it('backoff-skip: a future next_attempt_at prevents an otherwise stuck row from being touched', async () => {
+    const database = requireSql();
+    const versionId = await createUploadingVersion('future-backoff');
+    await database`
+      UPDATE package_versions
+      SET
+        attempts = 1,
+        updated_at = clock_timestamp() - interval '2 hours',
+        next_attempt_at = clock_timestamp() + interval '1 hour'
+      WHERE id = ${versionId}
+    `;
+    await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
+
+    let redriveCalls = 0;
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      maxAttempts: 5,
+      redrive: async () => {
+        redriveCalls += 1;
+      },
+      publish: async () => {},
+    });
+
+    expect(result).toEqual({ versionsRedriven: 0, outboxEventsPublished: 0 });
+    expect(redriveCalls).toBe(0);
+    expect(await requireCatalog().getVersion(versionId)).toMatchObject({
+      state: 'UPLOADING',
+      attempts: 1,
+    });
+  });
+
+  it('batch-cap: processes only the oldest eligible rows up to the per-run limit', async () => {
+    const database = requireSql();
+    const versionIds = await Promise.all([
+      createUploadingVersion('batch-oldest'),
+      createUploadingVersion('batch-middle'),
+      createUploadingVersion('batch-newest'),
+    ]);
+    for (const [index, versionId] of versionIds.entries()) {
+      await database`
+        UPDATE package_versions
+        SET updated_at = clock_timestamp() - (${4 - index} * interval '1 hour')
+        WHERE id = ${versionId}
+      `;
+    }
+    await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
+
+    const redrivenIds: string[] = [];
+    const result = await reconcileCatalog(database, {
+      stuckThresholdMs: 60 * 60 * 1000,
+      batchLimit: 2,
+      redrive: async ({ version }) => {
+        redrivenIds.push(version.id);
+      },
+      publish: async () => {},
+    });
+
+    expect(result).toEqual({ versionsRedriven: 2, outboxEventsPublished: 0 });
+    expect(redrivenIds).toEqual(versionIds.slice(0, 2));
+    const attempts = await database<{ id: string; attempts: number }[]>`
+      SELECT id, attempts
+      FROM package_versions
+      ORDER BY version
+    `;
+    expect([...attempts]).toEqual([
+      { id: versionIds[1], attempts: 1 },
+      { id: versionIds[2], attempts: 0 },
+      { id: versionIds[0], attempts: 1 },
+    ]);
   });
 });

@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { CatalogDatabase } from './database';
+import { type CatalogDatabase, type CatalogTimestamp, toCatalogDate } from './database';
+import {
+  type RetryPolicy,
+  type RetryPolicyOptions,
+  resolveRetryPolicy,
+  retryBackoffMs,
+} from './retry-policy';
 
 export const CATALOG_STATES = [
   'CREATED',
@@ -44,6 +50,8 @@ export interface PackageVersion {
   casIndexId: string | null;
   state: CatalogState;
   error: string | null;
+  attempts: number;
+  nextAttemptAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -57,6 +65,8 @@ interface PackageVersionRow {
   cas_index_id: string | null;
   state: CatalogState;
   error: string | null;
+  attempts: number;
+  next_attempt_at: CatalogTimestamp | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -121,6 +131,8 @@ function toPackageVersion(row: PackageVersionRow): PackageVersion {
     casIndexId: row.cas_index_id,
     state: row.state,
     error: row.error,
+    attempts: row.attempts,
+    nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -184,7 +196,14 @@ function eventPayload(
 }
 
 export class Catalog {
-  constructor(private readonly sql: CatalogDatabase) {}
+  private readonly retryPolicy: RetryPolicy;
+
+  constructor(
+    private readonly sql: CatalogDatabase,
+    retryPolicyOptions: RetryPolicyOptions = {}
+  ) {
+    this.retryPolicy = resolveRetryPolicy(retryPolicyOptions);
+  }
 
   async createVersion(input: CreateVersionInput): Promise<PackageVersion> {
     const id = input.id ?? randomUUID();
@@ -239,6 +258,9 @@ export class Catalog {
       }
 
       const fields = validateTransitionFields(current, targetState, options.fields ?? {});
+      const enteringFailed = targetState === 'FAILED';
+      const nextAttempts = current.attempts + (enteringFailed ? 1 : 0);
+      const backoffMs = enteringFailed ? retryBackoffMs(nextAttempts, this.retryPolicy) : 0;
       const updatedRows = await transaction<PackageVersionRow[]>`
         UPDATE package_versions
         SET
@@ -247,6 +269,12 @@ export class Catalog {
           canonical_sha256 = ${fields.canonicalSha256},
           cas_index_id = ${fields.casIndexId},
           error = ${fields.error},
+          attempts = ${nextAttempts},
+          next_attempt_at = CASE
+            WHEN ${enteringFailed}
+              THEN clock_timestamp() + (${backoffMs} * interval '1 millisecond')
+            ELSE NULL
+          END,
           updated_at = clock_timestamp()
         WHERE id = ${versionId}
         RETURNING *

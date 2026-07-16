@@ -1,21 +1,33 @@
+import { randomUUID } from 'node:crypto';
 import type { CatalogState, PackageVersion } from './catalog';
-import type { CatalogDatabase } from './database';
+import { type CatalogDatabase, type CatalogTimestamp, toCatalogDate } from './database';
+import {
+  type RetryPolicy,
+  type RetryPolicyOptions,
+  resolveRetryPolicy,
+  retryBackoffMs,
+} from './retry-policy';
 
 const transientStates = [
   'UPLOADING',
   'ASSEMBLED',
   'PROMOTING',
 ] as const satisfies readonly CatalogState[];
+const retryableStates = [...transientStates, 'FAILED'] as const satisfies readonly CatalogState[];
 
-interface StuckVersionRow {
+export const DEFAULT_RECONCILE_BATCH_LIMIT = 100;
+
+interface ReconcileVersionRow {
   id: string;
   package_id: string;
   version: string;
   format_tag: string | null;
   canonical_sha256: string | null;
   cas_index_id: string | null;
-  state: (typeof transientStates)[number];
-  error: null;
+  state: (typeof retryableStates)[number];
+  error: string | null;
+  attempts: number;
+  next_attempt_at: CatalogTimestamp | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -26,6 +38,11 @@ interface OutboxRow {
   event_type: string;
   payload: Record<string, unknown>;
   created_at: Date;
+}
+
+interface ClaimedRedrive {
+  version: PackageVersion;
+  idempotencyKey: string;
 }
 
 export interface CatalogOutboxEvent {
@@ -41,9 +58,9 @@ export interface RedriveRequest {
   idempotencyKey: string;
 }
 
-export interface ReconcileCatalogOptions {
+export interface ReconcileCatalogOptions extends RetryPolicyOptions {
   stuckThresholdMs: number;
-  batchSize?: number;
+  batchLimit?: number;
   redrive: (request: RedriveRequest) => Promise<void>;
   publish: (event: CatalogOutboxEvent) => Promise<void>;
 }
@@ -53,7 +70,7 @@ export interface ReconcileCatalogResult {
   outboxEventsPublished: number;
 }
 
-function toPackageVersion(row: StuckVersionRow): PackageVersion {
+function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
   return {
     id: row.id,
     packageId: row.package_id,
@@ -63,75 +80,168 @@ function toPackageVersion(row: StuckVersionRow): PackageVersion {
     casIndexId: row.cas_index_id,
     state: row.state,
     error: row.error,
+    attempts: row.attempts,
+    nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function assertOptions(options: ReconcileCatalogOptions): number {
+function resolveOptions(options: ReconcileCatalogOptions): {
+  batchLimit: number;
+  retryPolicy: RetryPolicy;
+} {
   if (!Number.isSafeInteger(options.stuckThresholdMs) || options.stuckThresholdMs <= 0) {
     throw new RangeError('stuckThresholdMs must be a positive safe integer');
   }
-  const batchSize = options.batchSize ?? 100;
-  if (!Number.isSafeInteger(batchSize) || batchSize <= 0) {
-    throw new RangeError('batchSize must be a positive safe integer');
+  const batchLimit = options.batchLimit ?? DEFAULT_RECONCILE_BATCH_LIMIT;
+  if (!Number.isSafeInteger(batchLimit) || batchLimit <= 0) {
+    throw new RangeError('batchLimit must be a positive safe integer');
   }
-  return batchSize;
+  return { batchLimit, retryPolicy: resolveRetryPolicy(options) };
+}
+
+async function claimRedrive(
+  sql: CatalogDatabase,
+  candidateId: string,
+  stuckThresholdMs: number,
+  retryPolicy: RetryPolicy
+): Promise<ClaimedRedrive | null> {
+  return sql.begin(async (transaction) => {
+    const rows = await transaction<ReconcileVersionRow[]>`
+      SELECT *
+      FROM package_versions
+      WHERE
+        id = ${candidateId}
+        AND attempts < ${retryPolicy.maxAttempts}
+        AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
+        AND (
+          state = 'FAILED'
+          OR (
+            state IN ${transaction(transientStates)}
+            AND updated_at <=
+              clock_timestamp() - (${stuckThresholdMs} * interval '1 millisecond')
+          )
+        )
+      FOR UPDATE SKIP LOCKED
+    `;
+    const candidate = rows[0];
+    if (!candidate) {
+      return null;
+    }
+
+    const attempts = candidate.attempts + 1;
+    const backoffMs = retryBackoffMs(attempts, retryPolicy);
+    let updated: ReconcileVersionRow | undefined;
+
+    if (candidate.state === 'FAILED') {
+      const updatedRows = await transaction<ReconcileVersionRow[]>`
+        UPDATE package_versions
+        SET
+          attempts = ${attempts},
+          next_attempt_at = clock_timestamp() + (${backoffMs} * interval '1 millisecond'),
+          updated_at = clock_timestamp()
+        WHERE id = ${candidate.id}
+        RETURNING *
+      `;
+      updated = updatedRows[0];
+    } else {
+      const error = `Reconciler detected stuck ${candidate.state} work`;
+      const updatedRows = await transaction<ReconcileVersionRow[]>`
+        UPDATE package_versions
+        SET
+          state = 'FAILED',
+          error = ${error},
+          attempts = ${attempts},
+          next_attempt_at = clock_timestamp() + (${backoffMs} * interval '1 millisecond'),
+          updated_at = clock_timestamp()
+        WHERE id = ${candidate.id}
+        RETURNING *
+      `;
+      updated = updatedRows[0];
+      if (updated) {
+        await transaction`
+          INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+          VALUES (
+            ${randomUUID()},
+            ${updated.id},
+            'catalog.version.failed',
+            ${transaction.json({
+              versionId: updated.id,
+              packageId: updated.package_id,
+              version: updated.version,
+              previousState: candidate.state,
+              state: 'FAILED',
+              attempts: updated.attempts,
+              reason: 'stuck-transient',
+            })}
+          )
+        `;
+      }
+    }
+
+    if (!updated) {
+      throw new Error('PostgreSQL did not return the claimed package version');
+    }
+    return {
+      version: toPackageVersion(updated),
+      idempotencyKey: `${updated.id}:redrive:${updated.attempts}`,
+    };
+  });
 }
 
 export async function reconcileCatalog(
   sql: CatalogDatabase,
   options: ReconcileCatalogOptions
 ): Promise<ReconcileCatalogResult> {
-  const batchSize = assertOptions(options);
-  const stuckCandidates = await sql<{ id: string }[]>`
+  const { batchLimit, retryPolicy } = resolveOptions(options);
+  const candidates = await sql<{ id: string }[]>`
     SELECT id
     FROM package_versions
     WHERE
-      state IN ${sql(transientStates)}
-      AND updated_at <= clock_timestamp() - (${options.stuckThresholdMs} * interval '1 millisecond')
-    ORDER BY updated_at, id
-    LIMIT ${batchSize}
+      attempts < ${retryPolicy.maxAttempts}
+      AND (next_attempt_at IS NULL OR next_attempt_at <= clock_timestamp())
+      AND (
+        state = 'FAILED'
+        OR (
+          state IN ${sql(transientStates)}
+          AND updated_at <=
+            clock_timestamp() - (${options.stuckThresholdMs} * interval '1 millisecond')
+        )
+      )
+    ORDER BY
+      CASE
+        WHEN state = 'FAILED' THEN COALESCE(next_attempt_at, updated_at)
+        ELSE updated_at
+      END,
+      updated_at,
+      id
+    LIMIT ${batchLimit}
   `;
 
+  let versionsClaimed = 0;
   let versionsRedriven = 0;
-  for (const candidate of stuckCandidates) {
-    const redriven = await sql.begin(async (transaction) => {
-      const rows = await transaction<StuckVersionRow[]>`
-        SELECT *
-        FROM package_versions
-        WHERE
-          id = ${candidate.id}
-          AND state IN ${transaction(transientStates)}
-          AND updated_at <= clock_timestamp() - (${options.stuckThresholdMs} * interval '1 millisecond')
-        FOR UPDATE SKIP LOCKED
-      `;
-      const stuck = rows[0];
-      if (!stuck) {
-        return false;
-      }
-
-      await options.redrive({
-        version: toPackageVersion(stuck),
-        idempotencyKey: `${stuck.id}:${stuck.state}:${stuck.updated_at.toISOString()}`,
-      });
-      await transaction`
-        UPDATE package_versions SET updated_at = clock_timestamp() WHERE id = ${stuck.id}
-      `;
-      return true;
-    });
-    if (redriven) {
-      versionsRedriven += 1;
+  for (const candidate of candidates) {
+    const claim = await claimRedrive(sql, candidate.id, options.stuckThresholdMs, retryPolicy);
+    if (!claim) {
+      continue;
     }
+    versionsClaimed += 1;
+    await options.redrive(claim);
+    versionsRedriven += 1;
   }
 
-  const outboxCandidates = await sql<{ id: string }[]>`
-    SELECT id
-    FROM catalog_outbox
-    WHERE published_at IS NULL
-    ORDER BY created_at, id
-    LIMIT ${batchSize}
-  `;
+  const remainingBatchCapacity = batchLimit - versionsClaimed;
+  const outboxCandidates =
+    remainingBatchCapacity > 0
+      ? await sql<{ id: string }[]>`
+          SELECT id
+          FROM catalog_outbox
+          WHERE published_at IS NULL
+          ORDER BY created_at, id
+          LIMIT ${remainingBatchCapacity}
+        `
+      : [];
 
   let outboxEventsPublished = 0;
   for (const candidate of outboxCandidates) {
