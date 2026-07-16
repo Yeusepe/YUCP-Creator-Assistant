@@ -44,6 +44,8 @@ type StorageClient = {
 
 const MAX_DELIVERY_CHUNKS = 256;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const OVERSIZED_MANIFEST_MESSAGE =
+  'Delivery manifest exceeds direct delivery limits; use the importer path';
 const VERSION_PATH_PATTERN = /^\/d\/([^/]+)$/;
 
 class HttpError extends Error {
@@ -152,7 +154,7 @@ async function getStorageObject(client: StorageClient, key: string): Promise<Res
 async function readLimitedText(response: Response, limit: number): Promise<string> {
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(502, 'Delivery manifest exceeds the configured size limit');
+    throw new HttpError(422, OVERSIZED_MANIFEST_MESSAGE);
   }
   if (!response.body) {
     throw new HttpError(502, 'Delivery manifest response has no body');
@@ -171,7 +173,7 @@ async function readLimitedText(response: Response, limit: number): Promise<strin
     received += value.byteLength;
     if (received > limit) {
       await reader.cancel();
-      throw new HttpError(502, 'Delivery manifest exceeds the configured size limit');
+      throw new HttpError(422, OVERSIZED_MANIFEST_MESSAGE);
     }
     output += decoder.decode(value, { stream: true });
   }
