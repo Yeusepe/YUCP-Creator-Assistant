@@ -6,6 +6,10 @@ export type CommandResult = {
   stdout: string;
 };
 
+export function commandPathEnv(): NodeJS.ProcessEnv {
+  return process.env.PATH ? { PATH: process.env.PATH } : {};
+}
+
 export async function runCommand(
   command: string,
   args: string[],

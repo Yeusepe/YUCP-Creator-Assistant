@@ -1,6 +1,7 @@
 import { closeSync, createReadStream, openSync, writeSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { createGunzip } from 'node:zlib';
 import {
   Unzip,
   type UnzipFile,
@@ -10,7 +11,17 @@ import {
   type ZipInputFile,
   ZipPassThrough,
 } from 'fflate';
-import { runCommand } from './process';
+import { commandPathEnv, runCommand } from './process';
+
+export const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024;
+
+export function canonicalizerChildEnv(): NodeJS.ProcessEnv {
+  return {
+    ...commandPathEnv(),
+    LC_ALL: 'C',
+    TZ: 'UTC',
+  };
+}
 
 export const CANONICAL_FORMAT_TAGS = {
   opaque: 'RAW_OPAQUE_V1',
@@ -101,11 +112,16 @@ function canonicalZipEntryName(rawName: string): string {
   return directory ? `${pathWithoutTrailingSlash}/` : pathWithoutTrailingSlash;
 }
 
-async function extractZipEntries(inputPath: string, scratchPath: string): Promise<ZipEntry[]> {
+async function extractZipEntries(
+  inputPath: string,
+  scratchPath: string,
+  maxDecompressedBytes: number
+): Promise<ZipEntry[]> {
   const entries: ZipEntry[] = [];
   const names = new Set<string>();
   const openFiles = new Set<number>();
   let extractionError: Error | undefined;
+  let decompressedBytes = 0;
 
   const unzip = new Unzip((file: UnzipFile) => {
     if (extractionError) {
@@ -140,7 +156,13 @@ async function extractZipEntries(inputPath: string, scratchPath: string): Promis
         if (error) {
           extractionError = error;
         } else if (data.byteLength > 0) {
-          if (outputFile === undefined) {
+          decompressedBytes += data.byteLength;
+          if (decompressedBytes > maxDecompressedBytes) {
+            extractionError = new Error(
+              `ZIP decompressed byte budget exceeded (${maxDecompressedBytes} bytes)`
+            );
+            file.terminate();
+          } else if (outputFile === undefined) {
             extractionError = new Error(`ZIP directory entry contains data: ${name}`);
           } else {
             writeSync(outputFile, data);
@@ -189,9 +211,14 @@ function shouldStoreZipEntry(entryName: string): boolean {
   return ALREADY_COMPRESSED_ZIP_EXTENSIONS.has(extname(entryName).toLowerCase());
 }
 
-async function canonicalizeZip(inputPath: string, outputPath: string, scratchPath: string) {
-  const entries = (await extractZipEntries(inputPath, scratchPath)).sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+async function canonicalizeZip(
+  inputPath: string,
+  outputPath: string,
+  scratchPath: string,
+  maxDecompressedBytes: number
+) {
+  const entries = (await extractZipEntries(inputPath, scratchPath, maxDecompressedBytes)).sort(
+    (left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
   );
   const outputFile = openSync(outputPath, 'w');
   let archiveError: Error | undefined;
@@ -244,22 +271,30 @@ async function canonicalizeZip(inputPath: string, outputPath: string, scratchPat
 async function canonicalizeTarGzip(
   inputPath: string,
   outputPath: string,
-  scratchPath: string
+  scratchPath: string,
+  maxDecompressedBytes: number
 ): Promise<void> {
   const sourceTarPath = join(scratchPath, 'source.tar');
   const canonicalTarPath = join(scratchPath, 'canonical.tar');
   const extractedPath = join(scratchPath, 'entries');
-  const deterministicEnvironment = {
-    ...process.env,
-    LC_ALL: 'C',
-    TZ: 'UTC',
-  };
+  const deterministicEnvironment = canonicalizerChildEnv();
   await mkdir(extractedPath);
 
-  await runCommand('gzip', ['--decompress', '--stdout', '--', inputPath], {
-    env: deterministicEnvironment,
-    stdoutPath: sourceTarPath,
-  });
+  const sourceTarFile = openSync(sourceTarPath, 'w');
+  let decompressedBytes = 0;
+  try {
+    const decompressed = createReadStream(inputPath).pipe(createGunzip());
+    for await (const chunk of decompressed) {
+      decompressedBytes += chunk.byteLength;
+      if (decompressedBytes > maxDecompressedBytes) {
+        decompressed.destroy();
+        throw new Error(`tar.gz decompressed byte budget exceeded (${maxDecompressedBytes} bytes)`);
+      }
+      writeSync(sourceTarFile, chunk);
+    }
+  } finally {
+    closeSync(sourceTarFile);
+  }
   await runCommand(
     'tar',
     [
@@ -303,6 +338,7 @@ async function canonicalizeTarGzip(
 
 export async function canonicalizeArtifact(input: {
   inputPath: string;
+  maxDecompressedBytes?: number;
   outputPath: string;
 }): Promise<CanonicalArtifact> {
   const inputPath = resolve(input.inputPath);
@@ -314,6 +350,10 @@ export async function canonicalizeArtifact(input: {
   if (!inputStats.isFile()) {
     throw new Error(`Canonical input is not a regular file: ${inputPath}`);
   }
+  const maxDecompressedBytes = input.maxDecompressedBytes ?? DEFAULT_MAX_DECOMPRESSED_BYTES;
+  if (!Number.isSafeInteger(maxDecompressedBytes) || maxDecompressedBytes <= 0) {
+    throw new Error('maxDecompressedBytes must be a positive safe integer');
+  }
 
   const outputDirectory = dirname(outputPath);
   await mkdir(outputDirectory, { recursive: true });
@@ -324,9 +364,9 @@ export async function canonicalizeArtifact(input: {
 
   try {
     if (formatTag === CANONICAL_FORMAT_TAGS.tarGzip) {
-      await canonicalizeTarGzip(inputPath, scratchOutputPath, scratchPath);
+      await canonicalizeTarGzip(inputPath, scratchOutputPath, scratchPath, maxDecompressedBytes);
     } else if (formatTag === CANONICAL_FORMAT_TAGS.zip) {
-      await canonicalizeZip(inputPath, scratchOutputPath, scratchPath);
+      await canonicalizeZip(inputPath, scratchOutputPath, scratchPath, maxDecompressedBytes);
     } else {
       await copyFile(inputPath, scratchOutputPath);
     }

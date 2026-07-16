@@ -47,32 +47,46 @@ describe('loadCasConfig', () => {
   it('builds a child-only desync credential environment', () => {
     const config = loadCasConfig(COMPLETE_CAS_ENV);
     const originalAccessKey = process.env.AWS_ACCESS_KEY_ID;
-    const childEnv = desyncS3ChildEnv(config);
+    const originalCasSecret = process.env.CAS_S3_SECRET_ACCESS_KEY;
+    process.env.CAS_S3_SECRET_ACCESS_KEY = 'desync-child-must-not-receive-this';
+    try {
+      const childEnv = desyncS3ChildEnv(config);
 
-    expect(childEnv.AWS_ACCESS_KEY_ID).toBe('test-access-key');
-    expect(childEnv.AWS_SECRET_ACCESS_KEY).toBe('test-secret-key');
-    expect(childEnv.AWS_REGION).toBe('us-east-1');
-    expect(childEnv.AWS_DEFAULT_REGION).toBe('us-east-1');
-    expect(childEnv.S3_REGION).toBe('us-east-1');
-    expect(childEnv.S3_ACCESS_KEY).toBeUndefined();
-    expect(childEnv.S3_SECRET_KEY).toBeUndefined();
-    expect(process.env.AWS_ACCESS_KEY_ID).toBe(originalAccessKey);
+      expect(childEnv.AWS_ACCESS_KEY_ID).toBe('test-access-key');
+      expect(childEnv.AWS_SECRET_ACCESS_KEY).toBe('test-secret-key');
+      expect(childEnv.AWS_REGION).toBe('us-east-1');
+      expect(childEnv.AWS_DEFAULT_REGION).toBe('us-east-1');
+      expect(childEnv.S3_REGION).toBe('us-east-1');
+      expect(childEnv.S3_ACCESS_KEY).toBeUndefined();
+      expect(childEnv.S3_SECRET_KEY).toBeUndefined();
+      expect(childEnv.CAS_S3_SECRET_ACCESS_KEY).toBeUndefined();
+      expect(process.env.AWS_ACCESS_KEY_ID).toBe(originalAccessKey);
+    } finally {
+      if (originalCasSecret === undefined) {
+        delete process.env.CAS_S3_SECRET_ACCESS_KEY;
+      } else {
+        process.env.CAS_S3_SECRET_ACCESS_KEY = originalCasSecret;
+      }
+    }
   });
 });
 
 describe('loadIngestRuntimeEnv', () => {
   it('validates the complete local ingest contract without Infisical bootstrap credentials', async () => {
-    const runtime = await loadIngestRuntimeEnv({
+    const sourceEnv = {
       ...COMPLETE_CAS_ENV,
       CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
       INGEST_MAX_BYTES: '1048576',
-    });
+    } satisfies NodeJS.ProcessEnv;
+    const originalEnv = { ...sourceEnv };
+    const runtime = await loadIngestRuntimeEnv(sourceEnv);
 
     expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
     expect(runtime.ingestUploadDir).toBe('C:/tmp/yucp-ingest-test');
     expect(runtime.ingestMaxBytes).toBe(1_048_576);
     expect(runtime.cas.chunkPrefix).toBe('chunks/');
     expect(runtime.cas.indexPrefix).toBe('indexes/');
+    expect(sourceEnv).toEqual(originalEnv);
   });
 });

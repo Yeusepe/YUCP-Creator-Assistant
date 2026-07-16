@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
-import { runCommand } from './process';
+import { commandPathEnv, runCommand } from './process';
 import { putS3Object } from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
@@ -47,7 +47,10 @@ async function runDesyncWithUncompressedStore(
       `${JSON.stringify({ 'store-options': { [storeLocation]: { uncompressed: true } } })}\n`,
       { mode: 0o600 }
     );
-    return await runCommand('desync', ['--config', configPath, ...args], options);
+    return await runCommand('desync', ['--config', configPath, ...args], {
+      ...options,
+      env: options.env ?? commandPathEnv(),
+    });
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
   }
@@ -95,22 +98,18 @@ function buildDesyncS3IndexUrl(config: CasConfig, indexId: string): string {
  * The endpoint is encoded in the store URL. Credentials and region are scoped to one child only.
  */
 export function desyncS3ChildEnv(config: CasConfig): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.S3_ACCESS_KEY;
-  delete env.S3_SECRET_KEY;
-  delete env.S3_SESSION_TOKEN;
-  delete env.AWS_SESSION_TOKEN;
-  delete env.AWS_SECURITY_TOKEN;
-  env.AWS_ACCESS_KEY_ID = config.accessKeyId;
-  env.AWS_SECRET_ACCESS_KEY = config.secretAccessKey;
-  env.AWS_REGION = config.region;
-  env.AWS_DEFAULT_REGION = config.region;
-  env.S3_REGION = config.region;
-  return env;
+  return {
+    ...commandPathEnv(),
+    AWS_ACCESS_KEY_ID: config.accessKeyId,
+    AWS_SECRET_ACCESS_KEY: config.secretAccessKey,
+    AWS_REGION: config.region,
+    AWS_DEFAULT_REGION: config.region,
+    S3_REGION: config.region,
+  };
 }
 
 export async function verifyDesyncCli(): Promise<void> {
-  const { stdout } = await runCommand('desync', ['--help']);
+  const { stdout } = await runCommand('desync', ['--help'], { env: commandPathEnv() });
   for (const command of REQUIRED_DESYNC_COMMANDS) {
     if (!new RegExp(`^\\s+${command}\\s`, 'm').test(stdout)) {
       throw new Error(`desync --help does not advertise the required ${command} subcommand.`);
@@ -157,6 +156,7 @@ export async function storeArtifactToStore(input: {
       'make',
       '--store',
       storePath,
+      '--',
       indexPath,
       artifactPath,
     ]);
@@ -167,7 +167,7 @@ export async function storeArtifactToStore(input: {
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
   await runDesyncWithUncompressedStore(
     storeUrl,
-    ['make', '--store', storeUrl, indexUrl, artifactPath],
+    ['make', '--store', storeUrl, '--', indexUrl, artifactPath],
     {
       env: desyncS3ChildEnv(input.store.config),
     }
@@ -188,6 +188,7 @@ export async function reconstructArtifactFromStore(input: {
       'extract',
       '--store',
       storePath,
+      '--',
       resolve(input.indexId),
       outputPath,
     ]);
@@ -198,7 +199,7 @@ export async function reconstructArtifactFromStore(input: {
   const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
   await runDesyncWithUncompressedStore(
     storeUrl,
-    ['extract', '--store', storeUrl, indexUrl, outputPath],
+    ['extract', '--store', storeUrl, '--', indexUrl, outputPath],
     {
       env: desyncS3ChildEnv(input.store.config),
     }
@@ -213,8 +214,8 @@ export async function inspectDesyncIndex(input: {
     input.store.kind === 'local'
       ? resolve(input.indexId)
       : buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  const { stdout } = await runCommand('desync', ['inspect-chunks', indexLocation], {
-    ...(input.store.kind === 's3' ? { env: desyncS3ChildEnv(input.store.config) } : {}),
+  const { stdout } = await runCommand('desync', ['inspect-chunks', '--', indexLocation], {
+    env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
   });
 
   let parsed: unknown;

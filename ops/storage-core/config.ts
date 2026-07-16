@@ -122,29 +122,30 @@ export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
 export async function loadIngestRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env
 ): Promise<IngestRuntimeEnv> {
-  if (hasInfisicalBootstrap(env)) {
-    const secrets = await fetchInfisicalSecrets(env);
+  const runtimeEnv = { ...env };
+  if (hasInfisicalBootstrap(runtimeEnv)) {
+    const secrets = await fetchInfisicalSecrets(runtimeEnv);
     for (const [key, value] of Object.entries(secrets)) {
-      if (!normalizeOptional(env[key])) {
-        env[key] = value;
+      if (!normalizeOptional(runtimeEnv[key])) {
+        runtimeEnv[key] = value;
       }
     }
   }
 
-  const missing = REQUIRED_INGEST_KEYS.filter((key) => !normalizeOptional(env[key]));
+  const missing = REQUIRED_INGEST_KEYS.filter((key) => !normalizeOptional(runtimeEnv[key]));
   if (missing.length > 0) {
     throw new Error(`Missing required ingest environment variables: ${missing.join(', ')}`);
   }
 
-  const ingestMaxBytes = Number(requireValue(env, 'INGEST_MAX_BYTES'));
+  const ingestMaxBytes = Number(requireValue(runtimeEnv, 'INGEST_MAX_BYTES'));
   if (!Number.isSafeInteger(ingestMaxBytes) || ingestMaxBytes <= 0) {
     throw new Error('Invalid ingest environment variable: INGEST_MAX_BYTES');
   }
 
   return {
-    catalogDatabaseUrl: requireValue(env, 'CATALOG_DATABASE_URL'),
-    ingestUploadDir: requireValue(env, 'INGEST_UPLOAD_DIR'),
+    catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
+    ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,
-    cas: loadCasConfig(env),
+    cas: loadCasConfig(runtimeEnv),
   };
 }

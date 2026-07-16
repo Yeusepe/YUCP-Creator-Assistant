@@ -257,6 +257,10 @@ function responseStatus(error: Error | DetailedError): number | undefined {
   return error instanceof DetailedError ? error.originalResponse?.getStatus() : undefined;
 }
 
+function responseBody(error: Error | DetailedError): string | undefined {
+  return error instanceof DetailedError ? error.originalResponse?.getBody() : undefined;
+}
+
 function createInterruptedUpload(input: {
   endpoint: string;
   filePath: string;
@@ -612,6 +616,37 @@ describe.serial('tus ingest end to end', () => {
     `;
     expect(rows[0]?.count).toBe(0);
     summary.guardRejection = true;
+  });
+
+  it('rejects packageId and version metadata longer than 256 characters', async () => {
+    const fixture = requireFixturePath(fixturePath, 'valid unitypackage');
+    const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
+    const oversizedValue = 'x'.repeat(257);
+
+    for (const input of [
+      { field: 'packageId', packageId: oversizedValue, version: '1.0.0' },
+      { field: 'version', packageId: 'com.yucp.tus-length-cap', version: oversizedValue },
+    ]) {
+      const error = await uploadExpectingRejection({
+        endpoint,
+        filePath: fixture,
+        filename: 'length-cap.unitypackage',
+        filetype: 'application/octet-stream',
+        packageId: input.packageId,
+        version: input.version,
+      });
+      expect(responseStatus(error)).toBe(400);
+      expect(responseBody(error)).toBe(
+        `Upload metadata ${input.field} must not exceed 256 characters.\n`
+      );
+    }
+
+    const rows = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM package_versions
+      WHERE package_id = ${oversizedValue} OR version = ${oversizedValue}
+    `;
+    expect(rows[0]?.count).toBe(0);
   });
 
   it('marks a version failed when inline assembly rejects the completed upload', async () => {
