@@ -99,6 +99,26 @@ type ResolvedAssemblyStorage = {
   store: CasStore;
 };
 
+export function tagPipelineCasIndexId(store: CasStore, indexId: string): string {
+  if (!indexId) {
+    throw new Error('CAS index ID must not be empty');
+  }
+  return `${store.kind}:${indexId}`;
+}
+
+export function resolvePipelineCasIndexId(store: CasStore, casIndexId: string): string {
+  const separator = casIndexId.indexOf(':');
+  const kind = casIndexId.slice(0, separator);
+  const indexId = casIndexId.slice(separator + 1);
+  if ((kind !== 'local' && kind !== 's3') || !indexId) {
+    throw new Error('CAS index ID is missing a valid store-kind tag');
+  }
+  if (kind !== store.kind) {
+    throw new Error(`CAS index store kind ${kind} does not match ${store.kind} store`);
+  }
+  return indexId;
+}
+
 function resolveAssemblyStorage(
   input: PipelineStorage,
   canonicalSha256: string,
@@ -207,7 +227,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         fields: {
           formatTag: canonical.formatTag,
           canonicalSha256,
-          casIndexId: storage.indexId,
+          casIndexId: tagPipelineCasIndexId(storage.store, storage.indexId),
         },
         event: { type: 'catalog.version.assembled' },
       });
@@ -239,14 +259,16 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     event: { type: 'catalog.version.promoting' },
   });
   let scratchPath: string | undefined;
+  let indexId: string | undefined;
 
   try {
     if (!promoting.casIndexId || !promoting.canonicalSha256) {
       throw new Error(`Package version ${promoting.id} has incomplete CAS assembly metadata`);
     }
+    indexId = resolvePipelineCasIndexId(input.store, promoting.casIndexId);
     const deliveryMetadataId = siblingIndexObjectId(
       input.store,
-      promoting.casIndexId,
+      indexId,
       deliveryAssemblyMetadataObjectId(promoting.id)
     );
     const deliveryMetadata = parseDeliveryAssemblyMetadata(
@@ -259,13 +281,13 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-promote-'));
     const stagedPath = join(scratchPath, 'artifact.reassembled');
     const chunks = await inspectDesyncIndex({
-      indexId: promoting.casIndexId,
+      indexId,
       store: input.store,
     });
     const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.size, 0);
 
     await reconstructArtifactFromStore({
-      indexId: promoting.casIndexId,
+      indexId,
       outputPath: stagedPath,
       store: input.store,
     });
@@ -285,7 +307,7 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
 
     const manifestId = siblingIndexObjectId(
       input.store,
-      promoting.casIndexId,
+      indexId,
       deliveryManifestObjectId(promoting.id)
     );
     const manifest = createDeliveryManifest({
@@ -312,7 +334,7 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     });
   } catch (error) {
     let failure = error;
-    if (promoting.casIndexId) {
+    if (indexId) {
       // ponytail: Full orphan-chunk GC is a separate future task.
       const cleanupErrors: unknown[] = [];
       for (const objectId of [
@@ -321,7 +343,7 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
       ]) {
         try {
           await deleteCasIndexObject({
-            indexId: siblingIndexObjectId(input.store, promoting.casIndexId, objectId),
+            indexId: siblingIndexObjectId(input.store, indexId, objectId),
             store: input.store,
           });
         } catch (cleanupError) {
@@ -359,8 +381,9 @@ export async function retrieveVersion(input: RetrieveVersionInput): Promise<stri
 
   const outputPath = resolve(input.outputPath);
   const store = input.store ?? localCasStore(input.storePath);
+  const indexId = resolvePipelineCasIndexId(store, version.casIndexId);
   await reconstructArtifactFromStore({
-    indexId: version.casIndexId,
+    indexId,
     outputPath,
     store,
   });

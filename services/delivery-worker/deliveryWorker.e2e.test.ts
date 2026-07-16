@@ -16,6 +16,7 @@ import {
   assembleVersion,
   beginVersion,
   promoteVersion,
+  resolvePipelineCasIndexId,
 } from '../../ops/ingest-pipeline/ingestPipeline';
 import { canonicalizeArtifact } from '../../ops/storage-core/canonicalizer';
 import { loadCasConfig } from '../../ops/storage-core/config';
@@ -617,7 +618,7 @@ async function main(): Promise<void> {
       throw new Error('Failed-version fixture did not persist a CAS index ID');
     }
     const failedChunks = await inspectDesyncIndex({
-      indexId: failedAssembled.casIndexId,
+      indexId: resolvePipelineCasIndexId(s3CasStore(casConfig), failedAssembled.casIndexId),
       store: s3CasStore(casConfig),
     });
     const failedChunk = failedChunks[0];

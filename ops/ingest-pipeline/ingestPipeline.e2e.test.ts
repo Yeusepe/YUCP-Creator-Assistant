@@ -19,7 +19,7 @@ import {
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
 import { createUnityPackageFixture } from '../testing/unityPackageFixture';
-import { ingestVersion, retrieveVersion } from './ingestPipeline';
+import { ingestVersion, resolvePipelineCasIndexId, retrieveVersion } from './ingestPipeline';
 
 const postgresImage = 'postgres:17-alpine';
 const databaseName = 'ingest_test';
@@ -309,7 +309,7 @@ describe.serial('canonical ingest pipeline end to end', () => {
       state: 'ASSEMBLED',
       formatTag: CANONICAL_FORMAT_TAGS.tarGzip,
       canonicalSha256: expectedCanonicalSha256,
-      casIndexId: resolve(indexDir, `${expectedCanonicalSha256}.caibx`),
+      casIndexId: `local:${resolve(indexDir, `${expectedCanonicalSha256}.caibx`)}`,
       error: null,
     });
     const persistedV1 = await versionRow('avatar-package', '1.0.0');
@@ -335,9 +335,10 @@ describe.serial('canonical ingest pipeline end to end', () => {
     if (!assembledV1.casIndexId) {
       throw new Error('Assembled version did not persist its desync index ID');
     }
+    const localStore = localCasStore(storePath);
     const indexChunks = await inspectDesyncIndex({
-      indexId: assembledV1.casIndexId,
-      store: localCasStore(storePath),
+      indexId: resolvePipelineCasIndexId(localStore, assembledV1.casIndexId),
+      store: localStore,
     });
     const manifestBytes = Buffer.concat(
       await Promise.all(
