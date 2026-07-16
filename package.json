@@ -66,6 +66,7 @@
     "test:catalog:integration": "bun test --timeout 180000 --max-concurrency 1 ./ops/catalog/catalog.integration.test.ts",
     "test:ingest:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-pipeline/ingestPipeline.e2e.test.ts",
     "test:pipeline:promote:e2e": "bun test --timeout 300000 --max-concurrency 1 ./ops/ingest-pipeline/promotePipeline.e2e.test.ts",
+    "test:scheduler:e2e": "bun test --timeout 300000 --max-concurrency 1 ./ops/scheduler/scheduler.e2e.test.ts",
     "test:accept:5gb": "bun test --timeout 10800000 --max-concurrency 1 ./ops/ingest-pipeline/accept5gb.e2e.test.ts",
     "test:ingest-tus:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-tus/ingestTusServer.e2e.test.ts",
     "test:delivery:e2e": "tsx ./services/delivery-worker/deliveryWorker.e2e.test.ts",
