@@ -7,6 +7,8 @@ CREATE TABLE package_versions (
   cas_index_id text,
   state text NOT NULL,
   error text,
+  attempts int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  next_attempt_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT package_versions_package_version_unique UNIQUE (package_id, version),
@@ -31,6 +33,10 @@ CREATE TABLE package_versions (
     OR (state <> 'FAILED' AND error IS NULL)
   )
 );
+
+CREATE INDEX package_versions_reconcile_eligible_idx
+  ON package_versions (attempts, next_attempt_at, updated_at, id)
+  WHERE state IN ('UPLOADING', 'ASSEMBLED', 'PROMOTING', 'FAILED');
 
 CREATE TABLE catalog_outbox (
   id uuid PRIMARY KEY,
