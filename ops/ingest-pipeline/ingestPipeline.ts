@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Catalog, type PackageVersion, PackageVersionNotFoundError } from '../catalog';
@@ -12,7 +12,9 @@ import {
   deliveryManifestObjectId,
 } from '../storage-core/deliveryManifest';
 import {
+  type CasStore,
   inspectDesyncIndex,
+  type LocalCasStore,
   localCasStore,
   reconstructArtifactFromStore,
   type S3CasStore,
@@ -21,6 +23,12 @@ import {
 } from '../storage-core/desyncCas';
 
 type LocalPipelineStorage = {
+  indexDir: string;
+  store: LocalCasStore;
+  storePath?: never;
+};
+
+type LegacyLocalPipelineStorage = {
   indexDir: string;
   store?: never;
   storePath: string;
@@ -32,7 +40,7 @@ type S3PipelineStorage = {
   storePath?: never;
 };
 
-type PipelineStorage = LocalPipelineStorage | S3PipelineStorage;
+type PipelineStorage = LocalPipelineStorage | LegacyLocalPipelineStorage | S3PipelineStorage;
 
 type ArtifactInput = {
   contentType?: string;
@@ -62,7 +70,7 @@ export type RetrieveVersionInput =
   | {
       catalog: Catalog;
       outputPath: string;
-      store: S3CasStore;
+      store: CasStore;
       storePath?: never;
       versionId: string;
     }
@@ -74,10 +82,16 @@ export type RetrieveVersionInput =
       versionId: string;
     };
 
+export interface PromoteVersionInput {
+  catalog: Catalog;
+  store: CasStore;
+  versionId: string;
+}
+
 type ResolvedAssemblyStorage = {
   indexId: string;
   manifestId: string;
-  store: ReturnType<typeof localCasStore> | S3CasStore;
+  store: CasStore;
 };
 
 function resolveAssemblyStorage(
@@ -85,7 +99,7 @@ function resolveAssemblyStorage(
   canonicalSha256: string,
   versionId: string
 ): ResolvedAssemblyStorage {
-  if (input.store) {
+  if (input.store?.kind === 's3') {
     return {
       indexId: `${canonicalSha256}.caibx`,
       manifestId: deliveryManifestObjectId(versionId),
@@ -93,10 +107,15 @@ function resolveAssemblyStorage(
     };
   }
 
+  const localStore = input.store ?? (input.storePath ? localCasStore(input.storePath) : undefined);
+  if (!input.indexDir || !localStore) {
+    throw new Error('Local pipeline storage requires an index directory and CAS store');
+  }
+
   return {
     indexId: resolve(input.indexDir, `${canonicalSha256}.caibx`),
     manifestId: resolve(input.indexDir, deliveryManifestObjectId(versionId)),
-    store: localCasStore(input.storePath),
+    store: localStore,
   };
 }
 
@@ -212,6 +231,60 @@ export async function ingestVersion(input: IngestVersionInput): Promise<PackageV
     ...input,
     versionId: uploading.id,
   });
+}
+
+export async function promoteVersion(input: PromoteVersionInput): Promise<PackageVersion> {
+  const promoting = await input.catalog.transition(input.versionId, 'PROMOTING', {
+    event: { type: 'catalog.version.promoting' },
+  });
+  let scratchPath: string | undefined;
+
+  try {
+    if (!promoting.casIndexId || !promoting.canonicalSha256) {
+      throw new Error(`Package version ${promoting.id} has incomplete CAS assembly metadata`);
+    }
+
+    scratchPath = await mkdtemp(join(tmpdir(), 'yucp-promote-'));
+    const stagedPath = join(scratchPath, 'artifact.reassembled');
+    const chunks = await inspectDesyncIndex({
+      indexId: promoting.casIndexId,
+      store: input.store,
+    });
+    const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.size, 0);
+
+    await reconstructArtifactFromStore({
+      indexId: promoting.casIndexId,
+      outputPath: stagedPath,
+      store: input.store,
+    });
+    const byteLength = (await stat(stagedPath)).size;
+    if (byteLength !== expectedByteLength) {
+      throw new Error(
+        `Reassembled byte length mismatch for package version ${promoting.id}: expected ${expectedByteLength}, received ${byteLength}`
+      );
+    }
+
+    const sha256 = await sha256File(stagedPath);
+    if (sha256 !== promoting.canonicalSha256) {
+      throw new Error(
+        `Reassembled SHA-256 mismatch for package version ${promoting.id}: expected ${promoting.canonicalSha256}, received ${sha256}`
+      );
+    }
+
+    return await input.catalog.transition(promoting.id, 'READY', {
+      event: {
+        type: 'catalog.version.ready',
+        payload: { byteLength, verification: 'full-reassembly' },
+      },
+    });
+  } catch (error) {
+    await input.catalog.markFailed(promoting.id, errorMessage(error));
+    throw error;
+  } finally {
+    if (scratchPath) {
+      await rm(scratchPath, { force: true, recursive: true });
+    }
+  }
 }
 
 const retrievableStates = new Set<PackageVersion['state']>(['ASSEMBLED', 'PROMOTING', 'READY']);
