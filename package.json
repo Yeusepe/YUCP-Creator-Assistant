@@ -60,6 +60,7 @@
     "typecheck:delivery-worker": "bun x wrangler types services/delivery-worker/worker-configuration.d.ts --config services/delivery-worker/wrangler.toml --check && tsc --noEmit -p services/delivery-worker/tsconfig.json --pretty false && tsc --noEmit -p services/delivery-worker/tsconfig.test.json --pretty false",
     "test:cas:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/storage-core/storageCore.e2e.test.ts",
     "test:cas:s3": "bun test --timeout 300000 --max-concurrency 1 ./ops/storage-core/config.test.ts ./ops/storage-core/s3Cas.e2e.test.ts",
+    "test:importer:e2e": "bun test --timeout 300000 --max-concurrency 1 ./ops/importer/importVersion.e2e.test.ts",
     "smoke:cas:b2": "bun run --env-file=.env.infisical ops/storage-core/smoke-b2.ts",
     "test:catalog:integration": "bun test --timeout 180000 --max-concurrency 1 ./ops/catalog/catalog.integration.test.ts",
     "test:ingest:e2e": "bun test --timeout 180000 --max-concurrency 1 ./ops/ingest-pipeline/ingestPipeline.e2e.test.ts",
