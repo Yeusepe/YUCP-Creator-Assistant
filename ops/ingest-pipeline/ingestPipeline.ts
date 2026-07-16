@@ -12,8 +12,10 @@ import {
   deliveryManifestObjectId,
 } from '../storage-core/deliveryManifest';
 import {
+  type CasStore,
   inspectDesyncIndex,
   localCasStore,
+  type LocalCasStore,
   reconstructArtifactFromStore,
   type S3CasStore,
   storeArtifactToStore,
@@ -21,6 +23,12 @@ import {
 } from '../storage-core/desyncCas';
 
 type LocalPipelineStorage = {
+  indexDir: string;
+  store: LocalCasStore;
+  storePath?: never;
+};
+
+type LegacyLocalPipelineStorage = {
   indexDir: string;
   store?: never;
   storePath: string;
@@ -32,7 +40,7 @@ type S3PipelineStorage = {
   storePath?: never;
 };
 
-type PipelineStorage = LocalPipelineStorage | S3PipelineStorage;
+type PipelineStorage = LocalPipelineStorage | LegacyLocalPipelineStorage | S3PipelineStorage;
 
 type ArtifactInput = {
   contentType?: string;
@@ -62,7 +70,7 @@ export type RetrieveVersionInput =
   | {
       catalog: Catalog;
       outputPath: string;
-      store: S3CasStore;
+      store: CasStore;
       storePath?: never;
       versionId: string;
     }
@@ -77,7 +85,7 @@ export type RetrieveVersionInput =
 type ResolvedAssemblyStorage = {
   indexId: string;
   manifestId: string;
-  store: ReturnType<typeof localCasStore> | S3CasStore;
+  store: CasStore;
 };
 
 function resolveAssemblyStorage(
@@ -85,7 +93,7 @@ function resolveAssemblyStorage(
   canonicalSha256: string,
   versionId: string
 ): ResolvedAssemblyStorage {
-  if (input.store) {
+  if (input.store?.kind === 's3') {
     return {
       indexId: `${canonicalSha256}.caibx`,
       manifestId: deliveryManifestObjectId(versionId),
@@ -96,7 +104,7 @@ function resolveAssemblyStorage(
   return {
     indexId: resolve(input.indexDir, `${canonicalSha256}.caibx`),
     manifestId: resolve(input.indexDir, deliveryManifestObjectId(versionId)),
-    store: localCasStore(input.storePath),
+    store: input.store ?? localCasStore(input.storePath),
   };
 }
 
