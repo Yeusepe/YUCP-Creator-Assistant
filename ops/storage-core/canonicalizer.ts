@@ -11,9 +11,17 @@ import {
   type ZipInputFile,
   ZipPassThrough,
 } from 'fflate';
-import { runCommand } from './process';
+import { commandPathEnv, runCommand } from './process';
 
 export const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024;
+
+export function canonicalizerChildEnv(): NodeJS.ProcessEnv {
+  return {
+    ...commandPathEnv(),
+    LC_ALL: 'C',
+    TZ: 'UTC',
+  };
+}
 
 export const CANONICAL_FORMAT_TAGS = {
   opaque: 'RAW_OPAQUE_V1',
@@ -269,11 +277,7 @@ async function canonicalizeTarGzip(
   const sourceTarPath = join(scratchPath, 'source.tar');
   const canonicalTarPath = join(scratchPath, 'canonical.tar');
   const extractedPath = join(scratchPath, 'entries');
-  const deterministicEnvironment = {
-    ...process.env,
-    LC_ALL: 'C',
-    TZ: 'UTC',
-  };
+  const deterministicEnvironment = canonicalizerChildEnv();
   await mkdir(extractedPath);
 
   const sourceTarFile = openSync(sourceTarPath, 'w');

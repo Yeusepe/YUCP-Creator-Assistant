@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { zipSync } from 'fflate';
-import { canonicalizeArtifact } from './canonicalizer';
+import { canonicalizeArtifact, canonicalizerChildEnv } from './canonicalizer';
 import { runCommand } from './process';
 
 const scratchPaths: string[] = [];
@@ -95,5 +95,28 @@ describe('canonicalizer decompression budget', () => {
     ).rejects.toThrow('decompressed byte budget');
     expect(await pathExists(outputPath)).toBeFalse();
     await expectNoCanonicalizerScratch(scratchPath);
+  });
+});
+
+describe('canonicalizer child environment', () => {
+  it('does not pass the CAS secret to archive-tool child processes', async () => {
+    const originalSecret = process.env.CAS_S3_SECRET_ACCESS_KEY;
+    process.env.CAS_S3_SECRET_ACCESS_KEY = 'archive-child-must-not-receive-this';
+    try {
+      const childEnv = canonicalizerChildEnv();
+      expect(childEnv.CAS_S3_SECRET_ACCESS_KEY).toBeUndefined();
+      const { stdout } = await runCommand(
+        process.execPath,
+        ['-e', "process.stdout.write(process.env.CAS_S3_SECRET_ACCESS_KEY ?? 'secret-absent')"],
+        { env: childEnv }
+      );
+      expect(stdout).toBe('secret-absent');
+    } finally {
+      if (originalSecret === undefined) {
+        delete process.env.CAS_S3_SECRET_ACCESS_KEY;
+      } else {
+        process.env.CAS_S3_SECRET_ACCESS_KEY = originalSecret;
+      }
+    }
   });
 });
