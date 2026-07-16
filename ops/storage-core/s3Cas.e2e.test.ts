@@ -7,6 +7,7 @@ import { join, relative, resolve } from 'node:path';
 import { canonicalizeArtifact } from './canonicalizer';
 import { loadCasConfig } from './config';
 import {
+  inspectDesyncIndex,
   reconstructArtifactFromStore,
   s3CasStore,
   storeArtifactToStore,
@@ -162,6 +163,8 @@ describe('desync S3 CAS against throwaway MinIO', () => {
     expect(afterV1.some((object) => object.key.startsWith(config.chunkPrefix))).toBeTrue();
     expect(afterV1.some((object) => object.key === `${config.indexPrefix}v1.caibx`)).toBeTrue();
     const v1Chunks = afterV1.filter((object) => object.key.startsWith(config.chunkPrefix));
+    const inspectedV1Chunks = await inspectDesyncIndex({ indexId: 'v1.caibx', store });
+    expect(inspectedV1Chunks).toHaveLength(v1Chunks.length);
     for (const chunk of v1Chunks) {
       const response = await getS3Object(config, chunk.key);
       const bytes = Buffer.from(await response.arrayBuffer());

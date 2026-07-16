@@ -2,9 +2,11 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
+import type { DeliveryManifestChunk } from './deliveryManifest';
 import { runCommand } from './process';
+import { putS3Object } from './s3Control';
 
-const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat'] as const;
+const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
 
 export type LocalStoreMeasurement = {
   bytes: number;
@@ -201,6 +203,66 @@ export async function reconstructArtifactFromStore(input: {
       env: desyncS3ChildEnv(input.store.config),
     }
   );
+}
+
+export async function inspectDesyncIndex(input: {
+  indexId: string;
+  store: CasStore;
+}): Promise<DeliveryManifestChunk[]> {
+  const indexLocation =
+    input.store.kind === 'local'
+      ? resolve(input.indexId)
+      : buildDesyncS3IndexUrl(input.store.config, input.indexId);
+  const { stdout } = await runCommand('desync', ['inspect-chunks', indexLocation], {
+    ...(input.store.kind === 's3' ? { env: desyncS3ChildEnv(input.store.config) } : {}),
+  });
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error('desync inspect-chunks returned invalid JSON', { cause: error });
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error('desync inspect-chunks did not return a chunk list');
+  }
+
+  return parsed.map((value, index) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error(`desync inspect-chunks returned an invalid chunk at index ${index}`);
+    }
+    const id = Reflect.get(value, 'id');
+    const size = Reflect.get(value, 'uncompressed_size');
+    if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id)) {
+      throw new Error(`desync inspect-chunks returned an invalid chunk ID at index ${index}`);
+    }
+    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+      throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
+    }
+    return { id, size: size as number };
+  });
+}
+
+export async function writeCasIndexObject(input: {
+  body: string;
+  contentType: string;
+  indexId: string;
+  store: CasStore;
+}): Promise<void> {
+  if (input.store.kind === 'local') {
+    const indexPath = resolve(input.indexId);
+    await mkdir(dirname(indexPath), { recursive: true });
+    await writeFile(indexPath, input.body, { encoding: 'utf8', mode: 0o600 });
+    return;
+  }
+
+  assertRemoteIndexId(input.indexId);
+  await putS3Object({
+    body: input.body,
+    config: input.store.config,
+    contentType: input.contentType,
+    key: `${input.store.config.indexPrefix}${input.indexId}`,
+  });
 }
 
 export async function measureLocalStore(storePath: string): Promise<LocalStoreMeasurement> {

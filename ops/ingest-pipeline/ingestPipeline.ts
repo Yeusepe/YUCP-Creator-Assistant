@@ -5,16 +5,46 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Catalog, type PackageVersion, PackageVersionNotFoundError } from '../catalog';
 import { canonicalizeArtifact } from '../storage-core/canonicalizer';
-import { reconstructArtifact, storeArtifact } from '../storage-core/desyncCas';
+import {
+  createDeliveryManifest,
+  DESYNC_CHUNK_AVG_KIB,
+  DESYNC_STORAGE_FORMAT_VERSION,
+  deliveryManifestObjectId,
+} from '../storage-core/deliveryManifest';
+import {
+  inspectDesyncIndex,
+  localCasStore,
+  reconstructArtifactFromStore,
+  type S3CasStore,
+  storeArtifactToStore,
+  writeCasIndexObject,
+} from '../storage-core/desyncCas';
 
-export interface IngestVersionInput {
-  catalog: Catalog;
-  storePath: string;
+type LocalPipelineStorage = {
   indexDir: string;
-  packageId: string;
-  version: string;
+  store?: never;
+  storePath: string;
+};
+
+type S3PipelineStorage = {
+  indexDir?: never;
+  store: S3CasStore;
+  storePath?: never;
+};
+
+type PipelineStorage = LocalPipelineStorage | S3PipelineStorage;
+
+type ArtifactInput = {
+  contentType?: string;
   inputPath: string;
-}
+};
+
+export type IngestVersionInput = PipelineStorage &
+  ArtifactInput & {
+    catalog: Catalog;
+    packageId: string;
+    version: string;
+  };
 
 export interface BeginVersionInput {
   catalog: Catalog;
@@ -22,19 +52,66 @@ export interface BeginVersionInput {
   version: string;
 }
 
-export interface AssembleVersionInput {
-  catalog: Catalog;
-  storePath: string;
-  indexDir: string;
-  versionId: string;
-  inputPath: string;
+export type AssembleVersionInput = PipelineStorage &
+  ArtifactInput & {
+    catalog: Catalog;
+    versionId: string;
+  };
+
+export type RetrieveVersionInput =
+  | {
+      catalog: Catalog;
+      outputPath: string;
+      store: S3CasStore;
+      storePath?: never;
+      versionId: string;
+    }
+  | {
+      catalog: Catalog;
+      outputPath: string;
+      store?: never;
+      storePath: string;
+      versionId: string;
+    };
+
+type ResolvedAssemblyStorage = {
+  indexId: string;
+  manifestId: string;
+  store: ReturnType<typeof localCasStore> | S3CasStore;
+};
+
+function resolveAssemblyStorage(
+  input: PipelineStorage,
+  canonicalSha256: string,
+  versionId: string
+): ResolvedAssemblyStorage {
+  if (input.store) {
+    return {
+      indexId: `${canonicalSha256}.caibx`,
+      manifestId: deliveryManifestObjectId(versionId),
+      store: input.store,
+    };
+  }
+
+  return {
+    indexId: resolve(input.indexDir, `${canonicalSha256}.caibx`),
+    manifestId: resolve(input.indexDir, deliveryManifestObjectId(versionId)),
+    store: localCasStore(input.storePath),
+  };
 }
 
-export interface RetrieveVersionInput {
-  catalog: Catalog;
-  storePath: string;
-  versionId: string;
-  outputPath: string;
+function deliveryContentType(inputPath: string, configuredContentType?: string): string {
+  if (configuredContentType !== undefined) {
+    return configuredContentType;
+  }
+  const lowerPath = inputPath.toLowerCase();
+  if (lowerPath.endsWith('.zip')) {
+    return 'application/zip';
+  }
+  if (lowerPath.endsWith('.tar.gz')) {
+    return 'application/gzip';
+  }
+  return 'application/octet-stream';
 }
 
 async function sha256File(filePath: string): Promise<string> {
@@ -80,19 +157,37 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         outputPath: join(scratchPath, 'artifact.canonical'),
       });
       const canonicalSha256 = await sha256File(canonical.path);
-      const casIndexId = resolve(input.indexDir, `${canonicalSha256}.caibx`);
+      const storage = resolveAssemblyStorage(input, canonicalSha256, input.versionId);
 
-      await storeArtifact({
+      await storeArtifactToStore({
         artifactPath: canonical.path,
-        indexPath: casIndexId,
-        storePath: input.storePath,
+        indexId: storage.indexId,
+        store: storage.store,
+      });
+      const chunks = await inspectDesyncIndex({
+        indexId: storage.indexId,
+        store: storage.store,
+      });
+      const manifest = createDeliveryManifest({
+        storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+        versionId: input.versionId,
+        totalSize: canonical.byteLength,
+        contentType: deliveryContentType(input.inputPath, input.contentType),
+        chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
+        chunks,
+      });
+      await writeCasIndexObject({
+        body: JSON.stringify(manifest),
+        contentType: 'application/json',
+        indexId: storage.manifestId,
+        store: storage.store,
       });
 
       return await input.catalog.transition(input.versionId, 'ASSEMBLED', {
         fields: {
           formatTag: canonical.formatTag,
           canonicalSha256,
-          casIndexId,
+          casIndexId: storage.indexId,
         },
         event: { type: 'catalog.version.assembled' },
       });
@@ -114,11 +209,8 @@ export async function ingestVersion(input: IngestVersionInput): Promise<PackageV
     version: input.version,
   });
   return assembleVersion({
-    catalog: input.catalog,
-    storePath: input.storePath,
-    indexDir: input.indexDir,
+    ...input,
     versionId: uploading.id,
-    inputPath: input.inputPath,
   });
 }
 
@@ -136,10 +228,11 @@ export async function retrieveVersion(input: RetrieveVersionInput): Promise<stri
   }
 
   const outputPath = resolve(input.outputPath);
-  await reconstructArtifact({
-    indexPath: version.casIndexId,
+  const store = input.store ?? localCasStore(input.storePath);
+  await reconstructArtifactFromStore({
+    indexId: version.casIndexId,
     outputPath,
-    storePath: input.storePath,
+    store,
   });
   const reconstructedSha256 = await sha256File(outputPath);
   if (reconstructedSha256 !== version.canonicalSha256) {
