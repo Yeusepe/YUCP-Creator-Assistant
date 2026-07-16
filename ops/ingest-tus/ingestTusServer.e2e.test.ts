@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
-import { createServer, type Server as HttpServer } from 'node:http';
+import { createServer, type Server as HttpServer, type RequestListener } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -15,24 +15,39 @@ import {
 } from '../catalog';
 import { retrieveVersion } from '../ingest-pipeline';
 import { canonicalizeArtifact } from '../storage-core/canonicalizer';
-import { measureLocalStore, verifyDesyncCli } from '../storage-core/desyncCas';
+import { loadCasConfig } from '../storage-core/config';
+import {
+  inspectDesyncIndex,
+  localCasStore,
+  measureLocalStore,
+  type S3CasStore,
+  s3CasStore,
+  verifyDesyncCli,
+} from '../storage-core/desyncCas';
 import { runCommand } from '../storage-core/process';
+import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { createIngestTusServer, INGEST_TUS_PATH } from './ingestTusServer';
 
 const postgresImage = 'postgres:17-alpine';
+const minioImage = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
 const databaseName = 'ingest_tus_test';
 const databasePassword = 'ingest-tus-test-password';
 const containerName = `yucp-ingest-tus-e2e-${randomUUID()}`;
+const minioContainerName = `yucp-ingest-tus-minio-e2e-${randomUUID()}`;
 const chunkSize = 256 * 1024;
 
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
 let containerStarted = false;
+let minioContainerStarted = false;
 let scratchPath: string | undefined;
 let fixturePath: string | undefined;
 let corruptFixturePath: string | undefined;
 let httpServer: HttpServer | undefined;
 let serverOrigin: string | undefined;
+let s3HttpServer: HttpServer | undefined;
+let s3ServerOrigin: string | undefined;
+let s3Store: S3CasStore | undefined;
 let maxBytes = 0;
 
 const summary: {
@@ -42,6 +57,8 @@ const summary: {
   healthz?: boolean;
   lifecycle?: string;
   resumeOffset?: number;
+  s3ByteExact?: boolean;
+  s3Chunks?: number;
 } = {};
 
 interface CommandResult {
@@ -96,6 +113,17 @@ async function removePostgresContainer(): Promise<void> {
   }
 }
 
+async function removeMinioContainer(): Promise<void> {
+  if (!minioContainerStarted) {
+    return;
+  }
+  const result = await runDocker(['rm', '--force', minioContainerName]);
+  minioContainerStarted = false;
+  if (result.exitCode !== 0 && !result.stderr.includes('No such container')) {
+    throw new Error(`Failed to remove MinIO test container: ${result.stderr || result.stdout}`);
+  }
+}
+
 async function waitForPostgres(): Promise<void> {
   const deadline = Date.now() + 60_000;
   let lastResult: CommandResult | undefined;
@@ -120,6 +148,23 @@ async function waitForPostgres(): Promise<void> {
   throw new Error(
     `PostgreSQL did not become ready within 60 seconds.\n${lastResult?.stderr ?? ''}\n${logs.stderr}\n${logs.stdout}`
   );
+}
+
+async function waitForMinio(endpoint: string): Promise<void> {
+  // Readiness probe: https://docs.min.io/aistor/operations/monitoring/healthcheck-probe/
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${endpoint}/minio/health/ready`);
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // The throwaway MinIO server is still starting.
+    }
+    await Bun.sleep(250);
+  }
+  throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
 function requireCatalog(): Catalog {
@@ -155,6 +200,20 @@ function requireServerOrigin(): string {
     throw new Error('Tus ingest HTTP server was not initialized');
   }
   return serverOrigin;
+}
+
+function requireS3ServerOrigin(): string {
+  if (!s3ServerOrigin) {
+    throw new Error('S3-backed tus ingest HTTP server was not initialized');
+  }
+  return s3ServerOrigin;
+}
+
+function requireS3Store(): S3CasStore {
+  if (!s3Store) {
+    throw new Error('Tus ingest MinIO CAS store was not initialized');
+  }
+  return s3Store;
 }
 
 function deterministicBytes(seed: string, byteLength: number): Buffer {
@@ -214,16 +273,43 @@ function assertScratchPath(path: string): void {
   }
 }
 
-async function closeHttpServer(): Promise<void> {
-  const activeServer = httpServer;
-  httpServer = undefined;
-  serverOrigin = undefined;
+async function closeServer(activeServer: HttpServer | undefined): Promise<void> {
   if (!activeServer) {
     return;
   }
   await new Promise<void>((resolveClose, rejectClose) => {
     activeServer.close((error) => (error ? rejectClose(error) : resolveClose()));
   });
+}
+
+async function closeHttpServers(): Promise<void> {
+  const activeLocalServer = httpServer;
+  const activeS3Server = s3HttpServer;
+  httpServer = undefined;
+  s3HttpServer = undefined;
+  serverOrigin = undefined;
+  s3ServerOrigin = undefined;
+  await Promise.all([closeServer(activeLocalServer), closeServer(activeS3Server)]);
+}
+
+async function listen(handler: RequestListener): Promise<{
+  origin: string;
+  server: HttpServer;
+}> {
+  const server = createServer(handler);
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', rejectListen);
+      resolveListen();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    await closeServer(server);
+    throw new Error('Tus ingest HTTP server did not bind a TCP port');
+  }
+  return { origin: `http://127.0.0.1:${(address as AddressInfo).port}`, server };
 }
 
 async function outboxEventTypes(versionId: string): Promise<string[]> {
@@ -441,6 +527,52 @@ beforeAll(async () => {
     await runCatalogMigrations(sql);
     catalog = new Catalog(sql);
 
+    const accessKeyId = `test-${randomUUID()}`;
+    const secretAccessKey = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+    const bucket = `ingest-tus-${randomUUID()}`;
+    const minioResult = await runDocker([
+      'run',
+      '--detach',
+      '--rm',
+      '--name',
+      minioContainerName,
+      '--publish',
+      '127.0.0.1::9000',
+      '--env',
+      `MINIO_ROOT_USER=${accessKeyId}`,
+      '--env',
+      `MINIO_ROOT_PASSWORD=${secretAccessKey}`,
+      minioImage,
+      'server',
+      '/data',
+      '--address',
+      ':9000',
+    ]);
+    if (minioResult.exitCode !== 0) {
+      throw new Error(
+        `Failed to start MinIO test container: ${minioResult.stderr || minioResult.stdout}`
+      );
+    }
+    minioContainerStarted = true;
+    const minioPortOutput = await requireDocker(['port', minioContainerName, '9000/tcp']);
+    const minioPortMatch = /127\.0\.0\.1:(\d+)$/.exec(minioPortOutput);
+    if (!minioPortMatch?.[1]) {
+      throw new Error(`Could not determine MinIO test port from: ${minioPortOutput}`);
+    }
+    const minioEndpoint = `http://127.0.0.1:${minioPortMatch[1]}`;
+    await waitForMinio(minioEndpoint);
+    const casConfig = loadCasConfig({
+      CAS_S3_ENDPOINT: minioEndpoint,
+      CAS_S3_REGION: 'us-east-1',
+      CAS_S3_BUCKET: bucket,
+      CAS_S3_ACCESS_KEY_ID: accessKeyId,
+      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+      CAS_CHUNK_PREFIX: 'ingest-tus/chunks',
+      CAS_INDEX_PREFIX: 'ingest-tus/indexes',
+    });
+    await createS3Bucket(casConfig);
+    s3Store = s3CasStore(casConfig);
+
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-e2e-'));
     const fixtureTree = join(scratchPath, 'fixture-tree');
     await mkdir(fixtureTree);
@@ -452,30 +584,30 @@ beforeAll(async () => {
 
     const handler = createIngestTusServer({
       catalog,
-      storePath: join(scratchPath, 'cas-store'),
+      store: localCasStore(join(scratchPath, 'cas-store')),
       indexDir: join(scratchPath, 'cas-indexes'),
       uploadDir: join(scratchPath, 'uploads'),
       maxBytes,
     });
-    httpServer = createServer(handler);
-    await new Promise<void>((resolveListen, rejectListen) => {
-      httpServer?.once('error', rejectListen);
-      httpServer?.listen(0, '127.0.0.1', () => {
-        httpServer?.off('error', rejectListen);
-        resolveListen();
-      });
+    const localListener = await listen(handler);
+    httpServer = localListener.server;
+    serverOrigin = localListener.origin;
+
+    const s3Handler = createIngestTusServer({
+      catalog,
+      store: requireS3Store(),
+      uploadDir: join(scratchPath, 's3-uploads'),
+      maxBytes,
     });
-    const address = httpServer.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Tus ingest HTTP server did not bind a TCP port');
-    }
-    serverOrigin = `http://127.0.0.1:${(address as AddressInfo).port}`;
+    const s3Listener = await listen(s3Handler);
+    s3HttpServer = s3Listener.server;
+    s3ServerOrigin = s3Listener.origin;
   } catch (error) {
     const activeSql = sql;
     sql = undefined;
     catalog = undefined;
     try {
-      await closeHttpServer();
+      await closeHttpServers();
       await activeSql?.end({ timeout: 1 });
     } finally {
       if (scratchPath) {
@@ -483,7 +615,7 @@ beforeAll(async () => {
         await rm(scratchPath, { force: true, recursive: true });
         scratchPath = undefined;
       }
-      await removePostgresContainer();
+      await Promise.all([removePostgresContainer(), removeMinioContainer()]);
     }
     throw error;
   }
@@ -498,7 +630,7 @@ afterAll(async () => {
   sql = undefined;
   catalog = undefined;
   try {
-    await closeHttpServer();
+    await closeHttpServers();
     await activeSql?.end({ timeout: 1 });
   } finally {
     if (scratchPath) {
@@ -506,7 +638,8 @@ afterAll(async () => {
       await rm(scratchPath, { force: true, recursive: true });
       scratchPath = undefined;
     }
-    await removePostgresContainer();
+    s3Store = undefined;
+    await Promise.all([removePostgresContainer(), removeMinioContainer()]);
   }
 });
 
@@ -580,6 +713,71 @@ describe.serial('tus ingest end to end', () => {
     summary.lifecycle = 'CREATED->UPLOADING->ASSEMBLED';
     summary.byteExact = true;
     summary.dedupStoreDelta = storeAfterDuplicate.bytes - storeBeforeDuplicate.bytes;
+  });
+
+  it('resumes into the selected MinIO S3 store and reconstructs byte-exactly', async () => {
+    const activeCatalog = requireCatalog();
+    const store = requireS3Store();
+    const scratch = requireScratchPath();
+    const fixture = requireFixturePath(fixturePath, 'valid unitypackage');
+    const expectedCanonical = await canonicalizeArtifact({
+      inputPath: fixture,
+      outputPath: join(scratch, 's3-expected.canonical'),
+    });
+    const expectedSha256 = await sha256File(expectedCanonical.path);
+    const resumable = createInterruptedUpload({
+      endpoint: `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`,
+      filePath: fixture,
+      packageId: 'com.yucp.tus-s3',
+      version: '1.0.0',
+    });
+
+    const interruptedAt = await resumable.interrupted;
+    expect(interruptedAt).toBeGreaterThan(0);
+    const uploadingRow = await versionRow('com.yucp.tus-s3', '1.0.0');
+    expect(uploadingRow.state).toBe('UPLOADING');
+    resumable.resume();
+    await resumable.completed;
+    expect(resumable.resumeOffset()).toBe(interruptedAt);
+
+    const assembledRow = await versionRow('com.yucp.tus-s3', '1.0.0');
+    expect(assembledRow).toMatchObject({
+      state: 'ASSEMBLED',
+      canonical_sha256: expectedSha256,
+      cas_index_id: `s3:${expectedSha256}.caibx`,
+      error: null,
+    });
+    expect(await outboxEventTypes(assembledRow.id)).toEqual([
+      'catalog.version.created',
+      'catalog.version.uploading',
+      'catalog.version.assembled',
+    ]);
+
+    const chunks = await inspectDesyncIndex({
+      indexId: `${expectedSha256}.caibx`,
+      store,
+    });
+    expect(chunks.length).toBeGreaterThan(0);
+    const objects = await listS3Objects(store.config);
+    const chunkObjects = objects.filter((object) =>
+      object.key.startsWith(store.config.chunkPrefix)
+    );
+    expect(chunkObjects).toHaveLength(chunks.length);
+    expect(
+      objects.some((object) => object.key === `${store.config.indexPrefix}${expectedSha256}.caibx`)
+    ).toBeTrue();
+
+    const retrievedPath = await retrieveVersion({
+      catalog: activeCatalog,
+      store,
+      versionId: assembledRow.id,
+      outputPath: join(scratch, 's3-retrieved.unitypackage'),
+    });
+    expect(await sha256File(retrievedPath)).toBe(expectedSha256);
+    expect((await stat(retrievedPath)).size).toBe((await stat(expectedCanonical.path)).size);
+
+    summary.s3Chunks = chunkObjects.length;
+    summary.s3ByteExact = true;
   });
 
   it('rejects oversize and disallowed creations without catalog rows', async () => {
@@ -682,6 +880,8 @@ describe.serial('tus ingest end to end', () => {
       dedupStoreDelta: 0,
       guardRejection: true,
       healthz: true,
+      s3Chunks: expect.any(Number),
+      s3ByteExact: true,
     });
     console.log(
       [
@@ -692,6 +892,8 @@ describe.serial('tus ingest end to end', () => {
         `dedup-store-delta=${summary.dedupStoreDelta}`,
         `guard-rejection=${summary.guardRejection ? 'yes' : 'no'}`,
         `healthz=${summary.healthz ? 'yes' : 'no'}`,
+        `tus-to-s3-minio-chunks=${summary.s3Chunks}`,
+        `s3-byte-exact-reconstruct=${summary.s3ByteExact ? 'yes' : 'no'}`,
       ].join('\n')
     );
   });
