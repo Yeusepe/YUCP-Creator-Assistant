@@ -1,0 +1,344 @@
+import { closeSync, createReadStream, openSync, writeSync } from 'node:fs';
+import { copyFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import {
+  Unzip,
+  type UnzipFile,
+  UnzipInflate,
+  Zip,
+  ZipDeflate,
+  type ZipInputFile,
+  ZipPassThrough,
+} from 'fflate';
+import { runCommand } from './process';
+
+export const CANONICAL_FORMAT_TAGS = {
+  opaque: 'RAW_OPAQUE_V1',
+  tarGzip: 'CANONICAL_TARGZ_V1',
+  zip: 'CANONICAL_ZIP_V1',
+} as const;
+
+export type CanonicalFormatTag = (typeof CANONICAL_FORMAT_TAGS)[keyof typeof CANONICAL_FORMAT_TAGS];
+
+export type CanonicalArtifact = {
+  byteLength: number;
+  formatTag: CanonicalFormatTag;
+  path: string;
+};
+
+type ZipEntry = {
+  completed: boolean;
+  directory: boolean;
+  name: string;
+  path?: string;
+};
+
+const FIXED_ZIP_MTIME = new Date(1980, 0, 1, 0, 0, 0);
+const ALREADY_COMPRESSED_ZIP_EXTENSIONS = new Set([
+  '.7z',
+  '.avif',
+  '.dds',
+  '.flac',
+  '.gif',
+  '.gz',
+  '.jpeg',
+  '.jpg',
+  '.ktx',
+  '.ktx2',
+  '.m4a',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.ogg',
+  '.opus',
+  '.png',
+  '.rar',
+  '.spp',
+  '.unitypackage',
+  '.webm',
+  '.webp',
+  '.zip',
+]);
+
+function formatTagForPath(inputPath: string): CanonicalFormatTag {
+  const lowerPath = inputPath.toLowerCase();
+  if (lowerPath.endsWith('.unitypackage') || lowerPath.endsWith('.tar.gz')) {
+    return CANONICAL_FORMAT_TAGS.tarGzip;
+  }
+  if (lowerPath.endsWith('.zip')) {
+    return CANONICAL_FORMAT_TAGS.zip;
+  }
+  return CANONICAL_FORMAT_TAGS.opaque;
+}
+
+function assertInside(parentPath: string, childPath: string): void {
+  const childRelativePath = relative(resolve(parentPath), resolve(childPath));
+  if (
+    childRelativePath === '' ||
+    childRelativePath === '..' ||
+    childRelativePath.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) ||
+    isAbsolute(childRelativePath)
+  ) {
+    throw new Error(`Refusing to use scratch path outside its parent: ${childPath}`);
+  }
+}
+
+function canonicalZipEntryName(rawName: string): string {
+  const normalized = rawName.replace(/\\/g, '/');
+  const directory = normalized.endsWith('/');
+  const pathWithoutTrailingSlash = directory ? normalized.slice(0, -1) : normalized;
+  const segments = pathWithoutTrailingSlash.split('/');
+
+  if (
+    !pathWithoutTrailingSlash ||
+    normalized.startsWith('/') ||
+    /^[a-zA-Z]:/.test(normalized) ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`ZIP contains an unsafe entry path: ${rawName}`);
+  }
+
+  return directory ? `${pathWithoutTrailingSlash}/` : pathWithoutTrailingSlash;
+}
+
+async function extractZipEntries(inputPath: string, scratchPath: string): Promise<ZipEntry[]> {
+  const entries: ZipEntry[] = [];
+  const names = new Set<string>();
+  const openFiles = new Set<number>();
+  let extractionError: Error | undefined;
+
+  const unzip = new Unzip((file: UnzipFile) => {
+    if (extractionError) {
+      file.terminate();
+      return;
+    }
+
+    try {
+      const name = canonicalZipEntryName(file.name);
+      if (names.has(name)) {
+        throw new Error(`ZIP contains a duplicate canonical entry path: ${name}`);
+      }
+      names.add(name);
+
+      const directory = name.endsWith('/');
+      const entryPath = directory
+        ? undefined
+        : join(scratchPath, `${entries.length.toString().padStart(8, '0')}.entry`);
+      const entry: ZipEntry = {
+        completed: false,
+        directory,
+        name,
+        ...(entryPath ? { path: entryPath } : {}),
+      };
+      entries.push(entry);
+      const outputFile = entryPath ? openSync(entryPath, 'w') : undefined;
+      if (outputFile !== undefined) {
+        openFiles.add(outputFile);
+      }
+
+      file.ondata = (error, data, final) => {
+        if (error) {
+          extractionError = error;
+        } else if (data.byteLength > 0) {
+          if (outputFile === undefined) {
+            extractionError = new Error(`ZIP directory entry contains data: ${name}`);
+          } else {
+            writeSync(outputFile, data);
+          }
+        }
+
+        if (final) {
+          entry.completed = true;
+          if (outputFile !== undefined && openFiles.delete(outputFile)) {
+            closeSync(outputFile);
+          }
+        }
+      };
+      file.start();
+    } catch (error) {
+      extractionError = error instanceof Error ? error : new Error(String(error));
+      file.terminate();
+    }
+  });
+  unzip.register(UnzipInflate);
+
+  try {
+    for await (const chunk of createReadStream(inputPath)) {
+      unzip.push(chunk, false);
+      if (extractionError) {
+        throw extractionError;
+      }
+    }
+    unzip.push(new Uint8Array(), true);
+    if (extractionError) {
+      throw extractionError;
+    }
+    const incompleteEntry = entries.find((entry) => !entry.completed);
+    if (incompleteEntry) {
+      throw new Error(`ZIP entry did not finish decoding: ${incompleteEntry.name}`);
+    }
+    return entries;
+  } finally {
+    for (const openFile of openFiles) {
+      closeSync(openFile);
+    }
+  }
+}
+
+function shouldStoreZipEntry(entryName: string): boolean {
+  return ALREADY_COMPRESSED_ZIP_EXTENSIONS.has(extname(entryName).toLowerCase());
+}
+
+async function canonicalizeZip(inputPath: string, outputPath: string, scratchPath: string) {
+  const entries = (await extractZipEntries(inputPath, scratchPath)).sort((left, right) =>
+    left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+  );
+  const outputFile = openSync(outputPath, 'w');
+  let archiveError: Error | undefined;
+  const archive = new Zip((error, data) => {
+    if (error) {
+      archiveError = error;
+      return;
+    }
+    if (data.byteLength > 0) {
+      writeSync(outputFile, data);
+    }
+  });
+
+  try {
+    for (const entry of entries) {
+      const file: ZipInputFile =
+        entry.directory || shouldStoreZipEntry(entry.name)
+          ? new ZipPassThrough(entry.name)
+          : new ZipDeflate(entry.name, { level: 9 });
+      file.mtime = FIXED_ZIP_MTIME;
+      file.os = 3;
+      file.attrs = (entry.directory ? 0o755 : 0o644) << 16;
+      archive.add(file);
+
+      if (entry.path) {
+        for await (const chunk of createReadStream(entry.path)) {
+          (file as ZipPassThrough | ZipDeflate).push(chunk, false);
+          if (archiveError) {
+            throw archiveError;
+          }
+        }
+      }
+      (file as ZipPassThrough | ZipDeflate).push(new Uint8Array(), true);
+      if (archiveError) {
+        throw archiveError;
+      }
+    }
+    archive.end();
+    if (archiveError) {
+      throw archiveError;
+    }
+  } finally {
+    closeSync(outputFile);
+    if (archiveError) {
+      archive.terminate();
+    }
+  }
+}
+
+async function canonicalizeTarGzip(
+  inputPath: string,
+  outputPath: string,
+  scratchPath: string
+): Promise<void> {
+  const sourceTarPath = join(scratchPath, 'source.tar');
+  const canonicalTarPath = join(scratchPath, 'canonical.tar');
+  const extractedPath = join(scratchPath, 'entries');
+  const deterministicEnvironment = {
+    ...process.env,
+    LC_ALL: 'C',
+    TZ: 'UTC',
+  };
+  await mkdir(extractedPath);
+
+  await runCommand('gzip', ['--decompress', '--stdout', '--', inputPath], {
+    env: deterministicEnvironment,
+    stdoutPath: sourceTarPath,
+  });
+  await runCommand(
+    'tar',
+    [
+      '--force-local',
+      '--extract',
+      '--file',
+      sourceTarPath,
+      '--directory',
+      extractedPath,
+      '--no-same-owner',
+      '--no-same-permissions',
+      '--keep-directory-symlink',
+    ],
+    { env: deterministicEnvironment }
+  );
+  await runCommand(
+    'tar',
+    [
+      '--force-local',
+      '--create',
+      '--file',
+      canonicalTarPath,
+      '--format=gnu',
+      '--sort=name',
+      '--mtime=@0',
+      '--owner=0',
+      '--group=0',
+      '--numeric-owner',
+      '--mode=a-x,a=r,u+w,a+X',
+      '--directory',
+      extractedPath,
+      '.',
+    ],
+    { env: deterministicEnvironment }
+  );
+  await runCommand('gzip', ['-n', '--rsyncable', '--stdout', '--', canonicalTarPath], {
+    env: deterministicEnvironment,
+    stdoutPath: outputPath,
+  });
+}
+
+export async function canonicalizeArtifact(input: {
+  inputPath: string;
+  outputPath: string;
+}): Promise<CanonicalArtifact> {
+  const inputPath = resolve(input.inputPath);
+  const outputPath = resolve(input.outputPath);
+  if (inputPath === outputPath) {
+    throw new Error('Canonical output path must differ from the input path.');
+  }
+  const inputStats = await stat(inputPath);
+  if (!inputStats.isFile()) {
+    throw new Error(`Canonical input is not a regular file: ${inputPath}`);
+  }
+
+  const outputDirectory = dirname(outputPath);
+  await mkdir(outputDirectory, { recursive: true });
+  const scratchPath = await mkdtemp(join(outputDirectory, '.canonicalize-'));
+  assertInside(outputDirectory, scratchPath);
+  const scratchOutputPath = join(scratchPath, 'artifact.canonical');
+  const formatTag = formatTagForPath(inputPath);
+
+  try {
+    if (formatTag === CANONICAL_FORMAT_TAGS.tarGzip) {
+      await canonicalizeTarGzip(inputPath, scratchOutputPath, scratchPath);
+    } else if (formatTag === CANONICAL_FORMAT_TAGS.zip) {
+      await canonicalizeZip(inputPath, scratchOutputPath, scratchPath);
+    } else {
+      await copyFile(inputPath, scratchOutputPath);
+    }
+    await copyFile(scratchOutputPath, outputPath);
+    const outputStats = await stat(outputPath);
+    return {
+      byteLength: outputStats.size,
+      formatTag,
+      path: outputPath,
+    };
+  } finally {
+    assertInside(outputDirectory, scratchPath);
+    await rm(scratchPath, { force: true, recursive: true });
+  }
+}
