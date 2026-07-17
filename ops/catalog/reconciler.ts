@@ -16,6 +16,7 @@ const transientStates = [
 const retryableStates = [...transientStates, 'FAILED'] as const satisfies readonly CatalogState[];
 
 export const DEFAULT_RECONCILE_BATCH_LIMIT = 100;
+const OUTBOX_PUBLISH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 interface ReconcileVersionRow {
   id: string;
@@ -43,6 +44,11 @@ interface OutboxRow {
 interface ClaimedRedrive {
   version: PackageVersion;
   idempotencyKey: string;
+}
+
+interface ClaimedOutbox {
+  claimId: string;
+  event: CatalogOutboxEvent;
 }
 
 export interface CatalogOutboxEvent {
@@ -130,7 +136,7 @@ async function claimRedrive(
       return null;
     }
 
-    const attempts = candidate.attempts + 1;
+    const attempts = candidate.state === 'FAILED' ? candidate.attempts : candidate.attempts + 1;
     const backoffMs = retryBackoffMs(attempts, retryPolicy);
     let updated: ReconcileVersionRow | undefined;
 
@@ -138,7 +144,6 @@ async function claimRedrive(
       const updatedRows = await transaction<ReconcileVersionRow[]>`
         UPDATE package_versions
         SET
-          attempts = ${attempts},
           next_attempt_at = clock_timestamp() + (${backoffMs} * interval '1 millisecond'),
           updated_at = clock_timestamp()
         WHERE id = ${candidate.id}
@@ -190,6 +195,47 @@ async function claimRedrive(
   });
 }
 
+async function claimOutboxEvent(
+  sql: CatalogDatabase,
+  candidateId: string
+): Promise<ClaimedOutbox | null> {
+  const claimId = randomUUID();
+  return sql.begin(async (transaction) => {
+    const rows = await transaction<OutboxRow[]>`
+      SELECT id, aggregate_id, event_type, payload, created_at
+      FROM catalog_outbox
+      WHERE
+        id = ${candidateId}
+        AND published_at IS NULL
+        AND (
+          publish_claimed_at IS NULL
+          OR publish_claimed_at <=
+            clock_timestamp() - (${OUTBOX_PUBLISH_CLAIM_TTL_MS} * interval '1 millisecond')
+        )
+      FOR UPDATE SKIP LOCKED
+    `;
+    const event = rows[0];
+    if (!event) {
+      return null;
+    }
+    await transaction`
+      UPDATE catalog_outbox
+      SET publish_claim_id = ${claimId}, publish_claimed_at = clock_timestamp()
+      WHERE id = ${event.id}
+    `;
+    return {
+      claimId,
+      event: {
+        id: event.id,
+        aggregateId: event.aggregate_id,
+        eventType: event.event_type,
+        payload: event.payload,
+        createdAt: event.created_at,
+      },
+    };
+  });
+}
+
 export async function reconcileCatalog(
   sql: CatalogDatabase,
   options: ReconcileCatalogOptions
@@ -237,7 +283,13 @@ export async function reconcileCatalog(
       ? await sql<{ id: string }[]>`
           SELECT id
           FROM catalog_outbox
-          WHERE published_at IS NULL
+          WHERE
+            published_at IS NULL
+            AND (
+              publish_claimed_at IS NULL
+              OR publish_claimed_at <=
+                clock_timestamp() - (${OUTBOX_PUBLISH_CLAIM_TTL_MS} * interval '1 millisecond')
+            )
           ORDER BY created_at, id
           LIMIT ${remainingBatchCapacity}
         `
@@ -245,29 +297,36 @@ export async function reconcileCatalog(
 
   let outboxEventsPublished = 0;
   for (const candidate of outboxCandidates) {
-    const published = await sql.begin(async (transaction) => {
-      const rows = await transaction<OutboxRow[]>`
-        SELECT id, aggregate_id, event_type, payload, created_at
-        FROM catalog_outbox
-        WHERE id = ${candidate.id} AND published_at IS NULL
-        FOR UPDATE SKIP LOCKED
-      `;
-      const event = rows[0];
-      if (!event) {
-        return false;
-      }
-
-      await options.publish({
-        id: event.id,
-        aggregateId: event.aggregate_id,
-        eventType: event.event_type,
-        payload: event.payload,
-        createdAt: event.created_at,
+    const claim = await claimOutboxEvent(sql, candidate.id);
+    if (!claim) {
+      continue;
+    }
+    try {
+      await options.publish(claim.event);
+    } catch (error) {
+      await sql.begin(async (transaction) => {
+        await transaction`
+          UPDATE catalog_outbox
+          SET publish_claim_id = NULL, publish_claimed_at = NULL
+          WHERE id = ${claim.event.id} AND publish_claim_id = ${claim.claimId}
+        `;
       });
-      await transaction`
-        UPDATE catalog_outbox SET published_at = clock_timestamp() WHERE id = ${event.id}
+      throw error;
+    }
+    const published = await sql.begin(async (transaction) => {
+      const rows = await transaction<{ id: string }[]>`
+        UPDATE catalog_outbox
+        SET
+          published_at = clock_timestamp(),
+          publish_claim_id = NULL,
+          publish_claimed_at = NULL
+        WHERE
+          id = ${claim.event.id}
+          AND published_at IS NULL
+          AND publish_claim_id = ${claim.claimId}
+        RETURNING id
       `;
-      return true;
+      return rows.length === 1;
     });
     if (published) {
       outboxEventsPublished += 1;

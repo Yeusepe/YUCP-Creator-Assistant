@@ -17,14 +17,13 @@ export async function runCatalogMigrations(sql: CatalogDatabase): Promise<void> 
   }
 
   await sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended('yucp-catalog-migrations', 0))`;
     await transaction`
       CREATE TABLE IF NOT EXISTS catalog_schema_migrations (
         filename text PRIMARY KEY,
         applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
       )
     `;
-    await transaction`SELECT pg_advisory_xact_lock(hashtextextended('yucp-catalog-migrations', 0))`;
-
     const appliedRows = await transaction<{ filename: string }[]>`
       SELECT filename FROM catalog_schema_migrations
     `;

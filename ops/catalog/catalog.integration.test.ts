@@ -468,17 +468,15 @@ describe.serial('PostgreSQL catalog integration', () => {
   });
 
   it('no-infinite-retry: a perpetually failing row is never re-driven after the attempt cap', async () => {
+    const activeCatalog = requireCatalog();
     const database = requireSql();
     const versionId = await createUploadingVersion('perpetually-failing');
-    const maxAttempts = 3;
-    await database`
-      UPDATE package_versions
-      SET updated_at = clock_timestamp() - interval '2 hours'
-      WHERE id = ${versionId}
-    `;
+    const maxAttempts = 5;
+    const initialFailure = await activeCatalog.markFailed(versionId, 'permanent dispatch failure');
+    expect(initialFailure.attempts).toBe(1);
     await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
 
-    let redriveCalls = 0;
+    let workAttempts = 1;
     const reconcile = () =>
       reconcileCatalog(database, {
         stuckThresholdMs: 60 * 60 * 1000,
@@ -487,25 +485,27 @@ describe.serial('PostgreSQL catalog integration', () => {
         retryBackoffFactor: 2,
         retryBackoffCapMs: 60 * 60 * 1000,
         redrive: async ({ version }) => {
-          redriveCalls += 1;
           expect(version).toMatchObject({
             id: versionId,
             state: 'FAILED',
-            attempts: redriveCalls,
+            attempts: workAttempts,
           });
-          throw new Error('permanent dispatch failure');
+          await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
+            event: { type: 'catalog.version.retrying' },
+          });
+          workAttempts += 1;
+          await activeCatalog.markFailed(versionId, 'permanent dispatch failure');
         },
         publish: async () => {},
       });
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      let redriveError: unknown;
-      try {
-        await reconcile();
-      } catch (error) {
-        redriveError = error;
-      }
-      expect(redriveError).toMatchObject({ message: 'permanent dispatch failure' });
+    for (let attempt = 2; attempt <= maxAttempts; attempt += 1) {
+      await database`
+        UPDATE package_versions
+        SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+        WHERE id = ${versionId}
+      `;
+      expect(await reconcile()).toMatchObject({ versionsRedriven: 1 });
 
       const rows = await database<
         {
@@ -529,18 +529,10 @@ describe.serial('PostgreSQL catalog integration', () => {
         next_attempt_is_future: true,
       });
       expect(Math.abs((rows[0]?.backoff_ms ?? 0) - 30_000 * 2 ** (attempt - 1))).toBeLessThan(100);
-
-      if (attempt < maxAttempts) {
-        await database`
-          UPDATE package_versions
-          SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
-          WHERE id = ${versionId}
-        `;
-      }
     }
 
     expect(await reconcile()).toMatchObject({ versionsRedriven: 0 });
-    expect(redriveCalls).toBe(maxAttempts);
+    expect(workAttempts).toBe(maxAttempts);
     expect(await requireCatalog().getVersion(versionId)).toMatchObject({
       state: 'FAILED',
       attempts: maxAttempts,
