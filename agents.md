@@ -44,7 +44,7 @@ Runs the focused external-integration regression bundle defined in `ops/producti
 bun run test:external-integrations
 ```
 
-- Provider and consumer coverage includes `ops/provider-live-smoke.test.ts`, provider module contracts, `apps/api/src/routes/packages.backstage.test.ts`, `apps/bot/test/lib/setupCatalog.test.ts`, and `apps/bot/test/commands/autosetup.test.ts`.
+- Provider and consumer coverage includes `ops/provider-live-smoke.test.ts`, provider module contracts, `apps/bot/test/lib/setupCatalog.test.ts`, and `apps/bot/test/commands/autosetup.test.ts`.
 - API identity, verification, and backfill coverage includes `apps/api/src/verification/hostedIntents.test.ts`, `apps/api/src/lib/subjectIdentity.test.ts`, `apps/api/src/routes/connect.user-verify.manual-license.test.ts`, `apps/api/src/routes/providerPlatform.test.ts`, `apps/api/src/routes/connectUserVerification.readSurface.test.ts`, `apps/api/src/routes/connect.user-verify.behavior.test.ts`, `apps/api/src/routes/backfill.test.ts`, and `apps/api/src/verification/completeLicense.test.ts`.
 - Web consumer coverage includes `apps/web/test/unit/account-connections.test.tsx`, `apps/web/test/unit/dashboard-connected-platforms.test.tsx`, `apps/web/test/unit/store-integrations-status-label.test.tsx`, and `apps/web/test/unit/purchase-verification-ui-state.test.ts`.
 - RPC normalization still lives in `apps/api/src/internalRpc/router.test.ts`.

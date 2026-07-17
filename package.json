@@ -75,7 +75,7 @@
     "test:delivery:e2e": "tsx ./services/delivery-worker/deliveryWorker.e2e.test.ts",
     "test:storage:e2e": "bun run test:cas:e2e && bun run test:cas:s3 && bun run test:catalog:integration && bun run test:ingest:e2e && bun run test:ingest-tus:e2e && bun run test:delivery:e2e && bun run test:importer:e2e && bun run test:pipeline:promote:e2e && bun run test:gc:e2e && bun run test:scheduler:e2e",
     "test": "bun run test:fast",
-    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/cdngine-dev.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/publish-backstage-package.test.ts ./ops/test-backstage-repo.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
+    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
     "test:external-integrations": "bun run ops/test-external-integrations.ts",
     "test:fast": "bun run test:ops && bun run test:storage:unit && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:convex:types": "tsc --noEmit -p convex/tsconfig.json",
@@ -101,7 +101,6 @@
     "test:bot:e2e:ci": "bun run --filter '@yucp/bot' test:e2e:ci",
     "capture:discord-storage": "tsx ops/capture-discord-storage-state.ts",
     "ops:buyer-attribution-remediation": "bun run ops/buyer-attribution-remediation.ts",
-    "ops:backstage-deliverable-remediation": "bun run ops/backstage-deliverable-remediation.ts",
     "ops:subject-ownership-remediation": "bun run ops/subject-ownership-remediation.ts",
     "build:docs:index": "bun run --filter @yucp/api build:docs:index",
     "build": "bun run --filter '*' build",
@@ -113,7 +112,6 @@
     "sync:convex:env:prod": "bun run --env-file=.env.infisical ops/sync-convex-env.ts --prod",
     "smoke:providers": "bun run ops/provider-live-smoke.ts",
     "smoke:providers:refresh-fixtures": "bun run ops/provider-live-smoke.ts --refresh-fixtures",
-    "smoke:backstage-repo": "bun run ops/test-backstage-repo.ts",
     "cloudflare:worker:deploy": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:deploy -- --prod",
     "cloudflare:worker:version:upload": "bun install --frozen-lockfile && bun run --filter @yucp/web worker:version:upload",
     "infisical:convex": "bun run --env-file=.env.infisical ops/infisical-convex-run.ts",
@@ -129,8 +127,7 @@
     "start:api:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/api start",
     "start:bot:infisical": "cross-env INFISICAL_ENV=prod bun run --filter @yucp/bot start",
     "start:web": "bun run --filter @yucp/web preview",
-    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\" \"bun run start:web\"",
-    "publish:backstage-package": "tsx ops/publish-backstage-package.ts"
+    "start:all": "concurrently -k \"bun run start:api:infisical\" \"bun run start:bot:infisical\" \"bun run start:web\""
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.5",

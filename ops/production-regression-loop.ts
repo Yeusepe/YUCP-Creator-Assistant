@@ -34,14 +34,13 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, violating transport contracts such as int64 serialization, publishing Backstage repo manifests that drop synthesized alias metadata and importer requirements for metadata-less or previously persisted releases, storing canonical CDNgine source coordinates as delivery references, or persisting Backstage CDNgine delivery references before CDNgine publication is visible.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, or violating transport contracts such as int64 serialization.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
       'packages/providers/test/lemonsqueezy/module.test.ts',
       'packages/providers/test/vrchat/module.test.ts',
       'apps/api/src/internalRpc/router.test.ts',
-      'apps/api/src/routes/packages.backstage.test.ts',
     ],
     secondaryRegressionHomes: [
       'apps/bot/test/lib/internalRpc.test.ts',
@@ -55,9 +54,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     label: 'Hardware-attested anti-ripper identity',
     invariant:
       'A protected unlock must be refused when the buyer resolves to an identity node carrying an active block, an attestation challenge nonce must be single-use and fresh so a captured submit cannot be replayed, a claimed TPM that fails endorsement-chain or challenge-signature verification must be flagged rather than silently trusted, an identity block must require at least two durable anchors (TPM and/or payment) so a reused or forged soft label alone cannot ban a real customer, and only salted hashes (never raw identifiers) may be persisted.',
-    primaryRegressionHomes: [
-      'convex/attestation.realtest.ts',
-    ],
+    primaryRegressionHomes: ['convex/attestation.realtest.ts'],
     secondaryRegressionHomes: ['convex/couplingJobAndReveal.realtest.ts'],
     remediationHomes: ['convex/attestation.realtest.ts'],
   },
@@ -161,7 +158,8 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
   },
   {
     id: 'convex-verification-entitlement-realtests',
-    description: 'Convex entitlement and manual-license revocation regressions for verification incidents',
+    description:
+      'Convex entitlement and manual-license revocation regressions for verification incidents',
     cwdRelativeToRepoRoot: '.',
     args: [
       'x',
@@ -188,7 +186,6 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/jinxxy/module.test.ts',
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
-      './apps/api/src/routes/packages.backstage.test.ts',
       './apps/bot/test/lib/roleSync.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',

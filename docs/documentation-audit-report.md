@@ -133,13 +133,7 @@ No concrete stale or incorrect claims were verified during this audit.
 
 ### `docs\review-playbook.md`
 
-#### 1. The provider runtime regression matrix is stale
-- **Current doc:** Says the secondary home for provider runtime failures is `apps\api\test\providers\<provider>.backfill.test.ts`.
-- **Problem:** `ops\production-regression-loop.ts` now uses bot consumer tests as the secondary homes, treats `apps\api\test\providers` as remediation, and adds `apps/api/src/routes/packages.backstage.test.ts` as a provider primary home.
-- **Update needed:** Update the matrix to match the current source of truth in `ops\production-regression-loop.ts`.
-- **Evidence:** `docs\review-playbook.md:383`; `docs\review-playbook.md:409-417`; `ops\production-regression-loop.ts:31-50`
-
-#### 2. The verification regression matrix is incomplete
+#### 1. The verification regression matrix is incomplete
 - **Current doc:** Lists `completeLicense.test.ts` or `connect.user-verify.behavior.test.ts` as the verification primary homes.
 - **Problem:** The current source of truth also includes `convex\verificationIntents.realtest.ts`, `connect.user-verify.manual-license.test.ts`, `connect.user-verify.provider-link.test.ts`, and `hostedIntents.test.ts`.
 - **Update needed:** Expand the verification row so it matches `ops\production-regression-loop.ts`.
@@ -148,9 +142,9 @@ No concrete stale or incorrect claims were verified during this audit.
 ### `ops\infisical\README.md`
 
 #### 1. The required secret inventory is incomplete
-- **Current doc:** Lists mostly Discord, Gumroad, Jinxxy, email, auth, infra, and CDNgine secrets.
+- **Current doc:** Lists mostly Discord, Gumroad, Jinxxy, email, auth, and infrastructure secrets.
 - **Problem:** The current runtime also uses `ENCRYPTION_SECRET`, `CONVEX_SITE_URL`, `INTERNAL_SERVICE_AUTH_SECRET`, `CONVEX_API_SECRET` for the bot, YUCP signing keys, grant and envelope keys, and coupling-service secrets.
-- **Update needed:** Rewrite the secret inventory by runtime surface: API, bot, Convex/auth, web worker, YUCP signing, coupling, and CDNgine.
+- **Update needed:** Rewrite the secret inventory by runtime surface: API, bot, Convex/auth, web worker, YUCP signing, and coupling.
 - **Evidence:** `ops\infisical\README.md:48-158`; `convex\accountSecurity.ts:161-164`; `convex\auth.ts:47-58`; `apps\api\src\auth\index.ts:240-245`; `apps\bot\src\lib\env.ts:79-90`; `convex\yucpCertificates.ts:328-333`; `convex\lib\protectedMaterializationGrant.ts:46-50`; `convex\lib\couplingRuntimeEnvelope.ts:11-18`; `convex\lib\couplingServiceRuntimeArtifacts.ts:45-49`
 
 #### 2. The bot env mapping is wrong
@@ -191,13 +185,7 @@ No concrete stale or incorrect claims were verified during this audit.
 - **Update needed:** Describe `bun run typecheck` as Bebop generation plus workspace and app TypeScript checks, and keep Convex coverage under `test:convex`.
 - **Evidence:** `agents.md:21-33`; `package.json:31-34`; `tsconfig.solution.json:1-9`
 
-#### 2. The external-integration gate description is incomplete
-- **Current doc:** Describes a narrower set of provider, API, router, and consumer tests.
-- **Problem:** The actual gate also includes `apps/api/src/verification/hostedIntents.test.ts`, `apps/api/src/lib/subjectIdentity.test.ts`, `apps/api/src/routes/connectUserVerification.readSurface.test.ts`, `apps/api/src/routes/packages.backstage.test.ts`, and `apps/bot/test/commands/autosetup.test.ts`.
-- **Update needed:** Define this gate using the concrete regression bundle in `ops\test-external-integrations.ts` instead of a narrower prose summary.
-- **Evidence:** `agents.md:35-47`; `ops\test-external-integrations.ts:21-32`; `ops\production-regression-loop.ts:118-171`
-
-#### 3. The `test:ci` description is stale
+#### 2. The `test:ci` description is stale
 - **Current doc:** Says `test:ci` covers `@yucp/api`, `@yucp/policy`, `@yucp/providers`, and `@yucp/shared`, plus a Convex compile gate.
 - **Problem:** `test:ci` now runs `test:ops` first and `test:fast:ci`, which includes `@yucp/application`. It does not run a Convex compile gate.
 - **Update needed:** Rewrite the section so it matches the current `test:ci` script and package coverage.
@@ -289,9 +277,9 @@ No concrete stale or incorrect claims were verified during this audit.
 
 #### 1. The service scope is too narrow
 - **Current doc:** Frames the service mostly around websites, setup pages, dashboards, APIs, webhooks, bot, verification, Liened Downloads, collaborator sharing, and Unity runtime.
-- **Problem:** The current product also includes account privacy and security, authorized apps, billing, certificates, package and VCC access, and OAuth consent and login surfaces.
-- **Update needed:** Broaden the definition of the service to cover the currently shipped account, billing, certificate, and buyer access surfaces.
-- **Evidence:** `docs\privacypolicy.html:206-210`; `apps\web\src\routeTree.gen.ts:29-58`; `apps\web\src\routeTree.gen.ts:292-433`; `apps\web\src\routes\_authenticated\account\security.lazy.tsx:48-60`; `apps\web\src\routes\_authenticated\account\authorized-apps.lazy.tsx:153-245`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:37-40`; `apps\web\src\routes\access.$catalogProductId.tsx:28-46`
+- **Problem:** The current product also includes account privacy and security, authorized apps, billing, certificates, and OAuth consent and login surfaces.
+- **Update needed:** Broaden the definition of the service to cover the currently shipped account, billing, certificate, and authorization surfaces.
+- **Evidence:** `docs\privacypolicy.html:206-210`; `apps\web\src\routeTree.gen.ts:29-58`; `apps\web\src\routeTree.gen.ts:292-433`; `apps\web\src\routes\_authenticated\account\security.lazy.tsx:48-60`; `apps\web\src\routes\_authenticated\account\authorized-apps.lazy.tsx:153-245`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:37-40`
 
 #### 2. Provider coverage is outdated
 - **Current doc:** Names only Discord, Gumroad, and Jinxxy in provider data and auth sections.
@@ -333,9 +321,9 @@ No concrete stale or incorrect claims were verified during this audit.
 
 #### 3. The service description omits major current surfaces
 - **Current doc:** Focuses on Discord verification, downloads, collaboration, and Unity runtime.
-- **Problem:** The current repo also includes account security and recovery, authorized apps, billing, certificates, audit logs, package access, and Unity or VCC delivery routes.
+- **Problem:** The current repo also includes account security and recovery, authorized apps, billing, certificates, and audit logs.
 - **Update needed:** Broaden the service definition so it matches the current shipped product surface.
-- **Evidence:** `docs\termsofservice.html:212-215`; `docs\termsofservice.html:337-359`; `apps\web\src\routeTree.gen.ts:292-433`; `apps\web\src\routes\_authenticated\account\authorized-apps.lazy.tsx:153-245`; `apps\web\src\routes\_authenticated\account\security.lazy.tsx:48-60`; `apps\web\src\routes\access.$catalogProductId.tsx:28-46`; `apps\web\src\routes\get-in-unity.$creatorRef.$productRef.tsx:14-20`; `apps\web\src\routes\get-in-unity.$creatorRef.$productRef.tsx:60-76`
+- **Evidence:** `docs\termsofservice.html:212-215`; `docs\termsofservice.html:337-359`; `apps\web\src\routeTree.gen.ts:292-433`; `apps\web\src\routes\_authenticated\account\authorized-apps.lazy.tsx:153-245`; `apps\web\src\routes\_authenticated\account\security.lazy.tsx:48-60`
 
 #### 4. Verification-method examples are incomplete
 - **Current doc:** Describes verification mainly as Gumroad OAuth, Jinxxy, Discord-role, and manual-license flows.
@@ -345,9 +333,9 @@ No concrete stale or incorrect claims were verified during this audit.
 
 #### 5. The fees and billing section is no longer hypothetical
 - **Current doc:** Says paid features may exist now or in the future and discusses billing generically.
-- **Problem:** The repo already has live Polar-backed checkout, billing portal, plan capabilities, and billing-gated package and VCC access.
-- **Update needed:** Rewrite the section to reflect that paid creator certificate and package features already exist.
-- **Evidence:** `docs\termsofservice.html:730-747`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:1-2`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:79-105`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:171-175`; `apps\web\src\routes\_authenticated\dashboard\billing.lazy.tsx:303-313`; `apps\api\src\routes\connectCertificateRoutes.ts:116-131`; `apps\api\src\routes\connectCertificateRoutes.ts:138-179`; `apps\api\src\routes\connectCertificateRoutes.ts:182-188`; `apps\web\src\components\dashboard\PackageRegistryAccessGate.tsx:18-23`; `apps\web\src\components\dashboard\PackageRegistryAccessGate.tsx:45-52`
+- **Problem:** The repo already has live Polar-backed checkout, billing portal, and plan capabilities.
+- **Update needed:** Rewrite the section to reflect that paid creator certificate features already exist.
+- **Evidence:** `docs\termsofservice.html:730-747`; `apps\web\src\routes\_authenticated\account\billing.lazy.tsx:1-2`; `apps\web\src\routes\_authenticated\account\billing.lazy.tsx:79-105`; `apps\api\src\routes\connectCertificateRoutes.ts:116-131`; `apps\api\src\routes\connectCertificateRoutes.ts:138-179`; `apps\api\src\routes\connectCertificateRoutes.ts:182-188`
 
 #### 6. Export, deletion, and account-control language is incomplete
 - **Current doc:** Says creators may request export by emailing `contact@yucp.club`.

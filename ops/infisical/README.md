@@ -50,10 +50,6 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
   - `POLAR_ACCESS_TOKEN`
   - `POLAR_WEBHOOK_SECRET`
   - `POLAR_SERVER`
-  - `CDNGINE_API_BASE_URL`
-  - `CDNGINE_PUBLIC_API_BASE_URL`
-  - `CDNGINE_ACCESS_TOKEN`
-  - `CDNGINE_BACKSTAGE_TIMEOUT_MS`
 - Shared optional security and observability vars:
   - `ERROR_REFERENCE_SECRET`
   - `PUBLIC_API_KEY_PEPPER`
@@ -158,14 +154,10 @@ These keys back certificate issuance, protected materialization grants, broker a
 - `YUCP_BROKER_SHARED_SECRET`
 - `YUCP_COUPLING_HMAC_KEY`
 
-### Coupling and backstage delivery
+### Coupling service
 
 - `YUCP_COUPLING_SERVICE_BASE_URL`
 - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
-- `CDNGINE_API_BASE_URL`
-- `CDNGINE_PUBLIC_API_BASE_URL`
-- `CDNGINE_ACCESS_TOKEN`
-- `CDNGINE_BACKSTAGE_TIMEOUT_MS`
 
 ## Local workflows
 
