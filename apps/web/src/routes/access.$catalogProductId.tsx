@@ -1,10 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { Download, ExternalLink, Package, Store } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Copy, Download, ExternalLink, Package, PackagePlus, Store } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { YucpButton } from '@/components/ui/YucpButton';
+import { type BuyerVpmRepositoryAccess, mintBuyerVpmRepository } from '@/lib/productAccess';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
+import { copyToClipboard } from '@/lib/utils';
 
 export const Route = createFileRoute('/access/$catalogProductId')({
   head: () => ({
@@ -79,6 +82,8 @@ function BuyerProductAccessPage() {
           </a>
         </section>
 
+        {accessState.hasActiveEntitlement ? <BuyerVpmAccess /> : null}
+
         {product.storefrontUrl ? (
           <footer className="vpa-foot">
             <a
@@ -94,6 +99,75 @@ function BuyerProductAccessPage() {
         ) : null}
       </div>
     </AccessPageShell>
+  );
+}
+
+function BuyerVpmAccess() {
+  const [repository, setRepository] = useState<BuyerVpmRepositoryAccess | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function prepareRepository() {
+    setIsPending(true);
+    setError(null);
+    try {
+      setRepository(await mintBuyerVpmRepository());
+    } catch {
+      setError('We could not prepare your VPM repository. Try again in a moment.');
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  if (!repository) {
+    return (
+      <section className="vpa-manual" aria-label="Unity Creator Companion access">
+        <h2 className="vpa-action-title">Install in Unity</h2>
+        <p className="vpa-manual-copy">
+          Create your private package source, then add it to VRChat Creator Companion.
+        </p>
+        <YucpButton
+          yucp="secondary"
+          className="vpa-cta"
+          isLoading={isPending}
+          onPress={() => prepareRepository()}
+        >
+          <PackagePlus className="size-4" aria-hidden="true" />
+          {isPending ? 'Preparing VPM repo...' : 'Get VPM repo'}
+        </YucpButton>
+        {error ? <p className="vpa-note vpa-note--error">{error}</p> : null}
+      </section>
+    );
+  }
+
+  return (
+    <section className="vpa-manual" aria-label="Unity Creator Companion access">
+      <h2 className="vpa-action-title">Your private VPM repository</h2>
+      <p className="vpa-manual-copy">
+        Add the source to VCC, or copy the index URL for manual repository setup.
+      </p>
+      <a className="vp-primary-btn vpa-cta" href={repository.addRepoUrl}>
+        <PackagePlus className="size-4" aria-hidden="true" />
+        Add to VCC
+      </a>
+      <p className="vpa-manual-copy">VCC add-repo URL</p>
+      <div className="vpa-repo-box">
+        <p className="vpa-repo-url">{repository.addRepoUrl}</p>
+      </div>
+      <p className="vpa-manual-copy">Repository index URL</p>
+      <div className="vpa-repo-box">
+        <p className="vpa-repo-url">{repository.indexUrl}</p>
+        <YucpButton
+          yucp="ghost"
+          className="vpa-repo-copy"
+          aria-label="Copy index URL"
+          onPress={() => copyToClipboard(repository.indexUrl)}
+        >
+          <Copy className="size-3.5" aria-hidden="true" />
+          Copy
+        </YucpButton>
+      </div>
+    </section>
   );
 }
 
