@@ -98,7 +98,6 @@ export async function putS3Object(input: {
     body,
     config: input.config,
     headers: {
-      'content-length': String(body.byteLength),
       'content-type': input.contentType,
     },
     key: input.key,
