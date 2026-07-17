@@ -44,8 +44,8 @@ function xmlDecode(value: string): string {
 }
 
 /**
- * S3 requests are signed by the pinned aws4fetch dependency. Artifact chunks and binary indexes
- * are transferred by desync itself.
+ * S3 requests are signed by the pinned aws4fetch dependency. Artifact chunks are transferred by
+ * desync itself.
  *
  * AWS Signature V4: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
  */
@@ -85,15 +85,22 @@ export async function getS3Object(config: CasConfig, key: string): Promise<Respo
 
 /** PutObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html */
 export async function putS3Object(input: {
-  body: BodyInit;
+  body: Uint8Array | string;
   config: CasConfig;
   contentType: string;
   key: string;
 }): Promise<void> {
+  const body =
+    typeof input.body === 'string'
+      ? Uint8Array.from(Buffer.from(input.body))
+      : Uint8Array.from(input.body);
   await signedRequest({
-    body: input.body,
+    body,
     config: input.config,
-    headers: { 'content-type': input.contentType },
+    headers: {
+      'content-length': String(body.byteLength),
+      'content-type': input.contentType,
+    },
     key: input.key,
     method: 'PUT',
     operation: 'PutObject',

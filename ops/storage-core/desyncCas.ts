@@ -164,14 +164,26 @@ export async function storeArtifactToStore(input: {
   }
 
   const storeUrl = buildDesyncS3StoreUrl(input.store.config);
-  const indexUrl = buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  await runDesyncWithUncompressedStore(
-    storeUrl,
-    ['make', '--store', storeUrl, '--', indexUrl, artifactPath],
-    {
-      env: desyncS3ChildEnv(input.store.config),
-    }
-  );
+  assertRemoteIndexId(input.indexId);
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-index-'));
+  const indexPath = join(scratchPath, 'artifact.caibx');
+  try {
+    await runDesyncWithUncompressedStore(
+      storeUrl,
+      ['make', '--store', storeUrl, '--', indexPath, artifactPath],
+      {
+        env: desyncS3ChildEnv(input.store.config),
+      }
+    );
+    await putS3Object({
+      body: await readFile(indexPath),
+      config: input.store.config,
+      contentType: 'application/octet-stream',
+      key: `${input.store.config.indexPrefix}${input.indexId}`,
+    });
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
 }
 
 export async function reconstructArtifactFromStore(input: {
