@@ -17,8 +17,8 @@ export interface CreatorUploadConfig {
   frontendBaseUrl: string;
   convexApiSecret: string;
   convexUrl: string;
-  ingestTusUrl: string;
-  uploadHmacKey: string;
+  ingestTusUrl?: string;
+  uploadHmacKey?: string;
 }
 
 interface CreateCreatorUploadRoutesOptions {
@@ -86,10 +86,16 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       return Response.json({ error: 'Package ownership required' }, { status: 403 });
     }
 
+    const uploadHmacKey = config.uploadHmacKey?.trim();
+    const ingestTusUrl = config.ingestTusUrl?.trim();
+    if (!uploadHmacKey || !ingestTusUrl) {
+      return Response.json({ error: 'Creator uploads are not configured' }, { status: 503 });
+    }
+
     const versionId = crypto.randomUUID();
     const capability = await signUploadCapability({
       versionId,
-      key: config.uploadHmacKey,
+      key: uploadHmacKey,
       expiresAt: Date.now() + UPLOAD_TTL_MS,
     });
     const headers = {
@@ -103,7 +109,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         versionId,
         exp: capability.exp,
         sig: capability.sig,
-        tusEndpoint: `${config.ingestTusUrl.replace(/\/+$/, '')}/files`,
+        tusEndpoint: `${ingestTusUrl.replace(/\/+$/, '')}/files`,
         headers,
         ...(catalogProductId ? { catalogProductId } : {}),
       },

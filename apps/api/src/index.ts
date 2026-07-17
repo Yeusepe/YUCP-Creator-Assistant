@@ -207,8 +207,6 @@ function initializeAuth(webhookBaseUrl?: string) {
   const encryptionSecret = getEncryptionSecret(env);
   const internalRpcSharedSecret = getInternalRpcSharedSecret(env);
   const couplingServiceSharedSecret = getCouplingServiceSharedSecret(env);
-  const uploadHmacKey = getRequired('UPLOAD_HMAC_KEY');
-  const ingestTusUrl = getRequired('INGEST_TUS_URL');
 
   getRequired('BETTER_AUTH_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
@@ -331,8 +329,8 @@ function initializeAuth(webhookBaseUrl?: string) {
       frontendBaseUrl: frontendUrl,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
-      ingestTusUrl,
-      uploadHmacKey,
+      ingestTusUrl: env.INGEST_TUS_URL,
+      uploadHmacKey: env.UPLOAD_HMAC_KEY,
     },
   });
 

@@ -37,7 +37,7 @@ const config = {
   uploadHmacKey,
 };
 
-function createRoutes(userId: string | null) {
+function createRoutes(userId: string | null, configOverrides: Partial<typeof config> = {}) {
   return createCreatorUploadRoutes({
     auth: {
       getSession: async () =>
@@ -47,7 +47,7 @@ function createRoutes(userId: string | null) {
             }
           : null,
     } as never,
-    config,
+    config: { ...config, ...configOverrides },
   });
 }
 
@@ -94,6 +94,22 @@ describe('creator upload authorization', () => {
       actor: 'creator-actor-binding',
       packageId: 'com.yucp.avatar',
     });
+  });
+
+  it('returns 503 for the package owner when creator uploads are not configured', async () => {
+    convexQueryMock.mockResolvedValue({
+      packageId: 'com.yucp.avatar',
+      yucpUserId: 'creator-123',
+      status: 'active',
+    });
+
+    const response = await createRoutes('creator-123', {
+      ingestTusUrl: undefined,
+      uploadHmacKey: undefined,
+    }).authorizeUpload(authorizeRequest({ packageId: 'com.yucp.avatar', version: '1.0.0' }));
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'Creator uploads are not configured' });
   });
 
   it('returns a verifiable capability for the package owner', async () => {

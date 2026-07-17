@@ -31,7 +31,9 @@ export interface LocalEnv {
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
   INTERNAL_SERVICE_TOKEN?: string;
+  /** Optional creator-upload signing key. The upload route returns 503 when unavailable. */
   UPLOAD_HMAC_KEY?: string;
+  /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
   INGEST_TUS_URL?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
