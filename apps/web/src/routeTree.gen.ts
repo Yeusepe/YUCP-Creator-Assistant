@@ -31,6 +31,7 @@ import { Route as LegalPrivacyPolicyRouteImport } from './routes/legal/privacy-p
 import { Route as InstallSuccessRouteImport } from './routes/install/success'
 import { Route as InstallErrorRouteImport } from './routes/install/error'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as AccessCatalogProductIdRouteImport } from './routes/access.$catalogProductId'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
@@ -168,6 +169,11 @@ const InstallErrorRoute = InstallErrorRouteImport.update({
 const ApiSplatRoute = ApiSplatRouteImport.update({
   id: '/api/$',
   path: '/api/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessCatalogProductIdRoute = AccessCatalogProductIdRouteImport.update({
+  id: '/access/$catalogProductId',
+  path: '/access/$catalogProductId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -402,6 +408,7 @@ export interface FileRoutesByFullPath {
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/account': typeof AuthenticatedAccountRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -448,6 +455,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/sign-in': typeof SignInRoute
   '/sign-in-redirect': typeof SignInRedirectRoute
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -498,6 +506,7 @@ export interface FileRoutesById {
   '/sign-in-redirect': typeof SignInRedirectRoute
   '/_authenticated/account': typeof AuthenticatedAccountRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRouteWithChildren
+  '/access/$catalogProductId': typeof AccessCatalogProductIdRoute
   '/api/$': typeof ApiSplatRoute
   '/install/error': typeof InstallErrorRoute
   '/install/success': typeof InstallSuccessRoute
@@ -548,6 +557,7 @@ export interface FileRouteTypes {
     | '/sign-in-redirect'
     | '/account'
     | '/dashboard'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -594,6 +604,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/sign-in'
     | '/sign-in-redirect'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -643,6 +654,7 @@ export interface FileRouteTypes {
     | '/sign-in-redirect'
     | '/_authenticated/account'
     | '/_authenticated/dashboard'
+    | '/access/$catalogProductId'
     | '/api/$'
     | '/install/error'
     | '/install/success'
@@ -691,6 +703,7 @@ export interface RootRouteChildren {
   ConnectRoute: typeof ConnectRoute
   SignInRoute: typeof SignInRoute
   SignInRedirectRoute: typeof SignInRedirectRoute
+  AccessCatalogProductIdRoute: typeof AccessCatalogProductIdRoute
   ApiSplatRoute: typeof ApiSplatRoute
   InstallErrorRoute: typeof InstallErrorRoute
   InstallSuccessRoute: typeof InstallSuccessRoute
@@ -864,6 +877,13 @@ declare module '@tanstack/react-router' {
       path: '/api/$'
       fullPath: '/api/$'
       preLoaderRoute: typeof ApiSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/access/$catalogProductId': {
+      id: '/access/$catalogProductId'
+      path: '/access/$catalogProductId'
+      fullPath: '/access/$catalogProductId'
+      preLoaderRoute: typeof AccessCatalogProductIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/dashboard': {
@@ -1134,6 +1154,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectRoute: ConnectRoute,
   SignInRoute: SignInRoute,
   SignInRedirectRoute: SignInRedirectRoute,
+  AccessCatalogProductIdRoute: AccessCatalogProductIdRoute,
   ApiSplatRoute: ApiSplatRoute,
   InstallErrorRoute: InstallErrorRoute,
   InstallSuccessRoute: InstallSuccessRoute,
