@@ -1,13 +1,15 @@
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import { internalMutation, query } from './_generated/server';
+import { mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireServiceActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 
 const DEFAULT_CHANNEL = 'stable';
 
-export const upsertReadyVersion = internalMutation({
+export const upsertReadyVersion = mutation({
   args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
     packageId: v.string(),
     version: v.string(),
     versionId: v.string(),
@@ -18,6 +20,9 @@ export const upsertReadyVersion = internalMutation({
     createdAt: v.number(),
   },
   handler: async (ctx, args): Promise<Id<'package_versions_ref'>> => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+
     const existing = await ctx.db
       .query('package_versions_ref')
       .withIndex('by_version_id', (q) => q.eq('versionId', args.versionId))

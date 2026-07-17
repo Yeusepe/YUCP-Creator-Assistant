@@ -1,14 +1,22 @@
 import type { Catalog, CatalogDatabase, ReconcileCatalogOptions } from '../catalog';
-import { reconcileCatalog } from '../catalog';
+import {
+  createConvexCatalogPublish,
+  loadConvexCatalogPublishConfig,
+  reconcileCatalog,
+} from '../catalog';
 import { promoteVersion } from '../ingest-pipeline';
 import type { CasStore } from '../storage-core/desyncCas';
 
-export type CreateIngestSchedulerOptions = Omit<ReconcileCatalogOptions, 'batchLimit'> & {
+export type CreateIngestSchedulerOptions = Omit<
+  ReconcileCatalogOptions,
+  'batchLimit' | 'publish'
+> & {
   batchLimit: number;
   catalog: Catalog;
   database: CatalogDatabase;
   intervalMs: number;
   onError: (error: unknown) => Promise<void> | void;
+  publish?: ReconcileCatalogOptions['publish'];
   store: CasStore;
 };
 
@@ -32,8 +40,16 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
   }
   requirePositiveSafeInteger(options.batchLimit, 'batchLimit');
 
-  const { batchLimit, catalog, database, intervalMs, onError, store, ...reconcileOptions } =
-    options;
+  const {
+    batchLimit,
+    catalog,
+    database,
+    intervalMs,
+    onError,
+    publish = createConvexCatalogPublish(loadConvexCatalogPublishConfig()),
+    store,
+    ...reconcileOptions
+  } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
   let inFlight: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
@@ -48,7 +64,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
 
   async function runTick(): Promise<void> {
     try {
-      await reconcileCatalog(database, { ...reconcileOptions, batchLimit });
+      await reconcileCatalog(database, { ...reconcileOptions, batchLimit, publish });
     } catch (error) {
       await reportError(error);
     }

@@ -1,6 +1,6 @@
 import { createApiActorBinding } from '@yucp/shared/apiActor';
 import { describe, expect, it } from 'vitest';
-import { api, internal } from './_generated/api';
+import { api } from './_generated/api';
 import { makeTestConvex } from './testHelpers';
 
 process.env.CONVEX_API_SECRET = 'test-secret';
@@ -21,19 +21,30 @@ async function createDownloadServiceActorBinding() {
   );
 }
 
+async function authenticatedReadyVersionArgs<T extends Record<string, unknown>>(input: T) {
+  return {
+    apiSecret: 'test-secret',
+    actor: await createDownloadServiceActorBinding(),
+    ...input,
+  };
+}
+
 describe('packageVersions', () => {
   it('inserts a READY package version reference with the stable channel by default', async () => {
     const t = makeTestConvex();
     const createdAt = Date.now();
 
-    await t.mutation(internal.packageVersions.upsertReadyVersion, {
-      packageId: 'com.yucp.avatar-tools',
-      version: '1.0.0',
-      versionId: '00000000-0000-4000-8000-000000000001',
-      totalSize: 1_024,
-      contentType: 'application/zip',
-      createdAt,
-    });
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000001',
+        totalSize: 1_024,
+        contentType: 'application/zip',
+        createdAt,
+      })
+    );
 
     const rows = await t.run(async (ctx) => await ctx.db.query('package_versions_ref').collect());
 
@@ -53,28 +64,35 @@ describe('packageVersions', () => {
   it('supersedes the prior READY reference for the same package and channel', async () => {
     const t = makeTestConvex();
 
-    await t.mutation(internal.packageVersions.upsertReadyVersion, {
-      packageId: 'com.yucp.avatar-tools',
-      version: '1.0.0',
-      versionId: '00000000-0000-4000-8000-000000000001',
-      channel: 'stable',
-      createdAt: 1_000,
-    });
-    await t.mutation(internal.packageVersions.upsertReadyVersion, {
-      packageId: 'com.yucp.avatar-tools',
-      version: '1.1.0',
-      versionId: '00000000-0000-4000-8000-000000000002',
-      channel: 'stable',
-      createdAt: 2_000,
-    });
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000001',
+        channel: 'stable',
+        createdAt: 1_000,
+      })
+    );
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.1.0',
+        versionId: '00000000-0000-4000-8000-000000000002',
+        channel: 'stable',
+        createdAt: 2_000,
+      })
+    );
 
-    const rows = await t.run(async (ctx) =>
-      await ctx.db
-        .query('package_versions_ref')
-        .withIndex('by_package_channel', (q) =>
-          q.eq('packageId', 'com.yucp.avatar-tools').eq('channel', 'stable')
-        )
-        .collect()
+    const rows = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query('package_versions_ref')
+          .withIndex('by_package_channel', (q) =>
+            q.eq('packageId', 'com.yucp.avatar-tools').eq('channel', 'stable')
+          )
+          .collect()
     );
 
     expect(rows).toHaveLength(2);
@@ -92,13 +110,20 @@ describe('packageVersions', () => {
       createdAt: 1_000,
     } as const;
 
-    const firstId = await t.mutation(internal.packageVersions.upsertReadyVersion, input);
-    const secondId = await t.mutation(internal.packageVersions.upsertReadyVersion, input);
-    const rows = await t.run(async (ctx) =>
-      await ctx.db
-        .query('package_versions_ref')
-        .withIndex('by_version_id', (q) => q.eq('versionId', input.versionId))
-        .collect()
+    const firstId = await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs(input)
+    );
+    const secondId = await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs(input)
+    );
+    const rows = await t.run(
+      async (ctx) =>
+        await ctx.db
+          .query('package_versions_ref')
+          .withIndex('by_version_id', (q) => q.eq('versionId', input.versionId))
+          .collect()
     );
 
     expect(secondId).toBe(firstId);
@@ -122,20 +147,26 @@ describe('packageVersions', () => {
       });
     });
 
-    await t.mutation(internal.packageVersions.upsertReadyVersion, {
-      packageId: 'com.yucp.avatar-tools',
-      version: '1.0.0',
-      versionId: '00000000-0000-4000-8000-000000000001',
-      catalogProductId,
-      createdAt: 1_000,
-    });
-    await t.mutation(internal.packageVersions.upsertReadyVersion, {
-      packageId: 'com.yucp.avatar-tools',
-      version: '1.1.0',
-      versionId: '00000000-0000-4000-8000-000000000002',
-      catalogProductId,
-      createdAt: 2_000,
-    });
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000001',
+        catalogProductId,
+        createdAt: 1_000,
+      })
+    );
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.1.0',
+        versionId: '00000000-0000-4000-8000-000000000002',
+        catalogProductId,
+        createdAt: 2_000,
+      })
+    );
 
     const actor = await createDownloadServiceActorBinding();
     const byProduct = await t.query(api.packageVersions.resolveDownloadableVersion, {
