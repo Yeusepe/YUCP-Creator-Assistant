@@ -131,6 +131,41 @@ describe('packageVersions', () => {
     expect(rows[0]?.state).toBe('READY');
   });
 
+  it('keeps a newer READY release downloadable after an older event arrives out of order', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.out-of-order';
+
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '2.0.0',
+        versionId: '00000000-0000-4000-8000-000000000002',
+        createdAt: 2_000,
+      })
+    );
+    await t.mutation(
+      api.packageVersions.upsertReadyVersion,
+      await authenticatedReadyVersionArgs({
+        packageId,
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000001',
+        createdAt: 1_000,
+      })
+    );
+
+    const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor: await createDownloadServiceActorBinding(),
+      packageId,
+    });
+    const rows = await t.run(async (ctx) => await ctx.db.query('package_versions_ref').collect());
+
+    expect(resolved?.versionId).toBe('00000000-0000-4000-8000-000000000002');
+    expect(rows.find((row) => row.version === '2.0.0')?.state).toBe('READY');
+    expect(rows.find((row) => row.version === '1.0.0')?.state).toBe('SUPERSEDED');
+  });
+
   it('resolves the latest READY reference by product or package and returns null when absent', async () => {
     const t = makeTestConvex();
     const catalogProductId = await t.run(async (ctx) => {

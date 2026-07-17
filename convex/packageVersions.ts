@@ -38,9 +38,14 @@ export const upsertReadyVersion = mutation({
         q.eq('packageId', args.packageId).eq('channel', channel).eq('state', 'READY')
       )
       .collect();
+    const hasCurrentReadyAtOrAfter = currentReadyVersions.some(
+      (current) => current.createdAt >= args.createdAt
+    );
 
     for (const current of currentReadyVersions) {
-      await ctx.db.patch(current._id, { state: 'SUPERSEDED' });
+      if (current.createdAt < args.createdAt) {
+        await ctx.db.patch(current._id, { state: 'SUPERSEDED' });
+      }
     }
 
     return await ctx.db.insert('package_versions_ref', {
@@ -48,7 +53,7 @@ export const upsertReadyVersion = mutation({
       version: args.version,
       versionId: args.versionId,
       channel,
-      state: 'READY',
+      state: hasCurrentReadyAtOrAfter ? 'SUPERSEDED' : 'READY',
       catalogProductId: args.catalogProductId,
       totalSize: args.totalSize,
       contentType: args.contentType,
