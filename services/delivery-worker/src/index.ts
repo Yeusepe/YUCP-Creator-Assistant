@@ -44,6 +44,7 @@ type StorageClient = {
 
 const MAX_DELIVERY_CHUNKS = 256;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const CHUNK_ORIGIN_TIMEOUT_MS = 30_000;
 const OVERSIZED_MANIFEST_MESSAGE =
   'Delivery manifest exceeds direct delivery limits; use the importer path';
 const VERSION_PATH_PATTERN = /^\/d\/([^/]+)$/;
@@ -142,13 +143,17 @@ function createStorageClient(config: DeliveryWorkerEnv, stats: DeliveryStats): S
  * GetObject response contract:
  * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
  */
-async function getStorageObject(client: StorageClient, key: string): Promise<Response> {
+async function getStorageObject(
+  client: StorageClient,
+  key: string,
+  signal?: AbortSignal
+): Promise<Response> {
   client.stats.storageFetches += 1;
   const url = buildS3ObjectUrl(
     { bucket: client.config.CAS_S3_BUCKET, endpoint: client.config.CAS_S3_ENDPOINT },
     key
   );
-  return client.aws.fetch(url, { method: 'GET' });
+  return client.aws.fetch(url, { method: 'GET', signal });
 }
 
 async function readLimitedText(response: Response, limit: number): Promise<string> {
@@ -328,7 +333,12 @@ async function loadChunk(
 
   client.stats.cacheMisses += 1;
   client.stats.chunkOriginFetches += 1;
-  const response = await getStorageObject(client, chunkObjectKey(client.config, chunk.id));
+  // Bound only the origin request. The cache key remains the immutable CAS request above.
+  const response = await getStorageObject(
+    client,
+    chunkObjectKey(client.config, chunk.id),
+    AbortSignal.timeout(CHUNK_ORIGIN_TIMEOUT_MS)
+  );
   if (response.status === 404) {
     throw new Error('CAS chunk is missing from storage');
   }
