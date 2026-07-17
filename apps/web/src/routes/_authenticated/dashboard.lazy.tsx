@@ -478,6 +478,10 @@ function Sidebar({
     enabled: canRunPanelQueries && _isPersonalDashboard,
   });
 
+  const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
+    certificatesQuery.data?.billing.capabilities,
+    BILLING_CAPABILITY_KEYS.vpmRepo
+  );
   const hasCouplingTraceabilityCapability = hasActiveCreatorBillingCapability(
     certificatesQuery.data?.billing.capabilities,
     BILLING_CAPABILITY_KEYS.couplingTraceability
@@ -520,6 +524,39 @@ function Sidebar({
             </div>
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Developer</span>
+              {hasVpmRepoCapability ? (
+                <Link
+                  id="tab-btn-packages"
+                  to="/dashboard/packages"
+                  search={(prev) => ({
+                    ...prev,
+                    guild_id: undefined,
+                    tenant_id: undefined,
+                    view: undefined,
+                  })}
+                  className="sidebar-nav-btn"
+                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
+                  role="tab"
+                  aria-selected={false}
+                  aria-controls="tab-panel-packages"
+                >
+                  <svg
+                    className="sidebar-nav-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 8.5L12 13 3 8.5" />
+                    <path d="M3 8.5V17l9 4.5 9-4.5V8.5" />
+                    <path d="M12 13v8.5" />
+                  </svg>
+                  Package uploads
+                </Link>
+              ) : null}
               {hasCouplingTraceabilityCapability ? (
                 <Link
                   id="tab-btn-package-forensics"
