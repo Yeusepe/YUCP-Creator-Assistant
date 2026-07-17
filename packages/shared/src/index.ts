@@ -39,11 +39,8 @@ export * from './accountRecoveryPasskey';
 export * from './apiActor';
 export * from './authOrigins';
 export * from './authRedirects';
-export * from './backstagePackageMedia';
-export * from './backstageVpmDelivery';
 // Binding module exports
 export * from './binding';
-export * from './cdngineBackstageDelivery';
 export * from './convexSiteUrl';
 // Crypto module exports
 export * from './crypto';
