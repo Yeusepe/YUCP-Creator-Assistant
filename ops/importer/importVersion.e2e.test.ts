@@ -16,7 +16,7 @@ import {
 } from '../storage-core/desyncCas';
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket } from '../storage-core/s3Control';
-import { importVersion } from './importVersion';
+import { importerCapabilityBinding, importVersion } from './importVersion';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
 const TEST_CONTAINER_LABEL = 'com.yucp.test=desync-importer';
@@ -294,49 +294,60 @@ describe('first-party desync importer against throwaway MinIO', () => {
     const hmacKey = randomBytes(32).toString('hex');
     const v1VersionId = 'importer-fixture-v1';
     const v1Signed = await signDeliveryUrl({
+      binding: importerCapabilityBinding('v1.caibx', v1Sha256),
       expiresAt: Date.now() + 10 * 60_000,
       key: hmacKey,
       versionId: v1VersionId,
     });
     const importedV1Path = join(scratchPath, 'imported-v1.unitypackage');
-    const importedV1 = await importVersion({
-      capability: { ...v1Signed, key: hmacKey, versionId: v1VersionId },
-      expectedSha256: v1Sha256,
-      indexId: 'v1.caibx',
-      outputPath: importedV1Path,
-      store,
-    });
+    const importedV1 = await importVersion(
+      {
+        capability: { ...v1Signed, versionId: v1VersionId },
+        expectedSha256: v1Sha256,
+        indexId: 'v1.caibx',
+        outputPath: importedV1Path,
+        store,
+      },
+      { hmacKey }
+    );
     expect(importedV1).toBe(resolve(importedV1Path));
     expect(await sha256File(importedV1)).toBe(v1Sha256);
     expect(await readFile(importedV1)).toEqual(await readFile(canonicalV1.path));
 
     const v2VersionId = 'importer-fixture-v2';
     const v2Signed = await signDeliveryUrl({
+      binding: importerCapabilityBinding('v2.caibx', v2Sha256),
       expiresAt: Date.now() + 10 * 60_000,
       key: hmacKey,
       versionId: v2VersionId,
     });
     const fullChunksBefore = proxy.counts.chunks;
-    const importedFullV2 = await importVersion({
-      capability: { ...v2Signed, key: hmacKey, versionId: v2VersionId },
-      expectedSha256: v2Sha256,
-      indexId: 'v2.caibx',
-      outputPath: join(scratchPath, 'imported-v2-full.unitypackage'),
-      store,
-    });
+    const importedFullV2 = await importVersion(
+      {
+        capability: { ...v2Signed, versionId: v2VersionId },
+        expectedSha256: v2Sha256,
+        indexId: 'v2.caibx',
+        outputPath: join(scratchPath, 'imported-v2-full.unitypackage'),
+        store,
+      },
+      { hmacKey }
+    );
     const fullV2StoreGets = proxy.counts.chunks - fullChunksBefore;
     expect(fullV2StoreGets).toBe(v2ChunkIds.size);
     expect(await sha256File(importedFullV2)).toBe(v2Sha256);
 
     const deltaChunksBefore = proxy.counts.chunks;
-    const importedDeltaV2 = await importVersion({
-      capability: { ...v2Signed, key: hmacKey, versionId: v2VersionId },
-      expectedSha256: v2Sha256,
-      indexId: 'v2.caibx',
-      outputPath: join(scratchPath, 'imported-v2-delta.unitypackage'),
-      seed: { artifactPath: importedV1, indexId: 'v1.caibx' },
-      store,
-    });
+    const importedDeltaV2 = await importVersion(
+      {
+        capability: { ...v2Signed, versionId: v2VersionId },
+        expectedSha256: v2Sha256,
+        indexId: 'v2.caibx',
+        outputPath: join(scratchPath, 'imported-v2-delta.unitypackage'),
+        seed: { artifactPath: importedV1, indexId: 'v1.caibx' },
+        store,
+      },
+      { hmacKey }
+    );
     const deltaV2StoreGets = proxy.counts.chunks - deltaChunksBefore;
     expect(deltaV2StoreGets).toBe(newV2ChunkIds.size);
     expect(deltaV2StoreGets).toBeLessThan(fullV2StoreGets / 3);
@@ -346,32 +357,38 @@ describe('first-party desync importer against throwaway MinIO', () => {
     const authFailureFetchesBefore = proxy.counts.total;
     const badSignature = `${v2Signed.sig[0] === '0' ? '1' : '0'}${v2Signed.sig.slice(1)}`;
     await expect(
-      importVersion({
-        capability: {
-          ...v2Signed,
-          key: hmacKey,
-          sig: badSignature,
-          versionId: v2VersionId,
+      importVersion(
+        {
+          capability: {
+            ...v2Signed,
+            sig: badSignature,
+            versionId: v2VersionId,
+          },
+          expectedSha256: v2Sha256,
+          indexId: 'v2.caibx',
+          outputPath: join(scratchPath, 'invalid-capability.unitypackage'),
+          store,
         },
-        expectedSha256: v2Sha256,
-        indexId: 'v2.caibx',
-        outputPath: join(scratchPath, 'invalid-capability.unitypackage'),
-        store,
-      })
+        { hmacKey }
+      )
     ).rejects.toThrow('Invalid or expired importer capability');
     const expired = await signDeliveryUrl({
+      binding: importerCapabilityBinding('v2.caibx', v2Sha256),
       expiresAt: Date.now() - 60_000,
       key: hmacKey,
       versionId: v2VersionId,
     });
     await expect(
-      importVersion({
-        capability: { ...expired, key: hmacKey, versionId: v2VersionId },
-        expectedSha256: v2Sha256,
-        indexId: 'v2.caibx',
-        outputPath: join(scratchPath, 'expired-capability.unitypackage'),
-        store,
-      })
+      importVersion(
+        {
+          capability: { ...expired, versionId: v2VersionId },
+          expectedSha256: v2Sha256,
+          indexId: 'v2.caibx',
+          outputPath: join(scratchPath, 'expired-capability.unitypackage'),
+          store,
+        },
+        { hmacKey }
+      )
     ).rejects.toThrow('Invalid or expired importer capability');
     const invalidCapabilityStoreFetches = proxy.counts.total - authFailureFetchesBefore;
     expect(invalidCapabilityStoreFetches).toBe(0);

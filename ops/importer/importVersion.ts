@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import type { VerifyDeliveryUrlInput } from '../storage-core/deliverySigning';
+import type { DeliveryUrlSignature } from '../storage-core/deliverySigning';
 import { verifyDeliveryUrl } from '../storage-core/deliverySigning';
 import {
   buildDesyncS3StoreUrl,
@@ -15,7 +15,13 @@ import { getS3Object } from '../storage-core/s3Control';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 
-export type ImporterCapability = VerifyDeliveryUrlInput;
+export type ImporterCapability = DeliveryUrlSignature & {
+  versionId: string;
+};
+
+export type ImportVersionConfig = {
+  hmacKey: string;
+};
 
 export type ImportSeed = {
   artifactPath: string;
@@ -61,6 +67,10 @@ function childEnv(store: CasStore): NodeJS.ProcessEnv {
   return store.kind === 's3' ? desyncS3ChildEnv(store.config) : commandPathEnv();
 }
 
+export function importerCapabilityBinding(indexId: string, expectedSha256: string): string {
+  return JSON.stringify([indexId, expectedSha256]);
+}
+
 async function stageSeedIndex(input: {
   scratchPath: string;
   seed: ImportSeed;
@@ -103,8 +113,19 @@ async function measureFile(filePath: string): Promise<{ byteLength: number; sha2
 /**
  * desync seed contract: https://github.com/folbricht/desync#using-a-seed-file
  */
-export async function importVersion(input: ImportVersionInput): Promise<string> {
-  if (!(await verifyDeliveryUrl(input.capability))) {
+export async function importVersion(
+  input: ImportVersionInput,
+  config: ImportVersionConfig
+): Promise<string> {
+  if (
+    !(await verifyDeliveryUrl({
+      binding: importerCapabilityBinding(input.indexId, input.expectedSha256),
+      exp: input.capability.exp,
+      key: config.hmacKey,
+      sig: input.capability.sig,
+      versionId: input.capability.versionId,
+    }))
+  ) {
     throw new Error('Invalid or expired importer capability');
   }
   if (!SHA256_PATTERN.test(input.expectedSha256)) {
@@ -119,6 +140,9 @@ export async function importVersion(input: ImportVersionInput): Promise<string> 
 
   const outputPath = resolve(input.outputPath);
   const seedArtifactPath = input.seed ? resolve(input.seed.artifactPath) : undefined;
+  if (seedArtifactPath && relative(seedArtifactPath, outputPath) === '') {
+    throw new Error('Importer seed artifact must differ from output path');
+  }
   if (seedArtifactPath) {
     const seedStats = await stat(seedArtifactPath);
     if (!seedStats.isFile()) {
@@ -146,7 +170,7 @@ export async function importVersion(input: ImportVersionInput): Promise<string> 
       `${JSON.stringify({ 'store-options': { [storeUrl]: { uncompressed: true } } })}\n`,
       { mode: 0o600 }
     );
-    const args = ['--config', configPath, 'extract', '--store', storeUrl];
+    const args = ['--config', configPath, '--digest', 'sha256', 'extract', '--store', storeUrl];
     if (input.seed && seedArtifactPath) {
       const stagedIndexPath = await stageSeedIndex({
         scratchPath,

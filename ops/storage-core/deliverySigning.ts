@@ -1,6 +1,7 @@
 import { deliveryManifestObjectId } from './deliveryManifest';
 
 export type SignDeliveryUrlInput = {
+  binding?: string;
   /** Expiration as a Date or Unix epoch milliseconds. Numeric epoch seconds are rejected. */
   expiresAt: Date | number;
   key: string;
@@ -8,6 +9,7 @@ export type SignDeliveryUrlInput = {
 };
 
 export type VerifyDeliveryUrlInput = {
+  binding?: string;
   exp: string;
   key: string;
   /** Verification time as a Date or Unix epoch milliseconds. */
@@ -80,15 +82,21 @@ async function importHmacKey(key: string, usage: 'sign' | 'verify'): Promise<Cry
   ]);
 }
 
-function signedPayload(versionId: string, exp: string): ArrayBuffer {
-  return encodeUtf8(`${versionId}|${exp}`);
+function signedPayload(versionId: string, exp: string, binding?: string): ArrayBuffer {
+  return encodeUtf8(
+    binding === undefined ? `${versionId}|${exp}` : JSON.stringify([versionId, binding, exp])
+  );
 }
 
 export async function signDeliveryUrl(input: SignDeliveryUrlInput): Promise<DeliveryUrlSignature> {
   assertSigningInput(input.versionId, input.key);
   const exp = unixSeconds(input.expiresAt).toString();
   const key = await importHmacKey(input.key, 'sign');
-  const signature = await crypto.subtle.sign('HMAC', key, signedPayload(input.versionId, exp));
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    signedPayload(input.versionId, exp, input.binding)
+  );
   return { exp, sig: toHex(signature) };
 }
 
@@ -110,5 +118,10 @@ export async function verifyDeliveryUrl(input: VerifyDeliveryUrlInput): Promise<
     return false;
   }
   const key = await importHmacKey(input.key, 'verify');
-  return crypto.subtle.verify('HMAC', key, signature, signedPayload(input.versionId, input.exp));
+  return crypto.subtle.verify(
+    'HMAC',
+    key,
+    signature,
+    signedPayload(input.versionId, input.exp, input.binding)
+  );
 }
