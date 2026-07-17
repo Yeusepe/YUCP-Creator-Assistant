@@ -234,18 +234,6 @@ describe('auth binding enforcement', () => {
     delete process.env.INTERNAL_SERVICE_AUTH_SECRET;
   });
 
-  it('rejects listing package registrations without an actor binding', async () => {
-    const t = makeTestConvex({ injectActor: false });
-    await seedPackageRegistration(t, { yucpUserId: 'auth-package-owner' });
-
-    await expect(
-      t.query(api.packageRegistry.listForAuthUser, {
-        apiSecret: API_SECRET,
-        authUserId: 'auth-package-owner',
-      })
-    ).rejects.toThrow(/actor|unauthorized/i);
-  });
-
   it('preserves an explicitly provided invalid actor binding in test helpers', async () => {
     const t = makeTestConvex();
     await seedPackageRegistration(t, { yucpUserId: 'auth-package-owner' });

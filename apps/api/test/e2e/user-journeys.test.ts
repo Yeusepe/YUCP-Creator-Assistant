@@ -952,24 +952,6 @@ describe('real API user journeys against self-hosted Convex', () => {
       publisherId: uniqueRef('hosted_manual_publisher'),
       yucpUserId: creator.authUserId,
     });
-    await harness.convex.mutation(internal.packageRegistry.upsertDeliveryPackageForProduct, {
-      authUserId: creator.authUserId,
-      catalogProductId,
-      packageId,
-      packageName: 'Hosted Manual Redemption Package',
-      displayName: 'Hosted Manual Redemption Package',
-      repositoryVisibility: 'listed',
-      defaultChannel: 'stable',
-    });
-    await harness.convex.mutation(internal.packageRegistry.recordDeliveryPackageRelease, {
-      authUserId: creator.authUserId,
-      packageId,
-      version: '1.0.0',
-      channel: 'stable',
-      releaseStatus: 'published',
-      repositoryVisibility: 'listed',
-      artifactKey: uniqueRef('hosted_manual_release'),
-    });
     const { licenseId } = await harness.convex.mutation<{ licenseId: string }>(
       api.manualLicenses.create,
       {

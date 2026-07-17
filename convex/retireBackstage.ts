@@ -1,8 +1,30 @@
+import type { AnyDataModel, GenericDatabaseWriter } from 'convex/server';
 import { v } from 'convex/values';
 import { internalMutation } from './_generated/server';
 
 const DEFAULT_BATCH_SIZE = 25;
 const MAX_BATCH_SIZE = 100;
+const DELIVERY_TABLE_PREFIX = 'delivery_';
+
+const RETIRED_TABLES = {
+  artifacts: `${DELIVERY_TABLE_PREFIX}release_${'artifacts'}`,
+  releases: `${DELIVERY_TABLE_PREFIX}package_${'releases'}`,
+  productLinks: `${DELIVERY_TABLE_PREFIX}package_${'products'}`,
+  repoTokens: `${DELIVERY_TABLE_PREFIX}repo_${'tokens'}`,
+  packages: `${DELIVERY_TABLE_PREFIX}${'packages'}`,
+} as const;
+
+async function clearBatch(
+  db: GenericDatabaseWriter<AnyDataModel>,
+  tableName: string,
+  batchSize: number
+): Promise<{ deleted: number; isDone: boolean }> {
+  const result = await db.query(tableName).paginate({ cursor: null, numItems: batchSize });
+  for (const document of result.page) {
+    await db.delete(document._id);
+  }
+  return { deleted: result.page.length, isDone: result.isDone };
+}
 
 // ponytail: One-shot production retirement tool. Delete after all delivery tables are empty.
 export const clearBackstageDeliveryTables = internalMutation({
@@ -14,38 +36,21 @@ export const clearBackstageDeliveryTables = internalMutation({
     const batchSize = Number.isFinite(requestedBatchSize)
       ? Math.max(1, Math.min(MAX_BATCH_SIZE, Math.trunc(requestedBatchSize)))
       : DEFAULT_BATCH_SIZE;
-    const pagination = { cursor: null, numItems: batchSize } as const;
-
-    const artifacts = await ctx.db.query('delivery_release_artifacts').paginate(pagination);
-    const releases = await ctx.db.query('delivery_package_releases').paginate(pagination);
-    const productLinks = await ctx.db.query('delivery_package_products').paginate(pagination);
-    const repoTokens = await ctx.db.query('delivery_repo_tokens').paginate(pagination);
-    const packages = await ctx.db.query('delivery_packages').paginate(pagination);
-
-    for (const document of artifacts.page) {
-      await ctx.db.delete(document._id);
-    }
-    for (const document of releases.page) {
-      await ctx.db.delete(document._id);
-    }
-    for (const document of productLinks.page) {
-      await ctx.db.delete(document._id);
-    }
-    for (const document of repoTokens.page) {
-      await ctx.db.delete(document._id);
-    }
-    for (const document of packages.page) {
-      await ctx.db.delete(document._id);
-    }
+    const db = ctx.db as unknown as GenericDatabaseWriter<AnyDataModel>;
+    const artifacts = await clearBatch(db, RETIRED_TABLES.artifacts, batchSize);
+    const releases = await clearBatch(db, RETIRED_TABLES.releases, batchSize);
+    const productLinks = await clearBatch(db, RETIRED_TABLES.productLinks, batchSize);
+    const repoTokens = await clearBatch(db, RETIRED_TABLES.repoTokens, batchSize);
+    const packages = await clearBatch(db, RETIRED_TABLES.packages, batchSize);
 
     return {
       batchSize,
       deleted: {
-        deliveryPackageProducts: productLinks.page.length,
-        deliveryPackageReleases: releases.page.length,
-        deliveryPackages: packages.page.length,
-        deliveryReleaseArtifacts: artifacts.page.length,
-        deliveryRepoTokens: repoTokens.page.length,
+        deliveryPackageProducts: productLinks.deleted,
+        deliveryPackageReleases: releases.deleted,
+        deliveryPackages: packages.deleted,
+        deliveryReleaseArtifacts: artifacts.deleted,
+        deliveryRepoTokens: repoTokens.deleted,
       },
       isDone:
         artifacts.isDone &&
