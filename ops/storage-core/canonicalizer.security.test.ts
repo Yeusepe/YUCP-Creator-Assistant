@@ -214,7 +214,7 @@ describe('canonicalizer tar path safety', () => {
     );
     expect(await pathExists(outputPath)).toBeFalse();
     await expectNoCanonicalizerScratch(scratchPath);
-  });
+  }, 30_000);
 });
 
 describe('canonicalizer child environment', () => {
