@@ -27,6 +27,7 @@ describe('createConvexCatalogPublish', () => {
       payload: {
         versionId: 'version-123',
         packageId: 'com.yucp.avatar-tools',
+        catalogProductId: 'catalog-product-123',
         version: '1.2.3',
         byteLength: 1_048_576,
         contentType: 'application/zip',
@@ -48,6 +49,7 @@ describe('createConvexCatalogPublish', () => {
     expect(args).toMatchObject({
       apiSecret: config.convexApiSecret,
       packageId: 'com.yucp.avatar-tools',
+      catalogProductId: 'catalog-product-123',
       version: '1.2.3',
       versionId: 'version-123',
       totalSize: 1_048_576,

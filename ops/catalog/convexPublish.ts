@@ -65,6 +65,11 @@ function optionalContentType(payload: Record<string, unknown>): string | undefin
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function optionalCatalogProductId(payload: Record<string, unknown>): string | undefined {
+  const value = payload.catalogProductId;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 async function createPublisherActor(secret: string): Promise<ApiActorBinding> {
   return await createApiActorBinding(
     createServiceApiActor({
@@ -96,6 +101,7 @@ export function createConvexCatalogPublish(
       dependencies.createClient?.(config.convexUrl) ??
       (new ConvexHttpClient(config.convexUrl) as ConvexMutationClient);
     const actor = await createPublisherActor(config.internalServiceAuthSecret);
+    const catalogProductId = optionalCatalogProductId(event.payload);
     const contentType = optionalContentType(event.payload);
     await client.mutation(api.packageVersions.upsertReadyVersion, {
       apiSecret: config.convexApiSecret,
@@ -104,6 +110,7 @@ export function createConvexCatalogPublish(
       version: requiredPayloadString(event.payload, 'version'),
       versionId: requiredPayloadString(event.payload, 'versionId'),
       totalSize: requiredByteLength(event.payload),
+      ...(catalogProductId ? { catalogProductId } : {}),
       ...(contentType ? { contentType } : {}),
       createdAt: event.createdAt.getTime(),
     });

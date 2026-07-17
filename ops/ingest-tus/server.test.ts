@@ -80,13 +80,17 @@ describe('ingest-tus production runtime', () => {
       const capability = await signUploadCapability({
         expiresAt: Date.now() + 60_000,
         key,
+        packageId: 'com.yucp.runtime-test',
+        version: '1.0.0',
         versionId,
       });
       return fetch(`http://127.0.0.1:${port}/files`, {
         method: 'POST',
         headers: {
           [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+          [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
           [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
+          [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
           [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
         },
       });

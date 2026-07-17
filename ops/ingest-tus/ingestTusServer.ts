@@ -86,6 +86,7 @@ function normalizedContentType(metadata: Upload['metadata']): string | undefined
 }
 
 function validateArtifactMetadata(upload: Upload): {
+  catalogProductId?: string;
   extension: string;
   filename: string;
   packageId: string;
@@ -94,6 +95,7 @@ function validateArtifactMetadata(upload: Upload): {
   const filename = requiredMetadata(upload.metadata, 'filename');
   const packageId = requiredMetadata(upload.metadata, 'packageId');
   const version = requiredMetadata(upload.metadata, 'version');
+  const catalogProductId = upload.metadata?.catalogProductId?.trim() || undefined;
   if ([...packageId].length > 256) {
     throw tusError(400, 'Upload metadata packageId must not exceed 256 characters.');
   }
@@ -115,7 +117,13 @@ function validateArtifactMetadata(upload: Upload): {
     throw tusError(415, `Upload metadata type is not allowed for ${extension}.`);
   }
 
-  return { extension, filename, packageId, version };
+  return {
+    extension,
+    filename,
+    packageId,
+    version,
+    ...(catalogProductId ? { catalogProductId } : {}),
+  };
 }
 
 function uploadExtension(metadata: Record<string, string | null> | undefined): string {
@@ -210,17 +218,43 @@ function handleCorsPreflight(
 async function authorizeUploadRequest(
   request: IncomingMessage,
   hmacKey: string
-): Promise<{ status: 401 | 403 } | { versionId: string }> {
+): Promise<
+  | { status: 401 | 403 }
+  | { catalogProductId?: string; packageId: string; version: string; versionId: string }
+> {
   const exp = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.exp);
   const sig = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.sig);
   const versionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.versionId);
-  if (!exp || !sig || !versionId) {
+  const encodedPackageId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.packageId);
+  const encodedVersion = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.version);
+  if (!exp || !sig || !versionId || !encodedPackageId || !encodedVersion) {
     return { status: 401 };
   }
-  if (!(await verifyUploadCapability({ exp, sig, versionId }, hmacKey))) {
+  let catalogProductId: string | undefined;
+  let packageId: string;
+  let version: string;
+  try {
+    const encodedCatalogProductId = singleRequestHeader(
+      request,
+      UPLOAD_CAPABILITY_HEADERS.catalogProductId
+    );
+    catalogProductId = encodedCatalogProductId
+      ? decodeURIComponent(encodedCatalogProductId)
+      : undefined;
+    packageId = decodeURIComponent(encodedPackageId);
+    version = decodeURIComponent(encodedVersion);
+  } catch {
     return { status: 403 };
   }
-  return { versionId };
+  if (
+    !(await verifyUploadCapability(
+      { catalogProductId, exp, packageId, sig, version, versionId },
+      hmacKey
+    ))
+  ) {
+    return { status: 403 };
+  }
+  return { catalogProductId, packageId, version, versionId };
 }
 
 function requestUploadId(request: IncomingMessage): string | undefined {
@@ -311,11 +345,34 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
 
       const metadata = validateArtifactMetadata(upload);
       const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
-      if (!versionId) {
-        throw tusError(403, 'Upload capability version is missing.');
+      const encodedPackageId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.packageId)?.trim();
+      const encodedVersion = request.headers.get(UPLOAD_CAPABILITY_HEADERS.version)?.trim();
+      let signedCatalogProductId: string | undefined;
+      let signedPackageId: string;
+      let signedVersion: string;
+      try {
+        const encodedCatalogProductId = request.headers
+          .get(UPLOAD_CAPABILITY_HEADERS.catalogProductId)
+          ?.trim();
+        signedCatalogProductId = encodedCatalogProductId
+          ? decodeURIComponent(encodedCatalogProductId)
+          : undefined;
+        signedPackageId = decodeURIComponent(encodedPackageId ?? '');
+        signedVersion = decodeURIComponent(encodedVersion ?? '');
+      } catch {
+        throw tusError(403, 'Upload capability catalog target is invalid.');
+      }
+      if (
+        !versionId ||
+        metadata.packageId !== signedPackageId ||
+        metadata.version !== signedVersion ||
+        metadata.catalogProductId !== signedCatalogProductId
+      ) {
+        throw tusError(403, 'Upload metadata does not match the signed capability.');
       }
       const uploading = await beginVersion({
         catalog: input.catalog,
+        catalogProductId: metadata.catalogProductId,
         packageId: metadata.packageId,
         version: metadata.version,
         versionId,
@@ -331,6 +388,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       return {
         metadata: {
           ...upload.metadata,
+          ...(metadata.catalogProductId ? { catalogProductId: metadata.catalogProductId } : {}),
           filename: metadata.filename,
           packageId: metadata.packageId,
           version: metadata.version,

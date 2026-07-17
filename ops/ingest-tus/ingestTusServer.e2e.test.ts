@@ -339,15 +339,32 @@ function uploadMetadataHeader(input: {
     .join(',');
 }
 
-async function uploadCapabilityHeaders(versionId = randomUUID()): Promise<Record<string, string>> {
+async function uploadCapabilityHeaders(input: {
+  catalogProductId?: string;
+  packageId: string;
+  version: string;
+  versionId?: string;
+}): Promise<Record<string, string>> {
   const capability = await signUploadCapability({
+    catalogProductId: input.catalogProductId,
     expiresAt: Date.now() + 10 * 60_000,
     key: uploadHmacKey,
-    versionId,
+    packageId: input.packageId,
+    version: input.version,
+    versionId: input.versionId ?? randomUUID(),
   });
   return {
+    ...(capability.catalogProductId
+      ? {
+          [UPLOAD_CAPABILITY_HEADERS.catalogProductId]: encodeURIComponent(
+            capability.catalogProductId
+          ),
+        }
+      : {}),
     [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+    [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
     [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
+    [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
     [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
   };
 }
@@ -364,7 +381,7 @@ async function createInterruptedUpload(input: {
   resumeOffset: () => number | undefined;
   uploadUrl: () => string | null;
 }> {
-  const headers = await uploadCapabilityHeaders();
+  const headers = await uploadCapabilityHeaders(input);
   const source = createReadStream(input.filePath);
   let didInterrupt = false;
   let isResuming = false;
@@ -438,7 +455,7 @@ async function uploadToCompletion(input: {
   packageId: string;
   version: string;
 }): Promise<void> {
-  const headers = await uploadCapabilityHeaders();
+  const headers = await uploadCapabilityHeaders(input);
   const source = createReadStream(input.filePath);
   try {
     await new Promise<void>((resolveUpload, rejectUpload) => {
@@ -474,7 +491,7 @@ async function uploadExpectingRejection(input: {
   uploadSize?: number;
   version: string;
 }): Promise<Error | DetailedError> {
-  const headers = await uploadCapabilityHeaders();
+  const headers = await uploadCapabilityHeaders(input);
   const source = createReadStream(input.filePath);
   let upload: Upload | undefined;
   try {
@@ -859,13 +876,19 @@ describe.serial('tus ingest end to end', () => {
       method: 'POST',
       headers: {
         ...baseHeaders,
-        ...(await uploadCapabilityHeaders()),
+        ...(await uploadCapabilityHeaders({
+          packageId: 'com.yucp.tus-auth',
+          version: '1.0.0',
+        })),
         [UPLOAD_CAPABILITY_HEADERS.sig]: '0'.repeat(64),
       },
     });
     expect(invalid.status).toBe(403);
 
-    const validHeaders = await uploadCapabilityHeaders();
+    const validHeaders = await uploadCapabilityHeaders({
+      packageId: 'com.yucp.tus-auth',
+      version: '2.0.0',
+    });
     const valid = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -901,7 +924,9 @@ describe.serial('tus ingest end to end', () => {
       'upload-length',
       'upload-metadata',
       UPLOAD_CAPABILITY_HEADERS.exp,
+      UPLOAD_CAPABILITY_HEADERS.packageId,
       UPLOAD_CAPABILITY_HEADERS.sig,
+      UPLOAD_CAPABILITY_HEADERS.version,
       UPLOAD_CAPABILITY_HEADERS.versionId,
     ].join(',');
     const preflight = await fetch(endpoint, {
@@ -922,7 +947,10 @@ describe.serial('tus ingest end to end', () => {
       UPLOAD_CAPABILITY_HEADERS.sig
     );
 
-    const capabilityHeaders = await uploadCapabilityHeaders();
+    const capabilityHeaders = await uploadCapabilityHeaders({
+      packageId: 'com.yucp.tus-browser-auth',
+      version: '1.0.0',
+    });
     const created = await fetch(endpoint, {
       method: 'POST',
       headers: {

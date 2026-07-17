@@ -19,6 +19,7 @@ export const DEFAULT_RECONCILE_BATCH_LIMIT = 100;
 const OUTBOX_PUBLISH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 interface ReconcileVersionRow {
+  catalog_product_id: string | null;
   id: string;
   package_id: string;
   version: string;
@@ -78,6 +79,7 @@ export interface ReconcileCatalogResult {
 
 function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
   return {
+    catalogProductId: row.catalog_product_id,
     id: row.id,
     packageId: row.package_id,
     version: row.version,

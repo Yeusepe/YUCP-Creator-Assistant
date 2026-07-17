@@ -85,6 +85,19 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     if (!registration || registration.yucpUserId !== session.user.id) {
       return Response.json({ error: 'Package ownership required' }, { status: 403 });
     }
+    if (catalogProductId) {
+      const product = (await convex.query(
+        api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+        {
+          apiSecret: config.convexApiSecret,
+          actor,
+          catalogProductId,
+        }
+      )) as { creatorAuthUserId: string } | null;
+      if (!product || product.creatorAuthUserId !== session.user.id) {
+        return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+      }
+    }
 
     const uploadHmacKey = config.uploadHmacKey?.trim();
     const ingestTusUrl = config.ingestTusUrl?.trim();
@@ -94,14 +107,26 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
 
     const versionId = crypto.randomUUID();
     const capability = await signUploadCapability({
+      catalogProductId: catalogProductId ?? undefined,
       versionId,
       key: uploadHmacKey,
+      packageId,
+      version,
       expiresAt: Date.now() + UPLOAD_TTL_MS,
     });
     const headers = {
+      ...(capability.catalogProductId
+        ? {
+            [UPLOAD_CAPABILITY_HEADERS.catalogProductId]: encodeURIComponent(
+              capability.catalogProductId
+            ),
+          }
+        : {}),
       [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
       [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+      [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
       [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
+      [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
     };
 
     return Response.json(

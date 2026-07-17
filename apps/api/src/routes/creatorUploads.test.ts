@@ -5,6 +5,8 @@ const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => nu
 
 const apiMock = {
   packageRegistry: {
+    getBuyerAccessContextByCatalogProductId:
+      'packageRegistry.getBuyerAccessContextByCatalogProductId',
     lookupRegistration: 'packageRegistry.lookupRegistration',
   },
 } as const;
@@ -112,11 +114,45 @@ describe('creator upload authorization', () => {
     expect(await response.json()).toEqual({ error: 'Creator uploads are not configured' });
   });
 
+  it('returns 403 when the catalog product belongs to another creator', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return { creatorAuthUserId: 'different-creator' };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.avatar',
+        version: '1.2.3',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(403);
+  });
+
   it('returns a verifiable capability for the package owner', async () => {
-    convexQueryMock.mockResolvedValue({
-      packageId: 'com.yucp.avatar',
-      yucpUserId: 'creator-123',
-      status: 'active',
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return { creatorAuthUserId: 'creator-123' };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
     });
 
     const response = await createRoutes('creator-123').authorizeUpload(
@@ -139,13 +175,23 @@ describe('creator upload authorization', () => {
     expect(body.tusEndpoint).toBe('https://ingest.example.test/files');
     expect(body.catalogProductId).toBe('catalog-product-456');
     expect(body.headers).toEqual({
+      'x-yucp-upload-catalog-product-id': 'catalog-product-456',
       'x-yucp-upload-exp': body.exp,
+      'x-yucp-upload-package-id': 'com.yucp.avatar',
       'x-yucp-upload-sig': body.sig,
+      'x-yucp-upload-version': '1.2.3',
       'x-yucp-upload-version-id': body.versionId,
     });
     expect(
       await verifyUploadCapability(
-        { exp: body.exp, sig: body.sig, versionId: body.versionId },
+        {
+          catalogProductId: 'catalog-product-456',
+          exp: body.exp,
+          packageId: 'com.yucp.avatar',
+          sig: body.sig,
+          version: '1.2.3',
+          versionId: body.versionId,
+        },
         uploadHmacKey
       )
     ).toBe(true);

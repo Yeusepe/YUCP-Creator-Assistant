@@ -42,6 +42,7 @@ export interface CatalogEvent {
 }
 
 export interface PackageVersion {
+  catalogProductId: string | null;
   id: string;
   packageId: string;
   version: string;
@@ -57,6 +58,7 @@ export interface PackageVersion {
 }
 
 interface PackageVersionRow {
+  catalog_product_id: string | null;
   id: string;
   package_id: string;
   version: string;
@@ -72,6 +74,7 @@ interface PackageVersionRow {
 }
 
 export interface CreateVersionInput {
+  catalogProductId?: string;
   id?: string;
   packageId: string;
   version: string;
@@ -123,6 +126,7 @@ export class CatalogInvariantError extends Error {
 
 function toPackageVersion(row: PackageVersionRow): PackageVersion {
   return {
+    catalogProductId: row.catalog_product_id,
     id: row.id,
     packageId: row.package_id,
     version: row.version,
@@ -190,6 +194,7 @@ function eventPayload(
     versionId: version.id,
     packageId: version.package_id,
     version: version.version,
+    ...(version.catalog_product_id ? { catalogProductId: version.catalog_product_id } : {}),
     previousState,
     state,
   };
@@ -211,8 +216,14 @@ export class Catalog {
 
     return this.sql.begin(async (transaction) => {
       const rows = await transaction<PackageVersionRow[]>`
-        INSERT INTO package_versions (id, package_id, version, state)
-        VALUES (${id}, ${input.packageId}, ${input.version}, 'CREATED')
+        INSERT INTO package_versions (id, package_id, version, catalog_product_id, state)
+        VALUES (
+          ${id},
+          ${input.packageId},
+          ${input.version},
+          ${input.catalogProductId ?? null},
+          'CREATED'
+        )
         RETURNING *
       `;
       const created = rows[0];

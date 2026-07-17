@@ -61,6 +61,7 @@ export type IngestVersionInput = PipelineStorage &
 
 export interface BeginVersionInput {
   catalog: Catalog;
+  catalogProductId?: string;
   packageId: string;
   version: string;
   versionId?: string;
@@ -181,6 +182,7 @@ function errorMessage(error: unknown): string {
 
 export async function beginVersion(input: BeginVersionInput): Promise<PackageVersion> {
   const created = await input.catalog.createVersion({
+    catalogProductId: input.catalogProductId,
     id: input.versionId,
     packageId: input.packageId,
     version: input.version,
@@ -350,7 +352,11 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     const ready = await input.catalog.transition(promoting.id, 'READY', {
       event: {
         type: 'catalog.version.ready',
-        payload: { byteLength, verification: 'full-reassembly' },
+        payload: {
+          byteLength,
+          contentType: deliveryMetadata.contentType,
+          verification: 'full-reassembly',
+        },
       },
     });
     publication = { deliveryMetadataId, manifest, manifestId, ready };
