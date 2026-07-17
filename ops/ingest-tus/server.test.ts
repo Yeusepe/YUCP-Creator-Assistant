@@ -8,7 +8,7 @@ import { signUploadCapability, UPLOAD_CAPABILITY_HEADERS } from '../storage-core
 import { buildIngestTusRuntime, INGEST_TUS_INFISICAL_KEYS } from './server';
 
 const FETCHED_UPLOAD_HMAC_KEY = 'placeholder-fetched-upload-hmac-key';
-const RAW_UPLOAD_HMAC_KEY = 'placeholder-raw-upload-hmac-key';
+const RAW_UPLOAD_HMAC_KEY = 'placeholder-raw-upload-hmac-key-32';
 
 const openServers = new Set<ReturnType<typeof createServer>>();
 const scratchPaths = new Set<string>();

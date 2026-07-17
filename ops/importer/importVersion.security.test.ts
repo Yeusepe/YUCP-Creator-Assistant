@@ -7,7 +7,7 @@ import { signDeliveryUrl } from '../storage-core/deliverySigning';
 import { localCasStore, storeArtifactToStore } from '../storage-core/desyncCas';
 import { importerCapabilityBinding, importVersion } from './importVersion';
 
-const TRUSTED_HMAC_KEY = 'trusted-importer-test-key';
+const TRUSTED_HMAC_KEY = 'trusted-importer-test-key-at-least-32-bytes';
 
 let scratchPath = '';
 
@@ -72,7 +72,7 @@ describe('importer capability and destination safety', () => {
   test('rejects a capability signed with an attacker-selected key', async () => {
     const artifact = await storedArtifact('self-signed', Buffer.from('protected-content'));
     const versionId = 'protected-version';
-    const attackerKey = 'attacker-selected-key';
+    const attackerKey = 'attacker-selected-key-at-least-32-bytes';
     const signed = await signDeliveryUrl({
       binding: importerCapabilityBinding(artifact.indexId, artifact.expectedSha256),
       expiresAt: Date.now() + 60_000,

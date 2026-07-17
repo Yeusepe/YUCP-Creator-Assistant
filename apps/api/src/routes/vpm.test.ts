@@ -47,7 +47,7 @@ mock.module('../lib/logger', () => ({
 
 const { createVpmRoutes } = await import('./vpm');
 
-const deliveryHmacKey = 'vpm-route-delivery-hmac-key';
+const deliveryHmacKey = 'vpm-route-delivery-hmac-key-32-bytes';
 const config = {
   apiBaseUrl: 'https://api.test',
   frontendBaseUrl: 'https://app.test',

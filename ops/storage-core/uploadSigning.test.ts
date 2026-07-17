@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { signUploadCapability, verifyUploadCapability } from './uploadSigning';
 
 describe('upload capability signing', () => {
-  const key = 'trusted-upload-test-key';
+  const key = 'trusted-upload-test-key-at-least-32-bytes';
   const now = new Date('2026-07-16T12:00:00.000Z');
   const expiresAt = new Date('2026-07-16T12:05:00.000Z');
 

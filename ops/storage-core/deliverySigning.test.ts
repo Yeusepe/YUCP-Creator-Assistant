@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { signDeliveryUrl, verifyDeliveryUrl } from './deliverySigning';
 
 describe('delivery URL signing', () => {
-  const key = 'throwaway-test-key';
+  const key = 'throwaway-delivery-test-key-32-bytes';
   const now = new Date('2026-07-16T12:00:00.000Z');
   const expiresAt = new Date('2026-07-16T12:05:00.000Z');
 
@@ -64,5 +64,11 @@ describe('delivery URL signing', () => {
         versionId: 'version_123',
       })
     ).resolves.toBe(false);
+  });
+
+  test('rejects HMAC keys shorter than 32 UTF-8 bytes', async () => {
+    await expect(
+      signDeliveryUrl({ expiresAt, key: 'x'.repeat(31), versionId: 'version_123' })
+    ).rejects.toThrow('at least 32 UTF-8 bytes');
   });
 });

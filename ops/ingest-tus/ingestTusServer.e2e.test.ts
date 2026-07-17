@@ -41,7 +41,7 @@ const databasePassword = 'ingest-tus-test-password';
 const containerName = `yucp-ingest-tus-e2e-${randomUUID()}`;
 const minioContainerName = `yucp-ingest-tus-minio-e2e-${randomUUID()}`;
 const chunkSize = 256 * 1024;
-const uploadHmacKey = 'trusted-ingest-tus-e2e-hmac-key';
+const uploadHmacKey = 'trusted-ingest-tus-e2e-hmac-key-32';
 const browserOrigin = 'https://app.example.test';
 
 let sql: CatalogDatabase | undefined;

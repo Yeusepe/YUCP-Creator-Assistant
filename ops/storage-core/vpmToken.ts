@@ -91,10 +91,11 @@ function toHex(bytes: ArrayBuffer): string {
 }
 
 async function importHmacKey(key: string, usage: 'sign' | 'verify'): Promise<CryptoKey> {
-  if (!key.trim()) {
-    throw new Error('VPM repository token HMAC key must not be empty');
+  const encodedKey = encodeUtf8(key);
+  if (encodedKey.byteLength < 32) {
+    throw new Error('VPM repository token HMAC key must be at least 32 UTF-8 bytes');
   }
-  return crypto.subtle.importKey('raw', encodeUtf8(key), { hash: 'SHA-256', name: 'HMAC' }, false, [
+  return crypto.subtle.importKey('raw', encodedKey, { hash: 'SHA-256', name: 'HMAC' }, false, [
     usage,
   ]);
 }

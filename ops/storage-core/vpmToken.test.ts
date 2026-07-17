@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { signVpmRepoToken, verifyVpmRepoToken } from './vpmToken';
 
 describe('VPM repository token signing', () => {
-  const key = 'trusted-vpm-repository-test-key';
+  const key = 'trusted-vpm-repository-test-key-32';
   const now = new Date('2026-07-17T12:00:00.000Z');
   const expiresAt = new Date('2026-08-16T12:00:00.000Z');
 
@@ -38,5 +38,11 @@ describe('VPM repository token signing', () => {
     await expect(
       verifyVpmRepoToken({ key, now: expiresAt, token: signed.token })
     ).resolves.toBeNull();
+  });
+
+  test('rejects HMAC keys shorter than 32 UTF-8 bytes', async () => {
+    await expect(
+      signVpmRepoToken({ authUserId: 'buyer-auth-user', expiresAt, key: 'short-key' })
+    ).rejects.toThrow('at least 32 UTF-8 bytes');
   });
 });
