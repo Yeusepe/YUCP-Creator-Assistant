@@ -1,5 +1,5 @@
-import type { CatalogDatabase } from '../catalog';
-import { type CatalogState, resolveRetryPolicy } from '../catalog';
+import type { CatalogDatabase, CatalogTimestamp } from '../catalog';
+import { type CatalogState, resolveRetryPolicy, toCatalogDate } from '../catalog';
 import {
   deliveryAssemblyMetadataObjectId,
   deliveryManifestObjectId,
@@ -29,11 +29,13 @@ interface KeptVersionRow {
   state: CatalogState;
   attempts: number;
   cas_index_id: string | null;
+  updated_at: CatalogTimestamp;
 }
 
 interface GcKeepSet {
   chunkIds: Set<string>;
   indexKeys: Set<string>;
+  recentInFlightVersions: number;
   versions: number;
 }
 
@@ -145,12 +147,13 @@ async function readReadyManifest(
 async function buildKeepSet(
   sql: CatalogDatabase,
   store: S3CasStore,
-  maxAttempts: number
+  maxAttempts: number,
+  inFlightCutoffTimeMs: number
 ): Promise<GcKeepSet> {
   let rows: KeptVersionRow[];
   try {
     rows = await sql<KeptVersionRow[]>`
-      SELECT id, state, attempts, cas_index_id
+      SELECT id, state, attempts, cas_index_id, updated_at
       FROM package_versions
       WHERE
         state IN ${sql(GC_ALWAYS_KEPT_STATES)}
@@ -164,6 +167,18 @@ async function buildKeepSet(
   const chunkIds = new Set<string>();
   const indexKeys = new Set<string>();
   const inspectedIndexes = new Map<string, { id: string }[]>();
+  const recentInFlightVersions = rows.filter((row) => {
+    if (row.state !== 'CREATED' && row.state !== 'UPLOADING') {
+      return false;
+    }
+    const updatedAt = toCatalogDate(row.updated_at);
+    if (!updatedAt || Number.isNaN(updatedAt.getTime())) {
+      throw new Error(
+        `Chunk GC aborted because in-flight version ${row.id} has an invalid timestamp`
+      );
+    }
+    return updatedAt.getTime() >= inFlightCutoffTimeMs;
+  }).length;
 
   for (const row of rows) {
     indexKeys.add(`${store.config.indexPrefix}${deliveryManifestObjectId(row.id)}`);
@@ -206,7 +221,7 @@ async function buildKeepSet(
     }
   }
 
-  return { chunkIds, indexKeys, versions: rows.length };
+  return { chunkIds, indexKeys, recentInFlightVersions, versions: rows.length };
 }
 
 function managedObjectId(object: S3ObjectMetadata, prefix: string, kind: SweepKind): string | null {
@@ -253,6 +268,7 @@ async function sweepPrefix(input: {
   keepSet: Set<string>;
   kind: SweepKind;
   prefix: string;
+  protectAll?: boolean;
   result: ChunkGarbageCollectionResult;
   store: S3CasStore;
 }): Promise<void> {
@@ -272,6 +288,11 @@ async function sweepPrefix(input: {
       const objectId = managedObjectId(object, input.prefix, input.kind);
       if (objectId === null) {
         input.result.unrecognizedObjects += 1;
+        input.result.keptObjects += 1;
+        input.result.keptBytes += object.size;
+        continue;
+      }
+      if (input.protectAll) {
         input.result.keptObjects += 1;
         input.result.keptBytes += object.size;
         continue;
@@ -318,10 +339,10 @@ export async function runChunkGarbageCollection(
   validateNonNegativeSafeInteger(gracePeriodMs, 'gracePeriodMs');
   validateDisjointPrefixes(options.store.config.chunkPrefix, options.store.config.indexPrefix);
 
-  const maxAttempts = resolveRetryPolicy({ maxAttempts: options.maxAttempts }).maxAttempts;
-  const keepSet = await buildKeepSet(options.sql, options.store, maxAttempts);
-  const result = newResult(dryRun, keepSet);
   const cutoffTimeMs = Date.now() - gracePeriodMs;
+  const maxAttempts = resolveRetryPolicy({ maxAttempts: options.maxAttempts }).maxAttempts;
+  const keepSet = await buildKeepSet(options.sql, options.store, maxAttempts, cutoffTimeMs);
+  const result = newResult(dryRun, keepSet);
 
   await sweepPrefix({
     batchSize,
@@ -330,6 +351,7 @@ export async function runChunkGarbageCollection(
     keepSet: keepSet.chunkIds,
     kind: 'chunk',
     prefix: options.store.config.chunkPrefix,
+    protectAll: keepSet.recentInFlightVersions > 0,
     result,
     store: options.store,
   });
@@ -346,7 +368,7 @@ export async function runChunkGarbageCollection(
 
   const log = options.log ?? console.info;
   log(
-    `GC_SUMMARY dryRun=${result.dryRun} scanned=${result.scannedObjects} scannedBytes=${result.scannedBytes} kept=${result.keptObjects} keptBytes=${result.keptBytes} candidates=${result.candidateObjects} candidateBytes=${result.candidateBytes} deleted=${result.deletedObjects} deletedBytes=${result.deletedBytes} graceProtected=${result.graceProtectedObjects}`
+    `GC_SUMMARY dryRun=${result.dryRun} scanned=${result.scannedObjects} scannedBytes=${result.scannedBytes} kept=${result.keptObjects} keptBytes=${result.keptBytes} candidates=${result.candidateObjects} candidateBytes=${result.candidateBytes} deleted=${result.deletedObjects} deletedBytes=${result.deletedBytes} graceProtected=${result.graceProtectedObjects} recentInFlightVersions=${keepSet.recentInFlightVersions}`
   );
   return result;
 }

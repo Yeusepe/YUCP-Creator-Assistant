@@ -11,6 +11,7 @@ import {
   runCatalogMigrations,
 } from '../catalog';
 import {
+  beginVersion,
   ingestVersion,
   promoteVersion,
   resolvePipelineCasIndexId,
@@ -23,9 +24,16 @@ import {
   inspectDesyncIndex,
   type S3CasStore,
   s3CasStore,
+  storeArtifactToStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { createS3Bucket, getS3Object, listS3Objects, putS3Object } from '../storage-core/s3Control';
+import {
+  createS3Bucket,
+  getS3Object,
+  listS3ObjectPage,
+  listS3Objects,
+  putS3Object,
+} from '../storage-core/s3Control';
 import { DEFAULT_GC_GRACE_PERIOD_MS, runChunkGarbageCollection } from './chunkGc';
 
 const POSTGRES_IMAGE = 'postgres:17-alpine';
@@ -202,6 +210,28 @@ function chunkObjectIds(objects: { key: string }[], chunkPrefix: string): Set<st
   );
 }
 
+async function chunkLastModified(
+  config: CasConfig,
+  chunkIds: Set<string>
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  let continuationToken: string | undefined;
+  do {
+    const page = await listS3ObjectPage(config, {
+      continuationToken,
+      maxKeys: 1000,
+      prefix: config.chunkPrefix,
+    });
+    for (const object of page.objects) {
+      if (chunkIds.has(object.key.split('/').at(-1) ?? '')) {
+        result.set(object.key, object.lastModified.getTime());
+      }
+    }
+    continuationToken = page.nextContinuationToken;
+  } while (continuationToken);
+  return result;
+}
+
 async function cleanup(): Promise<void> {
   const activeSql = sql;
   sql = undefined;
@@ -298,6 +328,82 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe.serial('conservative chunk garbage collection', () => {
+  it('protects old deduplicated chunks while their replacement upload is in flight', async () => {
+    const activeSql = requireSql();
+    const activeCatalog = requireCatalog();
+    const config = requireCasConfig();
+    const activeStore = requireStore();
+    const scratch = requireScratchPath();
+    const gracePeriodMs = 8_000;
+
+    const rawPath = join(scratch, 'in-flight-dedup-source.bin');
+    await writeFile(rawPath, deterministicBytes('gc-in-flight-dedup', 4 * 1024 * 1024));
+    const canonical = await canonicalizeArtifact({
+      inputPath: rawPath,
+      outputPath: join(scratch, 'in-flight-dedup.canonical'),
+    });
+    const ready = await promoteVersion({
+      catalog: activeCatalog,
+      store: activeStore,
+      versionId: (
+        await ingestVersion({
+          catalog: activeCatalog,
+          store: activeStore,
+          packageId: 'chunk-gc-in-flight-package',
+          version: '1.0.0',
+          inputPath: rawPath,
+        })
+      ).id,
+    });
+    if (!ready.casIndexId) {
+      throw new Error('READY in-flight GC fixture must have a CAS index ID');
+    }
+    const chunks = await inspectDesyncIndex({
+      indexId: resolvePipelineCasIndexId(activeStore, ready.casIndexId),
+      store: activeStore,
+    });
+    const chunkIds = new Set(chunks.map(({ id }) => id));
+    expect(chunkIds.size).toBeGreaterThan(0);
+    const beforeLastModified = await chunkLastModified(config, chunkIds);
+    expect(beforeLastModified.size).toBe(chunkIds.size);
+
+    await Bun.sleep(gracePeriodMs + 500);
+    const uploading = await beginVersion({
+      catalog: activeCatalog,
+      packageId: 'chunk-gc-in-flight-package',
+      version: '2.0.0',
+    });
+    await storeArtifactToStore({
+      artifactPath: canonical.path,
+      indexId: `gc-in-flight-${uploading.id}.caibx`,
+      store: activeStore,
+    });
+
+    const afterDedupLastModified = await chunkLastModified(config, chunkIds);
+    expect(afterDedupLastModified).toEqual(beforeLastModified);
+
+    await activeSql.begin(async (transaction) => {
+      await transaction`DELETE FROM catalog_outbox WHERE aggregate_id = ${ready.id}`;
+      await transaction`DELETE FROM package_versions WHERE id = ${ready.id}`;
+    });
+    const gc = await runChunkGarbageCollection({
+      sql: activeSql,
+      store: activeStore,
+      gracePeriodMs,
+      batchSize: 2,
+    });
+    const chunkIdsAfterGc = chunkObjectIds(await listS3Objects(config), config.chunkPrefix);
+    for (const chunkId of chunkIds) {
+      expect(chunkIdsAfterGc.has(chunkId)).toBeTrue();
+    }
+    expect(gc.keptObjects).toBeGreaterThanOrEqual(chunkIds.size);
+    expect((await activeCatalog.getVersion(uploading.id))?.state).toBe('UPLOADING');
+    await activeSql.begin(async (transaction) => {
+      await transaction`DELETE FROM catalog_outbox WHERE aggregate_id = ${uploading.id}`;
+      await transaction`DELETE FROM package_versions WHERE id = ${uploading.id}`;
+    });
+  }, 30_000);
+
   it('reclaims only v1 orphans while v2 remains byte-exact and fresh objects stay protected', async () => {
     const activeSql = requireSql();
     const activeCatalog = requireCatalog();
