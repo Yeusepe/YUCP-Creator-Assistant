@@ -1,5 +1,6 @@
+import * as ed from '@noble/ed25519';
 import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
-import { sha256Hex } from '@yucp/shared/crypto';
+import { base64ToBytes, base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { symmetricEncrypt } from 'better-auth/crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -158,6 +159,31 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> {
   const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
   const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
   return JSON.parse(Buffer.from(padded, 'base64').toString('utf-8')) as Record<string, unknown>;
+}
+
+async function resignJwtWithIssuer(jwt: string, issuer: string): Promise<string> {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error('JWT must contain exactly three parts');
+  }
+
+  const privateKeyBase64 = process.env.YUCP_ROOT_PRIVATE_KEY;
+  if (!privateKeyBase64) {
+    throw new Error('YUCP_ROOT_PRIVATE_KEY is required to re-sign the grant JWT');
+  }
+
+  const payloadB64 = base64UrlEncode(
+    JSON.stringify({
+      ...decodeJwtPayload(jwt),
+      iss: issuer,
+    })
+  );
+  const signingInput = `${parts[0]}.${payloadB64}`;
+  const signature = await ed.signAsync(
+    new TextEncoder().encode(signingInput),
+    base64ToBytes(privateKeyBase64)
+  );
+  return `${signingInput}.${base64UrlEncode(signature)}`;
 }
 
 async function configurePinnedTestRoot(): Promise<void> {
@@ -1886,5 +1912,72 @@ describe('verification intents redemption issuer', () => {
     const payload = decodeJwtPayload(redemptionToken);
     expect(payload.iss).toBe(`${publicIssuerBaseUrl}/api/auth`);
     expect(payload.iss).not.toBe('https://rare-squid-409.convex.site/api/auth');
+  });
+
+  it('rejects a correctly signed verification grant with an unexpected issuer', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-redemption-wrong-grant-issuer';
+    const codeVerifier = 'code-verifier-wrong-grant-issuer';
+    const codeChallenge = await computeCodeChallenge(codeVerifier);
+
+    await seedSubject(t, {
+      authUserId,
+      primaryDiscordUserId: 'discord-redemption-wrong-grant-issuer',
+    });
+
+    const { intentId } = await t.mutation(api.verificationIntents.createVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      packageId: 'pkg-redemption-wrong-grant-issuer',
+      packageName: 'Wrong Grant Issuer Test Package',
+      machineFingerprint: 'machine-redemption-wrong-grant-issuer',
+      codeChallenge,
+      returnUrl: 'http://127.0.0.1:51515/callback',
+      requirements: [
+        {
+          methodKey: 'vrchat-link',
+          providerKey: 'vrchat',
+          kind: 'buyer_provider_link',
+          title: 'Linked VRChat buyer account',
+        },
+      ],
+    });
+
+    await t.mutation(internal.verificationIntents.markIntentVerified, {
+      intentId,
+      methodKey: 'vrchat-link',
+    });
+
+    const intent = await t.action(api.verificationIntents.getVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      intentId,
+    });
+    const grantToken = intent?.grantToken;
+    expect(grantToken).toBeTruthy();
+    if (!grantToken) {
+      throw new Error('Expected verification intent grant token');
+    }
+
+    const wrongIssuerGrantToken = await resignJwtWithIssuer(
+      grantToken,
+      'https://unexpected-issuer.example/api/auth'
+    );
+    expect(decodeJwtPayload(wrongIssuerGrantToken).iss).toBe(
+      'https://unexpected-issuer.example/api/auth'
+    );
+
+    const redemption = await t.action(api.verificationIntents.redeemVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      intentId,
+      codeVerifier,
+      machineFingerprint: 'machine-redemption-wrong-grant-issuer',
+      grantToken: wrongIssuerGrantToken,
+      issuerBaseUrl: 'https://public-api.test.example',
+    });
+
+    expect(redemption.success).toBe(false);
+    expect(redemption.error).toBe('Verification grant is invalid or expired');
   });
 });
