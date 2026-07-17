@@ -35,10 +35,6 @@ vi.mock('@/lib/account', async () => {
   };
 });
 
-vi.mock('@/lib/backstageAccess', () => ({
-  requestUserBackstageRepoAccess: vi.fn(),
-}));
-
 vi.mock('@/lib/dashboard', async () => {
   const actual = await vi.importActual<typeof import('@/lib/dashboard')>('@/lib/dashboard');
 
@@ -51,7 +47,6 @@ vi.mock('@/lib/dashboard', async () => {
 });
 
 import * as accountApi from '@/lib/account';
-import * as backstageAccessApi from '@/lib/backstageAccess';
 import * as dashboardApi from '@/lib/dashboard';
 import { Route as VerifyPurchaseRoute } from '@/routes/_authenticated/verify/purchase.lazy';
 
@@ -575,7 +570,7 @@ describe('verify purchase route', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('keeps Unity callback verification separate from buyer VCC handoff', async () => {
+  it('returns verified loopback callbacks to Unity with an auto-return countdown', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockUseSearch.mockReturnValue({
       intent: 'intent_verified_vcc',
@@ -600,16 +595,6 @@ describe('verify purchase route', () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
-      creatorName: 'Mapache',
-      creatorRepoRef: 'mapache',
-      repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
-      repositoryName: 'Mapache repo',
-      addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
-      expiresAt: Date.now() + 60_000,
-    });
-
     const Component = VerifyPurchaseRoute.options.component;
     if (!Component) {
       throw new Error('Verify purchase route component is not defined');
@@ -621,17 +606,11 @@ describe('verify purchase route', () => {
       'href',
       'http://127.0.0.1:5173/callback?intent_id=intent_verified_vcc&grant=grant-token'
     );
-    expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Mapache repo is now ready/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/manual setup and troubleshooting/i)).not.toBeInTheDocument();
     const countdown = screen.getByText(/returning to unity in/i);
     expect(countdown.closest('p')).toHaveAttribute('aria-live', 'off');
     fireEvent.click(screen.getByRole('button', { name: /cancel auto-return/i }));
     expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
     vi.advanceTimersByTime(5_000);
-    await waitFor(() =>
-      expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
-    );
   });
 
   it('does not auto-return to external HTTPS callbacks', async () => {
@@ -672,147 +651,5 @@ describe('verify purchase route', () => {
     );
     expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /cancel auto-return/i })).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
-    );
-  });
-
-  it('treats buyer access returns as the follow-up path after verification succeeds', async () => {
-    mockUseSearch.mockReturnValue({
-      intent: 'intent_verified_buyer_access',
-      connected: undefined,
-    });
-
-    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
-      object: 'verification_intent',
-      id: 'intent_verified_buyer_access',
-      packageId: 'pkg-verified-3',
-      packageName: 'Buyer Access Package',
-      status: 'verified',
-      verificationUrl: '/verify/purchase?intent=intent_verified_buyer_access',
-      returnUrl: 'https://app.test/access/catalog_123',
-      requirements: [],
-      verifiedMethodKey: 'gumroad-oauth',
-      errorCode: null,
-      errorMessage: null,
-      grantToken: 'grant-token-3',
-      grantAvailable: true,
-      expiresAt: Date.now() + 60_000,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockResolvedValue({
-      creatorName: 'Mapache',
-      creatorRepoRef: 'mapache',
-      repositoryUrl: 'https://api.test/v1/backstage/repos/mapache/index.json',
-      repositoryName: 'Mapache repo',
-      addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fapi.test%2Fv1%2Fbackstage%2Frepos%2Fmapache%2Findex.json',
-      expiresAt: Date.now() + 60_000,
-    });
-
-    const Component = VerifyPurchaseRoute.options.component;
-    if (!Component) {
-      throw new Error('Verify purchase route component is not defined');
-    }
-
-    render(<Component />, { wrapper: createWrapper() });
-
-    expect(await screen.findByText(/continue back to your buyer access page/i)).toBeInTheDocument();
-    expect(
-      await screen.findByRole('link', { name: /continue after adding the repo/i })
-    ).toHaveAttribute(
-      'href',
-      'https://app.test/access/catalog_123?intent_id=intent_verified_buyer_access&grant=grant-token-3'
-    );
-    expect(backstageAccessApi.requestUserBackstageRepoAccess).toHaveBeenCalledWith({
-      catalogProductId: 'catalog_123',
-    });
-    expect(screen.queryByRole('link', { name: /return to unity/i })).not.toBeInTheDocument();
-  });
-
-  it('ignores whitespace-only buyer access route segments after verification succeeds', async () => {
-    mockUseSearch.mockReturnValue({
-      intent: 'intent_verified_blank_buyer_access',
-      connected: undefined,
-    });
-
-    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
-      object: 'verification_intent',
-      id: 'intent_verified_blank_buyer_access',
-      packageId: 'pkg-verified-blank',
-      packageName: 'Buyer Access Package',
-      status: 'verified',
-      verificationUrl: '/verify/purchase?intent=intent_verified_blank_buyer_access',
-      returnUrl: 'https://app.test/access/%20',
-      requirements: [],
-      verifiedMethodKey: 'gumroad-oauth',
-      errorCode: null,
-      errorMessage: null,
-      grantToken: 'grant-token-blank',
-      grantAvailable: true,
-      expiresAt: Date.now() + 60_000,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-
-    const Component = VerifyPurchaseRoute.options.component;
-    if (!Component) {
-      throw new Error('Verify purchase route component is not defined');
-    }
-
-    render(<Component />, { wrapper: createWrapper() });
-
-    expect(await screen.findByRole('link', { name: /^continue$/i })).toHaveAttribute(
-      'href',
-      'https://app.test/access/%20?intent_id=intent_verified_blank_buyer_access&grant=grant-token-blank'
-    );
-    await waitFor(() =>
-      expect(backstageAccessApi.requestUserBackstageRepoAccess).not.toHaveBeenCalled()
-    );
-    expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
-  });
-
-  it('falls back to buyer access when the VCC handoff cannot be prepared', async () => {
-    mockUseSearch.mockReturnValue({
-      intent: 'intent_verified_return_only',
-      connected: undefined,
-    });
-
-    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
-      object: 'verification_intent',
-      id: 'intent_verified_return_only',
-      packageId: 'pkg-verified-2',
-      packageName: 'Fallback Package',
-      status: 'verified',
-      verificationUrl: '/verify/purchase?intent=intent_verified_return_only',
-      returnUrl: 'https://app.test/access/catalog_456',
-      requirements: [],
-      verifiedMethodKey: 'gumroad-oauth',
-      errorCode: null,
-      errorMessage: null,
-      grantToken: 'grant-token-2',
-      grantAvailable: true,
-      expiresAt: Date.now() + 60_000,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-    vi.mocked(backstageAccessApi.requestUserBackstageRepoAccess).mockRejectedValue(
-      new Error('Could not prepare repo access')
-    );
-
-    const Component = VerifyPurchaseRoute.options.component;
-    if (!Component) {
-      throw new Error('Verify purchase route component is not defined');
-    }
-
-    render(<Component />, { wrapper: createWrapper() });
-
-    expect(await screen.findByRole('link', { name: /^continue$/i })).toHaveAttribute(
-      'href',
-      'https://app.test/access/catalog_456?intent_id=intent_verified_return_only&grant=grant-token-2'
-    );
-    expect(screen.queryByRole('link', { name: /add to vcc/i })).not.toBeInTheDocument();
-    expect(await screen.findByText(/could not prepare the VCC handoff/i)).toBeInTheDocument();
   });
 });

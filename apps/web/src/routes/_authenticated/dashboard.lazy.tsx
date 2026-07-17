@@ -17,7 +17,6 @@ import {
   getHyperdxSlowestNavigationPhase,
   recordHyperdxNavigationTrace,
 } from '@/lib/hyperdx';
-import { useRuntimeConfig } from '@/lib/runtimeConfig';
 import { type Guild } from '@/lib/server/dashboard';
 import { getServerIconUrl } from '@/lib/utils';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../convex/lib/billingCapabilities';
@@ -472,7 +471,6 @@ function Sidebar({
   const { guild_id } = Route.useSearch();
   const _isPersonalDashboard = !guild_id;
   const { canRunPanelQueries } = useDashboardSession();
-  const { privateVpmEnabled = false } = useRuntimeConfig();
 
   const certificatesQuery = useQuery({
     queryKey: ['creator-certificates'],
@@ -480,10 +478,6 @@ function Sidebar({
     enabled: canRunPanelQueries && _isPersonalDashboard,
   });
 
-  const hasVpmRepoCapability = hasActiveCreatorBillingCapability(
-    certificatesQuery.data?.billing.capabilities,
-    BILLING_CAPABILITY_KEYS.vpmRepo
-  );
   const hasCouplingTraceabilityCapability = hasActiveCreatorBillingCapability(
     certificatesQuery.data?.billing.capabilities,
     BILLING_CAPABILITY_KEYS.couplingTraceability
@@ -526,41 +520,7 @@ function Sidebar({
             </div>
             <div className="sidebar-nav-group">
               <span className="sidebar-nav-label">Developer</span>
-              {privateVpmEnabled && hasVpmRepoCapability ? (
-                <Link
-                  id="tab-btn-packages"
-                  to="/dashboard/packages"
-                  search={(prev) => ({
-                    ...prev,
-                    guild_id: undefined,
-                    tenant_id: undefined,
-                    view: undefined,
-                  })}
-                  className="sidebar-nav-btn"
-                  activeProps={{ className: 'sidebar-nav-btn is-active' }}
-                  role="tab"
-                  aria-selected={false}
-                  aria-controls="tab-panel-packages"
-                >
-                  <svg
-                    className="sidebar-nav-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 8.5L12 13 3 8.5" />
-                    <path d="M12 22V13" />
-                    <path d="M3.27 6.96 12 2l8.73 4.96" />
-                    <path d="M3.27 6.96 3 17l9 5 9-5-.27-10.04" />
-                  </svg>
-                  Custom VPM repo
-                </Link>
-              ) : null}
-              {privateVpmEnabled && hasCouplingTraceabilityCapability ? (
+              {hasCouplingTraceabilityCapability ? (
                 <Link
                   id="tab-btn-package-forensics"
                   to="/dashboard/packages"
