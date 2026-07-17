@@ -76,7 +76,10 @@ describe('API server, production app harness', () => {
 
   afterAll(() => app.dispose());
 
-  it('GET /health returns { status: "ok" }', async () => {
+  it('boots and serves health with DELIVERY_HMAC_KEY and DELIVERY_BASE_URL unset', async () => {
+    expect(process.env.DELIVERY_HMAC_KEY).toBeUndefined();
+    expect(process.env.DELIVERY_BASE_URL).toBeUndefined();
+
     const res = await app.fetch('/health');
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -129,6 +132,15 @@ describe('API server, production app harness', () => {
     const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
     expect(body.openapi).toBe('3.1.0');
     expect(body.paths).toHaveProperty('/verification/check');
+  });
+
+  it('mounts the buyer download route through the API dispatcher', async () => {
+    const response = await app.fetch('/api/access/catalog-product-123/download', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({ error: 'Method not allowed' });
   });
 
   it('keeps every migrated page route on its prior frontend redirect', async () => {

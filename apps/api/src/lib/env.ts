@@ -35,6 +35,10 @@ export interface LocalEnv {
   UPLOAD_HMAC_KEY?: string;
   /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
   INGEST_TUS_URL?: string;
+  /** Optional delivery signing key. The download route returns 503 when unavailable. */
+  DELIVERY_HMAC_KEY?: string;
+  /** Optional delivery Worker origin. The download route returns 503 when unavailable. */
+  DELIVERY_BASE_URL?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -180,6 +184,8 @@ function loadFromEnv(): LocalEnv {
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
     UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
+    DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
+    DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

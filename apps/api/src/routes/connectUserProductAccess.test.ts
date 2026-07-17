@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { verifyDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
 import type { ConnectConfig } from '../providers/types';
 import { createTestLogger } from '../testSupport/loggerMock';
 
@@ -21,6 +22,9 @@ const apiMock = {
   },
   entitlements: {
     listByAuthUser: 'entitlements.listByAuthUser',
+  },
+  packageVersions: {
+    resolveDownloadableVersion: 'packageVersions.resolveDownloadableVersion',
   },
   subjects: {
     listByAuthUser: 'subjects.listByAuthUser',
@@ -164,7 +168,14 @@ const testConfig: ConnectConfig = {
   encryptionSecret: 'test-encryption-secret-32chars!!',
 };
 
-function createRoutes() {
+const deliveryHmacKey = 'buyer-download-route-test-hmac-key';
+const downloadConfig = {
+  ...testConfig,
+  deliveryBaseUrl: 'https://delivery.example.test/',
+  deliveryHmacKey,
+};
+
+function createRoutes(configOverrides: Partial<typeof downloadConfig> = {}) {
   return createConnectUserProductAccessRoutes({
     auth: {
       getSession: async () => ({
@@ -173,16 +184,78 @@ function createRoutes() {
         },
       }),
     } as never,
-    config: testConfig,
+    config: { ...downloadConfig, ...configOverrides },
   });
 }
 
-function createSignedOutRoutes() {
+function createSignedOutRoutes(configOverrides: Partial<typeof downloadConfig> = {}) {
   return createConnectUserProductAccessRoutes({
     auth: {
       getSession: async () => null,
     } as never,
-    config: testConfig,
+    config: { ...downloadConfig, ...configOverrides },
+  });
+}
+
+function downloadRequest(headers?: HeadersInit): Request {
+  return new Request('http://localhost:3001/api/access/catalog_123/download', { headers });
+}
+
+function mockDownloadAccess(options: {
+  activeEntitlement: boolean;
+  downloadableVersion?: { versionId: string } | null;
+}) {
+  convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+    if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        actor: 'service-actor-binding',
+        catalogProductId: 'catalog_123',
+      });
+      return {
+        catalogProductId: 'catalog_123',
+        creatorAuthUserId: 'creator-auth-user',
+        productId: 'product_123',
+        provider: 'gumroad',
+        providerProductRef: 'gumroad-ref',
+        displayName: 'Avatar Bundle',
+        status: 'active',
+      };
+    }
+    if (reference === apiMock.subjects.listByAuthUser) {
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        actor: 'actor-binding',
+        authUserId: 'buyer-auth-user',
+        status: 'active',
+        limit: 1,
+      });
+      return { data: [{ _id: 'subject_buyer_1' }] };
+    }
+    if (reference === apiMock.entitlements.listByAuthUser) {
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        actor: 'service-actor-binding',
+        authUserId: 'creator-auth-user',
+        subjectId: 'subject_buyer_1',
+        productId: 'product_123',
+        status: 'active',
+        limit: 20,
+      });
+      return {
+        data: options.activeEntitlement ? [{ id: 'ent_1', catalogProductId: 'catalog_123' }] : [],
+      };
+    }
+    if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+      expect(args).toEqual({
+        apiSecret: 'test-convex-secret',
+        actor: 'service-actor-binding',
+        catalogProductId: 'catalog_123',
+      });
+      return options.downloadableVersion ?? null;
+    }
+
+    throw new Error(`Unexpected query reference: ${String(reference)}`);
   });
 }
 
@@ -196,6 +269,97 @@ describe('connect user product access routes', () => {
     convexMutationMock.mockReset();
     convexActionMock.mockReset();
     loggerErrorMock.mockReset();
+  });
+
+  it('returns 401 from buyer downloads without a Better Auth session', async () => {
+    const response = await createSignedOutRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: 'Authentication required' });
+    expect(convexQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 to an entitled buyer when downloads are not configured', async () => {
+    mockDownloadAccess({ activeEntitlement: true });
+
+    const response = await createRoutes({
+      deliveryBaseUrl: undefined,
+      deliveryHmacKey: undefined,
+    }).downloadBuyerProductAccess(downloadRequest(), 'catalog_123');
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'Downloads are not configured' });
+    expect(convexQueryMock).not.toHaveBeenCalledWith(
+      apiMock.packageVersions.resolveDownloadableVersion,
+      expect.anything()
+    );
+  });
+
+  it('returns 403 from buyer downloads without an active entitlement', async () => {
+    mockDownloadAccess({ activeEntitlement: false });
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'Active entitlement required' });
+    expect(convexQueryMock).not.toHaveBeenCalledWith(
+      apiMock.packageVersions.resolveDownloadableVersion,
+      expect.anything()
+    );
+  });
+
+  it('302 redirects an entitled buyer to a short-lived signed READY-version URL', async () => {
+    mockDownloadAccess({
+      activeEntitlement: true,
+      downloadableVersion: { versionId: 'version-ready-123' },
+    });
+    const beforeRequest = Date.now();
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    const afterRequest = Date.now();
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const location = response.headers.get('Location');
+    expect(location).not.toBeNull();
+    const deliveryUrl = new URL(location ?? '');
+    expect(deliveryUrl.origin).toBe('https://delivery.example.test');
+    expect(deliveryUrl.pathname).toBe('/d/version-ready-123');
+    const exp = deliveryUrl.searchParams.get('exp') ?? '';
+    const sig = deliveryUrl.searchParams.get('sig') ?? '';
+    expect(
+      await verifyDeliveryUrl({
+        versionId: 'version-ready-123',
+        key: deliveryHmacKey,
+        exp,
+        sig,
+        now: beforeRequest,
+      })
+    ).toBe(true);
+    const expiryMilliseconds = Number(exp) * 1000;
+    expect(expiryMilliseconds).toBeGreaterThanOrEqual(beforeRequest + 5 * 60_000 - 1000);
+    expect(expiryMilliseconds).toBeLessThanOrEqual(afterRequest + 5 * 60_000);
+  });
+
+  it('returns 404 to an entitled buyer when no READY version exists', async () => {
+    mockDownloadAccess({ activeEntitlement: true, downloadableVersion: null });
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: 'Product is not yet published' });
   });
 
   it('returns product entitlement state for the signed-in buyer', async () => {

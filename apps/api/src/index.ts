@@ -313,6 +313,8 @@ function initializeAuth(webhookBaseUrl?: string) {
     discordBotToken: env.DISCORD_BOT_TOKEN,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
+    deliveryBaseUrl: env.DELIVERY_BASE_URL,
+    deliveryHmacKey: env.DELIVERY_HMAC_KEY,
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     itchioClientId: env.ITCHIO_CLIENT_ID,
@@ -842,6 +844,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
     return connectRoutes.postUserVerifyStart(request);
+  }
+  const buyerDownloadMatch = pathname.match(/^\/api\/access\/([^/]+)\/download$/);
+  if (buyerDownloadMatch && connectRoutes) {
+    const catalogProductId = safeDecodeURIComponent(buyerDownloadMatch[1]);
+    if (catalogProductId === null) {
+      return badPathEncodingResponse();
+    }
+    return connectRoutes.downloadBuyerProductAccess(request, catalogProductId);
   }
   const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
   if (buyerProductAccessMatch && connectRoutes) {

@@ -7,6 +7,7 @@ import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { sha256Base64Url } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { signDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
 import type { Auth } from '../auth';
 import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { buildCookie, getCookieValue } from '../lib/browserSessions';
@@ -55,6 +56,16 @@ function jsonNoStore(body: unknown, init?: ResponseInit): Response {
   return Response.json(body, {
     ...init,
     headers,
+  });
+}
+
+function redirectNoStore(location: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: location,
+      'Cache-Control': 'no-store',
+    },
   });
 }
 
@@ -154,6 +165,61 @@ export function createConnectUserProductAccessRoutes({
     })) as BuyerAccessCatalogProduct | null;
   }
 
+  async function resolveBuyerProductAccess(
+    session: Awaited<ReturnType<Auth['getSession']>>,
+    catalogProductId: string
+  ) {
+    const buyerActor = session
+      ? await createAuthUserActorBinding({
+          authUserId: session.user.id,
+          source: 'session',
+        })
+      : null;
+    const buyerConvex = buyerActor ? getConvexClientFromUrl(config.convexUrl, buyerActor) : null;
+    const product = await resolveAccessProduct(catalogProductId);
+    if (!product) {
+      return { activeEntitlement: null, product: null };
+    }
+
+    const buyerSubjects = session
+      ? ((await buyerConvex?.query(api.subjects.listByAuthUser, {
+          apiSecret: config.convexApiSecret,
+          actor: buyerActor,
+          authUserId: session.user.id,
+          status: 'active',
+          limit: 1,
+        })) as { data: Array<{ _id: Id<'subjects'> }> } | null)
+      : null;
+    const buyerSubject = buyerSubjects?.data[0] ?? null;
+    const entitlementsResult =
+      session && buyerSubject
+        ? await (async () => {
+            const entitlementActor = await createApiServiceActorBinding({
+              service: 'api-server',
+              scopes: ['creator:delegate'],
+            });
+            const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
+            return await entitlementConvex.query(api.entitlements.listByAuthUser, {
+              apiSecret: config.convexApiSecret,
+              actor: entitlementActor,
+              authUserId: product.creatorAuthUserId,
+              subjectId: buyerSubject._id,
+              productId: product.productId,
+              status: 'active',
+              limit: 20,
+            });
+          })()
+        : { data: [] };
+    const activeEntitlement =
+      entitlementsResult.data?.find(
+        (entitlement: { catalogProductId?: Id<'product_catalog'> | null }) =>
+          !entitlement.catalogProductId ||
+          String(entitlement.catalogProductId) === String(product.catalogProductId)
+      ) ?? null;
+
+    return { activeEntitlement, product };
+  }
+
   async function getBuyerProductAccess(
     request: Request,
     catalogProductId: string
@@ -161,53 +227,13 @@ export function createConnectUserProductAccessRoutes({
     const session = await auth.getSession(request);
 
     try {
-      const buyerActor = session
-        ? await createAuthUserActorBinding({
-            authUserId: session.user.id,
-            source: 'session',
-          })
-        : null;
-      const buyerConvex = buyerActor ? getConvexClientFromUrl(config.convexUrl, buyerActor) : null;
-      const product = await resolveAccessProduct(catalogProductId);
+      const { activeEntitlement, product } = await resolveBuyerProductAccess(
+        session,
+        catalogProductId
+      );
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-
-      const buyerSubjects = session
-        ? ((await buyerConvex?.query(api.subjects.listByAuthUser, {
-            apiSecret: config.convexApiSecret,
-            actor: buyerActor,
-            authUserId: session.user.id,
-            status: 'active',
-            limit: 1,
-          })) as { data: Array<{ _id: Id<'subjects'> }> } | null)
-        : null;
-      const buyerSubject = buyerSubjects?.data[0] ?? null;
-      const entitlementsResult =
-        session && buyerSubject
-          ? await (async () => {
-              const entitlementActor = await createApiServiceActorBinding({
-                service: 'api-server',
-                scopes: ['creator:delegate'],
-              });
-              const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
-              return await entitlementConvex.query(api.entitlements.listByAuthUser, {
-                apiSecret: config.convexApiSecret,
-                actor: entitlementActor,
-                authUserId: product.creatorAuthUserId,
-                subjectId: buyerSubject._id,
-                productId: product.productId,
-                status: 'active',
-                limit: 20,
-              });
-            })()
-          : { data: [] };
-      const activeEntitlement =
-        entitlementsResult.data?.find(
-          (entitlement: { catalogProductId?: Id<'product_catalog'> | null }) =>
-            !entitlement.catalogProductId ||
-            String(entitlement.catalogProductId) === String(product.catalogProductId)
-        ) ?? null;
 
       return jsonNoStore({
         product: {
@@ -230,6 +256,71 @@ export function createConnectUserProductAccessRoutes({
         error: error instanceof Error ? error.message : String(error),
       });
       return Response.json({ error: 'Failed to load product access' }, { status: 500 });
+    }
+  }
+
+  async function downloadBuyerProductAccess(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
+    if (request.method !== 'GET') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const { activeEntitlement } = await resolveBuyerProductAccess(session, catalogProductId);
+      if (!activeEntitlement) {
+        return Response.json({ error: 'Active entitlement required' }, { status: 403 });
+      }
+
+      const deliveryHmacKey = config.deliveryHmacKey?.trim();
+      const deliveryBaseUrl = config.deliveryBaseUrl?.trim();
+      if (!deliveryHmacKey || !deliveryBaseUrl) {
+        return Response.json({ error: 'Downloads are not configured' }, { status: 503 });
+      }
+
+      const versionActor = await createApiServiceActorBinding({
+        service: 'api-server',
+        scopes: ['downloads:service'],
+      });
+      const convex = getConvexClientFromUrl(config.convexUrl, versionActor);
+      const downloadableVersion = (await convex.query(
+        api.packageVersions.resolveDownloadableVersion,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: versionActor,
+          catalogProductId: catalogProductId as Id<'product_catalog'>,
+        }
+      )) as { versionId: string } | null;
+      if (!downloadableVersion) {
+        return Response.json({ error: 'Product is not yet published' }, { status: 404 });
+      }
+
+      const signature = await signDeliveryUrl({
+        versionId: downloadableVersion.versionId,
+        key: deliveryHmacKey,
+        expiresAt: Date.now() + 5 * 60_000,
+      });
+      const location = `${deliveryBaseUrl.replace(/\/+$/, '')}/d/${encodeURIComponent(
+        downloadableVersion.versionId
+      )}?exp=${signature.exp}&sig=${signature.sig}`;
+      return redirectNoStore(location);
+    } catch (error) {
+      logger.error('Failed to prepare buyer product download', {
+        catalogProductId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json({ error: 'Failed to prepare download' }, { status: 500 });
     }
   }
 
@@ -339,6 +430,7 @@ export function createConnectUserProductAccessRoutes({
   }
 
   return {
+    downloadBuyerProductAccess,
     getBuyerProductAccess,
     postBuyerProductAccessVerificationIntent,
   };
