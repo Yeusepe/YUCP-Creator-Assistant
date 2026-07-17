@@ -38,20 +38,7 @@ type BuyerAccessCatalogProduct = {
   canonicalSlug?: string;
   thumbnailUrl?: string;
   status: 'active';
-  backstagePackages: Array<{
-    packageId: string;
-    packageName?: string;
-    displayName?: string;
-    defaultChannel?: string;
-    latestPublishedVersion?: string;
-    latestPublishedAt?: number;
-    repositoryVisibility: 'hidden' | 'listed';
-  }>;
 };
-
-function buildBuyerProductAccessPath(catalogProductId: string): string {
-  return `/access/${encodeURIComponent(catalogProductId)}`;
-}
 
 function getAllowedOrigins(config: ConnectConfig): Set<string> {
   return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
@@ -186,13 +173,16 @@ export function createConnectUserProductAccessRoutes({
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
 
-      const buyerSubject = session
-        ? ((await buyerConvex?.query(api.backstageRepos.getSubjectByAuthUserForApi, {
+      const buyerSubjects = session
+        ? ((await buyerConvex?.query(api.subjects.listByAuthUser, {
             apiSecret: config.convexApiSecret,
             actor: buyerActor,
             authUserId: session.user.id,
-          })) as { _id: Id<'subjects'> } | null)
+            status: 'active',
+            limit: 1,
+          })) as { data: Array<{ _id: Id<'subjects'> }> } | null)
         : null;
+      const buyerSubject = buyerSubjects?.data[0] ?? null;
       const entitlementsResult =
         session && buyerSubject
           ? await (async () => {
@@ -219,18 +209,6 @@ export function createConnectUserProductAccessRoutes({
             String(entitlement.catalogProductId) === String(product.catalogProductId)
         ) ?? null;
 
-      const packagePreview = activeEntitlement
-        ? product.backstagePackages.map((packageLink) => ({
-            packageId: packageLink.packageId,
-            packageName: packageLink.packageName ?? null,
-            displayName: packageLink.displayName ?? null,
-            defaultChannel: packageLink.defaultChannel ?? null,
-            latestPublishedVersion: packageLink.latestPublishedVersion ?? null,
-            latestPublishedAt: packageLink.latestPublishedAt ?? null,
-            repositoryVisibility: packageLink.repositoryVisibility,
-          }))
-        : [];
-
       return jsonNoStore({
         product: {
           catalogProductId: String(product.catalogProductId),
@@ -240,13 +218,10 @@ export function createConnectUserProductAccessRoutes({
           provider: product.provider,
           providerLabel: providerLabel(product.provider),
           storefrontUrl: buildCatalogProductUrl(product.provider, product.providerProductRef),
-          accessPagePath: buildBuyerProductAccessPath(String(product.catalogProductId)),
-          packagePreview,
         },
         accessState: {
           hasActiveEntitlement: Boolean(activeEntitlement),
           requiresVerification: !activeEntitlement,
-          hasPublishedPackages: product.backstagePackages.length > 0,
         },
       });
     } catch (error) {
@@ -294,30 +269,14 @@ export function createConnectUserProductAccessRoutes({
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-      if (product.backstagePackages.length === 0) {
-        return Response.json(
-          {
-            error:
-              'This product does not have a published package yet. Ask the creator to finish package setup first.',
-          },
-          { status: 409 }
-        );
-      }
-
       const safeReturnPath =
         getSafeRelativeRedirectTarget(
           typeof body.returnTo === 'string' ? body.returnTo : undefined
-        ) ?? buildBuyerProductAccessPath(String(product.catalogProductId));
+        ) ?? '/dashboard';
       const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
       const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
-      const primaryPackage = product.backstagePackages[0];
-      const packageId = primaryPackage?.packageId ?? product.productId;
-      const packageName =
-        product.displayName ??
-        primaryPackage?.displayName ??
-        primaryPackage?.packageName ??
-        primaryPackage?.packageId ??
-        product.productId;
+      const packageId = product.productId;
+      const packageName = product.displayName ?? product.productId;
       const codeVerifier = `${crypto.randomUUID()}${crypto.randomUUID()}`;
       const requirements = normalizeHostedVerificationRequirements(
         buildHostedVerificationRequirements(product)

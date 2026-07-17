@@ -12,7 +12,6 @@ export {
   type VerificationRouteHandlers,
 } from '../verification';
 export { createAccountSecurityRoutes } from './accountSecurity';
-export { type BackstageRepoConfig, createBackstageRepoRoutes } from './backstageRepos';
 export { type ConnectConfig, createConnectRoutes } from './connect';
 export { createForensicsRoutes, type ForensicsConfig } from './forensics';
 export {
@@ -23,10 +22,6 @@ export {
   type InstallRouteHandlers,
   mountInstallRoutes,
 } from './install';
-export {
-  createPackageRoutes,
-  type PackagesConfig,
-} from './packages';
 export { createProviderPlatformRoutes } from './providerPlatform';
 export { createPublicRoutes, type PublicRouteConfig } from './public';
 export { createWebhookHandler } from './webhooks';

@@ -15,15 +15,15 @@ const sharedActual = await import('@yucp/shared');
 const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
-  backstageRepos: {
-    getSubjectByAuthUserForApi: 'backstageRepos.getSubjectByAuthUserForApi',
-  },
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
   },
   entitlements: {
     listByAuthUser: 'entitlements.listByAuthUser',
+  },
+  subjects: {
+    listByAuthUser: 'subjects.listByAuthUser',
   },
   verificationIntents: {
     createVerificationIntent: 'verificationIntents.createVerificationIntent',
@@ -198,7 +198,7 @@ describe('connect user product access routes', () => {
     loggerErrorMock.mockReset();
   });
 
-  it('returns buyer access state for the signed-in buyer and exposes the dedicated access path', async () => {
+  it('returns product entitlement state for the signed-in buyer', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         expect(args).toEqual({
@@ -216,23 +216,17 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              latestPublishedVersion: '1.2.0',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
-      if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
+      if (reference === apiMock.subjects.listByAuthUser) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
           actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
+          status: 'active',
+          limit: 1,
         });
-        return { _id: 'subject_buyer_1' };
+        return { data: [{ _id: 'subject_buyer_1' }] };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
         expect(args).toEqual({
@@ -269,28 +263,15 @@ describe('connect user product access routes', () => {
         provider: 'gumroad',
         providerLabel: 'Gumroad',
         storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
-        accessPagePath: '/access/catalog_123',
-        packagePreview: [
-          {
-            packageId: 'com.yucp.avatar.bundle',
-            packageName: null,
-            displayName: 'Avatar Bundle',
-            defaultChannel: null,
-            latestPublishedVersion: '1.2.0',
-            latestPublishedAt: null,
-            repositoryVisibility: 'hidden',
-          },
-        ],
       },
       accessState: {
         hasActiveEntitlement: true,
         requiresVerification: false,
-        hasPublishedPackages: true,
       },
     });
   });
 
-  it('does not expose Backstage package metadata to signed-out product access callers', async () => {
+  it('returns verification-required state to signed-out product access callers', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         expect(args).toMatchObject({
@@ -308,14 +289,6 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              latestPublishedVersion: '1.2.0',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
 
@@ -332,12 +305,11 @@ describe('connect user product access routes', () => {
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toMatchObject({
       product: {
-        packagePreview: [],
+        displayName: 'Avatar Bundle',
       },
       accessState: {
         hasActiveEntitlement: false,
         requiresVerification: true,
-        hasPublishedPackages: true,
       },
     });
     expect(convexQueryMock).not.toHaveBeenCalledWith(
@@ -346,7 +318,7 @@ describe('connect user product access routes', () => {
     );
   });
 
-  it('does not expose Backstage package metadata to signed-in buyers without entitlement access', async () => {
+  it('returns verification-required state to signed-in buyers without entitlement access', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         expect(args).toMatchObject({
@@ -364,23 +336,17 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              latestPublishedVersion: '1.2.0',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
-      if (reference === apiMock.backstageRepos.getSubjectByAuthUserForApi) {
+      if (reference === apiMock.subjects.listByAuthUser) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
           actor: 'actor-binding',
           authUserId: 'buyer-auth-user',
+          status: 'active',
+          limit: 1,
         });
-        return { _id: 'subject_buyer_1' };
+        return { data: [{ _id: 'subject_buyer_1' }] };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
         expect(args).toMatchObject({
@@ -406,12 +372,11 @@ describe('connect user product access routes', () => {
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     await expect(response.json()).resolves.toMatchObject({
       product: {
-        packagePreview: [],
+        displayName: 'Avatar Bundle',
       },
       accessState: {
         hasActiveEntitlement: false,
         requiresVerification: true,
-        hasPublishedPackages: true,
       },
     });
   });
@@ -425,7 +390,7 @@ describe('connect user product access routes', () => {
           origin: 'https://attacker.test',
           'content-type': 'application/json',
         },
-        body: JSON.stringify({ returnTo: '/access/catalog_123' }),
+        body: JSON.stringify({ returnTo: '/dashboard' }),
       }),
       'catalog_123'
     );
@@ -452,13 +417,6 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
 
@@ -472,10 +430,10 @@ describe('connect user product access routes', () => {
       expect(args).toMatchObject({
         apiSecret: 'test-convex-secret',
         authUserId: 'buyer-auth-user',
-        packageId: 'com.yucp.avatar.bundle',
+        packageId: 'product_123',
         packageName: 'Avatar Bundle',
-        returnUrl: 'http://localhost:3000/access/catalog_123',
-        idempotencyKey: 'buyer-access:catalog_123:%2Faccess%2Fcatalog_123:hashed-code-challenge',
+        returnUrl: 'http://localhost:3000/dashboard',
+        idempotencyKey: 'buyer-access:catalog_123:%2Fdashboard:hashed-code-challenge',
       });
       expect((args as { machineFingerprint: string }).machineFingerprint).toMatch(
         /^buyer-access-web:[0-9a-f]{32}$/
@@ -542,7 +500,7 @@ describe('connect user product access routes', () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          returnTo: '/access/catalog_123',
+          returnTo: '/dashboard',
           padding: 'x'.repeat(4096),
         }),
       }),
@@ -571,13 +529,6 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
 
@@ -638,13 +589,6 @@ describe('connect user product access routes', () => {
           providerProductRef: 'lemonsqueezy-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
-          backstagePackages: [
-            {
-              packageId: 'com.yucp.avatar.bundle',
-              displayName: 'Avatar Bundle',
-              repositoryVisibility: 'hidden',
-            },
-          ],
         };
       }
 
@@ -679,7 +623,7 @@ describe('connect user product access routes', () => {
       new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ returnTo: '/access/catalog_123' }),
+        body: JSON.stringify({ returnTo: '/dashboard' }),
       }),
       'catalog_123'
     );
