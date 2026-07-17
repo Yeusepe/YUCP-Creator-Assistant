@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -33,7 +33,9 @@ type SqlTag = {
   json(value: unknown): unknown;
 };
 
-function createMemoryCatalog(): { catalog: Catalog; rows: Map<string, MemoryCatalogRow> } {
+function createMemoryCatalog(
+  options: { onTransition?: (row: MemoryCatalogRow) => Promise<void> } = {}
+): { catalog: Catalog; rows: Map<string, MemoryCatalogRow> } {
   const rows = new Map<string, MemoryCatalogRow>();
   const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const statement = strings.join('?');
@@ -74,6 +76,7 @@ function createMemoryCatalog(): { catalog: Catalog; rows: Map<string, MemoryCata
       row.attempts = Number(values[5]);
       row.next_attempt_at = null;
       row.updated_at = new Date();
+      await options.onTransition?.(row);
       return [row];
     }
     return [];
@@ -193,5 +196,113 @@ describe('ingest tus upload capability isolation', () => {
         version: '1.0.0',
       }),
     ]);
+
+    const outsideUploadId = '0123456789abcdef0123456789abcdef';
+    await writeFile(join(scratchPath, outsideUploadId), 'x');
+    await writeFile(
+      join(scratchPath, `${outsideUploadId}.json`),
+      JSON.stringify({
+        id: `../${outsideUploadId}`,
+        size: 1,
+        offset: 1,
+        metadata: { _catalogVersionId: capability.versionId },
+        creation_date: new Date().toISOString(),
+      })
+    );
+    const traversalResponse = await fetch(
+      `http://127.0.0.1:${port}${INGEST_TUS_PATH}/..%2F${outsideUploadId}`,
+      {
+        method: 'HEAD',
+        headers: {
+          'Tus-Resumable': '1.0.0',
+          'x-yucp-upload-catalog-product-id': encodeURIComponent('catalog-product-a'),
+          'x-yucp-upload-exp': capability.exp,
+          'x-yucp-upload-package-id': encodeURIComponent(signedPackageId),
+          'x-yucp-upload-sig': capability.sig,
+          'x-yucp-upload-version': encodeURIComponent('1.0.0'),
+          'x-yucp-upload-version-id': capability.versionId,
+        },
+      }
+    );
+
+    expect(traversalResponse.status).toBe(403);
+  });
+
+  it('does not fail an assembled upload when tus-file cleanup fails', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-cleanup-'));
+    scratchPaths.add(scratchPath);
+    const uploadDir = join(scratchPath, 'uploads');
+    let uploadDataPath: string | undefined;
+    const { catalog, rows } = createMemoryCatalog({
+      async onTransition(row) {
+        if (row.state === 'ASSEMBLED' && uploadDataPath) {
+          await rm(uploadDataPath);
+        }
+      },
+    });
+    const server = createServer(
+      createIngestTusServer({
+        catalog,
+        indexDir: join(scratchPath, 'indexes'),
+        store: localCasStore(join(scratchPath, 'cas')),
+        uploadDir,
+        uploadHmacKey,
+      })
+    );
+    openServers.add(server);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${port}${INGEST_TUS_PATH}`;
+    const artifact = Buffer.from('opaque substance painter package');
+    const capability = await signUploadCapability({
+      expiresAt: Date.now() + 60_000,
+      key: uploadHmacKey,
+      packageId: 'com.creator.cleanup',
+      version: '1.0.0',
+      versionId: crypto.randomUUID(),
+    });
+    const capabilityHeaders = {
+      'x-yucp-upload-exp': capability.exp,
+      'x-yucp-upload-package-id': encodeURIComponent(capability.packageId),
+      'x-yucp-upload-sig': capability.sig,
+      'x-yucp-upload-version': encodeURIComponent(capability.version),
+      'x-yucp-upload-version-id': capability.versionId,
+    };
+    const creation = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...capabilityHeaders,
+        'Tus-Resumable': '1.0.0',
+        'Upload-Length': String(artifact.byteLength),
+        'Upload-Metadata': uploadMetadata({
+          filename: 'artifact.spp',
+          packageId: capability.packageId,
+          version: capability.version,
+        }),
+      },
+    });
+    const location = creation.headers.get('location');
+    if (!location) {
+      throw new Error('Tus creation did not return an upload location');
+    }
+    uploadDataPath = join(uploadDir, new URL(location, endpoint).pathname.split('/').at(-1) ?? '');
+
+    const completion = await fetch(new URL(location, endpoint), {
+      method: 'PATCH',
+      headers: {
+        ...capabilityHeaders,
+        'Content-Type': 'application/offset+octet-stream',
+        'Tus-Resumable': '1.0.0',
+        'Upload-Offset': '0',
+      },
+      body: artifact,
+    });
+
+    expect(completion.status).toBe(204);
+    expect(rows.get(capability.versionId)?.state).toBe('ASSEMBLED');
+    expect(rows.get(capability.versionId)?.error).toBeNull();
   });
 });

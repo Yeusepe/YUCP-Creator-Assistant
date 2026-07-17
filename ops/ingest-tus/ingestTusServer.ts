@@ -30,6 +30,7 @@ const CORS_EXPOSE_HEADERS = 'Location,Upload-Offset,Upload-Length';
 
 const VERSION_ID_METADATA_KEY = '_catalogVersionId';
 const ALLOWED_EXTENSIONS = new Set(['.spp', '.unitypackage', '.zip']);
+const UPLOAD_ID_PATTERN = /^[0-9a-f]{32}(?:\.(?:spp|unitypackage|zip))?$/;
 const GENERIC_BINARY_TYPES = new Set(['application/octet-stream']);
 const CONTENT_TYPES_BY_EXTENSION = new Map<string, ReadonlySet<string>>([
   [
@@ -264,13 +265,37 @@ function requestUploadId(request: IncomingMessage): string | undefined {
     return undefined;
   }
   const encodedId = pathname.slice(prefix.length);
-  if (!encodedId || encodedId.includes('/')) {
+  if (!encodedId) {
     return undefined;
   }
   try {
-    return decodeURIComponent(encodedId);
+    const decodedId = decodeURIComponent(encodedId);
+    return UPLOAD_ID_PATTERN.test(decodedId) ? decodedId : undefined;
   } catch {
     return undefined;
+  }
+}
+
+function isUploadResourceRequest(request: IncomingMessage): boolean {
+  return new URL(request.url ?? '/', 'http://localhost').pathname.startsWith(`${INGEST_TUS_PATH}/`);
+}
+
+async function removeUploadBestEffort(
+  fileStore: FileStore,
+  uploadId: string,
+  versionId: string
+): Promise<void> {
+  try {
+    await fileStore.remove(uploadId);
+  } catch (cleanupError) {
+    console.error(
+      JSON.stringify({
+        event: 'ingest_tus.upload_cleanup_failed',
+        uploadId,
+        versionId,
+        reason: cleanupError instanceof Error ? cleanupError.name : 'unknown_error',
+      })
+    );
   }
 }
 
@@ -327,6 +352,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
+    getFileIdFromRequest(_request, lastPath) {
+      return lastPath && UPLOAD_ID_PATTERN.test(lastPath) ? lastPath : undefined;
+    },
     maxSize: maxBytes,
     allowedCredentials: Boolean(allowedOrigin),
     allowedHeaders: Object.values(UPLOAD_CAPABILITY_HEADERS),
@@ -415,18 +443,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
           ...assemblyStorage,
         });
       } catch (error) {
-        try {
-          await fileStore.remove(upload.id);
-        } catch (cleanupError) {
-          console.error(
-            JSON.stringify({
-              event: 'ingest_tus.upload_cleanup_failed',
-              uploadId: upload.id,
-              versionId,
-              reason: cleanupError instanceof Error ? cleanupError.name : 'unknown_error',
-            })
-          );
-        }
+        await removeUploadBestEffort(fileStore, upload.id, versionId);
         console.error(
           JSON.stringify({
             event: 'ingest_tus.assembly_failed',
@@ -438,7 +455,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         );
         throw tusError(500, 'Artifact assembly failed.');
       }
-      await fileStore.remove(upload.id);
+      await removeUploadBestEffort(fileStore, upload.id, versionId);
       console.info(
         JSON.stringify({
           event: 'ingest_tus.upload_assembled',
@@ -479,6 +496,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         return;
       }
       const uploadId = requestUploadId(request);
+      if (isUploadResourceRequest(request) && !uploadId) {
+        sendCapabilityError(response, 403);
+        return;
+      }
       if (uploadId) {
         try {
           const upload = await fileStore.getUpload(uploadId);
