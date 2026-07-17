@@ -2452,17 +2452,41 @@ export const listByAuthUser = query({
     productId: v.optional(v.string()),
     status: v.optional(v.string()),
     sourceProvider: v.optional(v.string()),
+    scope: v.optional(v.union(v.literal('creator'), v.literal('subject_holder'))),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
-    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
-
-    let all = await ctx.db
-      .query('entitlements')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
+    let all: Array<Doc<'entitlements'>>;
+    if (args.scope === 'subject_holder') {
+      const actor = await requireServiceActor(args.actor, ['entitlements:service']);
+      if (actor.authUserId !== args.authUserId) {
+        throw new ConvexError('Unauthorized: service actor is not bound to this subject holder');
+      }
+      const activeSubjects = (
+        await ctx.db
+          .query('subjects')
+          .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+          .collect()
+      ).filter((subject) => subject.status === 'active');
+      all = (
+        await Promise.all(
+          activeSubjects.map((subject) =>
+            ctx.db
+              .query('entitlements')
+              .withIndex('by_subject', (q) => q.eq('subjectId', subject._id))
+              .collect()
+          )
+        )
+      ).flat();
+    } else {
+      await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+      all = await ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .collect();
+    }
 
     if (args.subjectId) {
       all = all.filter((e) => String(e.subjectId) === args.subjectId);

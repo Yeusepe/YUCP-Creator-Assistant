@@ -20,6 +20,12 @@ import { initBunServerObservability } from '@yucp/shared/serverObservability';
 const tracer = trace.getTracer('yucp-api');
 let initialized = false;
 
+export function sanitizeApiRequestUrl(value: string | URL): URL {
+  const url = new URL(value);
+  url.pathname = url.pathname.replace(/^(\/api\/vpm\/)[^/]+(\/index\.json)$/, '$1[REDACTED]$2');
+  return url;
+}
+
 export function initApiObservability(env: NodeJS.ProcessEnv = process.env) {
   if (detectServerObservabilityRuntime() === 'bun-manual') {
     const resolved = initBunServerObservability({
@@ -101,7 +107,7 @@ export async function withApiRequestSpan<T>(
   requestId: string,
   run: () => Promise<T>
 ): Promise<T> {
-  const url = new URL(request.url);
+  const url = sanitizeApiRequestUrl(request.url);
   const carrier = Object.fromEntries(request.headers.entries());
   const parentContext = propagation.extract(ROOT_CONTEXT, carrier);
 
