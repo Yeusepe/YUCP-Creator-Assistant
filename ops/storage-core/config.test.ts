@@ -88,11 +88,13 @@ describe('loadIngestRuntimeEnv', () => {
       CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
       INGEST_MAX_BYTES: '1048576',
+      UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
     } satisfies NodeJS.ProcessEnv;
     const originalEnv = { ...sourceEnv };
     const runtime = await loadIngestRuntimeEnv(sourceEnv);
 
     expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
+    expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
     expect(runtime.ingestUploadDir).toBe('C:/tmp/yucp-ingest-test');
     expect(runtime.ingestMaxBytes).toBe(1_048_576);
     expect(runtime.cas.chunkPrefix).toBe('chunks/');

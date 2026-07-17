@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  DELIVERY_WORKER_BINDING_KEYS,
+  getDeliveryWorkerBindingValues,
   getWebLocalEnvValues,
   resolveWebEnvValues,
   resolveWebLocalEnvPath,
@@ -40,6 +42,32 @@ describe('cloudflare-web-config', () => {
   test('allows tests to redirect the generated local Worker env file', () => {
     expect(resolveWebLocalEnvPath({ WEB_LOCAL_ENV_PATH: 'E:\\tmp\\web-worker-test.vars' })).toBe(
       'E:\\tmp\\web-worker-test.vars'
+    );
+  });
+
+  test('selects only the delivery Worker bindings from the Infisical export', () => {
+    expect(DELIVERY_WORKER_BINDING_KEYS).toEqual([
+      'CAS_S3_ENDPOINT',
+      'CAS_S3_REGION',
+      'CAS_S3_BUCKET',
+      'CAS_S3_READONLY_ACCESS_KEY_ID',
+      'CAS_S3_READONLY_SECRET_ACCESS_KEY',
+      'CAS_INDEX_PREFIX',
+      'CAS_CHUNK_PREFIX',
+      'DELIVERY_HMAC_KEY',
+      'STORAGE_FORMAT_VERSION',
+    ]);
+    const source = Object.fromEntries(
+      DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
+    );
+    source.CAS_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
+    source.CAS_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
+    source.DELIVERY_BASE_URL = 'https://delivery.example.invalid';
+
+    expect(getDeliveryWorkerBindingValues(source)).toEqual(
+      Object.fromEntries(
+        DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
+      )
     );
   });
 });

@@ -9,11 +9,20 @@ const REQUIRED_CAS_KEYS = [
 ] as const;
 
 const REQUIRED_INGEST_KEYS = [
+  'UPLOAD_HMAC_KEY',
   'CATALOG_DATABASE_URL',
   ...REQUIRED_CAS_KEYS,
   'INGEST_UPLOAD_DIR',
   'INGEST_MAX_BYTES',
 ] as const;
+
+export const INGEST_INFISICAL_KEYS = [
+  'UPLOAD_HMAC_KEY',
+  'CATALOG_DATABASE_URL',
+  ...REQUIRED_CAS_KEYS,
+] as const;
+
+export type FetchInfisicalSecrets = (env: NodeJS.ProcessEnv) => Promise<Record<string, string>>;
 
 export type CasConfig = {
   endpoint: string;
@@ -29,6 +38,7 @@ export type CasConfig = {
 const DEFAULT_S3_REQUEST_TIMEOUT_MS = 30_000;
 
 export type IngestRuntimeEnv = {
+  uploadHmacKey: string;
   catalogDatabaseUrl: string;
   ingestUploadDir: string;
   ingestMaxBytes: number;
@@ -87,12 +97,41 @@ function normalizePrefix(
   return `${segments.join('/')}/`;
 }
 
-function hasInfisicalBootstrap(env: NodeJS.ProcessEnv): boolean {
+export function hasInfisicalBootstrap(env: NodeJS.ProcessEnv): boolean {
   return Boolean(
     normalizeOptional(env.INFISICAL_PROJECT_ID) &&
       normalizeOptional(env.INFISICAL_CLIENT_ID ?? env.INFISICAL_MACHINE_IDENTITY_ID) &&
       normalizeOptional(env.INFISICAL_CLIENT_SECRET ?? env.INFISICAL_MACHINE_IDENTITY_SECRET)
   );
+}
+
+export function requireInfisicalBootstrap(env: NodeJS.ProcessEnv): void {
+  if (!hasInfisicalBootstrap(env)) {
+    throw new Error('Missing required Infisical bootstrap environment variables');
+  }
+}
+
+/**
+ * Fetches the configured Infisical environment and gives fetched values precedence over the
+ * bootstrap process environment. Required keys are checked against the fetch result itself so a
+ * stale raw environment value cannot mask a missing source-of-truth declaration.
+ */
+export async function hydrateEnvFromInfisical(
+  env: NodeJS.ProcessEnv,
+  requiredKeys: readonly string[],
+  fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
+): Promise<NodeJS.ProcessEnv> {
+  if (!hasInfisicalBootstrap(env)) {
+    return { ...env };
+  }
+
+  const secrets = await fetchSecrets(env);
+  const missing = requiredKeys.filter((key) => !normalizeOptional(secrets[key]));
+  if (missing.length > 0) {
+    throw new Error(`Missing required Infisical secrets: ${missing.join(', ')}`);
+  }
+
+  return { ...env, ...secrets };
 }
 
 export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
@@ -130,17 +169,10 @@ export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
  * validation errors.
  */
 export async function loadIngestRuntimeEnv(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<IngestRuntimeEnv> {
-  const runtimeEnv = { ...env };
-  if (hasInfisicalBootstrap(runtimeEnv)) {
-    const secrets = await fetchInfisicalSecrets(runtimeEnv);
-    for (const [key, value] of Object.entries(secrets)) {
-      if (!normalizeOptional(runtimeEnv[key])) {
-        runtimeEnv[key] = value;
-      }
-    }
-  }
+  const runtimeEnv = await hydrateEnvFromInfisical(env, INGEST_INFISICAL_KEYS, fetchSecrets);
 
   const missing = REQUIRED_INGEST_KEYS.filter((key) => !normalizeOptional(runtimeEnv[key]));
   if (missing.length > 0) {
@@ -153,6 +185,7 @@ export async function loadIngestRuntimeEnv(
   }
 
   return {
+    uploadHmacKey: requireValue(runtimeEnv, 'UPLOAD_HMAC_KEY'),
     catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,
