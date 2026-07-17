@@ -4,6 +4,9 @@ import { verifyUploadCapability } from '../../../../ops/storage-core/uploadSigni
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 
 const apiMock = {
+  certificateBilling: {
+    getAccountOverview: 'certificateBilling.getAccountOverview',
+  },
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
@@ -37,6 +40,12 @@ const config = {
   convexUrl: 'http://localhost:3210',
   ingestTusUrl: 'https://ingest.example.test/',
   uploadHmacKey,
+};
+
+const activeVpmBilling = {
+  billing: {
+    capabilities: [{ capabilityKey: 'vpm_repo', status: 'active' }],
+  },
 };
 
 function createRoutes(userId: string | null, configOverrides: Partial<typeof config> = {}) {
@@ -99,10 +108,18 @@ describe('creator upload authorization', () => {
   });
 
   it('returns 503 for the package owner when creator uploads are not configured', async () => {
-    convexQueryMock.mockResolvedValue({
-      packageId: 'com.yucp.avatar',
-      yucpUserId: 'creator-123',
-      status: 'active',
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
     });
 
     const response = await createRoutes('creator-123', {
@@ -114,6 +131,42 @@ describe('creator upload authorization', () => {
     expect(await response.json()).toEqual({ error: 'Creator uploads are not configured' });
   });
 
+  it('returns 403 when the owned package is archived', async () => {
+    convexQueryMock.mockResolvedValue({
+      packageId: 'com.yucp.avatar',
+      yucpUserId: 'creator-123',
+      status: 'archived',
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({ packageId: 'com.yucp.avatar', version: '1.0.0' })
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it('returns 403 when the package owner lacks the VPM repository capability', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return { billing: { capabilities: [] } };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({ packageId: 'com.yucp.avatar', version: '1.0.0' })
+    );
+
+    expect(response.status).toBe(403);
+  });
+
   it('returns 403 when the catalog product belongs to another creator', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.lookupRegistration) {
@@ -122,6 +175,9 @@ describe('creator upload authorization', () => {
           yucpUserId: 'creator-123',
           status: 'active',
         };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
       }
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         return { creatorAuthUserId: 'different-creator' };
@@ -148,6 +204,9 @@ describe('creator upload authorization', () => {
           yucpUserId: 'creator-123',
           status: 'active',
         };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
       }
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         return { creatorAuthUserId: 'creator-123' };

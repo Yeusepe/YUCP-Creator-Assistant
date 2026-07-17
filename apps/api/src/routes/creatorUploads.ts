@@ -1,4 +1,5 @@
 import { api } from '../../../../convex/_generated/api';
+import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 import {
   signUploadCapability,
   UPLOAD_CAPABILITY_HEADERS,
@@ -81,9 +82,27 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       apiSecret: config.convexApiSecret,
       actor,
       packageId,
-    })) as { yucpUserId: string } | null;
-    if (!registration || registration.yucpUserId !== session.user.id) {
-      return Response.json({ error: 'Package ownership required' }, { status: 403 });
+    })) as { status: 'active' | 'archived'; yucpUserId: string } | null;
+    if (
+      !registration ||
+      registration.yucpUserId !== session.user.id ||
+      registration.status !== 'active'
+    ) {
+      return Response.json({ error: 'Active package ownership required' }, { status: 403 });
+    }
+    const billing = (await convex.query(api.certificateBilling.getAccountOverview, {
+      apiSecret: config.convexApiSecret,
+      authUserId: session.user.id,
+    })) as {
+      billing?: { capabilities?: Array<{ capabilityKey: string; status: string }> };
+    };
+    const canUpload = billing.billing?.capabilities?.some(
+      (capability) =>
+        capability.capabilityKey === BILLING_CAPABILITY_KEYS.vpmRepo &&
+        (capability.status === 'active' || capability.status === 'grace')
+    );
+    if (!canUpload) {
+      return Response.json({ error: 'VPM repository capability required' }, { status: 403 });
     }
     if (catalogProductId) {
       const product = (await convex.query(
