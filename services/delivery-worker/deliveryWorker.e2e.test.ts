@@ -36,6 +36,7 @@ import {
   listS3Objects,
   putS3Object,
 } from '../../ops/storage-core/s3Control';
+import { waitForPostgres } from '../../ops/testing/postgresReadiness';
 import { createUnityPackageFixture } from '../../ops/testing/unityPackageFixture';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -199,28 +200,6 @@ async function waitForMinio(endpoint: string): Promise<void> {
   throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
-async function waitForPostgres(containerId: string, databaseName: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      await runCommand('docker', [
-        'exec',
-        containerId,
-        'pg_isready',
-        '--username',
-        'postgres',
-        '--dbname',
-        databaseName,
-      ]);
-      return;
-    } catch {
-      // The throwaway server is still starting.
-    }
-    await delay(250);
-  }
-  throw new Error('Throwaway PostgreSQL did not become ready within 60 seconds');
-}
-
 async function publishedPort(containerId: string, containerPort: string): Promise<string> {
   const output = (await runCommand('docker', ['port', containerId, containerPort])).stdout.trim();
   const match = /127\.0\.0\.1:(\d+)$/m.exec(output);
@@ -323,7 +302,11 @@ async function main(): Promise<void> {
     if (!postgresContainer) {
       throw new Error('Docker did not return the throwaway PostgreSQL container ID');
     }
-    await waitForPostgres(postgresContainer, databaseName);
+    await waitForPostgres({
+      containerName: postgresContainer,
+      databaseName,
+      runDocker: (args) => runCommand('docker', args),
+    });
     const postgresPort = await publishedPort(postgresContainer, '5432/tcp');
     sql = openCatalogDatabase(
       `postgres://postgres:${databasePassword}@127.0.0.1:${postgresPort}/${databaseName}`

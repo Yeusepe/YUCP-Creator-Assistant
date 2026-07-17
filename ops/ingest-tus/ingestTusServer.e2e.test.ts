@@ -27,6 +27,7 @@ import {
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { signUploadCapability } from '../storage-core/uploadSigning';
+import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   createIngestTusServer,
   INGEST_TUS_PATH,
@@ -128,32 +129,6 @@ async function removeMinioContainer(): Promise<void> {
   if (result.exitCode !== 0 && !result.stderr.includes('No such container')) {
     throw new Error(`Failed to remove MinIO test container: ${result.stderr || result.stdout}`);
   }
-}
-
-async function waitForPostgres(): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  let lastResult: CommandResult | undefined;
-
-  while (Date.now() < deadline) {
-    lastResult = await runDocker([
-      'exec',
-      containerName,
-      'pg_isready',
-      '--username',
-      'postgres',
-      '--dbname',
-      databaseName,
-    ]);
-    if (lastResult.exitCode === 0) {
-      return;
-    }
-    await Bun.sleep(250);
-  }
-
-  const logs = await runDocker(['logs', containerName]);
-  throw new Error(
-    `PostgreSQL did not become ready within 60 seconds.\n${lastResult?.stderr ?? ''}\n${logs.stderr}\n${logs.stdout}`
-  );
 }
 
 async function waitForMinio(endpoint: string): Promise<void> {
@@ -549,7 +524,7 @@ beforeAll(async () => {
       postgresImage,
     ]);
     containerStarted = true;
-    await waitForPostgres();
+    await waitForPostgres({ containerName, databaseName, runDocker });
 
     const portOutput = await requireDocker(['port', containerName, '5432/tcp']);
     const portMatch = /127\.0\.0\.1:(\d+)$/.exec(portOutput);

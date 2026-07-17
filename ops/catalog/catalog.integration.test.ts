@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
+import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   Catalog,
   type CatalogDatabase,
@@ -62,32 +63,6 @@ async function removePostgresContainer(): Promise<void> {
   }
 }
 
-async function waitForPostgres(): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  let lastResult: CommandResult | undefined;
-
-  while (Date.now() < deadline) {
-    lastResult = await runDocker([
-      'exec',
-      containerName,
-      'pg_isready',
-      '--username',
-      'postgres',
-      '--dbname',
-      databaseName,
-    ]);
-    if (lastResult.exitCode === 0) {
-      return;
-    }
-    await Bun.sleep(250);
-  }
-
-  const logs = await runDocker(['logs', containerName]);
-  throw new Error(
-    `PostgreSQL did not become ready within 60 seconds.\n${lastResult?.stderr ?? ''}\n${logs.stderr}\n${logs.stdout}`
-  );
-}
-
 function requireCatalog(): Catalog {
   if (!catalog) {
     throw new Error('Catalog integration test was not initialized');
@@ -134,7 +109,7 @@ beforeAll(async () => {
       postgresImage,
     ]);
     containerStarted = true;
-    await waitForPostgres();
+    await waitForPostgres({ containerName, databaseName, runDocker });
 
     const portOutput = await requireDocker(['port', containerName, '5432/tcp']);
     const portMatch = /127\.0\.0\.1:(\d+)$/.exec(portOutput);

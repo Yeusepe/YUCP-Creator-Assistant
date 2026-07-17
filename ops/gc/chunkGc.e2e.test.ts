@@ -34,6 +34,7 @@ import {
   listS3Objects,
   putS3Object,
 } from '../storage-core/s3Control';
+import { waitForPostgres } from '../testing/postgresReadiness';
 import { DEFAULT_GC_GRACE_PERIOD_MS, runChunkGarbageCollection } from './chunkGc';
 
 const POSTGRES_IMAGE = 'postgres:17-alpine';
@@ -92,29 +93,6 @@ async function removeContainers(): Promise<void> {
   if (failures.length > 0) {
     throw new Error(`Failed to remove test containers:\n${failures.join('\n')}`);
   }
-}
-
-async function waitForPostgres(): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    const result = await runDocker([
-      'exec',
-      POSTGRES_CONTAINER,
-      'pg_isready',
-      '--username',
-      'postgres',
-      '--dbname',
-      DATABASE_NAME,
-    ]);
-    if (result.exitCode === 0) {
-      return;
-    }
-    await Bun.sleep(250);
-  }
-  const logs = await runDocker(['logs', POSTGRES_CONTAINER]);
-  throw new Error(
-    `PostgreSQL did not become ready within 60 seconds.\n${logs.stderr}\n${logs.stdout}`
-  );
 }
 
 async function waitForMinio(endpoint: string): Promise<void> {
@@ -297,7 +275,11 @@ beforeAll(async () => {
     ]);
     startedContainers.add(MINIO_CONTAINER);
 
-    await waitForPostgres();
+    await waitForPostgres({
+      containerName: POSTGRES_CONTAINER,
+      databaseName: DATABASE_NAME,
+      runDocker,
+    });
     const postgresPort = await publishedPort(POSTGRES_CONTAINER, '5432');
     const minioPort = await publishedPort(MINIO_CONTAINER, '9000');
     const minioEndpoint = `http://127.0.0.1:${minioPort}`;
