@@ -3,6 +3,12 @@ import { signDeliveryUrl, verifyDeliveryUrl } from './deliverySigning';
 
 const UPLOAD_CAPABILITY_BINDING = 'tus-artifact-upload-v1';
 
+export const UPLOAD_CAPABILITY_HEADERS = {
+  exp: 'x-yucp-upload-exp',
+  sig: 'x-yucp-upload-sig',
+  versionId: 'x-yucp-upload-version-id',
+} as const;
+
 export type UploadCapability = DeliveryUrlSignature & {
   versionId: string;
 };

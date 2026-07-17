@@ -34,6 +34,7 @@ import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
   createConnectRoutes,
+  createCreatorUploadRoutes,
   createForensicsRoutes,
   createProviderPlatformRoutes,
   createVerificationRoutes,
@@ -58,6 +59,7 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
+let creatorUploadRoutes: ReturnType<typeof createCreatorUploadRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
 let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
@@ -205,6 +207,8 @@ function initializeAuth(webhookBaseUrl?: string) {
   const encryptionSecret = getEncryptionSecret(env);
   const internalRpcSharedSecret = getInternalRpcSharedSecret(env);
   const couplingServiceSharedSecret = getCouplingServiceSharedSecret(env);
+  const uploadHmacKey = getRequired('UPLOAD_HMAC_KEY');
+  const ingestTusUrl = getRequired('INGEST_TUS_URL');
 
   getRequired('BETTER_AUTH_SECRET');
   if ((env.NODE_ENV ?? 'development') === 'production') {
@@ -319,6 +323,18 @@ function initializeAuth(webhookBaseUrl?: string) {
     encryptionSecret,
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
+
+  creatorUploadRoutes = createCreatorUploadRoutes({
+    auth,
+    config: {
+      apiBaseUrl: publicBaseUrl,
+      frontendBaseUrl: frontendUrl,
+      convexApiSecret: env.CONVEX_API_SECRET ?? '',
+      convexUrl,
+      ingestTusUrl,
+      uploadHmacKey,
+    },
+  });
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
     convexUrl,
@@ -809,6 +825,9 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/complete' && connectRoutes) {
     return connectRoutes.completeSetup(request);
+  }
+  if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
+    return creatorUploadRoutes.authorizeUpload(request);
   }
   if (pathname === '/api/connect/bootstrap' && connectRoutes) {
     return connectRoutes.exchangeConnectBootstrap(request);
