@@ -42,6 +42,7 @@ const containerName = `yucp-ingest-tus-e2e-${randomUUID()}`;
 const minioContainerName = `yucp-ingest-tus-minio-e2e-${randomUUID()}`;
 const chunkSize = 256 * 1024;
 const uploadHmacKey = 'trusted-ingest-tus-e2e-hmac-key';
+const browserOrigin = 'https://app.example.test';
 
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
@@ -593,6 +594,7 @@ beforeAll(async () => {
     maxBytes = (await stat(fixturePath)).size + 1024;
 
     const handler = createIngestTusServer({
+      allowedOrigin: browserOrigin,
       catalog,
       store: localCasStore(join(scratchPath, 'cas-store')),
       indexDir: join(scratchPath, 'cas-indexes'),
@@ -889,6 +891,72 @@ describe.serial('tus ingest end to end', () => {
 
     const health = await fetch(`${requireServerOrigin()}/healthz`);
     expect(health.status).toBe(200);
+  });
+
+  it('allows browser preflight and an authorized cross-origin upload', async () => {
+    const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
+    const requestedHeaders = [
+      'content-type',
+      'tus-resumable',
+      'upload-length',
+      'upload-metadata',
+      UPLOAD_CAPABILITY_HEADERS.exp,
+      UPLOAD_CAPABILITY_HEADERS.sig,
+      UPLOAD_CAPABILITY_HEADERS.versionId,
+    ].join(',');
+    const preflight = await fetch(endpoint, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: browserOrigin,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': requestedHeaders,
+      },
+    });
+
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(browserOrigin);
+    expect(preflight.headers.get('access-control-allow-methods')).toBe(
+      'POST,PATCH,HEAD,OPTIONS,GET'
+    );
+    expect(preflight.headers.get('access-control-allow-headers')).toContain(
+      UPLOAD_CAPABILITY_HEADERS.sig
+    );
+
+    const capabilityHeaders = await uploadCapabilityHeaders();
+    const created = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Origin: browserOrigin,
+        'Tus-Resumable': '1.0.0',
+        'Upload-Length': '1',
+        'Upload-Metadata': uploadMetadataHeader({
+          filename: 'browser-authorized.zip',
+          packageId: 'com.yucp.tus-browser-auth',
+          version: '1.0.0',
+        }),
+        ...capabilityHeaders,
+      },
+    });
+
+    expect(created.status).toBe(201);
+    expect(created.headers.get('access-control-allow-origin')).toBe(browserOrigin);
+    const exposedHeaders = created.headers.get('access-control-expose-headers') ?? '';
+    expect(exposedHeaders).toContain('Location');
+    expect(exposedHeaders).toContain('Upload-Offset');
+    expect(exposedHeaders).toContain('Upload-Length');
+    const location = created.headers.get('location');
+    if (!location) {
+      throw new Error('Authorized browser tus creation omitted its Location header');
+    }
+    const terminated = await fetch(new URL(location, endpoint), {
+      method: 'DELETE',
+      headers: {
+        Origin: browserOrigin,
+        'Tus-Resumable': '1.0.0',
+        ...capabilityHeaders,
+      },
+    });
+    expect(terminated.status).toBe(204);
   });
 
   it('rejects packageId and version metadata longer than 256 characters', async () => {

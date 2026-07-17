@@ -8,15 +8,25 @@ import type { Catalog } from '../catalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
 import { loadCasConfig } from '../storage-core/config';
 import { type CasStore, s3CasStore } from '../storage-core/desyncCas';
-import { verifyUploadCapability } from '../storage-core/uploadSigning';
+import { UPLOAD_CAPABILITY_HEADERS, verifyUploadCapability } from '../storage-core/uploadSigning';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 export const INGEST_TUS_PATH = '/files';
-export const UPLOAD_CAPABILITY_HEADERS = {
-  exp: 'x-yucp-upload-exp',
-  sig: 'x-yucp-upload-sig',
-  versionId: 'x-yucp-upload-version-id',
-} as const;
+export { UPLOAD_CAPABILITY_HEADERS };
+
+const CORS_ALLOW_METHODS = 'POST,PATCH,HEAD,OPTIONS,GET';
+const CORS_ALLOW_HEADERS = [
+  'Content-Type',
+  'Tus-Resumable',
+  'Upload-Length',
+  'Upload-Offset',
+  'Upload-Metadata',
+  'Upload-Defer-Length',
+  'Upload-Concat',
+  'Upload-Checksum',
+  ...Object.values(UPLOAD_CAPABILITY_HEADERS),
+].join(',');
+const CORS_EXPOSE_HEADERS = 'Location,Upload-Offset,Upload-Length';
 
 const VERSION_ID_METADATA_KEY = '_catalogVersionId';
 const ALLOWED_EXTENSIONS = new Set(['.spp', '.unitypackage', '.zip']);
@@ -41,6 +51,7 @@ type TusHookError = {
 };
 
 export interface CreateIngestTusServerInput {
+  allowedOrigin?: string;
   catalog: Catalog;
   store?: CasStore;
   indexDir?: string;
@@ -140,6 +151,62 @@ function singleRequestHeader(request: IncomingMessage, name: string): string | u
   return value.trim();
 }
 
+function normalizeAllowedOrigin(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  const url = new URL(normalized);
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.origin === 'null') {
+    throw new Error('allowedOrigin must be an absolute HTTP(S) origin');
+  }
+  return url.origin;
+}
+
+function isTusPath(request: IncomingMessage): boolean {
+  const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+  return pathname === INGEST_TUS_PATH || pathname.startsWith(`${INGEST_TUS_PATH}/`);
+}
+
+function setCorsHeaders(response: ServerResponse, origin: string): void {
+  response.setHeader('Access-Control-Allow-Origin', origin);
+  response.setHeader('Access-Control-Allow-Credentials', 'true');
+  response.setHeader('Access-Control-Expose-Headers', CORS_EXPOSE_HEADERS);
+  response.setHeader('Vary', 'Origin');
+}
+
+function handleCorsPreflight(
+  request: IncomingMessage,
+  response: ServerResponse,
+  allowedOrigin: string | undefined
+): boolean {
+  if (
+    request.method !== 'OPTIONS' ||
+    !isTusPath(request) ||
+    !singleRequestHeader(request, 'access-control-request-method')
+  ) {
+    return false;
+  }
+
+  const origin = singleRequestHeader(request, 'origin');
+  if (!allowedOrigin || origin !== allowedOrigin) {
+    response.writeHead(403, {
+      'Cache-Control': 'no-store',
+      'Content-Type': 'text/plain; charset=utf-8',
+      Vary: 'Origin',
+    });
+    response.end('Origin not allowed\n');
+    return true;
+  }
+
+  setCorsHeaders(response, origin);
+  response.setHeader('Access-Control-Allow-Methods', CORS_ALLOW_METHODS);
+  response.setHeader('Access-Control-Allow-Headers', CORS_ALLOW_HEADERS);
+  response.writeHead(204);
+  response.end();
+  return true;
+}
+
 async function authorizeUploadRequest(
   request: IncomingMessage,
   hmacKey: string
@@ -209,6 +276,7 @@ function handleUnexpectedServerError(
  */
 export function createIngestTusServer(input: CreateIngestTusServerInput): RequestListener {
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  const allowedOrigin = normalizeAllowedOrigin(input.allowedOrigin);
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new Error('maxBytes must be a positive safe integer');
   }
@@ -226,6 +294,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
     path: INGEST_TUS_PATH,
     datastore: fileStore,
     maxSize: maxBytes,
+    allowedCredentials: Boolean(allowedOrigin),
+    allowedHeaders: Object.values(UPLOAD_CAPABILITY_HEADERS),
+    allowedOrigins: allowedOrigin ? [allowedOrigin] : undefined,
+    exposedHeaders: ['Location', 'Upload-Offset', 'Upload-Length'],
     namingFunction(_request, metadata) {
       return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
     },
@@ -328,8 +400,14 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       sendHealth(response);
       return;
     }
+    if (handleCorsPreflight(request, response, allowedOrigin)) {
+      return;
+    }
+    const origin = singleRequestHeader(request, 'origin');
+    if (allowedOrigin && origin === allowedOrigin) {
+      setCorsHeaders(response, origin);
+    }
     void (async () => {
-      // ponytail: Better Auth app-side capability minting lands with the Phase-4 integration.
       const authorization = await authorizeUploadRequest(request, input.uploadHmacKey);
       if ('status' in authorization) {
         console.warn(
