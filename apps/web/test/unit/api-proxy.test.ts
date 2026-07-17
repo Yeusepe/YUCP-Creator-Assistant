@@ -186,7 +186,7 @@ describe('proxyApiRequest', () => {
     const { proxyApiRequest } = await import('@/lib/server/api-proxy');
 
     const response = await proxyApiRequest({
-      url: 'http://localhost:3000/api/packages?includeArchived=true',
+      url: 'http://localhost:3000/api/connect/user/accounts',
       method: 'GET',
       headers: new Headers({
         cookie: 'yucp.session_token=session-cookie',
