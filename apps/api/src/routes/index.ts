@@ -25,4 +25,5 @@ export {
 } from './install';
 export { createProviderPlatformRoutes } from './providerPlatform';
 export { createPublicRoutes, type PublicRouteConfig } from './public';
+export { createVpmRoutes, type VpmRouteConfig } from './vpm';
 export { createWebhookHandler } from './webhooks';

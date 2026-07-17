@@ -56,14 +56,16 @@ describe('resolveSiteUrl', () => {
 });
 
 describe('loadEnv', () => {
-  it('keeps delivery configuration optional when both values are unset', () => {
+  it('keeps delivery and VPM configuration optional when all values are unset', () => {
     delete process.env.DELIVERY_HMAC_KEY;
     delete process.env.DELIVERY_BASE_URL;
+    delete process.env.VPM_BASE_URL;
 
     const env = loadEnv();
 
     expect(env).toHaveProperty('DELIVERY_HMAC_KEY', undefined);
     expect(env).toHaveProperty('DELIVERY_BASE_URL', undefined);
+    expect(env).toHaveProperty('VPM_BASE_URL', undefined);
   });
 
   it('includes Polar billing fields when present', () => {

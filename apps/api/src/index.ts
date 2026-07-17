@@ -38,6 +38,7 @@ import {
   createForensicsRoutes,
   createProviderPlatformRoutes,
   createVerificationRoutes,
+  createVpmRoutes,
   createWebhookHandler,
   type InstallConfig,
   mountInstallRoutes,
@@ -60,6 +61,7 @@ let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | n
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
 let creatorUploadRoutes: ReturnType<typeof createCreatorUploadRoutes> | null = null;
+let vpmRoutes: ReturnType<typeof createVpmRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
 let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
@@ -336,6 +338,19 @@ function initializeAuth(webhookBaseUrl?: string) {
     },
   });
 
+  vpmRoutes = createVpmRoutes({
+    auth,
+    config: {
+      apiBaseUrl: publicBaseUrl,
+      frontendBaseUrl: frontendUrl,
+      convexApiSecret: env.CONVEX_API_SECRET ?? '',
+      convexUrl,
+      deliveryBaseUrl: env.DELIVERY_BASE_URL,
+      deliveryHmacKey: env.DELIVERY_HMAC_KEY,
+      vpmBaseUrl: env.VPM_BASE_URL,
+    },
+  });
+
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
     convexUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
@@ -478,6 +493,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/forensics/')) {
     if (isRateLimited(`forensics:${clientAddress}`, 30, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/vpm/')) {
+    if (isRateLimited(`vpm:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -828,6 +851,17 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
     return creatorUploadRoutes.authorizeUpload(request);
+  }
+  if (pathname === '/api/vpm/repo-token' && vpmRoutes) {
+    return vpmRoutes.mintRepoToken(request);
+  }
+  const vpmIndexMatch = pathname.match(/^\/api\/vpm\/([^/]+)\/index\.json$/);
+  if (vpmIndexMatch && vpmRoutes) {
+    const token = safeDecodeURIComponent(vpmIndexMatch[1] ?? '');
+    if (token === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.serveIndex(request, token);
   }
   if (pathname === '/api/connect/bootstrap' && connectRoutes) {
     return connectRoutes.exchangeConnectBootstrap(request);

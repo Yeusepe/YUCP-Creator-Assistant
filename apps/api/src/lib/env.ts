@@ -39,6 +39,8 @@ export interface LocalEnv {
   DELIVERY_HMAC_KEY?: string;
   /** Optional delivery Worker origin. The download route returns 503 when unavailable. */
   DELIVERY_BASE_URL?: string;
+  /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
+  VPM_BASE_URL?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -186,6 +188,7 @@ function loadFromEnv(): LocalEnv {
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
     DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
     DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
+    VPM_BASE_URL: process.env.VPM_BASE_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
