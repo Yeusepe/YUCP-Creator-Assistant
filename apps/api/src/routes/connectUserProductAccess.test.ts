@@ -222,28 +222,19 @@ function mockDownloadAccess(options: {
         status: 'active',
       };
     }
-    if (reference === apiMock.subjects.listByAuthUser) {
-      expect(args).toEqual({
-        apiSecret: 'test-convex-secret',
-        actor: 'actor-binding',
-        authUserId: 'buyer-auth-user',
-        status: 'active',
-        limit: 1,
-      });
-      return { data: [{ _id: 'subject_buyer_1' }] };
-    }
     if (reference === apiMock.entitlements.listByAuthUser) {
       expect(args).toEqual({
         apiSecret: 'test-convex-secret',
         actor: 'service-actor-binding',
-        authUserId: 'creator-auth-user',
-        subjectId: 'subject_buyer_1',
+        authUserId: 'buyer-auth-user',
+        scope: 'subject_holder',
         productId: 'product_123',
         status: 'active',
-        limit: 20,
+        limit: 100,
       });
       return {
         data: options.activeEntitlement ? [{ id: 'ent_1', catalogProductId: 'catalog_123' }] : [],
+        hasMore: false,
       };
     }
     if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
@@ -350,6 +341,42 @@ describe('connect user product access routes', () => {
     expect(expiryMilliseconds).toBeLessThanOrEqual(afterRequest + 5 * 60_000);
   });
 
+  it('302 redirects when the matching entitlement belongs to a second linked subject', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.subjects.listByAuthUser) {
+        return { data: [{ _id: 'subject_buyer_1' }] };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        const query = args as { scope?: string; subjectId?: string };
+        return query.scope === 'subject_holder'
+          ? { data: [{ id: 'ent_2', catalogProductId: 'catalog_123' }], hasMore: false }
+          : { data: [] };
+      }
+      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+        return { versionId: 'version-ready-second-subject' };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('/d/version-ready-second-subject');
+  });
+
   it('returns 404 to an entitled buyer when no READY version exists', async () => {
     mockDownloadAccess({ activeEntitlement: true, downloadableVersion: null });
 
@@ -382,28 +409,19 @@ describe('connect user product access routes', () => {
           status: 'active',
         };
       }
-      if (reference === apiMock.subjects.listByAuthUser) {
-        expect(args).toEqual({
-          apiSecret: 'test-convex-secret',
-          actor: 'actor-binding',
-          authUserId: 'buyer-auth-user',
-          status: 'active',
-          limit: 1,
-        });
-        return { data: [{ _id: 'subject_buyer_1' }] };
-      }
       if (reference === apiMock.entitlements.listByAuthUser) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
           actor: 'service-actor-binding',
-          authUserId: 'creator-auth-user',
-          subjectId: 'subject_buyer_1',
+          authUserId: 'buyer-auth-user',
+          scope: 'subject_holder',
           productId: 'product_123',
           status: 'active',
-          limit: 20,
+          limit: 100,
         });
         return {
           data: [{ id: 'ent_1', catalogProductId: 'catalog_123' }],
+          hasMore: false,
         };
       }
 
@@ -502,25 +520,17 @@ describe('connect user product access routes', () => {
           status: 'active',
         };
       }
-      if (reference === apiMock.subjects.listByAuthUser) {
+      if (reference === apiMock.entitlements.listByAuthUser) {
         expect(args).toEqual({
           apiSecret: 'test-convex-secret',
-          actor: 'actor-binding',
+          actor: 'service-actor-binding',
           authUserId: 'buyer-auth-user',
-          status: 'active',
-          limit: 1,
-        });
-        return { data: [{ _id: 'subject_buyer_1' }] };
-      }
-      if (reference === apiMock.entitlements.listByAuthUser) {
-        expect(args).toMatchObject({
-          apiSecret: 'test-convex-secret',
-          authUserId: 'creator-auth-user',
-          subjectId: 'subject_buyer_1',
+          scope: 'subject_holder',
           productId: 'product_123',
           status: 'active',
+          limit: 100,
         });
-        return { data: [] };
+        return { data: [], hasMore: false };
       }
 
       throw new Error(`Unexpected query reference: ${String(reference)}`);

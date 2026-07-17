@@ -169,53 +169,46 @@ export function createConnectUserProductAccessRoutes({
     session: Awaited<ReturnType<Auth['getSession']>>,
     catalogProductId: string
   ) {
-    const buyerActor = session
-      ? await createAuthUserActorBinding({
-          authUserId: session.user.id,
-          source: 'session',
-        })
-      : null;
-    const buyerConvex = buyerActor ? getConvexClientFromUrl(config.convexUrl, buyerActor) : null;
     const product = await resolveAccessProduct(catalogProductId);
     if (!product) {
       return { activeEntitlement: null, product: null };
     }
 
-    const buyerSubjects = session
-      ? ((await buyerConvex?.query(api.subjects.listByAuthUser, {
+    let activeEntitlement: { catalogProductId?: Id<'product_catalog'> | null } | null = null;
+    if (session) {
+      const entitlementActor = await createApiServiceActorBinding({
+        authUserId: session.user.id,
+        service: 'buyer-product-access',
+        scopes: ['entitlements:service'],
+      });
+      const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
+      let cursor: string | undefined;
+      do {
+        const entitlementsResult = (await entitlementConvex.query(api.entitlements.listByAuthUser, {
           apiSecret: config.convexApiSecret,
-          actor: buyerActor,
+          actor: entitlementActor,
           authUserId: session.user.id,
+          scope: 'subject_holder',
+          productId: product.productId,
           status: 'active',
-          limit: 1,
-        })) as { data: Array<{ _id: Id<'subjects'> }> } | null)
-      : null;
-    const buyerSubject = buyerSubjects?.data[0] ?? null;
-    const entitlementsResult =
-      session && buyerSubject
-        ? await (async () => {
-            const entitlementActor = await createApiServiceActorBinding({
-              service: 'api-server',
-              scopes: ['creator:delegate'],
-            });
-            const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
-            return await entitlementConvex.query(api.entitlements.listByAuthUser, {
-              apiSecret: config.convexApiSecret,
-              actor: entitlementActor,
-              authUserId: product.creatorAuthUserId,
-              subjectId: buyerSubject._id,
-              productId: product.productId,
-              status: 'active',
-              limit: 20,
-            });
-          })()
-        : { data: [] };
-    const activeEntitlement =
-      entitlementsResult.data?.find(
-        (entitlement: { catalogProductId?: Id<'product_catalog'> | null }) =>
-          !entitlement.catalogProductId ||
-          String(entitlement.catalogProductId) === String(product.catalogProductId)
-      ) ?? null;
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        })) as {
+          data?: Array<{ catalogProductId?: Id<'product_catalog'> | null }>;
+          hasMore?: boolean;
+          nextCursor?: string | null;
+        };
+        activeEntitlement =
+          entitlementsResult.data?.find(
+            (entitlement) =>
+              String(entitlement.catalogProductId) === String(product.catalogProductId)
+          ) ?? null;
+        cursor =
+          !activeEntitlement && entitlementsResult.hasMore && entitlementsResult.nextCursor
+            ? entitlementsResult.nextCursor
+            : undefined;
+      } while (!activeEntitlement && cursor);
+    }
 
     return { activeEntitlement, product };
   }

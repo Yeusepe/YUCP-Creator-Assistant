@@ -25,6 +25,11 @@ describe('buyer-held entitlement listing', () => {
       primaryDiscordUserId: 'buyer-discord-active',
       status: 'active',
     });
+    const secondActiveSubjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'buyer-discord-second-active',
+      status: 'active',
+    });
     const suspendedSubjectId = await seedSubject(t, {
       authUserId: buyerAuthUserId,
       primaryDiscordUserId: 'buyer-discord-suspended',
@@ -38,6 +43,11 @@ describe('buyer-held entitlement listing', () => {
     await seedEntitlement(t, activeSubjectId, {
       authUserId: 'creator-a',
       productId: 'product-a',
+      status: 'active',
+    });
+    await seedEntitlement(t, secondActiveSubjectId, {
+      authUserId: 'creator-a',
+      productId: 'product-second-subject',
       status: 'active',
     });
     await seedEntitlement(t, activeSubjectId, {
@@ -81,6 +91,7 @@ describe('buyer-held entitlement listing', () => {
     expect(result.data.map((entry) => entry.productId).sort()).toEqual([
       'product-a',
       'product-b',
+      'product-second-subject',
     ]);
   });
 
