@@ -172,7 +172,8 @@ describe('per-buyer VPM routes', () => {
             { id: 'ent_1', catalogProductId: 'catalog_ready' },
             { id: 'ent_2', catalogProductId: 'catalog_pending' },
             { id: 'ent_3', catalogProductId: 'catalog_ready' },
-            { id: 'ent_4' },
+            { id: 'ent_4', catalogProductId: 'catalog_non_vpm' },
+            { id: 'ent_5' },
           ],
           hasMore: false,
           nextCursor: null,
@@ -182,6 +183,7 @@ describe('per-buyer VPM routes', () => {
         const catalogProductId = (args as { catalogProductId: string }).catalogProductId;
         if (catalogProductId === 'catalog_ready') {
           return {
+            contentType: 'application/zip',
             packageId: 'com.creator.avatar-tools',
             version: '1.2.3',
             versionId: 'version-ready-123',
@@ -189,6 +191,14 @@ describe('per-buyer VPM routes', () => {
         }
         if (catalogProductId === 'catalog_pending') {
           return null;
+        }
+        if (catalogProductId === 'catalog_non_vpm') {
+          return {
+            contentType: 'application/octet-stream',
+            packageId: 'com.creator.substance-project',
+            version: '3.0.0',
+            versionId: 'version-non-vpm-456',
+          };
         }
       }
       throw new Error(`Unexpected query ${String(reference)}`);
@@ -247,7 +257,7 @@ describe('per-buyer VPM routes', () => {
         versionId: 'version-ready-123',
       })
     ).resolves.toBe(true);
-    expect(convexQueryMock).toHaveBeenCalledTimes(3);
+    expect(convexQueryMock).toHaveBeenCalledTimes(4);
   });
 
   it('serves an empty but valid repository when the buyer has no active entitlements', async () => {

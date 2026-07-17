@@ -33,11 +33,21 @@ type ActiveEntitlement = {
 };
 
 type DownloadableVersion = {
+  contentType?: string;
   packageId: string;
   packageName?: string;
   version: string;
   versionId: string;
 };
+
+const VPM_CONTENT_TYPES = new Set(['application/zip', 'application/x-zip-compressed']);
+
+function isVpmCompatibleRelease(
+  release: DownloadableVersion | null
+): release is DownloadableVersion {
+  const contentType = release?.contentType?.split(';', 1)[0]?.trim().toLowerCase();
+  return Boolean(contentType && VPM_CONTENT_TYPES.has(contentType));
+}
 
 type VpmVersionManifest = {
   author: {
@@ -207,20 +217,15 @@ export function createVpmRoutes({ auth, config }: CreateVpmRoutesOptions) {
             })) as DownloadableVersion | null
         )
       );
-      const packages = downloadableVersions.reduce<VpmRepositoryPackages>((repository, release) => {
-        if (!release) {
-          return repository;
-        }
+      const vpmReleases = downloadableVersions.filter(isVpmCompatibleRelease);
+      const packages = vpmReleases.reduce<VpmRepositoryPackages>((repository, release) => {
         const packageEntry = repository[release.packageId] ?? { versions: {} };
         repository[release.packageId] = packageEntry;
         return repository;
       }, {});
 
       await Promise.all(
-        downloadableVersions.map(async (release) => {
-          if (!release) {
-            return;
-          }
+        vpmReleases.map(async (release) => {
           const signature = await signDeliveryUrl({
             versionId: release.versionId,
             key: vpmDelivery.deliveryHmacKey,
