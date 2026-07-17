@@ -330,6 +330,22 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () => {
+  it('rejects an interval above the setInterval ceiling', () => {
+    expect(() =>
+      createIngestScheduler({
+        batchLimit: 1,
+        catalog: requireCatalog(),
+        database: requireSql(),
+        intervalMs: 2_147_483_648,
+        onError: () => undefined,
+        publish: dispatchPublishedEvent,
+        redrive: dispatchRedrive,
+        store: requireStore(),
+        stuckThresholdMs: 60_000,
+      })
+    ).toThrow('intervalMs must not exceed 2147483647');
+  });
+
   it('drives later work, stops gracefully, avoids overlap, and continues after a tick error', async () => {
     const activeCatalog = requireCatalog();
     const activeSql = requireSql();

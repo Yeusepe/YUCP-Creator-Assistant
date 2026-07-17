@@ -17,6 +17,8 @@ export interface IngestScheduler {
   stop(): Promise<void>;
 }
 
+const MAX_SET_INTERVAL_DELAY_MS = 2_147_483_647;
+
 function requirePositiveSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive safe integer`);
@@ -25,6 +27,9 @@ function requirePositiveSafeInteger(value: number, name: string): void {
 
 export function createIngestScheduler(options: CreateIngestSchedulerOptions): IngestScheduler {
   requirePositiveSafeInteger(options.intervalMs, 'intervalMs');
+  if (options.intervalMs > MAX_SET_INTERVAL_DELAY_MS) {
+    throw new RangeError(`intervalMs must not exceed ${MAX_SET_INTERVAL_DELAY_MS}`);
+  }
   requirePositiveSafeInteger(options.batchLimit, 'batchLimit');
 
   const { batchLimit, catalog, database, intervalMs, onError, store, ...reconcileOptions } =
