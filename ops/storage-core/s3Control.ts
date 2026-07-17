@@ -65,6 +65,7 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     body: input.body,
     headers: input.headers,
     method: input.method,
+    signal: AbortSignal.timeout(input.config.requestTimeoutMs),
   });
   if (!response.ok) {
     throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);

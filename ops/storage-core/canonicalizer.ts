@@ -25,6 +25,18 @@ import { list as listTar } from 'tar';
 import { commandPathEnv, runCommand } from './process';
 
 export const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024;
+export const MAX_ARCHIVE_ENTRIES = 100_000;
+
+const ALLOWED_TAR_ENTRY_TYPES = new Set([
+  'File',
+  'Directory',
+  'SymbolicLink',
+  'Link',
+  'NextFileHasLongPath',
+  'NextFileHasLongLinkpath',
+  'ExtendedHeader',
+  'GlobalExtendedHeader',
+]);
 
 export function canonicalizerChildEnv(): NodeJS.ProcessEnv {
   return {
@@ -156,6 +168,7 @@ async function validateTarArchiveEntries(
   extractedPath: string
 ): Promise<void> {
   let validationError: Error | undefined;
+  let entryCount = 0;
   await listTar({
     file: sourceTarPath,
     onReadEntry(entry) {
@@ -163,6 +176,13 @@ async function validateTarArchiveEntries(
         return;
       }
       try {
+        entryCount += 1;
+        if (entryCount > MAX_ARCHIVE_ENTRIES) {
+          throw new Error(`tar.gz entry count exceeds ${MAX_ARCHIVE_ENTRIES}`);
+        }
+        if (!ALLOWED_TAR_ENTRY_TYPES.has(entry.type)) {
+          throw new Error(`tar.gz contains an unsupported tar entry type: ${entry.type}`);
+        }
         const entryName = canonicalTarEntryName(entry.path);
         if (!entryName) {
           return;
@@ -230,6 +250,9 @@ async function extractZipEntries(
     }
 
     try {
+      if (entries.length >= MAX_ARCHIVE_ENTRIES) {
+        throw new Error(`ZIP entry count exceeds ${MAX_ARCHIVE_ENTRIES}`);
+      }
       const name = canonicalZipEntryName(file.name);
       if (names.has(name)) {
         throw new Error(`ZIP contains a duplicate canonical entry path: ${name}`);

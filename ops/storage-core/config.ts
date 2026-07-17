@@ -23,7 +23,10 @@ export type CasConfig = {
   secretAccessKey: string;
   chunkPrefix: string;
   indexPrefix: string;
+  requestTimeoutMs: number;
 };
+
+const DEFAULT_S3_REQUEST_TIMEOUT_MS = 30_000;
 
 export type IngestRuntimeEnv = {
   catalogDatabaseUrl: string;
@@ -102,6 +105,12 @@ export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
   if (bucket.includes('/') || bucket.includes('\\')) {
     throw new Error('Invalid CAS environment variable: CAS_S3_BUCKET');
   }
+  const requestTimeoutMs = Number(
+    normalizeOptional(env.CAS_S3_REQUEST_TIMEOUT_MS) ?? DEFAULT_S3_REQUEST_TIMEOUT_MS
+  );
+  if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs <= 0) {
+    throw new Error('Invalid CAS environment variable: CAS_S3_REQUEST_TIMEOUT_MS');
+  }
 
   return {
     endpoint: normalizeEndpoint(requireValue(env, 'CAS_S3_ENDPOINT')),
@@ -111,6 +120,7 @@ export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
     secretAccessKey: requireValue(env, 'CAS_S3_SECRET_ACCESS_KEY'),
     chunkPrefix: normalizePrefix(env.CAS_CHUNK_PREFIX, 'chunks/', 'CAS_CHUNK_PREFIX'),
     indexPrefix: normalizePrefix(env.CAS_INDEX_PREFIX, 'indexes/', 'CAS_INDEX_PREFIX'),
+    requestTimeoutMs,
   };
 }
 

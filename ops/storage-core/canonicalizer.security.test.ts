@@ -12,8 +12,10 @@ type TarEntry = {
   body?: Buffer;
   linkName?: string;
   name: string;
-  type: '0' | '2';
+  type: '0' | '2' | '6';
 };
+
+const ARCHIVE_ENTRY_LIMIT = 100_000;
 
 function writeTarText(header: Buffer, offset: number, length: number, value: string): void {
   const bytes = Buffer.from(value, 'utf8');
@@ -173,6 +175,43 @@ describe('canonicalizer tar path safety', () => {
       'unsafe tar entry'
     );
     expect(await pathExists(escapedPath)).toBeFalse();
+    expect(await pathExists(outputPath)).toBeFalse();
+    await expectNoCanonicalizerScratch(scratchPath);
+  });
+
+  it('rejects FIFO entries before extraction', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-fifo-'));
+    scratchPaths.push(scratchPath);
+    const tarPath = join(scratchPath, 'fifo.tar');
+    const inputPath = join(scratchPath, 'fifo.tar.gz');
+    const outputPath = join(scratchPath, 'canonical.tar.gz');
+    await writeFile(tarPath, createTar([{ name: 'named-pipe', type: '6' }]));
+    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+
+    await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
+      'unsupported tar entry type: FIFO'
+    );
+    expect(await pathExists(outputPath)).toBeFalse();
+    await expectNoCanonicalizerScratch(scratchPath);
+  });
+
+  it('rejects a tar archive that exceeds the entry-count ceiling', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-entry-count-'));
+    scratchPaths.push(scratchPath);
+    const tarPath = join(scratchPath, 'too-many-entries.tar');
+    const inputPath = join(scratchPath, 'too-many-entries.tar.gz');
+    const outputPath = join(scratchPath, 'canonical.tar.gz');
+    const entries: TarEntry[] = Array.from({ length: ARCHIVE_ENTRY_LIMIT }, (_, index) => ({
+      name: `entry-${index.toString().padStart(6, '0')}`,
+      type: '0',
+    }));
+    entries.push({ name: '../unsafe-after-limit', type: '0' });
+    await writeFile(tarPath, createTar(entries));
+    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+
+    await expect(canonicalizeArtifact({ inputPath, outputPath })).rejects.toThrow(
+      `tar.gz entry count exceeds ${ARCHIVE_ENTRY_LIMIT}`
+    );
     expect(await pathExists(outputPath)).toBeFalse();
     await expectNoCanonicalizerScratch(scratchPath);
   });

@@ -103,25 +103,25 @@ export async function signDeliveryUrl(input: SignDeliveryUrlInput): Promise<Deli
 export async function verifyDeliveryUrl(input: VerifyDeliveryUrlInput): Promise<boolean> {
   try {
     assertSigningInput(input.versionId, input.key);
+    if (!EXPIRY_PATTERN.test(input.exp)) {
+      return false;
+    }
+    const expiresAt = Number(input.exp);
+    if (!Number.isSafeInteger(expiresAt) || expiresAt <= unixSeconds(input.now ?? Date.now())) {
+      return false;
+    }
+    const signature = signatureBytes(input.sig);
+    if (!signature) {
+      return false;
+    }
+    const key = await importHmacKey(input.key, 'verify');
+    return crypto.subtle.verify(
+      'HMAC',
+      key,
+      signature,
+      signedPayload(input.versionId, input.exp, input.binding)
+    );
   } catch {
     return false;
   }
-  if (!EXPIRY_PATTERN.test(input.exp)) {
-    return false;
-  }
-  const expiresAt = Number(input.exp);
-  if (!Number.isSafeInteger(expiresAt) || expiresAt <= unixSeconds(input.now ?? Date.now())) {
-    return false;
-  }
-  const signature = signatureBytes(input.sig);
-  if (!signature) {
-    return false;
-  }
-  const key = await importHmacKey(input.key, 'verify');
-  return crypto.subtle.verify(
-    'HMAC',
-    key,
-    signature,
-    signedPayload(input.versionId, input.exp, input.binding)
-  );
 }

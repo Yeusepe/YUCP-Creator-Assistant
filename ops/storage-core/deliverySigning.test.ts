@@ -48,4 +48,21 @@ describe('delivery URL signing', () => {
     });
     expect(signed.exp).toBe('1784203500');
   });
+
+  test('returns false instead of throwing for malformed verification timestamps', async () => {
+    const signed = await signDeliveryUrl({ expiresAt, key, versionId: 'version_123' });
+
+    await expect(
+      verifyDeliveryUrl({ ...signed, key, now: Number.NaN, versionId: 'version_123' })
+    ).resolves.toBe(false);
+    await expect(
+      verifyDeliveryUrl({
+        ...signed,
+        exp: '9999999999999999',
+        key,
+        now,
+        versionId: 'version_123',
+      })
+    ).resolves.toBe(false);
+  });
 });

@@ -40,8 +40,18 @@ describe('loadCasConfig', () => {
       secretAccessKey: 'test-secret-key',
       chunkPrefix: 'chunks/',
       indexPrefix: 'indexes/',
+      requestTimeoutMs: 30_000,
     });
     expect(buildDesyncS3StoreUrl(config)).toBe('s3+http://127.0.0.1:9000/cas-test/chunks/');
+  });
+
+  it('validates the optional S3 request timeout', () => {
+    expect(
+      loadCasConfig({ ...COMPLETE_CAS_ENV, CAS_S3_REQUEST_TIMEOUT_MS: '1250' }).requestTimeoutMs
+    ).toBe(1_250);
+    expect(() => loadCasConfig({ ...COMPLETE_CAS_ENV, CAS_S3_REQUEST_TIMEOUT_MS: '0' })).toThrow(
+      'Invalid CAS environment variable: CAS_S3_REQUEST_TIMEOUT_MS'
+    );
   });
 
   it('builds a child-only desync credential environment', () => {
