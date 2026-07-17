@@ -2729,6 +2729,25 @@ const package_registry = defineTable({
   .index('by_publisher_id', ['publisherId']);
 
 /**
+ * Thin Convex pointer from a package release to the READY Postgres catalog version.
+ * Delivery manifests remain derived from versionId and are not duplicated here.
+ */
+const package_versions_ref = defineTable({
+  packageId: v.string(),
+  version: v.string(),
+  versionId: v.string(),
+  channel: v.optional(v.string()),
+  state: v.union(v.literal('READY'), v.literal('SUPERSEDED')),
+  catalogProductId: v.optional(v.id('product_catalog')),
+  totalSize: v.optional(v.number()),
+  contentType: v.optional(v.string()),
+  createdAt: v.number(),
+})
+  .index('by_package_channel', ['packageId', 'channel', 'state'])
+  .index('by_version_id', ['versionId'])
+  .index('by_catalog_product', ['catalogProductId', 'state']);
+
+/**
  * Signing Log, Layer 2 defense.
  * Append-only transparency log: content hash + identity, one entry per (hash, packageId) pair.
  * Same hash signed by a different identity triggers a conflict flag.
@@ -3010,6 +3029,7 @@ export default defineSchema({
   yucp_manifests,
   yucp_certificates,
   package_registry,
+  package_versions_ref,
   signing_log,
   cert_issuance_log,
   oauth_loopback_sessions,

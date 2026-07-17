@@ -95,6 +95,7 @@ import type * as oauthDiscovery from "../oauthDiscovery.js";
 import type * as oauthLoopback from "../oauthLoopback.js";
 import type * as outbox_jobs from "../outbox_jobs.js";
 import type * as packageRegistry from "../packageRegistry.js";
+import type * as packageVersions from "../packageVersions.js";
 import type * as plugins_vrchat from "../plugins/vrchat.js";
 import type * as polyfills from "../polyfills.js";
 import type * as productResolution from "../productResolution.js";
@@ -228,6 +229,7 @@ declare const fullApi: ApiFromModules<{
   oauthLoopback: typeof oauthLoopback;
   outbox_jobs: typeof outbox_jobs;
   packageRegistry: typeof packageRegistry;
+  packageVersions: typeof packageVersions;
   "plugins/vrchat": typeof plugins_vrchat;
   polyfills: typeof polyfills;
   productResolution: typeof productResolution;
