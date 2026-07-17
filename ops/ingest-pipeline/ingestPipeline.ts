@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Catalog, type PackageVersion, PackageVersionNotFoundError } from '../catalog';
@@ -196,6 +196,7 @@ export async function beginVersion(input: BeginVersionInput): Promise<PackageVer
 
 export async function assembleVersion(input: AssembleVersionInput): Promise<PackageVersion> {
   let scratchPath: string | undefined;
+  let storage: ResolvedAssemblyStorage | undefined;
 
   try {
     try {
@@ -205,7 +206,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         outputPath: join(scratchPath, 'artifact.canonical'),
       });
       const canonicalSha256 = await sha256File(canonical.path);
-      const storage = resolveAssemblyStorage(input, canonicalSha256, input.versionId);
+      storage = resolveAssemblyStorage(input, canonicalSha256, input.versionId);
 
       await storeArtifactToStore({
         artifactPath: canonical.path,
@@ -237,8 +238,26 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
       }
     }
   } catch (error) {
-    await input.catalog.markFailed(input.versionId, errorMessage(error));
-    throw error;
+    let failure = error;
+    if (storage) {
+      // Shared chunks remain eligible for the normal GC path.
+      const cleanupErrors: unknown[] = [];
+      for (const indexId of [storage.indexId, storage.deliveryMetadataId]) {
+        try {
+          await deleteCasIndexObject({ indexId, store: storage.store });
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (cleanupErrors.length > 0) {
+        failure = new AggregateError(
+          [error, ...cleanupErrors],
+          `Assembly failed and cleanup was incomplete for package version ${input.versionId}`
+        );
+      }
+    }
+    await input.catalog.markFailed(input.versionId, errorMessage(failure));
+    throw failure;
   }
 }
 
@@ -260,6 +279,14 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
   });
   let scratchPath: string | undefined;
   let indexId: string | undefined;
+  let publication:
+    | {
+        deliveryMetadataId: string;
+        manifest: ReturnType<typeof createDeliveryManifest>;
+        manifestId: string;
+        ready: PackageVersion;
+      }
+    | undefined;
 
   try {
     if (!promoting.casIndexId || !promoting.canonicalSha256) {
@@ -318,20 +345,13 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
       chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
       chunks,
     });
-    await writeCasIndexObject({
-      body: JSON.stringify(manifest),
-      contentType: 'application/json',
-      indexId: manifestId,
-      store: input.store,
-    });
-    await deleteCasIndexObject({ indexId: deliveryMetadataId, store: input.store });
-
-    return await input.catalog.transition(promoting.id, 'READY', {
+    const ready = await input.catalog.transition(promoting.id, 'READY', {
       event: {
         type: 'catalog.version.ready',
         payload: { byteLength, verification: 'full-reassembly' },
       },
     });
+    publication = { deliveryMetadataId, manifest, manifestId, ready };
   } catch (error) {
     let failure = error;
     if (indexId) {
@@ -364,6 +384,21 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
       await rm(scratchPath, { force: true, recursive: true });
     }
   }
+
+  if (!publication) {
+    throw new Error(`Promotion publication was not prepared for package version ${promoting.id}`);
+  }
+  await writeCasIndexObject({
+    body: JSON.stringify(publication.manifest),
+    contentType: 'application/json',
+    indexId: publication.manifestId,
+    store: input.store,
+  });
+  await deleteCasIndexObject({
+    indexId: publication.deliveryMetadataId,
+    store: input.store,
+  });
+  return publication.ready;
 }
 
 const retrievableStates = new Set<PackageVersion['state']>(['ASSEMBLED', 'PROMOTING', 'READY']);
@@ -382,17 +417,38 @@ export async function retrieveVersion(input: RetrieveVersionInput): Promise<stri
   const outputPath = resolve(input.outputPath);
   const store = input.store ?? localCasStore(input.storePath);
   const indexId = resolvePipelineCasIndexId(store, version.casIndexId);
-  await reconstructArtifactFromStore({
-    indexId,
-    outputPath,
-    store,
-  });
-  const reconstructedSha256 = await sha256File(outputPath);
-  if (reconstructedSha256 !== version.canonicalSha256) {
-    throw new Error(
-      `Reconstructed SHA-256 mismatch for package version ${version.id}: expected ${version.canonicalSha256}, received ${reconstructedSha256}`
-    );
-  }
+  const outputDirectory = dirname(outputPath);
+  await mkdir(outputDirectory, { recursive: true });
+  const scratchPath = await mkdtemp(join(outputDirectory, '.yucp-retrieve-'));
+  const stagedPath = join(scratchPath, 'artifact.reconstructed');
 
-  return outputPath;
+  try {
+    const chunks = await inspectDesyncIndex({ indexId, store });
+    const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.size, 0);
+    if (!Number.isSafeInteger(expectedByteLength) || expectedByteLength <= 0) {
+      throw new Error('CAS index describes an invalid artifact byte length');
+    }
+    await reconstructArtifactFromStore({
+      indexId,
+      outputPath: stagedPath,
+      store,
+    });
+    const reconstructed = await stat(stagedPath);
+    if (!reconstructed.isFile() || reconstructed.size !== expectedByteLength) {
+      throw new Error(
+        `Reconstructed byte length mismatch for package version ${version.id}: expected ${expectedByteLength}, received ${reconstructed.size}`
+      );
+    }
+    const reconstructedSha256 = await sha256File(stagedPath);
+    if (reconstructedSha256 !== version.canonicalSha256) {
+      throw new Error(
+        `Reconstructed SHA-256 mismatch for package version ${version.id}: expected ${version.canonicalSha256}, received ${reconstructedSha256}`
+      );
+    }
+
+    await rename(stagedPath, outputPath);
+    return outputPath;
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
 }

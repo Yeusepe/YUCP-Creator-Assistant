@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import {
@@ -11,7 +11,10 @@ import {
   runCatalogMigrations,
 } from '../catalog';
 import { CANONICAL_FORMAT_TAGS, canonicalizeArtifact } from '../storage-core/canonicalizer';
-import { deliveryManifestObjectId } from '../storage-core/deliveryManifest';
+import {
+  deliveryAssemblyMetadataObjectId,
+  deliveryManifestObjectId,
+} from '../storage-core/deliveryManifest';
 import {
   inspectDesyncIndex,
   localCasStore,
@@ -19,7 +22,14 @@ import {
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
 import { createUnityPackageFixture } from '../testing/unityPackageFixture';
-import { ingestVersion, resolvePipelineCasIndexId, retrieveVersion } from './ingestPipeline';
+import {
+  assembleVersion,
+  beginVersion,
+  ingestVersion,
+  promoteVersion,
+  resolvePipelineCasIndexId,
+  retrieveVersion,
+} from './ingestPipeline';
 
 const postgresImage = 'postgres:17-alpine';
 const databaseName = 'ingest_test';
@@ -184,6 +194,24 @@ async function versionRow(packageId: string, version: string): Promise<CatalogRo
     throw new Error(`Missing package version row for ${packageId}@${version}`);
   }
   return row;
+}
+
+async function waitForAdvisoryWait(): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const rows = await requireSql()<[{ waiting: boolean }]>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_stat_activity
+        WHERE wait_event = 'advisory'
+      ) AS waiting
+    `;
+    if (rows[0]?.waiting) {
+      return;
+    }
+    await Bun.sleep(25);
+  }
+  throw new Error('READY transition did not reach the advisory-lock barrier');
 }
 
 beforeAll(async () => {
@@ -366,13 +394,16 @@ describe.serial('canonical ingest pipeline end to end', () => {
       SET canonical_sha256 = ${'f'.repeat(64)}
       WHERE id = ${assembledV1.id}
     `;
+    const mismatchedOutputPath = join(scratch, 'mismatched-v1.unitypackage');
+    const originalDestination = Buffer.from('existing-destination-must-survive');
+    await writeFile(mismatchedOutputPath, originalDestination);
     let mismatchError: unknown;
     try {
       await retrieveVersion({
         catalog: activeCatalog,
         storePath,
         versionId: assembledV1.id,
-        outputPath: join(scratch, 'mismatched-v1.unitypackage'),
+        outputPath: mismatchedOutputPath,
       });
     } catch (error) {
       mismatchError = error;
@@ -386,6 +417,9 @@ describe.serial('canonical ingest pipeline end to end', () => {
     expect(mismatchError).toHaveProperty(
       'message',
       expect.stringContaining('Reconstructed SHA-256 mismatch')
+    );
+    expect(await sha256File(mismatchedOutputPath)).toBe(
+      createHash('sha256').update(originalDestination).digest('hex')
     );
 
     const assembledV2 = await ingestVersion({
@@ -417,6 +451,151 @@ describe.serial('canonical ingest pipeline end to end', () => {
         `dedup-ratio=${dedupRatio.toFixed(4)}`,
       ].join('\n')
     );
+  });
+
+  it('publishes a delivery manifest only after READY commits and fails closed on publication error', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const scratch = requireScratchPath();
+    const fixture = requireFixturePath(rawV1Path, 'v1');
+    const storePath = join(scratch, 'promotion-order-store');
+    const indexDir = join(scratch, 'promotion-order-indexes');
+    const store = localCasStore(storePath);
+    const assembled = await ingestVersion({
+      catalog: activeCatalog,
+      storePath,
+      indexDir,
+      packageId: 'promotion-order-package',
+      version: '1.0.0',
+      inputPath: fixture,
+    });
+    const manifestPath = resolve(indexDir, deliveryManifestObjectId(assembled.id));
+    const advisoryKey = 7_163_001;
+    await database`
+      CREATE FUNCTION block_ready_transition() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_type = 'catalog.version.ready' THEN
+          PERFORM pg_advisory_xact_lock(7163001);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `;
+    await database`
+      CREATE TRIGGER block_ready_transition
+      BEFORE INSERT ON catalog_outbox
+      FOR EACH ROW EXECUTE FUNCTION block_ready_transition()
+    `;
+    const lockConnection = await database.reserve();
+    await lockConnection`SELECT pg_advisory_lock(${advisoryKey})`;
+    let lockReleased = false;
+    const promotion = promoteVersion({ catalog: activeCatalog, store, versionId: assembled.id });
+
+    try {
+      await waitForAdvisoryWait();
+      expect(await activeCatalog.getVersion(assembled.id)).toMatchObject({ state: 'PROMOTING' });
+      await expect(readFile(manifestPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+
+      await lockConnection`SELECT pg_advisory_unlock(${advisoryKey})`;
+      lockConnection.release();
+      lockReleased = true;
+      const ready = await promotion;
+      expect(ready.state).toBe('READY');
+      expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+        versionId: assembled.id,
+      });
+      const retrievedPath = await retrieveVersion({
+        catalog: activeCatalog,
+        store,
+        versionId: ready.id,
+        outputPath: join(scratch, 'promotion-order-retrieved.bin'),
+      });
+      const expectedCanonical = await canonicalizeArtifact({
+        inputPath: fixture,
+        outputPath: join(scratch, 'promotion-order-expected.bin'),
+      });
+      expect(await readFile(retrievedPath)).toEqual(await readFile(expectedCanonical.path));
+    } finally {
+      if (!lockReleased) {
+        await lockConnection`SELECT pg_advisory_unlock(${advisoryKey})`;
+        lockConnection.release();
+      }
+      await promotion.catch(() => undefined);
+      await database`DROP TRIGGER IF EXISTS block_ready_transition ON catalog_outbox`;
+      await database`DROP FUNCTION IF EXISTS block_ready_transition()`;
+    }
+
+    const publicationFailure = await ingestVersion({
+      catalog: activeCatalog,
+      storePath,
+      indexDir,
+      packageId: 'promotion-order-package',
+      version: '2.0.0',
+      inputPath: fixture,
+    });
+    const blockedManifestPath = resolve(indexDir, deliveryManifestObjectId(publicationFailure.id));
+    const assemblyMetadataPath = resolve(
+      indexDir,
+      deliveryAssemblyMetadataObjectId(publicationFailure.id)
+    );
+    await mkdir(blockedManifestPath);
+    try {
+      await expect(
+        promoteVersion({
+          catalog: activeCatalog,
+          store,
+          versionId: publicationFailure.id,
+        })
+      ).rejects.toBeInstanceOf(Error);
+      expect(await activeCatalog.getVersion(publicationFailure.id)).toMatchObject({
+        state: 'READY',
+      });
+      await expect(readFile(blockedManifestPath, 'utf8')).rejects.toBeInstanceOf(Error);
+      await expect(readFile(assemblyMetadataPath, 'utf8')).resolves.toContain(
+        publicationFailure.id
+      );
+    } finally {
+      await rm(blockedManifestPath, { force: true, recursive: true });
+    }
+  });
+
+  it('removes the index and delivery metadata when assembly fails after storage', async () => {
+    const activeCatalog = requireCatalog();
+    const scratch = requireScratchPath();
+    const fixture = requireFixturePath(rawV1Path, 'v1');
+    const storePath = join(scratch, 'assembly-cleanup-store');
+    const indexDir = join(scratch, 'assembly-cleanup-indexes');
+    const expectedCanonical = await canonicalizeArtifact({
+      inputPath: fixture,
+      outputPath: join(scratch, 'assembly-cleanup-expected.bin'),
+    });
+    const expectedSha256 = await sha256File(expectedCanonical.path);
+    const uploading = await beginVersion({
+      catalog: activeCatalog,
+      packageId: 'assembly-cleanup-package',
+      version: '1.0.0',
+    });
+
+    const indexPath = resolve(indexDir, `${expectedSha256}.caibx`);
+    const metadataPath = resolve(indexDir, deliveryAssemblyMetadataObjectId(uploading.id));
+    await mkdir(metadataPath, { recursive: true });
+    try {
+      await expect(
+        assembleVersion({
+          catalog: activeCatalog,
+          storePath,
+          indexDir,
+          versionId: uploading.id,
+          inputPath: fixture,
+        })
+      ).rejects.toBeInstanceOf(Error);
+      expect(await activeCatalog.getVersion(uploading.id)).toMatchObject({ state: 'FAILED' });
+      await expect(stat(indexPath)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await stat(metadataPath)).isDirectory()).toBe(true);
+    } finally {
+      await rm(metadataPath, { force: true, recursive: true });
+    }
+    await expect(stat(metadataPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('records failures from UPLOADING and directly from CREATED', async () => {
