@@ -63,6 +63,7 @@ export interface BeginVersionInput {
   catalog: Catalog;
   packageId: string;
   version: string;
+  versionId?: string;
 }
 
 export type AssembleVersionInput = PipelineStorage &
@@ -180,6 +181,7 @@ function errorMessage(error: unknown): string {
 
 export async function beginVersion(input: BeginVersionInput): Promise<PackageVersion> {
   const created = await input.catalog.createVersion({
+    id: input.versionId,
     packageId: input.packageId,
     version: input.version,
   });

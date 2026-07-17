@@ -8,9 +8,15 @@ import type { Catalog } from '../catalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
 import { loadCasConfig } from '../storage-core/config';
 import { type CasStore, s3CasStore } from '../storage-core/desyncCas';
+import { verifyUploadCapability } from '../storage-core/uploadSigning';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 export const INGEST_TUS_PATH = '/files';
+export const UPLOAD_CAPABILITY_HEADERS = {
+  exp: 'x-yucp-upload-exp',
+  sig: 'x-yucp-upload-sig',
+  versionId: 'x-yucp-upload-version-id',
+} as const;
 
 const VERSION_ID_METADATA_KEY = '_catalogVersionId';
 const ALLOWED_EXTENSIONS = new Set(['.spp', '.unitypackage', '.zip']);
@@ -40,6 +46,7 @@ export interface CreateIngestTusServerInput {
   indexDir?: string;
   uploadDir: string;
   maxBytes?: number;
+  uploadHmacKey: string;
 }
 
 function tusError(status_code: number, body: string): TusHookError {
@@ -125,6 +132,56 @@ function isHealthRequest(request: IncomingMessage): boolean {
   return new URL(request.url ?? '/', 'http://localhost').pathname === '/healthz';
 }
 
+function singleRequestHeader(request: IncomingMessage, name: string): string | undefined {
+  const value = request.headers[name];
+  if (typeof value !== 'string' || !value.trim() || value.includes(',')) {
+    return undefined;
+  }
+  return value.trim();
+}
+
+async function authorizeUploadRequest(
+  request: IncomingMessage,
+  hmacKey: string
+): Promise<{ status: 401 | 403 } | { versionId: string }> {
+  const exp = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.exp);
+  const sig = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.sig);
+  const versionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.versionId);
+  if (!exp || !sig || !versionId) {
+    return { status: 401 };
+  }
+  if (!(await verifyUploadCapability({ exp, sig, versionId }, hmacKey))) {
+    return { status: 403 };
+  }
+  return { versionId };
+}
+
+function requestUploadId(request: IncomingMessage): string | undefined {
+  const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+  const prefix = `${INGEST_TUS_PATH}/`;
+  if (!pathname.startsWith(prefix)) {
+    return undefined;
+  }
+  const encodedId = pathname.slice(prefix.length);
+  if (!encodedId || encodedId.includes('/')) {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(encodedId);
+  } catch {
+    return undefined;
+  }
+}
+
+function sendCapabilityError(response: ServerResponse, status: 401 | 403): void {
+  response.writeHead(status, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'text/plain; charset=utf-8',
+    ...(status === 401 ? { 'WWW-Authenticate': 'YucpUploadCapability' } : {}),
+  });
+  response.end(status === 401 ? 'Upload capability required\n' : 'Invalid upload capability\n');
+}
+
 function handleUnexpectedServerError(
   response: ServerResponse,
   error: unknown,
@@ -155,6 +212,9 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw new Error('maxBytes must be a positive safe integer');
   }
+  if (!input.uploadHmacKey.trim()) {
+    throw new Error('uploadHmacKey must not be empty');
+  }
   const store = input.store ?? s3CasStore(loadCasConfig());
   const assemblyStorage =
     store.kind === 's3' ? { store } : { store, indexDir: requiredLocalIndexDir(input.indexDir) };
@@ -169,7 +229,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
     namingFunction(_request, metadata) {
       return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
     },
-    async onUploadCreate(_request, upload) {
+    async onUploadCreate(request, upload) {
       if (upload.size === undefined) {
         throw tusError(400, 'Upload-Length is required.');
       }
@@ -178,10 +238,15 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       }
 
       const metadata = validateArtifactMetadata(upload);
+      const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
+      if (!versionId) {
+        throw tusError(403, 'Upload capability version is missing.');
+      }
       const uploading = await beginVersion({
         catalog: input.catalog,
         packageId: metadata.packageId,
         version: metadata.version,
+        versionId,
       });
       console.info(
         JSON.stringify({
@@ -207,27 +272,31 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       const versionId = versionIdForUpload(storedUpload);
       if (storedUpload.storage?.type !== 'file' || !storedUpload.storage.path) {
         await input.catalog.markFailed(versionId, 'Tus upload is missing its file storage path');
+        await fileStore.remove(upload.id);
         throw tusError(500, 'Completed upload is missing its file storage path.');
       }
 
+      let assembled: Awaited<ReturnType<typeof assembleVersion>>;
       try {
-        const assembled = await assembleVersion({
+        assembled = await assembleVersion({
           catalog: input.catalog,
           versionId,
           inputPath: storedUpload.storage.path,
           ...assemblyStorage,
         });
-        console.info(
-          JSON.stringify({
-            event: 'ingest_tus.upload_assembled',
-            uploadId: upload.id,
-            versionId,
-            state: assembled.state,
-            durationMs: Math.round(performance.now() - startedAt),
-          })
-        );
-        return {};
       } catch (error) {
+        try {
+          await fileStore.remove(upload.id);
+        } catch (cleanupError) {
+          console.error(
+            JSON.stringify({
+              event: 'ingest_tus.upload_cleanup_failed',
+              uploadId: upload.id,
+              versionId,
+              reason: cleanupError instanceof Error ? cleanupError.name : 'unknown_error',
+            })
+          );
+        }
         console.error(
           JSON.stringify({
             event: 'ingest_tus.assembly_failed',
@@ -239,6 +308,17 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
         );
         throw tusError(500, 'Artifact assembly failed.');
       }
+      await fileStore.remove(upload.id);
+      console.info(
+        JSON.stringify({
+          event: 'ingest_tus.upload_assembled',
+          uploadId: upload.id,
+          versionId,
+          state: assembled.state,
+          durationMs: Math.round(performance.now() - startedAt),
+        })
+      );
+      return {};
     },
   });
 
@@ -248,8 +328,34 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       sendHealth(response);
       return;
     }
-    void tusServer
-      .handle(request, response)
-      .catch((error) => handleUnexpectedServerError(response, error, startedAt));
+    void (async () => {
+      // ponytail: Better Auth app-side capability minting lands with the Phase-4 integration.
+      const authorization = await authorizeUploadRequest(request, input.uploadHmacKey);
+      if ('status' in authorization) {
+        console.warn(
+          JSON.stringify({
+            event: 'ingest_tus.capability_rejected',
+            status: authorization.status,
+            durationMs: Math.round(performance.now() - startedAt),
+          })
+        );
+        sendCapabilityError(response, authorization.status);
+        return;
+      }
+      const uploadId = requestUploadId(request);
+      if (uploadId) {
+        try {
+          const upload = await fileStore.getUpload(uploadId);
+          if (versionIdForUpload(upload) !== authorization.versionId) {
+            sendCapabilityError(response, 403);
+            return;
+          }
+        } catch {
+          sendCapabilityError(response, 403);
+          return;
+        }
+      }
+      await tusServer.handle(request, response);
+    })().catch((error) => handleUnexpectedServerError(response, error, startedAt));
   };
 }

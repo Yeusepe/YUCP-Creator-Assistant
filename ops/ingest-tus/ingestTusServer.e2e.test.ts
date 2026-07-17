@@ -26,7 +26,12 @@ import {
 } from '../storage-core/desyncCas';
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
-import { createIngestTusServer, INGEST_TUS_PATH } from './ingestTusServer';
+import { signUploadCapability } from '../storage-core/uploadSigning';
+import {
+  createIngestTusServer,
+  INGEST_TUS_PATH,
+  UPLOAD_CAPABILITY_HEADERS,
+} from './ingestTusServer';
 
 const postgresImage = 'postgres:17-alpine';
 const minioImage = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -35,6 +40,7 @@ const databasePassword = 'ingest-tus-test-password';
 const containerName = `yucp-ingest-tus-e2e-${randomUUID()}`;
 const minioContainerName = `yucp-ingest-tus-minio-e2e-${randomUUID()}`;
 const chunkSize = 256 * 1024;
+const uploadHmacKey = 'trusted-ingest-tus-e2e-hmac-key';
 
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
@@ -347,18 +353,42 @@ function responseBody(error: Error | DetailedError): string | undefined {
   return error instanceof DetailedError ? error.originalResponse?.getBody() : undefined;
 }
 
-function createInterruptedUpload(input: {
+function uploadMetadataHeader(input: {
+  filename: string;
+  packageId: string;
+  version: string;
+}): string {
+  return Object.entries(input)
+    .map(([key, value]) => `${key} ${Buffer.from(value).toString('base64')}`)
+    .join(',');
+}
+
+async function uploadCapabilityHeaders(versionId = randomUUID()): Promise<Record<string, string>> {
+  const capability = await signUploadCapability({
+    expiresAt: Date.now() + 10 * 60_000,
+    key: uploadHmacKey,
+    versionId,
+  });
+  return {
+    [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+    [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
+    [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
+  };
+}
+
+async function createInterruptedUpload(input: {
   endpoint: string;
   filePath: string;
   packageId: string;
   version: string;
-}): {
+}): Promise<{
   completed: Promise<void>;
   interrupted: Promise<number>;
   resume: () => void;
   resumeOffset: () => number | undefined;
   uploadUrl: () => string | null;
-} {
+}> {
+  const headers = await uploadCapabilityHeaders();
   const source = createReadStream(input.filePath);
   let didInterrupt = false;
   let isResuming = false;
@@ -379,6 +409,7 @@ function createInterruptedUpload(input: {
   const upload = new Upload(source as never, {
     endpoint: input.endpoint,
     chunkSize,
+    headers,
     metadata: {
       filename: `${input.packageId}-${input.version}.unitypackage`,
       filetype: 'application/octet-stream',
@@ -431,12 +462,14 @@ async function uploadToCompletion(input: {
   packageId: string;
   version: string;
 }): Promise<void> {
+  const headers = await uploadCapabilityHeaders();
   const source = createReadStream(input.filePath);
   try {
     await new Promise<void>((resolveUpload, rejectUpload) => {
       const upload = new Upload(source as never, {
         endpoint: input.endpoint,
         chunkSize,
+        headers,
         metadata: {
           filename: `${input.packageId}-${input.version}.unitypackage`,
           filetype: 'application/octet-stream',
@@ -465,6 +498,7 @@ async function uploadExpectingRejection(input: {
   uploadSize?: number;
   version: string;
 }): Promise<Error | DetailedError> {
+  const headers = await uploadCapabilityHeaders();
   const source = createReadStream(input.filePath);
   let upload: Upload | undefined;
   try {
@@ -472,6 +506,7 @@ async function uploadExpectingRejection(input: {
       upload = new Upload(source as never, {
         endpoint: input.endpoint,
         chunkSize,
+        headers,
         metadata: {
           filename: input.filename,
           filetype: input.filetype,
@@ -587,6 +622,7 @@ beforeAll(async () => {
       store: localCasStore(join(scratchPath, 'cas-store')),
       indexDir: join(scratchPath, 'cas-indexes'),
       uploadDir: join(scratchPath, 'uploads'),
+      uploadHmacKey,
       maxBytes,
     });
     const localListener = await listen(handler);
@@ -597,6 +633,7 @@ beforeAll(async () => {
       catalog,
       store: requireS3Store(),
       uploadDir: join(scratchPath, 's3-uploads'),
+      uploadHmacKey,
       maxBytes,
     });
     const s3Listener = await listen(s3Handler);
@@ -655,7 +692,7 @@ describe.serial('tus ingest end to end', () => {
     });
     const expectedSha256 = await sha256File(expectedCanonical.path);
 
-    const resumable = createInterruptedUpload({
+    const resumable = await createInterruptedUpload({
       endpoint,
       filePath: fixture,
       packageId: 'com.yucp.tus-resume',
@@ -670,6 +707,17 @@ describe.serial('tus ingest end to end', () => {
     expect(uploadingRow.state).toBe('UPLOADING');
     resumable.resume();
     await resumable.completed;
+
+    const completedUploadUrl = resumable.uploadUrl();
+    if (!completedUploadUrl) {
+      throw new Error('Completed tus upload did not retain its upload URL');
+    }
+    const completedUploadId = decodeURIComponent(
+      new URL(completedUploadUrl).pathname.split('/').at(-1) ?? ''
+    );
+    await expect(stat(join(scratch, 'uploads', completedUploadId))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
 
     const resumeOffset = resumable.resumeOffset();
     expect(resumeOffset).toBe(interruptedAt);
@@ -725,7 +773,7 @@ describe.serial('tus ingest end to end', () => {
       outputPath: join(scratch, 's3-expected.canonical'),
     });
     const expectedSha256 = await sha256File(expectedCanonical.path);
-    const resumable = createInterruptedUpload({
+    const resumable = await createInterruptedUpload({
       endpoint: `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`,
       filePath: fixture,
       packageId: 'com.yucp.tus-s3',
@@ -814,6 +862,58 @@ describe.serial('tus ingest end to end', () => {
     `;
     expect(rows[0]?.count).toBe(0);
     summary.guardRejection = true;
+  });
+
+  it('requires an upload capability while leaving healthz open', async () => {
+    const endpoint = `${requireServerOrigin()}${INGEST_TUS_PATH}`;
+    const baseHeaders = {
+      'Tus-Resumable': '1.0.0',
+      'Upload-Length': '1',
+      'Upload-Metadata': uploadMetadataHeader({
+        filename: 'authorized.zip',
+        packageId: 'com.yucp.tus-auth',
+        version: '1.0.0',
+      }),
+    };
+    const missing = await fetch(endpoint, { method: 'POST', headers: baseHeaders });
+    expect(missing.status).toBe(401);
+
+    const invalid = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...baseHeaders,
+        ...(await uploadCapabilityHeaders()),
+        [UPLOAD_CAPABILITY_HEADERS.sig]: '0'.repeat(64),
+      },
+    });
+    expect(invalid.status).toBe(403);
+
+    const validHeaders = await uploadCapabilityHeaders();
+    const valid = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...baseHeaders,
+        ...validHeaders,
+        'Upload-Metadata': uploadMetadataHeader({
+          filename: 'authorized.zip',
+          packageId: 'com.yucp.tus-auth',
+          version: '2.0.0',
+        }),
+      },
+    });
+    expect(valid.status).toBe(201);
+    const location = valid.headers.get('location');
+    if (!location) {
+      throw new Error('Authorized tus creation omitted its Location header');
+    }
+    const terminated = await fetch(new URL(location, endpoint), {
+      method: 'DELETE',
+      headers: { ...validHeaders, 'Tus-Resumable': '1.0.0' },
+    });
+    expect(terminated.status).toBe(204);
+
+    const health = await fetch(`${requireServerOrigin()}/healthz`);
+    expect(health.status).toBe(200);
   });
 
   it('rejects packageId and version metadata longer than 256 characters', async () => {
