@@ -7,6 +7,7 @@ import {
   DEFAULT_RECONCILE_BATCH_LIMIT,
   loadConvexCatalogPublishConfig,
   openCatalogDatabase,
+  runCatalogMigrations,
 } from '../catalog';
 import {
   type CasConfig,
@@ -79,11 +80,13 @@ function errorName(error: unknown): string {
 }
 
 export async function buildSchedulerRuntime(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntime> {
-  const runtimeEnv = await loadSchedulerRuntimeEnv(env);
+  const runtimeEnv = await loadSchedulerRuntimeEnv(env, fetchSecrets);
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
+    await runCatalogMigrations(database);
     const catalog = new Catalog(database);
     const store = s3CasStore(runtimeEnv.cas);
     const scheduler = createIngestScheduler({
@@ -132,8 +135,17 @@ async function main(): Promise<void> {
     await runtime.database.end({ timeout: 5 });
   };
 
-  process.once('SIGINT', () => void stop());
-  process.once('SIGTERM', () => void stop());
+  const stopOnSignal = (): void => {
+    stop().catch((error) => {
+      console.error(
+        JSON.stringify({ event: 'ingest_scheduler.stop_failed', reason: errorName(error) })
+      );
+      process.exitCode = 1;
+    });
+  };
+
+  process.once('SIGINT', stopOnSignal);
+  process.once('SIGTERM', stopOnSignal);
 }
 
 if (import.meta.main) {

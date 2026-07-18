@@ -1,6 +1,11 @@
 import { createServer, type RequestListener, type Server } from 'node:http';
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
-import { Catalog, type CatalogDatabase, openCatalogDatabase } from '../catalog';
+import {
+  Catalog,
+  type CatalogDatabase,
+  openCatalogDatabase,
+  runCatalogMigrations,
+} from '../catalog';
 import {
   type FetchInfisicalSecrets,
   INGEST_INFISICAL_KEYS,
@@ -40,6 +45,7 @@ export async function buildIngestTusRuntime(
   const runtimeEnv = await loadIngestRuntimeEnv(env, fetchSecrets);
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {
+    await runCatalogMigrations(database);
     const catalog = new Catalog(database);
     const store = s3CasStore(runtimeEnv.cas);
 
@@ -100,8 +106,15 @@ async function main(): Promise<void> {
     await runtime.database.end({ timeout: 5 });
   };
 
-  process.once('SIGINT', () => void stop());
-  process.once('SIGTERM', () => void stop());
+  const stopOnSignal = (): void => {
+    stop().catch((error) => {
+      console.error(JSON.stringify({ event: 'ingest_tus.stop_failed', reason: errorName(error) }));
+      process.exitCode = 1;
+    });
+  };
+
+  process.once('SIGINT', stopOnSignal);
+  process.once('SIGTERM', stopOnSignal);
 }
 
 if (import.meta.main) {
