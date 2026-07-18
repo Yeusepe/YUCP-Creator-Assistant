@@ -4,7 +4,7 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { extname, resolve } from 'node:path';
 import { FileStore } from '@tus/file-store';
 import { Server, type Upload } from '@tus/server';
-import type { Catalog } from '../catalog';
+import { type Catalog, withCatalogHeartbeat } from '../catalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
 import { loadCasConfig } from '../storage-core/config';
 import { type CasStore, s3CasStore } from '../storage-core/desyncCas';
@@ -511,6 +511,25 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
           sendCapabilityError(response, 403);
           return;
         }
+      }
+      if (uploadId && request.method === 'PATCH') {
+        await withCatalogHeartbeat({
+          catalog: input.catalog,
+          state: 'UPLOADING',
+          versionId: authorization.versionId,
+          onHeartbeatError(error) {
+            console.error(
+              JSON.stringify({
+                event: 'ingest_tus.upload_heartbeat_failed',
+                uploadId,
+                versionId: authorization.versionId,
+                reason: error instanceof Error ? error.name : 'unknown_error',
+              })
+            );
+          },
+          operation: () => tusServer.handle(request, response),
+        });
+        return;
       }
       await tusServer.handle(request, response);
     })().catch((error) => handleUnexpectedServerError(response, error, startedAt));

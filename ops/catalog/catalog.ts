@@ -17,6 +17,9 @@ export const CATALOG_STATES = [
 ] as const;
 
 export type CatalogState = (typeof CATALOG_STATES)[number];
+export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
+
+export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const allowedTransitions = {
   CREATED: ['UPLOADING', 'FAILED'],
@@ -251,6 +254,16 @@ export class Catalog {
     return rows[0] ? toPackageVersion(rows[0]) : null;
   }
 
+  async heartbeatVersion(versionId: string, state: LiveCatalogState): Promise<boolean> {
+    const rows = await this.sql<{ id: string }[]>`
+      UPDATE package_versions
+      SET updated_at = clock_timestamp()
+      WHERE id = ${versionId} AND state = ${state}
+      RETURNING id
+    `;
+    return rows.length === 1;
+  }
+
   async transition(
     versionId: string,
     targetState: CatalogState,
@@ -322,5 +335,59 @@ export class Catalog {
     event: CatalogEvent = { type: 'catalog.version.failed' }
   ): Promise<PackageVersion> {
     return this.transition(versionId, 'FAILED', { fields: { error }, event });
+  }
+}
+
+export async function withCatalogHeartbeat<T>(input: {
+  catalog: Catalog;
+  heartbeatIntervalMs?: number;
+  onHeartbeatError?: (error: unknown) => Promise<void> | void;
+  operation: () => Promise<T>;
+  state: LiveCatalogState;
+  versionId: string;
+}): Promise<T> {
+  const heartbeatIntervalMs = input.heartbeatIntervalMs ?? CATALOG_HEARTBEAT_INTERVAL_MS;
+  if (!Number.isSafeInteger(heartbeatIntervalMs) || heartbeatIntervalMs <= 0) {
+    throw new RangeError('heartbeatIntervalMs must be a positive safe integer');
+  }
+  if (!(await input.catalog.heartbeatVersion(input.versionId, input.state))) {
+    throw new CatalogInvariantError(
+      `Package version ${input.versionId} is not in ${input.state} for live work`
+    );
+  }
+
+  let stopped = false;
+  let pendingHeartbeat = Promise.resolve();
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const heartbeat = (): void => {
+    pendingHeartbeat = pendingHeartbeat.then(async () => {
+      if (stopped) {
+        return;
+      }
+      try {
+        const renewed = await input.catalog.heartbeatVersion(input.versionId, input.state);
+        if (!renewed) {
+          stopped = true;
+          if (timer) {
+            clearInterval(timer);
+          }
+        }
+      } catch (error) {
+        try {
+          await input.onHeartbeatError?.(error);
+        } catch {
+          // Observability must not turn a live operation into an unhandled rejection.
+        }
+      }
+    });
+  };
+
+  timer = setInterval(heartbeat, heartbeatIntervalMs);
+  try {
+    return await input.operation();
+  } finally {
+    stopped = true;
+    clearInterval(timer);
+    await pendingHeartbeat;
   }
 }

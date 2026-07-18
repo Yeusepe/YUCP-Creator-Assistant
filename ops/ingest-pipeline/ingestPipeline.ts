@@ -3,7 +3,12 @@ import { createReadStream } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { Catalog, type PackageVersion, PackageVersionNotFoundError } from '../catalog';
+import {
+  Catalog,
+  type PackageVersion,
+  PackageVersionNotFoundError,
+  withCatalogHeartbeat,
+} from '../catalog';
 import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import {
   createDeliveryAssemblyMetadata,
@@ -277,10 +282,10 @@ export async function ingestVersion(input: IngestVersionInput): Promise<PackageV
   });
 }
 
-export async function promoteVersion(input: PromoteVersionInput): Promise<PackageVersion> {
-  const promoting = await input.catalog.transition(input.versionId, 'PROMOTING', {
-    event: { type: 'catalog.version.promoting' },
-  });
+async function finishPromotion(
+  input: PromoteVersionInput,
+  promoting: PackageVersion
+): Promise<PackageVersion> {
   let scratchPath: string | undefined;
   let indexId: string | undefined;
   let publication:
@@ -407,6 +412,27 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
     store: input.store,
   });
   return publication.ready;
+}
+
+export async function promoteVersion(input: PromoteVersionInput): Promise<PackageVersion> {
+  const promoting = await input.catalog.transition(input.versionId, 'PROMOTING', {
+    event: { type: 'catalog.version.promoting' },
+  });
+  return await withCatalogHeartbeat({
+    catalog: input.catalog,
+    state: 'PROMOTING',
+    versionId: promoting.id,
+    onHeartbeatError(error) {
+      console.error(
+        JSON.stringify({
+          event: 'ingest_pipeline.promotion_heartbeat_failed',
+          versionId: promoting.id,
+          reason: error instanceof Error ? error.name : 'unknown_error',
+        })
+      );
+    },
+    operation: () => finishPromotion(input, promoting),
+  });
 }
 
 const retrievableStates = new Set<PackageVersion['state']>(['ASSEMBLED', 'PROMOTING', 'READY']);

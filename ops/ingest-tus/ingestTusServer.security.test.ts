@@ -63,6 +63,14 @@ function createMemoryCatalog(
       const row = rows.get(String(values[0]));
       return row ? [row] : [];
     }
+    if (statement.includes('SET updated_at = clock_timestamp()')) {
+      const row = rows.get(String(values[0]));
+      if (!row || row.state !== values[1]) {
+        return [];
+      }
+      row.updated_at = new Date();
+      return [row];
+    }
     if (statement.includes('UPDATE package_versions')) {
       const row = rows.get(String(values[8]));
       if (!row) {

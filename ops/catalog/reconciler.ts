@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { CatalogState, PackageVersion } from './catalog';
+import { CATALOG_HEARTBEAT_INTERVAL_MS, type CatalogState, type PackageVersion } from './catalog';
 import { type CatalogDatabase, type CatalogTimestamp, toCatalogDate } from './database';
 import {
   type RetryPolicy,
@@ -101,6 +101,11 @@ function resolveOptions(options: ReconcileCatalogOptions): {
 } {
   if (!Number.isSafeInteger(options.stuckThresholdMs) || options.stuckThresholdMs <= 0) {
     throw new RangeError('stuckThresholdMs must be a positive safe integer');
+  }
+  if (options.stuckThresholdMs < CATALOG_HEARTBEAT_INTERVAL_MS * 2) {
+    throw new RangeError(
+      `stuckThresholdMs must be at least ${CATALOG_HEARTBEAT_INTERVAL_MS * 2} milliseconds`
+    );
   }
   const batchLimit = options.batchLimit ?? DEFAULT_RECONCILE_BATCH_LIMIT;
   if (!Number.isSafeInteger(batchLimit) || batchLimit <= 0) {
