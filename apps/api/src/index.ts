@@ -507,6 +507,22 @@ async function routeRequest(request: Request): Promise<Response> {
       });
     }
   }
+  if (pathname.startsWith('/api/creator/uploads/authorize')) {
+    if (isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/access/')) {
+    if (isRateLimited(`buyer-download:${clientAddress}`, 120, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
   if (pathname.startsWith('/api/collab/')) {
     if (isRateLimited(`collab:${clientAddress}`, 30, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
