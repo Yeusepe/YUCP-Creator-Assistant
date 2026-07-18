@@ -36,6 +36,7 @@ import {
   listS3Objects,
   putS3Object,
 } from '../../ops/storage-core/s3Control';
+import { waitForMinioReady } from '../../ops/testing/minioReadiness';
 import { waitForPostgres } from '../../ops/testing/postgresReadiness';
 import { createUnityPackageFixture } from '../../ops/testing/unityPackageFixture';
 
@@ -182,22 +183,6 @@ async function sha256File(filePath: string): Promise<string> {
 
 function sha256Bytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway server is still starting.
-    }
-    await delay(250);
-  }
-  throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
 async function publishedPort(containerId: string, containerPort: string): Promise<string> {
@@ -356,7 +341,7 @@ async function main(): Promise<void> {
     }
     const minioPort = await publishedPort(minioContainer, '9000/tcp');
     const endpoint = `http://127.0.0.1:${minioPort}`;
-    await waitForMinio(endpoint);
+    await waitForMinioReady({ endpoint });
 
     const casConfig = loadCasConfig({
       CAS_S3_ENDPOINT: endpoint,

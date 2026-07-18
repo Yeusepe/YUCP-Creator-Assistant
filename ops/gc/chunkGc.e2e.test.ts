@@ -34,6 +34,7 @@ import {
   listS3Objects,
   putS3Object,
 } from '../storage-core/s3Control';
+import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { DEFAULT_GC_GRACE_PERIOD_MS, runChunkGarbageCollection } from './chunkGc';
 
@@ -93,23 +94,6 @@ async function removeContainers(): Promise<void> {
   if (failures.length > 0) {
     throw new Error(`Failed to remove test containers:\n${failures.join('\n')}`);
   }
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway MinIO server is still starting.
-    }
-    await Bun.sleep(250);
-  }
-  const logs = await runDocker(['logs', MINIO_CONTAINER]);
-  throw new Error(`MinIO did not become ready within 60 seconds.\n${logs.stderr}\n${logs.stdout}`);
 }
 
 async function publishedPort(containerName: string, containerPort: string): Promise<string> {
@@ -283,7 +267,7 @@ beforeAll(async () => {
     const postgresPort = await publishedPort(POSTGRES_CONTAINER, '5432');
     const minioPort = await publishedPort(MINIO_CONTAINER, '9000');
     const minioEndpoint = `http://127.0.0.1:${minioPort}`;
-    await waitForMinio(minioEndpoint);
+    await waitForMinioReady({ endpoint: minioEndpoint });
 
     sql = openCatalogDatabase(
       `postgres://postgres:${DATABASE_PASSWORD}@127.0.0.1:${postgresPort}/${DATABASE_NAME}`

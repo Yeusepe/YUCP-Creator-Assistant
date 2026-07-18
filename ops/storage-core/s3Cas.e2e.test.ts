@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
+import { waitForMinioReady } from '../testing/minioReadiness';
 import { canonicalizeArtifact } from './canonicalizer';
 import { loadCasConfig } from './config';
 import {
@@ -43,22 +44,6 @@ function assertScratchPath(path: string): void {
   ) {
     throw new Error(`Refusing to clean scratch path outside the system temp directory: ${path}`);
   }
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway server is still starting.
-    }
-    await Bun.sleep(250);
-  }
-  throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
 beforeAll(async () => {
@@ -119,7 +104,7 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       throw new Error('Docker did not publish the throwaway MinIO API on a random local port');
     }
     const endpoint = `http://127.0.0.1:${portMatch[1]}`;
-    await waitForMinio(endpoint);
+    await waitForMinioReady({ endpoint });
 
     const config = loadCasConfig({
       CAS_S3_ENDPOINT: endpoint,

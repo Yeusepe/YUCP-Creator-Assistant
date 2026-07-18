@@ -16,6 +16,7 @@ import {
 } from '../storage-core/desyncCas';
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket } from '../storage-core/s3Control';
+import { waitForMinioReady } from '../testing/minioReadiness';
 import { importerCapabilityBinding, importVersion } from './importVersion';
 
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -52,22 +53,6 @@ function assertScratchPath(path: string): void {
   ) {
     throw new Error(`Refusing to clean scratch path outside the system temp directory: ${path}`);
   }
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway server is still starting.
-    }
-    await Bun.sleep(250);
-  }
-  throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
 async function closeServer(server: HttpServer): Promise<void> {
@@ -237,7 +222,7 @@ describe('first-party desync importer against throwaway MinIO', () => {
       throw new Error('Docker did not publish the throwaway MinIO API on a random local port');
     }
     const minioEndpoint = `http://127.0.0.1:${portMatch[1]}`;
-    await waitForMinio(minioEndpoint);
+    await waitForMinioReady({ endpoint: minioEndpoint });
 
     const proxy = await startCountingProxy({
       bucket,

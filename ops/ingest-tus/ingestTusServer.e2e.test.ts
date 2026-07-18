@@ -27,6 +27,7 @@ import {
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { signUploadCapability } from '../storage-core/uploadSigning';
+import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   createIngestTusServer,
@@ -130,23 +131,6 @@ async function removeMinioContainer(): Promise<void> {
   if (result.exitCode !== 0 && !result.stderr.includes('No such container')) {
     throw new Error(`Failed to remove MinIO test container: ${result.stderr || result.stdout}`);
   }
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  // Readiness probe: https://docs.min.io/aistor/operations/monitoring/healthcheck-probe/
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway MinIO server is still starting.
-    }
-    await Bun.sleep(250);
-  }
-  throw new Error('Throwaway MinIO did not become ready within 60 seconds');
 }
 
 function requireCatalog(): Catalog {
@@ -588,7 +572,7 @@ beforeAll(async () => {
       throw new Error(`Could not determine MinIO test port from: ${minioPortOutput}`);
     }
     const minioEndpoint = `http://127.0.0.1:${minioPortMatch[1]}`;
-    await waitForMinio(minioEndpoint);
+    await waitForMinioReady({ endpoint: minioEndpoint });
     const casConfig = loadCasConfig({
       CAS_S3_ENDPOINT: minioEndpoint,
       CAS_S3_REGION: 'us-east-1',

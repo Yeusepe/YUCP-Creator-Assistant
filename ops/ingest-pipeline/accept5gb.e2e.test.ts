@@ -20,6 +20,7 @@ import { type CasConfig, loadCasConfig } from '../storage-core/config';
 import { type S3CasStore, s3CasStore, verifyDesyncCli } from '../storage-core/desyncCas';
 import { runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
+import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { ingestVersion, promoteVersion, retrieveVersion } from './ingestPipeline';
 
@@ -114,23 +115,6 @@ async function requireDocker(args: string[]): Promise<string> {
     );
   }
   return result.stdout;
-}
-
-async function waitForMinio(endpoint: string): Promise<void> {
-  const deadline = Date.now() + 60_000;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${endpoint}/minio/health/ready`);
-      if (response.ok) {
-        return;
-      }
-    } catch {
-      // The throwaway MinIO server is still starting.
-    }
-    await Bun.sleep(250);
-  }
-  const logs = await runDocker(['logs', minioContainerName]);
-  throw new Error(`MinIO did not become ready within 60 seconds.\n${logs.stderr}\n${logs.stdout}`);
 }
 
 async function publishedPort(containerName: string, containerPort: string): Promise<string> {
@@ -275,7 +259,7 @@ async function setup(resources: TestResources, sizeBytes: number): Promise<void>
   const postgresPort = await publishedPort(postgresContainerName, '5432');
   const minioPort = await publishedPort(minioContainerName, '9000');
   const minioEndpoint = `http://127.0.0.1:${minioPort}`;
-  await waitForMinio(minioEndpoint);
+  await waitForMinioReady({ endpoint: minioEndpoint });
 
   resources.sql = openCatalogDatabase(
     `postgres://postgres:${databasePassword}@127.0.0.1:${postgresPort}/${databaseName}`
