@@ -127,6 +127,14 @@ export class CatalogInvariantError extends Error {
   }
 }
 
+export class CatalogOwnershipLostError extends Error {
+  override name = 'AbortError';
+
+  constructor(versionId: string, state: LiveCatalogState, options?: ErrorOptions) {
+    super(`Package version ${versionId} lost ${state} ownership`, options);
+  }
+}
+
 function toPackageVersion(row: PackageVersionRow): PackageVersion {
   return {
     catalogProductId: row.catalog_product_id,
@@ -342,7 +350,7 @@ export async function withCatalogHeartbeat<T>(input: {
   catalog: Catalog;
   heartbeatIntervalMs?: number;
   onHeartbeatError?: (error: unknown) => Promise<void> | void;
-  operation: () => Promise<T>;
+  operation: (signal: AbortSignal) => Promise<T>;
   state: LiveCatalogState;
   versionId: string;
 }): Promise<T> {
@@ -356,9 +364,19 @@ export async function withCatalogHeartbeat<T>(input: {
     );
   }
 
+  const abortController = new AbortController();
   let stopped = false;
   let pendingHeartbeat = Promise.resolve();
   let timer: ReturnType<typeof setInterval> | undefined;
+  const stop = (reason?: unknown): void => {
+    stopped = true;
+    if (timer) {
+      clearInterval(timer);
+    }
+    if (reason !== undefined && !abortController.signal.aborted) {
+      abortController.abort(reason);
+    }
+  };
   const heartbeat = (): void => {
     pendingHeartbeat = pendingHeartbeat.then(async () => {
       if (stopped) {
@@ -367,12 +385,10 @@ export async function withCatalogHeartbeat<T>(input: {
       try {
         const renewed = await input.catalog.heartbeatVersion(input.versionId, input.state);
         if (!renewed) {
-          stopped = true;
-          if (timer) {
-            clearInterval(timer);
-          }
+          stop(new CatalogOwnershipLostError(input.versionId, input.state));
         }
       } catch (error) {
+        stop(new CatalogOwnershipLostError(input.versionId, input.state, { cause: error }));
         try {
           await input.onHeartbeatError?.(error);
         } catch {
@@ -384,10 +400,9 @@ export async function withCatalogHeartbeat<T>(input: {
 
   timer = setInterval(heartbeat, heartbeatIntervalMs);
   try {
-    return await input.operation();
+    return await input.operation(abortController.signal);
   } finally {
-    stopped = true;
-    clearInterval(timer);
+    stop();
     await pendingHeartbeat;
   }
 }

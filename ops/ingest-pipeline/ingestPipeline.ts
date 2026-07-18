@@ -203,12 +203,16 @@ export async function beginVersion(input: BeginVersionInput): Promise<PackageVer
   }
 }
 
-export async function assembleVersion(input: AssembleVersionInput): Promise<PackageVersion> {
+export async function assembleVersion(
+  input: AssembleVersionInput,
+  signal?: AbortSignal
+): Promise<PackageVersion> {
   let scratchPath: string | undefined;
   let storage: ResolvedAssemblyStorage | undefined;
 
   try {
     try {
+      signal?.throwIfAborted();
       scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-'));
       const canonical = await canonicalizeArtifact({
         inputPath: input.inputPath,
@@ -217,6 +221,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
       const canonicalSha256 = await sha256File(canonical.path);
       storage = resolveAssemblyStorage(input, canonicalSha256, input.versionId);
 
+      signal?.throwIfAborted();
       await storeArtifactToStore({
         artifactPath: canonical.path,
         indexId: storage.indexId,
@@ -226,6 +231,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         versionId: input.versionId,
         contentType: deliveryContentType(input.inputPath, input.contentType),
       });
+      signal?.throwIfAborted();
       await writeCasIndexObject({
         body: JSON.stringify(deliveryMetadata),
         contentType: 'application/json',
@@ -233,6 +239,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         store: storage.store,
       });
 
+      signal?.throwIfAborted();
       return await input.catalog.transition(input.versionId, 'ASSEMBLED', {
         fields: {
           formatTag: canonical.formatTag,
@@ -247,11 +254,13 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
       }
     }
   } catch (error) {
+    signal?.throwIfAborted();
     let failure = error;
     if (storage) {
       // Shared chunks remain eligible for the normal GC path.
       const cleanupErrors: unknown[] = [];
       for (const indexId of [storage.indexId, storage.deliveryMetadataId]) {
+        signal?.throwIfAborted();
         try {
           await deleteCasIndexObject({ indexId, store: storage.store });
         } catch (cleanupError) {
@@ -265,6 +274,7 @@ export async function assembleVersion(input: AssembleVersionInput): Promise<Pack
         );
       }
     }
+    signal?.throwIfAborted();
     await input.catalog.markFailed(input.versionId, errorMessage(failure));
     throw failure;
   }
@@ -284,7 +294,8 @@ export async function ingestVersion(input: IngestVersionInput): Promise<PackageV
 
 async function finishPromotion(
   input: PromoteVersionInput,
-  promoting: PackageVersion
+  promoting: PackageVersion,
+  signal: AbortSignal
 ): Promise<PackageVersion> {
   let scratchPath: string | undefined;
   let indexId: string | undefined;
@@ -298,6 +309,7 @@ async function finishPromotion(
     | undefined;
 
   try {
+    signal.throwIfAborted();
     if (!promoting.casIndexId || !promoting.canonicalSha256) {
       throw new Error(`Package version ${promoting.id} has incomplete CAS assembly metadata`);
     }
@@ -314,6 +326,7 @@ async function finishPromotion(
       throw new Error(`Delivery assembly metadata does not match package version ${promoting.id}`);
     }
 
+    signal.throwIfAborted();
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-promote-'));
     const stagedPath = join(scratchPath, 'artifact.reassembled');
     const chunks = await inspectDesyncIndex({
@@ -322,6 +335,7 @@ async function finishPromotion(
     });
     const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.size, 0);
 
+    signal.throwIfAborted();
     await reconstructArtifactFromStore({
       indexId,
       outputPath: stagedPath,
@@ -354,6 +368,7 @@ async function finishPromotion(
       chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
       chunks,
     });
+    signal.throwIfAborted();
     const ready = await input.catalog.transition(promoting.id, 'READY', {
       event: {
         type: 'catalog.version.ready',
@@ -366,6 +381,7 @@ async function finishPromotion(
     });
     publication = { deliveryMetadataId, manifest, manifestId, ready };
   } catch (error) {
+    signal.throwIfAborted();
     let failure = error;
     if (indexId) {
       // ponytail: Full orphan-chunk GC is a separate future task.
@@ -374,6 +390,7 @@ async function finishPromotion(
         deliveryManifestObjectId(promoting.id),
         deliveryAssemblyMetadataObjectId(promoting.id),
       ]) {
+        signal.throwIfAborted();
         try {
           await deleteCasIndexObject({
             indexId: siblingIndexObjectId(input.store, indexId, objectId),
@@ -390,6 +407,7 @@ async function finishPromotion(
         );
       }
     }
+    signal.throwIfAborted();
     await input.catalog.markFailed(promoting.id, errorMessage(failure));
     throw failure;
   } finally {
@@ -401,12 +419,14 @@ async function finishPromotion(
   if (!publication) {
     throw new Error(`Promotion publication was not prepared for package version ${promoting.id}`);
   }
+  signal.throwIfAborted();
   await writeCasIndexObject({
     body: JSON.stringify(publication.manifest),
     contentType: 'application/json',
     indexId: publication.manifestId,
     store: input.store,
   });
+  signal.throwIfAborted();
   await deleteCasIndexObject({
     indexId: publication.deliveryMetadataId,
     store: input.store,
@@ -431,7 +451,7 @@ export async function promoteVersion(input: PromoteVersionInput): Promise<Packag
         })
       );
     },
-    operation: () => finishPromotion(input, promoting),
+    operation: (signal) => finishPromotion(input, promoting, signal),
   });
 }
 

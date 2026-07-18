@@ -53,6 +53,63 @@ describe('catalog activity heartbeat', () => {
     expect(operationStarted).toBe(false);
   });
 
+  it('aborts before the next side effect and failure cleanup after losing ownership', async () => {
+    const ownershipLost = Promise.withResolvers<void>();
+    let heartbeatCount = 0;
+    let sideEffectCount = 0;
+    let casDeleteCount = 0;
+    const sql = (async (strings: TemplateStringsArray) => {
+      if (!strings.join('?').includes('UPDATE package_versions')) {
+        return [];
+      }
+      heartbeatCount += 1;
+      if (heartbeatCount === 1) {
+        return [{ id: 'version-ownership-lost' }];
+      }
+      ownershipLost.resolve();
+      return [];
+    }) as SqlTag;
+    const catalog = new Catalog(sql as never);
+
+    let operationError: unknown;
+    try {
+      await withCatalogHeartbeat({
+        catalog,
+        heartbeatIntervalMs: 5,
+        operation: async (signal) => {
+          try {
+            await ownershipLost.promise;
+            if (!signal.aborted) {
+              await Promise.race([
+                new Promise<void>((resolve) =>
+                  signal.addEventListener('abort', () => resolve(), { once: true })
+                ),
+                Bun.sleep(50),
+              ]);
+            }
+            signal.throwIfAborted();
+            sideEffectCount += 1;
+            throw new Error('operation continued after ownership loss');
+          } catch (error) {
+            if (!signal.aborted) {
+              casDeleteCount += 1;
+            }
+            throw error;
+          }
+        },
+        state: 'UPLOADING',
+        versionId: 'version-ownership-lost',
+      });
+    } catch (error) {
+      operationError = error;
+    }
+
+    expect(operationError).toBeInstanceOf(Error);
+    expect((operationError as Error).name).toBe('AbortError');
+    expect(sideEffectCount).toBe(0);
+    expect(casDeleteCount).toBe(0);
+  });
+
   it('shows the wall-clock-only failure mode for live work without activity heartbeats', async () => {
     const database = createReconcilerDatabase([
       catalogRow('upload-live-without-heartbeat', 'UPLOADING', STALE_UPDATED_AT),

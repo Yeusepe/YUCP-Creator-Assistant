@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
@@ -349,6 +350,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   const uploadDir = resolve(input.uploadDir);
   mkdirSync(uploadDir, { recursive: true });
   const fileStore = new FileStore({ directory: uploadDir });
+  const heartbeatSignals = new AsyncLocalStorage<AbortSignal>();
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
@@ -436,12 +438,15 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
 
       let assembled: Awaited<ReturnType<typeof assembleVersion>>;
       try {
-        assembled = await assembleVersion({
-          catalog: input.catalog,
-          versionId,
-          inputPath: storedUpload.storage.path,
-          ...assemblyStorage,
-        });
+        assembled = await assembleVersion(
+          {
+            catalog: input.catalog,
+            versionId,
+            inputPath: storedUpload.storage.path,
+            ...assemblyStorage,
+          },
+          heartbeatSignals.getStore()
+        );
       } catch (error) {
         await removeUploadBestEffort(fileStore, upload.id, versionId);
         console.error(
@@ -527,7 +532,8 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
               })
             );
           },
-          operation: () => tusServer.handle(request, response),
+          operation: (signal) =>
+            heartbeatSignals.run(signal, () => tusServer.handle(request, response)),
         });
         return;
       }
