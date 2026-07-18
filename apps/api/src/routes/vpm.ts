@@ -213,6 +213,7 @@ export function createVpmRoutes({ auth, config }: CreateVpmRoutesOptions) {
           async (catalogProductId) =>
             (await convex.query(api.packageVersions.resolveDownloadableVersion, {
               apiSecret: config.convexApiSecret,
+              actor,
               catalogProductId: catalogProductId as Id<'product_catalog'>,
             })) as DownloadableVersion | null
         )
