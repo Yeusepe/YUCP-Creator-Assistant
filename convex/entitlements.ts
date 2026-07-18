@@ -2501,7 +2501,10 @@ export const listByAuthUser = query({
       all = all.filter((e) => e.sourceProvider === args.sourceProvider);
     }
 
-    const limit = Math.min(args.limit ?? 50, 100);
+    const requestedLimit = args.limit ?? 50;
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 100)
+      : 50;
     let startIndex = 0;
     if (args.cursor) {
       const idx = all.findIndex((item) => String(item._id) === args.cursor);
@@ -2523,10 +2526,11 @@ export const listByAuthUser = query({
       expiresAt: e.expiresAt,
       updatedAt: e.updatedAt,
     }));
+    const lastPageItem = page.at(-1);
     return {
       data,
       hasMore,
-      nextCursor: hasMore ? String(page[page.length - 1]._id) : null,
+      nextCursor: hasMore && lastPageItem ? String(lastPageItem._id) : null,
     };
   },
 });

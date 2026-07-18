@@ -95,6 +95,49 @@ describe('buyer-held entitlement listing', () => {
     ]);
   });
 
+  it('clamps non-positive pagination limits to a well-formed first page', async () => {
+    const t = makeTestConvex({ injectActor: false });
+    const buyerAuthUserId = 'buyer-pagination-limit';
+    const subjectId = await seedSubject(t, {
+      authUserId: buyerAuthUserId,
+      primaryDiscordUserId: 'buyer-pagination-discord',
+      status: 'active',
+    });
+    await seedEntitlement(t, subjectId, {
+      authUserId: 'creator-pagination-a',
+      productId: 'product-pagination-a',
+      status: 'active',
+    });
+    await seedEntitlement(t, subjectId, {
+      authUserId: 'creator-pagination-b',
+      productId: 'product-pagination-b',
+      status: 'active',
+    });
+    const actor = await createApiActorBinding(
+      createServiceApiActor({
+        authUserId: buyerAuthUserId,
+        service: 'vpm-repository',
+        scopes: ['entitlements:service'],
+      }),
+      ACTOR_SECRET
+    );
+
+    for (const limit of [0, -5]) {
+      const result = await t.query(api.entitlements.listByAuthUser, {
+        apiSecret: API_SECRET,
+        actor,
+        authUserId: buyerAuthUserId,
+        scope: 'subject_holder',
+        status: 'active',
+        limit,
+      });
+
+      expect(result.data).toHaveLength(1);
+      expect(result.hasMore).toBe(true);
+      expect(result.nextCursor).toBe(result.data[0]?.id);
+    }
+  });
+
   it('rejects a holder query when the service actor is bound to another buyer', async () => {
     const t = makeTestConvex({ injectActor: false });
     const actor = await createApiActorBinding(
