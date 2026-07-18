@@ -12,6 +12,7 @@ const VPM_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 // VCC can fetch a listing before the buyer chooses Install. One hour keeps that handoff usable
 // without turning the package URL into a long-lived delivery capability.
 const VPM_DELIVERY_URL_TTL_MS = 60 * 60_000;
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export interface VpmRouteConfig {
   apiBaseUrl: string;
@@ -89,11 +90,15 @@ function getConfiguredVpmDelivery(config: VpmRouteConfig): {
     return null;
   }
   try {
-    for (const value of [deliveryBaseUrl, vpmBaseUrl]) {
-      const url = new URL(value);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-        return null;
-      }
+    const deliveryUrl = new URL(deliveryBaseUrl);
+    const vpmUrl = new URL(vpmBaseUrl);
+    const isLoopbackHttp =
+      deliveryUrl.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(deliveryUrl.hostname);
+    if (deliveryUrl.protocol !== 'https:' && !isLoopbackHttp) {
+      return null;
+    }
+    if (vpmUrl.protocol !== 'http:' && vpmUrl.protocol !== 'https:') {
+      return null;
     }
   } catch {
     return null;

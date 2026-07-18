@@ -117,6 +117,26 @@ describe('per-buyer VPM routes', () => {
     expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
+  it('requires HTTPS for remote delivery URLs while allowing loopback HTTP', async () => {
+    const remoteHttpResponse = await createRoutes('buyer-auth-user', {
+      deliveryBaseUrl: 'http://delivery.test/',
+    }).mintRepoToken(mintRequest());
+    expect(remoteHttpResponse.status).toBe(503);
+    await expect(remoteHttpResponse.json()).resolves.toEqual({
+      error: 'VPM delivery is not configured',
+    });
+
+    const httpsResponse = await createRoutes('buyer-auth-user', {
+      deliveryBaseUrl: 'https://delivery.test/',
+    }).mintRepoToken(mintRequest());
+    expect(httpsResponse.status).toBe(200);
+
+    const loopbackResponse = await createRoutes('buyer-auth-user', {
+      deliveryBaseUrl: 'http://localhost:8787/',
+    }).mintRepoToken(mintRequest());
+    expect(loopbackResponse.status).toBe(200);
+  });
+
   it('mints a stateless buyer token and the VCC addRepo URL shape', async () => {
     const beforeRequest = Date.now();
     const response = await createRoutes('buyer-auth-user').mintRepoToken(mintRequest());
