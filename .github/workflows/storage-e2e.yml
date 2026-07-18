@@ -81,8 +81,8 @@ jobs:
       - name: Verify Docker and prepare test images
         run: |
           docker version
-          docker pull postgres:17-alpine
-          docker pull minio/minio:RELEASE.2025-09-07T16-13-09Z
+          docker pull postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193 # postgres:17-alpine
+          docker pull minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e # minio/minio:RELEASE.2025-09-07T16-13-09Z
 
       - name: Run storage and delivery E2E suites
         run: bun run test:storage:e2e
