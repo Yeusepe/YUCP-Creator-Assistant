@@ -561,8 +561,9 @@ describe.serial('canonical ingest pipeline end to end', () => {
     await expect(readFile(assemblyMetadataPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('removes the index and delivery metadata when assembly fails after storage', async () => {
+  it('retains the content-addressed index and removes delivery metadata on assembly failure', async () => {
     const activeCatalog = requireCatalog();
+    const database = requireSql();
     const scratch = requireScratchPath();
     const fixture = requireFixturePath(rawV1Path, 'v1');
     const storePath = join(scratch, 'assembly-cleanup-store');
@@ -580,7 +581,21 @@ describe.serial('canonical ingest pipeline end to end', () => {
 
     const indexPath = resolve(indexDir, `${expectedSha256}.caibx`);
     const metadataPath = resolve(indexDir, deliveryAssemblyMetadataObjectId(uploading.id));
-    await mkdir(metadataPath, { recursive: true });
+    await database`
+      CREATE FUNCTION fail_assembled_transition() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_type = 'catalog.version.assembled' THEN
+          RAISE EXCEPTION 'forced assembly transition failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `;
+    await database`
+      CREATE TRIGGER fail_assembled_transition
+      BEFORE INSERT ON catalog_outbox
+      FOR EACH ROW EXECUTE FUNCTION fail_assembled_transition()
+    `;
     try {
       await expect(
         assembleVersion({
@@ -592,12 +607,88 @@ describe.serial('canonical ingest pipeline end to end', () => {
         })
       ).rejects.toBeInstanceOf(Error);
       expect(await activeCatalog.getVersion(uploading.id)).toMatchObject({ state: 'FAILED' });
-      await expect(stat(indexPath)).rejects.toMatchObject({ code: 'ENOENT' });
-      expect((await stat(metadataPath)).isDirectory()).toBe(true);
+      expect((await stat(indexPath)).isFile()).toBe(true);
+      await expect(stat(metadataPath)).rejects.toMatchObject({ code: 'ENOENT' });
     } finally {
-      await rm(metadataPath, { force: true, recursive: true });
+      await database`DROP TRIGGER IF EXISTS fail_assembled_transition ON catalog_outbox`;
+      await database`DROP FUNCTION IF EXISTS fail_assembled_transition()`;
     }
-    await expect(stat(metadataPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not delete a READY version shared index when deduplicated assembly fails', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const scratch = requireScratchPath();
+    const fixture = requireFixturePath(rawV1Path, 'v1');
+    const storePath = join(scratch, 'assembly-dedup-failure-store');
+    const indexDir = join(scratch, 'assembly-dedup-failure-indexes');
+    const store = localCasStore(storePath);
+    const expectedCanonical = await canonicalizeArtifact({
+      inputPath: fixture,
+      outputPath: join(scratch, 'assembly-dedup-failure-expected.bin'),
+    });
+    const expectedSha256 = await sha256File(expectedCanonical.path);
+    const assembledA = await ingestVersion({
+      catalog: activeCatalog,
+      storePath,
+      indexDir,
+      packageId: 'assembly-dedup-failure-package',
+      version: '1.0.0',
+      inputPath: fixture,
+    });
+    const readyA = await promoteVersion({
+      catalog: activeCatalog,
+      store,
+      versionId: assembledA.id,
+    });
+    const uploadingB = await beginVersion({
+      catalog: activeCatalog,
+      packageId: 'assembly-dedup-failure-package',
+      version: '2.0.0',
+    });
+    const sharedIndexPath = resolve(indexDir, `${expectedSha256}.caibx`);
+    const metadataBPath = resolve(indexDir, deliveryAssemblyMetadataObjectId(uploadingB.id));
+
+    await database`
+      CREATE FUNCTION fail_deduplicated_assembled_transition() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.event_type = 'catalog.version.assembled' THEN
+          RAISE EXCEPTION 'forced deduplicated assembly transition failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `;
+    await database`
+      CREATE TRIGGER fail_deduplicated_assembled_transition
+      BEFORE INSERT ON catalog_outbox
+      FOR EACH ROW EXECUTE FUNCTION fail_deduplicated_assembled_transition()
+    `;
+    try {
+      await expect(
+        assembleVersion({
+          catalog: activeCatalog,
+          storePath,
+          indexDir,
+          versionId: uploadingB.id,
+          inputPath: fixture,
+        })
+      ).rejects.toBeInstanceOf(Error);
+    } finally {
+      await database`DROP TRIGGER IF EXISTS fail_deduplicated_assembled_transition ON catalog_outbox`;
+      await database`DROP FUNCTION IF EXISTS fail_deduplicated_assembled_transition()`;
+    }
+
+    expect(await activeCatalog.getVersion(uploadingB.id)).toMatchObject({ state: 'FAILED' });
+    expect((await stat(sharedIndexPath)).isFile()).toBe(true);
+    await expect(stat(metadataBPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    const retrievedAPath = await retrieveVersion({
+      catalog: activeCatalog,
+      store,
+      versionId: readyA.id,
+      outputPath: join(scratch, 'assembly-dedup-failure-retrieved.bin'),
+    });
+    expect(await readFile(retrievedAPath)).toEqual(await readFile(expectedCanonical.path));
   });
 
   it('records failures from UPLOADING and directly from CREATED', async () => {

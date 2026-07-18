@@ -257,9 +257,9 @@ export async function assembleVersion(
     signal?.throwIfAborted();
     let failure = error;
     if (storage) {
-      // Shared chunks remain eligible for the normal GC path.
+      // The shared content-addressed index, like its chunks, remains eligible for normal GC.
       const cleanupErrors: unknown[] = [];
-      for (const indexId of [storage.indexId, storage.deliveryMetadataId]) {
+      for (const indexId of [storage.deliveryMetadataId]) {
         signal?.throwIfAborted();
         try {
           await deleteCasIndexObject({ indexId, store: storage.store });
