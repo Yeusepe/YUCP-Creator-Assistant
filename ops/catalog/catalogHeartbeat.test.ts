@@ -155,18 +155,21 @@ describe('catalog activity heartbeat', () => {
       state: 'PROMOTING',
       versionId: 'promotion-active',
     });
-    await database.waitForFreshHeartbeats(['upload-active', 'promotion-active']);
-
     const redriven: string[] = [];
-    await reconcileCatalog(database.sql as never, {
-      batchLimit: 4,
-      publish: async () => {},
-      redrive: async ({ version }) => {
-        redriven.push(version.id);
-      },
-      stuckThresholdMs: STUCK_THRESHOLD_MS,
-    });
-    activeWork.resolve();
+    try {
+      await database.waitForFreshHeartbeats(['upload-active', 'promotion-active']);
+      await reconcileCatalog(database.sql as never, {
+        batchLimit: 4,
+        publish: async () => {},
+        redrive: async ({ version }) => {
+          redriven.push(version.id);
+        },
+        stuckThresholdMs: STUCK_THRESHOLD_MS,
+      });
+    } finally {
+      activeWork.resolve();
+      await Promise.allSettled([uploading, promoting]);
+    }
     await Promise.all([uploading, promoting]);
 
     expect(redriven).toEqual(['promotion-abandoned', 'upload-abandoned']);
