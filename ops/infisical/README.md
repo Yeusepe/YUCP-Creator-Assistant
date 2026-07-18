@@ -89,7 +89,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | Infisical path | Names | Consumers |
 |---|---|---|
 | `/storage/ingest/shared/` | `UPLOAD_HMAC_KEY`, `INGEST_TUS_URL` | apps/api and ingest-tus |
-| `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES` | ingest-tus only |
+| `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES`, `INGEST_ALLOWED_ORIGIN` (optional) | ingest-tus only |
 | `/storage/catalog/` | `CATALOG_DATABASE_URL` | ingest-tus and scheduler |
 | `/storage/cas/common/` | `CAS_S3_ENDPOINT`, `CAS_S3_REGION`, `CAS_S3_BUCKET`, `CAS_CHUNK_PREFIX`, `CAS_INDEX_PREFIX`, `CAS_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and curated delivery Worker sync |
 | `/storage/cas/write/` | `CAS_S3_ACCESS_KEY_ID`, `CAS_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler only |

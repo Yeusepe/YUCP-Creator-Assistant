@@ -16,10 +16,15 @@ const REQUIRED_INGEST_KEYS = [
   'INGEST_MAX_BYTES',
 ] as const;
 
-export const INGEST_INFISICAL_KEYS = [
+const REQUIRED_INGEST_INFISICAL_KEYS = [
   'UPLOAD_HMAC_KEY',
   'CATALOG_DATABASE_URL',
   ...REQUIRED_CAS_KEYS,
+] as const;
+
+export const INGEST_INFISICAL_KEYS = [
+  ...REQUIRED_INGEST_INFISICAL_KEYS,
+  'INGEST_ALLOWED_ORIGIN',
 ] as const;
 
 export type FetchInfisicalSecrets = (env: NodeJS.ProcessEnv) => Promise<Record<string, string>>;
@@ -42,6 +47,7 @@ export type IngestRuntimeEnv = {
   catalogDatabaseUrl: string;
   ingestUploadDir: string;
   ingestMaxBytes: number;
+  ingestAllowedOrigin?: string;
   cas: CasConfig;
 };
 
@@ -172,7 +178,11 @@ export async function loadIngestRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<IngestRuntimeEnv> {
-  const runtimeEnv = await hydrateEnvFromInfisical(env, INGEST_INFISICAL_KEYS, fetchSecrets);
+  const runtimeEnv = await hydrateEnvFromInfisical(
+    env,
+    REQUIRED_INGEST_INFISICAL_KEYS,
+    fetchSecrets
+  );
 
   const missing = REQUIRED_INGEST_KEYS.filter((key) => !normalizeOptional(runtimeEnv[key]));
   if (missing.length > 0) {
@@ -189,6 +199,7 @@ export async function loadIngestRuntimeEnv(
     catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,
+    ingestAllowedOrigin: normalizeOptional(runtimeEnv.INGEST_ALLOWED_ORIGIN),
     cas: loadCasConfig(runtimeEnv),
   };
 }

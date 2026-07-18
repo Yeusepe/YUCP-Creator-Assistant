@@ -9,6 +9,8 @@ import { buildIngestTusRuntime, INGEST_TUS_INFISICAL_KEYS } from './server';
 
 const FETCHED_UPLOAD_HMAC_KEY = 'placeholder-fetched-upload-hmac-key';
 const RAW_UPLOAD_HMAC_KEY = 'placeholder-raw-upload-hmac-key-32';
+const FETCHED_ALLOWED_ORIGIN = 'https://fetched-app.example.test';
+const RAW_ALLOWED_ORIGIN = 'https://raw-app.example.test';
 
 const openServers = new Set<ReturnType<typeof createServer>>();
 const scratchPaths = new Set<string>();
@@ -28,7 +30,7 @@ afterEach(async () => {
 });
 
 describe('ingest-tus production runtime', () => {
-  it('constructs capability verification with the Infisical UPLOAD_HMAC_KEY', async () => {
+  it('constructs the ingest runtime from Infisical storage configuration', async () => {
     const uploadDir = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-runtime-test-'));
     scratchPaths.add(uploadDir);
     const sourceEnv = {
@@ -37,6 +39,7 @@ describe('ingest-tus production runtime', () => {
       INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
       INGEST_UPLOAD_DIR: uploadDir,
       INGEST_MAX_BYTES: '1048576',
+      INGEST_ALLOWED_ORIGIN: RAW_ALLOWED_ORIGIN,
       UPLOAD_HMAC_KEY: RAW_UPLOAD_HMAC_KEY,
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
@@ -47,6 +50,7 @@ describe('ingest-tus production runtime', () => {
       CAS_S3_BUCKET: 'placeholder-bucket',
       CAS_S3_ACCESS_KEY_ID: 'placeholder-write-key-id',
       CAS_S3_SECRET_ACCESS_KEY: 'placeholder-write-key-secret',
+      INGEST_ALLOWED_ORIGIN: FETCHED_ALLOWED_ORIGIN,
     }));
 
     expect(INGEST_TUS_INFISICAL_KEYS).toEqual([
@@ -57,6 +61,7 @@ describe('ingest-tus production runtime', () => {
       'CAS_S3_BUCKET',
       'CAS_S3_ACCESS_KEY_ID',
       'CAS_S3_SECRET_ACCESS_KEY',
+      'INGEST_ALLOWED_ORIGIN',
     ]);
 
     const runtime = await buildIngestTusRuntime(sourceEnv, fetchSecrets);
@@ -75,6 +80,16 @@ describe('ingest-tus production runtime', () => {
     const health = await fetch(`http://127.0.0.1:${port}/healthz`);
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ ok: true });
+
+    const preflight = await fetch(`http://127.0.0.1:${port}/files`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: FETCHED_ALLOWED_ORIGIN,
+        'Access-Control-Request-Method': 'POST',
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(FETCHED_ALLOWED_ORIGIN);
 
     async function postWithKey(key: string): Promise<Response> {
       const capability = await signUploadCapability({

@@ -46,7 +46,7 @@ export async function buildIngestTusRuntime(
     return {
       database,
       handler: createIngestTusServer({
-        allowedOrigin: env.INGEST_ALLOWED_ORIGIN,
+        allowedOrigin: runtimeEnv.ingestAllowedOrigin,
         catalog,
         maxBytes: runtimeEnv.ingestMaxBytes,
         store,
