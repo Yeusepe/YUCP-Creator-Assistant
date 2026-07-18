@@ -428,7 +428,7 @@ describe.serial('canonical ingest pipeline end to end', () => {
     );
   });
 
-  it('publishes a delivery manifest only after READY commits and fails closed on publication error', async () => {
+  it('durably writes the delivery manifest before READY commits', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();
     const scratch = requireScratchPath();
@@ -469,7 +469,9 @@ describe.serial('canonical ingest pipeline end to end', () => {
     try {
       await waitForAdvisoryWait();
       expect(await activeCatalog.getVersion(assembled.id)).toMatchObject({ state: 'PROMOTING' });
-      await expect(readFile(manifestPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({
+        versionId: assembled.id,
+      });
 
       await lockConnection`SELECT pg_advisory_unlock(${advisoryKey})`;
       lockConnection.release();
@@ -499,13 +501,21 @@ describe.serial('canonical ingest pipeline end to end', () => {
       await database`DROP TRIGGER IF EXISTS block_ready_transition ON catalog_outbox`;
       await database`DROP FUNCTION IF EXISTS block_ready_transition()`;
     }
+  });
 
+  it('fails closed on manifest write failure and retries promotion from retained assembly metadata', async () => {
+    const activeCatalog = requireCatalog();
+    const scratch = requireScratchPath();
+    const fixture = requireFixturePath(rawV1Path, 'v1');
+    const storePath = join(scratch, 'promotion-retry-store');
+    const indexDir = join(scratch, 'promotion-retry-indexes');
+    const store = localCasStore(storePath);
     const publicationFailure = await ingestVersion({
       catalog: activeCatalog,
       storePath,
       indexDir,
-      packageId: 'promotion-order-package',
-      version: '2.0.0',
+      packageId: 'promotion-retry-package',
+      version: '1.0.0',
       inputPath: fixture,
     });
     const blockedManifestPath = resolve(indexDir, deliveryManifestObjectId(publicationFailure.id));
@@ -523,7 +533,7 @@ describe.serial('canonical ingest pipeline end to end', () => {
         })
       ).rejects.toBeInstanceOf(Error);
       expect(await activeCatalog.getVersion(publicationFailure.id)).toMatchObject({
-        state: 'READY',
+        state: 'FAILED',
       });
       await expect(readFile(blockedManifestPath, 'utf8')).rejects.toBeInstanceOf(Error);
       await expect(readFile(assemblyMetadataPath, 'utf8')).resolves.toContain(
@@ -532,6 +542,23 @@ describe.serial('canonical ingest pipeline end to end', () => {
     } finally {
       await rm(blockedManifestPath, { force: true, recursive: true });
     }
+
+    await activeCatalog.advanceVersion(publicationFailure.id, 'UPLOADING', {
+      event: { type: 'catalog.version.retrying' },
+    });
+    await activeCatalog.advanceVersion(publicationFailure.id, 'ASSEMBLED', {
+      event: { type: 'catalog.version.assembled' },
+    });
+    const ready = await promoteVersion({
+      catalog: activeCatalog,
+      store,
+      versionId: publicationFailure.id,
+    });
+    expect(ready.state).toBe('READY');
+    expect(JSON.parse(await readFile(blockedManifestPath, 'utf8'))).toMatchObject({
+      versionId: publicationFailure.id,
+    });
+    await expect(readFile(assemblyMetadataPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('removes the index and delivery metadata when assembly fails after storage', async () => {

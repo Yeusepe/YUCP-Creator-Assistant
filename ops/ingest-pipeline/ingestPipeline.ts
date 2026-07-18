@@ -299,11 +299,10 @@ async function finishPromotion(
 ): Promise<PackageVersion> {
   let scratchPath: string | undefined;
   let indexId: string | undefined;
+  let manifestId: string | undefined;
   let publication:
     | {
         deliveryMetadataId: string;
-        manifest: ReturnType<typeof createDeliveryManifest>;
-        manifestId: string;
         ready: PackageVersion;
       }
     | undefined;
@@ -355,11 +354,7 @@ async function finishPromotion(
       );
     }
 
-    const manifestId = siblingIndexObjectId(
-      input.store,
-      indexId,
-      deliveryManifestObjectId(promoting.id)
-    );
+    manifestId = siblingIndexObjectId(input.store, indexId, deliveryManifestObjectId(promoting.id));
     const manifest = createDeliveryManifest({
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       versionId: promoting.id,
@@ -367,6 +362,13 @@ async function finishPromotion(
       contentType: deliveryMetadata.contentType,
       chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
       chunks,
+    });
+    signal.throwIfAborted();
+    await writeCasIndexObject({
+      body: JSON.stringify(manifest),
+      contentType: 'application/json',
+      indexId: manifestId,
+      store: input.store,
     });
     signal.throwIfAborted();
     const ready = await input.catalog.transition(promoting.id, 'READY', {
@@ -379,26 +381,17 @@ async function finishPromotion(
         },
       },
     });
-    publication = { deliveryMetadataId, manifest, manifestId, ready };
+    publication = { deliveryMetadataId, ready };
   } catch (error) {
     signal.throwIfAborted();
     let failure = error;
-    if (indexId) {
-      // ponytail: Full orphan-chunk GC is a separate future task.
+    if (manifestId) {
       const cleanupErrors: unknown[] = [];
-      for (const objectId of [
-        deliveryManifestObjectId(promoting.id),
-        deliveryAssemblyMetadataObjectId(promoting.id),
-      ]) {
-        signal.throwIfAborted();
-        try {
-          await deleteCasIndexObject({
-            indexId: siblingIndexObjectId(input.store, indexId, objectId),
-            store: input.store,
-          });
-        } catch (cleanupError) {
-          cleanupErrors.push(cleanupError);
-        }
+      signal.throwIfAborted();
+      try {
+        await deleteCasIndexObject({ indexId: manifestId, store: input.store });
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
       }
       if (cleanupErrors.length > 0) {
         failure = new AggregateError(
@@ -419,13 +412,6 @@ async function finishPromotion(
   if (!publication) {
     throw new Error(`Promotion publication was not prepared for package version ${promoting.id}`);
   }
-  signal.throwIfAborted();
-  await writeCasIndexObject({
-    body: JSON.stringify(publication.manifest),
-    contentType: 'application/json',
-    indexId: publication.manifestId,
-    store: input.store,
-  });
   signal.throwIfAborted();
   await deleteCasIndexObject({
     indexId: publication.deliveryMetadataId,
