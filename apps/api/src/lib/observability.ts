@@ -23,6 +23,8 @@ let initialized = false;
 export function sanitizeApiRequestUrl(value: string | URL): URL {
   const url = new URL(value);
   url.pathname = url.pathname.replace(/^(\/api\/vpm\/)[^/]+(\/index\.json)$/, '$1[REDACTED]$2');
+  url.search = '';
+  url.hash = '';
   return url;
 }
 

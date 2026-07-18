@@ -41,9 +41,6 @@ export async function uploadPackageFile(input: {
   );
   const catalogProductId = authorization.catalogProductId ?? input.catalogProductId;
   const span = startHyperdxBrowserSpan('creator.upload', {
-    packageId: input.packageId,
-    version: input.version,
-    versionId: authorization.versionId,
     byteSize: input.file.size,
   });
   const upload = new Upload(input.file, {
