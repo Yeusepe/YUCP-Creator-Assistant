@@ -201,6 +201,7 @@ export function createConnectUserProductAccessRoutes({
         activeEntitlement =
           entitlementsResult.data?.find(
             (entitlement) =>
+              !entitlement.catalogProductId ||
               String(entitlement.catalogProductId) === String(product.catalogProductId)
           ) ?? null;
         cursor =

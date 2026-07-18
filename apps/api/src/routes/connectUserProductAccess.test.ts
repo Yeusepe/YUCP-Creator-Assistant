@@ -26,9 +26,6 @@ const apiMock = {
   packageVersions: {
     resolveDownloadableVersion: 'packageVersions.resolveDownloadableVersion',
   },
-  subjects: {
-    listByAuthUser: 'subjects.listByAuthUser',
-  },
   verificationIntents: {
     createVerificationIntent: 'verificationIntents.createVerificationIntent',
     getVerificationIntent: 'verificationIntents.getVerificationIntent',
@@ -202,7 +199,7 @@ function downloadRequest(headers?: HeadersInit): Request {
 }
 
 function mockDownloadAccess(options: {
-  activeEntitlement: boolean;
+  activeEntitlement: boolean | { catalogProductId?: string | null };
   downloadableVersion?: { versionId: string } | null;
 }) {
   convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
@@ -232,8 +229,12 @@ function mockDownloadAccess(options: {
         status: 'active',
         limit: 100,
       });
+      const activeEntitlement =
+        options.activeEntitlement === true
+          ? { catalogProductId: 'catalog_123' }
+          : options.activeEntitlement || null;
       return {
-        data: options.activeEntitlement ? [{ id: 'ent_1', catalogProductId: 'catalog_123' }] : [],
+        data: activeEntitlement ? [{ id: 'ent_1', ...activeEntitlement }] : [],
         hasMore: false,
       };
     }
@@ -341,6 +342,21 @@ describe('connect user product access routes', () => {
     expect(expiryMilliseconds).toBeLessThanOrEqual(afterRequest + 5 * 60_000);
   });
 
+  it('302 redirects for a product-level entitlement without a catalog product id', async () => {
+    mockDownloadAccess({
+      activeEntitlement: {},
+      downloadableVersion: { versionId: 'version-ready-product-level' },
+    });
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('/d/version-ready-product-level');
+  });
+
   it('302 redirects when the matching entitlement belongs to a second linked subject', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
@@ -353,14 +369,16 @@ describe('connect user product access routes', () => {
           status: 'active',
         };
       }
-      if (reference === apiMock.subjects.listByAuthUser) {
-        return { data: [{ _id: 'subject_buyer_1' }] };
-      }
       if (reference === apiMock.entitlements.listByAuthUser) {
-        const query = args as { scope?: string; subjectId?: string };
-        return query.scope === 'subject_holder'
+        const query = args as { cursor?: string; scope?: string };
+        expect(query.scope).toBe('subject_holder');
+        return query.cursor
           ? { data: [{ id: 'ent_2', catalogProductId: 'catalog_123' }], hasMore: false }
-          : { data: [] };
+          : {
+              data: [{ id: 'ent_1', catalogProductId: 'catalog_other' }],
+              hasMore: true,
+              nextCursor: 'second-linked-subject-page',
+            };
       }
       if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
         return { versionId: 'version-ready-second-subject' };
@@ -375,6 +393,10 @@ describe('connect user product access routes', () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get('location')).toContain('/d/version-ready-second-subject');
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.entitlements.listByAuthUser,
+      expect.objectContaining({ cursor: 'second-linked-subject-page' })
+    );
   });
 
   it('returns 404 to an entitled buyer when no READY version exists', async () => {
