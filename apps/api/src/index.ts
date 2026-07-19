@@ -34,6 +34,7 @@ import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
   createConnectRoutes,
+  createCreatorPackageRoutes,
   createCreatorUploadRoutes,
   createForensicsRoutes,
   createProviderPlatformRoutes,
@@ -60,6 +61,7 @@ let installRoutes: Map<string, (request: Request) => Promise<Response>> | null =
 let verificationRoutes: Map<string, (request: Request) => Promise<Response>> | null = null;
 let verificationHandlers: ReturnType<typeof createVerificationRoutes> | null = null;
 let connectRoutes: ReturnType<typeof createConnectRoutes> | null = null;
+let creatorPackageRoutes: ReturnType<typeof createCreatorPackageRoutes> | null = null;
 let creatorUploadRoutes: ReturnType<typeof createCreatorUploadRoutes> | null = null;
 let vpmRoutes: ReturnType<typeof createVpmRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
@@ -326,6 +328,16 @@ function initializeAuth(webhookBaseUrl?: string) {
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
 
+  creatorPackageRoutes = createCreatorPackageRoutes({
+    auth,
+    config: {
+      apiBaseUrl: publicBaseUrl,
+      frontendBaseUrl: frontendUrl,
+      convexApiSecret: env.CONVEX_API_SECRET ?? '',
+      convexUrl,
+    },
+  });
+
   creatorUploadRoutes = createCreatorUploadRoutes({
     auth,
     config: {
@@ -509,6 +521,14 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/creator/uploads/authorize')) {
     if (isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)) {
+      return new Response(JSON.stringify({ error: 'Too many requests' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+  if (pathname.startsWith('/api/creator/packages')) {
+    if (isRateLimited(`creator-packages:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -864,6 +884,17 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/complete' && connectRoutes) {
     return connectRoutes.completeSetup(request);
+  }
+  if (pathname === '/api/creator/packages' && creatorPackageRoutes) {
+    return creatorPackageRoutes.listPackages(request);
+  }
+  const creatorPackageMatch = pathname.match(/^\/api\/creator\/packages\/([^/]+)$/);
+  if (creatorPackageMatch && creatorPackageRoutes) {
+    const catalogProductId = safeDecodeURIComponent(creatorPackageMatch[1] ?? '');
+    if (catalogProductId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.getPackage(request, catalogProductId);
   }
   if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
     return creatorUploadRoutes.authorizeUpload(request);
