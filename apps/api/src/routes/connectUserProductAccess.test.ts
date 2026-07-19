@@ -201,16 +201,20 @@ function downloadRequest(headers?: HeadersInit): Request {
 function mockDownloadAccess(options: {
   activeEntitlement: boolean | { catalogProductId?: string | null };
   downloadableVersion?: { versionId: string } | null;
+  requestedCatalogProductId?: string;
+  resolvedCatalogProductId?: string;
 }) {
+  const requestedCatalogProductId = options.requestedCatalogProductId ?? 'catalog_123';
+  const resolvedCatalogProductId = options.resolvedCatalogProductId ?? 'catalog_123';
   convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
     if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
       expect(args).toEqual({
         apiSecret: 'test-convex-secret',
         actor: 'service-actor-binding',
-        catalogProductId: 'catalog_123',
+        catalogProductId: requestedCatalogProductId,
       });
       return {
-        catalogProductId: 'catalog_123',
+        catalogProductId: resolvedCatalogProductId,
         creatorAuthUserId: 'creator-auth-user',
         productId: 'product_123',
         provider: 'gumroad',
@@ -231,7 +235,7 @@ function mockDownloadAccess(options: {
       });
       const activeEntitlement =
         options.activeEntitlement === true
-          ? { catalogProductId: 'catalog_123' }
+          ? { catalogProductId: resolvedCatalogProductId }
           : options.activeEntitlement || null;
       return {
         data: activeEntitlement ? [{ id: 'ent_1', ...activeEntitlement }] : [],
@@ -242,7 +246,7 @@ function mockDownloadAccess(options: {
       expect(args).toEqual({
         apiSecret: 'test-convex-secret',
         actor: 'service-actor-binding',
-        catalogProductId: 'catalog_123',
+        catalogProductId: resolvedCatalogProductId,
       });
       return options.downloadableVersion ?? null;
     }
@@ -340,6 +344,27 @@ describe('connect user product access routes', () => {
     const expiryMilliseconds = Number(exp) * 1000;
     expect(expiryMilliseconds).toBeGreaterThanOrEqual(beforeRequest + 5 * 60_000 - 1000);
     expect(expiryMilliseconds).toBeLessThanOrEqual(afterRequest + 5 * 60_000);
+  });
+
+  it('resolves a download slug to its catalog product id before the version lookup', async () => {
+    mockDownloadAccess({
+      activeEntitlement: true,
+      downloadableVersion: { versionId: 'version-ready-from-slug' },
+      requestedCatalogProductId: 'avatar-bundle',
+      resolvedCatalogProductId: 'catalog_resolved_123',
+    });
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      downloadRequest(),
+      'avatar-bundle'
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toContain('/d/version-ready-from-slug');
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.packageVersions.resolveDownloadableVersion,
+      expect.objectContaining({ catalogProductId: 'catalog_resolved_123' })
+    );
   });
 
   it('302 redirects for a product-level entitlement without a catalog product id', async () => {

@@ -272,8 +272,11 @@ export function createConnectUserProductAccessRoutes({
     }
 
     try {
-      const { activeEntitlement } = await resolveBuyerProductAccess(session, catalogProductId);
-      if (!activeEntitlement) {
+      const { activeEntitlement, product } = await resolveBuyerProductAccess(
+        session,
+        catalogProductId
+      );
+      if (!activeEntitlement || !product) {
         return Response.json({ error: 'Active entitlement required' }, { status: 403 });
       }
 
@@ -293,7 +296,9 @@ export function createConnectUserProductAccessRoutes({
         {
           apiSecret: config.convexApiSecret,
           actor: versionActor,
-          catalogProductId: catalogProductId as Id<'product_catalog'>,
+          // Use the RESOLVED catalog product _id, not the raw request alias (slug/provider ref):
+          // resolveDownloadableVersion indexes package_versions_ref by the product_catalog id.
+          catalogProductId: product.catalogProductId,
         }
       )) as { versionId: string } | null;
       if (!downloadableVersion) {
