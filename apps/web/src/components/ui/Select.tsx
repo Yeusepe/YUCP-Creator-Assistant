@@ -108,9 +108,8 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
         {options.map((opt) => {
           const isSelected = opt.value === value;
           return (
-            <button
+            <div
               key={opt.value}
-              type="button"
               role="option"
               tabIndex={open ? 0 : -1}
               aria-selected={isSelected}
@@ -147,7 +146,7 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
                 )}
               </span>
               {opt.label}
-            </button>
+            </div>
           );
         })}
       </div>
