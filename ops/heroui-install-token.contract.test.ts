@@ -4,7 +4,9 @@ import { join, resolve } from 'node:path';
 
 const WORKFLOWS_DIR = resolve(process.cwd(), '.github', 'workflows');
 const INSTALL_COMMAND = 'run: bun install --frozen-lockfile';
-const HEROUI_ACTIONS_SECRET = 'HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}';
+const HEROUI_ACTIONS_SECRET = 'secrets.HEROUI_AUTH_TOKEN';
+const TRUSTED_HEROUI_ACTIONS_SECRET =
+  "HEROUI_AUTH_TOKEN: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.HEROUI_AUTH_TOKEN || '' }}";
 
 function readWorkflowSources(): Array<{ path: string; source: string }> {
   return readdirSync(WORKFLOWS_DIR)
@@ -61,10 +63,21 @@ describe('HeroUI Pro install token plumbing', () => {
     expect(installSteps.length).toBeGreaterThan(0);
 
     for (const { path, block } of installSteps) {
-      expect(block, `${path} install step must expose HEROUI_AUTH_TOKEN`).toContain(
+      expect(block, `${path} install step must define HEROUI_AUTH_TOKEN`).toContain(
+        'HEROUI_AUTH_TOKEN:'
+      );
+      expect(block, `${path} install step must use the HeroUI Actions secret`).toContain(
         HEROUI_ACTIONS_SECRET
       );
     }
+  });
+
+  test('withholds the storage install token from fork pull requests', () => {
+    const source = readFileSync(join(WORKFLOWS_DIR, 'storage-e2e.yml'), 'utf8');
+    const installSteps = collectInstallStepBlocks(source);
+
+    expect(installSteps).toHaveLength(1);
+    expect(installSteps[0]).toContain(TRUSTED_HEROUI_ACTIONS_SECRET);
   });
 
   test('uses a Docker build secret for the web preview image install', () => {
