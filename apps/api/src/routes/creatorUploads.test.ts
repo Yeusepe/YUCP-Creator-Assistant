@@ -290,4 +290,34 @@ describe('creator upload authorization', () => {
       )
     ).toBe(true);
   });
+
+  it('authorizes the first upload when the catalog product is not yet bound to a package', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        // No READY version yet, so the product is not bound to any packageId.
+        return { creatorAuthUserId: 'creator-123' };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.avatar',
+        version: '1.0.0',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(200);
+  });
 });

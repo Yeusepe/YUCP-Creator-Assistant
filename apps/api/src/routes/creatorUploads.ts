@@ -113,10 +113,14 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
           catalogProductId,
         }
       )) as { creatorAuthUserId: string; packageId?: string } | null;
+      // packageId is only known once the catalog product has a READY version. Before that (e.g. the
+      // first upload) it is undefined and the product is not yet bound to any package, so only reject a
+      // CONCRETE mismatch — a product already bound to a different package. Creator ownership of the
+      // requested packageId is already proven by the registration check above.
       if (
         !product ||
         product.creatorAuthUserId !== session.user.id ||
-        product.packageId !== packageId
+        (product.packageId !== undefined && product.packageId !== packageId)
       ) {
         return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
       }
