@@ -40,6 +40,11 @@ const GRANT_EXPIRY_MS = 5 * 60 * 1000;
 const GRANT_AUDIENCE = 'yucp-verification-intent';
 const LICENSE_AUDIENCE = 'yucp-license-gate';
 
+function getVerificationGrantIssuer(): string {
+  const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
+  return `${siteUrl}/api/auth`;
+}
+
 async function getPinnedSigningKey(configuredKeyId?: string | null): Promise<{
   keyId: string;
   privateKeyBase64: string;
@@ -333,7 +338,8 @@ async function signVerificationGrantJwt(
 }
 
 async function verifyVerificationGrantJwtAgainstPinnedRoots(
-  token: string
+  token: string,
+  expectedIssuer: string
 ): Promise<VerificationGrantClaims | null> {
   try {
     const parts = token.split('.');
@@ -362,6 +368,7 @@ async function verifyVerificationGrantJwtAgainstPinnedRoots(
     const payload = JSON.parse(
       new TextDecoder().decode(base64UrlDecodeToBytes(parts[1]))
     ) as VerificationGrantClaims;
+    if (payload.iss !== expectedIssuer) return null;
     if (payload.aud !== GRANT_AUDIENCE) return null;
     if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
@@ -867,12 +874,11 @@ export const getVerificationIntent = action({
       !intent.verificationGrantUsedAt
     ) {
       const signingKey = await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
-      const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
       const nowSeconds = Math.floor(now / 1000);
       const expSeconds = Math.floor(intent.verificationGrantExpiresAt / 1000);
       grantToken = await signVerificationGrantJwt(
         {
-          iss: `${siteUrl}/api/auth`,
+          iss: getVerificationGrantIssuer(),
           aud: GRANT_AUDIENCE,
           sub: intent.authUserId,
           jti: intent.verificationGrantJti,
@@ -1458,7 +1464,10 @@ export const redeemVerificationIntent = action({
     }
 
     await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
-    const grantClaims = await verifyVerificationGrantJwtAgainstPinnedRoots(args.grantToken);
+    const grantClaims = await verifyVerificationGrantJwtAgainstPinnedRoots(
+      args.grantToken,
+      getVerificationGrantIssuer()
+    );
     if (!grantClaims) {
       return { success: false, error: 'Verification grant is invalid or expired' };
     }
