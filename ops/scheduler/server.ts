@@ -9,6 +9,7 @@ import {
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../catalog';
+import { promoteVersion } from '../ingest-pipeline';
 import {
   type CasConfig,
   type FetchInfisicalSecrets,
@@ -101,9 +102,38 @@ export async function buildSchedulerRuntime(
       },
       publish: createConvexCatalogPublish(runtimeEnv.publish),
       redrive: async ({ version }) => {
-        // Failed uploads require their original source to be replayed. Never acknowledge a
-        // redrive until a durable source-replay boundary exists.
-        throw new Error(`Automatic redrive is unavailable for catalog version ${version.id}`);
+        const { canonicalSha256, casIndexId, formatTag } = version;
+        if (!casIndexId || !canonicalSha256) {
+          throw new Error(`Automatic redrive requires re-uploading catalog version ${version.id}`);
+        }
+        if (!formatTag) {
+          throw new Error(`Catalog version ${version.id} has incomplete CAS assembly metadata`);
+        }
+
+        let current = await catalog.getVersion(version.id);
+        if (!current) {
+          throw new Error(`Catalog version ${version.id} was not found during automatic redrive`);
+        }
+        if (current.state === 'READY') {
+          return;
+        }
+        if (current.state === 'FAILED') {
+          current = await catalog.advanceVersion(version.id, 'UPLOADING', {
+            event: { type: 'catalog.version.retrying' },
+          });
+        }
+        if (current.state === 'UPLOADING') {
+          current = await catalog.advanceVersion(version.id, 'ASSEMBLED', {
+            fields: { canonicalSha256, casIndexId, formatTag },
+            event: { type: 'catalog.version.assembled' },
+          });
+        }
+        if (current.state !== 'ASSEMBLED') {
+          throw new Error(
+            `Automatic redrive cannot resume catalog version ${version.id} from ${current.state}`
+          );
+        }
+        await promoteVersion({ catalog, store, versionId: version.id });
       },
       store,
       stuckThresholdMs: positiveInteger(

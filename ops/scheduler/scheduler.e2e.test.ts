@@ -11,10 +11,12 @@ import {
   type RedriveRequest,
   runCatalogMigrations,
 } from '../catalog';
-import { ingestVersion, retrieveVersion } from '../ingest-pipeline';
+import { ingestVersion, promoteVersion, retrieveVersion } from '../ingest-pipeline';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
+import { deliveryManifestObjectId, parseDeliveryManifest } from '../storage-core/deliveryManifest';
 import {
   localCasStore,
+  readCasIndexObject,
   type S3CasStore,
   s3CasStore,
   verifyDesyncCli,
@@ -23,6 +25,7 @@ import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createIngestScheduler, type IngestScheduler } from './scheduler';
+import { buildSchedulerRuntime, type SchedulerRuntime } from './server';
 
 const POSTGRES_IMAGE = 'postgres:17-alpine';
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
@@ -36,7 +39,9 @@ let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
 let store: S3CasStore | undefined;
 let scratchPath: string | undefined;
+let catalogDatabaseUrl: string | undefined;
 const schedulers = new Set<IngestScheduler>();
+const schedulerRuntimes = new Set<SchedulerRuntime>();
 const startedContainers = new Set<string>();
 
 interface CommandResult {
@@ -120,6 +125,38 @@ function requireScratchPath(): string {
   return scratchPath;
 }
 
+function requireCatalogDatabaseUrl(): string {
+  if (!catalogDatabaseUrl) {
+    throw new Error('Scheduler end-to-end database URL was not initialized');
+  }
+  return catalogDatabaseUrl;
+}
+
+async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
+  const activeStore = requireStore();
+  const sourceEnv = {
+    INFISICAL_PROJECT_ID: 'scheduler-e2e-project',
+    INFISICAL_CLIENT_ID: 'scheduler-e2e-client',
+    INFISICAL_CLIENT_SECRET: 'scheduler-e2e-secret',
+    SCHEDULER_BATCH_LIMIT: '1',
+    SCHEDULER_INTERVAL_MS: String(intervalMs),
+    SCHEDULER_STUCK_THRESHOLD_MS: '60000',
+  } satisfies NodeJS.ProcessEnv;
+  const runtime = await buildSchedulerRuntime(sourceEnv, async () => ({
+    CONVEX_API_SECRET: 'scheduler-e2e-convex-api-secret',
+    CONVEX_URL: 'https://scheduler-e2e.invalid',
+    INTERNAL_SERVICE_AUTH_SECRET: 'scheduler-e2e-internal-auth-secret',
+    CATALOG_DATABASE_URL: requireCatalogDatabaseUrl(),
+    CAS_S3_ENDPOINT: activeStore.config.endpoint,
+    CAS_S3_REGION: activeStore.config.region,
+    CAS_S3_BUCKET: activeStore.config.bucket,
+    CAS_S3_ACCESS_KEY_ID: activeStore.config.accessKeyId,
+    CAS_S3_SECRET_ACCESS_KEY: activeStore.config.secretAccessKey,
+  }));
+  schedulerRuntimes.add(runtime);
+  return runtime;
+}
+
 function assertScratchPath(path: string): void {
   const relativePath = relative(resolve(tmpdir()), resolve(path));
   if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${sep}`)) {
@@ -188,6 +225,11 @@ async function cleanup(): Promise<void> {
     await scheduler.stop();
   }
   schedulers.clear();
+  for (const runtime of schedulerRuntimes) {
+    await runtime.scheduler.stop();
+    await runtime.database.end({ timeout: 1 });
+  }
+  schedulerRuntimes.clear();
 
   const activeSql = sql;
   sql = undefined;
@@ -259,9 +301,8 @@ beforeAll(async () => {
     const minioEndpoint = `http://127.0.0.1:${minioPort}`;
     await waitForMinioReady({ endpoint: minioEndpoint });
 
-    sql = openCatalogDatabase(
-      `postgres://postgres:${databasePassword}@127.0.0.1:${postgresPort}/${databaseName}`
-    );
+    catalogDatabaseUrl = `postgres://postgres:${databasePassword}@127.0.0.1:${postgresPort}/${databaseName}`;
+    sql = openCatalogDatabase(catalogDatabaseUrl);
     await runCatalogMigrations(sql);
     await sql`
       CREATE TABLE scheduler_test_dispatches (
@@ -462,6 +503,122 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         'graceful-stop=yes',
         'tick-error-does-not-crash=yes',
         `no-overlapping-ticks=${maxConcurrentPublishes === 1 ? 'yes' : 'no'}`,
+      ].join('\n')
+    );
+  });
+
+  it('automatically recovers a promotion failure from retained CAS assembly data', async () => {
+    const activeCatalog = requireCatalog();
+    const activeStore = requireStore();
+    const scratch = requireScratchPath();
+    const inputPath = join(scratch, 'automatic-redrive.bin');
+    await writeFile(inputPath, deterministicBytes('scheduler-automatic-redrive', 512 * 1024));
+
+    const assembled = await ingestVersion({
+      catalog: activeCatalog,
+      inputPath,
+      packageId: 'scheduler-automatic-redrive',
+      store: activeStore,
+      version: '1.0.0',
+    });
+    expect(assembled).toMatchObject({
+      state: 'ASSEMBLED',
+      casIndexId: expect.any(String),
+      canonicalSha256: expect.any(String),
+    });
+
+    await expect(
+      promoteVersion({
+        catalog: activeCatalog,
+        store: localCasStore(join(scratch, 'transient-wrong-store')),
+        versionId: assembled.id,
+      })
+    ).rejects.toThrow('CAS index store kind s3 does not match local store');
+    const failed = await activeCatalog.getVersion(assembled.id);
+    expect(failed).toMatchObject({
+      state: 'FAILED',
+      formatTag: assembled.formatTag,
+      casIndexId: assembled.casIndexId,
+      canonicalSha256: assembled.canonicalSha256,
+    });
+    await requireSql()`
+      UPDATE package_versions
+      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${assembled.id}
+    `;
+
+    const runtime = await buildProductionSchedulerRuntime();
+    runtime.scheduler.start();
+    await waitForState(assembled.id, 'READY');
+    await runtime.scheduler.stop();
+
+    const manifest = parseDeliveryManifest(
+      JSON.parse(
+        await readCasIndexObject({
+          indexId: deliveryManifestObjectId(assembled.id),
+          store: activeStore,
+        })
+      )
+    );
+    expect(manifest.versionId).toBe(assembled.id);
+    expect(manifest.chunks.length).toBeGreaterThan(0);
+    const retrievedPath = await retrieveVersion({
+      catalog: activeCatalog,
+      outputPath: join(scratch, 'automatic-redrive-retrieved.bin'),
+      store: activeStore,
+      versionId: assembled.id,
+    });
+    expect(await readFile(retrievedPath)).toEqual(await readFile(inputPath));
+
+    console.log(
+      [
+        'SCHEDULER_AUTO_REDRIVE_RESULT',
+        'promotion-failure-left-FAILED=yes',
+        'retained-cas-metadata=yes',
+        'automatic-redrive-to-READY=yes',
+        'delivery-manifest-readable=yes',
+      ].join('\n')
+    );
+  });
+
+  it('does not automatically recover a failure without CAS assembly data', async () => {
+    const activeCatalog = requireCatalog();
+    const activeSql = requireSql();
+    const created = await activeCatalog.createVersion({
+      packageId: 'scheduler-source-replay-required',
+      version: '1.0.0',
+    });
+    const failed = await activeCatalog.markFailed(created.id, 'upload failed before assembly');
+    expect(failed).toMatchObject({
+      state: 'FAILED',
+      casIndexId: null,
+      canonicalSha256: null,
+    });
+    await activeSql`
+      UPDATE package_versions
+      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${created.id}
+    `;
+
+    const runtime = await buildProductionSchedulerRuntime();
+    runtime.scheduler.start();
+    await Bun.sleep(intervalMs * 8);
+    await runtime.scheduler.stop();
+
+    expect(await activeCatalog.getVersion(created.id)).toMatchObject({
+      state: 'FAILED',
+      attempts: 2,
+      casIndexId: null,
+      canonicalSha256: null,
+    });
+
+    console.log(
+      [
+        'SCHEDULER_SOURCE_REPLAY_RESULT',
+        'automatic-recovery=no',
+        'state=FAILED',
+        'cas-index=absent',
+        'redrive-attempted=yes',
       ].join('\n')
     );
   });
