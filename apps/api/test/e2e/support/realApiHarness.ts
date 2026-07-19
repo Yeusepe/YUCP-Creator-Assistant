@@ -406,6 +406,7 @@ export async function seedCreatorProfile(input: {
 
 export async function seedProductCatalog(input: {
   authUserId: string;
+  canonicalSlug?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -414,6 +415,7 @@ export async function seedProductCatalog(input: {
   const now = Date.now();
   return await requireState().convex.insert('product_catalog', {
     authUserId: input.authUserId,
+    canonicalSlug: input.canonicalSlug,
     productId: input.productId,
     provider: input.provider,
     providerProductRef: input.providerProductRef,

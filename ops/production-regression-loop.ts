@@ -62,11 +62,14 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Creator onboarding must reject a guild already owned by another account before creating a profile or writing any partial setup state. Public API-key verification must accept the opaque key format emitted by the configured issuer and authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant.',
     primaryRegressionHomes: [
       'apps/api/src/lib/subjectIdentity.test.ts',
       'apps/api/src/routes/providerPlatform.test.ts',
+      'apps/api/src/routes/connect.guildChannels.test.ts',
+      'apps/api/src/routes/publicV2/auth.test.ts',
       'convex/identitySync.realtest.ts',
+      'convex/guildLinks.realtest.ts',
       'convex/betterAuthApiKeys.realtest.ts',
     ],
     secondaryRegressionHomes: [
@@ -75,6 +78,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'convex/licenseVerification.realtest.ts',
     ],
     remediationHomes: [
+      'convex/guildLinks.realtest.ts',
       'ops/subject-ownership-remediation.test.ts',
       'ops/buyer-attribution-remediation.test.ts',
     ],
@@ -153,6 +157,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       '--config',
       'convex/vitest.config.ts',
       './convex/identitySync.realtest.ts',
+      './convex/guildLinks.realtest.ts',
       './convex/attestation.realtest.ts',
       './convex/betterAuthApiKeys.realtest.ts',
     ],
@@ -203,6 +208,13 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
     covers: ['verification'],
   },
   {
+    id: 'api-onboarding-ownership',
+    description: 'API onboarding ownership and atomicity regressions',
+    cwdRelativeToRepoRoot: 'apps/api',
+    args: ['test', './src/routes/connect.guildChannels.test.ts'],
+    covers: ['identity', 'account'],
+  },
+  {
     id: 'api-identity-verification-and-backfill',
     description:
       'API identity, verification, route-scoping, and backfill regressions for production incidents',
@@ -213,6 +225,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './src/lib/subjectIdentity.test.ts',
       './src/routes/connect.user-verify.manual-license.test.ts',
       './src/routes/providerPlatform.test.ts',
+      './src/routes/public.timing.test.ts',
       './src/routes/connectUserVerification.readSurface.test.ts',
       './src/routes/connect.user-verify.behavior.test.ts',
       './src/routes/backfill.test.ts',
