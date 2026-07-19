@@ -882,6 +882,22 @@ test('publishes first and repeat creator releases, materializes a purchase, and 
       skippedInactive: 0,
       unresolved: 0,
     });
+    const repeatedMaterialization = await harness.convex.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creator.authUserId,
+        productId: PACKAGE_ID,
+        provider: 'gumroad',
+        providerProductRef,
+      }
+    );
+    expect(repeatedMaterialization).toMatchObject({
+      purchaseFactsFound: 1,
+      linkedToSubject: 0,
+      entitlementsGranted: 0,
+      skippedInactive: 0,
+      unresolved: 0,
+    });
     const entitlements = await harness.convex.collect('entitlements');
     expect(entitlements).toEqual([
       expect.objectContaining({
@@ -1080,7 +1096,7 @@ test('publishes first and repeat creator releases, materializes a purchase, and 
     console.log(`manifest-chunks=${deliveryManifest.chunks.length} multi-chunk=yes`);
     console.log('canonical-id=302 slug=302 provider-ref=302 unentitled=403');
     console.log('first-release=SUPERSEDED second-release=READY other-creator=READY');
-    console.log('namespace-conflict=denied purchase-materialization=active');
+    console.log('namespace-conflict=denied purchase-materialization=active-repeat-idempotent');
     console.log('legacy-package=migrated-active');
     console.log('tampered-sig=403 expired-sig=403');
     console.log(`origin-chunk-fetches=${originChunkFetches}`);
