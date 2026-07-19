@@ -32,10 +32,6 @@ const lazyRoutePairs = [
     '../../src/routes/_authenticated/dashboard/integrations.lazy.tsx',
   ],
   [
-    '../../src/routes/_authenticated/dashboard/packages.tsx',
-    '../../src/routes/_authenticated/dashboard/packages.lazy.tsx',
-  ],
-  [
     '../../src/routes/_authenticated/dashboard/server-rules.tsx',
     '../../src/routes/_authenticated/dashboard/server-rules.lazy.tsx',
   ],

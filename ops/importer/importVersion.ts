@@ -1,0 +1,218 @@
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
+import type { DeliveryUrlSignature } from '../storage-core/deliverySigning';
+import { verifyDeliveryUrl } from '../storage-core/deliverySigning';
+import {
+  buildDesyncS3StoreUrl,
+  type CasStore,
+  desyncS3ChildEnv,
+  inspectDesyncIndex,
+} from '../storage-core/desyncCas';
+import { commandPathEnv, runCommand } from '../storage-core/process';
+import { getS3Object } from '../storage-core/s3Control';
+
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+
+export type ImporterCapability = DeliveryUrlSignature & {
+  versionId: string;
+};
+
+export type ImportVersionConfig = {
+  hmacKey: string;
+};
+
+export type ImportSeed = {
+  artifactPath: string;
+  indexId: string;
+};
+
+export type ImportVersionInput = {
+  capability: ImporterCapability;
+  expectedSha256: string;
+  indexId: string;
+  outputPath: string;
+  seed?: ImportSeed;
+  store: CasStore;
+};
+
+function assertRemoteIndexId(indexId: string): void {
+  const segments = indexId.split('/');
+  if (
+    !indexId ||
+    indexId.startsWith('/') ||
+    indexId.includes('\\') ||
+    indexId.includes('?') ||
+    indexId.includes('#') ||
+    segments.some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error('S3 CAS index ID must be a safe relative object key');
+  }
+}
+
+function storeLocation(store: CasStore): string {
+  return store.kind === 'local' ? resolve(store.storePath) : buildDesyncS3StoreUrl(store.config);
+}
+
+function indexLocation(store: CasStore, indexId: string): string {
+  if (store.kind === 'local') {
+    return resolve(indexId);
+  }
+  assertRemoteIndexId(indexId);
+  return buildDesyncS3StoreUrl(store.config, `${store.config.indexPrefix}${indexId}`);
+}
+
+function childEnv(store: CasStore): NodeJS.ProcessEnv {
+  return store.kind === 's3' ? desyncS3ChildEnv(store.config) : commandPathEnv();
+}
+
+export function importerCapabilityBinding(indexId: string, expectedSha256: string): string {
+  return JSON.stringify([indexId, expectedSha256]);
+}
+
+async function stageSeedIndex(input: {
+  scratchPath: string;
+  seed: ImportSeed;
+  store: CasStore;
+}): Promise<string> {
+  const stagedIndexPath = join(input.scratchPath, 'seed.caibx');
+  if (input.store.kind === 'local') {
+    await writeFile(stagedIndexPath, await readFile(resolve(input.seed.indexId)), { mode: 0o600 });
+    return stagedIndexPath;
+  }
+
+  assertRemoteIndexId(input.seed.indexId);
+  const response = await getS3Object(
+    input.store.config,
+    `${input.store.config.indexPrefix}${input.seed.indexId}`
+  );
+  await writeFile(stagedIndexPath, new Uint8Array(await response.arrayBuffer()), { mode: 0o600 });
+  return stagedIndexPath;
+}
+
+async function measureFile(filePath: string): Promise<{ byteLength: number; sha256: string }> {
+  const before = await stat(filePath);
+  if (!before.isFile()) {
+    throw new Error('Imported artifact is not a regular file');
+  }
+
+  const hash = createHash('sha256');
+  let byteLength = 0;
+  for await (const chunk of createReadStream(filePath)) {
+    byteLength += chunk.byteLength;
+    hash.update(chunk);
+  }
+  const after = await stat(filePath);
+  if (after.size !== before.size || byteLength !== before.size) {
+    throw new Error('Imported artifact byte length changed during verification');
+  }
+  return { byteLength, sha256: hash.digest('hex') };
+}
+
+async function realPathAllowMissingFile(filePath: string): Promise<string> {
+  try {
+    return await realpath(filePath);
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+      throw error;
+    }
+    return join(await realpath(dirname(filePath)), basename(filePath));
+  }
+}
+
+/**
+ * desync seed contract: https://github.com/folbricht/desync#using-a-seed-file
+ */
+export async function importVersion(
+  input: ImportVersionInput,
+  config: ImportVersionConfig
+): Promise<string> {
+  if (
+    !(await verifyDeliveryUrl({
+      binding: importerCapabilityBinding(input.indexId, input.expectedSha256),
+      exp: input.capability.exp,
+      key: config.hmacKey,
+      sig: input.capability.sig,
+      versionId: input.capability.versionId,
+    }))
+  ) {
+    throw new Error('Invalid or expired importer capability');
+  }
+  if (!SHA256_PATTERN.test(input.expectedSha256)) {
+    throw new Error('Expected importer SHA-256 must be a lowercase hexadecimal digest');
+  }
+  if (input.store.kind === 's3') {
+    assertRemoteIndexId(input.indexId);
+    if (input.seed) {
+      assertRemoteIndexId(input.seed.indexId);
+    }
+  }
+
+  const outputPath = resolve(input.outputPath);
+  const outputDirectory = dirname(outputPath);
+  await mkdir(outputDirectory, { recursive: true });
+  const seedArtifactPath = input.seed ? resolve(input.seed.artifactPath) : undefined;
+  if (seedArtifactPath) {
+    const [realSeedArtifactPath, realOutputPath] = await Promise.all([
+      realpath(seedArtifactPath),
+      realPathAllowMissingFile(outputPath),
+    ]);
+    if (relative(realSeedArtifactPath, realOutputPath) === '') {
+      throw new Error('Importer seed artifact must differ from output path');
+    }
+    const seedStats = await stat(seedArtifactPath);
+    if (!seedStats.isFile()) {
+      throw new Error('Importer seed artifact is not a regular file');
+    }
+  }
+
+  const scratchPath = await mkdtemp(join(outputDirectory, '.yucp-importer-'));
+  const stagedOutputPath = join(scratchPath, 'artifact.reconstructed');
+  const storeUrl = storeLocation(input.store);
+  const configPath = join(scratchPath, 'desync-config.json');
+
+  try {
+    const chunks = await inspectDesyncIndex({ indexId: input.indexId, store: input.store });
+    const expectedByteLength = chunks.reduce((total, chunk) => total + chunk.size, 0);
+    if (!Number.isSafeInteger(expectedByteLength) || expectedByteLength <= 0) {
+      throw new Error('Importer index describes an invalid artifact byte length');
+    }
+
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ 'store-options': { [storeUrl]: { uncompressed: true } } })}\n`,
+      { mode: 0o600 }
+    );
+    const args = ['--config', configPath, '--digest', 'sha256', 'extract', '--store', storeUrl];
+    if (input.seed && seedArtifactPath) {
+      const stagedIndexPath = await stageSeedIndex({
+        scratchPath,
+        seed: input.seed,
+        store: input.store,
+      });
+      const relativeSeedIndex = relative(scratchPath, stagedIndexPath);
+      const relativeSeedArtifact = relative(scratchPath, seedArtifactPath);
+      if (relativeSeedIndex.includes(':') || relativeSeedArtifact.includes(':')) {
+        throw new Error('Importer seed index and artifact must be on the same filesystem');
+      }
+      args.push('--seed', `${relativeSeedIndex}:${relativeSeedArtifact}`);
+    }
+    args.push('--', indexLocation(input.store, input.indexId), stagedOutputPath);
+
+    await runCommand('desync', args, { cwd: scratchPath, env: childEnv(input.store) });
+    const measured = await measureFile(stagedOutputPath);
+    if (measured.byteLength !== expectedByteLength) {
+      throw new Error(
+        `Imported artifact byte length mismatch: expected ${expectedByteLength}, received ${measured.byteLength}`
+      );
+    }
+    if (measured.sha256 !== input.expectedSha256) {
+      throw new Error('Imported artifact SHA-256 mismatch');
+    }
+    await rename(stagedOutputPath, outputPath);
+    return outputPath;
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
+}

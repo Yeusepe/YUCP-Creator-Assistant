@@ -7,6 +7,8 @@
 /apps/web/.dev.vars.local
 /apps/web/.cloudflare.deploy.vars
 /apps/web/.wrangler
+/\.wrangler
+/services/delivery-worker/.wrangler
 node_modules
 *.md
 !README.md

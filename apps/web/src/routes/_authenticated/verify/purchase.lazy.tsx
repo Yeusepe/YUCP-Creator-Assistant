@@ -14,7 +14,6 @@ import {
   verifyUserVerificationManualLicense,
   verifyUserVerificationProviderLink,
 } from '@/lib/account';
-import { requestUserBackstageRepoAccess } from '@/lib/backstageAccess';
 import {
   getProviderIconPath,
   listUserAccounts,
@@ -69,44 +68,6 @@ function buildReturnUrl(intent: UserVerificationIntent): string | null {
   url.searchParams.set('intent_id', intent.id);
   url.searchParams.set('grant', intent.grantToken);
   return url.toString();
-}
-
-function isBuyerAccessReturnUrl(value: string | null): boolean {
-  if (!value) {
-    return false;
-  }
-
-  try {
-    const pathname = new URL(value).pathname;
-    return pathname.startsWith('/access/') || pathname.startsWith('/get-in-unity/');
-  } catch {
-    return false;
-  }
-}
-
-function parseBuyerRepoAccessTarget(
-  value: string | null
-): { catalogProductId: string } | { creatorRef: string; productRef: string } | null {
-  if (!value) {
-    return null;
-  }
-
-  try {
-    const segments = new URL(value).pathname.split('/').filter(Boolean).map(decodeURIComponent);
-    const catalogProductId = segments[1]?.trim();
-    const creatorRef = segments[1]?.trim();
-    const productRef = segments[2]?.trim();
-    if (segments[0] === 'access' && catalogProductId) {
-      return { catalogProductId };
-    }
-    if (segments[0] === 'get-in-unity' && creatorRef && productRef) {
-      return { creatorRef, productRef };
-    }
-  } catch {
-    return null;
-  }
-
-  return null;
 }
 
 // ---- Branded OAuth button -------------------------------------------------
@@ -879,23 +840,10 @@ function VerifyPurchasePage() {
   }, [intent, intentId, justConnectedProvider, oauthReturnState, queryClient]);
 
   const returnToUrl = useMemo(() => (intent ? buildReturnUrl(intent) : null), [intent]);
-  const returnsToBuyerAccess = useMemo(() => isBuyerAccessReturnUrl(returnToUrl), [returnToUrl]);
   const shouldAutoReturnToUnity = useMemo(
-    () => Boolean(returnToUrl && !returnsToBuyerAccess && isLoopbackReturnUrl(returnToUrl)),
-    [returnToUrl, returnsToBuyerAccess]
-  );
-  const buyerRepoAccessTarget = useMemo(
-    () => parseBuyerRepoAccessTarget(returnToUrl),
+    () => Boolean(returnToUrl && isLoopbackReturnUrl(returnToUrl)),
     [returnToUrl]
   );
-  const shouldPrepareBuyerRepoAccess = intent?.status === 'verified' && returnsToBuyerAccess;
-  const repoAccessQuery = useQuery({
-    queryKey: ['vp-backstage-repo-access', intentId, buyerRepoAccessTarget],
-    queryFn: () => requestUserBackstageRepoAccess(buyerRepoAccessTarget ?? undefined),
-    enabled: shouldPrepareBuyerRepoAccess && buyerRepoAccessTarget !== null,
-    retry: false,
-    staleTime: 60_000,
-  });
 
   const accountsByProvider = useMemo(() => {
     const m = new Map<string, UserAccountConnection[]>();
@@ -1085,99 +1033,10 @@ function VerifyPurchasePage() {
         </h1>
 
         <p className="vp-success-subtitle fade-up" style={{ animationDelay: '0.45s' }}>
-          {returnsToBuyerAccess
-            ? `${intent.packageName || intent.packageId} is ready. Add your entitled repo in VCC, then continue back to your buyer access page.`
-            : `${intent.packageName || intent.packageId} is ready. Return to Unity to continue installing the package.`}
+          {intent.packageName || intent.packageId} is ready. Return to Unity to continue.
         </p>
 
-        {repoAccessQuery.isLoading ? (
-          <div className="vp-checking-section fade-up" style={{ animationDelay: '0.6s' }}>
-            <span className="vp-spinner vp-spinner--lg" aria-hidden="true" />
-            <p className="vp-checking-text">Preparing your VCC access...</p>
-          </div>
-        ) : null}
-
-        {returnsToBuyerAccess && repoAccessQuery.data ? (
-          <div
-            className="fade-up"
-            style={{
-              animationDelay: '0.6s',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '0.875rem',
-              padding: '0 2rem 2rem',
-            }}
-          >
-            <a href={repoAccessQuery.data.addRepoUrl} className="vp-primary-btn">
-              Add to VCC
-            </a>
-            {returnToUrl ? (
-              <a
-                href={returnToUrl}
-                className="vp-primary-btn"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.06)',
-                  borderColor: 'rgba(255, 255, 255, 0.16)',
-                }}
-              >
-                {returnsToBuyerAccess
-                  ? 'Continue after adding the repo'
-                  : 'Return to Unity after adding the repo'}
-              </a>
-            ) : null}
-            <p
-              className="vp-section-desc"
-              style={{ marginBottom: 0, maxWidth: '32rem', textAlign: 'center' }}
-            >
-              {repoAccessQuery.data.repositoryName} is now ready for this entitled buyer account.
-            </p>
-            <details
-              style={{
-                width: '100%',
-                maxWidth: '32rem',
-                textAlign: 'left',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                borderRadius: '16px',
-                background: 'rgba(255, 255, 255, 0.04)',
-                padding: '1rem 1rem 0',
-              }}
-            >
-              <summary
-                style={{
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: 600,
-                  color: 'rgba(255, 255, 255, 0.92)',
-                  marginBottom: '1rem',
-                }}
-              >
-                Manual setup and troubleshooting
-              </summary>
-              <div style={{ paddingBottom: '1rem' }}>
-                <p className="vp-section-desc" style={{ marginBottom: '0.75rem' }}>
-                  Use Add to VCC for the normal flow. If support asks for the repo URL, use the
-                  entitled address below.
-                </p>
-                <code
-                  style={{
-                    display: 'block',
-                    overflowWrap: 'anywhere',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255, 255, 255, 0.08)',
-                    background: 'rgba(0, 0, 0, 0.24)',
-                    padding: '0.875rem 1rem',
-                    color: 'rgba(255, 255, 255, 0.9)',
-                    fontSize: '0.8rem',
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {repoAccessQuery.data.repositoryUrl}
-                </code>
-              </div>
-            </details>
-          </div>
-        ) : returnToUrl ? (
+        {returnToUrl ? (
           <div
             className="fade-up"
             style={{
@@ -1190,22 +1049,13 @@ function VerifyPurchasePage() {
             }}
           >
             <a href={returnToUrl} className="vp-primary-btn">
-              {returnsToBuyerAccess ? 'Continue' : 'Return to Unity'}
+              Return to Unity
             </a>
             {shouldAutoReturnToUnity ? <AutoReturnNotice returnUrl={returnToUrl} /> : null}
           </div>
         ) : null}
 
-        {repoAccessQuery.isError ? (
-          <p
-            className="vp-success-subtitle fade-up"
-            style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
-          >
-            {returnsToBuyerAccess
-              ? 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Continue back to your buyer access page and try again.'
-              : 'Your purchase is verified, but YUCP could not prepare the VCC handoff just now. Return to Unity and try again.'}
-          </p>
-        ) : !repoAccessQuery.data && !returnToUrl ? (
+        {!returnToUrl ? (
           <p
             className="vp-success-subtitle fade-up"
             style={{ animationDelay: '0.7s', marginBottom: '2rem' }}
@@ -1413,9 +1263,8 @@ function VerifyPurchasePage() {
       {/* Footer */}
       <div className="vp-card-footer">
         <p className="vp-footer-note">
-          {returnsToBuyerAccess
-            ? 'Verification is handled securely in your browser. After the server confirms your purchase, YUCP prepares entitled repo access for VCC and package install.'
-            : 'Verification is handled securely in your browser. After the server confirms your purchase, YUCP returns the verification grant to Unity so installation can continue.'}
+          Verification is handled securely in your browser. After the server confirms your purchase,
+          YUCP returns the verification grant to Unity.
         </p>
       </div>
     </div>

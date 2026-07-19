@@ -9,13 +9,10 @@ import { parse as parseDotenv } from 'dotenv';
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
 const DEV_FRONTEND_URL = 'http://localhost:3000';
-const DEV_CDNGINE_API_BASE_URL = 'http://localhost:4000';
-const DEV_CDNGINE_ACCESS_TOKEN = 'local-public-runtime-token';
 const DEV_HYPERDX_APP_URL = 'http://localhost:8080';
 const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const DEV_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
 const DEV_HYPERDX_USE_REMOTE_FLAG = 'HYPERDX_DEV_USE_REMOTE';
-const DEFAULT_CDNGINE_REPOSITORY_URL = 'https://github.com/Yeusepe/cdngine';
 const PREFIX_RESET = '\u001B[0m';
 const PREFIX_COLORS = {
   blue: '\u001B[34m',
@@ -27,7 +24,6 @@ const PREFIX_COLORS = {
 } as const;
 
 export type PrefixColor = keyof typeof PREFIX_COLORS;
-export type CdngineStartMode = 'stack' | 'server' | 'demo';
 
 export interface DevCommandSpec {
   name: string;
@@ -71,90 +67,11 @@ const TUNNEL_COMMAND: DevCommandSpec = {
 const WINDOWS_TASKKILL_TIMEOUT_MS = 2_000;
 const WINDOWS_POWERSHELL_KILL_TIMEOUT_MS = 5_000;
 
-export function getCdngineDir(baseEnv: NodeJS.ProcessEnv = process.env): string | null {
-  const configured = baseEnv.CDNGINE_DIR?.trim();
-  if (!configured) {
-    return null;
-  }
-
-  if (!existsSync(configured)) {
-    throw new Error(`CDNGINE_DIR does not exist: ${configured}`);
-  }
-
-  return configured;
-}
-
-function getManagedCdngineRef(baseEnv: NodeJS.ProcessEnv = process.env): string | null {
-  return baseEnv.CDNGINE_DOCKER_REF?.trim() || null;
-}
-
-export function getCdngineStartMode(baseEnv: NodeJS.ProcessEnv = process.env): CdngineStartMode {
-  const configured = baseEnv.CDNGINE_START_MODE?.trim().toLowerCase();
-  if (!configured) {
-    return 'server';
-  }
-
-  if (configured === 'stack' || configured === 'server' || configured === 'demo') {
-    return configured;
-  }
-
-  throw new Error(`CDNGINE_START_MODE must be "stack", "server", or "demo", got: ${configured}`);
-}
-
-function buildCdngineCommand(startMode: CdngineStartMode): string {
-  switch (startMode) {
-    case 'stack':
-      return 'npm start';
-    case 'server':
-      return [
-        'npm start',
-        'npm run build',
-        'node ./apps/demo/scripts/start-public-runtime.mjs',
-      ].join(' && ');
-    case 'demo':
-      return 'npm start && npm run demo:start';
-  }
-}
-
-export function describeCdngineStartup(baseEnv: NodeJS.ProcessEnv = process.env): string {
-  const cdngineDir = getCdngineDir(baseEnv);
-  if (!cdngineDir) {
-    const managedRef = getManagedCdngineRef(baseEnv);
-    if (!managedRef) {
-      return 'cdngine disabled. Set CDNGINE_DIR or CDNGINE_DOCKER_REF in .env.local or .env.infisical to launch it.';
-    }
-    const repositoryUrl = baseEnv.CDNGINE_REPOSITORY_URL?.trim() || DEFAULT_CDNGINE_REPOSITORY_URL;
-    const startMode = getCdngineStartMode(baseEnv);
-    return `cdngine enabled via Docker Compose ${repositoryUrl} @ ${managedRef} (mode: ${startMode})`;
-  }
-
-  const startMode = getCdngineStartMode(baseEnv);
-  return `cdngine enabled via CDNGINE_DIR: ${cdngineDir} (mode: ${startMode})`;
-}
-
 export function buildDevCommands(
-  baseEnv: NodeJS.ProcessEnv = process.env,
+  _baseEnv: NodeJS.ProcessEnv = process.env,
   infisical = false
 ): readonly DevCommandSpec[] {
   const commands = [...(infisical ? INFISICAL_COMMANDS : DEFAULT_COMMANDS)];
-  const cdngineDir = getCdngineDir(baseEnv);
-  if (cdngineDir) {
-    const cdngineStartMode = getCdngineStartMode(baseEnv);
-    commands.push({
-      name: 'cdngine',
-      color: 'cyan',
-      command: buildCdngineCommand(cdngineStartMode),
-      cwd: cdngineDir,
-      required: false,
-    });
-  } else if (getManagedCdngineRef(baseEnv)) {
-    commands.push({
-      name: 'cdngine',
-      color: 'cyan',
-      command: 'bun run ops/cdngine-dev.ts',
-      required: false,
-    });
-  }
   commands.push(TUNNEL_COMMAND);
   return commands;
 }
@@ -485,21 +402,8 @@ async function runCommandStep(step: DevCommandSpec, env: NodeJS.ProcessEnv): Pro
 
 export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const preferRemoteHyperdx = baseEnv[DEV_HYPERDX_USE_REMOTE_FLAG] === 'true';
-  const hasCdngineRuntime = Boolean(baseEnv.CDNGINE_DIR?.trim() || getManagedCdngineRef(baseEnv));
-  const hasCdngineBaseUrl = Boolean(
-    baseEnv.CDNGINE_API_BASE_URL?.trim() || baseEnv.CDNGINE_PUBLIC_API_BASE_URL?.trim()
-  );
-  const hasCdngineAccessToken = Boolean(
-    baseEnv.CDNGINE_ACCESS_TOKEN?.trim() || baseEnv.CDNGINE_API_TOKEN?.trim()
-  );
   return {
     ...baseEnv,
-    ...(hasCdngineRuntime && !hasCdngineBaseUrl
-      ? { CDNGINE_API_BASE_URL: DEV_CDNGINE_API_BASE_URL }
-      : {}),
-    ...(hasCdngineRuntime && !hasCdngineAccessToken
-      ? { CDNGINE_ACCESS_TOKEN: DEV_CDNGINE_ACCESS_TOKEN }
-      : {}),
     FRONTEND_URL: baseEnv.FRONTEND_URL ?? DEV_FRONTEND_URL,
     HYPERDX_APP_URL: preferRemoteHyperdx
       ? (baseEnv.HYPERDX_APP_URL ?? DEV_HYPERDX_APP_URL)
@@ -550,7 +454,6 @@ function signalExitCode(signal: NodeJS.Signals): number {
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const infisical = argv.includes('--infisical');
   const env = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
-  process.stdout.write(`${buildPrefix('dev', 'magenta')}${describeCdngineStartup(env)}\n`);
   const supervisor = new DevSupervisor(buildDevCommands(env, infisical), env, {
     prefixOutput: true,
   });

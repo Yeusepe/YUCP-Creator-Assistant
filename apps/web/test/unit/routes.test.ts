@@ -10,6 +10,7 @@ const ROUTES_DIR = resolve(__dirname, '../../src/routes');
  */
 describe('Route Tree', () => {
   const expectedRouteFiles = [
+    'access.$catalogProductId.tsx',
     'sign-in.tsx',
     'sign-in-redirect.tsx',
     'connect.tsx',
@@ -20,7 +21,7 @@ describe('Route Tree', () => {
     '_authenticated/dashboard/integrations.tsx',
     '_authenticated/dashboard/collaboration.tsx',
     '_authenticated/dashboard/billing.tsx',
-    '_authenticated/dashboard/packages.tsx',
+    '_authenticated/dashboard/forensics.tsx',
     '_authenticated/dashboard/server-rules.tsx',
     '_authenticated/dashboard/audit-logs.tsx',
     '_authenticated/account.tsx',

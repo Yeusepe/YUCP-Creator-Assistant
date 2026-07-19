@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './cors';
 
 describe('API CORS headers', () => {
-  it('allows the Backstage signed source upload headers from approved browser origins', () => {
+  it('allows standard API request methods and content headers from approved browser origins', () => {
     const headers = buildApiCorsHeaders({
       allowedOrigins: new Set(['http://localhost:3000']),
       origin: 'http://localhost:3000',
@@ -12,10 +12,6 @@ describe('API CORS headers', () => {
     expect(headers['Access-Control-Allow-Methods']).toContain('PUT');
     expect(headers['Access-Control-Allow-Methods']).toContain('OPTIONS');
     expect(headers['Access-Control-Allow-Headers']).toContain('Content-Type');
-    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-File-Name');
-    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Media-Kind');
-    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Source-Path');
-    expect(headers['Access-Control-Allow-Headers']).toContain('X-YUCP-Upload-Completion-Token');
   });
 
   it('keeps localhost UI origins allowed in development when the public API URL is a tunnel', () => {

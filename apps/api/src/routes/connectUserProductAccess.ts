@@ -7,6 +7,7 @@ import { getSafeRelativeRedirectTarget } from '@yucp/shared';
 import { sha256Base64Url } from '@yucp/shared/crypto';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
+import { signDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
 import type { Auth } from '../auth';
 import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { buildCookie, getCookieValue } from '../lib/browserSessions';
@@ -38,20 +39,7 @@ type BuyerAccessCatalogProduct = {
   canonicalSlug?: string;
   thumbnailUrl?: string;
   status: 'active';
-  backstagePackages: Array<{
-    packageId: string;
-    packageName?: string;
-    displayName?: string;
-    defaultChannel?: string;
-    latestPublishedVersion?: string;
-    latestPublishedAt?: number;
-    repositoryVisibility: 'hidden' | 'listed';
-  }>;
 };
-
-function buildBuyerProductAccessPath(catalogProductId: string): string {
-  return `/access/${encodeURIComponent(catalogProductId)}`;
-}
 
 function getAllowedOrigins(config: ConnectConfig): Set<string> {
   return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
@@ -68,6 +56,16 @@ function jsonNoStore(body: unknown, init?: ResponseInit): Response {
   return Response.json(body, {
     ...init,
     headers,
+  });
+}
+
+function redirectNoStore(location: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: location,
+      'Cache-Control': 'no-store',
+    },
   });
 }
 
@@ -167,6 +165,55 @@ export function createConnectUserProductAccessRoutes({
     })) as BuyerAccessCatalogProduct | null;
   }
 
+  async function resolveBuyerProductAccess(
+    session: Awaited<ReturnType<Auth['getSession']>>,
+    catalogProductId: string
+  ) {
+    const product = await resolveAccessProduct(catalogProductId);
+    if (!product) {
+      return { activeEntitlement: null, product: null };
+    }
+
+    let activeEntitlement: { catalogProductId?: Id<'product_catalog'> | null } | null = null;
+    if (session) {
+      const entitlementActor = await createApiServiceActorBinding({
+        authUserId: session.user.id,
+        service: 'buyer-product-access',
+        scopes: ['entitlements:service'],
+      });
+      const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
+      let cursor: string | undefined;
+      do {
+        const entitlementsResult = (await entitlementConvex.query(api.entitlements.listByAuthUser, {
+          apiSecret: config.convexApiSecret,
+          actor: entitlementActor,
+          authUserId: session.user.id,
+          scope: 'subject_holder',
+          productId: product.productId,
+          status: 'active',
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        })) as {
+          data?: Array<{ catalogProductId?: Id<'product_catalog'> | null }>;
+          hasMore?: boolean;
+          nextCursor?: string | null;
+        };
+        activeEntitlement =
+          entitlementsResult.data?.find(
+            (entitlement) =>
+              !entitlement.catalogProductId ||
+              String(entitlement.catalogProductId) === String(product.catalogProductId)
+          ) ?? null;
+        cursor =
+          !activeEntitlement && entitlementsResult.hasMore && entitlementsResult.nextCursor
+            ? entitlementsResult.nextCursor
+            : undefined;
+      } while (!activeEntitlement && cursor);
+    }
+
+    return { activeEntitlement, product };
+  }
+
   async function getBuyerProductAccess(
     request: Request,
     catalogProductId: string
@@ -174,62 +221,13 @@ export function createConnectUserProductAccessRoutes({
     const session = await auth.getSession(request);
 
     try {
-      const buyerActor = session
-        ? await createAuthUserActorBinding({
-            authUserId: session.user.id,
-            source: 'session',
-          })
-        : null;
-      const buyerConvex = buyerActor ? getConvexClientFromUrl(config.convexUrl, buyerActor) : null;
-      const product = await resolveAccessProduct(catalogProductId);
+      const { activeEntitlement, product } = await resolveBuyerProductAccess(
+        session,
+        catalogProductId
+      );
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-
-      const buyerSubject = session
-        ? ((await buyerConvex?.query(api.backstageRepos.getSubjectByAuthUserForApi, {
-            apiSecret: config.convexApiSecret,
-            actor: buyerActor,
-            authUserId: session.user.id,
-          })) as { _id: Id<'subjects'> } | null)
-        : null;
-      const entitlementsResult =
-        session && buyerSubject
-          ? await (async () => {
-              const entitlementActor = await createApiServiceActorBinding({
-                service: 'api-server',
-                scopes: ['creator:delegate'],
-              });
-              const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
-              return await entitlementConvex.query(api.entitlements.listByAuthUser, {
-                apiSecret: config.convexApiSecret,
-                actor: entitlementActor,
-                authUserId: product.creatorAuthUserId,
-                subjectId: buyerSubject._id,
-                productId: product.productId,
-                status: 'active',
-                limit: 20,
-              });
-            })()
-          : { data: [] };
-      const activeEntitlement =
-        entitlementsResult.data?.find(
-          (entitlement: { catalogProductId?: Id<'product_catalog'> | null }) =>
-            !entitlement.catalogProductId ||
-            String(entitlement.catalogProductId) === String(product.catalogProductId)
-        ) ?? null;
-
-      const packagePreview = activeEntitlement
-        ? product.backstagePackages.map((packageLink) => ({
-            packageId: packageLink.packageId,
-            packageName: packageLink.packageName ?? null,
-            displayName: packageLink.displayName ?? null,
-            defaultChannel: packageLink.defaultChannel ?? null,
-            latestPublishedVersion: packageLink.latestPublishedVersion ?? null,
-            latestPublishedAt: packageLink.latestPublishedAt ?? null,
-            repositoryVisibility: packageLink.repositoryVisibility,
-          }))
-        : [];
 
       return jsonNoStore({
         product: {
@@ -240,13 +238,10 @@ export function createConnectUserProductAccessRoutes({
           provider: product.provider,
           providerLabel: providerLabel(product.provider),
           storefrontUrl: buildCatalogProductUrl(product.provider, product.providerProductRef),
-          accessPagePath: buildBuyerProductAccessPath(String(product.catalogProductId)),
-          packagePreview,
         },
         accessState: {
           hasActiveEntitlement: Boolean(activeEntitlement),
           requiresVerification: !activeEntitlement,
-          hasPublishedPackages: product.backstagePackages.length > 0,
         },
       });
     } catch (error) {
@@ -255,6 +250,76 @@ export function createConnectUserProductAccessRoutes({
         error: error instanceof Error ? error.message : String(error),
       });
       return Response.json({ error: 'Failed to load product access' }, { status: 500 });
+    }
+  }
+
+  async function downloadBuyerProductAccess(
+    request: Request,
+    catalogProductId: string
+  ): Promise<Response> {
+    if (request.method !== 'GET') {
+      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+    }
+
+    const csrfBlock = rejectCrossSiteRequest(request, getAllowedOrigins(config));
+    if (csrfBlock) {
+      return csrfBlock;
+    }
+
+    const session = await auth.getSession(request);
+    if (!session) {
+      return Response.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    try {
+      const { activeEntitlement, product } = await resolveBuyerProductAccess(
+        session,
+        catalogProductId
+      );
+      if (!activeEntitlement || !product) {
+        return Response.json({ error: 'Active entitlement required' }, { status: 403 });
+      }
+
+      const deliveryHmacKey = config.deliveryHmacKey?.trim();
+      const deliveryBaseUrl = config.deliveryBaseUrl?.trim();
+      if (!deliveryHmacKey || !deliveryBaseUrl) {
+        return Response.json({ error: 'Downloads are not configured' }, { status: 503 });
+      }
+
+      const versionActor = await createApiServiceActorBinding({
+        service: 'api-server',
+        scopes: ['downloads:service'],
+      });
+      const convex = getConvexClientFromUrl(config.convexUrl, versionActor);
+      const downloadableVersion = (await convex.query(
+        api.packageVersions.resolveDownloadableVersion,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: versionActor,
+          // Use the RESOLVED catalog product _id, not the raw request alias (slug/provider ref):
+          // resolveDownloadableVersion indexes package_versions_ref by the product_catalog id.
+          catalogProductId: product.catalogProductId,
+        }
+      )) as { versionId: string } | null;
+      if (!downloadableVersion) {
+        return Response.json({ error: 'Product is not yet published' }, { status: 404 });
+      }
+
+      const signature = await signDeliveryUrl({
+        versionId: downloadableVersion.versionId,
+        key: deliveryHmacKey,
+        expiresAt: Date.now() + 5 * 60_000,
+      });
+      const location = `${deliveryBaseUrl.replace(/\/+$/, '')}/d/${encodeURIComponent(
+        downloadableVersion.versionId
+      )}?exp=${signature.exp}&sig=${signature.sig}`;
+      return redirectNoStore(location);
+    } catch (error) {
+      logger.error('Failed to prepare buyer product download', {
+        catalogProductId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json({ error: 'Failed to prepare download' }, { status: 500 });
     }
   }
 
@@ -294,30 +359,14 @@ export function createConnectUserProductAccessRoutes({
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
       }
-      if (product.backstagePackages.length === 0) {
-        return Response.json(
-          {
-            error:
-              'This product does not have a published package yet. Ask the creator to finish package setup first.',
-          },
-          { status: 409 }
-        );
-      }
-
       const safeReturnPath =
         getSafeRelativeRedirectTarget(
           typeof body.returnTo === 'string' ? body.returnTo : undefined
-        ) ?? buildBuyerProductAccessPath(String(product.catalogProductId));
+        ) ?? '/dashboard';
       const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
       const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
-      const primaryPackage = product.backstagePackages[0];
-      const packageId = primaryPackage?.packageId ?? product.productId;
-      const packageName =
-        product.displayName ??
-        primaryPackage?.displayName ??
-        primaryPackage?.packageName ??
-        primaryPackage?.packageId ??
-        product.productId;
+      const packageId = product.productId;
+      const packageName = product.displayName ?? product.productId;
       const codeVerifier = `${crypto.randomUUID()}${crypto.randomUUID()}`;
       const requirements = normalizeHostedVerificationRequirements(
         buildHostedVerificationRequirements(product)
@@ -380,6 +429,7 @@ export function createConnectUserProductAccessRoutes({
   }
 
   return {
+    downloadBuyerProductAccess,
     getBuyerProductAccess,
     postBuyerProductAccessVerificationIntent,
   };

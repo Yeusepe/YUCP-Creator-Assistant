@@ -134,37 +134,6 @@ const JSON_SECURITY_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Content-Type-Options': 'nosniff',
 } as const;
-const PROXY_REQUEST_HEADER_ALLOWLIST = new Set([
-  'accept',
-  'accept-encoding',
-  'authorization',
-  'baggage',
-  'cache-control',
-  'content-length',
-  'content-type',
-  'idempotency-key',
-  'traceparent',
-  'tracestate',
-  'x-request-id',
-  'x-yucp-repo-token',
-]);
-const PROXY_RESPONSE_HEADER_ALLOWLIST = new Set([
-  'cache-control',
-  'content-disposition',
-  'content-length',
-  'content-type',
-  'location',
-  'ratelimit-limit',
-  'ratelimit-remaining',
-  'ratelimit-reset',
-  'referrer-policy',
-  'server-timing',
-  'vary',
-  'x-content-type-options',
-  'x-request-id',
-  'x-trace-id',
-  'yucp-version',
-]);
 type HttpRateLimitMutationRef = typeof internal.lib.httpRateLimit.checkAndIncrement;
 
 const http = httpRouter();
@@ -190,16 +159,6 @@ async function getPinnedSigningRoot(configuredKeyId?: string | null): Promise<{
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-function copyAllowedHeaders(source: Headers, allowlist: ReadonlySet<string>): Headers {
-  const headers = new Headers();
-  for (const [key, value] of source.entries()) {
-    if (allowlist.has(key.toLowerCase())) {
-      headers.set(key, value);
-    }
-  }
-  return headers;
-}
 
 function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Response {
   const responseHeaders = new Headers(JSON_SECURITY_HEADERS);
@@ -257,43 +216,6 @@ async function applyHttpRateLimit(
 
   return errorResponse(options.message, 429, {
     'Retry-After': String(Math.ceil(windowMs / 1000)),
-  });
-}
-
-async function proxyToPublicApi(request: Request, targetPath: string): Promise<Response> {
-  const apiBaseUrl = resolveConfiguredPublicApiBaseUrl();
-  if (!apiBaseUrl) {
-    return errorResponse('Service not configured', 503);
-  }
-
-  const requestUrl = new URL(request.url);
-  const targetUrl = new URL(targetPath, `${apiBaseUrl.replace(/\/$/, '')}/`);
-  targetUrl.search = requestUrl.search;
-
-  const headers = copyAllowedHeaders(request.headers, PROXY_REQUEST_HEADER_ALLOWLIST);
-
-  const body =
-    request.method === 'GET' || request.method === 'HEAD'
-      ? undefined
-      : await request.clone().arrayBuffer();
-  const proxied = await fetch(targetUrl.toString(), {
-    method: request.method,
-    headers,
-    body,
-    redirect: 'manual',
-  });
-
-  const responseHeaders = copyAllowedHeaders(proxied.headers, PROXY_RESPONSE_HEADER_ALLOWLIST);
-  for (const [key, value] of Object.entries(JSON_SECURITY_HEADERS)) {
-    if (!responseHeaders.has(key)) {
-      responseHeaders.set(key, value);
-    }
-  }
-
-  return new Response(proxied.body, {
-    status: proxied.status,
-    statusText: proxied.statusText,
-    headers: responseHeaders,
   });
 }
 
@@ -956,30 +878,6 @@ http.route({
     } catch {
       return errorResponse('Service not configured', 503);
     }
-  }),
-});
-
-http.route({
-  method: 'GET',
-  path: '/v1/backstage/repos/access',
-  handler: httpAction(async (_ctx, request) => {
-    return await proxyToPublicApi(request, '/v1/backstage/repos/access');
-  }),
-});
-
-http.route({
-  method: 'GET',
-  path: '/v1/backstage/repos/index.json',
-  handler: httpAction(async (_ctx, request) => {
-    return await proxyToPublicApi(request, '/v1/backstage/repos/index.json');
-  }),
-});
-
-http.route({
-  method: 'GET',
-  path: '/v1/backstage/package',
-  handler: httpAction(async (_ctx, request) => {
-    return await proxyToPublicApi(request, '/v1/backstage/package');
   }),
 });
 

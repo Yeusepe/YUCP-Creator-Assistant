@@ -6,6 +6,12 @@ import { buildWranglerCommand } from './cli-utils';
 
 export const WEB_APP_DIR = resolve(import.meta.dir, '..', 'apps', 'web');
 export const REPO_ROOT_DIR = resolve(import.meta.dir, '..');
+export const DELIVERY_WORKER_WRANGLER_CONFIG_PATH = resolve(
+  REPO_ROOT_DIR,
+  'services',
+  'delivery-worker',
+  'wrangler.toml'
+);
 export const REPO_ROOT_ENV_LOCAL_PATH = resolve(REPO_ROOT_DIR, '.env.local');
 export const WEB_WRANGLER_CONFIG_PATH = resolve(WEB_APP_DIR, 'wrangler.jsonc');
 export const WEB_DIST_SERVER_DIR = resolve(WEB_APP_DIR, 'dist', 'server');
@@ -49,6 +55,18 @@ export const WEB_SECRET_KEYS = [
   'HYPERDX_API_KEY',
   'INTERNAL_RPC_SHARED_SECRET',
   'OTEL_EXPORTER_OTLP_HEADERS',
+] as const;
+
+export const DELIVERY_WORKER_BINDING_KEYS = [
+  'CAS_S3_ENDPOINT',
+  'CAS_S3_REGION',
+  'CAS_S3_BUCKET',
+  'CAS_S3_READONLY_ACCESS_KEY_ID',
+  'CAS_S3_READONLY_SECRET_ACCESS_KEY',
+  'CAS_INDEX_PREFIX',
+  'CAS_CHUNK_PREFIX',
+  'DELIVERY_HMAC_KEY',
+  'STORAGE_FORMAT_VERSION',
 ] as const;
 
 const WEB_LOCAL_ENV_KEYS = [
@@ -167,6 +185,12 @@ export function getWebRuntimeVarValues(source: Record<string, string>): Record<s
 
 export function getWebSecretValues(source: Record<string, string>): Record<string, string> {
   return pickValues(source, WEB_SECRET_KEYS);
+}
+
+export function getDeliveryWorkerBindingValues(
+  source: Record<string, string>
+): Record<string, string> {
+  return pickValues(source, DELIVERY_WORKER_BINDING_KEYS);
 }
 
 export function createWebDeployEnvironment(source: Record<string, string>): NodeJS.ProcessEnv {

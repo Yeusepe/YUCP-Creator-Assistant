@@ -34,14 +34,13 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'provider',
     label: 'Provider runtime contracts',
     invariant:
-      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, violating transport contracts such as int64 serialization, publishing Backstage repo manifests that drop synthesized alias metadata and importer requirements for metadata-less or previously persisted releases, storing canonical CDNgine source coordinates as delivery references, or persisting Backstage CDNgine delivery references before CDNgine publication is visible.',
+      'Provider adapters and internal RPC boundaries must reject or normalize upstream drift without looping pagination, mis-scaling provider currency units, dropping credential expiry, silently rewriting response shape, hanging dashboard catalog surfaces when live reconciliation stalls, or violating transport contracts such as int64 serialization.',
     primaryRegressionHomes: [
       'packages/providers/test/gumroad/module.test.ts',
       'packages/providers/test/jinxxy/module.test.ts',
       'packages/providers/test/lemonsqueezy/module.test.ts',
       'packages/providers/test/vrchat/module.test.ts',
       'apps/api/src/internalRpc/router.test.ts',
-      'apps/api/src/routes/packages.backstage.test.ts',
     ],
     secondaryRegressionHomes: [
       'apps/bot/test/lib/internalRpc.test.ts',
@@ -55,9 +54,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     label: 'Hardware-attested anti-ripper identity',
     invariant:
       'A protected unlock must be refused when the buyer resolves to an identity node carrying an active block, an attestation challenge nonce must be single-use and fresh so a captured submit cannot be replayed, a claimed TPM that fails endorsement-chain or challenge-signature verification must be flagged rather than silently trusted, an identity block must require at least two durable anchors (TPM and/or payment) so a reused or forged soft label alone cannot ban a real customer, and only salted hashes (never raw identifiers) may be persisted.',
-    primaryRegressionHomes: [
-      'convex/attestation.realtest.ts',
-    ],
+    primaryRegressionHomes: ['convex/attestation.realtest.ts'],
     secondaryRegressionHomes: ['convex/couplingJobAndReveal.realtest.ts'],
     remediationHomes: ['convex/attestation.realtest.ts'],
   },
@@ -86,9 +83,10 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, and route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary.',
+      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, and grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution.',
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
+      'convex/entitlements.buyer-holder.realtest.ts',
       'convex/manualLicenses.realtest.ts',
       'convex/outboxJobs.realtest.ts',
       'convex/verificationIntents.realtest.ts',
@@ -103,6 +101,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/api/src/routes/suite.test.ts',
     ],
     secondaryRegressionHomes: [
+      'apps/api/src/routes/connectUserProductAccess.test.ts',
       'apps/bot/test/commands/verify.test.ts',
       'apps/bot/test/lib/setupCatalog.test.ts',
       'apps/web/test/unit/purchase-verification-ui-state.test.ts',
@@ -161,7 +160,8 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
   },
   {
     id: 'convex-verification-entitlement-realtests',
-    description: 'Convex entitlement and manual-license revocation regressions for verification incidents',
+    description:
+      'Convex entitlement and manual-license revocation regressions for verification incidents',
     cwdRelativeToRepoRoot: '.',
     args: [
       'x',
@@ -170,6 +170,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       '--config',
       'convex/vitest.config.ts',
       './convex/entitlements.realtest.ts',
+      './convex/entitlements.buyer-holder.realtest.ts',
       './convex/manualLicenses.realtest.ts',
       './convex/outboxJobs.realtest.ts',
       './convex/verificationIntents.realtest.ts',
@@ -188,7 +189,6 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './packages/providers/test/jinxxy/module.test.ts',
       './packages/providers/test/lemonsqueezy/module.test.ts',
       './packages/providers/test/vrchat/module.test.ts',
-      './apps/api/src/routes/packages.backstage.test.ts',
       './apps/bot/test/lib/roleSync.test.ts',
       './apps/bot/test/lib/setupCatalog.test.ts',
       './apps/bot/test/commands/autosetup.test.ts',
@@ -222,6 +222,13 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './src/routes/publicV2/auth.test.ts',
     ],
     covers: ['identity', 'verification', 'account', 'backfill'],
+  },
+  {
+    id: 'api-buyer-product-access',
+    description: 'API buyer product access entitlement regressions',
+    cwdRelativeToRepoRoot: 'apps/api',
+    args: ['test', './src/routes/connectUserProductAccess.test.ts'],
+    covers: ['verification'],
   },
   {
     id: 'web-account-consumers',

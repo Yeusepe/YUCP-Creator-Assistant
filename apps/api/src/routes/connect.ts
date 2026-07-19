@@ -1284,11 +1284,14 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     config,
     isTenantOwnedBySessionUser,
   });
-  const { getBuyerProductAccess, postBuyerProductAccessVerificationIntent } =
-    createConnectUserProductAccessRoutes({
-      auth,
-      config,
-    });
+  const {
+    downloadBuyerProductAccess,
+    getBuyerProductAccess,
+    postBuyerProductAccessVerificationIntent,
+  } = createConnectUserProductAccessRoutes({
+    auth,
+    config,
+  });
 
   async function loadDashboardPolicyForAuthUser(
     request: Request,
@@ -1745,6 +1748,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
     getUserGuilds,
     getUserConnections,
     getUserProviders,
+    downloadBuyerProductAccess,
     getBuyerProductAccess,
     postBuyerProductAccessVerificationIntent,
     postUserVerifyStart,

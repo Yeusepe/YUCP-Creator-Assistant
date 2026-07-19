@@ -47,6 +47,12 @@ type RealConvexHarnessModule = {
   ): Promise<void>;
 };
 
+type RealConvexManageModule = {
+  runSelfHostedConvexCli(args: string[], env: Record<string, string>): Promise<string>;
+  selfHostedConvexEnv(adminKey: string): Record<string, string>;
+  withSelfHostedConvexEnvFileMovedAside<T>(operation: () => Promise<T>): Promise<T>;
+};
+
 type BetterAuthUserSeed = {
   authUserId: string;
   email: string;
@@ -64,38 +70,26 @@ const seededAuthUserIds = new Set<string>();
 const convexRealHarnessPath = ['..', '..', '..', '..', '..', 'ops', 'convex-real', 'harness'].join(
   '/'
 );
+const convexRealManagePath = ['..', '..', '..', '..', '..', 'ops', 'convex-real', 'manage'].join(
+  '/'
+);
 
 async function loadRealConvexHarness(): Promise<RealConvexHarnessModule> {
   return (await import(convexRealHarnessPath)) as RealConvexHarnessModule;
 }
 
-async function runConvexEnvSet(
-  name: string,
-  value: string,
-  getRealBackendAdminKey: () => Promise<string>
-): Promise<void> {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    CONVEX_SELF_HOSTED_URL: BACKEND_URL,
-    CONVEX_SELF_HOSTED_ADMIN_KEY: await getRealBackendAdminKey(),
-  };
-  delete env.CONVEX_DEPLOYMENT;
+async function loadRealConvexManage(): Promise<RealConvexManageModule> {
+  return (await import(convexRealManagePath)) as RealConvexManageModule;
+}
 
-  const proc = Bun.spawn(['bun', 'x', 'convex', 'env', 'set', name, value], {
-    env,
-    stderr: 'pipe',
-    stdout: 'pipe',
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(
-      `convex env set ${name} failed with exit code ${exitCode}: ${stderr || stdout}`
-    );
-  }
+async function runConvexEnvSet(name: string, value: string): Promise<void> {
+  const { getRealBackendAdminKey } = await loadRealConvexHarness();
+  const { runSelfHostedConvexCli, selfHostedConvexEnv, withSelfHostedConvexEnvFileMovedAside } =
+    await loadRealConvexManage();
+  const env = selfHostedConvexEnv(await getRealBackendAdminKey());
+  await withSelfHostedConvexEnvFileMovedAside(() =>
+    runSelfHostedConvexCli(['env', 'set', name, value], env)
+  );
 }
 
 async function getDockerNetworkGateway(): Promise<string | null> {
@@ -212,11 +206,10 @@ export function installRealApiHarness(): void {
     await runConvexEnvSet(
       'BACKFILL_API_URL',
       // Convex actions run in Docker, so they need the host's compose-network address.
-      backfillApiUrl,
-      getRealBackendAdminKey
+      backfillApiUrl
     );
-    await runConvexEnvSet('ENCRYPTION_SECRET', E2E_ENCRYPTION_SECRET, getRealBackendAdminKey);
-    await runConvexEnvSet('BETTER_AUTH_SECRET', E2E_BETTER_AUTH_SECRET, getRealBackendAdminKey);
+    await runConvexEnvSet('ENCRYPTION_SECRET', E2E_ENCRYPTION_SECRET);
+    await runConvexEnvSet('BETTER_AUTH_SECRET', E2E_BETTER_AUTH_SECRET);
     const app = buildApp({
       baseUrl: 'http://127.0.0.1:3001',
       frontendUrl: 'http://127.0.0.1:3000',

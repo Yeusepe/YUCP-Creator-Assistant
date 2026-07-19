@@ -50,10 +50,6 @@ This repo uses [Infisical](https://infisical.com) as the source of truth for loc
   - `POLAR_ACCESS_TOKEN`
   - `POLAR_WEBHOOK_SECRET`
   - `POLAR_SERVER`
-  - `CDNGINE_API_BASE_URL`
-  - `CDNGINE_PUBLIC_API_BASE_URL`
-  - `CDNGINE_ACCESS_TOKEN`
-  - `CDNGINE_BACKSTAGE_TIMEOUT_MS`
 - Shared optional security and observability vars:
   - `ERROR_REFERENCE_SECRET`
   - `PUBLIC_API_KEY_PEPPER`
@@ -84,6 +80,29 @@ Common supporting vars:
 - `HEARTBEAT_URL` and `HEARTBEAT_INTERVAL_MINUTES`
 - `BETTER_AUTH_SECRET` and `ERROR_REFERENCE_SECRET` for support-code handling
 - `HYPERDX_*`, `OTEL_EXPORTER_OTLP_*`, `POSTHOG_API_KEY`, `POSTHOG_HOST`
+
+### Phase 4 storage and delivery runtimes
+
+The Phase 4 inventory uses one declaration per key. Recursive runtime fetches preserve the key
+names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
+
+| Infisical path | Names | Consumers |
+|---|---|---|
+| `/storage/ingest/shared/` | `UPLOAD_HMAC_KEY`, `INGEST_TUS_URL` | apps/api and ingest-tus |
+| `/storage/ingest/runtime/` | `INGEST_UPLOAD_DIR`, `INGEST_MAX_BYTES`, `INGEST_ALLOWED_ORIGIN` (optional) | ingest-tus only |
+| `/storage/catalog/` | `CATALOG_DATABASE_URL` | ingest-tus and scheduler |
+| `/storage/cas/common/` | `CAS_S3_ENDPOINT`, `CAS_S3_REGION`, `CAS_S3_BUCKET`, `CAS_CHUNK_PREFIX`, `CAS_INDEX_PREFIX`, `CAS_S3_REQUEST_TIMEOUT_MS`, `STORAGE_FORMAT_VERSION` | ingest-tus, scheduler, and curated delivery Worker sync |
+| `/storage/cas/write/` | `CAS_S3_ACCESS_KEY_ID`, `CAS_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler only |
+| `/storage/cas/read/` | `CAS_S3_READONLY_ACCESS_KEY_ID`, `CAS_S3_READONLY_SECRET_ACCESS_KEY` | delivery Worker only |
+| `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
+| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_TOKEN_KEY` | apps/api and VPM only |
+| `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
+| `/infra/signing/service-auth/` | `INTERNAL_SERVICE_AUTH_SECRET` | apps/api, Convex, bot, and scheduler |
+
+`UPLOAD_HMAC_KEY` must remain identical between the apps/api mint side and ingest-tus verification
+side. `DELIVERY_HMAC_KEY` must remain identical between apps/api, VPM signing, and the delivery
+Worker. Each is declared once in Infisical so consumers cannot receive independently maintained
+copies.
 
 ### Convex auth and backend env sync
 
@@ -147,6 +166,27 @@ INTERNAL_RPC_SHARED_SECRET
 OTEL_EXPORTER_OTLP_HEADERS
 ```
 
+### Delivery Worker
+
+`bun run delivery:worker:secrets:sync --prod` exports from Infisical through the existing Worker
+sync machinery, selects only the delivery Worker's required bindings, and bulk-syncs them to
+`yucp-delivery-worker`:
+
+```text
+CAS_S3_ENDPOINT
+CAS_S3_REGION
+CAS_S3_BUCKET
+CAS_S3_READONLY_ACCESS_KEY_ID
+CAS_S3_READONLY_SECRET_ACCESS_KEY
+CAS_INDEX_PREFIX
+CAS_CHUNK_PREFIX
+DELIVERY_HMAC_KEY
+STORAGE_FORMAT_VERSION
+```
+
+Write-capable `CAS_S3_ACCESS_KEY_ID` and `CAS_S3_SECRET_ACCESS_KEY` values are intentionally
+excluded. `DELIVERY_BASE_URL` is consumed by apps/api and VPM, not by the Worker runtime.
+
 ### YUCP signing and protected delivery
 
 These keys back certificate issuance, protected materialization grants, broker auth, and runtime artifact envelopes:
@@ -158,14 +198,10 @@ These keys back certificate issuance, protected materialization grants, broker a
 - `YUCP_BROKER_SHARED_SECRET`
 - `YUCP_COUPLING_HMAC_KEY`
 
-### Coupling and backstage delivery
+### Coupling service
 
 - `YUCP_COUPLING_SERVICE_BASE_URL`
 - `YUCP_COUPLING_SERVICE_SHARED_SECRET` or legacy `COUPLING_SERVICE_SECRET`
-- `CDNGINE_API_BASE_URL`
-- `CDNGINE_PUBLIC_API_BASE_URL`
-- `CDNGINE_ACCESS_TOKEN`
-- `CDNGINE_BACKSTAGE_TIMEOUT_MS`
 
 ## Local workflows
 
@@ -221,6 +257,10 @@ Use the explicit repo scripts instead of the old `deploy.sh` example:
 bun run start:api:infisical
 bun run start:bot:infisical
 
+# Phase 4 Node runtimes
+bun run ingest:tus:serve
+bun run scheduler:serve
+
 # Local preview of the built web app
 bun run start:web
 
@@ -233,6 +273,9 @@ bun run --filter @yucp/web worker:sync:setup
 bun run --filter @yucp/web worker:secrets:sync
 bun run --filter @yucp/web worker:deploy
 bun run --filter @yucp/web worker:version:upload
+
+# Curated delivery Worker secret binding sync
+bun run delivery:worker:secrets:sync --prod
 ```
 
 What each command does:
@@ -243,6 +286,8 @@ What each command does:
 - `worker:secrets:sync` uploads current Worker secret bindings to Cloudflare.
 - `worker:deploy` builds `apps/web` and deploys with Cloudflare-managed bindings.
 - `worker:version:upload` uploads a Worker version without replacing this deploy guidance.
+- `delivery:worker:secrets:sync` syncs the exact delivery Worker binding allowlist, including the
+  same `DELIVERY_HMAC_KEY` declaration consumed by apps/api.
 
 ## Secret rotation guidance
 

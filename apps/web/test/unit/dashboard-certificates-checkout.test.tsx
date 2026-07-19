@@ -93,24 +93,7 @@ vi.mock('@/lib/certificates', () => ({
   revokeCreatorCertificate: vi.fn(),
 }));
 
-vi.mock('@/components/dashboard/PackageRegistryPanel', () => ({
-  PackageRegistryPanel: ({ description }: { description?: string }) => (
-    <section>
-      <h2>Package Registry</h2>
-      {description ? <p>{description}</p> : null}
-    </section>
-  ),
-}));
-
-vi.mock('@/lib/packages', () => ({
-  archiveCreatorPackage: vi.fn(),
-  listCreatorPackages: vi.fn(),
-  renameCreatorPackage: vi.fn(),
-  restoreCreatorPackage: vi.fn(),
-}));
-
 import * as certificateApi from '@/lib/certificates';
-import * as packagesApi from '@/lib/packages';
 import DashboardBilling from '@/routes/_authenticated/account/billing.lazy';
 
 function createWrapper({ privateVpmEnabled = true }: { privateVpmEnabled?: boolean } = {}) {
@@ -274,34 +257,6 @@ describe('account billing route', () => {
       },
     });
     vi.mocked(certificateApi.revokeCreatorCertificate).mockResolvedValue({ success: true });
-    vi.mocked(packagesApi.listCreatorPackages).mockResolvedValue({
-      packages: [
-        {
-          packageId: 'pkg.creator.bundle',
-          packageName: 'Creator Bundle',
-          registeredAt: 1_710_000_000_000,
-          updatedAt: 1_710_000_100_000,
-          status: 'active',
-          archivedAt: undefined,
-          canDelete: false,
-          deleteBlockedReason: 'Package has signing or license history and cannot be deleted.',
-          canArchive: true,
-          canRestore: false,
-        },
-        {
-          packageId: 'pkg.creator.legacy',
-          packageName: 'Legacy Bundle',
-          registeredAt: 1_709_000_000_000,
-          updatedAt: 1_709_000_100_000,
-          status: 'archived',
-          archivedAt: 1_710_500_000_000,
-          canDelete: false,
-          deleteBlockedReason: 'Archived packages keep their audit history.',
-          canArchive: false,
-          canRestore: true,
-        },
-      ],
-    });
   });
 
   it('disables all plan actions while any embed checkout is active', async () => {

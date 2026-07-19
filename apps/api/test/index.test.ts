@@ -76,7 +76,11 @@ describe('API server, production app harness', () => {
 
   afterAll(() => app.dispose());
 
-  it('GET /health returns { status: "ok" }', async () => {
+  it('boots and serves health with optional delivery and VPM variables unset', async () => {
+    expect(process.env.DELIVERY_HMAC_KEY).toBeUndefined();
+    expect(process.env.DELIVERY_BASE_URL).toBeUndefined();
+    expect(process.env.VPM_BASE_URL).toBeUndefined();
+
     const res = await app.fetch('/health');
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -85,6 +89,18 @@ describe('API server, production app harness', () => {
     expect(res.headers.get('cache-control')).toBe('no-store');
     expect(res.headers.get('referrer-policy')).toBe('no-referrer');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('mounts VPM routes while optional delivery configuration is unset', async () => {
+    const mintResponse = await app.fetch('/api/vpm/repo-token', { method: 'POST' });
+    expect(mintResponse.status).toBe(401);
+    await expect(mintResponse.json()).resolves.toEqual({ error: 'Authentication required' });
+
+    const indexResponse = await app.fetch('/api/vpm/invalid-token/index.json');
+    expect(indexResponse.status).toBe(503);
+    await expect(indexResponse.json()).resolves.toEqual({
+      error: 'VPM delivery is not configured',
+    });
   });
 
   it('GET /v1/keys serves the importer trust bootstrap on the API host', async () => {
@@ -129,6 +145,15 @@ describe('API server, production app harness', () => {
     const body = (await res.json()) as { openapi?: string; paths?: Record<string, unknown> };
     expect(body.openapi).toBe('3.1.0');
     expect(body.paths).toHaveProperty('/verification/check');
+  });
+
+  it('mounts the buyer download route through the API dispatcher', async () => {
+    const response = await app.fetch('/api/access/catalog-product-123/download', {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(405);
+    await expect(response.json()).resolves.toEqual({ error: 'Method not allowed' });
   });
 
   it('keeps every migrated page route on its prior frontend redirect', async () => {

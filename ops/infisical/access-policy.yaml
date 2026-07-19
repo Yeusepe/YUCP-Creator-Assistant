@@ -35,10 +35,13 @@ identities:
     type: machine
     projects:
       - project: dev
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
+      - /storage/ingest/shared/*
+      - /storage/delivery/shared/*
+      - /storage/delivery/api/*
     environments: [dev]
 
   api-preview:
@@ -47,10 +50,13 @@ identities:
     type: machine
     projects:
       - project: preview
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
+      - /storage/ingest/shared/*
+      - /storage/delivery/shared/*
+      - /storage/delivery/api/*
     environments: [preview]
 
   api-prod:
@@ -59,16 +65,75 @@ identities:
     type: machine
     projects:
       - project: prod
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
+      - /storage/ingest/shared/*
+      - /storage/delivery/shared/*
+      - /storage/delivery/api/*
     environments: [prod]
     # Production requires additional constraints
     constraints:
       ip_whitelist: true  # Configure in Infisical
       time_based_access: false
       mfa_required: false  # Machine identity
+
+  # Phase 4 storage runtime identities
+  ingest-tus-prod:
+    name: "Ingest Tus Production"
+    description: "Production resumable-upload runtime"
+    type: machine
+    projects:
+      - project: prod
+        role: viewer
+    allowed_paths:
+      - /storage/ingest/shared/*
+      - /storage/ingest/runtime/*
+      - /storage/catalog/*
+      - /storage/cas/common/*
+      - /storage/cas/write/*
+    environments: [prod]
+    constraints:
+      ip_whitelist: true
+      time_based_access: false
+      mfa_required: false
+
+  catalog-scheduler-prod:
+    name: "Catalog Scheduler Production"
+    description: "Production catalog reconciliation and promotion runtime"
+    type: machine
+    projects:
+      - project: prod
+        role: viewer
+    allowed_paths:
+      - /infra/convex/*
+      - /infra/signing/service-auth/*
+      - /storage/catalog/*
+      - /storage/cas/common/*
+      - /storage/cas/write/*
+    environments: [prod]
+    constraints:
+      ip_whitelist: true
+      time_based_access: false
+      mfa_required: false
+
+  delivery-worker-sync-prod:
+    name: "Delivery Worker Sync Production"
+    description: "Curated Infisical to Cloudflare delivery Worker binding sync"
+    type: machine
+    projects:
+      - project: prod
+        role: viewer
+    allowed_paths:
+      - /storage/cas/common/*
+      - /storage/cas/read/*
+      - /storage/delivery/shared/*
+    environments: [prod]
+    constraints:
+      ip_whitelist: true
+      time_based_access: false
+      mfa_required: false
 
   # Bot Service Identities
   bot-dev:
@@ -77,10 +142,11 @@ identities:
     type: machine
     projects:
       - project: dev
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
+      - /infra/signing/service-auth/*
     environments: [dev]
 
   bot-preview:
@@ -89,10 +155,11 @@ identities:
     type: machine
     projects:
       - project: preview
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
+      - /infra/signing/service-auth/*
     environments: [preview]
 
   bot-prod:
@@ -101,10 +168,11 @@ identities:
     type: machine
     projects:
       - project: prod
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
+      - /infra/signing/service-auth/*
     environments: [prod]
     constraints:
       ip_whitelist: true
@@ -231,10 +299,46 @@ path_access:
 
   "/infra/convex/":
     description: "Convex deployment secrets"
-    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, admin]
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, catalog-scheduler-prod, admin]
 
   "/infra/signing/":
     description: "Webhook signing keys"
+    allowed_identities: [api-dev, api-preview, api-prod, admin]
+
+  "/infra/signing/service-auth/":
+    description: "Shared internal service actor authentication"
+    allowed_identities: [api-dev, api-preview, api-prod, bot-dev, bot-preview, bot-prod, catalog-scheduler-prod, admin]
+
+  "/storage/ingest/shared/":
+    description: "Creator-upload signing and public ingest endpoint"
+    allowed_identities: [api-dev, api-preview, api-prod, ingest-tus-prod, admin]
+
+  "/storage/ingest/runtime/":
+    description: "Private ingest-tus runtime configuration"
+    allowed_identities: [ingest-tus-prod, admin]
+
+  "/storage/catalog/":
+    description: "Storage catalog database credentials"
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, admin]
+
+  "/storage/cas/common/":
+    description: "Shared non-credential CAS configuration"
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, delivery-worker-sync-prod, admin]
+
+  "/storage/cas/write/":
+    description: "Write-capable CAS credentials"
+    allowed_identities: [ingest-tus-prod, catalog-scheduler-prod, admin]
+
+  "/storage/cas/read/":
+    description: "Read-only delivery CAS credentials"
+    allowed_identities: [delivery-worker-sync-prod, admin]
+
+  "/storage/delivery/shared/":
+    description: "Shared delivery signing configuration"
+    allowed_identities: [api-dev, api-preview, api-prod, delivery-worker-sync-prod, admin]
+
+  "/storage/delivery/api/":
+    description: "Delivery domain and VPM API configuration"
     allowed_identities: [api-dev, api-preview, api-prod, admin]
 
 # =============================================================================

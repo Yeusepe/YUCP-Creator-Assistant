@@ -101,11 +101,6 @@ const brandingAssetsSource = readFileSync(
   resolve(__dirname, '../../src/lib/brandingAssets.ts'),
   'utf8'
 );
-const packageRegistryPanelSource = readFileSync(
-  resolve(__dirname, '../../src/components/dashboard/PackageRegistryPanel.tsx'),
-  'utf8'
-);
-
 describe('dashboard UI contracts', () => {
   it('removes the redundant select-server prompt card from the dashboard body', () => {
     expect(dashboardIndexRouteSource).not.toContain('<SelectServerPrompt />');
@@ -116,11 +111,7 @@ describe('dashboard UI contracts', () => {
     expect(dashboardRouteSource).toContain('dashboardShellQueryOptions');
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
-    expect(dashboardLazyRouteSource).toContain('privateVpmEnabled && hasVpmRepoCapability');
-    expect(dashboardLazyRouteSource).toContain(
-      'privateVpmEnabled && hasCouplingTraceabilityCapability'
-    );
-    expect(dashboardLazyRouteSource).toContain('Custom VPM repo');
+    expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
     expect(dashboardLazyRouteSource).toContain('Leak Tracer');
     expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
@@ -257,62 +248,6 @@ describe('dashboard UI contracts', () => {
       expectOpaqueLightBackground(selector);
       expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
     }
-  });
-
-  it('keeps package picker and details surfaces readable in light mode', () => {
-    expect(packageRegistryPanelSource).toContain(
-      'className="pm-sheet-content mx-auto max-h-[94vh] max-w-[860px]"'
-    );
-    expect(packageRegistryPanelSource).toContain('className="pm-package-picker w-full"');
-    expect(packageRegistryPanelSource).toContain('className="pm-package-picker-popover"');
-    expect(readCssDeclaration(dashboardComponentsCss, '.pm-sheet-content', 'color')).toMatch(
-      /#0f172a|rgba\(15,\s*23,\s*42/
-    );
-    expect(readCssDeclaration(dashboardComponentsCss, '.dark .pm-sheet-content', 'color')).toMatch(
-      /#f8fafc|rgba\(248,\s*250,\s*252/
-    );
-
-    for (const selector of [
-      '.pm-package-picker .autocomplete__trigger',
-      '.pm-package-picker-popover.autocomplete__popover',
-      '.pm-package-picker .select__trigger',
-      '.pm-package-picker-popover.select__popover',
-      '.pm-package-picker-popover .search-field__group',
-      '.pm-package-picker-popover .list-box-item',
-    ]) {
-      expectOpaqueLightBackground(selector);
-      expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
-    }
-
-    for (const selector of [
-      '.pm-package-picker .autocomplete__trigger',
-      '.pm-package-picker .select__trigger',
-      '.pm-package-picker-popover .list-box-item',
-    ]) {
-      expect(readCssDeclaration(dashboardComponentsCss, selector, 'color')).toMatch(
-        /#0f172a|rgba\(15,\s*23,\s*42/
-      );
-    }
-  });
-
-  it('keeps the upload package drawer clear of the sticky footer and viewport bottom', () => {
-    expect(packageRegistryPanelSource).toContain(
-      'className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]"'
-    );
-    expect(packageRegistryPanelSource).toContain(
-      '<Sheet.Body className="pm-publish-sheet-body space-y-5">'
-    );
-
-    expect(
-      readCssDeclaration(
-        dashboardComponentsCss,
-        '.pm-publish-sheet-content[data-sheet-detached].sheet__content--bottom',
-        'bottom'
-      )
-    ).toContain('env(safe-area-inset-bottom)');
-    expect(
-      readCssDeclaration(dashboardComponentsCss, '.pm-publish-sheet-body', 'padding-bottom')
-    ).toContain('24px');
   });
 
   it('reveals the cloud background from a real first frame instead of fading it in later', () => {

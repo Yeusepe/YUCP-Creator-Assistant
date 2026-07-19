@@ -31,6 +31,16 @@ export interface LocalEnv {
   INTERNAL_SERVICE_AUTH_SECRET?: string;
   INTERNAL_RPC_SHARED_SECRET?: string;
   INTERNAL_SERVICE_TOKEN?: string;
+  /** Optional creator-upload signing key. The upload route returns 503 when unavailable. */
+  UPLOAD_HMAC_KEY?: string;
+  /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
+  INGEST_TUS_URL?: string;
+  /** Optional delivery signing key. The download route returns 503 when unavailable. */
+  DELIVERY_HMAC_KEY?: string;
+  /** Optional delivery Worker origin. The download route returns 503 when unavailable. */
+  DELIVERY_BASE_URL?: string;
+  /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
+  VPM_BASE_URL?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -65,14 +75,6 @@ export interface LocalEnv {
   YUCP_COUPLING_SERVICE_BASE_URL?: string;
   YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
   COUPLING_SERVICE_SECRET?: string;
-  CDNGINE_API_BASE_URL?: string;
-  CDNGINE_PUBLIC_API_BASE_URL?: string;
-  CDNGINE_ACCESS_TOKEN?: string;
-  CDNGINE_API_TOKEN?: string;
-  CDNGINE_BACKSTAGE_REQUIRED?: string;
-  CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS?: string;
-  CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS?: string;
-  CDNGINE_BACKSTAGE_TIMEOUT_MS?: string;
   HYPERDX_API_KEY?: string;
   HYPERDX_APP_URL?: string;
   HYPERDX_OTLP_HTTP_URL?: string;
@@ -182,6 +184,11 @@ function loadFromEnv(): LocalEnv {
     INTERNAL_SERVICE_AUTH_SECRET: process.env.INTERNAL_SERVICE_AUTH_SECRET,
     INTERNAL_RPC_SHARED_SECRET: process.env.INTERNAL_RPC_SHARED_SECRET,
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
+    UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
+    INGEST_TUS_URL: process.env.INGEST_TUS_URL,
+    DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
+    DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
+    VPM_BASE_URL: process.env.VPM_BASE_URL,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
@@ -209,15 +216,6 @@ function loadFromEnv(): LocalEnv {
     YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
     YUCP_COUPLING_SERVICE_SHARED_SECRET: resolveCouplingServiceSharedSecret(process.env),
     COUPLING_SERVICE_SECRET: process.env.COUPLING_SERVICE_SECRET,
-    CDNGINE_API_BASE_URL: process.env.CDNGINE_API_BASE_URL,
-    CDNGINE_PUBLIC_API_BASE_URL: process.env.CDNGINE_PUBLIC_API_BASE_URL,
-    CDNGINE_ACCESS_TOKEN: process.env.CDNGINE_ACCESS_TOKEN,
-    CDNGINE_API_TOKEN: process.env.CDNGINE_API_TOKEN,
-    CDNGINE_BACKSTAGE_REQUIRED: process.env.CDNGINE_BACKSTAGE_REQUIRED,
-    CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS:
-      process.env.CDNGINE_BACKSTAGE_PUBLICATION_POLL_INTERVAL_MS,
-    CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS: process.env.CDNGINE_BACKSTAGE_PUBLICATION_TIMEOUT_MS,
-    CDNGINE_BACKSTAGE_TIMEOUT_MS: process.env.CDNGINE_BACKSTAGE_TIMEOUT_MS,
     HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
     HYPERDX_APP_URL: process.env.HYPERDX_APP_URL,
     HYPERDX_OTLP_HTTP_URL: process.env.HYPERDX_OTLP_HTTP_URL,

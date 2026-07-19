@@ -4,7 +4,9 @@
 
 ## CI Checks — What GitHub Runs and How to Run Locally
 
-GitHub CI runs four jobs on every push/PR to `main` or `develop`. **Before finishing any task, all four must pass locally.**
+The core GitHub CI gate has four local check groups for every push/PR to `main` or `develop`.
+Storage-related changes also run the path-scoped `Storage E2E` workflow documented below. **Before
+finishing any task, all applicable checks must pass locally.**
 
 ### 1. Lint (`bun audit` + `bun run lint`)
 
@@ -42,7 +44,7 @@ Runs the focused external-integration regression bundle defined in `ops/producti
 bun run test:external-integrations
 ```
 
-- Provider and consumer coverage includes `ops/provider-live-smoke.test.ts`, provider module contracts, `apps/api/src/routes/packages.backstage.test.ts`, `apps/bot/test/lib/setupCatalog.test.ts`, and `apps/bot/test/commands/autosetup.test.ts`.
+- Provider and consumer coverage includes `ops/provider-live-smoke.test.ts`, provider module contracts, `apps/bot/test/lib/setupCatalog.test.ts`, and `apps/bot/test/commands/autosetup.test.ts`.
 - API identity, verification, and backfill coverage includes `apps/api/src/verification/hostedIntents.test.ts`, `apps/api/src/lib/subjectIdentity.test.ts`, `apps/api/src/routes/connect.user-verify.manual-license.test.ts`, `apps/api/src/routes/providerPlatform.test.ts`, `apps/api/src/routes/connectUserVerification.readSurface.test.ts`, `apps/api/src/routes/connect.user-verify.behavior.test.ts`, `apps/api/src/routes/backfill.test.ts`, and `apps/api/src/verification/completeLicense.test.ts`.
 - Web consumer coverage includes `apps/web/test/unit/account-connections.test.tsx`, `apps/web/test/unit/dashboard-connected-platforms.test.tsx`, `apps/web/test/unit/store-integrations-status-label.test.tsx`, and `apps/web/test/unit/purchase-verification-ui-state.test.ts`.
 - RPC normalization still lives in `apps/api/src/internalRpc/router.test.ts`.
@@ -57,8 +59,48 @@ bun run test:ci
 ```
 
 - `test:ops` covers the repo-level ops and regression harness tests under `./ops`.
-- `test:fast:ci` currently runs the `test:ci` scripts for `@yucp/api`, `@yucp/application`, `@yucp/policy`, `@yucp/providers`, and `@yucp/shared`.
+- `test:fast:ci` starts with `test:storage:unit`, then runs the `test:ci` scripts for `@yucp/api`, `@yucp/application`, `@yucp/policy`, `@yucp/providers`, and `@yucp/shared`.
 - `bun run test:ci` includes Convex realtest typechecking and backend tests through `bun run test:convex`.
+
+### Storage and delivery suites
+
+The cheap storage-core unit group needs neither Docker nor the `desync` CLI. It runs in
+`test:fast:ci`, so the existing `Test` job in `.github/workflows/ci.yml` executes it through
+`bun run test:ci`.
+
+```bash
+bun run test:storage:unit # config.test.ts + deliverySigning.test.ts
+```
+
+The heavy storage and delivery suites require a working Docker daemon plus `desync` v1.0.3 on
+`PATH`. Each suite starts and removes its own throwaway PostgreSQL 17 and/or pinned MinIO
+container as needed. Do not provision shared service containers in addition to those helpers.
+
+```bash
+bun run test:cas:e2e
+bun run test:cas:s3
+bun run test:catalog:integration
+bun run test:ingest:e2e
+bun run test:ingest-tus:e2e
+bun run test:delivery:e2e
+bun run test:importer:e2e
+bun run test:pipeline:promote:e2e
+
+# Runs all eight commands above sequentially.
+bun run test:storage:e2e
+```
+
+`.github/workflows/storage-e2e.yml` defines the `Storage and Delivery E2E` job. It runs on pushes
+and pull requests to `main` or `develop` only when the storage, catalog, importer, ingest, shared
+storage-test helper, delivery-worker, dependency lock, root test scripts, or workflow paths change.
+It can also be started manually with `workflow_dispatch`. The job installs the official Linux
+amd64 desync v1.0.3 archive after verifying its published SHA-256, verifies the hosted runner's
+Docker daemon, pre-pulls the pinned PostgreSQL and MinIO images, and lets the test helpers own the
+container lifecycle. This path scope keeps the heavy optional workflow off unrelated pull
+requests while still covering every implementation and test path consumed by the suites.
+
+`test:accept:5gb` remains a manual, opt-in acceptance gate. It is intentionally excluded from
+GitHub CI.
 
 Additional test suites (not part of CI fast path, but should pass before merging):
 

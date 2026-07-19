@@ -157,18 +157,16 @@ describe('account UI contracts', () => {
     expect(accountBillingRouteSource).toContain('navigateToTrustedPolarUrl(result.url)');
   });
 
-  it('integrates coupling forensics inside the private VPM package workspace', () => {
-    // Forensics is no longer a standalone sidebar tab; it redirects into packages.
+  it('keeps coupling forensics on the former package workspace route', () => {
     expect(dashboardForensicsRedirectSource).toContain("to: '/dashboard/packages'");
     expect(dashboardForensicsRedirectSource).toContain("view: 'forensics'");
     expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
     expect(dashboardLazyRouteSource).toContain('Leak Tracer');
     expect(dashboardLazyRouteSource).toContain("view: 'forensics'");
 
-    // The package workspace switches between the registry and the leak forensics panel.
     expect(dashboardPackagesRouteSource).toContain('CouplingForensicsPanel');
     expect(dashboardPackagesRouteSource).toContain('Leak Forensics');
-    expect(dashboardPackagesRouteSource).toContain('Package Registry');
+    expect(dashboardPackagesRouteSource).not.toContain('Package Registry');
   });
 
   it('shows unavailable recovery metrics as pending instead of zero', () => {

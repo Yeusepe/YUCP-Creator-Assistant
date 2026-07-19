@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 interface DashboardPackagesSearch {
-  view?: 'registry' | 'forensics';
+  view?: 'forensics';
 }
 
 export const Route = createFileRoute('/_authenticated/dashboard/packages')({
