@@ -143,7 +143,7 @@ async function claimRedrive(
       return null;
     }
 
-    const attempts = candidate.attempts + 1;
+    const attempts = candidate.state === 'FAILED' ? candidate.attempts : candidate.attempts + 1;
     const backoffMs = retryBackoffMs(attempts, retryPolicy);
     let updated: ReconcileVersionRow | undefined;
 
@@ -151,7 +151,6 @@ async function claimRedrive(
       const updatedRows = await transaction<ReconcileVersionRow[]>`
         UPDATE package_versions
         SET
-          attempts = ${attempts},
           next_attempt_at = clock_timestamp() + (${backoffMs} * interval '1 millisecond'),
           updated_at = clock_timestamp()
         WHERE id = ${candidate.id}

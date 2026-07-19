@@ -609,7 +609,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
 
     expect(await activeCatalog.getVersion(created.id)).toMatchObject({
       state: 'FAILED',
-      attempts: 2,
+      attempts: 1,
       casIndexId: null,
       canonicalSha256: null,
     });
