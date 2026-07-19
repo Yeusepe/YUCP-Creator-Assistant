@@ -156,7 +156,7 @@ export function createVpmRoutes({ auth, config }: CreateVpmRoutesOptions) {
       });
     } catch (error) {
       logger.error('Failed to mint buyer VPM repository token', {
-        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       });
       return Response.json({ error: 'Failed to prepare VPM repository' }, { status: 500 });
     }
@@ -267,7 +267,7 @@ export function createVpmRoutes({ auth, config }: CreateVpmRoutesOptions) {
       });
     } catch (error) {
       logger.error('Failed to build buyer VPM repository index', {
-        error: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       });
       return Response.json({ error: 'Failed to build VPM repository' }, { status: 500 });
     }

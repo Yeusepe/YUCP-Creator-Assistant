@@ -180,6 +180,22 @@ describe('per-buyer VPM routes', () => {
     });
   });
 
+  it('does not log raw token-signing error messages', async () => {
+    const rawUpstreamMessage = 'VPM repository token HMAC key must be at least 32 UTF-8 bytes';
+    const response = await createRoutes('buyer-auth-user', {
+      deliveryHmacKey: 'short-key',
+    }).mintRepoToken(mintRequest());
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Failed to prepare VPM repository',
+    });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Failed to mint buyer VPM repository token', {
+      errorName: 'Error',
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(rawUpstreamMessage);
+  });
+
   it('rejects invalid and expired repository tokens without querying Convex', async () => {
     const invalidResponse = await createRoutes(null).serveIndex(
       new Request('https://api.test/api/vpm/invalid/index.json'),
@@ -316,5 +332,24 @@ describe('per-buyer VPM routes', () => {
       url: `https://vpm.test/api/vpm/${token}/index.json`,
       packages: {},
     });
+  });
+
+  it('does not log raw Convex error messages', async () => {
+    const rawUpstreamMessage = 'Convex upstream leaked details';
+    convexQueryMock.mockRejectedValue(new TypeError(rawUpstreamMessage));
+    const token = await validBuyerToken();
+    const response = await createRoutes(null).serveIndex(
+      new Request(`https://vpm.test/api/vpm/${token}/index.json`),
+      token
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Failed to build VPM repository',
+    });
+    expect(loggerErrorMock).toHaveBeenCalledWith('Failed to build buyer VPM repository index', {
+      errorName: 'TypeError',
+    });
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(rawUpstreamMessage);
   });
 });
