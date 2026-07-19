@@ -318,6 +318,9 @@ async function finishPromotion(
       indexId,
       deliveryAssemblyMetadataObjectId(promoting.id)
     );
+    // Resolve the manifest object id up front (it only needs the index id + version), so a failure
+    // anywhere in promotion — including during reassembly — still cleans up a stale/partial manifest.
+    manifestId = siblingIndexObjectId(input.store, indexId, deliveryManifestObjectId(promoting.id));
     const deliveryMetadata = parseDeliveryAssemblyMetadata(
       JSON.parse(await readCasIndexObject({ indexId: deliveryMetadataId, store: input.store }))
     );
@@ -354,7 +357,6 @@ async function finishPromotion(
       );
     }
 
-    manifestId = siblingIndexObjectId(input.store, indexId, deliveryManifestObjectId(promoting.id));
     const manifest = createDeliveryManifest({
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       versionId: promoting.id,
