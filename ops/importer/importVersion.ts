@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import type { DeliveryUrlSignature } from '../storage-core/deliverySigning';
 import { verifyDeliveryUrl } from '../storage-core/deliverySigning';
 import {
@@ -110,6 +110,17 @@ async function measureFile(filePath: string): Promise<{ byteLength: number; sha2
   return { byteLength, sha256: hash.digest('hex') };
 }
 
+async function realPathAllowMissingFile(filePath: string): Promise<string> {
+  try {
+    return await realpath(filePath);
+  } catch (error) {
+    if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+      throw error;
+    }
+    return join(await realpath(dirname(filePath)), basename(filePath));
+  }
+}
+
 /**
  * desync seed contract: https://github.com/folbricht/desync#using-a-seed-file
  */
@@ -139,19 +150,23 @@ export async function importVersion(
   }
 
   const outputPath = resolve(input.outputPath);
+  const outputDirectory = dirname(outputPath);
+  await mkdir(outputDirectory, { recursive: true });
   const seedArtifactPath = input.seed ? resolve(input.seed.artifactPath) : undefined;
-  if (seedArtifactPath && relative(seedArtifactPath, outputPath) === '') {
-    throw new Error('Importer seed artifact must differ from output path');
-  }
   if (seedArtifactPath) {
+    const [realSeedArtifactPath, realOutputPath] = await Promise.all([
+      realpath(seedArtifactPath),
+      realPathAllowMissingFile(outputPath),
+    ]);
+    if (relative(realSeedArtifactPath, realOutputPath) === '') {
+      throw new Error('Importer seed artifact must differ from output path');
+    }
     const seedStats = await stat(seedArtifactPath);
     if (!seedStats.isFile()) {
       throw new Error('Importer seed artifact is not a regular file');
     }
   }
 
-  const outputDirectory = dirname(outputPath);
-  await mkdir(outputDirectory, { recursive: true });
   const scratchPath = await mkdtemp(join(outputDirectory, '.yucp-importer-'));
   const stagedOutputPath = join(scratchPath, 'artifact.reconstructed');
   const storeUrl = storeLocation(input.store);

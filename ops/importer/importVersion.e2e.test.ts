@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { request as createHttpRequest, createServer, type Server as HttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -342,6 +342,34 @@ describe('first-party desync importer against throwaway MinIO', () => {
       key: hmacKey,
       versionId: v2VersionId,
     });
+    const aliasTargetDirectory = join(scratchPath, 'seed-alias-target');
+    const aliasedOutputPath = join(aliasTargetDirectory, 'output.unitypackage');
+    let aliasSeedPath = join(scratchPath, 'seed-alias.unitypackage');
+    const aliasedOutputBeforeImport = await readFile(canonicalV1.path);
+    await mkdir(aliasTargetDirectory);
+    await writeFile(aliasedOutputPath, aliasedOutputBeforeImport);
+    if (process.platform === 'win32') {
+      const aliasParent = join(scratchPath, 'seed-alias-parent');
+      await symlink(aliasTargetDirectory, aliasParent, 'junction');
+      aliasSeedPath = join(aliasParent, 'output.unitypackage');
+    } else {
+      await symlink(aliasedOutputPath, aliasSeedPath, 'file');
+    }
+    await expect(
+      importVersion(
+        {
+          capability: { ...v2Signed, versionId: v2VersionId },
+          expectedSha256: v2Sha256,
+          indexId: 'v2.caibx',
+          outputPath: aliasedOutputPath,
+          seed: { artifactPath: aliasSeedPath, indexId: 'v1.caibx' },
+          store,
+        },
+        { hmacKey }
+      )
+    ).rejects.toThrow('Importer seed artifact must differ from output path');
+    expect(await readFile(aliasedOutputPath)).toEqual(aliasedOutputBeforeImport);
+
     const fullChunksBefore = proxy.counts.chunks;
     const importedFullV2 = await importVersion(
       {
@@ -420,5 +448,6 @@ describe('first-party desync importer against throwaway MinIO', () => {
     console.log(
       'IMPORTER_TARGET_REPLACEMENT_RESULT failed-import-preserved=yes successful-import-replaced-byte-exact=yes'
     );
+    console.log('IMPORTER_SEED_ALIAS_RESULT symlink-rejected=yes output-preserved=yes');
   });
 });
