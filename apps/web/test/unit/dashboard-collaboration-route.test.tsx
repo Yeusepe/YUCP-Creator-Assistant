@@ -113,6 +113,20 @@ describe('dashboard collaboration route', () => {
     expect(dashboardApi.removeCollabConnectionAsCollaborator).not.toHaveBeenCalled();
   });
 
+  it('removes loading placeholders after both collaboration sections resolve', async () => {
+    const Component = CollaborationRoute.options.component;
+    if (!Component) {
+      throw new Error('Collaboration route component is not defined');
+    }
+
+    const { container } = render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('No collaborators yet.')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Creator Store')).toBeInTheDocument());
+
+    expect(container.querySelector('.skeleton-action-row, .skeleton-stack')).toBeNull();
+  });
+
   it('removes a collaborator store after holding the leave control', async () => {
     const Component = CollaborationRoute.options.component;
     if (!Component) {
