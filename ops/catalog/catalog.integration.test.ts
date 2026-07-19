@@ -1,5 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   Catalog,
@@ -222,6 +226,53 @@ describe.serial('PostgreSQL catalog integration', () => {
         code: '23514',
         constraint_name: input.constraintName,
       });
+    }
+  });
+
+  it('migration-checksums: applying twice is a no-op and changed source is rejected', async () => {
+    const database = requireSql();
+    const migrationDirectory = await mkdtemp(join(tmpdir(), 'yucp-catalog-migrations-'));
+    const catalogMigrationsPath = fileURLToPath(new URL('./migrations/', import.meta.url));
+    const fileName = '9000_checksum_probe.sql';
+    const migrationPath = join(migrationDirectory, fileName);
+    const source = `
+      CREATE TABLE catalog_migration_checksum_probe (id int PRIMARY KEY);
+      INSERT INTO catalog_migration_checksum_probe (id) VALUES (1);
+    `;
+
+    try {
+      await Promise.all(
+        (await readdir(catalogMigrationsPath)).map((migrationFileName) =>
+          copyFile(
+            join(catalogMigrationsPath, migrationFileName),
+            join(migrationDirectory, migrationFileName)
+          )
+        )
+      );
+      await writeFile(migrationPath, source, 'utf8');
+      await runCatalogMigrations(database, { migrationsPath: migrationDirectory });
+      await runCatalogMigrations(database, { migrationsPath: migrationDirectory });
+
+      const appliedRows = await database<{ checksum: string | null; row_count: number }[]>`
+        SELECT
+          migrations.checksum,
+          (SELECT count(*)::int FROM catalog_migration_checksum_probe) AS row_count
+        FROM catalog_schema_migrations migrations
+        WHERE migrations.filename = ${fileName}
+      `;
+      expect([...appliedRows]).toEqual([
+        {
+          checksum: createHash('sha256').update(source).digest('hex'),
+          row_count: 1,
+        },
+      ]);
+
+      await writeFile(migrationPath, `${source}\n-- changed after application\n`, 'utf8');
+      await expect(
+        runCatalogMigrations(database, { migrationsPath: migrationDirectory })
+      ).rejects.toThrow(`Catalog migration checksum mismatch for ${fileName}`);
+    } finally {
+      await rm(migrationDirectory, { recursive: true, force: true });
     }
   });
 
