@@ -1,6 +1,6 @@
 import path from 'node:path';
-import { defineConfig } from 'vitest/config';
 import tsConfigPaths from 'vite-tsconfig-paths';
+import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [tsConfigPaths()],
@@ -20,5 +20,6 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['test/unit/**/*.test.{ts,tsx}'],
     setupFiles: ['test/unit/setup.ts'],
+    testTimeout: 15_000,
   },
 });

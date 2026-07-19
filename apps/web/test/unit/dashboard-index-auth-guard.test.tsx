@@ -63,6 +63,7 @@ vi.mock('@/components/ui/Toast', () => {
   };
 });
 
+import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 describe('dashboard index auth guard', () => {
@@ -72,7 +73,18 @@ describe('dashboard index auth guard', () => {
       throw new Error('Dashboard index route component is not defined');
     }
 
-    render(<Component />);
+    render(
+      <RuntimeConfigProvider
+        value={{
+          automaticSetupEnabled: false,
+          browserAuthBaseUrl: 'https://app.example.com',
+          buildId: 'test-build',
+          privateVpmEnabled: false,
+        }}
+      >
+        <Component />
+      </RuntimeConfigProvider>
+    );
 
     expect(screen.getByText(/sign in to view your dashboard/i)).toBeInTheDocument();
   });

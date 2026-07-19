@@ -91,9 +91,8 @@ describe('ConnectedPlatformsPanel progressive disclosure', () => {
 
     await waitFor(() => expect(screen.getByText('Show 3 more')).toBeInTheDocument());
 
-    // Badge should show 1/4 (Discord counts as 1 connected, total 4 including discord)
-    const badge = document.querySelector('.rounded-full');
-    expect(badge?.textContent?.replace(/\u2009/g, '')).toBe('1/4');
+    // Discord counts as one connected channel, so the visible total is one of four.
+    expect(screen.getByText('1 of 4')).toBeVisible();
 
     // Unconnected provider labels must NOT be rendered
     expect(screen.queryByText('Gumroad')).not.toBeInTheDocument();

@@ -79,6 +79,7 @@ import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import * as dashboardApi from '@/lib/dashboard';
+import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 function createWrapper() {
@@ -91,7 +92,18 @@ function createWrapper() {
   });
 
   return function Wrapper({ children }: PropsWithChildren) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <RuntimeConfigProvider
+        value={{
+          automaticSetupEnabled: false,
+          browserAuthBaseUrl: 'https://app.example.com',
+          buildId: 'test-build',
+          privateVpmEnabled: false,
+        }}
+      >
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </RuntimeConfigProvider>
+    );
   };
 }
 

@@ -83,6 +83,7 @@ vi.mock('@/components/dashboard/panels/StoreIntegrationsPanel', () => {
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
+import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
 
 describe('dashboard onboarding hydration', () => {
@@ -132,7 +133,18 @@ describe('dashboard onboarding hydration', () => {
       throw new Error('Dashboard index route component is not defined');
     }
 
-    render(<Component />);
+    render(
+      <RuntimeConfigProvider
+        value={{
+          automaticSetupEnabled: false,
+          browserAuthBaseUrl: 'https://app.example.com',
+          buildId: 'test-build',
+          privateVpmEnabled: false,
+        }}
+      >
+        <Component />
+      </RuntimeConfigProvider>
+    );
   }
 
   it('does not render the onboarding panel before hydration completes', () => {
