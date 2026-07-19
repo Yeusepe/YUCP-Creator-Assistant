@@ -1,7 +1,7 @@
 CREATE TABLE package_versions (
   id uuid PRIMARY KEY,
-  package_id text NOT NULL CHECK (length(package_id) <= 256),
-  version text NOT NULL CHECK (length(version) <= 256),
+  package_id text NOT NULL CHECK (btrim(package_id) <> '' AND length(package_id) <= 256),
+  version text NOT NULL CHECK (btrim(version) <> '' AND length(version) <= 256),
   format_tag text CHECK (length(btrim(format_tag)) > 0),
   canonical_sha256 text,
   cas_index_id text,

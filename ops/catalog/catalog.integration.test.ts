@@ -183,6 +183,48 @@ describe.serial('PostgreSQL catalog integration', () => {
     }
   });
 
+  it('schema-identifier-content: rejects empty and whitespace-only package_id and version', async () => {
+    const database = requireSql();
+
+    for (const input of [
+      {
+        constraintName: 'package_versions_package_id_check',
+        packageId: '',
+        version: '1.0.0',
+      },
+      {
+        constraintName: 'package_versions_package_id_check',
+        packageId: '   ',
+        version: '1.0.1',
+      },
+      {
+        constraintName: 'package_versions_version_check',
+        packageId: 'schema-identifier-empty-version',
+        version: '',
+      },
+      {
+        constraintName: 'package_versions_version_check',
+        packageId: 'schema-identifier-whitespace-version',
+        version: '   ',
+      },
+    ]) {
+      let insertError: unknown;
+      try {
+        await database`
+          INSERT INTO package_versions (id, package_id, version, state)
+          VALUES (${randomUUID()}, ${input.packageId}, ${input.version}, 'CREATED')
+        `;
+      } catch (error) {
+        insertError = error;
+      }
+
+      expect(insertError).toMatchObject({
+        code: '23514',
+        constraint_name: input.constraintName,
+      });
+    }
+  });
+
   it('happy-path: persists the full lifecycle and every legal transition edge', async () => {
     const activeCatalog = requireCatalog();
     const database = requireSql();
