@@ -34,11 +34,11 @@ const apiMock = {
     revokeOwnedCertificate: 'certificateBilling.revokeOwnedCertificate',
   },
   creatorProfiles: {
-    createCreatorProfile: 'creatorProfiles.createCreatorProfile',
     getCreatorByAuthUser: 'creatorProfiles.getCreatorByAuthUser',
     getCreatorProfile: 'creatorProfiles.getCreatorProfile',
   },
   guildLinks: {
+    completeCreatorOnboarding: 'guildLinks.completeCreatorOnboarding',
     getGuildLinkForUninstall: 'guildLinks.getGuildLinkForUninstall',
     upsertGuildLink: 'guildLinks.upsertGuildLink',
     getUserGuilds: 'guildLinks.getUserGuilds',
@@ -377,21 +377,19 @@ describe('GET /api/connect/ensure-tenant', () => {
         };
       }
 
-      if (fn === apiMock.creatorProfiles.getCreatorByAuthUser) {
-        expect(args).toEqual({
-          apiSecret: 'test-convex-secret',
-          authUserId: 'user-dashboard-001',
-        });
-        return {
-          authUserId: 'user-dashboard-001',
-        };
-      }
-
       throw new Error(`Unexpected query fn: ${String(fn)}`);
     };
 
     mutationImpl = async (fn, args) => {
       mutationCalls.push({ fn, args });
+      if (fn === apiMock.guildLinks.completeCreatorOnboarding) {
+        return {
+          completed: true,
+          conflict: false,
+          authUserId: 'user-dashboard-001',
+          isFirstTime: false,
+        };
+      }
       return null;
     };
 
@@ -428,16 +426,69 @@ describe('GET /api/connect/ensure-tenant', () => {
       authUserId: 'user-dashboard-001',
     });
     expect(mutationCalls).toContainEqual({
-      fn: apiMock.guildLinks.upsertGuildLink,
+      fn: apiMock.guildLinks.completeCreatorOnboarding,
       args: {
         apiSecret: 'test-convex-secret',
         authUserId: 'user-dashboard-001',
+        discordUserId: 'discord-user-001',
         discordGuildId: 'guild-dashboard-001',
-        installedByAuthUserId: 'user-dashboard-001',
-        botPresent: true,
-        status: 'active',
       },
     });
+  });
+});
+
+describe('POST /api/connect/complete', () => {
+  it('rejects a guild owned by another account before creating a profile', async () => {
+    const mutationCalls: Array<{ fn: unknown; args: unknown }> = [];
+    testStore.set('connect:foreign-owner-token', {
+      value: JSON.stringify({
+        discordUserId: 'discord-new-creator',
+        guildId: 'guild-already-owned',
+      }),
+    });
+    queryImpl = async (fn) => {
+      throw new Error(`Onboarding read crossed the atomic ownership guard: ${String(fn)}`);
+    };
+    mutationImpl = async (fn, args) => {
+      mutationCalls.push({ fn, args });
+      if (fn === apiMock.guildLinks.completeCreatorOnboarding) {
+        return { completed: false, conflict: true };
+      }
+      return null;
+    };
+    const fakeAuth = {
+      ...auth,
+      getSession: async () => ({ user: { id: 'new-creator' } }),
+      getDiscordUserId: async () => 'discord-new-creator',
+    } as unknown as Auth;
+    const isolatedRoutes = createConnectRoutes(fakeAuth, testConfig);
+
+    const response = await isolatedRoutes.completeSetup(
+      new Request('http://localhost:3001/api/connect/complete', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: 'yucp_connect_token=foreign-owner-token',
+        },
+        body: JSON.stringify({ guildId: 'guild-already-owned' }),
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'This server is already linked to another account.',
+    });
+    expect(mutationCalls).toEqual([
+      {
+        fn: apiMock.guildLinks.completeCreatorOnboarding,
+        args: {
+          apiSecret: 'test-convex-secret',
+          authUserId: 'new-creator',
+          discordUserId: 'discord-new-creator',
+          discordGuildId: 'guild-already-owned',
+        },
+      },
+    ]);
   });
 });
 
