@@ -451,7 +451,7 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(initialFailure.attempts).toBe(1);
     await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
 
-    let workAttempts = 1;
+    let redriveCalls = 0;
     const reconcile = () =>
       reconcileCatalog(database, {
         stuckThresholdMs: 60 * 60 * 1000,
@@ -460,21 +460,21 @@ describe.serial('PostgreSQL catalog integration', () => {
         retryBackoffFactor: 2,
         retryBackoffCapMs: 60 * 60 * 1000,
         redrive: async ({ version }) => {
+          redriveCalls += 1;
           expect(version).toMatchObject({
             id: versionId,
             state: 'FAILED',
-            attempts: workAttempts,
+            attempts: redriveCalls * 2,
           });
           await activeCatalog.advanceVersion(versionId, 'UPLOADING', {
             event: { type: 'catalog.version.retrying' },
           });
-          workAttempts += 1;
           await activeCatalog.markFailed(versionId, 'permanent dispatch failure');
         },
         publish: async () => {},
       });
 
-    for (let attempt = 2; attempt <= maxAttempts; attempt += 1) {
+    for (const attempt of [3, 5]) {
       await database`
         UPDATE package_versions
         SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
@@ -507,11 +507,77 @@ describe.serial('PostgreSQL catalog integration', () => {
     }
 
     expect(await reconcile()).toMatchObject({ versionsRedriven: 0 });
-    expect(workAttempts).toBe(maxAttempts);
+    expect(redriveCalls).toBe(2);
     expect(await requireCatalog().getVersion(versionId)).toMatchObject({
       state: 'FAILED',
       attempts: maxAttempts,
     });
+  });
+
+  it('failed-redrive-cap: a throwing FAILED redrive consumes attempts and stops at the cap', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const created = await activeCatalog.createVersion({
+      packageId: 'throwing-failed-redrive',
+      version: '1.0.0',
+    });
+    const failed = await activeCatalog.markFailed(created.id, 'permanent redrive failure');
+    const maxAttempts = 4;
+    expect(failed.attempts).toBe(1);
+    await database`UPDATE catalog_outbox SET published_at = clock_timestamp()`;
+
+    let redriveCalls = 0;
+    const claimedAttempts: number[] = [];
+    const reconcile = () =>
+      reconcileCatalog(database, {
+        stuckThresholdMs: 60 * 60 * 1000,
+        maxAttempts,
+        retryBackoffBaseMs: 30_000,
+        retryBackoffFactor: 2,
+        retryBackoffCapMs: 60 * 60 * 1000,
+        redrive: async ({ version }) => {
+          redriveCalls += 1;
+          claimedAttempts.push(version.attempts);
+          throw new Error('permanent redrive failure');
+        },
+        publish: async () => {},
+      });
+
+    for (let attempts = 2; attempts <= maxAttempts; attempts += 1) {
+      await database`
+        UPDATE package_versions
+        SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+        WHERE id = ${created.id}
+      `;
+      let redriveError: unknown;
+      try {
+        await reconcile();
+      } catch (error) {
+        redriveError = error;
+      }
+      expect(redriveError).toMatchObject({ message: 'permanent redrive failure' });
+      expect(await activeCatalog.getVersion(created.id)).toMatchObject({
+        state: 'FAILED',
+        attempts,
+      });
+    }
+
+    await database`
+      UPDATE package_versions
+      SET next_attempt_at = clock_timestamp() - interval '1 millisecond'
+      WHERE id = ${created.id}
+    `;
+    expect(await reconcile()).toEqual({ versionsRedriven: 0, outboxEventsPublished: 0 });
+    expect(redriveCalls).toBe(maxAttempts - failed.attempts);
+    expect(claimedAttempts).toEqual([2, 3, 4]);
+    expect(await activeCatalog.getVersion(created.id)).toMatchObject({
+      state: 'FAILED',
+      attempts: maxAttempts,
+    });
+
+    console.log(
+      `CATALOG_FAILED_REDRIVE_RESULT\nattempt-cap=${maxAttempts}\nredrive-calls=${redriveCalls}\nbounded=yes`
+    );
   });
 
   it('backoff-skip: a future next_attempt_at prevents an otherwise stuck row from being touched', async () => {
