@@ -44,7 +44,7 @@ type StorageClient = {
 
 const MAX_DELIVERY_CHUNKS = 256;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
-const CHUNK_ORIGIN_TIMEOUT_MS = 30_000;
+const ORIGIN_REQUEST_TIMEOUT_MS = 30_000;
 const OVERSIZED_MANIFEST_MESSAGE =
   'Delivery manifest exceeds direct delivery limits; use the importer path';
 const VERSION_PATH_PATTERN = /^\/d\/([^/]+)$/;
@@ -186,7 +186,11 @@ async function readLimitedText(response: Response, limit: number): Promise<strin
 
 async function loadManifest(client: StorageClient, versionId: string): Promise<DeliveryManifest> {
   const key = `${client.config.CAS_INDEX_PREFIX}${deliveryManifestObjectId(versionId)}`;
-  const response = await getStorageObject(client, key);
+  const response = await getStorageObject(
+    client,
+    key,
+    AbortSignal.timeout(ORIGIN_REQUEST_TIMEOUT_MS)
+  );
   if (response.status === 404) {
     throw new HttpError(404, 'Delivery version not found');
   }
@@ -337,7 +341,7 @@ async function loadChunk(
   const response = await getStorageObject(
     client,
     chunkObjectKey(client.config, chunk.id),
-    AbortSignal.timeout(CHUNK_ORIGIN_TIMEOUT_MS)
+    AbortSignal.timeout(ORIGIN_REQUEST_TIMEOUT_MS)
   );
   if (response.status === 404) {
     throw new Error('CAS chunk is missing from storage');
