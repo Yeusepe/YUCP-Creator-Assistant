@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { Catalog, type CatalogState } from '../catalog';
 import { localCasStore } from '../storage-core/desyncCas';
 import { signUploadCapability } from '../storage-core/uploadSigning';
-import { createIngestTusServer, INGEST_TUS_PATH } from './ingestTusServer';
+import {
+  createIngestTusServer,
+  handleTusPatchWithOwnershipSignal,
+  INGEST_TUS_PATH,
+} from './ingestTusServer';
 
 const uploadHmacKey = 'security-test-upload-hmac-key-32-bytes';
 
@@ -120,6 +124,55 @@ afterEach(async () => {
   openServers.clear();
   await Promise.all([...scratchPaths].map((path) => rm(path, { force: true, recursive: true })));
   scratchPaths.clear();
+});
+
+describe('ingest tus PATCH ownership scope', () => {
+  it('destroys an aborted request, stops writes, and removes the listener after normal completion', async () => {
+    const abortController = new AbortController();
+    let destroyed = false;
+    let bytesWritten = 0;
+    const destroy = mock(() => {
+      destroyed = true;
+    });
+    const abortedPatch = handleTusPatchWithOwnershipSignal({
+      handle: async () => {
+        while (!destroyed) {
+          bytesWritten += 1;
+          await Bun.sleep(1);
+        }
+      },
+      request: { destroy },
+      signal: abortController.signal,
+    });
+    while (bytesWritten === 0) {
+      await Bun.sleep(1);
+    }
+    abortController.abort(new Error('upload ownership lost'));
+    await abortedPatch;
+    const bytesAfterAbort = bytesWritten;
+    await Bun.sleep(5);
+
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(bytesWritten).toBe(bytesAfterAbort);
+
+    const normalAbortController = new AbortController();
+    const normalDestroy = mock(() => {});
+    let normalBytesWritten = 0;
+    await handleTusPatchWithOwnershipSignal({
+      handle: async () => {
+        normalBytesWritten = 2;
+      },
+      request: { destroy: normalDestroy },
+      signal: normalAbortController.signal,
+    });
+    normalAbortController.abort(new Error('listener must be removed'));
+
+    expect(normalBytesWritten).toBe(2);
+    expect(normalDestroy).not.toHaveBeenCalled();
+    console.log(
+      'INGEST_TUS_OWNERSHIP_LOSS_RESULT request-destroyed=yes bytes-stable-after-abort=yes normal-patch-completed=yes listener-removed=yes'
+    );
+  });
 });
 
 describe('ingest tus upload capability isolation', () => {
@@ -312,5 +365,6 @@ describe('ingest tus upload capability isolation', () => {
     expect(completion.status).toBe(204);
     expect(rows.get(capability.versionId)?.state).toBe('ASSEMBLED');
     expect(rows.get(capability.versionId)?.error).toBeNull();
+    console.log('INGEST_TUS_PATCH_NORMAL_RESULT completed=yes assembled=yes');
   });
 });

@@ -329,6 +329,24 @@ function handleUnexpectedServerError(
   response.end('Internal server error\n');
 }
 
+export async function handleTusPatchWithOwnershipSignal(input: {
+  handle: () => Promise<void>;
+  request: { destroy(): void };
+  signal: AbortSignal;
+}): Promise<void> {
+  const abortRequest = (): void => input.request.destroy();
+  input.signal.addEventListener('abort', abortRequest, { once: true });
+  try {
+    if (input.signal.aborted) {
+      abortRequest();
+    }
+    input.signal.throwIfAborted();
+    await input.handle();
+  } finally {
+    input.signal.removeEventListener('abort', abortRequest);
+  }
+}
+
 /**
  * Implements tus 1.0 with the maintained Node server and file store.
  * Protocol and hook behavior: https://tus.io/protocols/resumable-upload and
@@ -533,7 +551,13 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
             );
           },
           operation: (signal) =>
-            heartbeatSignals.run(signal, () => tusServer.handle(request, response)),
+            heartbeatSignals.run(signal, () =>
+              handleTusPatchWithOwnershipSignal({
+                handle: () => tusServer.handle(request, response),
+                request,
+                signal,
+              })
+            ),
         });
         return;
       }
