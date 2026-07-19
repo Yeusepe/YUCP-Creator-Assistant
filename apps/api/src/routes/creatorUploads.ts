@@ -64,7 +64,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
 
     const packageId = requiredString(body, 'packageId');
     const version = requiredString(body, 'version');
-    const catalogProductId =
+    let catalogProductId =
       body.catalogProductId === undefined ? undefined : requiredString(body, 'catalogProductId');
     if (!packageId || !version || (body.catalogProductId !== undefined && !catalogProductId)) {
       return Response.json(
@@ -112,7 +112,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
           actor,
           catalogProductId,
         }
-      )) as { creatorAuthUserId: string; packageId?: string } | null;
+      )) as { catalogProductId: string; creatorAuthUserId: string; packageId?: string } | null;
       // packageId is only known once the catalog product has a READY version. Before that (e.g. the
       // first upload) it is undefined and the product is not yet bound to any package, so only reject a
       // CONCRETE mismatch — a product already bound to a different package. Creator ownership of the
@@ -124,6 +124,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       ) {
         return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
       }
+      catalogProductId = product.catalogProductId;
     }
 
     const uploadHmacKey = config.uploadHmacKey?.trim();

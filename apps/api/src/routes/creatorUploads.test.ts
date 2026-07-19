@@ -231,7 +231,7 @@ describe('creator upload authorization', () => {
     });
   });
 
-  it('returns a verifiable capability for the package owner', async () => {
+  it('signs the resolved catalog product id when authorization uses a product slug', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.lookupRegistration) {
         return {
@@ -244,7 +244,11 @@ describe('creator upload authorization', () => {
         return activeVpmBilling;
       }
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
-        return { creatorAuthUserId: 'creator-123', packageId: 'com.yucp.avatar' };
+        return {
+          catalogProductId: 'catalog-product-456',
+          creatorAuthUserId: 'creator-123',
+          packageId: 'com.yucp.avatar',
+        };
       }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
@@ -253,7 +257,7 @@ describe('creator upload authorization', () => {
       authorizeRequest({
         packageId: 'com.yucp.avatar',
         version: '1.2.3',
-        catalogProductId: 'catalog-product-456',
+        catalogProductId: 'avatar-product-slug',
       })
     );
     const body = (await response.json()) as {
@@ -266,6 +270,14 @@ describe('creator upload authorization', () => {
     };
 
     expect(response.status).toBe(200);
+    expect(convexQueryMock).toHaveBeenCalledWith(
+      apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: 'creator-actor-binding',
+        catalogProductId: 'avatar-product-slug',
+      }
+    );
     expect(body.tusEndpoint).toBe('https://ingest.example.test/files');
     expect(body.catalogProductId).toBe('catalog-product-456');
     expect(body.headers).toEqual({
@@ -305,7 +317,7 @@ describe('creator upload authorization', () => {
       }
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         // No READY version yet, so the product is not bound to any packageId.
-        return { creatorAuthUserId: 'creator-123' };
+        return { catalogProductId: 'catalog-product-456', creatorAuthUserId: 'creator-123' };
       }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
