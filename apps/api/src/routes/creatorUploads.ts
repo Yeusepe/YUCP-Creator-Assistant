@@ -83,12 +83,14 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       actor,
       packageId,
     })) as { status: 'active' | 'archived'; yucpUserId: string } | null;
-    if (
-      !registration ||
-      registration.yucpUserId !== session.user.id ||
-      registration.status !== 'active'
-    ) {
-      return Response.json({ error: 'Active package ownership required' }, { status: 403 });
+    if (registration && registration.yucpUserId !== session.user.id) {
+      return Response.json(
+        { error: 'Package namespace owned by another creator' },
+        { status: 403 }
+      );
+    }
+    if (registration?.status === 'archived') {
+      return Response.json({ error: 'Package is archived' }, { status: 409 });
     }
     const billing = (await convex.query(api.certificateBilling.getAccountOverview, {
       apiSecret: config.convexApiSecret,
