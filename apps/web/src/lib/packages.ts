@@ -35,28 +35,27 @@ export interface CreatorPackageProductSummary {
 }
 
 interface CreatorPackageProductListPage {
-  object: 'list';
   data: CreatorPackageProductSummary[];
   hasMore: boolean;
   nextCursor: string | null;
 }
 
-const CREATOR_PRODUCTS_PATH = '/api/public/v2/products';
+const CREATOR_PACKAGES_PATH = '/api/creator/packages';
 
 /**
- * Reads the creator catalog through the current public-v2 products route. That route delegates to
+ * Reads the creator catalog through the Better Auth session route. The API server delegates to
  * `api.packageRegistry.listByAuthUser`; the browser never receives the Convex API secret or actor
- * binding used by the API server.
+ * binding.
  */
 export async function listCreatorPackageProducts(): Promise<CreatorPackageProductSummary[]> {
   const products: CreatorPackageProductSummary[] = [];
   let cursor: string | undefined;
 
   do {
-    const page = await apiClient.get<CreatorPackageProductListPage>(CREATOR_PRODUCTS_PATH, {
+    const page = await apiClient.get<CreatorPackageProductListPage>(CREATOR_PACKAGES_PATH, {
       params: {
         limit: '100',
-        ...(cursor ? { starting_after: cursor } : {}),
+        ...(cursor ? { cursor } : {}),
       },
     });
     products.push(...page.data);
@@ -67,13 +66,13 @@ export async function listCreatorPackageProducts(): Promise<CreatorPackageProduc
 }
 
 /**
- * Reads one creator-owned catalog product through the current endpoint backed by
+ * Reads one creator-owned catalog product through the session endpoint backed by
  * `api.packageRegistry.getByIdForAuthUser`.
  */
 export async function getCreatorPackageProduct(
   catalogProductId: string
 ): Promise<CreatorPackageProductSummary> {
   return await apiClient.get<CreatorPackageProductSummary>(
-    `${CREATOR_PRODUCTS_PATH}/${encodeURIComponent(catalogProductId)}`
+    `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(catalogProductId)}`
   );
 }

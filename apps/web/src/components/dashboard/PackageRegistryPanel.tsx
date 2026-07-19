@@ -2,13 +2,13 @@ import { Button, Card, Chip, ListBox, Select, Skeleton } from '@heroui/react';
 import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpFromLine, Copy, Link2, Package2, Search, Store } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
-import { useDashboardSession } from '@/hooks/useDashboardSession';
+import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
 import {
   type CreatorPackageProductSummary,
@@ -188,12 +188,19 @@ function ProductDetailsSheet({
   onOpenChange: (isOpen: boolean) => void;
   onUpload: (product: CreatorPackageProductSummary) => void;
 }) {
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const detailQuery = useQuery({
     queryKey: ['creator-package-product', catalogProductId],
     queryFn: () => getCreatorPackageProduct(catalogProductId ?? ''),
-    enabled: isOpen && Boolean(catalogProductId),
+    enabled: canRunPanelQueries && isOpen && Boolean(catalogProductId),
     retry: false,
   });
+
+  useEffect(() => {
+    if (isDashboardAuthError(detailQuery.error)) {
+      markSessionExpired();
+    }
+  }, [detailQuery.error, markSessionExpired]);
 
   return (
     <Sheet isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -305,7 +312,7 @@ export function PackageRegistryPanel({
 }: PackageRegistryPanelProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { canRunPanelQueries } = useDashboardSession();
+  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -323,6 +330,12 @@ export function PackageRegistryPanel({
     enabled: canRunPanelQueries,
     retry: false,
   });
+
+  useEffect(() => {
+    if (isDashboardAuthError(productsQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, productsQuery.error]);
 
   const products = useMemo(
     () =>

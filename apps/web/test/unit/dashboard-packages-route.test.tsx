@@ -3,15 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { apiGetMock, apiPostMock, routeSearchMock, uploadStartMock, uploadSuccessRef } = vi.hoisted(
-  () => ({
-    apiGetMock: vi.fn(),
-    apiPostMock: vi.fn(),
-    routeSearchMock: vi.fn(() => ({ view: undefined })),
-    uploadStartMock: vi.fn(),
-    uploadSuccessRef: { current: null as null | (() => void) },
-  })
-);
+const {
+  apiGetMock,
+  apiPostMock,
+  markSessionExpiredMock,
+  routeSearchMock,
+  uploadStartMock,
+  uploadSuccessRef,
+} = vi.hoisted(() => ({
+  apiGetMock: vi.fn(),
+  apiPostMock: vi.fn(),
+  markSessionExpiredMock: vi.fn(),
+  routeSearchMock: vi.fn(() => ({ view: undefined })),
+  uploadStartMock: vi.fn(),
+  uploadSuccessRef: { current: null as null | (() => void) },
+}));
 
 vi.mock('@tanstack/react-router', () => ({
   createLazyFileRoute: () => (options: unknown) => ({
@@ -42,7 +48,12 @@ vi.mock('@/hooks/useCreatorCertificateWorkspace', () => ({
 }));
 
 vi.mock('@/hooks/useDashboardSession', () => ({
-  useDashboardSession: () => ({ canRunPanelQueries: true }),
+  isDashboardAuthError: (error: unknown) =>
+    error instanceof Error && /authentication required/i.test(error.message),
+  useDashboardSession: () => ({
+    canRunPanelQueries: true,
+    markSessionExpired: markSessionExpiredMock,
+  }),
 }));
 
 vi.mock('@/lib/certificates', () => ({
@@ -130,15 +141,14 @@ describe('dashboard packages route', () => {
     routeSearchMock.mockReturnValue({ view: undefined });
     uploadSuccessRef.current = null;
     apiGetMock.mockImplementation((path: string) => {
-      if (path === '/api/public/v2/products') {
+      if (path === '/api/creator/packages') {
         return Promise.resolve({
-          object: 'list',
           data: [product],
           hasMore: false,
           nextCursor: null,
         });
       }
-      if (path === '/api/public/v2/products/catalog_product_1') {
+      if (path === '/api/creator/packages/catalog_product_1') {
         return Promise.resolve(product);
       }
       return Promise.reject(new Error(`Unexpected GET ${path}`));
@@ -164,9 +174,31 @@ describe('dashboard packages route', () => {
     expect(screen.getByRole('heading', { name: 'Private VPM Registry' })).toBeInTheDocument();
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
     expect(screen.getByText(/catalog product ready for a package upload/i)).toBeInTheDocument();
-    expect(apiGetMock).toHaveBeenCalledWith('/api/public/v2/products', {
+    expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
       params: { limit: '100' },
     });
+  });
+
+  it('marks the dashboard session expired when the creator packages route returns 401', async () => {
+    apiGetMock.mockRejectedValueOnce(new Error('Authentication required'));
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(markSessionExpiredMock).toHaveBeenCalledOnce());
+  });
+
+  it('loads product details from the creator session route', async () => {
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Open details for Avatar Bundle' }));
+
+    expect(await screen.findByText('Synced access tiers')).toBeInTheDocument();
+    expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages/catalog_product_1');
   });
 
   it('authorizes and starts a real resumable upload from the restored product lane', async () => {
