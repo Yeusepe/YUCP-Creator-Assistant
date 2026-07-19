@@ -14,6 +14,12 @@ const VPM_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 const VPM_DELIVERY_URL_TTL_MS = 60 * 60_000;
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+function isHttpsOrLoopbackHttp(url: URL): boolean {
+  return (
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(url.hostname))
+  );
+}
+
 export interface VpmRouteConfig {
   apiBaseUrl: string;
   frontendBaseUrl: string;
@@ -92,12 +98,7 @@ function getConfiguredVpmDelivery(config: VpmRouteConfig): {
   try {
     const deliveryUrl = new URL(deliveryBaseUrl);
     const vpmUrl = new URL(vpmBaseUrl);
-    const isLoopbackHttp =
-      deliveryUrl.protocol === 'http:' && LOOPBACK_HOSTNAMES.has(deliveryUrl.hostname);
-    if (deliveryUrl.protocol !== 'https:' && !isLoopbackHttp) {
-      return null;
-    }
-    if (vpmUrl.protocol !== 'http:' && vpmUrl.protocol !== 'https:') {
+    if (!isHttpsOrLoopbackHttp(deliveryUrl) || !isHttpsOrLoopbackHttp(vpmUrl)) {
       return null;
     }
   } catch {
