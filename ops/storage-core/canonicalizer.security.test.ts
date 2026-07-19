@@ -1,8 +1,9 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { zipSync } from 'fflate';
+import { types as tarTypes } from 'tar';
 import { canonicalizeArtifact, canonicalizerChildEnv } from './canonicalizer';
 import { runCommand } from './process';
 
@@ -12,7 +13,7 @@ type TarEntry = {
   body?: Buffer;
   linkName?: string;
   name: string;
-  type: '0' | '2' | '6';
+  type: '\0' | '0' | '2' | '6';
 };
 
 const ARCHIVE_ENTRY_LIMIT = 100_000;
@@ -151,6 +152,43 @@ describe('canonicalizer decompression budget', () => {
     ).rejects.toThrow('decompressed byte budget');
     expect(await pathExists(outputPath)).toBeFalse();
     await expectNoCanonicalizerScratch(scratchPath);
+  });
+});
+
+describe('canonicalizer tar compatibility', () => {
+  it('canonicalizes legacy OldFile regular entries with their contents intact', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-oldfile-'));
+    scratchPaths.push(scratchPath);
+    const tarPath = join(scratchPath, 'legacy.tar');
+    const inputPath = join(scratchPath, 'legacy.tar.gz');
+    const outputPath = join(scratchPath, 'canonical.tar.gz');
+    const extractedPath = join(scratchPath, 'extracted');
+    const legacyContents = Buffer.from('legacy regular file contents');
+    await writeFile(tarPath, createTar([{ name: 'legacy.txt', type: '\0', body: legacyContents }]));
+    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: inputPath });
+
+    const regularFileType = tarTypes.name.get('0');
+    tarTypes.name.set('0', 'OldFile');
+    try {
+      await canonicalizeArtifact({ inputPath, outputPath });
+    } finally {
+      if (regularFileType) {
+        tarTypes.name.set('0', regularFileType);
+      }
+    }
+    await mkdir(extractedPath);
+    await runCommand('tar', [
+      '--force-local',
+      '--extract',
+      '--file',
+      outputPath,
+      '--directory',
+      extractedPath,
+    ]);
+
+    expect(await readFile(join(extractedPath, 'legacy.txt'))).toEqual(legacyContents);
+    await expectNoCanonicalizerScratch(scratchPath);
+    console.log('CANONICALIZER_OLDFILE_RESULT canonicalized=yes content-preserved=yes');
   });
 });
 

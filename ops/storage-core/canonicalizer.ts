@@ -29,6 +29,7 @@ export const MAX_ARCHIVE_ENTRIES = 100_000;
 
 const ALLOWED_TAR_ENTRY_TYPES = new Set([
   'File',
+  'OldFile',
   'Directory',
   'SymbolicLink',
   'Link',
