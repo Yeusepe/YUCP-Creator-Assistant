@@ -5,6 +5,7 @@ import {
   SkeletonLine,
   SkeletonPill,
   SkeletonSwitch,
+  SkeletonTile,
 } from '@/components/ui/YucpSkeleton';
 
 const copySectionStyle: CSSProperties = { flex: 1 };
@@ -177,6 +178,86 @@ export function DashboardCertificatesSkeleton() {
         <SkeletonPill width="100%" />
       </div>
     </>
+  );
+}
+
+export type PackageRegistryWorkspaceSkeletonProps = {
+  className?: string;
+  showHeader?: boolean;
+  listRows?: number;
+};
+
+function PackageProductRowSkeleton() {
+  return (
+    <div className="pm-product-row rounded-xl shadow-none">
+      <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <SkeletonTile size={44} radius={12} />
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <SkeletonLine width="min(100%, 14rem)" style={{ height: '16px' }} />
+              <SkeletonPill width="96px" />
+            </div>
+            <SkeletonLine width="min(100%, 42rem)" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 md:justify-end">
+          <SkeletonPill width="160px" style={{ height: '32px', borderRadius: '8px' }} />
+          <SkeletonPill width="96px" style={{ height: '32px', borderRadius: '8px' }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PackageRegistryWorkspaceSkeleton({
+  className = 'bento-col-12',
+  showHeader = true,
+  listRows = 4,
+}: PackageRegistryWorkspaceSkeletonProps) {
+  return (
+    <section
+      className={['flex flex-col gap-4', className].filter(Boolean).join(' ')}
+      aria-label="Loading packages"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      {showHeader ? (
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-[64ch] space-y-1.5">
+            <SkeletonLine width="192px" style={{ height: '32px' }} />
+            <SkeletonLine />
+            <SkeletonLine width="83.333333%" />
+          </div>
+          <SkeletonPill width="192px" style={{ height: '40px' }} />
+        </div>
+      ) : null}
+
+      <div className="pm-card pm-primary-panel rounded-2xl shadow-none">
+        <div className="flex flex-col gap-3 p-4 pb-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <SkeletonTile size={24} radius={6} />
+              <SkeletonLine width="min(100%, 18rem)" style={{ height: '20px' }} />
+            </div>
+            <SkeletonLine width="min(100%, 52ch)" />
+          </div>
+        </div>
+        <div className="space-y-4 p-4 pt-0">
+          <div className="pm-inline-note space-y-2 rounded-[18px] p-3">
+            <SkeletonLine width="192px" />
+            <SkeletonLine width="min(100%, 50ch)" style={{ height: '12px' }} />
+            <SkeletonLine width="min(80%, 46ch)" style={{ height: '12px' }} />
+          </div>
+          <div className="space-y-3">
+            {Array.from({ length: listRows }, (_, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton placeholders never reorder
+              <PackageProductRowSkeleton key={index} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

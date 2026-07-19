@@ -157,7 +157,7 @@ describe('account UI contracts', () => {
     expect(accountBillingRouteSource).toContain('navigateToTrustedPolarUrl(result.url)');
   });
 
-  it('keeps coupling forensics on the former package workspace route', () => {
+  it('keeps coupling forensics beside the restored package registry workspace', () => {
     expect(dashboardForensicsRedirectSource).toContain("to: '/dashboard/packages'");
     expect(dashboardForensicsRedirectSource).toContain("view: 'forensics'");
     expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
@@ -166,7 +166,8 @@ describe('account UI contracts', () => {
 
     expect(dashboardPackagesRouteSource).toContain('CouplingForensicsPanel');
     expect(dashboardPackagesRouteSource).toContain('Leak Forensics');
-    expect(dashboardPackagesRouteSource).not.toContain('Package Registry');
+    expect(dashboardPackagesRouteSource).toContain('Package Registry');
+    expect(dashboardPackagesRouteSource).toContain('PackageRegistryPanel');
   });
 
   it('shows unavailable recovery metrics as pending instead of zero', () => {
