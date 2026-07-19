@@ -15,7 +15,8 @@ import {
   runCatalogMigrations,
 } from './index';
 
-const postgresImage = 'postgres:17-alpine';
+const postgresImage =
+  'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
 const databaseName = 'catalog_test';
 const databasePassword = 'catalog-test-password';
 const containerName = `yucp-catalog-integration-${randomUUID()}`;

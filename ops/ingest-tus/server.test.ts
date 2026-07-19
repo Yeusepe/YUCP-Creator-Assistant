@@ -14,7 +14,8 @@ const FETCHED_UPLOAD_HMAC_KEY = 'placeholder-fetched-upload-hmac-key';
 const RAW_UPLOAD_HMAC_KEY = 'placeholder-raw-upload-hmac-key-32';
 const FETCHED_ALLOWED_ORIGIN = 'https://fetched-app.example.test';
 const RAW_ALLOWED_ORIGIN = 'https://raw-app.example.test';
-const postgresImage = 'postgres:17-alpine';
+const postgresImage =
+  'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
 const databaseName = 'ingest_tus_runtime_test';
 const schedulerDatabaseName = 'scheduler_runtime_test';
 const databasePassword = 'ingest-tus-runtime-test-password';

@@ -17,7 +17,8 @@ import {
 import { runCommand } from './process';
 import { createS3Bucket, deleteS3Objects, getS3Object, listS3Objects } from './s3Control';
 
-const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
+const MINIO_IMAGE =
+  'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
 const TEST_CONTAINER_LABEL = 'com.yucp.test=cas-s3';
 
 let containerId: string | undefined;

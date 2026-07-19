@@ -30,8 +30,10 @@ const DEFAULT_ACCEPT_SIZE_BYTES = 5 * GIB;
 // This is 20% of the 7.5 GiB host target and remains below a 2 GiB reduced fixture. It allows
 // runtime overhead while still catching accidental whole-artifact buffering in the orchestrator.
 const MAX_ORCHESTRATOR_RSS_BYTES = 1536 * MIB;
-const POSTGRES_IMAGE = 'postgres:17-alpine';
-const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
+const POSTGRES_IMAGE =
+  'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
+const MINIO_IMAGE =
+  'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
 const databaseName = 'pipeline_accept_5gb';
 const databasePassword = 'pipeline-accept-5gb-password';
 const runId = randomBytes(6).toString('hex');

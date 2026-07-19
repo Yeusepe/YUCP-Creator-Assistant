@@ -35,8 +35,10 @@ import {
   UPLOAD_CAPABILITY_HEADERS,
 } from './ingestTusServer';
 
-const postgresImage = 'postgres:17-alpine';
-const minioImage = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
+const postgresImage =
+  'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
+const minioImage =
+  'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
 const databaseName = 'ingest_tus_test';
 const databasePassword = 'ingest-tus-test-password';
 const containerName = `yucp-ingest-tus-e2e-${randomUUID()}`;

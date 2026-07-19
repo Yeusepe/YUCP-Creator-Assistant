@@ -32,7 +32,8 @@ import {
   retrieveVersion,
 } from './ingestPipeline';
 
-const postgresImage = 'postgres:17-alpine';
+const postgresImage =
+  'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
 const databaseName = 'ingest_test';
 const databasePassword = 'ingest-test-password';
 const containerName = `yucp-ingest-e2e-${randomUUID()}`;

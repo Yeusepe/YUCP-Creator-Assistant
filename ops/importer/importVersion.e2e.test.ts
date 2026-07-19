@@ -19,7 +19,8 @@ import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { importerCapabilityBinding, importVersion } from './importVersion';
 
-const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
+const MINIO_IMAGE =
+  'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
 const TEST_CONTAINER_LABEL = 'com.yucp.test=desync-importer';
 
 type StoreGetCounts = {
