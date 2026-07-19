@@ -43,6 +43,7 @@ import { createUnityPackageFixture } from '../../ops/testing/unityPackageFixture
 const MINIO_IMAGE = 'minio/minio:RELEASE.2025-09-07T16-13-09Z';
 const POSTGRES_IMAGE = 'postgres:17-alpine';
 const TEST_CONTAINER_LABEL = 'com.yucp.test=delivery';
+const MAX_DELIVERY_CHUNKS = 8_000;
 
 type FetchCounts = {
   chunkGets: number;
@@ -516,13 +517,16 @@ async function main(): Promise<void> {
       createDeliveryManifest({
         storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
         versionId: oversizedVersionId,
-        totalSize: 16_000,
+        totalSize: MAX_DELIVERY_CHUNKS + 1,
         contentType: 'application/octet-stream',
         chunkAvgKib: 64,
-        chunks: Array.from({ length: 16_000 }, () => ({ id: 'a'.repeat(64), size: 1 })),
+        chunks: Array.from({ length: MAX_DELIVERY_CHUNKS + 1 }, () => ({
+          id: 'a'.repeat(64),
+          size: 1,
+        })),
       })
     );
-    assert.ok(Buffer.byteLength(oversizedManifest) > 1024 * 1024);
+    assert.ok(Buffer.byteLength(oversizedManifest) < 1024 * 1024);
     await putS3Object({
       body: oversizedManifest,
       config: casConfig,
@@ -539,7 +543,10 @@ async function main(): Promise<void> {
     oversizedDeliveryUrl.searchParams.set('sig', oversizedSigned.sig);
     const oversizedResponse = await fetch(oversizedDeliveryUrl);
     assert.equal(oversizedResponse.status, 422);
-    assert.match(await oversizedResponse.text(), /use the importer path/i);
+    assert.equal(
+      await oversizedResponse.text(),
+      'This package is too large for direct delivery; use the importer path'
+    );
 
     const nonReadyRawPath = join(scratchPath, 'non-ready-delivery.bin');
     await writeFile(nonReadyRawPath, randomBytes(256 * 1024));
@@ -767,7 +774,7 @@ async function main(): Promise<void> {
     console.log('corrupt-chunk-rejected=yes');
     console.log('non-ready-manifest=absent non-ready-delivery=404');
     console.log('failed-version-manifest-cleanup=yes failed-version-delivery=404');
-    console.log('oversized-manifest=422 importer-guidance=yes');
+    console.log('synthetic-over-ceiling-chunks=8001 oversized-manifest=422 importer-guidance=yes');
     console.log(
       `bad-sig-403=yes expired-sig-403=yes auth-storage-fetches=${authFailureStorageGets}`
     );

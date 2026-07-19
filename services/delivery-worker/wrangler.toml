@@ -4,6 +4,9 @@ compatibility_date = "2026-04-22"
 workers_dev = false
 send_metrics = false
 
+[limits]
+subrequests = 10_000
+
 [observability]
 enabled = true
 

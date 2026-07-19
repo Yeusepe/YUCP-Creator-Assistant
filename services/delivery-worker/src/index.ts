@@ -42,11 +42,11 @@ type StorageClient = {
   stats: DeliveryStats;
 };
 
-const MAX_DELIVERY_CHUNKS = 256;
+const MAX_DELIVERY_CHUNKS = 8_000;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const ORIGIN_REQUEST_TIMEOUT_MS = 30_000;
-const OVERSIZED_MANIFEST_MESSAGE =
-  'Delivery manifest exceeds direct delivery limits; use the importer path';
+const DIRECT_DELIVERY_LIMIT_MESSAGE =
+  'This package is too large for direct delivery; use the importer path';
 const VERSION_PATH_PATTERN = /^\/d\/([^/]+)$/;
 
 class HttpError extends Error {
@@ -159,7 +159,7 @@ async function getStorageObject(
 async function readLimitedText(response: Response, limit: number): Promise<string> {
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null && Number(declaredLength) > limit) {
-    throw new HttpError(422, OVERSIZED_MANIFEST_MESSAGE);
+    throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
   }
   if (!response.body) {
     throw new HttpError(502, 'Delivery manifest response has no body');
@@ -178,7 +178,7 @@ async function readLimitedText(response: Response, limit: number): Promise<strin
     received += value.byteLength;
     if (received > limit) {
       await reader.cancel();
-      throw new HttpError(422, OVERSIZED_MANIFEST_MESSAGE);
+      throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
     }
     output += decoder.decode(value, { stream: true });
   }
@@ -522,10 +522,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         chunkCount: manifest.chunks.length,
         chunkCeiling: MAX_DELIVERY_CHUNKS,
       });
-      throw new HttpError(
-        422,
-        `This file exceeds the ${MAX_DELIVERY_CHUNKS}-chunk delivery ceiling; use the importer path`
-      );
+      throw new HttpError(422, DIRECT_DELIVERY_LIMIT_MESSAGE);
     }
 
     const range = parseRange(request.headers.get('range'), manifest.totalSize);
