@@ -8,11 +8,13 @@ import { api } from '../../convex/_generated/api';
 import type { CatalogOutboxEvent } from './reconciler';
 
 const READY_EVENT_TYPE = 'catalog.version.ready';
+const DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS = 15_000;
 
 export interface ConvexCatalogPublishConfig {
   convexApiSecret: string;
   convexUrl: string;
   internalServiceAuthSecret: string;
+  publishTimeoutMs?: number;
 }
 
 interface ConvexMutationClient {
@@ -34,6 +36,17 @@ function requiredConfigValue(
   return value;
 }
 
+function publishTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const configured = env.CATALOG_CONVEX_PUBLISH_TIMEOUT_MS?.trim();
+  const timeoutMs = configured ? Number(configured) : DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error(
+      'Invalid catalog publisher environment variable: CATALOG_CONVEX_PUBLISH_TIMEOUT_MS'
+    );
+  }
+  return timeoutMs;
+}
+
 export function loadConvexCatalogPublishConfig(
   env: NodeJS.ProcessEnv = process.env
 ): ConvexCatalogPublishConfig {
@@ -41,6 +54,7 @@ export function loadConvexCatalogPublishConfig(
     convexApiSecret: requiredConfigValue(env, 'CONVEX_API_SECRET'),
     convexUrl: requiredConfigValue(env, 'CONVEX_URL'),
     internalServiceAuthSecret: requiredConfigValue(env, 'INTERNAL_SERVICE_AUTH_SECRET'),
+    publishTimeoutMs: publishTimeoutMs(env),
   };
 }
 
@@ -80,6 +94,23 @@ async function createPublisherActor(secret: string): Promise<ApiActorBinding> {
   );
 }
 
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Convex catalog publish timed out after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 /**
  * Convex clients can invoke only public functions, so the target mutation authenticates this
  * service boundary: https://docs.convex.dev/functions/internal-functions
@@ -103,16 +134,19 @@ export function createConvexCatalogPublish(
     const actor = await createPublisherActor(config.internalServiceAuthSecret);
     const catalogProductId = optionalCatalogProductId(event.payload);
     const contentType = optionalContentType(event.payload);
-    await client.mutation(api.packageVersions.upsertReadyVersion, {
-      apiSecret: config.convexApiSecret,
-      actor,
-      packageId: requiredPayloadString(event.payload, 'packageId'),
-      version: requiredPayloadString(event.payload, 'version'),
-      versionId: requiredPayloadString(event.payload, 'versionId'),
-      totalSize: requiredByteLength(event.payload),
-      ...(catalogProductId ? { catalogProductId } : {}),
-      ...(contentType ? { contentType } : {}),
-      createdAt: event.createdAt.getTime(),
-    });
+    await withTimeout(
+      client.mutation(api.packageVersions.upsertReadyVersion, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        packageId: requiredPayloadString(event.payload, 'packageId'),
+        version: requiredPayloadString(event.payload, 'version'),
+        versionId: requiredPayloadString(event.payload, 'versionId'),
+        totalSize: requiredByteLength(event.payload),
+        ...(catalogProductId ? { catalogProductId } : {}),
+        ...(contentType ? { contentType } : {}),
+        createdAt: event.createdAt.getTime(),
+      }),
+      config.publishTimeoutMs ?? DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS
+    );
   };
 }
