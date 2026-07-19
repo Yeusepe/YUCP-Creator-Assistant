@@ -100,10 +100,38 @@ describe('creator upload authorization', () => {
     );
 
     expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Package namespace owned by another creator',
+    });
     expect(convexQueryMock).toHaveBeenCalledWith(apiMock.packageRegistry.lookupRegistration, {
       apiSecret: config.convexApiSecret,
       actor: 'creator-actor-binding',
       packageId: 'com.yucp.avatar',
+    });
+  });
+
+  it('authorizes the first upload before the creator has registered the package', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return null;
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({ packageId: 'com.yucp.first-upload', version: '1.0.0' })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      tusEndpoint: 'https://ingest.example.test/files',
+      headers: {
+        'x-yucp-upload-package-id': 'com.yucp.first-upload',
+        'x-yucp-upload-version': '1.0.0',
+      },
     });
   });
 
@@ -131,7 +159,7 @@ describe('creator upload authorization', () => {
     expect(await response.json()).toEqual({ error: 'Creator uploads are not configured' });
   });
 
-  it('returns 403 when the owned package is archived', async () => {
+  it('returns 409 when the owned package is archived', async () => {
     convexQueryMock.mockResolvedValue({
       packageId: 'com.yucp.avatar',
       yucpUserId: 'creator-123',
@@ -142,7 +170,8 @@ describe('creator upload authorization', () => {
       authorizeRequest({ packageId: 'com.yucp.avatar', version: '1.0.0' })
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'Package is archived' });
   });
 
   it('returns 403 when the package owner lacks the VPM repository capability', async () => {
