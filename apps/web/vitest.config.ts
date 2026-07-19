@@ -19,6 +19,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['test/unit/**/*.test.{ts,tsx}'],
+    server: {
+      deps: {
+        inline: [/@heroui-pro\/react/, /@gravity-ui\/icons/],
+      },
+    },
     setupFiles: ['test/unit/setup.ts'],
     testTimeout: 15_000,
   },
