@@ -35,7 +35,7 @@ identities:
     type: machine
     projects:
       - project: dev
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
@@ -50,7 +50,7 @@ identities:
     type: machine
     projects:
       - project: preview
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
@@ -65,7 +65,7 @@ identities:
     type: machine
     projects:
       - project: prod
-        role: developer
+        role: viewer
     allowed_paths:
       - /api/*
       - /infra/*
@@ -142,7 +142,7 @@ identities:
     type: machine
     projects:
       - project: dev
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
@@ -155,7 +155,7 @@ identities:
     type: machine
     projects:
       - project: preview
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
@@ -168,7 +168,7 @@ identities:
     type: machine
     projects:
       - project: prod
-        role: developer
+        role: viewer
     allowed_paths:
       - /bot/*
       - /infra/convex/*
