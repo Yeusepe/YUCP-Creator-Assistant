@@ -98,6 +98,41 @@ describe('packageRegistry', () => {
     });
   });
 
+  it('returns the package bound to an active catalog product', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId: 'auth-user-product',
+        productId: 'product-bound-to-package',
+        provider: 'gumroad',
+        providerProductRef: 'provider-product-bound-to-package',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.bound-package',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000001',
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId: productId,
+        createdAt: now,
+      });
+      return productId;
+    });
+
+    const product = await t.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+      apiSecret: 'test-secret',
+      actor: await createServiceActorBinding(['verification-intents:service']),
+      catalogProductId,
+    });
+
+    expect(product?.packageId).toBe('com.yucp.bound-package');
+  });
+
   it('does not disclose the owning creator on a package namespace conflict', async () => {
     const t = makeTestConvex();
 

@@ -196,6 +196,41 @@ describe('creator upload authorization', () => {
     expect(response.status).toBe(403);
   });
 
+  it('returns 403 when the catalog product belongs to a different package', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          creatorAuthUserId: 'creator-123',
+          packageId: 'com.yucp.different-avatar',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.avatar',
+        version: '1.2.3',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Catalog product ownership required',
+    });
+  });
+
   it('returns a verifiable capability for the package owner', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.packageRegistry.lookupRegistration) {
@@ -209,7 +244,7 @@ describe('creator upload authorization', () => {
         return activeVpmBilling;
       }
       if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
-        return { creatorAuthUserId: 'creator-123' };
+        return { creatorAuthUserId: 'creator-123', packageId: 'com.yucp.avatar' };
       }
       throw new Error(`Unexpected query ${String(reference)}`);
     });

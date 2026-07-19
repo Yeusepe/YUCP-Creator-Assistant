@@ -348,9 +348,19 @@ export const getBuyerAccessContextByCatalogProductId = query({
       return null;
     }
 
+    const packageVersions = await ctx.db
+      .query('package_versions_ref')
+      .withIndex('by_catalog_product', (q) =>
+        q.eq('catalogProductId', product._id).eq('state', 'READY')
+      )
+      .collect();
+    const packageIds = new Set(packageVersions.map((version) => version.packageId));
+    const packageId = packageIds.size === 1 ? packageIds.values().next().value : undefined;
+
     return {
       catalogProductId: product._id,
       creatorAuthUserId: product.authUserId,
+      ...(packageId ? { packageId } : {}),
       productId: product.productId,
       provider: product.provider,
       providerProductRef: product.providerProductRef,

@@ -112,8 +112,12 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
           actor,
           catalogProductId,
         }
-      )) as { creatorAuthUserId: string } | null;
-      if (!product || product.creatorAuthUserId !== session.user.id) {
+      )) as { creatorAuthUserId: string; packageId?: string } | null;
+      if (
+        !product ||
+        product.creatorAuthUserId !== session.user.id ||
+        product.packageId !== packageId
+      ) {
         return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
       }
     }
