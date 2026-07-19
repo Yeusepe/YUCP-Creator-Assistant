@@ -299,6 +299,42 @@ describe('first-party desync importer against throwaway MinIO', () => {
     expect(await sha256File(importedV1)).toBe(v1Sha256);
     expect(await readFile(importedV1)).toEqual(await readFile(canonicalV1.path));
 
+    const replacementPath = join(scratchPath, 'imported-replacement.unitypackage');
+    const preexistingArtifact = Buffer.from('pre-existing artifact must survive failed import');
+    await writeFile(replacementPath, preexistingArtifact);
+    const wrongV1Sha256 = `${v1Sha256[0] === '0' ? '1' : '0'}${v1Sha256.slice(1)}`;
+    const wrongV1Signed = await signDeliveryUrl({
+      binding: importerCapabilityBinding('v1.caibx', wrongV1Sha256),
+      expiresAt: Date.now() + 10 * 60_000,
+      key: hmacKey,
+      versionId: v1VersionId,
+    });
+    await expect(
+      importVersion(
+        {
+          capability: { ...wrongV1Signed, versionId: v1VersionId },
+          expectedSha256: wrongV1Sha256,
+          indexId: 'v1.caibx',
+          outputPath: replacementPath,
+          store,
+        },
+        { hmacKey }
+      )
+    ).rejects.toThrow('Imported artifact SHA-256 mismatch');
+    expect(await readFile(replacementPath)).toEqual(preexistingArtifact);
+
+    await importVersion(
+      {
+        capability: { ...v1Signed, versionId: v1VersionId },
+        expectedSha256: v1Sha256,
+        indexId: 'v1.caibx',
+        outputPath: replacementPath,
+        store,
+      },
+      { hmacKey }
+    );
+    expect(await readFile(replacementPath)).toEqual(await readFile(canonicalV1.path));
+
     const v2VersionId = 'importer-fixture-v2';
     const v2Signed = await signDeliveryUrl({
       binding: importerCapabilityBinding('v2.caibx', v2Sha256),
@@ -380,6 +416,9 @@ describe('first-party desync importer against throwaway MinIO', () => {
 
     console.log(
       `IMPORTER_E2E_RESULT v1-byte-exact=yes delta-v2-store-gets=${deltaV2StoreGets} full=${fullV2StoreGets} invalid-capability-store-fetches=${invalidCapabilityStoreFetches} minio=yes`
+    );
+    console.log(
+      'IMPORTER_TARGET_REPLACEMENT_RESULT failed-import-preserved=yes successful-import-replaced-byte-exact=yes'
     );
   });
 });

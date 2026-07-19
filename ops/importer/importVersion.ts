@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { DeliveryUrlSignature } from '../storage-core/deliverySigning';
 import { verifyDeliveryUrl } from '../storage-core/deliverySigning';
@@ -152,11 +152,10 @@ export async function importVersion(
 
   const outputDirectory = dirname(outputPath);
   await mkdir(outputDirectory, { recursive: true });
-  const scratchParent = seedArtifactPath ? dirname(seedArtifactPath) : outputDirectory;
-  const scratchPath = await mkdtemp(join(scratchParent, '.yucp-importer-'));
+  const scratchPath = await mkdtemp(join(outputDirectory, '.yucp-importer-'));
+  const stagedOutputPath = join(scratchPath, 'artifact.reconstructed');
   const storeUrl = storeLocation(input.store);
   const configPath = join(scratchPath, 'desync-config.json');
-  let outputOwned = false;
 
   try {
     const chunks = await inspectDesyncIndex({ indexId: input.indexId, store: input.store });
@@ -184,12 +183,10 @@ export async function importVersion(
       }
       args.push('--seed', `${relativeSeedIndex}:${relativeSeedArtifact}`);
     }
-    args.push('--', indexLocation(input.store, input.indexId), outputPath);
+    args.push('--', indexLocation(input.store, input.indexId), stagedOutputPath);
 
-    await rm(outputPath, { force: true });
-    outputOwned = true;
     await runCommand('desync', args, { cwd: scratchPath, env: childEnv(input.store) });
-    const measured = await measureFile(outputPath);
+    const measured = await measureFile(stagedOutputPath);
     if (measured.byteLength !== expectedByteLength) {
       throw new Error(
         `Imported artifact byte length mismatch: expected ${expectedByteLength}, received ${measured.byteLength}`
@@ -198,12 +195,8 @@ export async function importVersion(
     if (measured.sha256 !== input.expectedSha256) {
       throw new Error('Imported artifact SHA-256 mismatch');
     }
+    await rename(stagedOutputPath, outputPath);
     return outputPath;
-  } catch (error) {
-    if (outputOwned) {
-      await rm(outputPath, { force: true });
-    }
-    throw error;
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
   }
