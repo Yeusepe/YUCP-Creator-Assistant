@@ -55,8 +55,8 @@ jobs:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
           ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
           ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
-          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
-          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}
         run: bun run icons:sync
 
       - name: Run type check
@@ -82,8 +82,8 @@ jobs:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
           ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
           ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
-          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
-          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}
         run: bun run icons:sync
 
       - name: Build web app
@@ -128,8 +128,8 @@ jobs:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
           ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
           ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
-          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
-          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}
         run: bun run icons:sync
 
       - name: Run full test gate (fast, boundary mock ratchet, Convex, API integration)
@@ -158,8 +158,8 @@ jobs:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
           ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
           ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
-          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
-          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}
         run: bun run icons:sync
 
       - name: Run web test gate

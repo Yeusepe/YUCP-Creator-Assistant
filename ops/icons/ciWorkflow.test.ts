@@ -24,9 +24,19 @@ describe('licensed icon CI regeneration', () => {
         `ASSETS_S3_BUCKET: ${githubExpressionPrefix} secrets.ASSETS_S3_BUCKET }}`
       );
       expect(job).toContain(
-        `ASSETS_S3_READONLY_ACCESS_KEY_ID: ${githubExpressionPrefix} secrets.ASSETS_S3_ACCESS_KEY_ID }}`
+        `ASSETS_S3_READONLY_ACCESS_KEY_ID: ${githubExpressionPrefix} secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}`
+      );
+      expect(job).toContain(
+        `ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${githubExpressionPrefix} secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}`
       );
       expect(job).not.toContain('VITE_ASSETS_S3');
     }
+  });
+
+  test('never exposes read-write asset credentials to icon sync jobs', () => {
+    expect(workflow).not.toContain(`${githubExpressionPrefix} secrets.ASSETS_S3_ACCESS_KEY_ID }}`);
+    expect(workflow).not.toContain(
+      `${githubExpressionPrefix} secrets.ASSETS_S3_SECRET_ACCESS_KEY }}`
+    );
   });
 });
