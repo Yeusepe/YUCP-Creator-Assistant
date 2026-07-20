@@ -40,4 +40,16 @@ describe('assets icon configuration', () => {
       })
     ).toThrow('Incomplete read-only assets credential pair');
   });
+
+  test('names every accepted credential variable when credentials are missing', () => {
+    expect(() =>
+      loadAssetsConfig({
+        ASSETS_S3_BUCKET: baseEnv.ASSETS_S3_BUCKET,
+        ASSETS_S3_ENDPOINT: baseEnv.ASSETS_S3_ENDPOINT,
+        ASSETS_S3_REGION: baseEnv.ASSETS_S3_REGION,
+      })
+    ).toThrow(
+      'Missing assets credentials: provide ASSETS_S3_READONLY_ACCESS_KEY_ID and ASSETS_S3_READONLY_SECRET_ACCESS_KEY, or ASSETS_S3_ACCESS_KEY_ID and ASSETS_S3_SECRET_ACCESS_KEY'
+    );
+  });
 });

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "bun run --cwd ../.. icons:sync && vite build",
     "preview": "vite preview",
     "start": "vite preview",
     "worker:env:dev": "bun run ../../ops/export-web-worker-env.ts",

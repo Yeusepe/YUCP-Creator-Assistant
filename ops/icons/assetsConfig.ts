@@ -66,7 +66,7 @@ function resolveCredentialPair(env: NodeJS.ProcessEnv): {
   }
   if (!accessKeyId || !secretAccessKey) {
     throw new Error(
-      'Missing assets credentials: provide the read-only pair or the standard access-key pair'
+      'Missing assets credentials: provide ASSETS_S3_READONLY_ACCESS_KEY_ID and ASSETS_S3_READONLY_SECRET_ACCESS_KEY, or ASSETS_S3_ACCESS_KEY_ID and ASSETS_S3_SECRET_ACCESS_KEY'
     );
   }
   return { accessKeyId, secretAccessKey };
