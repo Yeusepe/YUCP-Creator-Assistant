@@ -179,6 +179,21 @@ describe('dashboard packages route', () => {
     });
   });
 
+  it('explains how to register the first package when no configured products exist', async () => {
+    apiGetMock.mockResolvedValueOnce({ data: [], hasMore: false, nextCursor: null });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('No configured packages yet')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Sign a package with the YUCP signing tool to register it. Once registered, return here to upload new versions to that package.'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('marks the dashboard session expired when the creator packages route returns 401', async () => {
     apiGetMock.mockRejectedValueOnce(new Error('Authentication required'));
     const Component = DashboardPackagesRoute.options.component;

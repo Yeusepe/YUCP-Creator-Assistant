@@ -555,10 +555,10 @@ export function PackageRegistryPanel({
                     <EmptyState.Media variant="icon">
                       <Store />
                     </EmptyState.Media>
-                    <EmptyState.Title>No catalog products yet</EmptyState.Title>
+                    <EmptyState.Title>No configured packages yet</EmptyState.Title>
                     <EmptyState.Description>
-                      Sync a creator product first. Once it appears here, you can attach a package
-                      upload to it.
+                      Sign a package with the YUCP signing tool to register it. Once registered,
+                      return here to upload new versions to that package.
                     </EmptyState.Description>
                   </EmptyState.Header>
                 </EmptyState>

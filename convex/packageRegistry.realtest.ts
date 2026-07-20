@@ -1,4 +1,4 @@
-import { createApiActorBinding } from '@yucp/shared/apiActor';
+import { createApiActorBinding, createAuthUserApiActor } from '@yucp/shared/apiActor';
 import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -22,7 +22,80 @@ async function createServiceActorBinding(scopes: readonly string[]) {
   );
 }
 
+async function createCreatorActorBinding(authUserId: string) {
+  return await createApiActorBinding(
+    createAuthUserApiActor({ authUserId, source: 'session' }),
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
 describe('packageRegistry', () => {
+  it('lists only configured products before applying dashboard pagination', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-dashboard-packages';
+    const [unconfiguredProductId, firstConfiguredProductId, secondConfiguredProductId] =
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        const insertProduct = async (productId: string, providerProductRef: string) =>
+          await ctx.db.insert('product_catalog', {
+            authUserId,
+            productId,
+            provider: 'gumroad',
+            providerProductRef,
+            status: 'active',
+            supportsAutoDiscovery: true,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+        const unconfigured = await insertProduct('unconfigured-product', 'unconfigured-ref');
+        const firstConfigured = await insertProduct('configured-product-1', 'configured-ref-1');
+        const secondConfigured = await insertProduct('configured-product-2', 'configured-ref-2');
+        await ctx.db.insert('package_versions_ref', {
+          packageId: 'com.yucp.configured-one',
+          version: '1.0.0',
+          versionId: '00000000-0000-4000-8000-000000000011',
+          state: 'READY',
+          catalogProductId: firstConfigured,
+          createdAt: now,
+        });
+        await ctx.db.insert('package_versions_ref', {
+          packageId: 'com.yucp.configured-two',
+          version: '1.0.0',
+          versionId: '00000000-0000-4000-8000-000000000012',
+          state: 'READY',
+          catalogProductId: secondConfigured,
+          createdAt: now,
+        });
+        return [unconfigured, firstConfigured, secondConfigured] as const;
+      });
+    const actor = await createCreatorActorBinding(authUserId);
+
+    const firstPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      limit: 1,
+    });
+    const secondPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+
+    expect(firstPage.data.map((product) => product._id)).toEqual([firstConfiguredProductId]);
+    expect(firstPage.data.map((product) => product._id)).not.toContain(unconfiguredProductId);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toBe(firstConfiguredProductId);
+    expect(secondPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
+    expect(secondPage.hasMore).toBe(false);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
   it('stores package names and lists owned packages with human metadata', async () => {
     const t = makeTestConvex();
 

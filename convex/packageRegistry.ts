@@ -207,6 +207,7 @@ export const listByAuthUser = query({
     authUserId: v.string(),
     provider: v.optional(v.string()),
     status: v.optional(v.string()),
+    configuredOnly: v.optional(v.boolean()),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -228,6 +229,20 @@ export const listByAuthUser = query({
           getCatalogProductWorkspaceStatus(product) === args.status ||
           product.status === args.status
       );
+    }
+    if (args.configuredOnly) {
+      const configuredProducts = await Promise.all(
+        all.map(async (product) => {
+          const readyVersion = await ctx.db
+            .query('package_versions_ref')
+            .withIndex('by_catalog_product', (q) =>
+              q.eq('catalogProductId', product._id).eq('state', 'READY')
+            )
+            .first();
+          return readyVersion ? product : null;
+        })
+      );
+      all = configuredProducts.filter((product) => product !== null);
     }
 
     const limit = Math.min(args.limit ?? 50, 100);
