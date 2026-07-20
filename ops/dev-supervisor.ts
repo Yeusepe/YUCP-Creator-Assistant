@@ -41,7 +41,7 @@ interface DevSupervisorOptions {
 const COUPLING_SERVICE_DIR = path.join(ROOT_DIR, 'Verify', 'Native', 'coupling-service');
 
 const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
-  { name: 'convex', color: 'blue', command: 'npx convex dev' },
+  { name: 'convex', color: 'blue', command: 'bunx convex dev' },
   { name: 'api', color: 'magenta', command: 'bun run dev:api' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web' },
@@ -50,7 +50,7 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
 ];
 
 const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
-  { name: 'convex', color: 'blue', command: 'npx convex dev' },
+  { name: 'convex', color: 'blue', command: 'bunx convex dev' },
   { name: 'api', color: 'magenta', command: 'bun run dev:api:infisical' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot:infisical' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web:infisical' },
