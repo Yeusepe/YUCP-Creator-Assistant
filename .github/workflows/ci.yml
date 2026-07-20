@@ -50,8 +50,44 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
+      - name: Generate licensed icon module
+        env:
+          ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
+          ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
+          ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+        run: bun run icons:sync
+
       - name: Run type check
         run: bun run typecheck
+
+  web-build:
+    name: Web Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5
+        with:
+          bun-version: "1.3.9"
+
+      - name: Install dependencies
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+        run: bun install --frozen-lockfile
+
+      - name: Generate licensed icon module
+        env:
+          ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
+          ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
+          ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+        run: bun run icons:sync
+
+      - name: Build web app
+        run: bun run --filter '@yucp/web' build
 
   external-integrations:
     name: External Integration Contracts
@@ -107,6 +143,15 @@ jobs:
         env:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
+
+      - name: Generate licensed icon module
+        env:
+          ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
+          ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
+          ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+        run: bun run icons:sync
 
       - name: Run web test gate
         run: bun run --filter '@yucp/web' test:ci
