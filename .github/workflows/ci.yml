@@ -123,6 +123,15 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
+      - name: Generate licensed icon module
+        env:
+          ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
+          ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
+          ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
+          ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_ACCESS_KEY_ID }}
+          ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_SECRET_ACCESS_KEY }}
+        run: bun run icons:sync
+
       - name: Run full test gate (fast, boundary mock ratchet, Convex, API integration)
         run: bun run test:ci
 
