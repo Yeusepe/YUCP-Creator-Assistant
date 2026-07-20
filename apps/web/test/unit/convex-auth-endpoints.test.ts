@@ -1,6 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAuth } from '../../../../convex/auth';
 
 const ORIGINAL_ENV = { ...process.env };
+const TEST_CONVEX_SITE_HOST = 'example.convex.site';
+const TEST_CONVEX_DEPLOYMENT_HOST = 'example.convex.cloud';
+
+const offlineConvexFetch = vi.fn(async (input: RequestInfo | URL) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+
+  if (url.hostname === TEST_CONVEX_SITE_HOST) {
+    return Response.json(null);
+  }
+
+  if (url.hostname === TEST_CONVEX_DEPLOYMENT_HOST) {
+    return Response.json({ status: 'success', value: null });
+  }
+
+  throw new Error(`Unexpected outbound request in Convex auth unit test: ${url.href}`);
+});
 
 async function createTestAuth() {
   process.env.BETTER_AUTH_SECRET = 'test-secret-123456789012345678901234';
@@ -11,18 +28,19 @@ async function createTestAuth() {
   delete process.env.DISCORD_CLIENT_ID;
   delete process.env.DISCORD_CLIENT_SECRET;
 
-  vi.resetModules();
-  const { createAuth } = await import('../../../../convex/auth');
   return createAuth({} as never);
 }
 
 beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
+  offlineConvexFetch.mockClear();
+  vi.spyOn(globalThis, 'fetch').mockImplementation(offlineConvexFetch);
+  vi.spyOn(window, 'fetch').mockImplementation(offlineConvexFetch);
 });
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
-  vi.resetModules();
+  vi.restoreAllMocks();
 });
 
 describe('Convex Better Auth endpoints', () => {
