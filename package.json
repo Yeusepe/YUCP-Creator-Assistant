@@ -14,7 +14,7 @@
     "@babel/core": "7.29.7",
     "@protobufjs/utf8": ">=1.1.1",
     "@tanstack/start-server-core": "1.169.8",
-    "axios": ">=1.15.2",
+    "axios": ">=1.18.0",
     "bebop": "3.0.4",
     "fast-xml-parser": "5.7.0",
     "fast-xml-builder": ">=1.2.0",
