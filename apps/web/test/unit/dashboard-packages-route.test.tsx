@@ -7,6 +7,7 @@ const {
   apiGetMock,
   apiPostMock,
   markSessionExpiredMock,
+  navigateMock,
   routeSearchMock,
   uploadStartMock,
   uploadSuccessRef,
@@ -14,6 +15,7 @@ const {
   apiGetMock: vi.fn(),
   apiPostMock: vi.fn(),
   markSessionExpiredMock: vi.fn(),
+  navigateMock: vi.fn(),
   routeSearchMock: vi.fn(() => ({ view: undefined })),
   uploadStartMock: vi.fn(),
   uploadSuccessRef: { current: null as null | (() => void) },
@@ -29,6 +31,7 @@ vi.mock('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
+  useNavigate: () => navigateMock,
 }));
 
 vi.mock('@/api/client', () => ({

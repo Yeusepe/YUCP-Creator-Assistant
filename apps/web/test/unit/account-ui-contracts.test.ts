@@ -161,12 +161,16 @@ describe('account UI contracts', () => {
     expect(dashboardForensicsRedirectSource).toContain("to: '/dashboard/packages'");
     expect(dashboardForensicsRedirectSource).toContain("view: 'forensics'");
     expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
-    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
-    expect(dashboardLazyRouteSource).toContain("view: 'forensics'");
+    expect(dashboardLazyRouteSource).toContain(
+      'hasVpmRepoCapability || hasCouplingTraceabilityCapability'
+    );
+    expect(dashboardLazyRouteSource).toContain('Packages');
+    expect(dashboardLazyRouteSource).not.toContain('tab-btn-package-forensics');
 
     expect(dashboardPackagesRouteSource).toContain('CouplingForensicsPanel');
-    expect(dashboardPackagesRouteSource).toContain('Leak Forensics');
-    expect(dashboardPackagesRouteSource).toContain('Package Registry');
+    expect(dashboardPackagesRouteSource).toContain('role="tablist"');
+    expect(dashboardPackagesRouteSource).toContain('Leak Tracer');
+    expect(dashboardPackagesRouteSource).toContain('Uploads');
     expect(dashboardPackagesRouteSource).toContain('PackageRegistryPanel');
   });
 

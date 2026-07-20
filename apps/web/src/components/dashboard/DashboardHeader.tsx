@@ -54,13 +54,20 @@ export function DashboardHeader({
 
   const homeIconLink =
     homeHref === '/account' ? (
-      <Link to="/account" className="header-context-icon" aria-label={homeLabel} title={homeLabel}>
+      <Link
+        to="/account"
+        activeOptions={{ exact: true }}
+        className="header-context-icon"
+        aria-label={homeLabel}
+        title={homeLabel}
+      >
         {contextIcon}
       </Link>
     ) : homeHref === '/dashboard' ? (
       <Link
         to="/dashboard"
         search={{}}
+        activeOptions={{ exact: true }}
         className="header-context-icon"
         aria-label={homeLabel}
         title={homeLabel}

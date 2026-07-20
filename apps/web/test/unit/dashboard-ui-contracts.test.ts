@@ -112,7 +112,10 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
     expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
-    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
+    expect(dashboardLazyRouteSource).toContain(
+      'hasVpmRepoCapability || hasCouplingTraceabilityCapability'
+    );
+    expect(dashboardLazyRouteSource).not.toContain('tab-btn-package-forensics');
     expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 

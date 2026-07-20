@@ -1,4 +1,4 @@
-import { createLazyFileRoute, Link } from '@tanstack/react-router';
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { CouplingForensicsPanel } from '@/components/dashboard/CouplingForensicsPanel';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
@@ -14,7 +14,12 @@ export const Route = createLazyFileRoute('/_authenticated/dashboard/packages')({
 
 function DashboardPackagesPending() {
   return (
-    <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
+    <div
+      id="packages-uploads-panel"
+      className="dashboard-tab-panel is-active"
+      role="tabpanel"
+      aria-labelledby="packages-uploads-tab"
+    >
       <div className="bento-grid">
         <PackageRegistryWorkspaceSkeleton showHeader />
       </div>
@@ -40,23 +45,27 @@ export default function DashboardPackages() {
   }
 
   return (
-    <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
+    <div className="dashboard-tab-panel is-active">
       <PackageWorkspaceHeader activeView={activeView} hasForensicsAccess={hasForensicsAccess} />
       {activeView === 'forensics' ? (
-        <CouplingForensicsPanel />
+        <div id="packages-forensics-panel" role="tabpanel" aria-labelledby="packages-forensics-tab">
+          <CouplingForensicsPanel />
+        </div>
       ) : (
-        <div className="bento-grid">
-          {query.isError && !hasAuthError ? (
-            <PackageRegistryAccessGate
-              mode="error"
-              isRetrying={query.isFetching}
-              onRetry={() => void query.refetch()}
-            />
-          ) : hasRegistryAccess ? (
-            <PackageRegistryPanel />
-          ) : (
-            <PackageRegistryAccessGate mode="missing" />
-          )}
+        <div id="packages-uploads-panel" role="tabpanel" aria-labelledby="packages-uploads-tab">
+          <div className="bento-grid">
+            {query.isError && !hasAuthError ? (
+              <PackageRegistryAccessGate
+                mode="error"
+                isRetrying={query.isFetching}
+                onRetry={() => void query.refetch()}
+              />
+            ) : hasRegistryAccess ? (
+              <PackageRegistryPanel />
+            ) : (
+              <PackageRegistryAccessGate mode="missing" />
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -70,6 +79,18 @@ function PackageWorkspaceHeader({
   activeView: 'registry' | 'forensics';
   hasForensicsAccess: boolean;
 }) {
+  const navigate = useNavigate();
+
+  const selectView = (view: 'registry' | 'forensics') => {
+    void navigate({
+      to: '/dashboard/packages',
+      search: (previous) => ({
+        ...previous,
+        view: view === 'forensics' ? 'forensics' : undefined,
+      }),
+    });
+  };
+
   return (
     <header className="pm-workspace-header">
       <div className="pm-workspace-heading">
@@ -79,25 +100,31 @@ function PackageWorkspaceHeader({
           all from one workspace.
         </p>
       </div>
-      <nav className="pm-workspace-segment" aria-label="VPM workspace views">
-        <Link
-          to="/dashboard/packages"
-          search={(previous) => ({ ...previous, view: undefined })}
+      <div className="pm-workspace-segment" role="tablist" aria-label="Package views">
+        <button
+          id="packages-uploads-tab"
+          type="button"
+          role="tab"
           className={`pm-segment-btn${activeView === 'registry' ? ' is-active' : ''}`}
-          aria-current={activeView === 'registry' ? 'page' : undefined}
+          aria-selected={activeView === 'registry'}
+          aria-controls="packages-uploads-panel"
+          onClick={() => selectView('registry')}
         >
-          Package Registry
-        </Link>
-        <Link
-          to="/dashboard/packages"
-          search={(previous) => ({ ...previous, view: 'forensics' })}
+          Uploads
+        </button>
+        <button
+          id="packages-forensics-tab"
+          type="button"
+          role="tab"
           className={`pm-segment-btn${activeView === 'forensics' ? ' is-active' : ''}`}
-          aria-current={activeView === 'forensics' ? 'page' : undefined}
+          aria-selected={activeView === 'forensics'}
+          aria-controls="packages-forensics-panel"
+          onClick={() => selectView('forensics')}
         >
-          Leak Forensics
+          Leak Tracer
           {!hasForensicsAccess ? <span className="pm-segment-badge">Studio+</span> : null}
-        </Link>
-      </nav>
+        </button>
+      </div>
     </header>
   );
 }

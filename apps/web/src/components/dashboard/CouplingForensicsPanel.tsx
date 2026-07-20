@@ -369,7 +369,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
 
   if (status === 'signed_out' || status === 'expired') {
     return (
-      <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
+      <div className="dashboard-tab-panel is-active">
         <DashboardAuthRequiredState
           id="forensics-auth"
           title="Sign in to trace leaked files"
@@ -381,7 +381,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
 
   if (!isPersonalDashboard) {
     return (
-      <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
+      <div className="dashboard-tab-panel is-active">
         <div className="bento-grid">
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
@@ -417,7 +417,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
 
   if (isLoading) {
     return (
-      <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
+      <div className="dashboard-tab-panel is-active">
         <div className="bento-grid">
           <DashboardGridSkeleton cards={3} />
         </div>
@@ -428,7 +428,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
   /* ── Main ── */
 
   return (
-    <div id="tab-panel-forensics" className="dashboard-tab-panel is-active" role="tabpanel">
+    <div className="dashboard-tab-panel is-active">
       <div className="bento-grid">
         <section className="intg-card animate-in bento-col-12">
           <div className="intg-header">
