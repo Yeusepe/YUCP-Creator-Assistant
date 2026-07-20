@@ -85,104 +85,106 @@
    =================================================== */
 
 .pm-card {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  box-shadow: 0 20px 46px -34px rgba(15, 23, 42, 0.28);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  box-shadow: 0 20px 46px -34px color-mix(in oklch, var(--foreground) 22%, transparent);
 }
 
 .dark .pm-card {
-  background: rgba(8, 14, 28, 0.9);
-  border-color: rgba(255, 255, 255, 0.14);
-  box-shadow: 0 22px 52px -40px rgba(2, 6, 23, 0.68);
+  background: color-mix(in oklch, var(--surface) 78%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  box-shadow: 0 22px 52px -40px color-mix(in oklch, var(--overlay) 68%, transparent);
 }
 
 .pm-primary-panel {
-  background: #f8fbff;
-  border-color: rgba(15, 23, 42, 0.08);
-  box-shadow: 0 18px 40px -34px rgba(15, 23, 42, 0.2);
+  background: color-mix(in oklch, var(--surface) 92%, var(--background));
+  border-color: color-mix(in oklch, var(--foreground) 9%, transparent);
+  box-shadow: 0 18px 40px -34px color-mix(in oklch, var(--foreground) 16%, transparent);
 }
 
 .dark .pm-primary-panel {
-  background: rgba(8, 14, 28, 0.36);
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 42px -38px rgba(2, 6, 23, 0.52);
+  background: color-mix(in oklch, var(--surface) 56%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+  box-shadow: 0 20px 42px -38px color-mix(in oklch, var(--overlay) 52%, transparent);
 }
 
 .pm-muted-card {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.09);
+  background: color-mix(in oklch, var(--surface) 94%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 
 .dark .pm-muted-card {
-  background: rgba(10, 18, 32, 0.56);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--surface) 62%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-muted-panel {
-  background: #f8fafc;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark .pm-muted-panel {
-  background: rgba(10, 18, 32, 0.42);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-empty-state {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(15, 23, 42, 0.14);
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
 }
 
 .dark .pm-empty-state {
-  background: rgba(10, 18, 32, 0.3);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 .pm-package-row {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.09);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 
 .dark .pm-package-row {
-  background: rgba(13, 20, 34, 0.74);
-  border-color: rgba(255, 255, 255, 0.11);
+  background: color-mix(in oklch, var(--surface) 70%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 11%, transparent);
 }
 
 .pm-product-row {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.09);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
 }
 
 .dark .pm-product-row {
-  background: rgba(11, 18, 32, 0.62);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: color-mix(in oklch, var(--surface) 68%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 .pm-icon-shell {
-  background: #e8eef5;
-  border: 1px solid rgba(15, 23, 42, 0.09);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: color-mix(in oklch, var(--foreground) 68%, transparent);
 }
 
 .dark .pm-icon-shell {
-  background: rgba(30, 41, 59, 0.72);
-  border-color: rgba(255, 255, 255, 0.09);
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 9%, transparent);
+  color: color-mix(in oklch, var(--foreground) 68%, transparent);
 }
 
 .pm-sheet-content {
   border-radius: 24px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(255, 255, 255, 0.96);
-  color: rgba(15, 23, 42, 0.94);
-  box-shadow: 0 28px 74px -38px rgba(15, 23, 42, 0.34);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 28px 74px -38px color-mix(in oklch, var(--foreground) 28%, transparent);
   -webkit-backdrop-filter: blur(30px) saturate(155%);
   backdrop-filter: blur(30px) saturate(155%);
 }
 
 .dark .pm-sheet-content {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(7, 13, 26, 0.72);
-  color: rgba(248, 250, 252, 0.96);
-  box-shadow: 0 34px 86px -48px rgba(2, 6, 23, 0.68);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: color-mix(in oklch, var(--surface) 74%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 34px 86px -48px color-mix(in oklch, var(--overlay) 68%, transparent);
 }
 
 .pm-publish-sheet-content[data-sheet-detached].sheet__content--bottom {
@@ -201,83 +203,83 @@
 }
 
 .pm-copy {
-  color: rgba(51, 65, 85, 0.96);
+  color: color-mix(in oklch, var(--foreground) 74%, transparent);
 }
 
 .dark .pm-copy {
-  color: rgba(226, 232, 240, 0.92);
+  color: color-mix(in oklch, var(--foreground) 74%, transparent);
 }
 
 .pm-subtle-copy {
-  color: rgba(71, 85, 105, 0.9);
+  color: color-mix(in oklch, var(--foreground) 58%, transparent);
 }
 
 .dark .pm-subtle-copy {
-  color: rgba(180, 195, 214, 0.92);
+  color: color-mix(in oklch, var(--foreground) 58%, transparent);
 }
 
 .pm-summary-strip {
-  background: #f8fafc;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark .pm-summary-strip {
-  background: rgba(10, 18, 32, 0.34);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-management-details {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark .pm-management-details {
-  background: rgba(10, 18, 32, 0.36);
-  border-color: rgba(255, 255, 255, 0.1);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-upload-button {
-  border-color: rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.94);
-  color: rgba(15, 23, 42, 0.9);
-  box-shadow: 0 16px 34px -26px rgba(15, 23, 42, 0.3);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  background: color-mix(in oklch, var(--surface) 94%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 16px 34px -26px color-mix(in oklch, var(--foreground) 24%, transparent);
+}
+
+.dark .pm-upload-button {
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 18px 40px -30px color-mix(in oklch, var(--overlay) 56%, transparent);
 }
 
 .pm-upload-button:hover,
 .pm-upload-button[data-hovered="true"] {
-  border-color: rgba(15, 23, 42, 0.18);
-  background: rgba(255, 255, 255, 0.9);
-  color: rgba(15, 23, 42, 0.96);
-}
-
-.pm-upload-button:active,
-.pm-upload-button[data-pressed="true"] {
-  border-color: rgba(15, 23, 42, 0.22);
-  background: rgba(241, 245, 249, 0.96);
-}
-
-.dark .pm-upload-button {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(241, 245, 249, 0.96);
-  box-shadow: 0 18px 40px -30px rgba(2, 6, 23, 0.56);
+  border-color: color-mix(in oklch, var(--foreground) 18%, transparent);
+  background: color-mix(in oklch, var(--surface) 88%, var(--foreground) 4%);
+  color: var(--foreground);
 }
 
 .dark .pm-upload-button:hover,
 .dark .pm-upload-button[data-hovered="true"] {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(248, 250, 252, 0.98);
+  border-color: color-mix(in oklch, var(--foreground) 20%, transparent);
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+}
+
+.pm-upload-button:active,
+.pm-upload-button[data-pressed="true"] {
+  border-color: color-mix(in oklch, var(--foreground) 22%, transparent);
+  background: color-mix(in oklch, var(--foreground) 9%, var(--surface));
 }
 
 .dark .pm-upload-button:active,
 .dark .pm-upload-button[data-pressed="true"] {
-  border-color: rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.16);
+  border-color: color-mix(in oklch, var(--foreground) 24%, transparent);
+  background: color-mix(in oklch, var(--foreground) 16%, transparent);
 }
 
 .pm-tool-section {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
   padding-top: 18px;
 }
 
@@ -287,16 +289,16 @@
 }
 
 .dark .pm-tool-section {
-  border-top-color: rgba(255, 255, 255, 0.08);
+  border-top-color: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .pm-sheet-footer {
-  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  border-top: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
   padding-top: 16px;
 }
 
 .dark .pm-sheet-footer {
-  border-top-color: rgba(255, 255, 255, 0.1);
+  border-top-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-publish-sheet-body {
@@ -304,23 +306,23 @@
 }
 
 .pm-sheet-section {
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #f8fafc;
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
 .dark .pm-sheet-section {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(10, 18, 32, 0.28);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
 .pm-inline-note {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(14, 165, 233, 0.14);
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border: 1px solid color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .dark .pm-inline-note {
-  background: rgba(10, 18, 32, 0.32);
-  border-color: rgba(125, 211, 252, 0.16);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .pm-form-grid {
@@ -341,14 +343,14 @@
 }
 
 .pm-field-label {
-  color: rgba(15, 23, 42, 0.82);
+  color: color-mix(in oklch, var(--foreground) 78%, transparent);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
 
 .dark .pm-field-label {
-  color: rgba(226, 232, 240, 0.92);
+  color: color-mix(in oklch, var(--foreground) 78%, transparent);
 }
 
 .pm-static-field {
@@ -358,184 +360,184 @@
   justify-content: center;
   gap: 4px;
   border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #ffffff;
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
   padding: 10px 12px;
 }
 
 .dark .pm-static-field {
-  border-color: rgba(255, 255, 255, 0.11);
-  background: rgba(8, 14, 28, 0.72);
+  border-color: color-mix(in oklch, var(--foreground) 11%, transparent);
+  background: color-mix(in oklch, var(--surface) 72%, transparent);
 }
 
 .pm-package-picker .autocomplete__trigger {
-  background: #ffffff;
-  border-color: rgba(15, 23, 42, 0.13);
-  color: #0f172a;
-  box-shadow: 0 14px 30px -26px rgba(15, 23, 42, 0.34);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 13%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 14px 30px -26px color-mix(in oklch, var(--foreground) 28%, transparent);
 }
 
 .dark .pm-package-picker .autocomplete__trigger {
-  background: rgba(8, 14, 28, 0.78);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
-  box-shadow: 0 18px 38px -32px rgba(2, 6, 23, 0.62);
+  background: color-mix(in oklch, var(--surface) 78%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 18px 38px -32px color-mix(in oklch, var(--overlay) 62%, transparent);
 }
 
 .pm-package-picker .select__trigger {
-  background: #ffffff;
-  border-color: rgba(15, 23, 42, 0.13);
-  color: #0f172a;
-  box-shadow: 0 14px 30px -26px rgba(15, 23, 42, 0.34);
+  background: color-mix(in oklch, var(--surface) 96%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 13%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 14px 30px -26px color-mix(in oklch, var(--foreground) 28%, transparent);
 }
 
 .dark .pm-package-picker .select__trigger {
-  background: rgba(8, 14, 28, 0.78);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
-  box-shadow: 0 18px 38px -32px rgba(2, 6, 23, 0.62);
+  background: color-mix(in oklch, var(--surface) 78%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 18px 38px -32px color-mix(in oklch, var(--overlay) 62%, transparent);
 }
 
 .pm-package-picker .autocomplete__trigger:hover,
 .pm-package-picker .autocomplete__trigger[data-hovered="true"],
 .pm-package-picker .select__trigger:hover,
 .pm-package-picker .select__trigger[data-hovered="true"] {
-  background: #f8fafc;
-  border-color: rgba(15, 23, 42, 0.2);
-  color: #0f172a;
+  background: color-mix(in oklch, var(--foreground) 5%, var(--surface));
+  border-color: color-mix(in oklch, var(--foreground) 20%, transparent);
+  color: var(--foreground);
 }
 
 .dark .pm-package-picker .autocomplete__trigger:hover,
 .dark .pm-package-picker .autocomplete__trigger[data-hovered="true"],
 .dark .pm-package-picker .select__trigger:hover,
 .dark .pm-package-picker .select__trigger[data-hovered="true"] {
-  background: rgba(15, 23, 42, 0.9);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #f8fafc;
+  background: color-mix(in oklch, var(--foreground) 10%, var(--surface));
+  border-color: color-mix(in oklch, var(--foreground) 20%, transparent);
+  color: var(--foreground);
 }
 
 .pm-package-picker .autocomplete__trigger[data-focus-visible="true"],
 .pm-package-picker .select__trigger[data-focus-visible="true"],
 .pm-package-picker-popover .search-field__group[data-focus-within="true"] {
-  background: #ffffff;
-  border-color: rgba(14, 165, 233, 0.55);
-  color: #0f172a;
+  background: var(--surface);
+  border-color: color-mix(in oklch, var(--accent) 55%, transparent);
+  color: var(--foreground);
 }
 
 .dark .pm-package-picker .autocomplete__trigger[data-focus-visible="true"],
 .dark .pm-package-picker .select__trigger[data-focus-visible="true"],
 .dark .pm-package-picker-popover .search-field__group[data-focus-within="true"] {
-  background: rgba(8, 14, 28, 0.9);
-  border-color: rgba(56, 189, 248, 0.5);
-  color: #f8fafc;
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 50%, transparent);
+  color: var(--foreground);
 }
 
 .pm-package-picker .autocomplete__indicator,
 .pm-package-picker .autocomplete__clear-button,
 .pm-package-picker .select__indicator {
-  color: rgba(71, 85, 105, 0.82);
+  color: color-mix(in oklch, var(--foreground) 62%, transparent);
 }
 
 .dark .pm-package-picker .autocomplete__indicator,
 .dark .pm-package-picker .autocomplete__clear-button,
 .dark .pm-package-picker .select__indicator {
-  color: rgba(203, 213, 225, 0.84);
+  color: color-mix(in oklch, var(--foreground) 62%, transparent);
 }
 
 .pm-package-picker .autocomplete__value[data-placeholder="true"],
 .pm-package-picker .select__value[data-placeholder="true"] {
-  color: rgba(100, 116, 139, 0.86);
+  color: color-mix(in oklch, var(--foreground) 56%, transparent);
 }
 
 .dark .pm-package-picker .autocomplete__value[data-placeholder="true"],
 .dark .pm-package-picker .select__value[data-placeholder="true"] {
-  color: rgba(148, 163, 184, 0.9);
+  color: color-mix(in oklch, var(--foreground) 56%, transparent);
 }
 
 .pm-package-picker-popover.autocomplete__popover {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  color: #0f172a;
-  box-shadow: 0 24px 54px -32px rgba(15, 23, 42, 0.42);
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 24px 54px -32px color-mix(in oklch, var(--foreground) 34%, transparent);
 }
 
 .dark .pm-package-picker-popover.autocomplete__popover {
-  background: rgba(8, 14, 28, 0.98);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
-  box-shadow: 0 28px 64px -36px rgba(2, 6, 23, 0.72);
+  background: color-mix(in oklch, var(--surface) 98%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 28px 64px -36px color-mix(in oklch, var(--overlay) 72%, transparent);
 }
 
 .pm-package-picker-popover.select__popover {
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  color: #0f172a;
-  box-shadow: 0 24px 54px -32px rgba(15, 23, 42, 0.42);
+  background: var(--surface);
+  border: 1px solid color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 24px 54px -32px color-mix(in oklch, var(--foreground) 34%, transparent);
 }
 
 .dark .pm-package-picker-popover.select__popover {
-  background: rgba(8, 14, 28, 0.98);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
-  box-shadow: 0 28px 64px -36px rgba(2, 6, 23, 0.72);
+  background: color-mix(in oklch, var(--surface) 98%, transparent);
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
+  box-shadow: 0 28px 64px -36px color-mix(in oklch, var(--overlay) 72%, transparent);
 }
 
 .pm-package-picker-popover .search-field__group {
-  background: #f8fafc;
-  border-color: rgba(15, 23, 42, 0.12);
-  color: #0f172a;
+  background: color-mix(in oklch, var(--foreground) 4%, var(--surface));
+  border-color: color-mix(in oklch, var(--foreground) 12%, transparent);
+  color: var(--foreground);
   box-shadow: none;
 }
 
 .dark .pm-package-picker-popover .search-field__group {
-  background: rgba(15, 23, 42, 0.72);
-  border-color: rgba(255, 255, 255, 0.11);
-  color: #f8fafc;
+  background: color-mix(in oklch, var(--foreground) 7%, var(--surface));
+  border-color: color-mix(in oklch, var(--foreground) 11%, transparent);
+  color: var(--foreground);
   box-shadow: none;
 }
 
 .pm-package-picker-popover .list-box-item {
-  background: #ffffff;
-  color: #0f172a;
+  background: var(--surface);
+  color: var(--foreground);
 }
 
 .dark .pm-package-picker-popover .list-box-item {
-  background: rgba(8, 14, 28, 0.98);
-  color: #f8fafc;
+  background: var(--surface);
+  color: var(--foreground);
 }
 
 .pm-package-picker-popover .list-box-item:hover,
 .pm-package-picker-popover .list-box-item[data-hovered="true"],
 .pm-package-picker-popover .list-box-item[data-focused="true"] {
-  background: #f1f5f9;
-  color: #0f172a;
+  background: color-mix(in oklch, var(--foreground) 6%, var(--surface));
+  color: var(--foreground);
 }
 
 .dark .pm-package-picker-popover .list-box-item:hover,
 .dark .pm-package-picker-popover .list-box-item[data-hovered="true"],
 .dark .pm-package-picker-popover .list-box-item[data-focused="true"] {
-  background: rgba(30, 41, 59, 0.88);
-  color: #f8fafc;
+  background: color-mix(in oklch, var(--foreground) 10%, var(--surface));
+  color: var(--foreground);
 }
 
 .pm-package-picker-popover .list-box-item[aria-selected="true"],
 .pm-package-picker-popover .list-box-item[data-selected="true"] {
-  background: rgba(14, 165, 233, 0.12);
-  color: #075985;
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  color: color-mix(in oklch, var(--accent) 72%, var(--foreground));
 }
 
 .dark .pm-package-picker-popover .list-box-item[aria-selected="true"],
 .dark .pm-package-picker-popover .list-box-item[data-selected="true"] {
-  background: rgba(14, 165, 233, 0.22);
-  color: #7dd3fc;
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+  color: var(--accent);
 }
 
 .pm-package-picker-popover .list-box-item__indicator {
-  color: #0284c7;
+  color: var(--accent);
 }
 
 .dark .pm-package-picker-popover .list-box-item__indicator {
-  color: #38bdf8;
+  color: var(--accent);
 }
 
 .pm-upload-dropzone {
@@ -543,15 +545,15 @@
 }
 
 .pm-upload-dropzone .drop-zone__area {
-  border-color: rgba(14, 165, 233, 0.18);
-  background: rgba(255, 255, 255, 0.9);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: color-mix(in oklch, var(--surface) 90%, transparent);
   border-radius: 20px;
   min-height: 156px;
 }
 
 .dark .pm-upload-dropzone .drop-zone__area {
-  border-color: rgba(125, 211, 252, 0.2);
-  background: rgba(8, 14, 28, 0.3);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
 }
 
 .pm-upload-dropzone .drop-zone__label {
@@ -566,24 +568,24 @@
 }
 
 .pm-upload-dropzone .drop-zone__trigger {
-  border-color: rgba(15, 23, 42, 0.14);
-  background: #ffffff;
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: var(--surface);
 }
 
 .dark .pm-upload-dropzone .drop-zone__trigger {
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(15, 23, 42, 0.42);
+  border-color: color-mix(in oklch, var(--foreground) 14%, transparent);
+  background: color-mix(in oklch, var(--surface) 72%, transparent);
 }
 
 .pm-upload-dropzone .drop-zone__file-item {
   border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: #ffffff;
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  background: var(--surface);
 }
 
 .dark .pm-upload-dropzone .drop-zone__file-item {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(8, 14, 28, 0.72);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: color-mix(in oklch, var(--surface) 72%, transparent);
 }
 
 /* ===================================================
@@ -1338,22 +1340,22 @@ html:not(.dark) .btn-show-more:hover {
   font-size: 22px;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--foreground, #0f172a);
+  color: var(--foreground);
 }
 
 .dark .pm-workspace-title {
-  color: #f1f5f9;
+  color: var(--foreground);
 }
 
 .pm-workspace-subtitle {
   font-size: 13.5px;
   line-height: 1.5;
-  color: rgba(100, 116, 139, 0.95);
+  color: color-mix(in oklch, var(--foreground) 64%, transparent);
   max-width: 58ch;
 }
 
 .dark .pm-workspace-subtitle {
-  color: rgba(148, 163, 184, 0.9);
+  color: color-mix(in oklch, var(--foreground) 64%, transparent);
 }
 
 /* Detached toggle group (design taste: light binary mode switch). */
@@ -1363,11 +1365,11 @@ html:not(.dark) .btn-show-more:hover {
   gap: 4px;
   padding: 4px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.12);
+  background: color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 
 .dark .pm-workspace-segment {
-  background: rgba(255, 255, 255, 0.05);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
 .pm-segment-btn {
@@ -1378,25 +1380,30 @@ html:not(.dark) .btn-show-more:hover {
   border-radius: 999px;
   font-size: 13px;
   font-weight: 600;
+  font-family: inherit;
   text-decoration: none;
-  color: rgba(71, 85, 105, 0.95);
+  border: 0;
+  background: transparent;
+  color: color-mix(in oklch, var(--foreground) 64%, transparent);
   cursor: var(--cursor-interactive, pointer);
 }
 
 .dark .pm-segment-btn {
-  color: rgba(203, 213, 225, 0.85);
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in oklch, var(--foreground) 64%, transparent);
 }
 
 .pm-segment-btn.is-active {
-  background: #fff;
-  color: #0f172a;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 1px 3px color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 .dark .pm-segment-btn.is-active {
-  background: rgba(30, 41, 59, 0.95);
-  color: #f1f5f9;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  background: color-mix(in oklch, var(--foreground) 10%, var(--surface));
+  color: var(--foreground);
+  box-shadow: 0 1px 3px color-mix(in oklch, var(--overlay) 40%, transparent);
 }
 
 .pm-segment-badge {
@@ -1405,47 +1412,47 @@ html:not(.dark) .btn-show-more:hover {
   letter-spacing: 0.02em;
   padding: 2px 6px;
   border-radius: 999px;
-  background: rgba(234, 179, 8, 0.16);
-  color: #a16207;
+  background: color-mix(in oklch, var(--warning) 16%, transparent);
+  color: color-mix(in oklch, var(--warning) 68%, var(--foreground));
 }
 
 .dark .pm-segment-badge {
-  background: rgba(234, 179, 8, 0.2);
-  color: #fbbf24;
+  background: color-mix(in oklch, var(--warning) 20%, transparent);
+  color: var(--warning);
 }
 
 /* ── Leak Forensics surfaces — glass insets to match the dashboard cards ── */
 .fx-pane {
   border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(15, 23, 42, 0.03);
+  border: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
 }
 
 .dark .fx-pane {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.4);
+  border-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 .fx-dropzone {
   border-radius: 16px;
-  border: 1.5px dashed rgba(15, 23, 42, 0.2);
-  background: rgba(15, 23, 42, 0.02);
+  border: 1.5px dashed color-mix(in oklch, var(--foreground) 20%, transparent);
+  background: color-mix(in oklch, var(--foreground) 2%, transparent);
   transition:
     border-color 0.18s ease,
     background 0.18s ease;
 }
 
 .dark .fx-dropzone {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.02);
+  border-color: color-mix(in oklch, var(--foreground) 18%, transparent);
+  background: color-mix(in oklch, var(--foreground) 2%, transparent);
 }
 
 .fx-dropzone:hover {
-  background: rgba(15, 23, 42, 0.05);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 .dark .fx-dropzone:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 .fx-dropzone.is-dragover {
@@ -1453,12 +1460,17 @@ html:not(.dark) .btn-show-more:hover {
   background: color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
+.dark .fx-dropzone.is-dragover {
+  border-color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
 .fx-icon-chip {
-  background: rgba(15, 23, 42, 0.05);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 .dark .fx-icon-chip {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 
 /* ── Leak Forensics inline notes (clean tinted banners, replaces raw Alert) ── */
@@ -1469,6 +1481,10 @@ html:not(.dark) .btn-show-more:hover {
   border-radius: 14px;
   padding: 13px 15px;
   border: 1px solid transparent;
+}
+
+.dark .fx-note {
+  border-color: transparent;
 }
 
 .fx-note-icon {
@@ -1503,61 +1519,69 @@ html:not(.dark) .btn-show-more:hover {
 }
 
 .fx-note--danger {
-  background: rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.28);
-  color: #b91c1c;
+  background: color-mix(in oklch, var(--danger) 10%, transparent);
+  border-color: color-mix(in oklch, var(--danger) 28%, transparent);
+  color: var(--danger);
 }
 .dark .fx-note--danger {
-  color: #fca5a5;
+  background: color-mix(in oklch, var(--danger) 12%, transparent);
+  border-color: color-mix(in oklch, var(--danger) 30%, transparent);
+  color: var(--danger);
 }
 .fx-note--danger .fx-note-icon {
-  color: #dc2626;
+  color: var(--danger);
 }
 .dark .fx-note--danger .fx-note-icon {
-  color: #f87171;
+  color: var(--danger);
 }
 
 .fx-note--warning {
-  background: rgba(234, 179, 8, 0.1);
-  border-color: rgba(234, 179, 8, 0.3);
-  color: #a16207;
+  background: color-mix(in oklch, var(--warning) 10%, transparent);
+  border-color: color-mix(in oklch, var(--warning) 30%, transparent);
+  color: color-mix(in oklch, var(--warning) 68%, var(--foreground));
 }
 .dark .fx-note--warning {
-  color: #fcd34d;
+  background: color-mix(in oklch, var(--warning) 12%, transparent);
+  border-color: color-mix(in oklch, var(--warning) 32%, transparent);
+  color: var(--warning);
 }
 .fx-note--warning .fx-note-icon {
-  color: #d97706;
+  color: color-mix(in oklch, var(--warning) 72%, var(--foreground));
 }
 .dark .fx-note--warning .fx-note-icon {
-  color: #fbbf24;
+  color: var(--warning);
 }
 
 .fx-note--success {
-  background: rgba(34, 197, 94, 0.1);
-  border-color: rgba(34, 197, 94, 0.28);
-  color: #15803d;
+  background: color-mix(in oklch, var(--success) 10%, transparent);
+  border-color: color-mix(in oklch, var(--success) 28%, transparent);
+  color: color-mix(in oklch, var(--success) 70%, var(--foreground));
 }
 .dark .fx-note--success {
-  color: #86efac;
+  background: color-mix(in oklch, var(--success) 12%, transparent);
+  border-color: color-mix(in oklch, var(--success) 30%, transparent);
+  color: var(--success);
 }
 .fx-note--success .fx-note-icon {
-  color: #16a34a;
+  color: color-mix(in oklch, var(--success) 72%, var(--foreground));
 }
 .dark .fx-note--success .fx-note-icon {
-  color: #4ade80;
+  color: var(--success);
 }
 
 .fx-note--info {
-  background: rgba(56, 189, 248, 0.1);
-  border-color: rgba(56, 189, 248, 0.26);
-  color: #0369a1;
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 26%, transparent);
+  color: color-mix(in oklch, var(--accent) 72%, var(--foreground));
 }
 .dark .fx-note--info {
-  color: #7dd3fc;
+  background: color-mix(in oklch, var(--accent) 12%, transparent);
+  border-color: color-mix(in oklch, var(--accent) 28%, transparent);
+  color: var(--accent);
 }
 .fx-note--info .fx-note-icon {
-  color: #0284c7;
+  color: var(--accent);
 }
 .dark .fx-note--info .fx-note-icon {
-  color: #38bdf8;
+  color: var(--accent);
 }

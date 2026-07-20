@@ -179,7 +179,7 @@ function MetaField({
 }) {
   return (
     <div className={full ? 'sm:col-span-2' : undefined}>
-      <dt className="text-muted text-xs font-medium">{label}</dt>
+      <dt className="text-foreground/60 text-xs font-medium">{label}</dt>
       <dd
         className={`mt-0.5 text-foreground text-sm ${mono ? 'break-all font-mono text-[13px]' : ''}`}
       >
@@ -456,7 +456,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                 </p>
               </div>
             </div>
-            <Chip color="accent" variant="soft" size="sm">
+            <Chip variant="soft" size="sm" className="text-foreground/60">
               Creator Studio+
             </Chip>
           </div>
@@ -589,7 +589,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                   </div>
                   {selectedFile ? (
                     <div className="fx-pane flex items-center gap-3 p-4">
-                      <span className="fx-icon-chip text-muted flex size-10 shrink-0 items-center justify-center rounded-xl">
+                      <span className="fx-icon-chip text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-xl">
                         <svg
                           width="18"
                           height="18"
@@ -609,7 +609,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         <p className="text-foreground truncate text-sm font-medium">
                           {selectedFile.name}
                         </p>
-                        <p className="text-muted text-xs tabular-nums">
+                        <p className="text-foreground/60 text-xs tabular-nums">
                           {formatFileSize(selectedFile.size)}
                         </p>
                       </div>
@@ -679,7 +679,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           }
                         }}
                       />
-                      <span className="fx-icon-chip text-muted flex size-11 items-center justify-center rounded-full">
+                      <span className="fx-icon-chip text-foreground/60 flex size-11 items-center justify-center rounded-full">
                         <svg
                           width="20"
                           height="20"
@@ -699,7 +699,9 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                       <p className="text-foreground text-sm font-medium">
                         {isDragOver ? 'Drop to upload' : 'Click to upload or drag & drop'}
                       </p>
-                      <p className="text-muted text-xs">.unitypackage or .zip · max 100 MB</p>
+                      <p className="text-foreground/60 text-xs">
+                        .unitypackage or .zip · max 100 MB
+                      </p>
                     </label>
                   )}
                 </div>
@@ -751,7 +753,11 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                             {buyer.buyerDisplayLabel}
                           </p>
                           {buyer.provider ? (
-                            <Chip size="sm" variant="soft" className="capitalize">
+                            <Chip
+                              size="sm"
+                              variant="soft"
+                              className="text-foreground/60 capitalize"
+                            >
                               {buyer.provider}
                             </Chip>
                           ) : null}

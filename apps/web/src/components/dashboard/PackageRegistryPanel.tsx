@@ -146,7 +146,7 @@ function ProductRow({
               <p className="text-foreground min-w-0 truncate text-sm font-semibold leading-6 group-hover:underline">
                 {getProductTitle(product)}
               </p>
-              <Chip size="sm" variant="soft">
+              <Chip size="sm" variant="soft" className="text-foreground/60">
                 {formatProviderLabel(product.provider)}
               </Chip>
               {isArchived ? (
@@ -155,8 +155,8 @@ function ProductRow({
                 </Chip>
               ) : null}
             </div>
-            <p className="pm-copy break-all text-sm leading-6">
-              {product.providerProductRef} · Catalog product ready for a package upload
+            <p className="pm-subtle-copy break-all text-sm leading-6">
+              {product.providerProductRef} · Configured for package uploads
             </p>
           </div>
         </button>
@@ -257,7 +257,7 @@ function ProductDetailsSheet({
                             Upload update
                           </Button>
                         ) : (
-                          <Chip size="sm" variant="soft">
+                          <Chip size="sm" variant="soft" className="text-foreground/60">
                             Hidden
                           </Chip>
                         )}

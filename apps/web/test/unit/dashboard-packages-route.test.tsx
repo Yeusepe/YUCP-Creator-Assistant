@@ -176,7 +176,7 @@ describe('dashboard packages route', () => {
 
     expect(screen.getByRole('heading', { name: 'Private VPM Registry' })).toBeInTheDocument();
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
-    expect(screen.getByText(/catalog product ready for a package upload/i)).toBeInTheDocument();
+    expect(screen.getByText(/configured for package uploads/i)).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
       params: { limit: '100' },
     });
