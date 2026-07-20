@@ -3,6 +3,7 @@ import { CouplingForensicsPanel } from '@/components/dashboard/CouplingForensics
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
 import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
+import { Icon } from '@/components/ui/Icon';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
 import { hasActiveCreatorBillingCapability } from '@/lib/certificates';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
@@ -110,6 +111,7 @@ function PackageWorkspaceHeader({
           aria-controls="packages-uploads-panel"
           onClick={() => selectView('registry')}
         >
+          <Icon name="upload" className="size-4 shrink-0" />
           Uploads
         </button>
         <button
@@ -121,6 +123,7 @@ function PackageWorkspaceHeader({
           aria-controls="packages-forensics-panel"
           onClick={() => selectView('forensics')}
         >
+          <Icon name="leakTrace" className="size-4 shrink-0" />
           Leak Tracer
           {!hasForensicsAccess ? <span className="pm-segment-badge">Studio+</span> : null}
         </button>

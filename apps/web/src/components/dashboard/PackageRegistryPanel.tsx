@@ -1,10 +1,10 @@
 import { Button, Card, Chip, ListBox, Select, Skeleton } from '@heroui/react';
 import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpFromLine, Copy, Link2, Package2, Search, Store } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { YucpInput } from '@/components/ui/YucpInput';
@@ -172,7 +172,7 @@ function ProductRow({
                 className="size-7 object-contain"
               />
             ) : (
-              <Store className="size-5" aria-hidden="true" />
+              <Icon name="store" className="size-5" />
             )}
           </div>
           <div className="min-w-0 space-y-1">
@@ -196,12 +196,12 @@ function ProductRow({
         </button>
         <div className="flex flex-wrap items-center gap-2 md:justify-end">
           <YucpButton yucp="ghost" size="sm" isLoading={isCopying} onPress={onCopyAccessLink}>
-            <Copy className="size-4" aria-hidden="true" />
+            <Icon name="copy" className="size-4" />
             {isCopying ? 'Copying...' : 'Copy store-page link'}
           </YucpButton>
           {!isArchived ? (
             <Button size="sm" variant="outline" onPress={onUpload}>
-              <ArrowUpFromLine className="size-4" aria-hidden="true" />
+              <Icon name="upload" className="size-4" />
               Upload
             </Button>
           ) : null}
@@ -287,7 +287,7 @@ function ProductDetailsSheet({
                             variant="outline"
                             onPress={() => onUpload(detailQuery.data)}
                           >
-                            <ArrowUpFromLine className="size-4" aria-hidden="true" />
+                            <Icon name="upload" className="size-4" />
                             Upload update
                           </Button>
                         ) : (
@@ -531,7 +531,7 @@ export function PackageRegistryPanel({
             className="pm-upload-button self-start rounded-full px-4 md:self-auto"
             onPress={() => openUpload()}
           >
-            <ArrowUpFromLine className="size-4" aria-hidden="true" />
+            <Icon name="upload" className="size-4" />
             Upload a package
           </Button>
         </div>
@@ -560,7 +560,7 @@ export function PackageRegistryPanel({
             <Card.Header className="flex flex-col gap-3 p-4 pb-2">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Link2 className="text-primary size-6" aria-hidden="true" />
+                  <Icon name="link" className="text-primary size-6" />
                   <p className="text-foreground text-lg font-semibold">
                     Products ready for an update
                   </p>
@@ -583,7 +583,10 @@ export function PackageRegistryPanel({
               {products.length > 0 ? (
                 <div className="space-y-3">
                   <div className="relative max-w-md">
-                    <Search className="pm-subtle-copy pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2" />
+                    <Icon
+                      name="search"
+                      className="pm-subtle-copy pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2"
+                    />
                     <YucpInput
                       aria-label="Search catalog products"
                       className="w-full pl-9"
@@ -615,7 +618,7 @@ export function PackageRegistryPanel({
                 <EmptyState className="pm-empty-state rounded-2xl border border-dashed">
                   <EmptyState.Header>
                     <EmptyState.Media variant="icon">
-                      <Store />
+                      <Icon name="store" />
                     </EmptyState.Media>
                     <EmptyState.Title>No products available for upload</EmptyState.Title>
                     <EmptyState.Description>
@@ -772,7 +775,7 @@ export function PackageRegistryPanel({
                     <DropZone className="pm-upload-dropzone w-full">
                       <DropZone.Area onDrop={handleDrop as never}>
                         <DropZone.Icon>
-                          <Package2 className="text-accent size-8" aria-hidden="true" />
+                          <Icon name="package" className="text-accent size-8" />
                         </DropZone.Icon>
                         <DropZone.Label>Drop the package file here</DropZone.Label>
                         <DropZone.Description>
@@ -850,7 +853,7 @@ export function PackageRegistryPanel({
                   }
                   onPress={() => uploadMutation.mutate()}
                 >
-                  <ArrowUpFromLine className="size-4" aria-hidden="true" />
+                  <Icon name="upload" className="size-4" />
                   {uploadMutation.isPending ? 'Uploading package...' : 'Upload package'}
                 </YucpButton>
               </Sheet.Footer>

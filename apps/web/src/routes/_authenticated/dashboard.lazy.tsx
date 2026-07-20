@@ -5,6 +5,7 @@ import { ApiError, apiClient } from '@/api/client';
 import { DashboardBodyPortal } from '@/components/dashboard/DashboardBodyPortal';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/hooks/useAuth';
 import { DashboardSessionProvider, useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
@@ -536,20 +537,7 @@ function Sidebar({
                   className="sidebar-nav-btn"
                   activeProps={{ className: 'sidebar-nav-btn is-active' }}
                 >
-                  <svg
-                    className="sidebar-nav-icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M21 8.5L12 13 3 8.5" />
-                    <path d="M3 8.5V17l9 4.5 9-4.5V8.5" />
-                    <path d="M12 13v8.5" />
-                  </svg>
+                  <Icon name="package" className="sidebar-nav-icon" />
                   Packages
                 </Link>
               ) : null}
