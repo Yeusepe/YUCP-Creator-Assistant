@@ -1,69 +1,130 @@
-import { createLazyFileRoute } from '@tanstack/react-router';
+import { createLazyFileRoute, useNavigate } from '@tanstack/react-router';
 import { CouplingForensicsPanel } from '@/components/dashboard/CouplingForensicsPanel';
-import { DashboardIntegrationsSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { PackageRegistryAccessGate } from '@/components/dashboard/PackageRegistryAccessGate';
-import { PackageUploadPanel } from '@/components/dashboard/PackageUploadPanel';
+import { PackageRegistryPanel } from '@/components/dashboard/PackageRegistryPanel';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
 import { hasActiveCreatorBillingCapability } from '@/lib/certificates';
 import { BILLING_CAPABILITY_KEYS } from '../../../../../../convex/lib/billingCapabilities';
 
 export const Route = createLazyFileRoute('/_authenticated/dashboard/packages')({
-  component: DashboardPackageForensics,
+  pendingComponent: DashboardPackagesPending,
+  component: DashboardPackages,
 });
 
-export default function DashboardPackageForensics() {
-  const { view } = Route.useSearch();
-  return view === 'forensics' ? <PackageForensicsWorkspace /> : <PackageUploadWorkspace />;
-}
-
-function PackageForensicsWorkspace() {
+function DashboardPackagesPending() {
   return (
-    <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
-      <header className="pm-workspace-header">
-        <div className="pm-workspace-heading">
-          <h1 className="pm-workspace-title">Leak Forensics</h1>
-          <p className="pm-workspace-subtitle">
-            Trace leaked files back to a buyer from your creator workspace.
-          </p>
-        </div>
-      </header>
-      <CouplingForensicsPanel />
+    <div
+      id="packages-uploads-panel"
+      className="dashboard-tab-panel is-active"
+      role="tabpanel"
+      aria-labelledby="packages-uploads-tab"
+    >
+      <div className="bento-grid">
+        <PackageRegistryWorkspaceSkeleton showHeader />
+      </div>
     </div>
   );
 }
 
-function PackageUploadWorkspace() {
+export default function DashboardPackages() {
+  const { view } = Route.useSearch();
+  const activeView = view === 'forensics' ? 'forensics' : 'registry';
   const { billing, hasAuthError, isLoading, query } = useCreatorCertificateWorkspace();
-  const hasUploadAccess = hasActiveCreatorBillingCapability(
+  const hasRegistryAccess = hasActiveCreatorBillingCapability(
     billing?.capabilities,
     BILLING_CAPABILITY_KEYS.vpmRepo
   );
+  const hasForensicsAccess = hasActiveCreatorBillingCapability(
+    billing?.capabilities,
+    BILLING_CAPABILITY_KEYS.couplingTraceability
+  );
+
+  if (activeView === 'registry' && isLoading) {
+    return <DashboardPackagesPending />;
+  }
 
   return (
-    <div id="tab-panel-packages" className="dashboard-tab-panel is-active" role="tabpanel">
-      <header className="pm-workspace-header">
-        <div className="pm-workspace-heading">
-          <h1 className="pm-workspace-title">Package uploads</h1>
-          <p className="pm-workspace-subtitle">
-            Send creator-owned package releases to resumable storage.
-          </p>
+    <div className="dashboard-tab-panel is-active">
+      <PackageWorkspaceHeader activeView={activeView} hasForensicsAccess={hasForensicsAccess} />
+      {activeView === 'forensics' ? (
+        <div id="packages-forensics-panel" role="tabpanel" aria-labelledby="packages-forensics-tab">
+          <CouplingForensicsPanel />
         </div>
-      </header>
-      <div className="bento-grid">
-        {isLoading ? (
-          <DashboardIntegrationsSkeleton cards={1} />
-        ) : query.isError && !hasAuthError ? (
-          <PackageRegistryAccessGate
-            mode="error"
-            isRetrying={query.isFetching}
-            onRetry={() => void query.refetch()}
-          />
-        ) : hasUploadAccess ? (
-          <PackageUploadPanel />
-        ) : (
-          <PackageRegistryAccessGate mode="missing" />
-        )}
-      </div>
+      ) : (
+        <div id="packages-uploads-panel" role="tabpanel" aria-labelledby="packages-uploads-tab">
+          <div className="bento-grid">
+            {query.isError && !hasAuthError ? (
+              <PackageRegistryAccessGate
+                mode="error"
+                isRetrying={query.isFetching}
+                onRetry={() => void query.refetch()}
+              />
+            ) : hasRegistryAccess ? (
+              <PackageRegistryPanel />
+            ) : (
+              <PackageRegistryAccessGate mode="missing" />
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function PackageWorkspaceHeader({
+  activeView,
+  hasForensicsAccess,
+}: {
+  activeView: 'registry' | 'forensics';
+  hasForensicsAccess: boolean;
+}) {
+  const navigate = useNavigate();
+
+  const selectView = (view: 'registry' | 'forensics') => {
+    void navigate({
+      to: '/dashboard/packages',
+      search: (previous) => ({
+        ...previous,
+        view: view === 'forensics' ? 'forensics' : undefined,
+      }),
+    });
+  };
+
+  return (
+    <header className="pm-workspace-header">
+      <div className="pm-workspace-heading">
+        <h1 className="pm-workspace-title">Private VPM Registry</h1>
+        <p className="pm-workspace-subtitle">
+          Publish package updates to your Unity (VCC) repo and trace leaked files back to a buyer,
+          all from one workspace.
+        </p>
+      </div>
+      <div className="pm-workspace-segment" role="tablist" aria-label="Package views">
+        <button
+          id="packages-uploads-tab"
+          type="button"
+          role="tab"
+          className={`pm-segment-btn${activeView === 'registry' ? ' is-active' : ''}`}
+          aria-selected={activeView === 'registry'}
+          aria-controls="packages-uploads-panel"
+          onClick={() => selectView('registry')}
+        >
+          Uploads
+        </button>
+        <button
+          id="packages-forensics-tab"
+          type="button"
+          role="tab"
+          className={`pm-segment-btn${activeView === 'forensics' ? ' is-active' : ''}`}
+          aria-selected={activeView === 'forensics'}
+          aria-controls="packages-forensics-panel"
+          onClick={() => selectView('forensics')}
+        >
+          Leak Tracer
+          {!hasForensicsAccess ? <span className="pm-segment-badge">Studio+</span> : null}
+        </button>
+      </div>
+    </header>
   );
 }

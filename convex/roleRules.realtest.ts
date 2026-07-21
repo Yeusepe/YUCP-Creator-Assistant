@@ -9,8 +9,8 @@
  * - https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
 import { ConvexError } from 'convex/values';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { api } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
 import { getByProductInternal } from './role_rules';
@@ -159,6 +159,63 @@ describe('role rules CRUD and isolation', () => {
     });
 
     expect(rules.length).toBe(0);
+  });
+
+  it('retains a catalog product with package history when its last role rule is deleted', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-creator-package-history';
+    const guildLinkId = await seedGuildLink(t, {
+      authUserId,
+      discordGuildId: 'guild-package-history',
+    });
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-package-history',
+        provider: 'gumroad',
+        providerProductRef: 'product-package-history-ref',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.role-delete-history',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000098',
+        state: 'READY',
+        catalogProductId: productId,
+        createdAt: now,
+      });
+      return productId;
+    });
+    const { ruleId } = await t.mutation(api.role_rules.createRoleRule, {
+      apiSecret: 'test-secret',
+      authUserId,
+      guildId: 'guild-package-history',
+      guildLinkId,
+      productId: 'product-package-history',
+      catalogProductId,
+      verifiedRoleId: 'role-package-history',
+    });
+
+    await t.mutation(api.role_rules.deleteRoleRule, {
+      apiSecret: 'test-secret',
+      ruleId,
+    });
+
+    const retained = await t.run(async (ctx) => ({
+      product: await ctx.db.get(catalogProductId),
+      version: await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_catalog_product', (q) =>
+          q.eq('catalogProductId', catalogProductId).eq('state', 'READY')
+        )
+        .first(),
+    }));
+    expect(retained.product?._id).toBe(catalogProductId);
+    expect(retained.version?.catalogProductId).toBe(catalogProductId);
   });
 
   it('given rules referencing gumroad + jinxxy products, getEnabledVerificationProviders returns both (no duplicates)', async () => {

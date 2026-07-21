@@ -36,6 +36,7 @@ vi.mock('@/lib/account', () => ({
 }));
 
 vi.mock('@/lib/dashboard', () => ({
+  getUserAccountsQueryKey: vi.fn(() => ['account-user-accounts']),
   listUserAccounts: vi.fn(),
   listUserProviders: vi.fn(),
   startUserVerify: vi.fn(),

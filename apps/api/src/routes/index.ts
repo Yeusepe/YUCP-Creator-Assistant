@@ -13,6 +13,7 @@ export {
 } from '../verification';
 export { createAccountSecurityRoutes } from './accountSecurity';
 export { type ConnectConfig, createConnectRoutes } from './connect';
+export { type CreatorPackageConfig, createCreatorPackageRoutes } from './creatorPackages';
 export { type CreatorUploadConfig, createCreatorUploadRoutes } from './creatorUploads';
 export { createForensicsRoutes, type ForensicsConfig } from './forensics';
 export {

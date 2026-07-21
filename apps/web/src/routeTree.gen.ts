@@ -37,6 +37,7 @@ import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedDashboardIndexRouteImport } from './routes/_authenticated/dashboard/index'
 import { Route as AuthenticatedAccountIndexRouteImport } from './routes/_authenticated/account/index'
 import { Route as OauthCallbackItchioRouteImport } from './routes/oauth/callback/itchio'
+import { Route as GetInUnityCreatorRefProductRefRouteImport } from './routes/get-in-unity.$creatorRef.$productRef'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as AuthenticatedVerifyPurchaseRouteImport } from './routes/_authenticated/verify/purchase'
 import { Route as AuthenticatedDashboardSetupRouteImport } from './routes/_authenticated/dashboard/setup'
@@ -213,6 +214,12 @@ const OauthCallbackItchioRoute = OauthCallbackItchioRouteImport.update({
 } as any).lazy(() =>
   import('./routes/oauth/callback/itchio.lazy').then((d) => d.Route),
 )
+const GetInUnityCreatorRefProductRefRoute =
+  GetInUnityCreatorRefProductRefRouteImport.update({
+    id: '/get-in-unity/$creatorRef/$productRef',
+    path: '/get-in-unity/$creatorRef/$productRef',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -444,6 +451,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/get-in-unity/$creatorRef/$productRef': typeof GetInUnityCreatorRefProductRefRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/account/': typeof AuthenticatedAccountIndexRoute
   '/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -491,6 +499,7 @@ export interface FileRoutesByTo {
   '/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/get-in-unity/$creatorRef/$productRef': typeof GetInUnityCreatorRefProductRefRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/account': typeof AuthenticatedAccountIndexRoute
   '/dashboard': typeof AuthenticatedDashboardIndexRoute
@@ -542,6 +551,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/setup': typeof AuthenticatedDashboardSetupRoute
   '/_authenticated/verify/purchase': typeof AuthenticatedVerifyPurchaseRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/get-in-unity/$creatorRef/$productRef': typeof GetInUnityCreatorRefProductRefRoute
   '/oauth/callback/itchio': typeof OauthCallbackItchioRoute
   '/_authenticated/account/': typeof AuthenticatedAccountIndexRoute
   '/_authenticated/dashboard/': typeof AuthenticatedDashboardIndexRoute
@@ -593,6 +603,7 @@ export interface FileRouteTypes {
     | '/dashboard/setup'
     | '/verify/purchase'
     | '/api/auth/$'
+    | '/get-in-unity/$creatorRef/$productRef'
     | '/oauth/callback/itchio'
     | '/account/'
     | '/dashboard/'
@@ -640,6 +651,7 @@ export interface FileRouteTypes {
     | '/dashboard/setup'
     | '/verify/purchase'
     | '/api/auth/$'
+    | '/get-in-unity/$creatorRef/$productRef'
     | '/oauth/callback/itchio'
     | '/account'
     | '/dashboard'
@@ -690,6 +702,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/setup'
     | '/_authenticated/verify/purchase'
     | '/api/auth/$'
+    | '/get-in-unity/$creatorRef/$productRef'
     | '/oauth/callback/itchio'
     | '/_authenticated/account/'
     | '/_authenticated/dashboard/'
@@ -720,6 +733,7 @@ export interface RootRouteChildren {
   VerifyErrorRoute: typeof VerifyErrorRoute
   VerifySuccessRoute: typeof VerifySuccessRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  GetInUnityCreatorRefProductRefRoute: typeof GetInUnityCreatorRefProductRefRoute
   OauthCallbackItchioRoute: typeof OauthCallbackItchioRoute
 }
 
@@ -919,6 +933,13 @@ declare module '@tanstack/react-router' {
       path: '/oauth/callback/itchio'
       fullPath: '/oauth/callback/itchio'
       preLoaderRoute: typeof OauthCallbackItchioRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/get-in-unity/$creatorRef/$productRef': {
+      id: '/get-in-unity/$creatorRef/$productRef'
+      path: '/get-in-unity/$creatorRef/$productRef'
+      fullPath: '/get-in-unity/$creatorRef/$productRef'
+      preLoaderRoute: typeof GetInUnityCreatorRefProductRefRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -1171,6 +1192,7 @@ const rootRouteChildren: RootRouteChildren = {
   VerifyErrorRoute: VerifyErrorRoute,
   VerifySuccessRoute: VerifySuccessRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  GetInUnityCreatorRefProductRefRoute: GetInUnityCreatorRefProductRefRoute,
   OauthCallbackItchioRoute: OauthCallbackItchioRoute,
 }
 export const routeTree = rootRouteImport

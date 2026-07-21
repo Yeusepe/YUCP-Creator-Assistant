@@ -14,12 +14,8 @@ vi.mock('@tanstack/react-router', () => ({
   }),
 }));
 
-vi.mock('@/components/page/BackgroundCanvasRoot', () => ({
-  BackgroundCanvasRoot: () => null,
-}));
-
 vi.mock('@/components/three/CloudBackground', () => ({
-  CloudBackground: () => <div data-testid="cloud-background" />,
+  CloudBackgroundLayer: () => <div data-testid="cloud-background-layer" />,
 }));
 
 vi.mock('@/lib/auth-client', () => ({
@@ -81,14 +77,16 @@ describe('oauth consent route', () => {
     expect(window.location.href).toBe('http://127.0.0.1:50481/callback?code=test');
   });
 
-  it('renders the shared cloud background shell', () => {
+  it('renders the current fixed canvas background behind the consent content', () => {
     const Component = Route.options.component;
     if (!Component) {
       throw new Error('OAuth consent route component is not defined');
     }
 
-    render(<Component />);
+    const { container } = render(<Component />);
 
-    expect(screen.getAllByTestId('cloud-background')).not.toHaveLength(0);
+    const canvasRoot = container.querySelector('#bg-canvas-root');
+    expect(canvasRoot).toHaveStyle({ position: 'fixed' });
+    expect(canvasRoot?.querySelector('[data-testid="cloud-background-layer"]')).not.toBeNull();
   });
 });

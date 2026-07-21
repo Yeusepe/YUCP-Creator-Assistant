@@ -80,6 +80,7 @@ import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import * as dashboardApi from '@/lib/dashboard';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
+import { TestRuntimeConfigProvider } from './support/TestRuntimeConfigProvider';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -91,7 +92,11 @@ function createWrapper() {
   });
 
   return function Wrapper({ children }: PropsWithChildren) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <TestRuntimeConfigProvider>
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      </TestRuntimeConfigProvider>
+    );
   };
 }
 

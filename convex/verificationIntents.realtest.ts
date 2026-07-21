@@ -1,5 +1,6 @@
+import * as ed from '@noble/ed25519';
 import { PROVIDER_REGISTRY } from '@yucp/providers/providerMetadata';
-import { sha256Hex } from '@yucp/shared/crypto';
+import { base64ToBytes, base64UrlEncode, sha256Hex } from '@yucp/shared/crypto';
 import { setPinnedYucpRootsForTests } from '@yucp/shared/yucpTrust';
 import { symmetricEncrypt } from 'better-auth/crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -158,6 +159,24 @@ function decodeJwtPayload(jwt: string): Record<string, unknown> {
   const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
   const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, '=');
   return JSON.parse(Buffer.from(padded, 'base64').toString('utf-8')) as Record<string, unknown>;
+}
+
+async function resignJwtWithIssuer(
+  jwt: string,
+  issuer: string,
+  privateKeyBase64: string
+): Promise<string> {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) {
+    throw new Error('JWT must contain exactly three parts');
+  }
+  const payload = base64UrlEncode(JSON.stringify({ ...decodeJwtPayload(jwt), iss: issuer }));
+  const signingInput = `${parts[0]}.${payload}`;
+  const signature = await ed.signAsync(
+    new TextEncoder().encode(signingInput),
+    base64ToBytes(privateKeyBase64)
+  );
+  return `${signingInput}.${base64UrlEncode(signature)}`;
 }
 
 async function configurePinnedTestRoot(): Promise<void> {
@@ -968,9 +987,7 @@ describe('verification intents buyer provider links', () => {
         'Content-Type': 'application/x-www-form-urlencoded',
       });
       expect(String(init?.body)).toContain('access_token=gumroad-access-token');
-      expect(String(init?.body)).toContain(
-        `product_id=${encodeURIComponent(providerProductRef)}`
-      );
+      expect(String(init?.body)).toContain(`product_id=${encodeURIComponent(providerProductRef)}`);
       expect(String(init?.body)).toContain('license_key=license_123');
       expect(String(init?.body)).not.toContain('product_permalink=');
       return new Response(
@@ -1471,44 +1488,45 @@ describe('verification intents buyer provider links', () => {
       roleRemovalJobs,
       revocationAuditEvents,
     ] = await t.run(async (ctx) => {
-        const currentEntitlements = await ctx.db
-          .query('entitlements')
-          .withIndex('by_auth_user_source_provider_reference_status', (q) =>
-            q
-              .eq('authUserId', creatorAuthUserId)
-              .eq('sourceProvider', 'manual')
-              .eq('sourceReference', sourceReference)
-          )
-          .collect();
-        const entitlementIds = new Set(currentEntitlements.map((entitlement) => entitlement._id));
-        const currentUnrelatedEntitlement = await ctx.db.get(unrelatedEntitlementId);
-        const currentLicense = await ctx.db.get(licenseId);
-        const currentRoleRemovalJobs = await ctx.db
-          .query('outbox_jobs')
-          .withIndex('by_auth_user_type', (q) =>
-            q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_removal')
-          )
-          .collect();
-        const currentRevocationAuditEvents = await ctx.db
-          .query('audit_events')
-          .withIndex('by_auth_user_event', (q) =>
-            q.eq('authUserId', creatorAuthUserId).eq('eventType', 'entitlement.revoked')
-          )
-          .collect();
-        return [
-          currentEntitlements,
-          currentUnrelatedEntitlement,
-          currentLicense,
-          currentRoleRemovalJobs,
-          currentRevocationAuditEvents.filter(
-            (event) => event.entitlementId !== undefined && entitlementIds.has(event.entitlementId)
-          ),
-        ] as const;
-      });
+      const currentEntitlements = await ctx.db
+        .query('entitlements')
+        .withIndex('by_auth_user_source_provider_reference_status', (q) =>
+          q
+            .eq('authUserId', creatorAuthUserId)
+            .eq('sourceProvider', 'manual')
+            .eq('sourceReference', sourceReference)
+        )
+        .collect();
+      const entitlementIds = new Set(currentEntitlements.map((entitlement) => entitlement._id));
+      const currentUnrelatedEntitlement = await ctx.db.get(unrelatedEntitlementId);
+      const currentLicense = await ctx.db.get(licenseId);
+      const currentRoleRemovalJobs = await ctx.db
+        .query('outbox_jobs')
+        .withIndex('by_auth_user_type', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('jobType', 'role_removal')
+        )
+        .collect();
+      const currentRevocationAuditEvents = await ctx.db
+        .query('audit_events')
+        .withIndex('by_auth_user_event', (q) =>
+          q.eq('authUserId', creatorAuthUserId).eq('eventType', 'entitlement.revoked')
+        )
+        .collect();
+      return [
+        currentEntitlements,
+        currentUnrelatedEntitlement,
+        currentLicense,
+        currentRoleRemovalJobs,
+        currentRevocationAuditEvents.filter(
+          (event) => event.entitlementId !== undefined && entitlementIds.has(event.entitlementId)
+        ),
+      ] as const;
+    });
 
     expect({
       entitlementStatuses: revokedEntitlements.map((entitlement) => entitlement.status).sort(),
-      revokedCount: revokedEntitlements.filter((entitlement) => entitlement.revokedAt !== undefined).length,
+      revokedCount: revokedEntitlements.filter((entitlement) => entitlement.revokedAt !== undefined)
+        .length,
       unrelatedEntitlementStatus: unrelatedEntitlement?.status,
       licenseStatus: revokedLicense?.status,
       licenseNotes: revokedLicense?.notes,
@@ -1712,7 +1730,7 @@ describe('verification intents redemption issuer', () => {
     await configurePinnedTestRoot();
   });
 
-  it('mints the license token for the caller public origin instead of the convex site origin', async () => {
+  it('rejects grants from another issuer and mints the license for the caller public origin', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-redemption-issuer';
     const codeVerifier = 'code-verifier-redemption-issuer';
@@ -1758,6 +1776,26 @@ describe('verification intents redemption issuer', () => {
     if (!grantToken) {
       throw new Error('Expected verification intent grant token');
     }
+
+    const wrongIssuerGrant = await resignJwtWithIssuer(
+      grantToken,
+      'https://attacker.invalid/api/auth',
+      process.env.YUCP_ROOT_PRIVATE_KEY as string
+    );
+    const wrongIssuerRedemption = await t.action(api.verificationIntents.redeemVerificationIntent, {
+      apiSecret: API_SECRET,
+      authUserId,
+      intentId,
+      codeVerifier,
+      machineFingerprint: 'machine-redemption-issuer',
+      grantToken: wrongIssuerGrant,
+      issuerBaseUrl: publicIssuerBaseUrl,
+    });
+
+    expect(wrongIssuerRedemption).toEqual({
+      success: false,
+      error: 'Verification grant is invalid or expired',
+    });
 
     const redemption = await t.action(api.verificationIntents.redeemVerificationIntent, {
       apiSecret: API_SECRET,

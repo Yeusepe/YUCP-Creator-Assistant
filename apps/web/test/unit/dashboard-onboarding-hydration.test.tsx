@@ -84,6 +84,7 @@ import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
+import { TestRuntimeConfigProvider } from './support/TestRuntimeConfigProvider';
 
 describe('dashboard onboarding hydration', () => {
   beforeEach(() => {
@@ -132,7 +133,11 @@ describe('dashboard onboarding hydration', () => {
       throw new Error('Dashboard index route component is not defined');
     }
 
-    render(<Component />);
+    render(
+      <TestRuntimeConfigProvider>
+        <Component />
+      </TestRuntimeConfigProvider>
+    );
   }
 
   it('does not render the onboarding panel before hydration completes', () => {

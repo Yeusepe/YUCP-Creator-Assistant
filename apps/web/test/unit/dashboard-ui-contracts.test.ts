@@ -43,24 +43,18 @@ function readCssDeclaration(css: string, selector: string, property: string): st
   throw new Error(`Could not parse ${property} declaration for ${selector}`);
 }
 
-function expectOpaqueLightBackground(selector: string, minimumAlpha = 0.84): void {
+function expectTokenizedThemeSurface(selector: string): void {
   const background = readCssDeclaration(dashboardComponentsCss, selector, 'background');
-  const rgbaMatch = background.match(/^rgba\(255,\s*255,\s*255,\s*(?<alpha>0?\.\d+|1(?:\.0+)?)\)$/);
-  if (!rgbaMatch?.groups?.alpha) {
-    const hexMatch = background.match(/^#(?<hex>[0-9a-f]{3}|[0-9a-f]{6})$/i);
-    if (!hexMatch?.groups?.hex) {
-      throw new Error(`${selector} must use an opaque light hex or white rgba() background`);
-    }
-    const hex =
-      hexMatch.groups.hex.length === 3
-        ? Array.from(hexMatch.groups.hex, (digit) => `${digit}${digit}`).join('')
-        : hexMatch.groups.hex;
-    const channels = hex.match(/[0-9a-f]{2}/gi)?.map((channel) => Number.parseInt(channel, 16));
-    expect(channels?.every((channel) => channel >= 220)).toBe(true);
-    return;
-  }
+  const darkBackground = readCssDeclaration(
+    dashboardComponentsCss,
+    `.dark ${selector}`,
+    'background'
+  );
 
-  expect(Number(rgbaMatch.groups.alpha)).toBeGreaterThanOrEqual(minimumAlpha);
+  expect(background).toMatch(/var\(--(?:background|foreground|surface)\)/);
+  expect(darkBackground).toMatch(/var\(--(?:background|foreground|surface)\)/);
+  expect(background).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(/i);
+  expect(darkBackground).not.toMatch(/#[0-9a-f]{3,8}|rgba?\(/i);
 }
 
 /** Concatenates dashboard token + partials (matches @import resolution in dashboard.css). */
@@ -112,7 +106,10 @@ describe('dashboard UI contracts', () => {
     expect(dashboardLazyRouteSource).toContain('useDashboardShell');
     expect(dashboardLazyRouteSource).toContain('No servers configured yet');
     expect(dashboardLazyRouteSource).toContain('hasCouplingTraceabilityCapability');
-    expect(dashboardLazyRouteSource).toContain('Leak Tracer');
+    expect(dashboardLazyRouteSource).toContain(
+      'hasVpmRepoCapability || hasCouplingTraceabilityCapability'
+    );
+    expect(dashboardLazyRouteSource).not.toContain('tab-btn-package-forensics');
     expect(dashboardLazyRouteSource).toContain('to="/dashboard/packages"');
   });
 
@@ -224,7 +221,7 @@ describe('dashboard UI contracts', () => {
     expect(dashboardComponentsCss).toContain('text-align: center;');
   });
 
-  it('keeps package manager light-mode surfaces opaque enough for light mode', () => {
+  it('uses adaptive semantic surfaces for package manager light and dark modes', () => {
     for (const selector of [
       '.pm-card',
       '.pm-primary-panel',
@@ -245,7 +242,7 @@ describe('dashboard UI contracts', () => {
       '.pm-upload-dropzone .drop-zone__trigger',
       '.pm-upload-dropzone .drop-zone__file-item',
     ]) {
-      expectOpaqueLightBackground(selector);
+      expectTokenizedThemeSurface(selector);
       expect(dashboardComponentsCss).toContain(`.dark ${selector}`);
     }
   });

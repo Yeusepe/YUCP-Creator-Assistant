@@ -1,6 +1,6 @@
 import * as ed from '@noble/ed25519';
-import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import { getProviderDescriptor } from '@yucp/providers/providerMetadata';
+import type { ApiActorBinding } from '@yucp/shared/apiActor';
 import {
   base64ToBytes,
   base64UrlDecodeToBytes,
@@ -332,8 +332,17 @@ async function signVerificationGrantJwt(
   return `${signingInput}.${base64UrlEncode(signatureBytes)}`;
 }
 
+function resolveVerificationGrantIssuer(): string {
+  const siteUrl = process.env.CONVEX_SITE_URL?.trim().replace(/\/$/, '');
+  if (!siteUrl) {
+    throw new Error('CONVEX_SITE_URL is required to issue and verify verification grants');
+  }
+  return `${siteUrl}/api/auth`;
+}
+
 async function verifyVerificationGrantJwtAgainstPinnedRoots(
-  token: string
+  token: string,
+  expectedIssuer: string
 ): Promise<VerificationGrantClaims | null> {
   try {
     const parts = token.split('.');
@@ -362,7 +371,7 @@ async function verifyVerificationGrantJwtAgainstPinnedRoots(
     const payload = JSON.parse(
       new TextDecoder().decode(base64UrlDecodeToBytes(parts[1]))
     ) as VerificationGrantClaims;
-    if (payload.aud !== GRANT_AUDIENCE) return null;
+    if (payload.iss !== expectedIssuer || payload.aud !== GRANT_AUDIENCE) return null;
     if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
@@ -867,12 +876,11 @@ export const getVerificationIntent = action({
       !intent.verificationGrantUsedAt
     ) {
       const signingKey = await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
-      const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '') ?? '';
       const nowSeconds = Math.floor(now / 1000);
       const expSeconds = Math.floor(intent.verificationGrantExpiresAt / 1000);
       grantToken = await signVerificationGrantJwt(
         {
-          iss: `${siteUrl}/api/auth`,
+          iss: resolveVerificationGrantIssuer(),
           aud: GRANT_AUDIENCE,
           sub: intent.authUserId,
           jti: intent.verificationGrantJti,
@@ -1458,7 +1466,10 @@ export const redeemVerificationIntent = action({
     }
 
     await getPinnedSigningKey(process.env.YUCP_ROOT_KEY_ID ?? null);
-    const grantClaims = await verifyVerificationGrantJwtAgainstPinnedRoots(args.grantToken);
+    const grantClaims = await verifyVerificationGrantJwtAgainstPinnedRoots(
+      args.grantToken,
+      resolveVerificationGrantIssuer()
+    );
     if (!grantClaims) {
       return { success: false, error: 'Verification grant is invalid or expired' };
     }

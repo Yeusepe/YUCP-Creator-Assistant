@@ -1,20 +1,14 @@
 import path from 'node:path';
+import tsConfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  plugins: [tsConfigPaths()],
   resolve: {
     alias: [
       {
         find: '@',
         replacement: path.resolve(__dirname, './src'),
-      },
-      {
-        find: /^@yucp\/shared$/,
-        replacement: path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-      },
-      {
-        find: /^@yucp\/shared\/(.*)$/,
-        replacement: path.resolve(__dirname, '../../packages/shared/src/$1.ts'),
       },
       {
         find: /^cloudflare:workers$/,
@@ -25,6 +19,12 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['test/unit/**/*.test.{ts,tsx}'],
+    server: {
+      deps: {
+        inline: [/@heroui-pro\/react/, /@gravity-ui\/icons/],
+      },
+    },
     setupFiles: ['test/unit/setup.ts'],
+    testTimeout: 15_000,
   },
 });

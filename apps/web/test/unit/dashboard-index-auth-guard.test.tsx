@@ -64,6 +64,7 @@ vi.mock('@/components/ui/Toast', () => {
 });
 
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
+import { TestRuntimeConfigProvider } from './support/TestRuntimeConfigProvider';
 
 describe('dashboard index auth guard', () => {
   it('renders the auth-required state without crashing when viewer auth is unavailable', () => {
@@ -72,7 +73,11 @@ describe('dashboard index auth guard', () => {
       throw new Error('Dashboard index route component is not defined');
     }
 
-    render(<Component />);
+    render(
+      <TestRuntimeConfigProvider>
+        <Component />
+      </TestRuntimeConfigProvider>
+    );
 
     expect(screen.getByText(/sign in to view your dashboard/i)).toBeInTheDocument();
   });

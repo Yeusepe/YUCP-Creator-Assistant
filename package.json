@@ -14,7 +14,7 @@
     "@babel/core": "7.29.7",
     "@protobufjs/utf8": ">=1.1.1",
     "@tanstack/start-server-core": "1.169.8",
-    "axios": ">=1.15.2",
+    "axios": ">=1.18.0",
     "bebop": "3.0.4",
     "fast-xml-parser": "5.7.0",
     "fast-xml-builder": ">=1.2.0",
@@ -24,7 +24,7 @@
     "lodash": ">=4.18.1",
     "picomatch": "2.3.2",
     "prismjs": ">=1.30.0",
-    "protobufjs": "7.6.4",
+    "protobufjs": "7.6.5",
     "defu": ">=6.1.6",
     "esbuild": "0.28.1",
     "undici": "7.28.0",
@@ -42,10 +42,10 @@
     "@better-auth/core": "1.6.23",
     "@better-auth/oauth-provider": "1.6.23",
     "@better-auth/passkey": "1.6.23",
-    "shell-quote": "1.8.4",
-    "tar": "7.5.16",
+    "shell-quote": "1.10.0",
+    "tar": "7.5.20",
     "form-data": "4.0.6",
-    "js-yaml": "4.2.0"
+    "js-yaml": "4.3.0"
   },
   "scripts": {
     "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",
@@ -77,7 +77,7 @@
     "test:delivery:e2e": "tsx ./services/delivery-worker/deliveryWorker.e2e.test.ts",
     "test:storage:e2e": "bun run test:cas:e2e && bun run test:cas:s3 && bun run test:catalog:integration && bun run test:ingest:e2e && bun run test:ingest-tus:e2e && bun run test:delivery:e2e && bun run test:importer:e2e && bun run test:pipeline:promote:e2e && bun run test:gc:e2e && bun run test:scheduler:e2e",
     "test": "bun run test:fast",
-    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
+    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/dependency-security-overrides.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
     "test:external-integrations": "bun run ops/test-external-integrations.ts",
     "test:fast": "bun run test:ops && bun run test:storage:unit && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:convex:types": "tsc --noEmit -p convex/tsconfig.json",
@@ -95,7 +95,7 @@
     "test:convex:prepare:debug": "bun run infisical:convex -- bun x convex dev --once --debug-node-apis",
     "test:api:integration": "bun test ./apps/api/test/backfill.test.ts ./apps/api/test/collab.test.ts ./apps/api/test/connect.test.ts ./apps/api/test/index.test.ts ./apps/api/test/providerPlatform.test.ts ./apps/api/test/public.test.ts ./apps/api/test/setupSession.security.test.ts ./apps/api/test/verification.test.ts ./apps/api/test/webhooks.test.ts ./apps/api/test/providers",
     "test:bot": "cross-env INTERNAL_SERVICE_AUTH_SECRET=test-internal-service-auth-secret bun test ./apps/bot/test/commands",
-    "test:all": "bun run test:fast && bun run test:convex && bun run test:api:integration && bun run test:bot",
+    "test:all": "bun run test:fast && bun run test:convex && bun run test:api:integration && bun run test:bot && bun run --filter '@yucp/web' test:ci",
     "test:infisical": "bun run --env-file=.env.infisical test",
     "test:boundary-mocks": "node ./ops/check-boundary-mock-ratchet.mjs",
     "test:ci": "bun run test:ops && bun run test:fast:ci && bun run test:boundary-mocks && bun run test:convex && bun run test:api:integration",
@@ -185,7 +185,7 @@
     "h3-v2": "npm:h3@2.0.1-rc.20",
     "jsonc-parser": "^3.3.1",
     "postgres": "3.4.9",
-    "tar": "^7.5.16"
+    "tar": "7.5.20"
   },
   "trustedDependencies": [
     "heroui-pro",

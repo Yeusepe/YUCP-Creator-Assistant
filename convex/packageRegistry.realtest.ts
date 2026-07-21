@@ -1,4 +1,4 @@
-import { createApiActorBinding } from '@yucp/shared/apiActor';
+import { createApiActorBinding, createAuthUserApiActor } from '@yucp/shared/apiActor';
 import { describe, expect, it } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -22,7 +22,214 @@ async function createServiceActorBinding(scopes: readonly string[]) {
   );
 }
 
+async function createCreatorActorBinding(authUserId: string) {
+  return await createApiActorBinding(
+    createAuthUserApiActor({ authUserId, source: 'session' }),
+    process.env.INTERNAL_SERVICE_AUTH_SECRET as string
+  );
+}
+
 describe('packageRegistry', () => {
+  it('blocks deletion when a catalog product has package-version history', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-package-history';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-with-package-history',
+        provider: 'gumroad',
+        providerProductRef: 'product-with-package-history-ref',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.package-history',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000099',
+        state: 'READY',
+        catalogProductId: productId,
+        createdAt: now,
+      });
+      return productId;
+    });
+
+    const product = await t.query(api.packageRegistry.getByIdForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createCreatorActorBinding(authUserId),
+      authUserId,
+      catalogProductId,
+    });
+
+    expect(product).toMatchObject({
+      packageId: 'com.yucp.package-history',
+      canDelete: false,
+      deleteBlockedReason:
+        'Product has package, role, entitlement, or tier history and cannot be deleted.',
+    });
+  });
+
+  it('terminates filtered pagination when its cursor no longer resolves', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-stale-package-cursor';
+    const [firstProductId] = await t.run(async (ctx) => {
+      const now = Date.now();
+      const insertConfiguredProduct = async (productId: string) => {
+        const catalogProductId = await ctx.db.insert('product_catalog', {
+          authUserId,
+          productId,
+          provider: 'gumroad',
+          providerProductRef: `${productId}-ref`,
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert('package_versions_ref', {
+          packageId: `com.yucp.${productId}`,
+          version: '1.0.0',
+          versionId: crypto.randomUUID(),
+          state: 'READY',
+          catalogProductId,
+          createdAt: now,
+        });
+        return catalogProductId;
+      };
+      return [
+        await insertConfiguredProduct('stale-cursor-first'),
+        await insertConfiguredProduct('stale-cursor-second'),
+      ] as const;
+    });
+    const actor = await createCreatorActorBinding(authUserId);
+    const firstPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      status: 'active',
+      limit: 1,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(firstProductId, { status: 'hidden', updatedAt: Date.now() });
+    });
+
+    const pageAfterStaleCursor = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      status: 'active',
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+
+    expect(firstPage.nextCursor).toBe(String(firstProductId));
+    expect(pageAfterStaleCursor).toEqual({
+      data: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
+  it('paginates creator products without hiding products awaiting their first upload', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-dashboard-packages';
+    const [unconfiguredProductId, firstConfiguredProductId, secondConfiguredProductId] =
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        const insertProduct = async (productId: string, providerProductRef: string) =>
+          await ctx.db.insert('product_catalog', {
+            authUserId,
+            productId,
+            provider: 'gumroad',
+            providerProductRef,
+            status: 'active',
+            supportsAutoDiscovery: true,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+        const unconfigured = await insertProduct('unconfigured-product', 'unconfigured-ref');
+        const firstConfigured = await insertProduct('configured-product-1', 'configured-ref-1');
+        const secondConfigured = await insertProduct('configured-product-2', 'configured-ref-2');
+        await ctx.db.insert('package_versions_ref', {
+          packageId: 'com.yucp.configured-one',
+          version: '1.0.0',
+          versionId: '00000000-0000-4000-8000-000000000011',
+          state: 'READY',
+          catalogProductId: firstConfigured,
+          createdAt: now,
+        });
+        await ctx.db.insert('package_versions_ref', {
+          packageId: 'com.yucp.configured-two',
+          version: '1.0.0',
+          versionId: '00000000-0000-4000-8000-000000000012',
+          state: 'READY',
+          catalogProductId: secondConfigured,
+          createdAt: now,
+        });
+        return [unconfigured, firstConfigured, secondConfigured] as const;
+      });
+    const actor = await createCreatorActorBinding(authUserId);
+
+    const firstPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      limit: 1,
+    });
+    const secondPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+    const thirdPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      cursor: secondPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+    const firstConfiguredPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      limit: 1,
+    });
+    const secondConfiguredPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      cursor: firstConfiguredPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+
+    expect(firstPage.data.map((product) => product._id)).toEqual([unconfiguredProductId]);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).not.toBeNull();
+    expect(secondPage.data.map((product) => product._id)).toEqual([firstConfiguredProductId]);
+    expect(secondPage.hasMore).toBe(true);
+    expect(thirdPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
+    expect(thirdPage.hasMore).toBe(false);
+    expect(thirdPage.nextCursor).toBeNull();
+    expect(firstConfiguredPage.data.map((product) => product._id)).toEqual([
+      firstConfiguredProductId,
+    ]);
+    expect(firstConfiguredPage.hasMore).toBe(true);
+    expect(firstConfiguredPage.nextCursor).not.toBeNull();
+    expect(secondConfiguredPage.data.map((product) => product._id)).toEqual([
+      secondConfiguredProductId,
+    ]);
+    expect(secondConfiguredPage.hasMore).toBe(false);
+    expect(secondConfiguredPage.nextCursor).toBeNull();
+  });
+
   it('stores package names and lists owned packages with human metadata', async () => {
     const t = makeTestConvex();
 
@@ -131,6 +338,74 @@ describe('packageRegistry', () => {
     });
 
     expect(product?.packageId).toBe('com.yucp.bound-package');
+  });
+
+  it('resolves human product aliases only within the requested creator profile', async () => {
+    const t = makeTestConvex();
+    const [firstProductId, secondProductId] = await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('creator_profiles', {
+        authUserId: 'creator-one',
+        name: 'Creator One',
+        ownerDiscordUserId: 'discord-creator-one',
+        slug: 'creator-one',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('creator_profiles', {
+        authUserId: 'creator-two',
+        name: 'Creator Two',
+        ownerDiscordUserId: 'discord-creator-two',
+        slug: 'creator-two',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const insertProduct = async (authUserId: string, productId: string) =>
+        await ctx.db.insert('product_catalog', {
+          authUserId,
+          productId,
+          provider: 'gumroad',
+          providerProductRef: 'shared-provider-ref',
+          canonicalSlug: 'avatar-bundle',
+          displayName: `${authUserId} bundle`,
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      return [
+        await insertProduct('creator-one', 'creator-one-product'),
+        await insertProduct('creator-two', 'creator-two-product'),
+      ] as const;
+    });
+    const actor = await createServiceActorBinding(['creator:delegate']);
+
+    const first = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'creator-one',
+      productRef: 'avatar-bundle',
+    });
+    const second = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'creator-two',
+      productRef: 'shared-provider-ref',
+    });
+    const missing = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'unknown-creator',
+      productRef: 'avatar-bundle',
+    });
+
+    expect(first?.catalogProductId).toBe(firstProductId);
+    expect(first?.creatorAuthUserId).toBe('creator-one');
+    expect(second?.catalogProductId).toBe(secondProductId);
+    expect(second?.creatorAuthUserId).toBe('creator-two');
+    expect(missing).toBeNull();
   });
 
   it('does not disclose the owning creator on a package namespace conflict', async () => {
