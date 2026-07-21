@@ -31,21 +31,31 @@ describe('licensed icon CI regeneration', () => {
     }
   });
 
-  test('syncs icons before every non-build job that loads web application source', () => {
-    for (const jobName of ['typecheck', 'test', 'web-tests']) {
+  test('keeps credential-free typecheck and general tests independent of licensed artwork', () => {
+    for (const jobName of ['typecheck', 'test']) {
       const job = getJob(jobName);
-      expect(job).toContain('- name: Generate licensed icon module');
-      expect(job).toContain('run: bun run icons:sync');
-      expect(job).toContain(
-        `ASSETS_S3_BUCKET: ${githubExpressionPrefix} secrets.ASSETS_S3_BUCKET }}`
-      );
-      expect(job).toContain(
-        `ASSETS_S3_READONLY_ACCESS_KEY_ID: ${githubExpressionPrefix} secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}`
-      );
-      expect(job).toContain(
-        `ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${githubExpressionPrefix} secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}`
-      );
+      expect(job).not.toContain('icons:sync');
+      expect(job).not.toContain('ASSETS_S3_');
       expect(job).not.toContain('VITE_ASSETS_S3');
+    }
+  });
+
+  test('guards licensed web gates when fork pull requests cannot receive secrets', () => {
+    for (const jobName of ['web-build', 'web-tests']) {
+      const job = getJob(jobName);
+      expect(job).toContain('LICENSED_ICON_SECRETS_AVAILABLE:');
+      for (const variable of [
+        'ASSETS_S3_BUCKET',
+        'ASSETS_S3_ENDPOINT',
+        'ASSETS_S3_REGION',
+        'ASSETS_S3_READONLY_ACCESS_KEY_ID',
+        'ASSETS_S3_READONLY_SECRET_ACCESS_KEY',
+      ]) {
+        expect(job).toContain(`secrets.${variable} != ''`);
+      }
+      expect(job).toContain("if: env.LICENSED_ICON_SECRETS_AVAILABLE == 'true'");
+      expect(job).toContain("if: env.LICENSED_ICON_SECRETS_AVAILABLE != 'true'");
+      expect(job).toContain('Licensed icon gate skipped because build credentials are unavailable');
     }
   });
 
