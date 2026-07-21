@@ -3,7 +3,7 @@ import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
 import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
-import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
+import { isPublicApiKeyCandidate, PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
 
@@ -11,7 +11,6 @@ const VERIFICATION_SCOPE = 'verification:read';
 const SUBJECTS_SCOPE = 'subjects:read';
 const MAX_PRODUCT_IDS_PER_CHECK = 50;
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
-const PUBLIC_API_KEY_PATTERN = /^ypsk_[0-9a-f]{48}$/;
 
 export interface PublicRouteConfig {
   convexUrl: string;
@@ -152,10 +151,6 @@ function extractApiKey(request: Request): string | null {
   const bearer = extractBearerToken(request);
   if (bearer?.startsWith(PUBLIC_API_KEY_PREFIX)) return bearer;
   return null;
-}
-
-function isPublicApiKeyCandidate(apiKey: string): boolean {
-  return PUBLIC_API_KEY_PATTERN.test(apiKey);
 }
 
 export function parseSubjectSelector(value: unknown): SubjectSelector | null {

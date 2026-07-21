@@ -14,8 +14,10 @@ import { encrypt } from '../../src/lib/encrypt';
 import { getProviderRuntime, resolveWebhookPlugin } from '../../src/providers';
 import {
   apiJson,
+  apiKeyHeaders,
   createBetterAuthSession,
   createBetterAuthUser,
+  createPublicApiKey,
   E2E_ENCRYPTION_SECRET,
   getRealApiHarness,
   hashLicenseKey,
@@ -925,7 +927,331 @@ async function expectNoEntitlements(): Promise<void> {
   expect(await getRealApiHarness().convex.collect('entitlements')).toHaveLength(0);
 }
 
+function sessionHeaders(sessionToken: string, extra: HeadersInit = {}): Headers {
+  const headers = new Headers(extra);
+  const existingCookie = headers.get('cookie');
+  headers.set(
+    'cookie',
+    `yucp.session_token=${sessionToken}${existingCookie ? `; ${existingCookie}` : ''}`
+  );
+  headers.set('origin', 'http://127.0.0.1:3001');
+  return headers;
+}
+
+function cookiePair(response: Response): string {
+  const setCookie = response.headers.get('set-cookie');
+  if (!setCookie) {
+    throw new Error('Expected response to set a browser cookie');
+  }
+  return setCookie.split(';', 1)[0] ?? setCookie;
+}
+
+async function listPublicApiSurface(path: string, apiKey: string): Promise<unknown[]> {
+  const response = await getRealApiHarness().app.fetch(path, {
+    headers: apiKeyHeaders(apiKey),
+  });
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as {
+    data?: unknown[];
+    hasMore?: boolean;
+    nextCursor?: string | null;
+    object?: string;
+  };
+  expect(body.object).toBe('list');
+  expect(body.hasMore).toBe(false);
+  expect(body.nextCursor).toBeNull();
+  return body.data ?? [];
+}
+
 describe('real API user journeys against self-hosted Convex', () => {
+  test('creator onboarding starts empty, repeats safely, and rejects a different owner without partial state', async () => {
+    const harness = getRealApiHarness();
+    const creator = await createBetterAuthUser({ name: 'Empty State Creator' });
+    const otherCreator = await createBetterAuthUser({ name: 'Unauthorized Creator' });
+    const creatorSession = await createBetterAuthSession(creator.authUserId);
+    const otherSession = await createBetterAuthSession(otherCreator.authUserId);
+    const guildId = uniqueRef('guild_first_connect');
+    const discordUserId = uniqueRef('discord_first_connect');
+
+    expect(await harness.convex.collect('creator_profiles')).toHaveLength(0);
+    expect(await harness.convex.collect('guild_links')).toHaveLength(0);
+
+    const emptyShellResponse = await harness.app.fetch(
+      '/api/connect/dashboard/shell?includeHomeData=true',
+      { headers: sessionHeaders(creatorSession) }
+    );
+    expect(emptyShellResponse.status).toBe(200);
+    const emptyShell = (await emptyShellResponse.json()) as {
+      guilds?: unknown[];
+      home?: { userAccounts?: unknown[]; connectionStatusByProvider?: Record<string, boolean> };
+      viewer?: { authUserId?: string };
+    };
+    expect(emptyShell.viewer?.authUserId).toBe(creator.authUserId);
+    expect(emptyShell.guilds).toEqual([]);
+    expect(emptyShell.home?.userAccounts).toEqual([]);
+    expect(emptyShell.home?.connectionStatusByProvider).toEqual({});
+
+    async function createConnectBrowserCookie(input: {
+      discordUserId: string;
+      guildId: string;
+    }): Promise<string> {
+      const createTokenResponse = await harness.app.fetch('/api/connect/create-token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, apiSecret: API_SECRET }),
+      });
+      expect(createTokenResponse.status).toBe(200);
+      const { token } = (await createTokenResponse.json()) as { token: string };
+      const bootstrapResponse = await harness.app.fetch('/api/connect/bootstrap', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ connectToken: token }),
+      });
+      expect(bootstrapResponse.status).toBe(200);
+      return cookiePair(bootstrapResponse);
+    }
+
+    async function completeConnect(input: {
+      browserCookie: string;
+      sessionToken: string;
+    }): Promise<Response> {
+      return await harness.app.fetch('/api/connect/complete', {
+        method: 'POST',
+        headers: sessionHeaders(input.sessionToken, {
+          'content-type': 'application/json',
+          cookie: input.browserCookie,
+        }),
+        body: JSON.stringify({ guildId }),
+      });
+    }
+
+    const firstResponse = await completeConnect({
+      browserCookie: await createConnectBrowserCookie({ discordUserId, guildId }),
+      sessionToken: creatorSession,
+    });
+    expect(firstResponse.status).toBe(200);
+    await expect(firstResponse.json()).resolves.toMatchObject({
+      success: true,
+      authUserId: creator.authUserId,
+      isFirstTime: true,
+    });
+
+    const repeatResponse = await completeConnect({
+      browserCookie: await createConnectBrowserCookie({ discordUserId, guildId }),
+      sessionToken: creatorSession,
+    });
+    expect(repeatResponse.status).toBe(200);
+    await expect(repeatResponse.json()).resolves.toMatchObject({
+      success: true,
+      authUserId: creator.authUserId,
+      isFirstTime: false,
+    });
+
+    const unauthorizedResponse = await completeConnect({
+      browserCookie: await createConnectBrowserCookie({
+        discordUserId: uniqueRef('discord_wrong_owner'),
+        guildId,
+      }),
+      sessionToken: otherSession,
+    });
+    expect(unauthorizedResponse.status).toBe(403);
+    await expect(unauthorizedResponse.json()).resolves.toEqual({
+      error: 'This server is already linked to another account.',
+    });
+
+    const profiles = await harness.convex.collect('creator_profiles');
+    expect(profiles).toHaveLength(1);
+    expect(profiles[0]).toMatchObject({
+      authUserId: creator.authUserId,
+      ownerDiscordUserId: discordUserId,
+      status: 'active',
+    });
+    const guildLinks = await harness.convex.collect('guild_links');
+    expect(guildLinks).toHaveLength(1);
+    expect(guildLinks[0]).toMatchObject({
+      authUserId: creator.authUserId,
+      discordGuildId: guildId,
+      status: 'active',
+    });
+  });
+
+  test('dashboard and account reads grow from empty to many and reconcile legacy identity records', async () => {
+    const harness = getRealApiHarness();
+    const creator = await createBetterAuthUser({ name: 'Read Surface Creator' });
+    const otherCreator = await createBetterAuthUser({ name: 'Read Surface Other Creator' });
+    await seedCreatorProfile({
+      authUserId: creator.authUserId,
+      name: 'Read Surface Creator',
+    });
+    await seedCreatorProfile({
+      authUserId: otherCreator.authUserId,
+      name: 'Read Surface Other Creator',
+    });
+    const session = await createBetterAuthSession(creator.authUserId);
+    const publicApiKey = await createPublicApiKey(creator.authUserId, PUBLIC_API_SCOPES);
+
+    const emptyConnectionsResponse = await harness.app.fetch('/api/connect/user/connections', {
+      headers: sessionHeaders(session),
+    });
+    expect(emptyConnectionsResponse.status).toBe(200);
+    await expect(emptyConnectionsResponse.json()).resolves.toEqual({ connections: [] });
+
+    const emptyAccountsResponse = await harness.app.fetch('/api/connect/user/accounts', {
+      headers: sessionHeaders(session),
+    });
+    expect(emptyAccountsResponse.status).toBe(200);
+    await expect(emptyAccountsResponse.json()).resolves.toEqual({ connections: [] });
+    expect(await listPublicApiSurface('/api/public/v2/products', publicApiKey)).toEqual([]);
+    expect(await listPublicApiSurface('/api/public/v2/subjects', publicApiKey)).toEqual([]);
+    expect(await listPublicApiSurface('/api/public/v2/entitlements', publicApiKey)).toEqual([]);
+
+    const subject = await seedSubject(creator.authUserId, {
+      discordUserId: uniqueRef('discord_read_surface'),
+    });
+    const firstProductId = uniqueRef('read_product_one');
+    const firstCatalogProductId = await seedProductCatalog({
+      authUserId: creator.authUserId,
+      productId: firstProductId,
+      provider: 'gumroad',
+      providerProductRef: uniqueRef('gumroad_read_one'),
+      displayName: 'Read Product One',
+    });
+    await harness.convex.mutation(api.entitlements.grantEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creator.authUserId,
+      subjectId: subject,
+      productId: firstProductId,
+      catalogProductId: firstCatalogProductId,
+      evidence: {
+        provider: 'gumroad',
+        sourceReference: uniqueRef('read_entitlement_one'),
+        purchasedAt: Date.now(),
+      },
+    });
+    await seedProviderConnection({
+      authUserId: creator.authUserId,
+      provider: 'gumroad',
+      authMode: 'oauth',
+      webhookConfigured: true,
+    });
+
+    expect(await listPublicApiSurface('/api/public/v2/products', publicApiKey)).toHaveLength(1);
+    expect(await listPublicApiSurface('/api/public/v2/subjects', publicApiKey)).toHaveLength(1);
+    expect(await listPublicApiSurface('/api/public/v2/entitlements', publicApiKey)).toHaveLength(1);
+    const singleConnectionsResponse = await harness.app.fetch('/api/connect/user/connections', {
+      headers: sessionHeaders(session),
+    });
+    expect(singleConnectionsResponse.status).toBe(200);
+    const singleConnections = (await singleConnectionsResponse.json()) as {
+      connections: Array<{ provider: string }>;
+    };
+    expect(singleConnections.connections.map((connection) => connection.provider)).toEqual([
+      'gumroad',
+    ]);
+
+    const now = Date.now();
+    const legacyExternalAccountId = await harness.convex.insert('external_accounts', {
+      provider: 'itchio',
+      providerUserId: uniqueRef('legacy_itch_user'),
+      providerUsername: 'Legacy Itch Buyer',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await harness.convex.insert('bindings', {
+      authUserId: creator.authUserId,
+      tenantId: 'legacy-tenant-id',
+      subjectId: subject,
+      externalAccountId: legacyExternalAccountId,
+      bindingType: 'verification',
+      status: 'active',
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(await harness.convex.collect('buyer_provider_links')).toHaveLength(0);
+
+    const refreshedAccountsResponse = await harness.app.fetch(
+      '/api/connect/user/accounts/refresh',
+      {
+        method: 'POST',
+        headers: sessionHeaders(session),
+      }
+    );
+    expect(refreshedAccountsResponse.status).toBe(200);
+    const refreshedAccounts = (await refreshedAccountsResponse.json()) as {
+      connections: Array<{ provider: string; providerUsername: string | null; status: string }>;
+    };
+    expect(refreshedAccounts.connections).toEqual([
+      expect.objectContaining({
+        provider: 'itchio',
+        providerUsername: 'Legacy Itch Buyer',
+        status: 'active',
+      }),
+    ]);
+    expect(await harness.convex.collect('buyer_provider_links')).toHaveLength(1);
+
+    const secondSubject = await seedSubject(creator.authUserId, {
+      discordUserId: uniqueRef('discord_read_surface_two'),
+    });
+    const secondProductId = uniqueRef('read_product_two');
+    const secondCatalogProductId = await seedProductCatalog({
+      authUserId: creator.authUserId,
+      productId: secondProductId,
+      provider: 'payhip',
+      providerProductRef: uniqueRef('payhip_read_two'),
+      displayName: 'Read Product Two',
+    });
+    await harness.convex.mutation(api.entitlements.grantEntitlement, {
+      apiSecret: API_SECRET,
+      authUserId: creator.authUserId,
+      subjectId: secondSubject,
+      productId: secondProductId,
+      catalogProductId: secondCatalogProductId,
+      evidence: {
+        provider: 'payhip',
+        sourceReference: uniqueRef('read_entitlement_two'),
+        purchasedAt: Date.now(),
+      },
+    });
+    await seedProviderConnection({
+      authUserId: creator.authUserId,
+      provider: 'payhip',
+      authMode: 'api_key',
+      webhookConfigured: false,
+    });
+    await seedProductCatalog({
+      authUserId: otherCreator.authUserId,
+      productId: uniqueRef('wrong_owner_product'),
+      provider: 'jinxxy',
+      providerProductRef: uniqueRef('wrong_owner_ref'),
+      displayName: 'Wrong Owner Product',
+    });
+    await seedSubject(otherCreator.authUserId, {
+      discordUserId: uniqueRef('discord_wrong_owner_read'),
+    });
+
+    const products = await listPublicApiSurface('/api/public/v2/products', publicApiKey);
+    const subjects = await listPublicApiSurface('/api/public/v2/subjects', publicApiKey);
+    const entitlements = await listPublicApiSurface('/api/public/v2/entitlements', publicApiKey);
+    expect(products).toHaveLength(2);
+    expect(subjects).toHaveLength(2);
+    expect(entitlements).toHaveLength(2);
+    expect(JSON.stringify(products)).not.toContain('Wrong Owner Product');
+
+    const manyConnectionsResponse = await harness.app.fetch('/api/connect/user/connections', {
+      headers: sessionHeaders(session),
+    });
+    expect(manyConnectionsResponse.status).toBe(200);
+    const manyConnections = (await manyConnectionsResponse.json()) as {
+      connections: Array<{ provider: string }>;
+    };
+    expect(manyConnections.connections.map((connection) => connection.provider).sort()).toEqual([
+      'gumroad',
+      'payhip',
+    ]);
+  });
+
   test('manual products stay reachable through hosted intent creation and session-backed redemption', async () => {
     const harness = getRealApiHarness();
     const creator = await createBetterAuthUser({ name: 'Hosted Manual Redemption Creator' });
@@ -1177,6 +1503,11 @@ describe('real API user journeys against self-hosted Convex', () => {
         expect([200, 202]).toContain(response.status);
         const processing = await processPendingWebhookEvents();
         expect(processing).toMatchObject({ failed: 0, processed: 1 });
+
+        const repeatedResponse = await postWebhookGrant(journey);
+        expect([200, 202]).toContain(repeatedResponse.status);
+        const repeatedProcessing = await processPendingWebhookEvents();
+        expect(repeatedProcessing).toMatchObject({ failed: 0, processed: 0 });
 
         await waitForActiveProviderEntitlement({
           catalogProductId: journey.catalogProductId,

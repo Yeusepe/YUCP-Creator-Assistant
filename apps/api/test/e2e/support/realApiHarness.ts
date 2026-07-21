@@ -13,6 +13,8 @@ import { type BuiltApiApp, buildApp } from '../../support/buildApp';
 
 export const E2E_ENCRYPTION_SECRET = `e2e-${crypto.randomUUID()}`;
 export const E2E_BETTER_AUTH_SECRET = 'test-better-auth-secret-32-chars!!';
+export const E2E_UPLOAD_HMAC_KEY = 'test-upload-hmac-secret-32-chars!!';
+export const E2E_INGEST_TUS_URL = 'https://ingest.e2e.invalid';
 
 type HarnessState = {
   app: BuiltApiApp;
@@ -220,6 +222,8 @@ export function installRealApiHarness(): void {
       betterAuthSecret: E2E_BETTER_AUTH_SECRET,
       internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
       internalRpcSharedSecret: `e2e-rpc-${crypto.randomUUID()}`,
+      uploadHmacKey: E2E_UPLOAD_HMAC_KEY,
+      ingestTusUrl: E2E_INGEST_TUS_URL,
     });
     const server = Bun.serve({
       hostname: '0.0.0.0',
@@ -406,6 +410,7 @@ export async function seedCreatorProfile(input: {
 
 export async function seedProductCatalog(input: {
   authUserId: string;
+  canonicalSlug?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -414,6 +419,7 @@ export async function seedProductCatalog(input: {
   const now = Date.now();
   return await requireState().convex.insert('product_catalog', {
     authUserId: input.authUserId,
+    canonicalSlug: input.canonicalSlug,
     productId: input.productId,
     provider: input.provider,
     providerProductRef: input.providerProductRef,

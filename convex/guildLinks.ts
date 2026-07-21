@@ -6,7 +6,8 @@
  */
 
 import { ConvexError, v } from 'convex/values';
-import { mutation, query } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { type MutationCtx, mutation, query } from './_generated/server';
 import { requireApiSecret } from './lib/apiAuth';
 
 const GuildLinkStatus = v.union(
@@ -25,6 +26,59 @@ const VerifyPromptMessage = v.object({
   imageUrl: v.optional(v.string()),
   updatedAt: v.number(),
 });
+
+type GuildLinkWrite = {
+  authUserId: string;
+  botPresent: boolean;
+  commandScopeState?: { registered: boolean; registeredAt?: number };
+  discordGuildIcon?: string;
+  discordGuildId: string;
+  discordGuildName?: string;
+  installedByAuthUserId: string;
+  status: 'active' | 'uninstalled' | 'suspended';
+};
+
+async function upsertGuildLinkRecord(
+  ctx: MutationCtx,
+  args: GuildLinkWrite,
+  now: number
+): Promise<Id<'guild_links'>> {
+  const existing = await ctx.db
+    .query('guild_links')
+    .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.discordGuildId))
+    .first();
+
+  if (existing) {
+    if (existing.authUserId && existing.authUserId !== args.authUserId) {
+      throw new ConvexError('Unauthorized: guild link owned by different user');
+    }
+    const patch: Record<string, unknown> = {
+      authUserId: args.authUserId,
+      installedByAuthUserId: args.installedByAuthUserId,
+      botPresent: args.botPresent,
+      status: args.status,
+      commandScopeState: args.commandScopeState,
+      updatedAt: now,
+    };
+    if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
+    if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
+    await ctx.db.patch(existing._id, patch);
+    return existing._id;
+  }
+
+  return await ctx.db.insert('guild_links', {
+    authUserId: args.authUserId,
+    discordGuildId: args.discordGuildId,
+    discordGuildName: args.discordGuildName,
+    discordGuildIcon: args.discordGuildIcon,
+    installedByAuthUserId: args.installedByAuthUserId,
+    botPresent: args.botPresent,
+    status: args.status,
+    commandScopeState: args.commandScopeState,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
 
 /**
  * Upsert a guild link. Called by API after bot install callback.
@@ -49,42 +103,82 @@ export const upsertGuildLink = mutation({
   handler: async (ctx, args) => {
     requireApiSecret(args.apiSecret);
     const now = Date.now();
+    return await upsertGuildLinkRecord(ctx, args, now);
+  },
+});
 
-    const existing = await ctx.db
+/**
+ * Atomically creates the first creator profile and links the Discord guild.
+ * A foreign guild owner is reported before either record can be written.
+ */
+export const completeCreatorOnboarding = mutation({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    discordUserId: v.string(),
+    discordGuildId: v.string(),
+    discordGuildName: v.optional(v.string()),
+    discordGuildIcon: v.optional(v.string()),
+  },
+  returns: v.union(
+    v.object({
+      completed: v.literal(true),
+      conflict: v.literal(false),
+      authUserId: v.string(),
+      isFirstTime: v.boolean(),
+    }),
+    v.object({
+      completed: v.literal(false),
+      conflict: v.literal(true),
+    })
+  ),
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    const existingGuildLink = await ctx.db
       .query('guild_links')
       .withIndex('by_discord_guild', (q) => q.eq('discordGuildId', args.discordGuildId))
       .first();
-
-    if (existing) {
-      const patch: Record<string, unknown> = {
-        authUserId: args.authUserId,
-        installedByAuthUserId: args.installedByAuthUserId,
-        botPresent: args.botPresent,
-        status: args.status,
-        commandScopeState: args.commandScopeState,
-        updatedAt: now,
-      };
-      if (existing.authUserId && existing.authUserId !== args.authUserId) {
-        throw new ConvexError('Unauthorized: guild link owned by different user');
-      }
-      if (args.discordGuildName !== undefined) patch.discordGuildName = args.discordGuildName;
-      if (args.discordGuildIcon !== undefined) patch.discordGuildIcon = args.discordGuildIcon;
-      await ctx.db.patch(existing._id, patch);
-      return existing._id;
+    if (existingGuildLink?.authUserId && existingGuildLink.authUserId !== args.authUserId) {
+      return { completed: false as const, conflict: true as const };
     }
 
-    return await ctx.db.insert('guild_links', {
+    const existingProfile = await ctx.db
+      .query('creator_profiles')
+      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+      .first();
+    const now = Date.now();
+    if (!existingProfile) {
+      await ctx.db.insert('creator_profiles', {
+        authUserId: args.authUserId,
+        name: `Creator ${args.discordUserId.slice(0, 8)}`,
+        ownerDiscordUserId: args.discordUserId,
+        status: 'active',
+        policy: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await upsertGuildLinkRecord(
+      ctx,
+      {
+        authUserId: args.authUserId,
+        discordGuildId: args.discordGuildId,
+        discordGuildName: args.discordGuildName,
+        discordGuildIcon: args.discordGuildIcon,
+        installedByAuthUserId: args.authUserId,
+        botPresent: true,
+        status: 'active',
+      },
+      now
+    );
+
+    return {
+      completed: true as const,
+      conflict: false as const,
       authUserId: args.authUserId,
-      discordGuildId: args.discordGuildId,
-      discordGuildName: args.discordGuildName,
-      discordGuildIcon: args.discordGuildIcon,
-      installedByAuthUserId: args.installedByAuthUserId,
-      botPresent: args.botPresent,
-      status: args.status,
-      commandScopeState: args.commandScopeState,
-      createdAt: now,
-      updatedAt: now,
-    });
+      isFirstTime: !existingProfile,
+    };
   },
 });
 

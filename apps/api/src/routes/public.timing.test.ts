@@ -17,7 +17,7 @@ mock.module('../../../../convex/_generated/api', () => ({
 const { createPublicRoutes } = await import('./public');
 
 describe('createPublicRoutes timing', () => {
-  const VALID_API_KEY = `ypsk_${'a'.repeat(48)}`;
+  const VALID_API_KEY = `ypsk_${'Ab'.repeat(32)}`;
   const config = {
     convexUrl: 'https://test.convex.cloud',
     convexApiSecret: 'test-secret',

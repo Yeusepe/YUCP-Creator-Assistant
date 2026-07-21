@@ -30,6 +30,7 @@ const { RouteTimingCollector } = await import('../../lib/requestTiming');
 // --- Shared fixtures ---
 
 const VALID_API_KEY = `ypsk_${'a'.repeat(48)}`;
+const BETTER_AUTH_ISSUED_API_KEY = `ypsk_${'Ab'.repeat(32)}`;
 
 const config = {
   apiBaseUrl: 'https://api.test',
@@ -110,6 +111,19 @@ describe('resolveAuth', () => {
   });
 
   describe('x-api-key header, Convex verification', () => {
+    it('passes the opaque key format emitted by Better Auth to managed-key verification', async () => {
+      mutationImpl = async () => validKeyResult(['subjects:read']);
+
+      const result = await resolveAuth(
+        makeRequest({ 'x-api-key': BETTER_AUTH_ISSUED_API_KEY }),
+        config,
+        ['subjects:read']
+      );
+
+      expect(result instanceof Response).toBe(false);
+      expect(mutationMock.mock.calls).toHaveLength(1);
+    });
+
     it('returns 401 when Convex returns null (key not found or expired)', async () => {
       mutationImpl = async () => null;
       const result = await resolveAuth(makeRequest({ 'x-api-key': VALID_API_KEY }), config, []);

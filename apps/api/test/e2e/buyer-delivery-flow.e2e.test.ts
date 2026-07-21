@@ -4,9 +4,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
+import { normalizeEmail, sha256Hex } from '@yucp/shared/crypto';
 import { unzipSync, zipSync } from 'fflate';
-import { api } from '../../../../convex/_generated/api';
-import type { Id } from '../../../../convex/_generated/dataModel';
+import { api, internal } from '../../../../convex/_generated/api';
 import {
   Catalog,
   type CatalogDatabase,
@@ -40,6 +40,7 @@ import { createS3Bucket, getS3Object } from '../../../../ops/storage-core/s3Cont
 import { waitForMinioReady } from '../../../../ops/testing/minioReadiness';
 import { waitForPostgres } from '../../../../ops/testing/postgresReadiness';
 import { createAuth } from '../../src/auth';
+import { createApiServiceActorBinding } from '../../src/lib/apiActor';
 import { createConnectUserProductAccessRoutes } from '../../src/routes/connectUserProductAccess';
 import { createVpmRoutes } from '../../src/routes/vpm';
 import {
@@ -59,7 +60,11 @@ const POSTGRES_IMAGE =
 const TEST_CONTAINER_LABEL = 'com.yucp.test=buyer-delivery-flow';
 const API_BASE_URL = 'http://127.0.0.1:3001';
 const PACKAGE_ID = 'club.yucp.buyer-flow';
-const PACKAGE_VERSION = '1.0.0';
+const FIRST_PACKAGE_VERSION = '1.0.0';
+const SECOND_PACKAGE_VERSION = '2.0.0';
+const OTHER_PACKAGE_ID = 'club.yucp.other-creator';
+const OTHER_PACKAGE_VERSION = '1.0.0';
+const PRODUCT_SLUG = 'buyer-flow-package';
 
 type FetchCounts = {
   chunkGets: number;
@@ -105,6 +110,10 @@ function deterministicBytes(seed: string, byteLength: number): Buffer {
 
 function sha256Bytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function uniqueName(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${randomUUID()}`;
 }
 
 function assertScratchPath(path: string): void {
@@ -339,14 +348,23 @@ async function startDeliveryWorker(vars: Record<string, string>): Promise<Delive
   };
 }
 
-async function createCanonicalZipFixture(scratchPath: string): Promise<string> {
-  const sourcePath = join(scratchPath, 'source-package.zip');
-  const originalPackagePath = join(scratchPath, 'buyer-package.zip');
+async function createCanonicalZipFixture(
+  scratchPath: string,
+  input: {
+    fixtureName: string;
+    packageId: string;
+    payloadBytes: number;
+    seed: string;
+    version: string;
+  }
+): Promise<string> {
+  const sourcePath = join(scratchPath, `${input.fixtureName}-source.zip`);
+  const originalPackagePath = join(scratchPath, `${input.fixtureName}.zip`);
   const packageJson = Buffer.from(
     `${JSON.stringify(
       {
-        name: PACKAGE_ID,
-        version: PACKAGE_VERSION,
+        name: input.packageId,
+        version: input.version,
         displayName: 'Buyer Delivery Flow',
         description: 'Byte-exact full-chain delivery fixture',
       },
@@ -354,7 +372,7 @@ async function createCanonicalZipFixture(scratchPath: string): Promise<string> {
       2
     )}\n`
   );
-  const payload = deterministicBytes('buyer-delivery-flow-multi-chunk-payload', 2 * 1024 * 1024);
+  const payload = deterministicBytes(input.seed, input.payloadBytes);
   await writeFile(
     sourcePath,
     zipSync({
@@ -369,11 +387,34 @@ async function createCanonicalZipFixture(scratchPath: string): Promise<string> {
   return originalPackagePath;
 }
 
+async function publishReadyOutboxEvent(sql: CatalogDatabase, versionId: string): Promise<void> {
+  const readyEvents = await sql<ReadyOutboxRow[]>`
+    SELECT id, aggregate_id, event_type, payload, created_at
+    FROM catalog_outbox
+    WHERE aggregate_id = ${versionId} AND event_type = 'catalog.version.ready'
+  `;
+  const readyEvent = readyEvents[0];
+  if (!readyEvent) {
+    throw new Error(`READY promotion did not emit its catalog outbox event: ${versionId}`);
+  }
+  await createConvexCatalogPublish({
+    convexApiSecret: API_SECRET,
+    convexUrl: BACKEND_URL,
+    internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
+  })({
+    id: readyEvent.id,
+    aggregateId: readyEvent.aggregate_id,
+    eventType: readyEvent.event_type,
+    payload: readyEvent.payload,
+    createdAt: readyEvent.created_at,
+  });
+}
+
 function mutateSignature(signature: string): string {
   return `${signature[0] === '0' ? '1' : '0'}${signature.slice(1)}`;
 }
 
-test('delivers the entitled buyer full byte-exact multi-chunk package through the VPM index', async () => {
+test('publishes first and repeat creator releases, materializes a purchase, and delivers by id and alias', async () => {
   await runCommand('docker', ['version', '--format', '{{.Server.Version}}']);
   await verifyDesyncCli();
   await removeLabeledContainers();
@@ -520,10 +561,35 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     ]);
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-buyer-delivery-flow-'));
-    const originalPackagePath = await createCanonicalZipFixture(scratchPath);
-    const originalBytes = new Uint8Array(await readFile(originalPackagePath));
-    const originalSha256 = sha256Bytes(originalBytes);
-    expect(originalBytes.byteLength).toBeGreaterThan(DESYNC_CHUNK_AVG_KIB * 1024);
+    const firstPackagePath = await createCanonicalZipFixture(scratchPath, {
+      fixtureName: 'buyer-package-v1',
+      packageId: PACKAGE_ID,
+      payloadBytes: 2 * 1024 * 1024,
+      seed: 'buyer-delivery-flow-first-release',
+      version: FIRST_PACKAGE_VERSION,
+    });
+    const secondPackagePath = await createCanonicalZipFixture(scratchPath, {
+      fixtureName: 'buyer-package-v2',
+      packageId: PACKAGE_ID,
+      payloadBytes: 2 * 1024 * 1024,
+      seed: 'buyer-delivery-flow-second-release',
+      version: SECOND_PACKAGE_VERSION,
+    });
+    const otherCreatorPackagePath = await createCanonicalZipFixture(scratchPath, {
+      fixtureName: 'other-creator-package-v1',
+      packageId: OTHER_PACKAGE_ID,
+      payloadBytes: 256 * 1024,
+      seed: 'buyer-delivery-flow-other-creator-release',
+      version: OTHER_PACKAGE_VERSION,
+    });
+    const firstPackageBytes = new Uint8Array(await readFile(firstPackagePath));
+    const secondPackageBytes = new Uint8Array(await readFile(secondPackagePath));
+    const otherCreatorPackageBytes = new Uint8Array(await readFile(otherCreatorPackagePath));
+    const firstPackageSha256 = sha256Bytes(firstPackageBytes);
+    const secondPackageSha256 = sha256Bytes(secondPackageBytes);
+    expect(firstPackageBytes.byteLength).toBeGreaterThan(DESYNC_CHUNK_AVG_KIB * 1024);
+    expect(secondPackageBytes.byteLength).toBeGreaterThan(DESYNC_CHUNK_AVG_KIB * 1024);
+    expect(secondPackageSha256).not.toBe(firstPackageSha256);
 
     const harness = getRealApiHarness();
     const creator = await createBetterAuthUser({ name: 'Buyer Flow Creator' });
@@ -531,99 +597,319 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
       authUserId: creator.authUserId,
       name: 'Buyer Flow Creator',
     });
+    const otherCreator = await createBetterAuthUser({ name: 'Second Package Creator' });
+    await seedCreatorProfile({
+      authUserId: otherCreator.authUserId,
+      name: 'Second Package Creator',
+    });
+    const unauthorizedCreator = await createBetterAuthUser({ name: 'Namespace Challenger' });
     const buyer = await createBetterAuthUser({ name: 'Entitled Buyer' });
     const unentitledBuyer = await createBetterAuthUser({ name: 'Unentitled Buyer' });
     const buyerSubjectId = await seedSubject(buyer.authUserId);
     await seedSubject(unentitledBuyer.authUserId);
-    const catalogProductId = await seedProductCatalog({
-      authUserId: creator.authUserId,
-      productId: PACKAGE_ID,
-      provider: 'manual',
-      providerProductRef: PACKAGE_ID,
-      displayName: 'Buyer Delivery Flow',
+    expect(await harness.convex.collect('package_registry')).toHaveLength(0);
+    expect(await harness.convex.collect('package_versions_ref')).toHaveLength(0);
+
+    const firstRegistration = await harness.convex.mutation(
+      internal.packageRegistry.registerPackage,
+      {
+        packageId: PACKAGE_ID,
+        packageName: 'Buyer Delivery Flow',
+        publisherId: uniqueName('publisher-first'),
+        yucpUserId: creator.authUserId,
+      }
+    );
+    expect(firstRegistration).toEqual({ registered: true, conflict: false, archived: false });
+    const repeatedRegistration = await harness.convex.mutation(
+      internal.packageRegistry.registerPackage,
+      {
+        packageId: PACKAGE_ID,
+        packageName: 'Buyer Delivery Flow Updated',
+        publisherId: uniqueName('publisher-repeat'),
+        yucpUserId: creator.authUserId,
+      }
+    );
+    expect(repeatedRegistration).toEqual({ registered: true, conflict: false, archived: false });
+    const otherCreatorRegistration = await harness.convex.mutation(
+      internal.packageRegistry.registerPackage,
+      {
+        packageId: OTHER_PACKAGE_ID,
+        packageName: 'Other Creator Package',
+        publisherId: uniqueName('publisher-other'),
+        yucpUserId: otherCreator.authUserId,
+      }
+    );
+    expect(otherCreatorRegistration).toEqual({
+      registered: true,
+      conflict: false,
+      archived: false,
+    });
+    const unauthorizedRegistration = await harness.convex.mutation(
+      internal.packageRegistry.registerPackage,
+      {
+        packageId: PACKAGE_ID,
+        packageName: 'Namespace Challenger Package',
+        publisherId: uniqueName('publisher-unauthorized'),
+        yucpUserId: unauthorizedCreator.authUserId,
+      }
+    );
+    expect(unauthorizedRegistration).toEqual({
+      registered: false,
+      conflict: true,
+      archived: false,
     });
 
-    const uploading = await beginVersion({
+    const legacyPackageId = 'com.yucp.legacy-package';
+    const now = Date.now();
+    await harness.convex.insert('package_registry', {
+      packageId: legacyPackageId,
+      packageName: 'Legacy Package',
+      publisherId: uniqueName('publisher-legacy'),
+      yucpUserId: creator.authUserId,
+      registeredAt: now,
+      updatedAt: now,
+    });
+    const legacyRegistration = await harness.convex.query(api.packageRegistry.lookupRegistration, {
+      apiSecret: API_SECRET,
+      actor: await createApiServiceActorBinding({
+        service: 'api-server',
+        scopes: ['verification-intents:service'],
+      }),
+      packageId: legacyPackageId,
+    });
+    expect(legacyRegistration).toEqual({
+      packageId: legacyPackageId,
+      yucpUserId: creator.authUserId,
+      status: 'active',
+    });
+    const migratedLegacyRegistration = await harness.convex.mutation(
+      internal.packageRegistry.registerPackage,
+      {
+        packageId: legacyPackageId,
+        packageName: 'Legacy Package Updated',
+        publisherId: uniqueName('publisher-legacy-repeat'),
+        yucpUserId: creator.authUserId,
+      }
+    );
+    expect(migratedLegacyRegistration).toEqual({
+      registered: true,
+      conflict: false,
+      archived: false,
+    });
+
+    const providerProductRef = uniqueName('buyer-flow-store-product');
+    const catalogProductId = await seedProductCatalog({
+      authUserId: creator.authUserId,
+      canonicalSlug: PRODUCT_SLUG,
+      productId: PACKAGE_ID,
+      provider: 'gumroad',
+      providerProductRef,
+      displayName: 'Buyer Delivery Flow',
+    });
+    const otherCatalogProductId = await seedProductCatalog({
+      authUserId: otherCreator.authUserId,
+      canonicalSlug: 'other-creator-package',
+      productId: OTHER_PACKAGE_ID,
+      provider: 'gumroad',
+      providerProductRef: uniqueName('other-store-product'),
+      displayName: 'Other Creator Package',
+    });
+
+    const firstUploading = await beginVersion({
       catalog,
       catalogProductId: String(catalogProductId),
       packageId: PACKAGE_ID,
-      version: PACKAGE_VERSION,
+      version: FIRST_PACKAGE_VERSION,
     });
-    const assembled = await assembleVersion({
+    const firstAssembled = await assembleVersion({
       catalog,
-      inputPath: originalPackagePath,
+      inputPath: firstPackagePath,
       store: s3CasStore(casConfig),
-      versionId: uploading.id,
+      versionId: firstUploading.id,
     });
-    expect(assembled.state).toBe('ASSEMBLED');
-    expect(assembled.canonicalSha256).toBe(originalSha256);
-    const ready = await promoteVersion({
+    expect(firstAssembled.state).toBe('ASSEMBLED');
+    expect(firstAssembled.canonicalSha256).toBe(firstPackageSha256);
+    const firstReady = await promoteVersion({
       catalog,
       store: s3CasStore(casConfig),
-      versionId: assembled.id,
+      versionId: firstAssembled.id,
     });
-    expect(ready.state).toBe('READY');
+    expect(firstReady.state).toBe('READY');
+    await publishReadyOutboxEvent(sql, firstReady.id);
+
+    await delay(10);
+    const secondUploading = await beginVersion({
+      catalog,
+      catalogProductId: String(catalogProductId),
+      packageId: PACKAGE_ID,
+      version: SECOND_PACKAGE_VERSION,
+    });
+    const secondAssembled = await assembleVersion({
+      catalog,
+      inputPath: secondPackagePath,
+      store: s3CasStore(casConfig),
+      versionId: secondUploading.id,
+    });
+    expect(secondAssembled.state).toBe('ASSEMBLED');
+    expect(secondAssembled.canonicalSha256).toBe(secondPackageSha256);
+    const secondReady = await promoteVersion({
+      catalog,
+      store: s3CasStore(casConfig),
+      versionId: secondAssembled.id,
+    });
+    expect(secondReady.state).toBe('READY');
+    await publishReadyOutboxEvent(sql, secondReady.id);
+
+    await delay(10);
+    const otherUploading = await beginVersion({
+      catalog,
+      catalogProductId: String(otherCatalogProductId),
+      packageId: OTHER_PACKAGE_ID,
+      version: OTHER_PACKAGE_VERSION,
+    });
+    const otherAssembled = await assembleVersion({
+      catalog,
+      inputPath: otherCreatorPackagePath,
+      store: s3CasStore(casConfig),
+      versionId: otherUploading.id,
+    });
+    expect(otherAssembled.state).toBe('ASSEMBLED');
+    expect(otherAssembled.canonicalSha256).toBe(sha256Bytes(otherCreatorPackageBytes));
+    const otherReady = await promoteVersion({
+      catalog,
+      store: s3CasStore(casConfig),
+      versionId: otherAssembled.id,
+    });
+    expect(otherReady.state).toBe('READY');
+    await publishReadyOutboxEvent(sql, otherReady.id);
 
     const manifestResponse = await getS3Object(
       casConfig,
-      `${casConfig.indexPrefix}${deliveryManifestObjectId(ready.id)}`
+      `${casConfig.indexPrefix}${deliveryManifestObjectId(secondReady.id)}`
     );
     const deliveryManifest = parseDeliveryManifest(
       JSON.parse(await manifestResponse.text()) as unknown
     );
     expect(deliveryManifest.chunks.length).toBeGreaterThan(1);
-    expect(deliveryManifest.totalSize).toBe(originalBytes.byteLength);
+    expect(deliveryManifest.totalSize).toBe(secondPackageBytes.byteLength);
 
-    const readyEvents = await sql<ReadyOutboxRow[]>`
-        SELECT id, aggregate_id, event_type, payload, created_at
-        FROM catalog_outbox
-        WHERE aggregate_id = ${ready.id} AND event_type = 'catalog.version.ready'
-      `;
-    const readyEvent = readyEvents[0];
-    if (!readyEvent) {
-      throw new Error('READY promotion did not emit its catalog outbox event');
-    }
-    await createConvexCatalogPublish({
-      convexApiSecret: API_SECRET,
-      convexUrl: BACKEND_URL,
-      internalServiceAuthSecret: INTERNAL_SERVICE_AUTH_SECRET,
-    })({
-      id: readyEvent.id,
-      aggregateId: readyEvent.aggregate_id,
-      eventType: readyEvent.event_type,
-      payload: readyEvent.payload,
-      createdAt: readyEvent.created_at,
-    });
     const publishedVersions = await harness.convex.collect('package_versions_ref');
-    expect(publishedVersions).toContainEqual(
-      expect.objectContaining({
-        catalogProductId,
-        packageId: PACKAGE_ID,
-        version: PACKAGE_VERSION,
-        versionId: ready.id,
-        state: 'READY',
-        totalSize: originalBytes.byteLength,
-        contentType: 'application/zip',
-      })
+    expect(publishedVersions).toHaveLength(3);
+    expect(publishedVersions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          catalogProductId,
+          packageId: PACKAGE_ID,
+          version: FIRST_PACKAGE_VERSION,
+          versionId: firstReady.id,
+          state: 'SUPERSEDED',
+        }),
+        expect.objectContaining({
+          catalogProductId,
+          packageId: PACKAGE_ID,
+          version: SECOND_PACKAGE_VERSION,
+          versionId: secondReady.id,
+          state: 'READY',
+          totalSize: secondPackageBytes.byteLength,
+          contentType: 'application/zip',
+        }),
+        expect.objectContaining({
+          catalogProductId: otherCatalogProductId,
+          packageId: OTHER_PACKAGE_ID,
+          version: OTHER_PACKAGE_VERSION,
+          versionId: otherReady.id,
+          state: 'READY',
+        }),
+      ])
     );
 
-    const entitlement = await harness.convex.mutation<{
-      entitlementId: Id<'entitlements'>;
-      isNew: boolean;
-      success: boolean;
-    }>(api.entitlements.grantEntitlement, {
-      apiSecret: API_SECRET,
+    const buyerEmailHash = await sha256Hex(normalizeEmail(buyer.email));
+    const providerUserId = uniqueName('gumroad-buyer');
+    const externalAccountId = await harness.convex.insert('external_accounts', {
+      provider: 'gumroad',
+      providerUserId,
+      emailHash: buyerEmailHash,
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await harness.convex.insert('buyer_provider_links', {
+      subjectId: buyerSubjectId,
+      provider: 'gumroad',
+      externalAccountId,
+      status: 'active',
+      linkedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await harness.convex.insert('bindings', {
       authUserId: creator.authUserId,
       subjectId: buyerSubjectId,
-      productId: PACKAGE_ID,
-      catalogProductId,
-      evidence: {
-        provider: 'manual',
-        sourceReference: `buyer-flow:${ready.id}`,
-        purchasedAt: Date.now(),
-      },
+      externalAccountId,
+      bindingType: 'verification',
+      status: 'active',
+      version: 1,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
-    expect(entitlement).toMatchObject({ success: true, isNew: true });
+    const externalOrderId = uniqueName('gumroad-order');
+    await harness.convex.insert('purchase_facts', {
+      authUserId: creator.authUserId,
+      provider: 'gumroad',
+      externalOrderId,
+      buyerEmailHash,
+      providerUserId,
+      providerProductId: providerProductRef,
+      paymentStatus: 'completed',
+      lifecycleStatus: 'active',
+      purchasedAt: Date.now(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const materialized = await harness.convex.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creator.authUserId,
+        productId: PACKAGE_ID,
+        provider: 'gumroad',
+        providerProductRef,
+      }
+    );
+    expect(materialized).toMatchObject({
+      purchaseFactsFound: 1,
+      linkedToSubject: 1,
+      entitlementsGranted: 1,
+      skippedInactive: 0,
+      unresolved: 0,
+    });
+    const repeatedMaterialization = await harness.convex.mutation(
+      internal.backgroundSync.projectBackfilledPurchasesForProduct,
+      {
+        authUserId: creator.authUserId,
+        productId: PACKAGE_ID,
+        provider: 'gumroad',
+        providerProductRef,
+      }
+    );
+    expect(repeatedMaterialization).toMatchObject({
+      purchaseFactsFound: 1,
+      linkedToSubject: 0,
+      entitlementsGranted: 0,
+      skippedInactive: 0,
+      unresolved: 0,
+    });
+    const entitlements = await harness.convex.collect('entitlements');
+    expect(entitlements).toEqual([
+      expect.objectContaining({
+        authUserId: creator.authUserId,
+        catalogProductId,
+        productId: PACKAGE_ID,
+        sourceProvider: 'gumroad',
+        sourceReference: `gumroad:${externalOrderId}`,
+        status: 'active',
+        subjectId: buyerSubjectId,
+      }),
+    ]);
 
     worker = await startDeliveryWorker({
       CAS_S3_ENDPOINT: minioEndpoint,
@@ -678,23 +964,51 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
       origin: API_BASE_URL,
     });
 
-    const unentitledResponse = await connectRoutes.downloadBuyerProductAccess(
-      new Request(`${API_BASE_URL}/api/connect/user/product-access/${catalogProductId}/download`, {
-        headers: requestHeaders(unentitledSession),
-      }),
-      String(catalogProductId)
-    );
-    expect(unentitledResponse.status).toBe(403);
-    await unentitledResponse.arrayBuffer();
+    for (const productReference of [String(catalogProductId), PRODUCT_SLUG, providerProductRef]) {
+      const accessResponse = await connectRoutes.getBuyerProductAccess(
+        new Request(`${API_BASE_URL}/api/connect/user/product-access/${productReference}`, {
+          headers: requestHeaders(buyerSession),
+        }),
+        productReference
+      );
+      expect(accessResponse.status).toBe(200);
+      await expect(accessResponse.json()).resolves.toMatchObject({
+        product: {
+          catalogProductId: String(catalogProductId),
+          canonicalSlug: PRODUCT_SLUG,
+        },
+        accessState: {
+          hasActiveEntitlement: true,
+          requiresVerification: false,
+        },
+      });
 
-    const licenseOkResponse = await connectRoutes.downloadBuyerProductAccess(
-      new Request(`${API_BASE_URL}/api/connect/user/product-access/${catalogProductId}/download`, {
-        headers: requestHeaders(buyerSession),
-      }),
-      String(catalogProductId)
-    );
-    expect(licenseOkResponse.status).toBe(302);
-    expect(licenseOkResponse.headers.get('location')).toContain(`/d/${ready.id}?`);
+      const unentitledResponse = await connectRoutes.downloadBuyerProductAccess(
+        new Request(
+          `${API_BASE_URL}/api/connect/user/product-access/${productReference}/download`,
+          {
+            headers: requestHeaders(unentitledSession),
+          }
+        ),
+        productReference
+      );
+      expect(unentitledResponse.status).toBe(403);
+      await expect(unentitledResponse.json()).resolves.toEqual({
+        error: 'Active entitlement required',
+      });
+
+      const entitledResponse = await connectRoutes.downloadBuyerProductAccess(
+        new Request(
+          `${API_BASE_URL}/api/connect/user/product-access/${productReference}/download`,
+          {
+            headers: requestHeaders(buyerSession),
+          }
+        ),
+        productReference
+      );
+      expect(entitledResponse.status).toBe(302);
+      expect(entitledResponse.headers.get('location')).toContain(`/d/${secondReady.id}?`);
+    }
 
     const repoTokenResponse = await vpmRoutes.mintRepoToken(
       new Request(`${API_BASE_URL}/api/vpm/repo-token`, {
@@ -718,14 +1032,16 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     expect(indexResponse.status).toBe(200);
     const indexText = await indexResponse.text();
     const index = JSON.parse(indexText) as VpmIndex;
-    const packageVersion = index.packages[PACKAGE_ID]?.versions[PACKAGE_VERSION];
+    expect(index.packages[PACKAGE_ID]?.versions[FIRST_PACKAGE_VERSION]).toBeUndefined();
+    expect(index.packages[OTHER_PACKAGE_ID]).toBeUndefined();
+    const packageVersion = index.packages[PACKAGE_ID]?.versions[SECOND_PACKAGE_VERSION];
     expect(packageVersion).toBeDefined();
     if (!packageVersion) {
       throw new Error('VPM index did not list the READY package version');
     }
     const deliveryUrl = new URL(packageVersion.url);
     expect(deliveryUrl.origin).toBe(deliveryBaseUrl);
-    expect(deliveryUrl.pathname).toBe(`/d/${ready.id}`);
+    expect(deliveryUrl.pathname).toBe(`/d/${secondReady.id}`);
     expect(deliveryUrl.searchParams.get('exp')).toBeTruthy();
     expect(deliveryUrl.searchParams.get('sig')).toBeTruthy();
 
@@ -734,21 +1050,21 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     expect(downloadedResponse.status).toBe(200);
     expect(downloadedResponse.headers.get('content-type')).toBe('application/zip');
     expect(downloadedResponse.headers.get('content-length')).toBe(
-      originalBytes.byteLength.toString()
+      secondPackageBytes.byteLength.toString()
     );
     const downloadedBytes = new Uint8Array(await downloadedResponse.arrayBuffer());
     const originChunkFetches = await waitForOriginChunkFetches(counts, chunksBeforeDownload);
     const downloadedSha256 = sha256Bytes(downloadedBytes);
     expect(originChunkFetches).toBeGreaterThan(0);
-    expect(downloadedBytes.byteLength).toBe(originalBytes.byteLength);
-    expect(downloadedSha256).toBe(originalSha256);
-    expect(downloadedBytes).toEqual(originalBytes);
+    expect(downloadedBytes.byteLength).toBe(secondPackageBytes.byteLength);
+    expect(downloadedSha256).toBe(secondPackageSha256);
+    expect(downloadedBytes).toEqual(secondPackageBytes);
     expect(downloadedBytes.byteLength).toBeGreaterThan(Buffer.byteLength(indexText));
     expect(Buffer.from(downloadedBytes.subarray(0, 2)).toString('ascii')).toBe('PK');
     const downloadedZip = unzipSync(downloadedBytes);
     expect(downloadedZip['Runtime/payload.png']?.byteLength).toBe(2 * 1024 * 1024);
     expect(JSON.parse(Buffer.from(downloadedZip['package.json'] ?? []).toString('utf8'))).toEqual(
-      expect.objectContaining({ name: PACKAGE_ID, version: PACKAGE_VERSION })
+      expect.objectContaining({ name: PACKAGE_ID, version: SECOND_PACKAGE_VERSION })
     );
 
     const tamperedUrl = new URL(deliveryUrl);
@@ -761,7 +1077,7 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     const expiredSignature = await signDeliveryUrl({
       expiresAt: Date.now() - 60_000,
       key: deliveryHmacKey,
-      versionId: ready.id,
+      versionId: secondReady.id,
     });
     const expiredUrl = new URL(deliveryUrl);
     expiredUrl.searchParams.set('exp', expiredSignature.exp);
@@ -772,12 +1088,16 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     await expiredResponse.arrayBuffer();
 
     console.log('BUYER_DELIVERY_FLOW_E2E_RESULT');
-    console.log(`original-sha256=${originalSha256}`);
+    console.log(`first-release-sha256=${firstPackageSha256}`);
+    console.log(`second-release-sha256=${secondPackageSha256}`);
     console.log(`downloaded-sha256=${downloadedSha256}`);
-    console.log(`original-length=${originalBytes.byteLength}`);
+    console.log(`second-release-length=${secondPackageBytes.byteLength}`);
     console.log(`downloaded-length=${downloadedBytes.byteLength}`);
     console.log(`manifest-chunks=${deliveryManifest.chunks.length} multi-chunk=yes`);
-    console.log('unentitled=403');
+    console.log('canonical-id=302 slug=302 provider-ref=302 unentitled=403');
+    console.log('first-release=SUPERSEDED second-release=READY other-creator=READY');
+    console.log('namespace-conflict=denied purchase-materialization=active-repeat-idempotent');
+    console.log('legacy-package=migrated-active');
     console.log('tampered-sig=403 expired-sig=403');
     console.log(`origin-chunk-fetches=${originChunkFetches}`);
   } finally {

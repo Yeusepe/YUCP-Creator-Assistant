@@ -1,18 +1,14 @@
-import {
-  type ApiActorBinding,
-  PUBLIC_API_KEY_PERMISSION_NAMESPACE,
-  PUBLIC_API_KEY_PREFIX,
-} from '@yucp/shared';
+import { type ApiActorBinding, PUBLIC_API_KEY_PERMISSION_NAMESPACE } from '@yucp/shared';
 import { api } from '../../../../../convex/_generated/api';
 import { createAuthUserActorBinding } from '../../lib/apiActor';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { logger } from '../../lib/logger';
 import { verifyBetterAuthAccessToken } from '../../lib/oauthAccessToken';
+import { isPublicApiKeyCandidate } from '../../lib/publicApiKeys';
 import { buildTimedResponse, type RouteTimingCollector } from '../../lib/requestTiming';
 import { errorResponse, generateRequestId } from './helpers';
 import type { PublicV2Config } from './types';
 
-const PUBLIC_API_KEY_PATTERN = /^ypsk_[0-9a-f]{48}$/;
 export interface AuthResult {
   authUserId: string;
   actorBinding: ApiActorBinding;
@@ -58,11 +54,11 @@ export async function resolveAuth(
   let apiKey: string | null = null;
   let bearerToken: string | null = null;
 
-  if (apiKeyHeader && PUBLIC_API_KEY_PATTERN.test(apiKeyHeader)) {
+  if (apiKeyHeader && isPublicApiKeyCandidate(apiKeyHeader)) {
     apiKey = apiKeyHeader;
   } else if (authHeader?.startsWith('Bearer ')) {
     const tokenValue = authHeader.slice(7);
-    if (tokenValue.startsWith(PUBLIC_API_KEY_PREFIX) && PUBLIC_API_KEY_PATTERN.test(tokenValue)) {
+    if (isPublicApiKeyCandidate(tokenValue)) {
       apiKey = tokenValue;
     } else if (tokenValue.length > 0) {
       bearerToken = tokenValue;

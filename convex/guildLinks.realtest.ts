@@ -55,6 +55,58 @@ describe('guild_links schema compatibility', () => {
     process.env.YUCP_ENABLE_AUTOMATIC_SETUP = previousAutomaticSetupFlag;
   });
 
+  it('atomically creates first onboarding state, repeats, and rejects a foreign guild owner', async () => {
+    const t = makeTestConvex();
+    const previousApiSecret = process.env.CONVEX_API_SECRET;
+    process.env.CONVEX_API_SECRET = API_SECRET;
+    try {
+      const first = await t.mutation(api.guildLinks.completeCreatorOnboarding, {
+        apiSecret: API_SECRET,
+        authUserId: 'auth-onboarding-owner',
+        discordUserId: 'discord-onboarding-owner',
+        discordGuildId: 'guild-onboarding-owned',
+      });
+      expect(first).toEqual({
+        completed: true,
+        conflict: false,
+        authUserId: 'auth-onboarding-owner',
+        isFirstTime: true,
+      });
+
+      const repeated = await t.mutation(api.guildLinks.completeCreatorOnboarding, {
+        apiSecret: API_SECRET,
+        authUserId: 'auth-onboarding-owner',
+        discordUserId: 'discord-onboarding-owner',
+        discordGuildId: 'guild-onboarding-owned',
+      });
+      expect(repeated).toEqual({
+        completed: true,
+        conflict: false,
+        authUserId: 'auth-onboarding-owner',
+        isFirstTime: false,
+      });
+
+      const conflict = await t.mutation(api.guildLinks.completeCreatorOnboarding, {
+        apiSecret: API_SECRET,
+        authUserId: 'auth-onboarding-challenger',
+        discordUserId: 'discord-onboarding-challenger',
+        discordGuildId: 'guild-onboarding-owned',
+      });
+      expect(conflict).toEqual({ completed: false, conflict: true });
+
+      const state = await t.run(async (ctx) => ({
+        guildLinks: await ctx.db.query('guild_links').collect(),
+        profiles: await ctx.db.query('creator_profiles').collect(),
+      }));
+      expect(state.guildLinks).toHaveLength(1);
+      expect(state.guildLinks[0]?.authUserId).toBe('auth-onboarding-owner');
+      expect(state.profiles).toHaveLength(1);
+      expect(state.profiles[0]?.authUserId).toBe('auth-onboarding-owner');
+    } finally {
+      process.env.CONVEX_API_SECRET = previousApiSecret;
+    }
+  });
+
   it('accepts legacy verifyPromptMessage metadata on guild links', async () => {
     const t = makeTestConvex();
     const now = Date.now();

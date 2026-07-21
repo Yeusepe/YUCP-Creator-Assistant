@@ -18,6 +18,8 @@ const MANAGED_ENV_KEYS = [
   'INTERNAL_SERVICE_TOKEN',
   'DELIVERY_HMAC_KEY',
   'DELIVERY_BASE_URL',
+  'UPLOAD_HMAC_KEY',
+  'INGEST_TUS_URL',
   'VPM_BASE_URL',
   'VRCHAT_PENDING_STATE_SECRET',
   'VRCHAT_PROVIDER_SESSION_SECRET',
@@ -63,6 +65,8 @@ export interface BuildAppConfig {
   internalRpcSharedSecret?: string;
   couplingServiceBaseUrl?: string;
   couplingServiceSharedSecret?: string;
+  uploadHmacKey?: string;
+  ingestTusUrl?: string;
   discordClientId?: string;
   discordClientSecret?: string;
   webhookBaseUrl?: string;
@@ -100,6 +104,8 @@ function buildEnv(config: BuildAppConfig): ManagedEnv {
     INTERNAL_SERVICE_TOKEN: undefined,
     DELIVERY_HMAC_KEY: undefined,
     DELIVERY_BASE_URL: undefined,
+    UPLOAD_HMAC_KEY: config.uploadHmacKey,
+    INGEST_TUS_URL: config.ingestTusUrl,
     VPM_BASE_URL: undefined,
     VRCHAT_PENDING_STATE_SECRET: 'test-vrchat-pending-state-secret',
     VRCHAT_PROVIDER_SESSION_SECRET: 'test-vrchat-provider-session-secret',

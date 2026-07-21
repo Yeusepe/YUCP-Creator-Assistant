@@ -363,45 +363,38 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
         response: Response;
       }
   > {
-    const convex = getConvexClient();
-    const apiSecret = getConvexApiSecret();
-    const existingProfile = await convex.query(api.creatorProfiles.getCreatorByAuthUser, {
-      apiSecret,
-      authUserId: args.authUserId,
-    });
-
-    if (!existingProfile && !args.discordUserId) {
+    if (!args.discordUserId) {
       return {
         ok: false,
         response: buildMissingDiscordIdentityResponse(),
       };
     }
+    const convex = getConvexClient();
+    const apiSecret = getConvexApiSecret();
 
     try {
-      if (!existingProfile) {
-        await convex.mutation(api.creatorProfiles.createCreatorProfile, {
-          apiSecret,
-          name: `Creator ${args.discordUserId.slice(0, 8)}`,
-          ownerDiscordUserId: args.discordUserId,
-          authUserId: args.authUserId,
-          policy: {},
-        });
-      }
-
-      await convex.mutation(api.guildLinks.upsertGuildLink, {
+      const guildMeta = await fetchGuildMeta(args.guildId);
+      const completed = await convex.mutation(api.guildLinks.completeCreatorOnboarding, {
         apiSecret,
         authUserId: args.authUserId,
+        discordUserId: args.discordUserId,
         discordGuildId: args.guildId,
-        ...(await fetchGuildMeta(args.guildId)),
-        installedByAuthUserId: args.authUserId,
-        botPresent: true,
-        status: 'active',
+        ...guildMeta,
       });
+      if (!completed.completed && completed.conflict) {
+        return {
+          ok: false,
+          response: Response.json(
+            { error: 'This server is already linked to another account.' },
+            { status: 403 }
+          ),
+        };
+      }
 
       return {
         ok: true,
-        authUserId: args.authUserId,
-        isFirstTime: !existingProfile,
+        authUserId: completed.authUserId,
+        isFirstTime: completed.isFirstTime,
       };
     } catch (err) {
       logger.error(args.failureLogMessage, {
@@ -808,7 +801,7 @@ export function createConnectRoutes(auth: Auth, config: ConnectConfig) {
    * Returns { authUserId }, creating tenant + guild link if missing.
    */
   async function ensureTenant(request: Request): Promise<Response> {
-    // This GET endpoint performs state mutations (createCreatorProfile, upsertGuildLink).
+    // This GET endpoint atomically creates the creator profile and guild link when missing.
     // Reject cross-site requests to prevent CSRF exploitation.
     const allowedOrigins = new Set([
       new URL(config.apiBaseUrl).origin,
