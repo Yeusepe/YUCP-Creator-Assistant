@@ -51,8 +51,8 @@ function createRoutes(userId: string | null) {
   });
 }
 
-function listRequest(): Request {
-  return new Request('http://localhost:3001/api/creator/packages?limit=100', {
+function listRequest(search = 'limit=100'): Request {
+  return new Request(`http://localhost:3001/api/creator/packages?${search}`, {
     headers: { Origin: 'http://localhost:3000' },
   });
 }
@@ -162,6 +162,24 @@ describe('creator packages session routes', () => {
       apiSecret: config.convexApiSecret,
       actor: 'creator-actor-binding',
       authUserId: 'creator-123',
+      configuredOnly: true,
+      limit: 100,
+    });
+  });
+
+  it('exposes unconfigured products only when the caller requests the picker feed', async () => {
+    convexQueryMock.mockResolvedValue({ data: [], hasMore: false, nextCursor: null });
+
+    const response = await createRoutes('creator-123').listPackages(
+      listRequest('configured=false&limit=100')
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexQueryMock).toHaveBeenCalledWith(apiMock.packageRegistry.listByAuthUser, {
+      apiSecret: config.convexApiSecret,
+      actor: 'creator-actor-binding',
+      authUserId: 'creator-123',
+      configuredOnly: false,
       limit: 100,
     });
   });

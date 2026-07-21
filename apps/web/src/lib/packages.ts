@@ -1,3 +1,7 @@
+import {
+  resolveComparableYucpAliasIdsFromCatalogProduct,
+  resolveYucpAliasIdFromCatalogProduct,
+} from '@yucp/shared';
 import { apiClient } from '@/api/client';
 
 export interface CreatorCatalogTierSummary {
@@ -41,8 +45,14 @@ export interface CreatorPackageProductListPage {
 }
 
 export interface CreatorPackageProductListOptions {
+  configured?: boolean;
   cursor?: string;
   limit?: number;
+}
+
+export interface CreatorPackagePickerProduct {
+  identityKey: string;
+  products: CreatorPackageProductSummary[];
 }
 
 const CREATOR_PACKAGES_PATH = '/api/creator/packages';
@@ -62,10 +72,74 @@ export async function listCreatorPackageProducts(
 
   return await apiClient.get<CreatorPackageProductListPage>(CREATOR_PACKAGES_PATH, {
     params: {
+      configured: String(options.configured ?? true),
       limit: String(limit),
       ...(options.cursor ? { cursor: options.cursor } : {}),
     },
   });
+}
+
+function compareProviderProducts(
+  left: CreatorPackageProductSummary,
+  right: CreatorPackageProductSummary
+): number {
+  return (
+    left.provider.localeCompare(right.provider) ||
+    left.providerProductRef.localeCompare(right.providerProductRef) ||
+    left._id.localeCompare(right._id)
+  );
+}
+
+function getPickerProductIdentityKey(product: CreatorPackageProductSummary): string {
+  const comparableIdentity = resolveComparableYucpAliasIdsFromCatalogProduct(product).sort()[0];
+  if (comparableIdentity) {
+    return `product:${comparableIdentity}`;
+  }
+
+  const directIdentity = resolveYucpAliasIdFromCatalogProduct(product)?.trim().toLocaleLowerCase();
+  return directIdentity ? `product:${directIdentity}` : `catalog:${product._id}`;
+}
+
+export function groupCreatorPackagePickerProducts(
+  products: ReadonlyArray<CreatorPackageProductSummary>
+): CreatorPackagePickerProduct[] {
+  const grouped = new Map<string, CreatorPackagePickerProduct>();
+  for (const product of products) {
+    const identityKey = getPickerProductIdentityKey(product);
+    const existing = grouped.get(identityKey);
+    if (existing) {
+      if (!existing.products.some((candidate) => candidate._id === product._id)) {
+        existing.products.push(product);
+      }
+      continue;
+    }
+    grouped.set(identityKey, { identityKey, products: [product] });
+  }
+
+  return Array.from(grouped.values())
+    .map((entry) => ({ ...entry, products: [...entry.products].sort(compareProviderProducts) }))
+    .sort((left, right) => left.identityKey.localeCompare(right.identityKey));
+}
+
+export async function listCreatorPackagePickerProducts(): Promise<CreatorPackagePickerProduct[]> {
+  const products: CreatorPackageProductSummary[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  do {
+    const page = await listCreatorPackageProducts({ configured: false, cursor, limit: 100 });
+    products.push(...page.data);
+    if (!page.hasMore) {
+      break;
+    }
+    if (!page.nextCursor || seenCursors.has(page.nextCursor)) {
+      throw new Error('Creator package picker pagination did not advance');
+    }
+    seenCursors.add(page.nextCursor);
+    cursor = page.nextCursor;
+  } while (cursor);
+
+  return groupCreatorPackagePickerProducts(products);
 }
 
 /**

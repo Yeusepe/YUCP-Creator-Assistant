@@ -224,6 +224,7 @@ export const listByAuthUser = query({
     authUserId: v.string(),
     provider: v.optional(v.string()),
     status: v.optional(v.string()),
+    configuredOnly: v.optional(v.boolean()),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -231,14 +232,32 @@ export const listByAuthUser = query({
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
-    const requestedLimit =
-      args.limit && Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : 50;
-    const page = await ctx.db
+    const limit = Math.min(
+      args.limit && Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : 50,
+      100
+    );
+    const requiresFilteredPagination = Boolean(args.configuredOnly || args.provider || args.status);
+
+    if (!requiresFilteredPagination) {
+      const page = await ctx.db
+        .query('product_catalog')
+        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
+        .paginate({ cursor: args.cursor ?? null, numItems: limit });
+      const data = await Promise.all(
+        page.page.map((product) => buildCreatorPackageProductSummary(ctx, product))
+      );
+
+      return {
+        data,
+        hasMore: !page.isDone,
+        nextCursor: page.isDone ? null : page.continueCursor,
+      };
+    }
+
+    let products = await ctx.db
       .query('product_catalog')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .paginate({ cursor: args.cursor ?? null, numItems: Math.min(requestedLimit, 100) });
-    let products = page.page;
-
+      .collect();
     if (args.provider) {
       products = products.filter((product) => product.provider === args.provider);
     }
@@ -249,14 +268,38 @@ export const listByAuthUser = query({
           product.status === args.status
       );
     }
+    if (args.configuredOnly) {
+      const configuredProducts = await Promise.all(
+        products.map(async (product) => {
+          const readyVersion = await ctx.db
+            .query('package_versions_ref')
+            .withIndex('by_catalog_product', (q) =>
+              q.eq('catalogProductId', product._id).eq('state', 'READY')
+            )
+            .first();
+          return readyVersion ? product : null;
+        })
+      );
+      products = configuredProducts.filter((product) => product !== null);
+    }
+
+    let startIndex = 0;
+    if (args.cursor) {
+      const cursorIndex = products.findIndex((product) => String(product._id) === args.cursor);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+    const pageProducts = products.slice(startIndex, startIndex + limit);
     const data = await Promise.all(
-      products.map((product) => buildCreatorPackageProductSummary(ctx, product))
+      pageProducts.map((product) => buildCreatorPackageProductSummary(ctx, product))
     );
+    const hasMore = startIndex + limit < products.length;
 
     return {
       data,
-      hasMore: !page.isDone,
-      nextCursor: page.isDone ? null : page.continueCursor,
+      hasMore,
+      nextCursor: hasMore ? String(pageProducts[pageProducts.length - 1]?._id) : null,
     };
   },
 });

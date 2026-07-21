@@ -131,6 +131,21 @@ describe('packageRegistry', () => {
       cursor: secondPage.nextCursor ?? undefined,
       limit: 1,
     });
+    const firstConfiguredPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      limit: 1,
+    });
+    const secondConfiguredPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      cursor: firstConfiguredPage.nextCursor ?? undefined,
+      limit: 1,
+    });
 
     expect(firstPage.data.map((product) => product._id)).toEqual([unconfiguredProductId]);
     expect(firstPage.hasMore).toBe(true);
@@ -140,6 +155,16 @@ describe('packageRegistry', () => {
     expect(thirdPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
     expect(thirdPage.hasMore).toBe(false);
     expect(thirdPage.nextCursor).toBeNull();
+    expect(firstConfiguredPage.data.map((product) => product._id)).toEqual([
+      firstConfiguredProductId,
+    ]);
+    expect(firstConfiguredPage.hasMore).toBe(true);
+    expect(firstConfiguredPage.nextCursor).not.toBeNull();
+    expect(secondConfiguredPage.data.map((product) => product._id)).toEqual([
+      secondConfiguredProductId,
+    ]);
+    expect(secondConfiguredPage.hasMore).toBe(false);
+    expect(secondConfiguredPage.nextCursor).toBeNull();
   });
 
   it('stores package names and lists owned packages with human metadata', async () => {

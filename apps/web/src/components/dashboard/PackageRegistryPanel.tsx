@@ -11,8 +11,10 @@ import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
 import {
+  type CreatorPackagePickerProduct,
   type CreatorPackageProductSummary,
   getCreatorPackageProduct,
+  listCreatorPackagePickerProducts,
   listCreatorPackageProducts,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
@@ -33,6 +35,7 @@ type SelectedUpload = {
 };
 
 const creatorProductsQueryKey = ['creator-package-products'] as const;
+const creatorProductPickerQueryKey = ['creator-package-product-picker'] as const;
 const PACKAGE_FILE_EXTENSIONS = ['.unitypackage', '.zip', '.spp'] as const;
 const PACKAGE_FILE_ACCEPT = `${PACKAGE_FILE_EXTENSIONS.join(',')},application/octet-stream,application/zip`;
 
@@ -73,6 +76,24 @@ function getProductSearchText(product: CreatorPackageProductSummary): string {
     .filter(Boolean)
     .join(' ')
     .toLocaleLowerCase();
+}
+
+function getPickerProduct(
+  entry: CreatorPackagePickerProduct | undefined,
+  preferredId?: string
+): CreatorPackageProductSummary | null {
+  if (!entry) return null;
+  return (
+    entry.products.find((product) => product._id === preferredId && product.status === 'active') ??
+    entry.products.find((product) => product.status === 'active') ??
+    null
+  );
+}
+
+function getPickerProviderLabel(entry: CreatorPackagePickerProduct): string {
+  return Array.from(new Set(entry.products.map((product) => formatProviderLabel(product.provider))))
+    .sort((left, right) => left.localeCompare(right))
+    .join(' + ');
 }
 
 function getBuyerAccessUrl(catalogProductId: string): string {
@@ -339,11 +360,18 @@ export function PackageRegistryPanel({
 
   const productsQuery = useInfiniteQuery({
     queryKey: creatorProductsQueryKey,
-    queryFn: ({ pageParam }) => listCreatorPackageProducts({ cursor: pageParam, limit: 50 }),
+    queryFn: ({ pageParam }) =>
+      listCreatorPackageProducts({ configured: true, cursor: pageParam, limit: 50 }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) =>
       lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     enabled: canRunPanelQueries,
+    retry: false,
+  });
+  const pickerQuery = useQuery({
+    queryKey: creatorProductPickerQueryKey,
+    queryFn: listCreatorPackagePickerProducts,
+    enabled: canRunPanelQueries && isUploadOpen,
     retry: false,
   });
 
@@ -353,6 +381,12 @@ export function PackageRegistryPanel({
     }
   }, [markSessionExpired, productsQuery.error]);
 
+  useEffect(() => {
+    if (isDashboardAuthError(pickerQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, pickerQuery.error]);
+
   const products = useMemo(
     () =>
       [...(productsQuery.data?.pages.flatMap((page) => page.data) ?? [])].sort((left, right) =>
@@ -360,12 +394,24 @@ export function PackageRegistryPanel({
       ),
     [productsQuery.data]
   );
-  const activeProducts = products.filter((product) => product.status === 'active');
+  const pickerProducts = useMemo(
+    () =>
+      (pickerQuery.data ?? []).filter((entry) =>
+        entry.products.some((product) => product.status === 'active')
+      ),
+    [pickerQuery.data]
+  );
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const filteredProducts = products.filter((product) =>
     getProductSearchText(product).includes(normalizedSearch)
   );
-  const selectedProduct = products.find((product) => product._id === selectedProductId) ?? null;
+  const selectedPickerEntry = pickerProducts.find((entry) =>
+    entry.products.some((product) => product._id === selectedProductId)
+  );
+  const selectedProduct =
+    getPickerProduct(selectedPickerEntry, selectedProductId) ??
+    products.find((product) => product._id === selectedProductId) ??
+    null;
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
@@ -407,7 +453,10 @@ export function PackageRegistryPanel({
         current ? { ...current, status: 'complete', progress: 100 } : current
       );
       setFormError(null);
-      await queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
       toast.success('Package uploaded', {
         description: 'The desync pipeline is preparing the new version for delivery.',
       });
@@ -423,9 +472,7 @@ export function PackageRegistryPanel({
   });
 
   function openUpload(product?: CreatorPackageProductSummary) {
-    setSelectedProductId(
-      product?._id ?? (activeProducts.length === 1 ? activeProducts[0]._id : '')
-    );
+    setSelectedProductId(product?._id ?? '');
     setPackageId('');
     setVersion('');
     setSelectedUpload(null);
@@ -621,38 +668,68 @@ export function PackageRegistryPanel({
                       The resulting version will be bound to this catalog product for buyer access.
                     </p>
                   </div>
-                  <Select
-                    aria-label="Catalog product"
-                    className="pm-package-picker w-full"
-                    placeholder="Choose a product"
-                    selectedKey={selectedProductId || null}
-                    onSelectionChange={(key) => setSelectedProductId(String(key ?? ''))}
-                  >
-                    <Select.Trigger>
-                      <Select.Value />
-                      <Select.Indicator />
-                    </Select.Trigger>
-                    <Select.Popover className="pm-package-picker-popover">
-                      <ListBox>
-                        {activeProducts.map((product) => (
-                          <ListBox.Item
-                            key={product._id}
-                            id={product._id}
-                            textValue={getProductSearchText(product)}
-                          >
-                            <div className="flex flex-col">
-                              <span>{getProductTitle(product)}</span>
-                              <span className="pm-subtle-copy text-xs">
-                                {formatProviderLabel(product.provider)} ·{' '}
-                                {product.providerProductRef}
-                              </span>
-                            </div>
-                            <ListBox.ItemIndicator />
-                          </ListBox.Item>
-                        ))}
-                      </ListBox>
-                    </Select.Popover>
-                  </Select>
+                  {pickerQuery.isPending ? (
+                    <Skeleton
+                      aria-label="Loading catalog products"
+                      className="h-11 w-full rounded-xl"
+                    />
+                  ) : pickerQuery.isError ? (
+                    <div className="space-y-3">
+                      <AccountInlineError message="Failed to load products available for upload." />
+                      <YucpButton
+                        yucp="secondary"
+                        isLoading={pickerQuery.isFetching}
+                        onPress={() => void pickerQuery.refetch()}
+                      >
+                        Retry products
+                      </YucpButton>
+                    </div>
+                  ) : pickerProducts.length === 0 ? (
+                    <p className="pm-muted-panel pm-subtle-copy rounded-xl p-3 text-sm">
+                      No active catalog products are available for upload.
+                    </p>
+                  ) : (
+                    <Select
+                      aria-label="Catalog product"
+                      className="pm-package-picker w-full"
+                      placeholder="Choose a product"
+                      selectedKey={selectedPickerEntry?.identityKey ?? null}
+                      onSelectionChange={(key) => {
+                        const entry = pickerProducts.find(
+                          (candidate) => candidate.identityKey === String(key ?? '')
+                        );
+                        setSelectedProductId(getPickerProduct(entry)?._id ?? '');
+                      }}
+                    >
+                      <Select.Trigger>
+                        <Select.Value />
+                        <Select.Indicator />
+                      </Select.Trigger>
+                      <Select.Popover className="pm-package-picker-popover">
+                        <ListBox>
+                          {pickerProducts.map((entry) => {
+                            const product = getPickerProduct(entry);
+                            if (!product) return null;
+                            return (
+                              <ListBox.Item
+                                key={entry.identityKey}
+                                id={entry.identityKey}
+                                textValue={entry.products.map(getProductSearchText).join(' ')}
+                              >
+                                <div className="flex flex-col">
+                                  <span>{getProductTitle(product)}</span>
+                                  <span className="pm-subtle-copy text-xs">
+                                    {getPickerProviderLabel(entry)}
+                                  </span>
+                                </div>
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            );
+                          })}
+                        </ListBox>
+                      </Select.Popover>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">

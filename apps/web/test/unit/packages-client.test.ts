@@ -8,7 +8,7 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
-import { listCreatorPackageProducts } from '@/lib/packages';
+import { listCreatorPackagePickerProducts, listCreatorPackageProducts } from '@/lib/packages';
 
 describe('creator package client pagination', () => {
   beforeEach(() => {
@@ -30,7 +30,64 @@ describe('creator package client pagination', () => {
     await expect(listCreatorPackageProducts({ limit: 25 })).resolves.toEqual(firstPage);
     expect(apiClientGetMock).toHaveBeenCalledTimes(1);
     expect(apiClientGetMock).toHaveBeenCalledWith('/api/creator/packages', {
-      params: { limit: '25' },
+      params: { configured: 'true', limit: '25' },
     });
+  });
+
+  it('drains the unfiltered feed and deduplicates cross-provider products for first upload', async () => {
+    const firstUploadProduct = {
+      _id: 'catalog_product_gumroad',
+      aliases: ['Avatar Bundle'],
+      canonicalSlug: 'gumroad-avatar-bundle',
+      catalogTiers: [],
+      displayName: 'Avatar Bundle',
+      productId: 'gumroad-avatar-bundle',
+      provider: 'gumroad',
+      providerProductRef: 'gumroad-ref',
+      status: 'active' as const,
+      supportsAutoDiscovery: true,
+      createdAt: 1,
+      updatedAt: 2,
+      canArchive: true,
+      canRestore: false,
+      canDelete: true,
+    };
+    const sameProductFromAnotherStore = {
+      ...firstUploadProduct,
+      _id: 'catalog_product_jinxxy',
+      canonicalSlug: 'jinxxy-avatar-bundle',
+      productId: 'jinxxy-avatar-bundle',
+      provider: 'jinxxy',
+      providerProductRef: 'jinxxy-ref',
+    };
+    apiClientGetMock
+      .mockResolvedValueOnce({
+        data: [firstUploadProduct],
+        hasMore: true,
+        nextCursor: 'picker-page-2',
+      })
+      .mockResolvedValueOnce({
+        data: [sameProductFromAnotherStore],
+        hasMore: false,
+        nextCursor: null,
+      });
+
+    const pickerProducts = await listCreatorPackagePickerProducts();
+
+    expect(apiClientGetMock).toHaveBeenNthCalledWith(1, '/api/creator/packages', {
+      params: { configured: 'false', limit: '100' },
+    });
+    expect(apiClientGetMock).toHaveBeenNthCalledWith(2, '/api/creator/packages', {
+      params: { configured: 'false', cursor: 'picker-page-2', limit: '100' },
+    });
+    expect(pickerProducts).toHaveLength(1);
+    expect(pickerProducts[0]?.products.map((product) => product.provider)).toEqual([
+      'gumroad',
+      'jinxxy',
+    ]);
+    expect(pickerProducts[0]?.products.map((product) => product._id)).toEqual([
+      'catalog_product_gumroad',
+      'catalog_product_jinxxy',
+    ]);
   });
 });

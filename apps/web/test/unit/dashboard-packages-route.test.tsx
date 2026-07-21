@@ -129,6 +129,35 @@ const product = {
   canDelete: true,
 };
 
+const firstUploadProduct = {
+  ...product,
+  _id: 'catalog_product_first_upload',
+  aliases: ['First Upload Product'],
+  canonicalSlug: 'first-upload-product',
+  displayName: 'First Upload Product',
+  productId: 'first-upload-product',
+  providerProductRef: 'first-upload-ref',
+};
+
+const duplicateGumroadProduct = {
+  ...product,
+  _id: 'catalog_product_cross_store_gumroad',
+  aliases: ['Cross-store Product'],
+  canonicalSlug: 'gumroad-cross-store-product',
+  displayName: 'Cross-store Product',
+  productId: 'gumroad-cross-store-product',
+  providerProductRef: 'gumroad-cross-store-ref',
+};
+
+const duplicateJinxxyProduct = {
+  ...duplicateGumroadProduct,
+  _id: 'catalog_product_cross_store_jinxxy',
+  canonicalSlug: 'jinxxy-cross-store-product',
+  productId: 'jinxxy-cross-store-product',
+  provider: 'jinxxy',
+  providerProductRef: 'jinxxy-cross-store-ref',
+};
+
 function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -143,19 +172,28 @@ describe('dashboard packages route', () => {
     vi.clearAllMocks();
     routeSearchMock.mockReturnValue({ view: undefined });
     uploadSuccessRef.current = null;
-    apiGetMock.mockImplementation((path: string) => {
-      if (path === '/api/creator/packages') {
-        return Promise.resolve({
-          data: [product],
-          hasMore: false,
-          nextCursor: null,
-        });
+    apiGetMock.mockImplementation(
+      (path: string, options?: { params?: { configured?: string } }) => {
+        if (path === '/api/creator/packages') {
+          if (options?.params?.configured === 'false') {
+            return Promise.resolve({
+              data: [product, firstUploadProduct, duplicateGumroadProduct, duplicateJinxxyProduct],
+              hasMore: false,
+              nextCursor: null,
+            });
+          }
+          return Promise.resolve({
+            data: [product],
+            hasMore: false,
+            nextCursor: null,
+          });
+        }
+        if (path === '/api/creator/packages/catalog_product_1') {
+          return Promise.resolve(product);
+        }
+        return Promise.reject(new Error(`Unexpected GET ${path}`));
       }
-      if (path === '/api/creator/packages/catalog_product_1') {
-        return Promise.resolve(product);
-      }
-      return Promise.reject(new Error(`Unexpected GET ${path}`));
-    });
+    );
     apiPostMock.mockResolvedValue({
       versionId: 'version_1',
       exp: '123',
@@ -178,8 +216,61 @@ describe('dashboard packages route', () => {
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
     expect(screen.getByText(/ready for package uploads/i)).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
-      params: { limit: '50' },
+      params: { configured: 'true', limit: '50' },
     });
+  });
+
+  it('keeps the main list configured-only while the picker exposes first uploads once', async () => {
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
+    expect(screen.queryByText('First Upload Product')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cross-store Product')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload a package' }));
+    await waitFor(() =>
+      expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
+        params: { configured: 'false', limit: '100' },
+      })
+    );
+    fireEvent.click(await screen.findByLabelText('Catalog product'));
+
+    const firstUploadOption = await screen.findByRole('option', {
+      name: /First Upload Product/i,
+    });
+    expect(firstUploadOption).toBeInTheDocument();
+    expect(screen.getAllByRole('option', { name: /Cross-store Product/i })).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /Cross-store Product/i })).toHaveTextContent(
+      /Gumroad.*Jinxxy/i
+    );
+
+    fireEvent.click(firstUploadOption);
+    fireEvent.change(screen.getByLabelText('Install ID'), {
+      target: { value: 'com.creator.first-upload' },
+    });
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.0' } });
+    const file = new File(['package bytes'], 'first-upload.zip', {
+      type: 'application/zip',
+    });
+    fireEvent.change(screen.getByLabelText('Choose package file'), {
+      target: {
+        files: Object.assign([file], {
+          item: (index: number) => (index === 0 ? file : null),
+        }),
+      },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload package' }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
+        packageId: 'com.creator.first-upload',
+        version: '1.0.0',
+        catalogProductId: 'catalog_product_first_upload',
+      })
+    );
   });
 
   it('loads another bounded catalog page with visible progress', async () => {
@@ -206,7 +297,7 @@ describe('dashboard packages route', () => {
 
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenLastCalledWith('/api/creator/packages', {
-      params: { cursor: 'next-page', limit: '50' },
+      params: { configured: 'true', cursor: 'next-page', limit: '50' },
     });
   });
 

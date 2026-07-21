@@ -55,6 +55,17 @@ function parseLimit(url: URL): number | Response | undefined {
   return limit;
 }
 
+function parseConfigured(url: URL): boolean | Response {
+  const value = optionalSearchParam(url, 'configured');
+  if (value === undefined || value === 'true') {
+    return true;
+  }
+  if (value === 'false') {
+    return false;
+  }
+  return jsonNoStore({ error: 'configured must be true or false' }, { status: 400 });
+}
+
 type CreatorCatalogTierSource = {
   _id: string;
   amountCents?: number;
@@ -173,6 +184,10 @@ export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackag
     if (limit instanceof Response) {
       return limit;
     }
+    const configuredOnly = parseConfigured(url);
+    if (configuredOnly instanceof Response) {
+      return configuredOnly;
+    }
     const cursor = optionalSearchParam(url, 'cursor');
     const provider = optionalSearchParam(url, 'provider');
     const status = optionalSearchParam(url, 'status');
@@ -182,6 +197,7 @@ export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackag
         apiSecret: config.convexApiSecret,
         actor: authorized.actor,
         authUserId: authorized.authUserId,
+        configuredOnly,
         ...(provider ? { provider } : {}),
         ...(status ? { status } : {}),
         ...(cursor ? { cursor } : {}),
