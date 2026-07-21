@@ -83,16 +83,13 @@ jobs:
           HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
         run: bun install --frozen-lockfile
 
-      - name: Generate licensed icon module
+      - name: Build web app
         env:
           ASSETS_S3_BUCKET: ${{ secrets.ASSETS_S3_BUCKET }}
           ASSETS_S3_ENDPOINT: ${{ secrets.ASSETS_S3_ENDPOINT }}
           ASSETS_S3_REGION: ${{ secrets.ASSETS_S3_REGION }}
           ASSETS_S3_READONLY_ACCESS_KEY_ID: ${{ secrets.ASSETS_S3_READONLY_ACCESS_KEY_ID }}
           ASSETS_S3_READONLY_SECRET_ACCESS_KEY: ${{ secrets.ASSETS_S3_READONLY_SECRET_ACCESS_KEY }}
-        run: bun run icons:sync
-
-      - name: Build web app
         run: bun run --filter '@yucp/web' build
 
   external-integrations:

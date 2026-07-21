@@ -34,7 +34,8 @@ describe('Cloudflare Workers Builds contract', () => {
     );
 
     expect(packageJson.scripts?.['icons:sync']).toBe('bun run --cwd ../.. icons:sync');
-    expect(packageJson.scripts?.build).toBe('bun run icons:sync && vite build');
+    expect(packageJson.scripts?.['icons:run']).toBe('bun run ../../ops/run-web-with-icons.ts');
+    expect(packageJson.scripts?.build).toBe('bun run icons:run -- build');
     expect(getWebBuildCommand()).toEqual(['bun', 'run', '--filter', '@yucp/web', 'build']);
     expect(versionUploadSource).toContain("import { runWebBuild } from './deploy-web-worker';");
     expect(versionUploadSource).toContain('await runWebBuild();');
@@ -46,16 +47,34 @@ describe('Cloudflare Workers Builds contract', () => {
     );
   });
 
-  test('regenerates licensed icons before every Vite development entrypoint', () => {
+  test('routes every build-or-serve entrypoint through one licensed-icon runner', () => {
     const packageJson = JSON.parse(
       readFileSync(resolve(process.cwd(), 'apps', 'web', 'package.json'), 'utf8')
     ) as {
       scripts?: Record<string, string>;
     };
+    const runnerSource = readFileSync(
+      resolve(process.cwd(), 'ops', 'run-web-with-icons.ts'),
+      'utf8'
+    );
 
-    expect(packageJson.scripts?.dev).toBe('bun run icons:sync && vite dev');
-    expect(packageJson.scripts?.['worker:dev']).toBe(
-      'bun run icons:sync && bun run ../../ops/prepare-web-worker-env.ts && vite dev'
+    expect(packageJson.scripts).toMatchObject({
+      build: 'bun run icons:run -- build',
+      dev: 'bun run icons:run -- dev',
+      preview: 'bun run icons:run -- preview',
+      start: 'bun run icons:run -- preview',
+      'worker:dev': 'bun run icons:run -- worker:dev',
+      'worker:preview': 'bun run icons:run -- worker:preview',
+    });
+
+    const directBuildOrServeScripts = Object.entries(packageJson.scripts ?? {}).filter(
+      ([scriptName, command]) =>
+        scriptName !== 'icons:run' &&
+        /\b(?:vite (?:build|dev|preview)|wrangler dev)\b/.test(command)
+    );
+    expect(directBuildOrServeScripts).toEqual([]);
+    expect(runnerSource.indexOf('await runLicensedIconSync();')).toBeLessThan(
+      runnerSource.indexOf('await runCommands(')
     );
   });
 
