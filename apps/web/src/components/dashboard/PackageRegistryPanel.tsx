@@ -33,7 +33,20 @@ type SelectedUpload = {
 };
 
 const creatorProductsQueryKey = ['creator-package-products'] as const;
-const PACKAGE_FILE_ACCEPT = '.unitypackage,.zip,application/octet-stream,application/zip';
+const PACKAGE_FILE_EXTENSIONS = ['.unitypackage', '.zip', '.spp'] as const;
+const PACKAGE_FILE_ACCEPT = `${PACKAGE_FILE_EXTENSIONS.join(',')},application/octet-stream,application/zip`;
+
+function isSupportedPackageFileName(fileName: string): boolean {
+  const normalizedName = fileName.toLowerCase();
+  return PACKAGE_FILE_EXTENSIONS.some((extension) => normalizedName.endsWith(extension));
+}
+
+function getPackageFilePresentation(fileName: string) {
+  const normalizedName = fileName.toLowerCase();
+  if (normalizedName.endsWith('.zip')) return { color: 'orange' as const, format: 'ZIP' };
+  if (normalizedName.endsWith('.spp')) return { color: 'blue' as const, format: 'SPP' };
+  return { color: 'blue' as const, format: 'UNITY' };
+}
 
 function formatProviderLabel(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
@@ -156,7 +169,7 @@ function ProductRow({
               ) : null}
             </div>
             <p className="pm-subtle-copy break-all text-sm leading-6">
-              {product.providerProductRef} · Configured for package uploads
+              {product.providerProductRef} · Ready for package uploads
             </p>
           </div>
         </button>
@@ -426,9 +439,8 @@ export function PackageRegistryPanel({
       setSelectedUpload(null);
       return;
     }
-    const normalizedName = file.name.toLocaleLowerCase();
-    if (!normalizedName.endsWith('.unitypackage') && !normalizedName.endsWith('.zip')) {
-      const message = 'Choose a .unitypackage or .zip file.';
+    if (!isSupportedPackageFileName(file.name)) {
+      const message = 'Choose a .unitypackage, .zip, or .spp file.';
       setFormError(message);
       toast.error('Unsupported package file', { description: message });
       return;
@@ -558,10 +570,10 @@ export function PackageRegistryPanel({
                     <EmptyState.Media variant="icon">
                       <Store />
                     </EmptyState.Media>
-                    <EmptyState.Title>No configured packages yet</EmptyState.Title>
+                    <EmptyState.Title>No products available for upload</EmptyState.Title>
                     <EmptyState.Description>
-                      Sign a package with the YUCP signing tool to register it. Once registered,
-                      return here to upload new versions to that package.
+                      Connect a supported store and sync its catalog, then return here to upload the
+                      first or next package version.
                     </EmptyState.Description>
                   </EmptyState.Header>
                 </EmptyState>
@@ -677,8 +689,8 @@ export function PackageRegistryPanel({
                   <div className="pm-field-stack">
                     <p className="pm-field-label">Package file</p>
                     <p className="pm-subtle-copy text-sm">
-                      Choose a `.unitypackage` or `.zip`. Large files resume automatically if the
-                      connection drops.
+                      Choose a `.unitypackage`, `.zip`, or `.spp`. Large files resume automatically
+                      if the connection drops.
                     </p>
                     <DropZone className="pm-upload-dropzone w-full">
                       <DropZone.Area onDrop={handleDrop as never}>
@@ -707,8 +719,8 @@ export function PackageRegistryPanel({
                             }
                           >
                             <DropZone.FileFormatIcon
-                              color={selectedUpload.file.name.endsWith('.zip') ? 'orange' : 'blue'}
-                              format={selectedUpload.file.name.endsWith('.zip') ? 'ZIP' : 'UNITY'}
+                              color={getPackageFilePresentation(selectedUpload.file.name).color}
+                              format={getPackageFilePresentation(selectedUpload.file.name).format}
                             />
                             <DropZone.FileInfo>
                               <DropZone.FileName>{selectedUpload.file.name}</DropZone.FileName>

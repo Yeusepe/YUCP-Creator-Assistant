@@ -162,7 +162,6 @@ describe('creator packages session routes', () => {
       apiSecret: config.convexApiSecret,
       actor: 'creator-actor-binding',
       authUserId: 'creator-123',
-      configuredOnly: true,
       limit: 100,
     });
   });

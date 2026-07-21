@@ -2,12 +2,13 @@ import { Card, Skeleton } from '@heroui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { Copy, Download, ExternalLink, LogIn, Package, ShieldCheck, Store } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
   buildProductAccessReturnPath,
+  clearProductAccessGrantFromUrl,
   createBuyerProductAccessVerificationIntent,
   mintBuyerVpmRepository,
 } from '@/lib/productAccess';
@@ -36,16 +37,20 @@ export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
 function BuyerUnityAccessPage() {
   const { accessState, product } = Route.useLoaderData();
   const search = Route.useSearch();
-  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
 
   const repositoryQuery = useQuery({
-    queryKey: ['buyer-vpm-repository', product.catalogProductId],
+    queryKey: ['buyer-vpm-repository', authUserId, product.catalogProductId],
     queryFn: mintBuyerVpmRepository,
-    enabled: isAuthenticated && accessState.hasActiveEntitlement,
+    enabled: Boolean(authUserId) && isAuthenticated && accessState.hasActiveEntitlement,
     retry: false,
   });
+
+  useEffect(() => {
+    if (search.grant || search.intent_id) clearProductAccessGrantFromUrl();
+  }, [search.grant, search.intent_id]);
 
   const bootstrapMutation = useMutation({
     mutationFn: async () => {

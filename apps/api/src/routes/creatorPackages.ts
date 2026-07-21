@@ -182,7 +182,6 @@ export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackag
         apiSecret: config.convexApiSecret,
         actor: authorized.actor,
         authUserId: authorized.authUserId,
-        configuredOnly: true,
         ...(provider ? { provider } : {}),
         ...(status ? { status } : {}),
         ...(cursor ? { cursor } : {}),

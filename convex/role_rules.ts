@@ -13,8 +13,12 @@
 
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Doc, Id } from './_generated/dataModel';
+import type { Id } from './_generated/dataModel';
 import { internalQuery, mutation, query } from './_generated/server';
+import {
+  getCatalogProductDeleteBlockedReason,
+  inspectCatalogProductDeletionDependencies,
+} from './lib/catalogProductDeletion';
 import { addCatalogProductImpl } from './lib/roleRules/catalog';
 import { addProductFromDiscordRoleImpl } from './lib/roleRules/discord';
 import { normalizeProductUrl, requireApiSecret, sha256Hex } from './lib/roleRules/queries';
@@ -607,13 +611,13 @@ export const deleteRoleRule = mutation({
     // If this rule had a catalogProductId, check if any other rules still reference it
     const catalogProductId = rule.catalogProductId;
     if (catalogProductId) {
-      const remainingRefs = await ctx.db
-        .query('role_rules')
-        .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
-        .first();
+      const deletionDependencies = await inspectCatalogProductDeletionDependencies(
+        ctx.db,
+        catalogProductId
+      );
 
-      // If no other rules reference this catalog product, purge it to keep the picker clean
-      if (!remainingRefs) {
+      // Purge only when every durable reference agrees that the product is disposable.
+      if (!getCatalogProductDeleteBlockedReason(deletionDependencies)) {
         // Find and delete associated links first
         const links = await ctx.db
           .query('catalog_product_links')

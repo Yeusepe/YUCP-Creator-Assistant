@@ -9,7 +9,7 @@ import {
   Package,
   Store,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
 import { useToast } from '@/components/ui/Toast';
@@ -17,6 +17,7 @@ import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
   buildProductAccessReturnPath,
+  clearProductAccessGrantFromUrl,
   createBuyerProductAccessVerificationIntent,
   mintBuyerVpmRepository,
 } from '@/lib/productAccess';
@@ -78,17 +79,21 @@ function BuyerProductAccessPage() {
   const { accessState, product } = Route.useLoaderData();
   const search = Route.useSearch();
   const toast = useToast();
-  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
   const [copyingValue, setCopyingValue] = useState<'add-repo' | 'index' | null>(null);
   const downloadPath = `/api/access/${encodeURIComponent(product.catalogProductId)}/download`;
 
   const repositoryQuery = useQuery({
-    queryKey: ['buyer-vpm-repository', product.catalogProductId],
+    queryKey: ['buyer-vpm-repository', authUserId, product.catalogProductId],
     queryFn: mintBuyerVpmRepository,
-    enabled: isAuthenticated && accessState.hasActiveEntitlement,
+    enabled: Boolean(authUserId) && isAuthenticated && accessState.hasActiveEntitlement,
     retry: false,
   });
+
+  useEffect(() => {
+    if (search.grant || search.intent_id) clearProductAccessGrantFromUrl();
+  }, [search.grant, search.intent_id]);
 
   const startAccessMutation = useMutation({
     mutationFn: async () => {

@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { verifyDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
+import type { PublicApiRateLimitStore } from '../lib/publicApiRateLimit';
 import type { ConnectConfig } from '../providers/types';
 import { createTestLogger } from '../testSupport/loggerMock';
 
@@ -267,6 +268,36 @@ describe('connect user product access routes', () => {
     convexMutationMock.mockReset();
     convexActionMock.mockReset();
     loggerErrorMock.mockReset();
+  });
+
+  it('rate-limits public product resolution before session or Convex work', async () => {
+    const getSessionMock = mock(async () => null);
+    const rateLimitStore: PublicApiRateLimitStore = {
+      consume: mock(async () => ({
+        allowed: false,
+        limit: 60,
+        remaining: 0,
+        resetAt: Date.now() + 60_000,
+        retryAfterSeconds: 60,
+      })),
+    };
+    const routes = createConnectUserProductAccessRoutes({
+      auth: { getSession: getSessionMock } as never,
+      config: downloadConfig,
+      rateLimitStore,
+    });
+
+    const response = await routes.getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123', {
+        headers: { 'cf-connecting-ip': '203.0.113.42' },
+      }),
+      'catalog_123'
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('60');
+    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
   it('returns 401 from buyer downloads without a Better Auth session', async () => {
@@ -585,6 +616,54 @@ describe('connect user product access routes', () => {
     await expect(response.json()).resolves.toMatchObject({
       product: { catalogProductId: 'creator-scoped-catalog-product' },
     });
+  });
+
+  it('omits public catalog and creator references from error telemetry', async () => {
+    const catalogProductId = 'private-catalog-reference-never-log';
+    const creatorRef = 'private-creator-reference-never-log';
+    convexQueryMock.mockRejectedValueOnce(new Error('lookup failed'));
+
+    const response = await createSignedOutRoutes().getBuyerProductAccess(
+      new Request(
+        `http://localhost:3001/api/connect/user/product-access/${catalogProductId}?creator_ref=${creatorRef}`
+      ),
+      catalogProductId
+    );
+
+    expect(response.status).toBe(500);
+    const serializedLogs = JSON.stringify(loggerErrorMock.mock.calls);
+    expect(serializedLogs).not.toContain(catalogProductId);
+    expect(serializedLogs).not.toContain(creatorRef);
+  });
+
+  it('omits catalog references from download error telemetry', async () => {
+    const catalogProductId = 'private-download-reference-never-log';
+    convexQueryMock.mockRejectedValueOnce(new Error('download lookup failed'));
+
+    const response = await createRoutes().downloadBuyerProductAccess(
+      new Request(`http://localhost:3001/api/access/${catalogProductId}/download`),
+      catalogProductId
+    );
+
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(catalogProductId);
+  });
+
+  it('omits catalog references from verification-intent error telemetry', async () => {
+    const catalogProductId = 'private-intent-reference-never-log';
+    convexQueryMock.mockRejectedValueOnce(new Error('intent lookup failed'));
+
+    const response = await createRoutes().postBuyerProductAccessVerificationIntent(
+      new Request(`http://localhost:3001/api/connect/user/product-access/${catalogProductId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      catalogProductId
+    );
+
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(catalogProductId);
   });
 
   it('returns verification-required state to signed-in buyers without entitlement access', async () => {

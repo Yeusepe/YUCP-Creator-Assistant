@@ -7,6 +7,7 @@ const useLoaderDataMock = vi.hoisted(() => vi.fn());
 const useSearchMock = vi.hoisted(() => vi.fn(() => ({ grant: undefined, intent_id: undefined })));
 const mintBuyerVpmRepositoryMock = vi.hoisted(() => vi.fn());
 const copyToClipboardMock = vi.hoisted(() => vi.fn());
+const clearProductAccessGrantFromUrlMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({
@@ -27,6 +28,7 @@ vi.mock('@/lib/server/productAccess', () => ({
 
 vi.mock('@/lib/productAccess', () => ({
   buildProductAccessReturnPath: () => '/access/catalog%2Fproduct',
+  clearProductAccessGrantFromUrl: clearProductAccessGrantFromUrlMock,
   createBuyerProductAccessVerificationIntent: vi.fn(),
   mintBuyerVpmRepository: mintBuyerVpmRepositoryMock,
 }));
@@ -73,6 +75,29 @@ describe('buyer product access route', () => {
     mintBuyerVpmRepositoryMock.mockReset();
     mintBuyerVpmRepositoryMock.mockResolvedValue(repository);
     copyToClipboardMock.mockReset();
+    clearProductAccessGrantFromUrlMock.mockReset();
+  });
+
+  it('clears verification grants from the URL after reading the return state', async () => {
+    const Component = BuyerProductAccessRoute.options.component;
+    if (!Component) throw new Error('Buyer product access route component is not defined');
+    useSearchMock.mockReturnValue({ grant: 'sensitive-grant', intent_id: 'intent-123' });
+    useLoaderDataMock.mockReturnValue({
+      product: {
+        catalogProductId: 'catalog/product',
+        displayName: 'Avatar Bundle',
+        canonicalSlug: null,
+        thumbnailUrl: null,
+        provider: 'gumroad',
+        providerLabel: 'Gumroad',
+        storefrontUrl: null,
+      },
+      accessState: { hasActiveEntitlement: true, requiresVerification: false },
+    });
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(clearProductAccessGrantFromUrlMock).toHaveBeenCalledOnce());
   });
 
   it('offers the local signed-download endpoint to entitled buyers', () => {

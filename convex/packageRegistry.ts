@@ -22,11 +22,13 @@ import type { QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery, query } from './_generated/server';
 import { ApiActorBindingV, requireApiActor, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
+import {
+  getCatalogProductDeleteBlockedReason,
+  inspectCatalogProductDeletionDependencies,
+} from './lib/catalogProductDeletion';
 
 const PACKAGE_ID_RE = /^[a-z0-9\-_./:]{1,128}$/;
 const PACKAGE_NAME_MAX_LENGTH = 120;
-const PRODUCT_DELETE_BLOCKED_REASON =
-  'Product has package, role, entitlement, or tier history and cannot be deleted.';
 const PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON =
   'Archived packages cannot be updated. Restore the package before signing or changing it.';
 
@@ -61,29 +63,15 @@ function normalizePackageName(packageName: string | undefined): string | undefin
 }
 
 async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'product_catalog'>) {
-  const [roleRule, entitlement, catalogTiers] = await Promise.all([
-    ctx.db
-      .query('role_rules')
-      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
-      .first(),
-    ctx.db
-      .query('entitlements')
-      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
-      .first(),
-    ctx.db
-      .query('catalog_tiers')
-      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
-      .collect(),
-  ]);
-  const deleteBlockedReason =
-    roleRule || entitlement || catalogTiers.length > 0 ? PRODUCT_DELETE_BLOCKED_REASON : undefined;
+  const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, product._id);
+  const deleteBlockedReason = getCatalogProductDeleteBlockedReason(dependencies);
   const status = getCatalogProductWorkspaceStatus(product);
 
   return {
     _id: product._id,
     aliases: product.aliases,
     canonicalSlug: product.canonicalSlug,
-    catalogTiers: catalogTiers
+    catalogTiers: dependencies.catalogTiers
       .map((tier) => ({
         _id: tier._id,
         catalogProductId: tier.catalogProductId,
@@ -236,7 +224,6 @@ export const listByAuthUser = query({
     authUserId: v.string(),
     provider: v.optional(v.string()),
     status: v.optional(v.string()),
-    configuredOnly: v.optional(v.boolean()),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
@@ -262,21 +249,6 @@ export const listByAuthUser = query({
           product.status === args.status
       );
     }
-    if (args.configuredOnly) {
-      const configuredProducts = await Promise.all(
-        products.map(async (product) => {
-          const readyVersion = await ctx.db
-            .query('package_versions_ref')
-            .withIndex('by_catalog_product', (q) =>
-              q.eq('catalogProductId', product._id).eq('state', 'READY')
-            )
-            .first();
-          return readyVersion ? product : null;
-        })
-      );
-      products = configuredProducts.filter((product) => product !== null);
-    }
-
     const data = await Promise.all(
       products.map((product) => buildCreatorPackageProductSummary(ctx, product))
     );

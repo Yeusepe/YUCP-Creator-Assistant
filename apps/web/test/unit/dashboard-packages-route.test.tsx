@@ -176,7 +176,7 @@ describe('dashboard packages route', () => {
 
     expect(screen.getByRole('heading', { name: 'Private VPM Registry' })).toBeInTheDocument();
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
-    expect(screen.getByText(/configured for package uploads/i)).toBeInTheDocument();
+    expect(screen.getByText(/ready for package uploads/i)).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
       params: { limit: '50' },
     });
@@ -210,17 +210,17 @@ describe('dashboard packages route', () => {
     });
   });
 
-  it('explains how to register the first package when no configured products exist', async () => {
+  it('explains how to sync the first product when no upload targets exist', async () => {
     apiGetMock.mockResolvedValueOnce({ data: [], hasMore: false, nextCursor: null });
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
     render(<Component />, { wrapper: createWrapper() });
 
-    expect(await screen.findByText('No configured packages yet')).toBeInTheDocument();
+    expect(await screen.findByText('No products available for upload')).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Sign a package with the YUCP signing tool to register it. Once registered, return here to upload new versions to that package.'
+        'Connect a supported store and sync its catalog, then return here to upload the first or next package version.'
       )
     ).toBeInTheDocument();
   });
@@ -261,13 +261,15 @@ describe('dashboard packages route', () => {
       target: { value: 'com.creator.avatar-bundle' },
     });
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '2.4.0' } });
-    const file = new File(['package bytes'], 'avatar-bundle.zip', {
-      type: 'application/zip',
+    const fileInput = screen.getByLabelText('Choose package file');
+    expect(fileInput).toHaveAttribute('accept', expect.stringContaining('.spp'));
+    const file = new File(['package bytes'], 'avatar-bundle.spp', {
+      type: 'application/octet-stream',
     });
     const files = Object.assign([file], {
       item: (index: number) => (index === 0 ? file : null),
     });
-    fireEvent.change(screen.getByLabelText('Choose package file'), {
+    fireEvent.change(fileInput, {
       target: { files },
     });
 

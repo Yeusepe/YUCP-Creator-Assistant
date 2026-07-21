@@ -177,4 +177,73 @@ describe('get in unity route', () => {
     );
     expect(screen.getByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
   });
+
+  it('mints a fresh repository handoff after the authenticated buyer changes', async () => {
+    loaderDataMock.mockReturnValue({
+      ...productAccess,
+      accessState: { hasActiveEntitlement: true, requiresVerification: false },
+    });
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer_1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    apiPostMock.mockResolvedValue({
+      token: 'buyer-token',
+      indexUrl: 'https://vpm.test/api/vpm/buyer-token/index.json',
+      addRepoUrl: 'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Findex.json',
+      expiresAt: Date.now() + 60_000,
+    });
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) throw new Error('Get in Unity component is missing');
+    const Wrapper = createWrapper();
+    const rendered = render(<Component />, { wrapper: Wrapper });
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledTimes(1));
+
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer_2',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    rendered.rerender(<Component />);
+
+    await waitFor(() => expect(apiPostMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('removes verification grants from the browser URL while preserving safe state', async () => {
+    loaderDataMock.mockReturnValue({
+      ...productAccess,
+      accessState: { hasActiveEntitlement: true, requiresVerification: false },
+    });
+    routeSearchMock.mockReturnValue({ grant: 'sensitive-grant', intent_id: 'intent-123' });
+    vi.mocked(usePublicAuth).mockReturnValue({
+      authUserId: 'buyer_1',
+      isAuthenticated: true,
+      isPending: false,
+      signIn: signInMock,
+      signOut: vi.fn(),
+    });
+    apiPostMock.mockResolvedValue({
+      token: 'buyer-token',
+      indexUrl: 'https://vpm.test/api/vpm/buyer-token/index.json',
+      addRepoUrl: 'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Findex.json',
+      expiresAt: Date.now() + 60_000,
+    });
+    window.history.replaceState(
+      {},
+      '',
+      '/get-in-unity/mapache/avatar-bundle?grant=sensitive-grant&intent_id=intent-123&tab=manual#setup'
+    );
+    const Component = GetInUnityRoute.options.component;
+    if (!Component) throw new Error('Get in Unity component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(window.location.search).toBe('?tab=manual'));
+    expect(window.location.hash).toBe('#setup');
+  });
 });

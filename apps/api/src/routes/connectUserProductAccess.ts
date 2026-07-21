@@ -11,9 +11,16 @@ import { signDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
 import type { Auth } from '../auth';
 import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { buildCookie, getCookieValue } from '../lib/browserSessions';
+import { getClientAddress } from '../lib/clientAddress';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import {
+  buildPublicApiRateLimitKey,
+  checkPublicApiRateLimit,
+  getPublicApiRateLimitStore,
+  type PublicApiRateLimitStore,
+} from '../lib/publicApiRateLimit';
 import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
 import type { ConnectConfig } from '../providers/types';
 import {
@@ -27,6 +34,7 @@ import { getVerificationConfig } from '../verification/verificationConfig';
 interface CreateConnectUserProductAccessRoutesOptions {
   auth: Auth;
   config: ConnectConfig;
+  rateLimitStore?: PublicApiRateLimitStore;
 }
 
 type BuyerAccessCatalogProduct = {
@@ -49,6 +57,8 @@ const BUYER_ACCESS_MACHINE_COOKIE = 'yucp_buyer_access_machine';
 const BUYER_ACCESS_MACHINE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const BUYER_ACCESS_MACHINE_FINGERPRINT_PATTERN = /^buyer-access-web:[0-9a-f]{32}$/;
 const BUYER_ACCESS_VERIFICATION_INTENT_BODY_MAX_BYTES = 4096;
+const BUYER_ACCESS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 120;
+const BUYER_ACCESS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
 
 function jsonNoStore(body: unknown, init?: ResponseInit): Response {
   const headers = new Headers(init?.headers);
@@ -73,6 +83,16 @@ function createBuyerAccessMachineFingerprint(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return `buyer-access-web:${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+}
+
+function buildBuyerAccessFailureContext(
+  error: unknown,
+  lookupMode: 'catalog-id' | 'creator-scoped' = 'catalog-id'
+) {
+  return {
+    lookupMode,
+    errorName: error instanceof Error ? error.name : 'UnknownError',
+  };
 }
 
 function resolveBuyerAccessMachineFingerprint(request: Request): {
@@ -149,6 +169,7 @@ function buildHostedVerificationRequirements(
 export function createConnectUserProductAccessRoutes({
   auth,
   config,
+  rateLimitStore = getPublicApiRateLimitStore(),
 }: CreateConnectUserProductAccessRoutesOptions) {
   async function resolveAccessProduct(
     catalogProductId: string,
@@ -228,6 +249,25 @@ export function createConnectUserProductAccessRoutes({
     request: Request,
     catalogProductId: string
   ): Promise<Response> {
+    const rateLimit = await checkPublicApiRateLimit({
+      store: rateLimitStore,
+      key: buildPublicApiRateLimitKey({
+        routeFamily: 'buyer-product-access',
+        clientAddress: getClientAddress(request),
+      }),
+      limit: BUYER_ACCESS_LOOKUP_RATE_LIMIT_MAX_REQUESTS,
+      windowMs: BUYER_ACCESS_LOOKUP_RATE_LIMIT_WINDOW_MS,
+    });
+    if (!rateLimit.allowed) {
+      return Response.json(
+        { error: 'Too many requests' },
+        {
+          status: 429,
+          headers: { ...rateLimit.headers, 'Cache-Control': 'private, no-store' },
+        }
+      );
+    }
+
     const session = await auth.getSession(request);
     const creatorRefParam = new URL(request.url).searchParams.get('creator_ref');
     const creatorRef = creatorRefParam?.trim();
@@ -264,11 +304,10 @@ export function createConnectUserProductAccessRoutes({
         },
       });
     } catch (error) {
-      logger.error('Failed to load buyer product access surface', {
-        catalogProductId,
-        creatorRef,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error(
+        'Failed to load buyer product access surface',
+        buildBuyerAccessFailureContext(error, creatorRef ? 'creator-scoped' : 'catalog-id')
+      );
       return Response.json({ error: 'Failed to load product access' }, { status: 500 });
     }
   }
@@ -335,10 +374,10 @@ export function createConnectUserProductAccessRoutes({
       )}?exp=${signature.exp}&sig=${signature.sig}`;
       return redirectNoStore(location);
     } catch (error) {
-      logger.error('Failed to prepare buyer product download', {
-        catalogProductId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error(
+        'Failed to prepare buyer product download',
+        buildBuyerAccessFailureContext(error)
+      );
       return Response.json({ error: 'Failed to prepare download' }, { status: 500 });
     }
   }
@@ -440,10 +479,10 @@ export function createConnectUserProductAccessRoutes({
         buyerAccessFingerprint.setCookie ? { headers } : undefined
       );
     } catch (error) {
-      logger.error('Failed to create buyer product access verification intent', {
-        catalogProductId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.error(
+        'Failed to create buyer product access verification intent',
+        buildBuyerAccessFailureContext(error)
+      );
       return Response.json({ error: 'Failed to start verification' }, { status: 500 });
     }
   }

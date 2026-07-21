@@ -1,4 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
+import {
+  buildBuyerProductAccessDiagnosticContext,
+  createBuyerProductAccessDiagnosticError,
+} from '../productAccessDiagnostics';
 import type { BuyerProductAccessResponse } from '../productAccessTypes';
 import { logWebError } from '../webDiagnostics';
 import { serverApiFetch } from './api-client';
@@ -43,12 +47,12 @@ export const fetchBuyerProductAccess = createServerFn({ method: 'GET' })
   .inputValidator(validateBuyerProductAccessRequest)
   .handler(
     async ({ data }: { data: BuyerProductAccessRequest }): Promise<BuyerProductAccessResponse> => {
+      const diagnosticContext = buildBuyerProductAccessDiagnosticContext(data);
       return withWebServerRequestSpan(
         'serverFn.product-access.buyer',
         {
           'tanstack.serverfn': 'fetchBuyerProductAccess',
-          'buyer.catalog_product_id': data.catalogProductId,
-          ...(data.creatorRef ? { 'buyer.creator_ref': data.creatorRef } : {}),
+          'buyer.lookup_mode': diagnosticContext.lookupMode,
         },
         async () => {
           try {
@@ -59,10 +63,11 @@ export const fetchBuyerProductAccess = createServerFn({ method: 'GET' })
               `/api/connect/user/product-access/${encodeURIComponent(data.catalogProductId)}${creatorQuery}`
             );
           } catch (error) {
-            logWebError('Buyer product access load failed', error, {
-              catalogProductId: data.catalogProductId,
-              creatorRef: data.creatorRef,
-            });
+            logWebError(
+              'Buyer product access load failed',
+              createBuyerProductAccessDiagnosticError(),
+              diagnosticContext
+            );
             throw error;
           }
         }

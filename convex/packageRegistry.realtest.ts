@@ -30,7 +30,47 @@ async function createCreatorActorBinding(authUserId: string) {
 }
 
 describe('packageRegistry', () => {
-  it('bounds configured-product checks to each dashboard page', async () => {
+  it('blocks deletion when a catalog product has package-version history', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-package-history';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'product-with-package-history',
+        provider: 'gumroad',
+        providerProductRef: 'product-with-package-history-ref',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.package-history',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000099',
+        state: 'READY',
+        catalogProductId: productId,
+        createdAt: now,
+      });
+      return productId;
+    });
+
+    const product = await t.query(api.packageRegistry.getByIdForAuthUser, {
+      apiSecret: 'test-secret',
+      actor: await createCreatorActorBinding(authUserId),
+      authUserId,
+      catalogProductId,
+    });
+
+    expect(product).toMatchObject({
+      canDelete: false,
+      deleteBlockedReason:
+        'Product has package, role, entitlement, or tier history and cannot be deleted.',
+    });
+  });
+
+  it('paginates creator products without hiding products awaiting their first upload', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-dashboard-packages';
     const [unconfiguredProductId, firstConfiguredProductId, secondConfiguredProductId] =
@@ -75,14 +115,12 @@ describe('packageRegistry', () => {
       apiSecret: 'test-secret',
       actor,
       authUserId,
-      configuredOnly: true,
       limit: 1,
     });
     const secondPage = await t.query(api.packageRegistry.listByAuthUser, {
       apiSecret: 'test-secret',
       actor,
       authUserId,
-      configuredOnly: true,
       cursor: firstPage.nextCursor ?? undefined,
       limit: 1,
     });
@@ -90,16 +128,14 @@ describe('packageRegistry', () => {
       apiSecret: 'test-secret',
       actor,
       authUserId,
-      configuredOnly: true,
       cursor: secondPage.nextCursor ?? undefined,
       limit: 1,
     });
 
-    expect(firstPage.data).toEqual([]);
+    expect(firstPage.data.map((product) => product._id)).toEqual([unconfiguredProductId]);
     expect(firstPage.hasMore).toBe(true);
     expect(firstPage.nextCursor).not.toBeNull();
     expect(secondPage.data.map((product) => product._id)).toEqual([firstConfiguredProductId]);
-    expect(secondPage.data.map((product) => product._id)).not.toContain(unconfiguredProductId);
     expect(secondPage.hasMore).toBe(true);
     expect(thirdPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
     expect(thirdPage.hasMore).toBe(false);
