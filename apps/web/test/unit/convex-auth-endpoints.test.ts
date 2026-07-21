@@ -16,7 +16,7 @@ const offlineConvexFetch = vi.fn(async (input: RequestInfo | URL) => {
     return Response.json({ status: 'success', value: null });
   }
 
-  throw new Error(`Unexpected outbound request in Convex auth unit test: ${url.href}`);
+  throw new Error(`Unexpected outbound request in Convex auth unit test: ${url.origin}`);
 });
 
 async function createTestAuth() {
@@ -44,6 +44,16 @@ afterEach(() => {
 });
 
 describe('Convex Better Auth endpoints', () => {
+  it('redacts sensitive URL components when rejecting unexpected outbound requests', async () => {
+    await expect(
+      offlineConvexFetch(
+        'https://test-user:test-password@unexpected.example/private?token=test-token#account'
+      )
+    ).rejects.toMatchObject({
+      message: 'Unexpected outbound request in Convex auth unit test: https://unexpected.example',
+    });
+  });
+
   it('does not emit the deprecated oidc-provider warning on session requests', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
