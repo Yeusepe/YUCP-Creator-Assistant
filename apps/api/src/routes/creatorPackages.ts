@@ -91,6 +91,7 @@ type CreatorPackageProductSource = {
   createdAt: number;
   deleteBlockedReason?: string;
   displayName?: string;
+  packageId?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -124,6 +125,7 @@ function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
     catalogTiers: product.catalogTiers.map(serializeCreatorCatalogTier),
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
+    packageId: product.packageId,
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,

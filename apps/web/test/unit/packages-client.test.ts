@@ -34,13 +34,14 @@ describe('creator package client pagination', () => {
     });
   });
 
-  it('drains the unfiltered feed and deduplicates cross-provider products for first upload', async () => {
+  it('collapses provider records that share one linked package identity', async () => {
     const firstUploadProduct = {
       _id: 'catalog_product_gumroad',
       aliases: ['Avatar Bundle'],
       canonicalSlug: 'gumroad-avatar-bundle',
       catalogTiers: [],
       displayName: 'Avatar Bundle',
+      packageId: 'com.creator.avatar-bundle',
       productId: 'gumroad-avatar-bundle',
       provider: 'gumroad',
       providerProductRef: 'gumroad-ref',
@@ -56,6 +57,7 @@ describe('creator package client pagination', () => {
       ...firstUploadProduct,
       _id: 'catalog_product_jinxxy',
       canonicalSlug: 'jinxxy-avatar-bundle',
+      displayName: 'Avatar Bundle on Jinxxy',
       productId: 'jinxxy-avatar-bundle',
       provider: 'jinxxy',
       providerProductRef: 'jinxxy-ref',
@@ -88,6 +90,88 @@ describe('creator package client pagination', () => {
     expect(pickerProducts[0]?.products.map((product) => product._id)).toEqual([
       'catalog_product_gumroad',
       'catalog_product_jinxxy',
+    ]);
+  });
+
+  it('keeps distinct products with identical display names in separate picker entries', async () => {
+    const sharedFields = {
+      aliases: ['Shared display label'],
+      catalogTiers: [],
+      displayName: 'Shared display label',
+      status: 'active' as const,
+      supportsAutoDiscovery: true,
+      createdAt: 1,
+      updatedAt: 2,
+      canArchive: true,
+      canRestore: false,
+      canDelete: true,
+    };
+    apiClientGetMock.mockResolvedValueOnce({
+      data: [
+        {
+          ...sharedFields,
+          _id: 'catalog_product_distinct_a',
+          canonicalSlug: 'first-product',
+          productId: 'first-product',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-first-ref',
+        },
+        {
+          ...sharedFields,
+          _id: 'catalog_product_distinct_b',
+          canonicalSlug: 'second-product',
+          productId: 'second-product',
+          provider: 'jinxxy',
+          providerProductRef: 'jinxxy-second-ref',
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const pickerProducts = await listCreatorPackagePickerProducts();
+
+    expect(pickerProducts).toHaveLength(2);
+    expect(pickerProducts.map((entry) => entry.identityKey)).toEqual([
+      'catalog:catalog_product_distinct_a',
+      'catalog:catalog_product_distinct_b',
+    ]);
+    expect(pickerProducts.map((entry) => entry.products[0]?._id)).toEqual([
+      'catalog_product_distinct_a',
+      'catalog_product_distinct_b',
+    ]);
+  });
+
+  it('keeps a never-uploaded product available under its catalog identity', async () => {
+    apiClientGetMock.mockResolvedValueOnce({
+      data: [
+        {
+          _id: 'catalog_product_first_upload',
+          aliases: ['First Upload Product'],
+          canonicalSlug: 'first-upload-product',
+          catalogTiers: [],
+          displayName: 'First Upload Product',
+          productId: 'first-upload-product',
+          provider: 'gumroad',
+          providerProductRef: 'first-upload-ref',
+          status: 'active' as const,
+          supportsAutoDiscovery: true,
+          createdAt: 1,
+          updatedAt: 2,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    await expect(listCreatorPackagePickerProducts()).resolves.toEqual([
+      {
+        identityKey: 'catalog:catalog_product_first_upload',
+        products: [expect.objectContaining({ _id: 'catalog_product_first_upload' })],
+      },
     ]);
   });
 });

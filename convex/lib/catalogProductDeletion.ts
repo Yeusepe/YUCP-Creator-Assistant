@@ -10,7 +10,7 @@ export async function inspectCatalogProductDeletionDependencies(
   db: DatabaseReader,
   catalogProductId: Id<'product_catalog'>
 ) {
-  const [roleRule, entitlement, catalogTiers, packageVersion] = await Promise.all([
+  const [roleRule, entitlement, catalogTiers, packageVersions] = await Promise.all([
     db
       .query('role_rules')
       .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
@@ -26,10 +26,10 @@ export async function inspectCatalogProductDeletionDependencies(
     db
       .query('package_versions_ref')
       .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
-      .first(),
+      .collect(),
   ]);
 
-  return { roleRule, entitlement, catalogTiers, packageVersion };
+  return { roleRule, entitlement, catalogTiers, packageVersions };
 }
 
 export function getCatalogProductDeleteBlockedReason(
@@ -38,7 +38,7 @@ export function getCatalogProductDeleteBlockedReason(
   return dependencies.roleRule ||
     dependencies.entitlement ||
     dependencies.catalogTiers.length > 0 ||
-    dependencies.packageVersion
+    dependencies.packageVersions.length > 0
     ? PRODUCT_DELETE_BLOCKED_REASON
     : undefined;
 }

@@ -1,7 +1,3 @@
-import {
-  resolveComparableYucpAliasIdsFromCatalogProduct,
-  resolveYucpAliasIdFromCatalogProduct,
-} from '@yucp/shared';
 import { apiClient } from '@/api/client';
 
 export interface CreatorCatalogTierSummary {
@@ -25,6 +21,7 @@ export interface CreatorPackageProductSummary {
   catalogTiers: CreatorCatalogTierSummary[];
   displayName?: string;
   thumbnailUrl?: string;
+  packageId?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -91,13 +88,7 @@ function compareProviderProducts(
 }
 
 function getPickerProductIdentityKey(product: CreatorPackageProductSummary): string {
-  const comparableIdentity = resolveComparableYucpAliasIdsFromCatalogProduct(product).sort()[0];
-  if (comparableIdentity) {
-    return `product:${comparableIdentity}`;
-  }
-
-  const directIdentity = resolveYucpAliasIdFromCatalogProduct(product)?.trim().toLocaleLowerCase();
-  return directIdentity ? `product:${directIdentity}` : `catalog:${product._id}`;
+  return product.packageId ? `package:${product.packageId}` : `catalog:${product._id}`;
 }
 
 export function groupCreatorPackagePickerProducts(

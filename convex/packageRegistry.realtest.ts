@@ -64,6 +64,7 @@ describe('packageRegistry', () => {
     });
 
     expect(product).toMatchObject({
+      packageId: 'com.yucp.package-history',
       canDelete: false,
       deleteBlockedReason:
         'Product has package, role, entitlement, or tier history and cannot be deleted.',

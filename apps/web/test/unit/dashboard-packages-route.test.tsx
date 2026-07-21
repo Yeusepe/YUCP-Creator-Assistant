@@ -145,6 +145,7 @@ const duplicateGumroadProduct = {
   aliases: ['Cross-store Product'],
   canonicalSlug: 'gumroad-cross-store-product',
   displayName: 'Cross-store Product',
+  packageId: 'com.creator.cross-store-product',
   productId: 'gumroad-cross-store-product',
   providerProductRef: 'gumroad-cross-store-ref',
 };
@@ -156,6 +157,25 @@ const duplicateJinxxyProduct = {
   productId: 'jinxxy-cross-store-product',
   provider: 'jinxxy',
   providerProductRef: 'jinxxy-cross-store-ref',
+};
+
+const sameNameGumroadProduct = {
+  ...product,
+  _id: 'catalog_product_same_name_a',
+  aliases: ['Shared Product Name'],
+  canonicalSlug: 'gumroad-shared-product-name',
+  displayName: 'Shared Product Name',
+  productId: 'gumroad-shared-product-name',
+  providerProductRef: 'gumroad-shared-product-ref',
+};
+
+const sameNameJinxxyProduct = {
+  ...sameNameGumroadProduct,
+  _id: 'catalog_product_same_name_b',
+  canonicalSlug: 'jinxxy-shared-product-name',
+  productId: 'jinxxy-shared-product-name',
+  provider: 'jinxxy',
+  providerProductRef: 'jinxxy-shared-product-ref',
 };
 
 function createWrapper() {
@@ -177,7 +197,14 @@ describe('dashboard packages route', () => {
         if (path === '/api/creator/packages') {
           if (options?.params?.configured === 'false') {
             return Promise.resolve({
-              data: [product, firstUploadProduct, duplicateGumroadProduct, duplicateJinxxyProduct],
+              data: [
+                product,
+                firstUploadProduct,
+                duplicateGumroadProduct,
+                duplicateJinxxyProduct,
+                sameNameGumroadProduct,
+                sameNameJinxxyProduct,
+              ],
               hasMore: false,
               nextCursor: null,
             });
@@ -299,6 +326,42 @@ describe('dashboard packages route', () => {
     expect(apiGetMock).toHaveBeenLastCalledWith('/api/creator/packages', {
       params: { configured: 'true', cursor: 'next-page', limit: '50' },
     });
+  });
+
+  it('keeps identically named products independently selectable for upload', async () => {
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Upload a package' }));
+    fireEvent.click(await screen.findByLabelText('Catalog product'));
+
+    expect(screen.getAllByRole('option', { name: /Shared Product Name/i })).toHaveLength(2);
+    fireEvent.click(screen.getByRole('option', { name: /Shared Product Name.*Jinxxy/i }));
+    fireEvent.change(screen.getByLabelText('Install ID'), {
+      target: { value: 'com.creator.shared-product-name' },
+    });
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '1.0.0' } });
+    const file = new File(['package bytes'], 'shared-product.zip', {
+      type: 'application/zip',
+    });
+    fireEvent.change(screen.getByLabelText('Choose package file'), {
+      target: {
+        files: Object.assign([file], {
+          item: (index: number) => (index === 0 ? file : null),
+        }),
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload package' }));
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
+        packageId: 'com.creator.shared-product-name',
+        version: '1.0.0',
+        catalogProductId: 'catalog_product_same_name_b',
+      })
+    );
   });
 
   it('explains how to sync the first product when no upload targets exist', async () => {

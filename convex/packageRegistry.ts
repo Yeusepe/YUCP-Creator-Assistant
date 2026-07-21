@@ -66,6 +66,10 @@ async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'pr
   const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, product._id);
   const deleteBlockedReason = getCatalogProductDeleteBlockedReason(dependencies);
   const status = getCatalogProductWorkspaceStatus(product);
+  const linkedPackageIds = Array.from(
+    new Set(dependencies.packageVersions.map((version) => version.packageId))
+  );
+  const packageId = linkedPackageIds.length === 1 ? linkedPackageIds[0] : undefined;
 
   return {
     _id: product._id,
@@ -88,6 +92,7 @@ async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'pr
       .sort((left, right) => left.displayName.localeCompare(right.displayName)),
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
+    packageId,
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,
