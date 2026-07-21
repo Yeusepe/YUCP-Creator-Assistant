@@ -71,6 +71,68 @@ describe('packageRegistry', () => {
     });
   });
 
+  it('terminates filtered pagination when its cursor no longer resolves', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-stale-package-cursor';
+    const [firstProductId] = await t.run(async (ctx) => {
+      const now = Date.now();
+      const insertConfiguredProduct = async (productId: string) => {
+        const catalogProductId = await ctx.db.insert('product_catalog', {
+          authUserId,
+          productId,
+          provider: 'gumroad',
+          providerProductRef: `${productId}-ref`,
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert('package_versions_ref', {
+          packageId: `com.yucp.${productId}`,
+          version: '1.0.0',
+          versionId: crypto.randomUUID(),
+          state: 'READY',
+          catalogProductId,
+          createdAt: now,
+        });
+        return catalogProductId;
+      };
+      return [
+        await insertConfiguredProduct('stale-cursor-first'),
+        await insertConfiguredProduct('stale-cursor-second'),
+      ] as const;
+    });
+    const actor = await createCreatorActorBinding(authUserId);
+    const firstPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      status: 'active',
+      limit: 1,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(firstProductId, { status: 'hidden', updatedAt: Date.now() });
+    });
+
+    const pageAfterStaleCursor = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      status: 'active',
+      cursor: firstPage.nextCursor ?? undefined,
+      limit: 1,
+    });
+
+    expect(firstPage.nextCursor).toBe(String(firstProductId));
+    expect(pageAfterStaleCursor).toEqual({
+      data: [],
+      hasMore: false,
+      nextCursor: null,
+    });
+  });
+
   it('paginates creator products without hiding products awaiting their first upload', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-dashboard-packages';

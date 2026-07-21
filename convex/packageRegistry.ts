@@ -291,9 +291,12 @@ export const listByAuthUser = query({
     let startIndex = 0;
     if (args.cursor) {
       const cursorIndex = products.findIndex((product) => String(product._id) === args.cursor);
-      if (cursorIndex >= 0) {
-        startIndex = cursorIndex + 1;
+      if (cursorIndex < 0) {
+        // A filtered anchor can disappear between requests. End the traversal instead of replaying
+        // page one, which would duplicate results and keep the client on a non-advancing cursor.
+        return { data: [], hasMore: false, nextCursor: null };
       }
+      startIndex = cursorIndex + 1;
     }
     const pageProducts = products.slice(startIndex, startIndex + limit);
     const data = await Promise.all(
