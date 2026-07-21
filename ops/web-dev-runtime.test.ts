@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { iconManifest } from '../apps/web/src/icons/manifest';
@@ -11,6 +11,7 @@ const REQUEST_TIMEOUT_MS = 5_000;
 const STARTUP_TIMEOUT_MS = 90_000;
 const BUN_EXECUTABLE = process.execPath;
 const TEST_ASSETS_BUCKET = 'licensed-assets-test';
+const GENERATED_MODULE_PATH = join(process.cwd(), 'apps/web/src/icons/generated.tsx');
 const TEST_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 14 14">
   <desc>Web Dev Runtime Streamline Icon: https://streamlinehq.com</desc>
   <path fill="#8fbffa" d="M0 0h7v7H0z" />
@@ -120,6 +121,15 @@ describe('web dev runtime', () => {
     async () => {
       const tempEnvDir = await mkdtemp(join(tmpdir(), 'yucp-web-worker-env-'));
       const localWorkerEnvPath = join(tempEnvDir, '.dev.vars');
+      let previousGeneratedModule: string | undefined;
+      try {
+        previousGeneratedModule = await readFile(GENERATED_MODULE_PATH, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
+      }
+      await writeFile(GENERATED_MODULE_PATH, '// Intentionally stale for the sync-path test.\n');
       const output: string[] = [];
       const requestedIconPaths = new Set<string>();
       const assetServer = Bun.serve({
@@ -230,6 +240,11 @@ describe('web dev runtime', () => {
         children.delete(child);
         await assetServer.stop(true);
         await rm(tempEnvDir, { force: true, recursive: true });
+        if (previousGeneratedModule === undefined) {
+          await rm(GENERATED_MODULE_PATH, { force: true });
+        } else {
+          await writeFile(GENERATED_MODULE_PATH, previousGeneratedModule, 'utf8');
+        }
       }
     },
     STARTUP_TIMEOUT_MS + 15_000

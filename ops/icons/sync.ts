@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { type IconName, iconManifest } from '../../apps/web/src/icons/manifest';
 import { getS3Object } from '../storage-core/s3Control';
 import { resolveAssetsConfig } from './assetsConfig';
+import { createLicensedIconGenerationFingerprint } from './generationFingerprint';
 import { renderGeneratedModule } from './renderGeneratedModule';
 import { type GeneratedIconData, transformFlexFlatSvg } from './transform';
 
@@ -45,11 +46,12 @@ async function fetchIcon(
 
 async function main(): Promise<void> {
   const config = await resolveAssetsConfig();
+  const generationFingerprint = await createLicensedIconGenerationFingerprint(iconManifest);
   const manifestEntries = Object.entries(iconManifest) as Array<[IconName, string]>;
   const icons = await Promise.all(
     manifestEntries.map(([name, sourcePath]) => fetchIcon(name, sourcePath, config))
   );
-  const generatedModule = renderGeneratedModule(icons);
+  const generatedModule = renderGeneratedModule(icons, generationFingerprint);
   const temporaryPath = `${GENERATED_MODULE_PATH}.${process.pid}.tmp`;
 
   await mkdir(dirname(GENERATED_MODULE_PATH), { recursive: true });

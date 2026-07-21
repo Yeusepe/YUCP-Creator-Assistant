@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { isLicensedIconGeneratedModuleFresh } from './icons/generatedModuleFreshness';
 
 const REPO_ROOT_DIR = resolve(import.meta.dir, '..');
 const WEB_APP_DIR = resolve(REPO_ROOT_DIR, 'apps/web');
@@ -90,6 +91,16 @@ async function runLicensedIconSync(): Promise<void> {
   await runCommand([BUN_EXECUTABLE, 'run', 'icons:sync'], REPO_ROOT_DIR);
 }
 
+async function ensureLicensedIcons(): Promise<void> {
+  // generated.tsx is gitignored and excluded from Docker contexts, so CI, Cloudflare, and Docker
+  // clean builds always fetch. Fresh reuse only unblocks a local checkout that already synced.
+  if (await isLicensedIconGeneratedModuleFresh()) {
+    return;
+  }
+
+  await runLicensedIconSync();
+}
+
 async function runCommands(
   commands: ReadonlyArray<readonly string[]>,
   passthroughArgs: readonly string[],
@@ -112,7 +123,7 @@ async function main(): Promise<void> {
   }
 
   const definition = LICENSED_ICON_ENTRYPOINT_DEFINITIONS[entrypoint];
-  await runLicensedIconSync();
+  await ensureLicensedIcons();
   await runCommands(definition.commands, passthroughArgs, definition.workingDirectory);
 }
 

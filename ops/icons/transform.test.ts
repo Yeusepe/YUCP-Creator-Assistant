@@ -110,7 +110,7 @@ describe('Flex Flat SVG transform', () => {
       hostileAttribution
     );
     const icon = transformFlexFlatSvg(hostileSvg, 'hostile-module');
-    const generatedModule = renderGeneratedModule([['copy', icon]]);
+    const generatedModule = renderGeneratedModule([['copy', icon]], '0'.repeat(64));
     const assignment = 'export const generatedIcons: Record<IconName, GeneratedIcon> = ';
     const serializedData = generatedModule.slice(
       generatedModule.indexOf(assignment) + assignment.length,
