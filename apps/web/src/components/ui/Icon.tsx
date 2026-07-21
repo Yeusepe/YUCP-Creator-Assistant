@@ -33,7 +33,18 @@ export function Icon({ className, label, name, size = 20, ...props }: IconProps)
       width={size}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {icon.render()}
+      <desc>{icon.attribution}</desc>
+      {icon.paths.map((path) => (
+        <path
+          clipRule={path.clipRule}
+          d={path.d}
+          fill="currentColor"
+          fillOpacity={path.fillOpacity}
+          fillRule={path.fillRule}
+          key={path.d}
+          strokeWidth={path.strokeWidth}
+        />
+      ))}
     </svg>
   );
 }
