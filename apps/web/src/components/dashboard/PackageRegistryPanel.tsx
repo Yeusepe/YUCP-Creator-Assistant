@@ -1,6 +1,6 @@
 import { Button, Card, Chip, ListBox, Select, Skeleton } from '@heroui/react';
 import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpFromLine, Copy, Link2, Package2, Search, Store } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';
@@ -324,9 +324,12 @@ export function PackageRegistryPanel({
   const [formError, setFormError] = useState<string | null>(null);
   const [copyingProductId, setCopyingProductId] = useState<string | null>(null);
 
-  const productsQuery = useQuery({
+  const productsQuery = useInfiniteQuery({
     queryKey: creatorProductsQueryKey,
-    queryFn: listCreatorPackageProducts,
+    queryFn: ({ pageParam }) => listCreatorPackageProducts({ cursor: pageParam, limit: 50 }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     enabled: canRunPanelQueries,
     retry: false,
   });
@@ -339,7 +342,7 @@ export function PackageRegistryPanel({
 
   const products = useMemo(
     () =>
-      [...(productsQuery.data ?? [])].sort((left, right) =>
+      [...(productsQuery.data?.pages.flatMap((page) => page.data) ?? [])].sort((left, right) =>
         getProductTitle(left).localeCompare(getProductTitle(right))
       ),
     [productsQuery.data]
@@ -563,6 +566,17 @@ export function PackageRegistryPanel({
                   </EmptyState.Header>
                 </EmptyState>
               )}
+              {productsQuery.hasNextPage ? (
+                <div className="flex justify-center">
+                  <YucpButton
+                    yucp="secondary"
+                    isLoading={productsQuery.isFetchingNextPage}
+                    onPress={() => void productsQuery.fetchNextPage()}
+                  >
+                    {productsQuery.isFetchingNextPage ? 'Loading more...' : 'Load more packages'}
+                  </YucpButton>
+                </div>
+              ) : null}
             </Card.Content>
           </Card>
         ) : null}

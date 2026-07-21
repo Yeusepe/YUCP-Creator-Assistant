@@ -34,10 +34,15 @@ export interface CreatorPackageProductSummary {
   deleteBlockedReason?: string;
 }
 
-interface CreatorPackageProductListPage {
+export interface CreatorPackageProductListPage {
   data: CreatorPackageProductSummary[];
   hasMore: boolean;
   nextCursor: string | null;
+}
+
+export interface CreatorPackageProductListOptions {
+  cursor?: string;
+  limit?: number;
 }
 
 const CREATOR_PACKAGES_PATH = '/api/creator/packages';
@@ -47,22 +52,20 @@ const CREATOR_PACKAGES_PATH = '/api/creator/packages';
  * `api.packageRegistry.listByAuthUser`; the browser never receives the Convex API secret or actor
  * binding.
  */
-export async function listCreatorPackageProducts(): Promise<CreatorPackageProductSummary[]> {
-  const products: CreatorPackageProductSummary[] = [];
-  let cursor: string | undefined;
+export async function listCreatorPackageProducts(
+  options: CreatorPackageProductListOptions = {}
+): Promise<CreatorPackageProductListPage> {
+  const limit = options.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Creator package page limit must be an integer between 1 and 100');
+  }
 
-  do {
-    const page = await apiClient.get<CreatorPackageProductListPage>(CREATOR_PACKAGES_PATH, {
-      params: {
-        limit: '100',
-        ...(cursor ? { cursor } : {}),
-      },
-    });
-    products.push(...page.data);
-    cursor = page.hasMore && page.nextCursor ? page.nextCursor : undefined;
-  } while (cursor);
-
-  return products;
+  return await apiClient.get<CreatorPackageProductListPage>(CREATOR_PACKAGES_PATH, {
+    params: {
+      limit: String(limit),
+      ...(options.cursor ? { cursor: options.cursor } : {}),
+    },
+  });
 }
 
 /**

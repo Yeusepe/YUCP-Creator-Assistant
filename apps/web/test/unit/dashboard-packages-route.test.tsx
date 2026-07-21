@@ -178,7 +178,35 @@ describe('dashboard packages route', () => {
     expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
     expect(screen.getByText(/configured for package uploads/i)).toBeInTheDocument();
     expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
-      params: { limit: '100' },
+      params: { limit: '50' },
+    });
+  });
+
+  it('loads another bounded catalog page with visible progress', async () => {
+    let resolveNextPage: ((value: unknown) => void) | undefined;
+    apiGetMock.mockImplementation((path: string, options?: { params?: { cursor?: string } }) => {
+      if (path !== '/api/creator/packages') {
+        return Promise.reject(new Error(`Unexpected GET ${path}`));
+      }
+      if (options?.params?.cursor === 'next-page') {
+        return new Promise((resolve) => {
+          resolveNextPage = resolve;
+        });
+      }
+      return Promise.resolve({ data: [], hasMore: true, nextCursor: 'next-page' });
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Load more packages' }));
+    expect(await screen.findByRole('button', { name: 'Loading more...' })).toBeDisabled();
+    resolveNextPage?.({ data: [product], hasMore: false, nextCursor: null });
+
+    expect(await screen.findByText('Avatar Bundle')).toBeInTheDocument();
+    expect(apiGetMock).toHaveBeenLastCalledWith('/api/creator/packages', {
+      params: { cursor: 'next-page', limit: '50' },
     });
   });
 

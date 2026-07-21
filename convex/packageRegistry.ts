@@ -17,7 +17,7 @@
 
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { Doc, Id } from './_generated/dataModel';
+import type { Doc } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery, query } from './_generated/server';
 import { ApiActorBindingV, requireApiActor, requireDelegatedAuthUserActor } from './lib/apiActor';
@@ -60,29 +60,58 @@ function normalizePackageName(packageName: string | undefined): string | undefin
   return normalized;
 }
 
-async function getProductDeleteBlockedReason(
-  ctx: QueryCtx,
-  catalogProductId: Id<'product_catalog'>
-): Promise<string | undefined> {
-  const roleRule = await ctx.db
-    .query('role_rules')
-    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
-    .first();
-  if (roleRule) return PRODUCT_DELETE_BLOCKED_REASON;
+async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'product_catalog'>) {
+  const [roleRule, entitlement, catalogTiers] = await Promise.all([
+    ctx.db
+      .query('role_rules')
+      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+      .first(),
+    ctx.db
+      .query('entitlements')
+      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+      .first(),
+    ctx.db
+      .query('catalog_tiers')
+      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', product._id))
+      .collect(),
+  ]);
+  const deleteBlockedReason =
+    roleRule || entitlement || catalogTiers.length > 0 ? PRODUCT_DELETE_BLOCKED_REASON : undefined;
+  const status = getCatalogProductWorkspaceStatus(product);
 
-  const entitlement = await ctx.db
-    .query('entitlements')
-    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
-    .first();
-  if (entitlement) return PRODUCT_DELETE_BLOCKED_REASON;
-
-  const tier = await ctx.db
-    .query('catalog_tiers')
-    .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', catalogProductId))
-    .first();
-  if (tier) return PRODUCT_DELETE_BLOCKED_REASON;
-
-  return undefined;
+  return {
+    _id: product._id,
+    aliases: product.aliases,
+    canonicalSlug: product.canonicalSlug,
+    catalogTiers: catalogTiers
+      .map((tier) => ({
+        _id: tier._id,
+        catalogProductId: tier.catalogProductId,
+        provider: tier.provider,
+        providerTierRef: tier.providerTierRef,
+        displayName: tier.displayName,
+        description: tier.description,
+        amountCents: tier.amountCents,
+        currency: tier.currency,
+        status: tier.status,
+        createdAt: tier.createdAt,
+        updatedAt: tier.updatedAt,
+      }))
+      .sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    displayName: product.displayName,
+    thumbnailUrl: product.thumbnailUrl,
+    productId: product.productId,
+    provider: product.provider,
+    providerProductRef: product.providerProductRef,
+    status,
+    supportsAutoDiscovery: product.supportsAutoDiscovery,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+    canArchive: status === 'active',
+    canRestore: status === 'archived',
+    canDelete: deleteBlockedReason === undefined,
+    deleteBlockedReason,
+  };
 }
 
 export const getRegistration = internalQuery({
@@ -215,16 +244,19 @@ export const listByAuthUser = query({
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
-    let all = await ctx.db
+    const requestedLimit =
+      args.limit && Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : 50;
+    const page = await ctx.db
       .query('product_catalog')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
+      .paginate({ cursor: args.cursor ?? null, numItems: Math.min(requestedLimit, 100) });
+    let products = page.page;
 
     if (args.provider) {
-      all = all.filter((product) => product.provider === args.provider);
+      products = products.filter((product) => product.provider === args.provider);
     }
     if (args.status) {
-      all = all.filter(
+      products = products.filter(
         (product) =>
           getCatalogProductWorkspaceStatus(product) === args.status ||
           product.status === args.status
@@ -232,7 +264,7 @@ export const listByAuthUser = query({
     }
     if (args.configuredOnly) {
       const configuredProducts = await Promise.all(
-        all.map(async (product) => {
+        products.map(async (product) => {
           const readyVersion = await ctx.db
             .query('package_versions_ref')
             .withIndex('by_catalog_product', (q) =>
@@ -242,53 +274,17 @@ export const listByAuthUser = query({
           return readyVersion ? product : null;
         })
       );
-      all = configuredProducts.filter((product) => product !== null);
+      products = configuredProducts.filter((product) => product !== null);
     }
 
-    const limit = Math.min(args.limit ?? 50, 100);
-    let startIndex = 0;
-    if (args.cursor) {
-      const index = all.findIndex((item) => String(item._id) === args.cursor);
-      if (index !== -1) startIndex = index + 1;
-    }
-    const data = all.slice(startIndex, startIndex + limit);
-    const catalogTiers = await ctx.db
-      .query('catalog_tiers')
-      .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-      .collect();
-    const catalogTiersByProduct = new Map<string, Doc<'catalog_tiers'>[]>();
-    for (const tier of catalogTiers) {
-      if (!tier.catalogProductId) {
-        continue;
-      }
-      const productKey = String(tier.catalogProductId);
-      const existing = catalogTiersByProduct.get(productKey) ?? [];
-      existing.push(tier);
-      catalogTiersByProduct.set(productKey, existing);
-    }
-    const hasMore = startIndex + limit < all.length;
-    const dataWithCapabilities = await Promise.all(
-      data.map(async (product) => {
-        const deleteBlockedReason = await getProductDeleteBlockedReason(ctx, product._id);
-        const status = getCatalogProductWorkspaceStatus(product);
-        return {
-          ...product,
-          status,
-          catalogTiers: (catalogTiersByProduct.get(String(product._id)) ?? []).sort((left, right) =>
-            left.displayName.localeCompare(right.displayName)
-          ),
-          canArchive: status === 'active',
-          canRestore: status === 'archived',
-          canDelete: deleteBlockedReason === undefined,
-          deleteBlockedReason,
-        };
-      })
+    const data = await Promise.all(
+      products.map((product) => buildCreatorPackageProductSummary(ctx, product))
     );
 
     return {
-      data: dataWithCapabilities,
-      hasMore,
-      nextCursor: hasMore ? String(data[data.length - 1]._id) : null,
+      data,
+      hasMore: !page.isDone,
+      nextCursor: page.isDone ? null : page.continueCursor,
     };
   },
 });
@@ -306,14 +302,7 @@ export const getByIdForAuthUser = query({
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.catalogProductId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
-    const catalogTiers = await ctx.db
-      .query('catalog_tiers')
-      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', args.catalogProductId))
-      .collect();
-    return {
-      ...doc,
-      catalogTiers,
-    };
+    return await buildCreatorPackageProductSummary(ctx, doc);
   },
 });
 

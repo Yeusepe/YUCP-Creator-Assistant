@@ -83,8 +83,8 @@ vi.mock('@/components/dashboard/panels/StoreIntegrationsPanel', () => {
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
 import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
-import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
+import { TestRuntimeConfigProvider } from './support/TestRuntimeConfigProvider';
 
 describe('dashboard onboarding hydration', () => {
   beforeEach(() => {
@@ -134,16 +134,9 @@ describe('dashboard onboarding hydration', () => {
     }
 
     render(
-      <RuntimeConfigProvider
-        value={{
-          automaticSetupEnabled: false,
-          browserAuthBaseUrl: 'https://app.example.com',
-          buildId: 'test-build',
-          privateVpmEnabled: false,
-        }}
-      >
+      <TestRuntimeConfigProvider>
         <Component />
-      </RuntimeConfigProvider>
+      </TestRuntimeConfigProvider>
     );
   }
 

@@ -7,6 +7,7 @@ import { CloudBackground } from '@/components/three/CloudBackground';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
+  buildProductAccessReturnPath,
   createBuyerProductAccessVerificationIntent,
   mintBuyerVpmRepository,
 } from '@/lib/productAccess';
@@ -32,14 +33,6 @@ export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
   component: BuyerUnityAccessPage,
 });
 
-function buildReturnPath(): string {
-  if (typeof window === 'undefined') return '/account/licenses';
-  const url = new URL(window.location.href);
-  url.searchParams.delete('grant');
-  url.searchParams.delete('intent_id');
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
 function BuyerUnityAccessPage() {
   const { accessState, product } = Route.useLoaderData();
   const search = Route.useSearch();
@@ -61,7 +54,7 @@ function BuyerUnityAccessPage() {
         return null;
       }
       return await createBuyerProductAccessVerificationIntent(product.catalogProductId, {
-        returnTo: buildReturnPath(),
+        returnTo: buildProductAccessReturnPath(),
       });
     },
     onSuccess: (intent) => {

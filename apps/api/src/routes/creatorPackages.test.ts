@@ -75,25 +75,85 @@ describe('creator packages session routes', () => {
   });
 
   it("returns the signed-in creator's packages through the delegated session actor", async () => {
-    const page = {
+    const internalPage = {
       data: [
         {
           _id: 'catalog_product_1',
+          _creationTime: 100,
+          authUserId: 'creator-123',
+          tenantId: 'legacy-tenant',
+          productId: 'avatar-bundle',
+          provider: 'gumroad',
+          providerProductRef: 'avatar-bundle-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
-          catalogTiers: [],
+          supportsAutoDiscovery: true,
+          createdAt: 100,
+          updatedAt: 200,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+          catalogTiers: [
+            {
+              _id: 'catalog_tier_1',
+              _creationTime: 100,
+              authUserId: 'creator-123',
+              tenantId: 'legacy-tenant',
+              productId: 'avatar-bundle',
+              catalogProductId: 'catalog_product_1',
+              provider: 'gumroad',
+              providerProductRef: 'avatar-bundle-ref',
+              providerTierRef: 'standard',
+              displayName: 'Standard',
+              metadata: { internal: true },
+              status: 'active',
+              createdAt: 100,
+              updatedAt: 200,
+            },
+          ],
         },
       ],
       hasMore: false,
       nextCursor: null,
     };
-    convexQueryMock.mockResolvedValue(page);
+    convexQueryMock.mockResolvedValue(internalPage);
 
     const response = await createRoutes('creator-123').listPackages(listRequest());
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
-    await expect(response.json()).resolves.toEqual(page);
+    await expect(response.json()).resolves.toEqual({
+      data: [
+        {
+          _id: 'catalog_product_1',
+          productId: 'avatar-bundle',
+          provider: 'gumroad',
+          providerProductRef: 'avatar-bundle-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: 100,
+          updatedAt: 200,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+          catalogTiers: [
+            {
+              _id: 'catalog_tier_1',
+              catalogProductId: 'catalog_product_1',
+              provider: 'gumroad',
+              providerTierRef: 'standard',
+              displayName: 'Standard',
+              status: 'active',
+              createdAt: 100,
+              updatedAt: 200,
+            },
+          ],
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
     expect(createAuthUserActorBindingMock).toHaveBeenCalledWith({
       authUserId: 'creator-123',
       source: 'session',
@@ -108,13 +168,25 @@ describe('creator packages session routes', () => {
   });
 
   it("returns one creator-owned package through the signed-in creator's actor", async () => {
-    const product = {
+    const internalProduct = {
       _id: 'catalog_product_1',
+      _creationTime: 100,
+      authUserId: 'creator-123',
+      tenantId: 'legacy-tenant',
+      productId: 'avatar-bundle',
+      provider: 'gumroad',
+      providerProductRef: 'avatar-bundle-ref',
       displayName: 'Avatar Bundle',
       status: 'active',
+      supportsAutoDiscovery: true,
+      createdAt: 100,
+      updatedAt: 200,
+      canArchive: true,
+      canRestore: false,
+      canDelete: true,
       catalogTiers: [],
     };
-    convexQueryMock.mockResolvedValue(product);
+    convexQueryMock.mockResolvedValue(internalProduct);
 
     const response = await createRoutes('creator-123').getPackage(
       new Request('http://localhost:3001/api/creator/packages/catalog_product_1', {
@@ -125,7 +197,21 @@ describe('creator packages session routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
-    await expect(response.json()).resolves.toEqual(product);
+    await expect(response.json()).resolves.toEqual({
+      _id: 'catalog_product_1',
+      productId: 'avatar-bundle',
+      provider: 'gumroad',
+      providerProductRef: 'avatar-bundle-ref',
+      displayName: 'Avatar Bundle',
+      status: 'active',
+      supportsAutoDiscovery: true,
+      createdAt: 100,
+      updatedAt: 200,
+      canArchive: true,
+      canRestore: false,
+      canDelete: true,
+      catalogTiers: [],
+    });
     expect(convexQueryMock).toHaveBeenCalledWith(apiMock.packageRegistry.getByIdForAuthUser, {
       apiSecret: config.convexApiSecret,
       actor: 'creator-actor-binding',

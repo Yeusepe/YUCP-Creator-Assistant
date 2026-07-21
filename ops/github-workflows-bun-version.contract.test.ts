@@ -50,6 +50,14 @@ function usesMutableSetupBunVersion(workflow: string): boolean {
 }
 
 describe('GitHub workflow Bun versions', () => {
+  it('does not persist checkout credentials in the web test job', () => {
+    const workflow = readFileSync(join(WORKFLOWS_DIR, 'ci.yml'), 'utf8');
+    const webTestsJob = workflow.match(/\n {2}web-tests:\n([\s\S]*?)(?=\n {2}[a-z][\w-]*:\n)/)?.[1];
+
+    expect(webTestsJob).toBeDefined();
+    expect(webTestsJob).toContain('persist-credentials: false');
+  });
+
   it('treats setup-bun latest versions as mutable', () => {
     const workflow = [
       'name: Example',

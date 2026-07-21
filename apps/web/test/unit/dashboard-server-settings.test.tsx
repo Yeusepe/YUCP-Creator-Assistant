@@ -79,8 +79,8 @@ import { useDashboardSession } from '@/hooks/useDashboardSession';
 import { useDashboardShell } from '@/hooks/useDashboardShell';
 import { useServerContext } from '@/hooks/useServerContext';
 import * as dashboardApi from '@/lib/dashboard';
-import { RuntimeConfigProvider } from '@/lib/runtimeConfig';
 import { Route as DashboardIndexRoute } from '@/routes/_authenticated/dashboard/index.lazy';
+import { TestRuntimeConfigProvider } from './support/TestRuntimeConfigProvider';
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -93,16 +93,9 @@ function createWrapper() {
 
   return function Wrapper({ children }: PropsWithChildren) {
     return (
-      <RuntimeConfigProvider
-        value={{
-          automaticSetupEnabled: false,
-          browserAuthBaseUrl: 'https://app.example.com',
-          buildId: 'test-build',
-          privateVpmEnabled: false,
-        }}
-      >
+      <TestRuntimeConfigProvider>
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-      </RuntimeConfigProvider>
+      </TestRuntimeConfigProvider>
     );
   };
 }

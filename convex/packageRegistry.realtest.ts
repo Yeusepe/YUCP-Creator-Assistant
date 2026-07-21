@@ -30,7 +30,7 @@ async function createCreatorActorBinding(authUserId: string) {
 }
 
 describe('packageRegistry', () => {
-  it('lists only configured products before applying dashboard pagination', async () => {
+  it('bounds configured-product checks to each dashboard page', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-dashboard-packages';
     const [unconfiguredProductId, firstConfiguredProductId, secondConfiguredProductId] =
@@ -86,14 +86,24 @@ describe('packageRegistry', () => {
       cursor: firstPage.nextCursor ?? undefined,
       limit: 1,
     });
+    const thirdPage = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor,
+      authUserId,
+      configuredOnly: true,
+      cursor: secondPage.nextCursor ?? undefined,
+      limit: 1,
+    });
 
-    expect(firstPage.data.map((product) => product._id)).toEqual([firstConfiguredProductId]);
-    expect(firstPage.data.map((product) => product._id)).not.toContain(unconfiguredProductId);
+    expect(firstPage.data).toEqual([]);
     expect(firstPage.hasMore).toBe(true);
-    expect(firstPage.nextCursor).toBe(firstConfiguredProductId);
-    expect(secondPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
-    expect(secondPage.hasMore).toBe(false);
-    expect(secondPage.nextCursor).toBeNull();
+    expect(firstPage.nextCursor).not.toBeNull();
+    expect(secondPage.data.map((product) => product._id)).toEqual([firstConfiguredProductId]);
+    expect(secondPage.data.map((product) => product._id)).not.toContain(unconfiguredProductId);
+    expect(secondPage.hasMore).toBe(true);
+    expect(thirdPage.data.map((product) => product._id)).toEqual([secondConfiguredProductId]);
+    expect(thirdPage.hasMore).toBe(false);
+    expect(thirdPage.nextCursor).toBeNull();
   });
 
   it('stores package names and lists owned packages with human metadata', async () => {

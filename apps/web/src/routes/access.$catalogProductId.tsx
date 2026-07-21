@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
+  buildProductAccessReturnPath,
   createBuyerProductAccessVerificationIntent,
   mintBuyerVpmRepository,
 } from '@/lib/productAccess';
@@ -73,14 +74,6 @@ function ProgressStep({
   );
 }
 
-function buildVerificationReturnPath(): string {
-  if (typeof window === 'undefined') return '/account/licenses';
-  const url = new URL(window.location.href);
-  url.searchParams.delete('grant');
-  url.searchParams.delete('intent_id');
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
 function BuyerProductAccessPage() {
   const { accessState, product } = Route.useLoaderData();
   const search = Route.useSearch();
@@ -104,7 +97,7 @@ function BuyerProductAccessPage() {
         return null;
       }
       return await createBuyerProductAccessVerificationIntent(product.catalogProductId, {
-        returnTo: buildVerificationReturnPath(),
+        returnTo: buildProductAccessReturnPath(),
       });
     },
     onSuccess: (intent) => {
@@ -249,6 +242,7 @@ function BuyerProductAccessPage() {
             <div
               className={`vpa-manual-panel${isManualSetupOpen ? ' is-open' : ''}`}
               aria-hidden={!isManualSetupOpen}
+              inert={!isManualSetupOpen}
             >
               {repositoryQuery.isError ? (
                 <YucpButton

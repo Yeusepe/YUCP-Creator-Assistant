@@ -55,6 +55,78 @@ function parseLimit(url: URL): number | Response | undefined {
   return limit;
 }
 
+type CreatorCatalogTierSource = {
+  _id: string;
+  amountCents?: number;
+  catalogProductId?: string;
+  createdAt: number;
+  currency?: string;
+  description?: string;
+  displayName: string;
+  provider: string;
+  providerTierRef: string;
+  status: 'active' | 'archived';
+  updatedAt: number;
+};
+
+type CreatorPackageProductSource = {
+  _id: string;
+  aliases?: string[];
+  canArchive: boolean;
+  canDelete: boolean;
+  canRestore: boolean;
+  canonicalSlug?: string;
+  catalogTiers: CreatorCatalogTierSource[];
+  createdAt: number;
+  deleteBlockedReason?: string;
+  displayName?: string;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  status: 'active' | 'archived';
+  supportsAutoDiscovery: boolean;
+  thumbnailUrl?: string;
+  updatedAt: number;
+};
+
+function serializeCreatorCatalogTier(tier: CreatorCatalogTierSource) {
+  return {
+    _id: tier._id,
+    catalogProductId: tier.catalogProductId,
+    provider: tier.provider,
+    providerTierRef: tier.providerTierRef,
+    displayName: tier.displayName,
+    description: tier.description,
+    amountCents: tier.amountCents,
+    currency: tier.currency,
+    status: tier.status,
+    createdAt: tier.createdAt,
+    updatedAt: tier.updatedAt,
+  };
+}
+
+function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
+  return {
+    _id: product._id,
+    aliases: product.aliases,
+    canonicalSlug: product.canonicalSlug,
+    catalogTiers: product.catalogTiers.map(serializeCreatorCatalogTier),
+    displayName: product.displayName,
+    thumbnailUrl: product.thumbnailUrl,
+    productId: product.productId,
+    provider: product.provider,
+    providerProductRef: product.providerProductRef,
+    status: product.status,
+    supportsAutoDiscovery: product.supportsAutoDiscovery,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+    canArchive: product.canArchive,
+    canRestore: product.canRestore,
+    canDelete: product.canDelete,
+    deleteBlockedReason: product.deleteBlockedReason,
+  };
+}
+
 export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackageRoutesOptions) {
   async function requireSessionActor(request: Request): Promise<
     | {
@@ -116,7 +188,11 @@ export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackag
         ...(cursor ? { cursor } : {}),
         ...(limit ? { limit } : {}),
       });
-      return jsonNoStore(page);
+      return jsonNoStore({
+        data: page.data.map(serializeCreatorPackageProduct),
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
+      });
     } catch (error) {
       logger.error('Creator package list query failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -145,7 +221,7 @@ export function createCreatorPackageRoutes({ auth, config }: CreateCreatorPackag
       if (!product) {
         return jsonNoStore({ error: 'Package not found' }, { status: 404 });
       }
-      return jsonNoStore(product);
+      return jsonNoStore(serializeCreatorPackageProduct(product));
     } catch (error) {
       logger.error('Creator package detail query failed', {
         error: error instanceof Error ? error.message : String(error),

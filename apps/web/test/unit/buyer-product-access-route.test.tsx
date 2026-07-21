@@ -26,6 +26,7 @@ vi.mock('@/lib/server/productAccess', () => ({
 }));
 
 vi.mock('@/lib/productAccess', () => ({
+  buildProductAccessReturnPath: () => '/access/catalog%2Fproduct',
   createBuyerProductAccessVerificationIntent: vi.fn(),
   mintBuyerVpmRepository: mintBuyerVpmRepositoryMock,
 }));
@@ -138,7 +139,14 @@ describe('buyer product access route', () => {
       )
     ).toBeVisible();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Manual setup and troubleshooting' }));
+    const manualSetupToggle = screen.getByRole('button', {
+      name: 'Manual setup and troubleshooting',
+    });
+    const manualSetupPanel = manualSetupToggle.nextElementSibling;
+    expect(manualSetupPanel).toHaveAttribute('inert');
+
+    fireEvent.click(manualSetupToggle);
+    expect(manualSetupPanel).not.toHaveAttribute('inert');
     fireEvent.click(screen.getAllByRole('button', { name: 'Copy' })[1]);
     await waitFor(() => {
       expect(copyToClipboardMock).toHaveBeenCalledWith(
