@@ -8,6 +8,7 @@ const WEB_ENTRYPOINT_COMMANDS = {
   build: [[BUN_EXECUTABLE, 'x', 'vite', 'build']],
   dev: [[BUN_EXECUTABLE, 'x', 'vite', 'dev']],
   preview: [[BUN_EXECUTABLE, 'x', 'vite', 'preview']],
+  test: [[BUN_EXECUTABLE, 'x', 'vitest', 'run', '--config', 'vitest.config.ts']],
   'worker:dev': [
     [BUN_EXECUTABLE, 'run', '../../ops/prepare-web-worker-env.ts'],
     [BUN_EXECUTABLE, 'x', 'vite', 'dev'],

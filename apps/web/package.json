@@ -23,8 +23,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config vitest.config.ts",
-    "test:ci": "vitest run --config vitest.config.ts",
+    "test": "bun run icons:run -- test",
+    "test:ci": "bun run icons:run -- test",
     "test:e2e": "bun x playwright test --config playwright.config.ts",
     "test:e2e:forensics": "bun x playwright test --config playwright.forensics.config.ts",
     "test:perf": "bun x playwright test --config playwright.config.ts test/performance/"

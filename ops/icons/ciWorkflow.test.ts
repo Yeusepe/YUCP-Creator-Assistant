@@ -6,6 +6,9 @@ const readme = await Bun.file(new URL('../../README.md', import.meta.url)).text(
 const webPackageJson = (await Bun.file(
   new URL('../../apps/web/package.json', import.meta.url)
 ).json()) as { scripts?: Record<string, string> };
+const webEntrypointRunner = await Bun.file(
+  new URL('../run-web-with-icons.ts', import.meta.url)
+).text();
 const githubExpressionPrefix = '$' + '{{';
 const trustedRepositoryOnlyCondition =
   "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository";
@@ -99,6 +102,14 @@ describe('licensed icon CI regeneration', () => {
 
   test('generates icons before the local Worker deploy-shape preview', () => {
     expect(webPackageJson.scripts?.['worker:preview']).toBe('bun run icons:run -- worker:preview');
+  });
+
+  test('generates icons before both direct web test entrypoints', () => {
+    expect(webPackageJson.scripts?.test).toBe('bun run icons:run -- test');
+    expect(webPackageJson.scripts?.['test:ci']).toBe('bun run icons:run -- test');
+    expect(webEntrypointRunner).toContain(
+      "test: [[BUN_EXECUTABLE, 'x', 'vitest', 'run', '--config', 'vitest.config.ts']]"
+    );
   });
 
   test('documents every licensed-asset input required by Cloudflare Worker Builds', () => {
