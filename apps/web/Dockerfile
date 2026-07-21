@@ -14,10 +14,17 @@ RUN --mount=type=secret,id=HEROUI_AUTH_TOKEN,required=true \
 
 WORKDIR /src/apps/web
 
-RUN bun run build
-RUN addgroup --system --gid 1001 appgroup \
-    && adduser --system --uid 1001 --ingroup appgroup appuser \
-    && chown -R appuser:appgroup /src/apps/web
+RUN --mount=type=secret,id=ASSETS_S3_BUCKET,required=true \
+    --mount=type=secret,id=ASSETS_S3_ENDPOINT,required=true \
+    --mount=type=secret,id=ASSETS_S3_REGION,required=true \
+    --mount=type=secret,id=ASSETS_S3_READONLY_ACCESS_KEY_ID,required=true \
+    --mount=type=secret,id=ASSETS_S3_READONLY_SECRET_ACCESS_KEY,required=true \
+    ASSETS_S3_BUCKET="$(cat /run/secrets/ASSETS_S3_BUCKET)" \
+    ASSETS_S3_ENDPOINT="$(cat /run/secrets/ASSETS_S3_ENDPOINT)" \
+    ASSETS_S3_REGION="$(cat /run/secrets/ASSETS_S3_REGION)" \
+    ASSETS_S3_READONLY_ACCESS_KEY_ID="$(cat /run/secrets/ASSETS_S3_READONLY_ACCESS_KEY_ID)" \
+    ASSETS_S3_READONLY_SECRET_ACCESS_KEY="$(cat /run/secrets/ASSETS_S3_READONLY_SECRET_ACCESS_KEY)" \
+    bun run build
 
 ENV NODE_ENV=production
 ENV LOG_LEVEL=debug
@@ -25,7 +32,7 @@ ENV LOG_LEVEL=debug
 # vite preview reads process.env.PORT through apps/web/vite.config.ts.
 EXPOSE 3000
 
-USER appuser
+USER bun
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/bin/sh", "-lc", "bun -e \"fetch('http://127.0.0.1:${PORT:-3000}').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
 

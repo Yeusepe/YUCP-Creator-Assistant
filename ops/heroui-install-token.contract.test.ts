@@ -5,8 +5,7 @@ import { join, resolve } from 'node:path';
 const WORKFLOWS_DIR = resolve(process.cwd(), '.github', 'workflows');
 const INSTALL_COMMAND = 'run: bun install --frozen-lockfile';
 const HEROUI_ACTIONS_SECRET = 'secrets.HEROUI_AUTH_TOKEN';
-const TRUSTED_HEROUI_ACTIONS_SECRET =
-  "HEROUI_AUTH_TOKEN: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.HEROUI_AUTH_TOKEN || '' }}";
+const TRUSTED_HEROUI_ACTIONS_SECRET = `HEROUI_AUTH_TOKEN: \${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.HEROUI_AUTH_TOKEN || '' }}`;
 
 function readWorkflowSources(): Array<{ path: string; source: string }> {
   return readdirSync(WORKFLOWS_DIR)
@@ -89,13 +88,13 @@ describe('HeroUI Pro install token plumbing', () => {
     expect(dockerfile).toContain('bun install --frozen-lockfile');
   });
 
-  test('runs the web preview image as a non-root user with a healthcheck', () => {
+  test('runs the web preview image as the Bun base image non-root user with a healthcheck', () => {
     const dockerfile = readFileSync(resolve(process.cwd(), 'apps', 'web', 'Dockerfile'), 'utf8');
 
-    expect(dockerfile).toMatch(/RUN addgroup\b[\s\S]*adduser\b/);
-    expect(dockerfile).toContain('USER appuser');
+    expect(dockerfile).not.toMatch(/\b(?:addgroup|adduser)\b/);
+    expect(dockerfile).toContain('USER bun');
     expect(dockerfile).toMatch(/^HEALTHCHECK\b/m);
-    expect(dockerfile).toContain('http://127.0.0.1:${PORT:-3000}');
+    expect(dockerfile).toContain(`http://127.0.0.1:\${PORT:-3000}`);
   });
 
   test('declares HeroUI Pro static icon imports for clean Workers builds', () => {

@@ -1,0 +1,14 @@
+.git
+.idea
+.env
+.env.*
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/.wrangler
+**/coverage
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+apps/web/src/icons/generated.tsx
