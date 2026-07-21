@@ -27,7 +27,7 @@ RUN --mount=type=secret,id=ASSETS_S3_BUCKET,required=true \
     bun run build
 
 ENV NODE_ENV=production
-ENV LOG_LEVEL=debug
+ENV LOG_LEVEL=info
 # Runtime hosts may inject PORT; Vite preview defaults to 3000 when it is unset.
 # vite preview reads process.env.PORT through apps/web/vite.config.ts.
 EXPOSE 3000

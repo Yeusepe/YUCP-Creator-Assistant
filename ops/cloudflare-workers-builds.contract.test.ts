@@ -104,7 +104,15 @@ describe('Cloudflare Workers Builds contract', () => {
     expect(dockerignore).toMatch(/^\*\*\/node_modules$/m);
     expect(dockerignore).toMatch(/^\*\*\/dist$/m);
     expect(dockerignore).toMatch(/^\*\*\/\*\.tsbuildinfo$/m);
-    expect(dockerignore).toMatch(/^apps\/web\/src\/icons\/generated\.tsx$/m);
+    expect(dockerignore).toMatch(/^apps\/web\/src\/icons\/generated\.tsx\*$/m);
+  });
+
+  test('uses a production log level in the compatibility image', () => {
+    const dockerfile = readFileSync(resolve(process.cwd(), 'apps', 'web', 'Dockerfile'), 'utf8');
+
+    expect(dockerfile).toContain('ENV NODE_ENV=production');
+    expect(dockerfile).toContain('ENV LOG_LEVEL=info');
+    expect(dockerfile).not.toContain('ENV LOG_LEVEL=debug');
   });
 
   test('uses the Bun base image supplied non-root user', () => {

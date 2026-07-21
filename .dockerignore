@@ -11,4 +11,4 @@
 **/test-results
 **/playwright-report
 **/*.tsbuildinfo
-apps/web/src/icons/generated.tsx
+apps/web/src/icons/generated.tsx*
