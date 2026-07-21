@@ -10,10 +10,16 @@ describe('production server contract', () => {
     const packageJson = JSON.parse(readFileSync(join(APP_DIR, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
     };
+    const iconRunnerSource = readFileSync(
+      join(REPO_ROOT_DIR, 'ops', 'run-web-with-icons.ts'),
+      'utf8'
+    );
 
-    expect(packageJson.scripts?.start).toBe('vite preview');
-    expect(packageJson.scripts?.['worker:dev']).toContain('prepare-web-worker-env.ts');
-    expect(packageJson.scripts?.['worker:preview']).toContain('wrangler dev');
+    expect(packageJson.scripts?.start).toBe('bun run icons:run -- preview');
+    expect(packageJson.scripts?.['worker:dev']).toBe('bun run icons:run -- worker:dev');
+    expect(packageJson.scripts?.['worker:preview']).toBe('bun run icons:run -- worker:preview');
+    expect(iconRunnerSource).toContain('prepare-web-worker-env.ts');
+    expect(iconRunnerSource).toContain("'wrangler', 'dev'");
     expect(packageJson.scripts?.['worker:sync:setup']).toContain(
       'setup-infisical-cloudflare-worker-sync.ts'
     );

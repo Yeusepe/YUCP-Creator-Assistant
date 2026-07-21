@@ -8,6 +8,7 @@
       "!**/convex/betterAuth/_generated",
       "!**/convex/betterAuth",
       "!**/packages/private-rpc/src/generated.ts",
+      "!apps/web/src/icons/generated.tsx",
       "!**/*.tsbuildinfo",
       "!**/public/assets",
       "!**/public/**/*.html",

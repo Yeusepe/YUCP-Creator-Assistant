@@ -49,6 +49,7 @@
   },
   "scripts": {
     "bebop:regenerate": "bun run --filter @yucp/private-rpc generate",
+    "icons:sync": "bun run --env-file=.env.infisical ops/icons/sync.ts",
     "lint": "biome check ops/storage-core ops/catalog ops/ingest-pipeline ops/ingest-tus ops/testing services/delivery-worker && bun run --filter '*' lint",
     "contracts:check": "bun run --filter @yucp/private-rpc check:generated",
     "typecheck": "bun run contracts:check && tsc -b tsconfig.solution.json --pretty false && bun run typecheck:storage-core && bun run typecheck:importer && bun run typecheck:catalog && bun run typecheck:ingest && bun run typecheck:ingest-tus && bun run typecheck:gc && bun run typecheck:scheduler && bun run typecheck:delivery-worker && bun run --filter '@yucp/api' typecheck && bun run --filter '@yucp/bot' typecheck && bun run --filter '@yucp/web' typecheck",
@@ -77,8 +78,8 @@
     "test:delivery:e2e": "tsx ./services/delivery-worker/deliveryWorker.e2e.test.ts",
     "test:storage:e2e": "bun run test:cas:e2e && bun run test:cas:s3 && bun run test:catalog:integration && bun run test:ingest:e2e && bun run test:ingest-tus:e2e && bun run test:delivery:e2e && bun run test:importer:e2e && bun run test:pipeline:promote:e2e && bun run test:gc:e2e && bun run test:scheduler:e2e",
     "test": "bun run test:fast",
-    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/dependency-security-overrides.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
-    "test:external-integrations": "bun run ops/test-external-integrations.ts",
+    "test:ops": "bun test ./ops/dev-supervisor.test.ts ./ops/convex-infisical-env.test.ts ./ops/convex-better-auth-compat.test.ts ./ops/convex-real/ci-workflow.test.ts ./ops/convex-real/deploy-gate.contract.test.ts ./ops/convex-real/e2e-runner.test.ts ./ops/convex-real/manage.test.ts ./ops/convex-real/preflight.test.ts ./ops/icons/assetsConfig.test.ts ./ops/icons/ciWorkflow.test.ts ./ops/icons/runWebWithIcons.test.ts ./ops/icons/transform.test.ts ./ops/web-vite-config.contract.test.ts ./ops/web-stylelint-config.contract.test.ts ./ops/public-api-rate-limit-wiring.contract.test.ts ./ops/heroui-install-token.contract.test.ts ./ops/cloudflare-workers-builds.contract.test.ts ./ops/github-workflows-bun-version.contract.test.ts ./ops/dependency-security-overrides.contract.test.ts ./ops/web-dev-runtime.test.ts ./ops/buyer-attribution-remediation.test.ts ./ops/subject-ownership-remediation.test.ts ./ops/provider-live-smoke.test.ts ./ops/production-regression-loop.test.ts",
+    "test:external-integrations": "bun run --filter '@yucp/web' icons:run -- external-integrations",
     "test:fast": "bun run test:ops && bun run test:storage:unit && bun run --filter '@yucp/api' test && bun run --filter '@yucp/application' test && bun run --filter '@yucp/policy' test && bun run --filter '@yucp/providers' test && bun run --filter '@yucp/shared' test",
     "test:convex:types": "tsc --noEmit -p convex/tsconfig.json",
     "test:convex": "bun run test:convex:types && bun x vitest run --config convex/vitest.config.ts",

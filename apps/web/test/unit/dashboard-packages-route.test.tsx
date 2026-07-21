@@ -165,6 +165,7 @@ const sameNameGumroadProduct = {
   aliases: ['Shared Product Name'],
   canonicalSlug: 'gumroad-shared-product-name',
   displayName: 'Shared Product Name',
+  packageId: undefined,
   productId: 'gumroad-shared-product-name',
   providerProductRef: 'gumroad-shared-product-ref',
 };
@@ -173,6 +174,7 @@ const sameNameJinxxyProduct = {
   ...sameNameGumroadProduct,
   _id: 'catalog_product_same_name_b',
   canonicalSlug: 'jinxxy-shared-product-name',
+  packageId: undefined,
   productId: 'jinxxy-shared-product-name',
   provider: 'jinxxy',
   providerProductRef: 'jinxxy-shared-product-ref',
