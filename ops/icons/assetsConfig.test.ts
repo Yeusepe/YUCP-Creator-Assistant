@@ -52,4 +52,16 @@ describe('assets icon configuration', () => {
       'Missing assets credentials: provide ASSETS_S3_READONLY_ACCESS_KEY_ID and ASSETS_S3_READONLY_SECRET_ACCESS_KEY, or ASSETS_S3_ACCESS_KEY_ID and ASSETS_S3_SECRET_ACCESS_KEY'
     );
   });
+
+  test.each([
+    'https://user:pass@s3.us-east-005.backblazeb2.com',
+    'https://s3.us-east-005.backblazeb2.com/bucket',
+    'https://s3.us-east-005.backblazeb2.com?bucket=licensed-assets',
+    'https://s3.us-east-005.backblazeb2.com#licensed-assets',
+    'ftp://s3.us-east-005.backblazeb2.com',
+  ])('rejects a non-origin-only asset endpoint: %s', (endpoint) => {
+    expect(() => loadAssetsConfig({ ...baseEnv, ASSETS_S3_ENDPOINT: endpoint })).toThrow(
+      'Invalid assets environment variable: ASSETS_S3_ENDPOINT'
+    );
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 const workflow = await Bun.file(new URL('../../.github/workflows/ci.yml', import.meta.url)).text();
+const gitignore = await Bun.file(new URL('../../.gitignore', import.meta.url)).text();
 const githubExpressionPrefix = '$' + '{{';
 
 function getJob(jobName: string): string {
@@ -15,6 +16,17 @@ function getJob(jobName: string): string {
 }
 
 describe('licensed icon CI regeneration', () => {
+  test('disables persisted credentials for every CI checkout', () => {
+    const checkoutSteps = workflow
+      .split(/(?=^\s+- uses: actions\/checkout@)/m)
+      .filter((block) => block.match(/^\s+- uses: actions\/checkout@/));
+
+    expect(checkoutSteps.length).toBeGreaterThan(0);
+    for (const checkoutStep of checkoutSteps) {
+      expect(checkoutStep.slice(0, 200)).toContain('persist-credentials: false');
+    }
+  });
+
   test('syncs icons before every job that loads web application source', () => {
     for (const jobName of ['typecheck', 'test', 'web-build', 'web-tests']) {
       const job = getJob(jobName);
@@ -38,5 +50,9 @@ describe('licensed icon CI regeneration', () => {
     expect(workflow).not.toContain(
       `${githubExpressionPrefix} secrets.ASSETS_S3_SECRET_ACCESS_KEY }}`
     );
+  });
+
+  test('ignores both the generated module and interrupted atomic-write temp files', () => {
+    expect(gitignore).toContain('/apps/web/src/icons/generated.tsx*');
   });
 });

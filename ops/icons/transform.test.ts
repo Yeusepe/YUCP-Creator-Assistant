@@ -54,6 +54,55 @@ describe('Flex Flat SVG transform', () => {
     );
   });
 
+  test('rejects unsupported SVG attributes', () => {
+    const unsupportedAttributeSvg = sourceSvg.replace(
+      '<path fill="#8fbffa"',
+      '<path aria-label="unsafe" fill="#8fbffa"'
+    );
+
+    expect(() => transformFlexFlatSvg(unsupportedAttributeSvg, 'unsupported-attribute')).toThrow(
+      'contains unsupported aria-label SVG attributes'
+    );
+  });
+
+  test('rejects duplicate SVG attributes', () => {
+    const duplicateAttributeSvg = sourceSvg.replace(
+      '<path fill="#8fbffa"',
+      '<path fill="#8fbffa" fill="#8fbffa"'
+    );
+
+    expect(() => transformFlexFlatSvg(duplicateAttributeSvg, 'duplicate-attribute')).toThrow(
+      'contains duplicate fill SVG attributes'
+    );
+  });
+
+  test('rejects an unexpected viewBox', () => {
+    const unexpectedViewBoxSvg = sourceSvg.replace('viewBox="0 0 14 14"', 'viewBox="0 0 24 24"');
+
+    expect(() => transformFlexFlatSvg(unexpectedViewBoxSvg, 'unexpected-viewbox')).toThrow(
+      'has an unexpected viewBox'
+    );
+  });
+
+  test('rejects unsupported source colors', () => {
+    const unsupportedColorSvg = sourceSvg.replace('#8fbffa', '#123456');
+
+    expect(() => transformFlexFlatSvg(unsupportedColorSvg, 'unsupported-color')).toThrow(
+      'contains an unsupported source color'
+    );
+  });
+
+  test('rejects malformed SVG element nesting', () => {
+    const malformedNestingSvg = sourceSvg.replace(
+      '<path fill="#8fbffa" d="M0 0h7v7H0z" />',
+      '<g><path fill="#8fbffa" d="M0 0h7v7H0z"></g></path>'
+    );
+
+    expect(() => transformFlexFlatSvg(malformedNestingSvg, 'malformed-nesting')).toThrow(
+      'contains malformed SVG element nesting'
+    );
+  });
+
   test('serializes hostile downloaded text only inside JSON data strings', () => {
     const hostileAttribution = "Streamline {fetch('https://attacker.invalid')}";
     const hostileSvg = sourceSvg.replace(
