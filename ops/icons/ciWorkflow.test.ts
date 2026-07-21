@@ -7,6 +7,8 @@ const webPackageJson = (await Bun.file(
   new URL('../../apps/web/package.json', import.meta.url)
 ).json()) as { scripts?: Record<string, string> };
 const githubExpressionPrefix = '$' + '{{';
+const trustedRepositoryOnlyCondition =
+  "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository";
 
 function getJob(jobName: string): string {
   const lines = workflow.split(/\r?\n/);
@@ -31,19 +33,31 @@ describe('licensed icon CI regeneration', () => {
     }
   });
 
-  test('keeps credential-free typecheck and general tests independent of licensed artwork', () => {
-    for (const jobName of ['typecheck', 'test']) {
+  test('keeps every credential-free gate running for fork pull requests', () => {
+    for (const jobName of [
+      'lint',
+      'typecheck',
+      'external-integrations',
+      'test',
+      'convex-real',
+      'e2e-flows',
+    ]) {
       const job = getJob(jobName);
+      expect(job).not.toContain(`\n    if: ${trustedRepositoryOnlyCondition}`);
       expect(job).not.toContain('icons:sync');
       expect(job).not.toContain('ASSETS_S3_');
       expect(job).not.toContain('VITE_ASSETS_S3');
     }
   });
 
-  test('guards licensed web gates when fork pull requests cannot receive secrets', () => {
+  test('visibly skips only licensed web jobs for fork pull requests', () => {
     for (const jobName of ['web-build', 'web-tests']) {
       const job = getJob(jobName);
-      expect(job).toContain('LICENSED_ICON_SECRETS_AVAILABLE:');
+      expect(job).toContain(`\n    if: ${trustedRepositoryOnlyCondition}`);
+      expect(job).not.toContain('LICENSED_ICON_SECRETS_AVAILABLE');
+      expect(job).not.toContain(
+        'Licensed icon gate skipped because build credentials are unavailable'
+      );
       for (const variable of [
         'ASSETS_S3_BUCKET',
         'ASSETS_S3_ENDPOINT',
@@ -51,11 +65,8 @@ describe('licensed icon CI regeneration', () => {
         'ASSETS_S3_READONLY_ACCESS_KEY_ID',
         'ASSETS_S3_READONLY_SECRET_ACCESS_KEY',
       ]) {
-        expect(job).toContain(`secrets.${variable} != ''`);
+        expect(job).toContain(`${variable}: ${githubExpressionPrefix} secrets.${variable} }}`);
       }
-      expect(job).toContain("if: env.LICENSED_ICON_SECRETS_AVAILABLE == 'true'");
-      expect(job).toContain("if: env.LICENSED_ICON_SECRETS_AVAILABLE != 'true'");
-      expect(job).toContain('Licensed icon gate skipped because build credentials are unavailable');
     }
   });
 
