@@ -25,9 +25,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun run icons:run -- test",
     "test:ci": "bun run icons:run -- test",
-    "test:e2e": "bun x playwright test --config playwright.config.ts",
-    "test:e2e:forensics": "bun x playwright test --config playwright.forensics.config.ts",
-    "test:perf": "bun x playwright test --config playwright.config.ts test/performance/"
+    "test:e2e": "bun run icons:run -- test:e2e",
+    "test:e2e:forensics": "bun run icons:run -- test:e2e:forensics",
+    "test:perf": "bun run icons:run -- test:perf"
   },
   "dependencies": {
     "@convex-dev/better-auth": "0.12.5",
