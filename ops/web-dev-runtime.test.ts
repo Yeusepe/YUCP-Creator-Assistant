@@ -89,7 +89,11 @@ async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
     return;
   }
 
-  child.kill();
+  if (process.platform === 'win32') {
+    await forceKillChild(child);
+  } else {
+    child.kill();
+  }
   for (let attempt = 0; attempt < 20; attempt += 1) {
     if (!isChildProcessAlive(child)) {
       return;
@@ -135,7 +139,10 @@ describe('web dev runtime', () => {
       });
       const childEnv = { ...process.env };
       for (const key of INFISICAL_BOOTSTRAP_KEYS) {
-        delete childEnv[key];
+        // A non-empty whitespace value shadows Bun's explicit .env.infisical load, while the
+        // production normalizer still treats it as absent. This keeps the test on its local S3
+        // server even when the developer running it has an ignored Infisical bootstrap file.
+        childEnv[key] = ' ';
       }
       const child = spawn(BUN_EXECUTABLE, ['run', '--filter', '@yucp/web', 'worker:dev'], {
         cwd: process.cwd(),
