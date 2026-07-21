@@ -216,6 +216,74 @@ describe('packageRegistry', () => {
     expect(product?.packageId).toBe('com.yucp.bound-package');
   });
 
+  it('resolves human product aliases only within the requested creator profile', async () => {
+    const t = makeTestConvex();
+    const [firstProductId, secondProductId] = await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('creator_profiles', {
+        authUserId: 'creator-one',
+        name: 'Creator One',
+        ownerDiscordUserId: 'discord-creator-one',
+        slug: 'creator-one',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('creator_profiles', {
+        authUserId: 'creator-two',
+        name: 'Creator Two',
+        ownerDiscordUserId: 'discord-creator-two',
+        slug: 'creator-two',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const insertProduct = async (authUserId: string, productId: string) =>
+        await ctx.db.insert('product_catalog', {
+          authUserId,
+          productId,
+          provider: 'gumroad',
+          providerProductRef: 'shared-provider-ref',
+          canonicalSlug: 'avatar-bundle',
+          displayName: `${authUserId} bundle`,
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      return [
+        await insertProduct('creator-one', 'creator-one-product'),
+        await insertProduct('creator-two', 'creator-two-product'),
+      ] as const;
+    });
+    const actor = await createServiceActorBinding(['creator:delegate']);
+
+    const first = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'creator-one',
+      productRef: 'avatar-bundle',
+    });
+    const second = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'creator-two',
+      productRef: 'shared-provider-ref',
+    });
+    const missing = await t.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+      apiSecret: 'test-secret',
+      actor,
+      creatorRef: 'unknown-creator',
+      productRef: 'avatar-bundle',
+    });
+
+    expect(first?.catalogProductId).toBe(firstProductId);
+    expect(first?.creatorAuthUserId).toBe('creator-one');
+    expect(second?.catalogProductId).toBe(secondProductId);
+    expect(second?.creatorAuthUserId).toBe('creator-two');
+    expect(missing).toBeNull();
+  });
+
   it('does not disclose the owning creator on a package namespace conflict', async () => {
     const t = makeTestConvex();
 

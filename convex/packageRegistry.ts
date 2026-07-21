@@ -332,6 +332,80 @@ async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
   return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
 }
 
+async function resolveCreatorCatalogProduct(ctx: QueryCtx, creatorRef: string, productRef: string) {
+  const normalizedCreatorRef = creatorRef.trim();
+  const normalizedProductRef = productRef.trim();
+  if (!normalizedCreatorRef || !normalizedProductRef) {
+    return null;
+  }
+
+  const creatorProfiles = await ctx.db
+    .query('creator_profiles')
+    .withIndex('by_slug', (q) => q.eq('slug', normalizedCreatorRef))
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .take(2);
+  if (creatorProfiles.length !== 1) {
+    return null;
+  }
+  const creatorAuthUserId = creatorProfiles[0]?.authUserId;
+  if (!creatorAuthUserId) {
+    return null;
+  }
+
+  const legacyId = ctx.db.normalizeId('product_catalog', normalizedProductRef);
+  if (legacyId) {
+    const product = await ctx.db.get(legacyId);
+    return product?.authUserId === creatorAuthUserId ? product : null;
+  }
+
+  const bySlug = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user_slug', (q) =>
+      q.eq('authUserId', creatorAuthUserId).eq('canonicalSlug', normalizedProductRef)
+    )
+    .take(2);
+  const byRef = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user_provider_product_ref', (q) =>
+      q.eq('authUserId', creatorAuthUserId).eq('providerProductRef', normalizedProductRef)
+    )
+    .take(2);
+  const candidates = new Map<string, (typeof bySlug)[number]>();
+  for (const candidate of [...bySlug, ...byRef]) {
+    candidates.set(String(candidate._id), candidate);
+  }
+  return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
+}
+
+async function buildBuyerAccessContext(ctx: QueryCtx, product: Doc<'product_catalog'>) {
+  const status = getCatalogProductWorkspaceStatus(product);
+  if (status !== 'active') {
+    return null;
+  }
+
+  const packageVersions = await ctx.db
+    .query('package_versions_ref')
+    .withIndex('by_catalog_product', (q) =>
+      q.eq('catalogProductId', product._id).eq('state', 'READY')
+    )
+    .collect();
+  const packageIds = new Set(packageVersions.map((version) => version.packageId));
+  const packageId = packageIds.size === 1 ? packageIds.values().next().value : undefined;
+
+  return {
+    catalogProductId: product._id,
+    creatorAuthUserId: product.authUserId,
+    ...(packageId ? { packageId } : {}),
+    productId: product.productId,
+    provider: product.provider,
+    providerProductRef: product.providerProductRef,
+    displayName: product.displayName,
+    canonicalSlug: product.canonicalSlug,
+    thumbnailUrl: product.thumbnailUrl,
+    status,
+  };
+}
+
 export const getBuyerAccessContextByCatalogProductId = query({
   args: {
     apiSecret: v.string(),
@@ -347,31 +421,22 @@ export const getBuyerAccessContextByCatalogProductId = query({
       return null;
     }
 
-    const status = getCatalogProductWorkspaceStatus(product);
-    if (status !== 'active') {
-      return null;
-    }
+    return await buildBuyerAccessContext(ctx, product);
+  },
+});
 
-    const packageVersions = await ctx.db
-      .query('package_versions_ref')
-      .withIndex('by_catalog_product', (q) =>
-        q.eq('catalogProductId', product._id).eq('state', 'READY')
-      )
-      .collect();
-    const packageIds = new Set(packageVersions.map((version) => version.packageId));
-    const packageId = packageIds.size === 1 ? packageIds.values().next().value : undefined;
+export const getBuyerAccessContextByCreatorAndProductRef = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    creatorRef: v.string(),
+    productRef: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
 
-    return {
-      catalogProductId: product._id,
-      creatorAuthUserId: product.authUserId,
-      ...(packageId ? { packageId } : {}),
-      productId: product.productId,
-      provider: product.provider,
-      providerProductRef: product.providerProductRef,
-      displayName: product.displayName,
-      canonicalSlug: product.canonicalSlug,
-      thumbnailUrl: product.thumbnailUrl,
-      status,
-    };
+    const product = await resolveCreatorCatalogProduct(ctx, args.creatorRef, args.productRef);
+    return product ? await buildBuyerAccessContext(ctx, product) : null;
   },
 });

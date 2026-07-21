@@ -26,7 +26,7 @@ export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
   }),
   loader: async ({ params }) =>
     fetchBuyerProductAccess({
-      data: { catalogProductId: params.productRef },
+      data: { catalogProductId: params.productRef, creatorRef: params.creatorRef },
     }),
   pendingComponent: BuyerUnityAccessPending,
   errorComponent: BuyerUnityAccessError,

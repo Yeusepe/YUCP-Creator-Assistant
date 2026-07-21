@@ -1376,6 +1376,8 @@ const product_catalog = defineTable({
   updatedAt: v.number(),
 })
   .index('by_auth_user', ['authUserId'])
+  .index('by_auth_user_provider_product_ref', ['authUserId', 'providerProductRef'])
+  .index('by_auth_user_slug', ['authUserId', 'canonicalSlug'])
   .index('by_provider_ref', ['provider', 'providerProductRef'])
   .index('by_provider_product_ref', ['providerProductRef'])
   .index('by_slug', ['canonicalSlug'])
@@ -2451,11 +2453,7 @@ const AttestationFlag = v.union(
 const IdentityNodeStatus = v.union(v.literal('active'), v.literal('blocked'));
 
 /** A block starts pending (awaiting manual review) before it becomes active, and can be reversed on appeal. */
-const BlockStatus = v.union(
-  v.literal('pending'),
-  v.literal('active'),
-  v.literal('reversed')
-);
+const BlockStatus = v.union(v.literal('pending'), v.literal('active'), v.literal('reversed'));
 
 /**
  * Anchor kinds attached to an identity node. Durable anchors (tpm_ek, payment) are the only

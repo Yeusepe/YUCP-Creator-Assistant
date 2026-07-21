@@ -3,14 +3,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { PropsWithChildren } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { apiPostMock, copyToClipboardMock, loaderDataMock, routeSearchMock, signInMock } =
-  vi.hoisted(() => ({
-    apiPostMock: vi.fn(),
-    copyToClipboardMock: vi.fn(),
-    loaderDataMock: vi.fn(),
-    routeSearchMock: vi.fn(() => ({ grant: undefined, intent_id: undefined })),
-    signInMock: vi.fn(),
-  }));
+const {
+  apiPostMock,
+  copyToClipboardMock,
+  fetchBuyerProductAccessMock,
+  loaderDataMock,
+  routeSearchMock,
+  signInMock,
+} = vi.hoisted(() => ({
+  apiPostMock: vi.fn(),
+  copyToClipboardMock: vi.fn(),
+  fetchBuyerProductAccessMock: vi.fn(),
+  loaderDataMock: vi.fn(),
+  routeSearchMock: vi.fn(() => ({ grant: undefined, intent_id: undefined })),
+  signInMock: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-router', () => ({
   createFileRoute: () => (options: unknown) => ({
@@ -36,6 +43,10 @@ vi.mock('@/hooks/usePublicAuth', () => ({
 
 vi.mock('@/lib/utils', () => ({
   copyToClipboard: copyToClipboardMock,
+}));
+
+vi.mock('@/lib/server/productAccess', () => ({
+  fetchBuyerProductAccess: fetchBuyerProductAccessMock,
 }));
 
 import { usePublicAuth } from '@/hooks/usePublicAuth';
@@ -83,6 +94,20 @@ describe('get in unity route', () => {
   });
 
   afterEach(() => cleanup());
+
+  it('passes both public URL segments into creator-scoped product resolution', async () => {
+    fetchBuyerProductAccessMock.mockResolvedValue(productAccess);
+    const loader = GetInUnityRoute.options.loader;
+    if (!loader) throw new Error('Get in Unity loader is missing');
+
+    await loader({
+      params: { creatorRef: 'mapache', productRef: 'avatar-bundle' },
+    } as never);
+
+    expect(fetchBuyerProductAccessMock).toHaveBeenCalledWith({
+      data: { catalogProductId: 'avatar-bundle', creatorRef: 'mapache' },
+    });
+  });
 
   it('restores the buyer-facing Unity card and sign-in action', async () => {
     const Component = GetInUnityRoute.options.component;

@@ -19,6 +19,8 @@ const apiMock = {
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
+    getBuyerAccessContextByCreatorAndProductRef:
+      'packageRegistry.getBuyerAccessContextByCreatorAndProductRef',
   },
   entitlements: {
     listByAuthUser: 'entitlements.listByAuthUser',
@@ -545,6 +547,44 @@ describe('connect user product access routes', () => {
       apiMock.entitlements.listByAuthUser,
       expect.anything()
     );
+  });
+
+  it('scopes human product aliases to the creator from the public access URL', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCreatorAndProductRef) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          creatorRef: 'mapache',
+          productRef: 'avatar-bundle',
+        });
+        return {
+          catalogProductId: 'creator-scoped-catalog-product',
+          creatorAuthUserId: 'creator-auth-user',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          canonicalSlug: 'avatar-bundle',
+          status: 'active',
+        };
+      }
+
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const routes = createSignedOutRoutes();
+    const response = await routes.getBuyerProductAccess(
+      new Request(
+        'http://localhost:3001/api/connect/user/product-access/avatar-bundle?creator_ref=mapache'
+      ),
+      'avatar-bundle'
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      product: { catalogProductId: 'creator-scoped-catalog-product' },
+    });
   });
 
   it('returns verification-required state to signed-in buyers without entitlement access', async () => {

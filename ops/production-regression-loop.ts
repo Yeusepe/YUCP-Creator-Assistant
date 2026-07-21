@@ -83,12 +83,13 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      'Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, and grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution.',
+      "Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution, and scope human-friendly buyer access URLs to the creator profile before resolving product aliases so another creator's slug or duplicated product reference cannot be substituted.",
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
       'convex/entitlements.buyer-holder.realtest.ts',
       'convex/manualLicenses.realtest.ts',
       'convex/outboxJobs.realtest.ts',
+      'convex/packageRegistry.realtest.ts',
       'convex/verificationIntents.realtest.ts',
       'apps/bot/test/lib/roleSync.test.ts',
       'apps/api/src/routes/connect.user-verify.manual-license.test.ts',
@@ -105,6 +106,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'apps/bot/test/commands/verify.test.ts',
       'apps/bot/test/lib/setupCatalog.test.ts',
       'apps/web/test/unit/purchase-verification-ui-state.test.ts',
+      'apps/web/test/unit/get-in-unity-route.test.tsx',
     ],
     remediationHomes: [
       'convex/entitlements.realtest.ts',
@@ -173,6 +175,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './convex/entitlements.buyer-holder.realtest.ts',
       './convex/manualLicenses.realtest.ts',
       './convex/outboxJobs.realtest.ts',
+      './convex/packageRegistry.realtest.ts',
       './convex/verificationIntents.realtest.ts',
     ],
     covers: ['verification'],
@@ -244,6 +247,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './test/unit/dashboard-connected-platforms.test.tsx',
       './test/unit/store-integrations-status-label.test.tsx',
       './test/unit/purchase-verification-ui-state.test.ts',
+      './test/unit/get-in-unity-route.test.tsx',
     ],
     covers: ['verification', 'account'],
   },

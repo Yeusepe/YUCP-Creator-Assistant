@@ -151,13 +151,22 @@ export function createConnectUserProductAccessRoutes({
   config,
 }: CreateConnectUserProductAccessRoutesOptions) {
   async function resolveAccessProduct(
-    catalogProductId: string
+    catalogProductId: string,
+    creatorRef?: string
   ): Promise<BuyerAccessCatalogProduct | null> {
     const actor = await createApiServiceActorBinding({
       service: 'buyer-product-access',
       scopes: ['creator:delegate'],
     });
     const convex = getConvexClientFromUrl(config.convexUrl, actor);
+    if (creatorRef) {
+      return (await convex.query(api.packageRegistry.getBuyerAccessContextByCreatorAndProductRef, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        creatorRef,
+        productRef: catalogProductId,
+      })) as BuyerAccessCatalogProduct | null;
+    }
     return (await convex.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
       apiSecret: config.convexApiSecret,
       actor,
@@ -167,9 +176,10 @@ export function createConnectUserProductAccessRoutes({
 
   async function resolveBuyerProductAccess(
     session: Awaited<ReturnType<Auth['getSession']>>,
-    catalogProductId: string
+    catalogProductId: string,
+    creatorRef?: string
   ) {
-    const product = await resolveAccessProduct(catalogProductId);
+    const product = await resolveAccessProduct(catalogProductId, creatorRef);
     if (!product) {
       return { activeEntitlement: null, product: null };
     }
@@ -219,11 +229,20 @@ export function createConnectUserProductAccessRoutes({
     catalogProductId: string
   ): Promise<Response> {
     const session = await auth.getSession(request);
+    const creatorRefParam = new URL(request.url).searchParams.get('creator_ref');
+    const creatorRef = creatorRefParam?.trim();
+    if (
+      creatorRefParam !== null &&
+      (!creatorRef || creatorRef.length > 256 || creatorRef.includes('/'))
+    ) {
+      return Response.json({ error: 'Product access page not found' }, { status: 404 });
+    }
 
     try {
       const { activeEntitlement, product } = await resolveBuyerProductAccess(
         session,
-        catalogProductId
+        catalogProductId,
+        creatorRef
       );
       if (!product) {
         return Response.json({ error: 'Product access page not found' }, { status: 404 });
@@ -247,6 +266,7 @@ export function createConnectUserProductAccessRoutes({
     } catch (error) {
       logger.error('Failed to load buyer product access surface', {
         catalogProductId,
+        creatorRef,
         error: error instanceof Error ? error.message : String(error),
       });
       return Response.json({ error: 'Failed to load product access' }, { status: 500 });
