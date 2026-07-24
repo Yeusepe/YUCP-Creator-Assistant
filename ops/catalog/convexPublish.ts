@@ -8,6 +8,7 @@ import { api } from '../../convex/_generated/api';
 import type { CatalogOutboxEvent } from './reconciler';
 
 const READY_EVENT_TYPE = 'catalog.version.ready';
+const DELETED_EVENT_TYPE = 'catalog.version.deleted';
 const DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS = 15_000;
 
 export interface ConvexCatalogPublishConfig {
@@ -122,9 +123,7 @@ export function createConvexCatalogPublish(
   let client: ConvexMutationClient | undefined;
 
   return async (event) => {
-    // ponytail: This handles only READY events; at-least-once delivery relies on the upsert's
-    // versionId idempotency.
-    if (event.eventType !== READY_EVENT_TYPE) {
+    if (event.eventType !== READY_EVENT_TYPE && event.eventType !== DELETED_EVENT_TYPE) {
       return;
     }
 
@@ -132,6 +131,19 @@ export function createConvexCatalogPublish(
       dependencies.createClient?.(config.convexUrl) ??
       (new ConvexHttpClient(config.convexUrl) as ConvexMutationClient);
     const actor = await createPublisherActor(config.internalServiceAuthSecret);
+    if (event.eventType === DELETED_EVENT_TYPE) {
+      await withTimeout(
+        client.mutation(api.packageVersions.markVersionDeleted, {
+          apiSecret: config.convexApiSecret,
+          actor,
+          versionId: requiredPayloadString(event.payload, 'versionId'),
+          deletedAt: event.createdAt.getTime(),
+        }),
+        config.publishTimeoutMs ?? DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS
+      );
+      return;
+    }
+
     const catalogProductId = optionalCatalogProductId(event.payload);
     const contentType = optionalContentType(event.payload);
     await withTimeout(

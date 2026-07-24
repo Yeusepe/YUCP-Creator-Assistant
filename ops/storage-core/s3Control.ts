@@ -19,6 +19,12 @@ export interface S3ObjectPage {
   objects: S3ObjectMetadata[];
 }
 
+export interface S3ObjectVersion extends S3ObjectMetadata {
+  deleteMarker: boolean;
+  isLatest: boolean;
+  versionId: string;
+}
+
 type SignedRequestInput = {
   allowedStatuses?: readonly number[];
   body?: BodyInit;
@@ -347,6 +353,95 @@ export async function listS3Objects(config: CasConfig, prefix?: string): Promise
 }
 
 /**
+ * ListObjectVersions reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectVersions.html
+ */
+export async function listS3ObjectVersions(
+  config: CasConfig,
+  prefix?: string
+): Promise<S3ObjectVersion[]> {
+  const versions: S3ObjectVersion[] = [];
+  let keyMarker: string | undefined;
+  let versionIdMarker: string | undefined;
+
+  do {
+    const query: Record<string, string> = { versions: '' };
+    if (prefix) {
+      query.prefix = prefix;
+    }
+    if (keyMarker) {
+      query['key-marker'] = keyMarker;
+    }
+    if (versionIdMarker) {
+      query['version-id-marker'] = versionIdMarker;
+    }
+    const response = await signedRequest({
+      config,
+      method: 'GET',
+      operation: 'ListObjectVersions',
+      query,
+    });
+    const xml = await response.text();
+    for (const match of xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
+      const deleteMarker = match[1] === 'DeleteMarker';
+      const content = match[2] ?? '';
+      const key = content.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+      const versionId = content.match(/<VersionId>([\s\S]*?)<\/VersionId>/)?.[1];
+      const isLatest = content.match(/<IsLatest>(true|false)<\/IsLatest>/)?.[1];
+      const lastModified = content.match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1];
+      const size = deleteMarker ? '0' : content.match(/<Size>(\d+)<\/Size>/)?.[1];
+      if (
+        key === undefined ||
+        versionId === undefined ||
+        isLatest === undefined ||
+        lastModified === undefined ||
+        size === undefined
+      ) {
+        throw new Error('S3 ListObjectVersions returned an invalid version entry');
+      }
+      const parsedLastModified = new Date(xmlDecode(lastModified));
+      const parsedSize = Number(size);
+      if (
+        !Number.isSafeInteger(parsedSize) ||
+        parsedSize < 0 ||
+        Number.isNaN(parsedLastModified.getTime())
+      ) {
+        throw new Error('S3 ListObjectVersions returned invalid version metadata');
+      }
+      versions.push({
+        deleteMarker,
+        isLatest: isLatest === 'true',
+        key: xmlDecode(key),
+        lastModified: parsedLastModified,
+        size: parsedSize,
+        versionId: xmlDecode(versionId),
+      });
+    }
+
+    const truncatedMatch = xml.match(/<IsTruncated>(true|false)<\/IsTruncated>/);
+    if (!truncatedMatch) {
+      throw new Error('S3 ListObjectVersions omitted its IsTruncated value');
+    }
+    if (truncatedMatch[1] !== 'true') {
+      keyMarker = undefined;
+      versionIdMarker = undefined;
+      continue;
+    }
+    const nextKeyMarker = xml.match(/<NextKeyMarker>([\s\S]*?)<\/NextKeyMarker>/)?.[1];
+    const nextVersionIdMarker = xml.match(
+      /<NextVersionIdMarker>([\s\S]*?)<\/NextVersionIdMarker>/
+    )?.[1];
+    if (!nextKeyMarker || !nextVersionIdMarker) {
+      throw new Error('S3 ListObjectVersions omitted its continuation markers');
+    }
+    keyMarker = xmlDecode(nextKeyMarker);
+    versionIdMarker = xmlDecode(nextVersionIdMarker);
+  } while (keyMarker);
+
+  return versions;
+}
+
+/**
  * Bounded ListObjectsV2 page with the object age metadata needed by maintenance operations.
  * Existing callers of listS3Objects retain their current all-pages behavior and return shape.
  *
@@ -425,6 +520,8 @@ export async function listS3ObjectPage(
 
 /**
  * DeleteObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html
+ *
+ * Backblaze exact-version reference: https://www.backblaze.com/apidocs/s3-delete-object
  */
 export async function deleteS3Objects(config: CasConfig, keys: string[]): Promise<number> {
   const pending = [...keys];
@@ -434,7 +531,27 @@ export async function deleteS3Objects(config: CasConfig, keys: string[]): Promis
       if (key === undefined) {
         return;
       }
-      await signedRequest({ config, method: 'DELETE', operation: 'DeleteObject', key });
+      const versions = (await listS3ObjectVersions(config, key)).filter(
+        (version) => version.key === key
+      );
+      if (versions.length === 0) {
+        continue;
+      }
+      if (versions.some((version) => version.versionId === 'null')) {
+        await signedRequest({ config, method: 'DELETE', operation: 'DeleteObject', key });
+      }
+      for (const version of versions) {
+        if (version.versionId === 'null') {
+          continue;
+        }
+        await signedRequest({
+          config,
+          key,
+          method: 'DELETE',
+          operation: 'DeleteObjectVersion',
+          query: { versionId: version.versionId },
+        });
+      }
     }
   });
   await Promise.all(workers);

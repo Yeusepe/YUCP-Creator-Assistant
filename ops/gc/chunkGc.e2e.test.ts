@@ -350,10 +350,7 @@ describe.serial('conservative chunk garbage collection', () => {
     const afterDedupLastModified = await chunkLastModified(config, chunkIds);
     expect(afterDedupLastModified).toEqual(beforeLastModified);
 
-    await activeSql.begin(async (transaction) => {
-      await transaction`DELETE FROM catalog_outbox WHERE aggregate_id = ${ready.id}`;
-      await transaction`DELETE FROM package_versions WHERE id = ${ready.id}`;
-    });
+    await activeCatalog.deleteVersion(ready.id, { reason: 'creator-request' });
     const gc = await runChunkGarbageCollection({
       sql: activeSql,
       store: activeStore,
@@ -451,11 +448,11 @@ describe.serial('conservative chunk garbage collection', () => {
     const v1ManifestKey = `${config.indexPrefix}${deliveryManifestObjectId(readyV1.id)}`;
     const v2ManifestKey = `${config.indexPrefix}${deliveryManifestObjectId(readyV2.id)}`;
 
-    await activeSql.begin(async (transaction) => {
-      await transaction`DELETE FROM catalog_outbox WHERE aggregate_id = ${readyV1.id}`;
-      await transaction`DELETE FROM package_versions WHERE id = ${readyV1.id}`;
+    await activeCatalog.deleteVersion(readyV1.id, { reason: 'creator-request' });
+    expect(await activeCatalog.getVersion(readyV1.id)).toMatchObject({
+      state: 'DELETED',
+      deletionReason: 'creator-request',
     });
-    expect(await activeCatalog.getVersion(readyV1.id)).toBeNull();
 
     const objectsBeforeDryRun = await listS3Objects(config);
     const chunkIdsBeforeGc = chunkObjectIds(objectsBeforeDryRun, config.chunkPrefix);
@@ -548,4 +545,175 @@ describe.serial('conservative chunk garbage collection', () => {
       `GC_E2E_RESULT v1-unique-deleted=${v1UniqueIds.size} shared+v2-chunks-kept=${v2ChunkIds.size} v2-retrievable-after-GC=yes grace-protects-fresh=yes idempotent=yes dryRun-noop=yes first-run-kept=${firstRun.keptObjects} first-run-deleted=${firstRun.deletedObjects}`
     );
   });
+
+  it('deduplicates repeated updates and isolates complete package deletion', async () => {
+    const activeCatalog = requireCatalog();
+    const config = requireCasConfig();
+    const activeStore = requireStore();
+    const scratch = requireScratchPath();
+    const sharedPrefix = deterministicBytes('management-shared-prefix', 4 * 1024 * 1024);
+    const sharedSuffix = deterministicBytes('management-shared-suffix', 4 * 1024 * 1024);
+    const paths = [
+      join(scratch, 'management-v1.bin'),
+      join(scratch, 'management-v2.bin'),
+      join(scratch, 'management-v3.bin'),
+      join(scratch, 'management-unrelated.bin'),
+    ];
+    const versionBytes = [
+      Buffer.concat([
+        sharedPrefix,
+        deterministicBytes('management-version-one', 384 * 1024),
+        sharedSuffix,
+      ]),
+      Buffer.concat([
+        sharedPrefix,
+        deterministicBytes('management-version-two', 384 * 1024),
+        sharedSuffix,
+      ]),
+      Buffer.concat([
+        sharedPrefix,
+        deterministicBytes('management-version-three', 384 * 1024),
+        sharedSuffix,
+      ]),
+    ];
+    await Promise.all([
+      writeFile(paths[0], versionBytes[0]),
+      writeFile(paths[1], versionBytes[1]),
+      writeFile(paths[2], versionBytes[2]),
+      writeFile(paths[3], versionBytes[1]),
+    ]);
+
+    const readyVersions = [];
+    for (const [index, inputPath] of paths.slice(0, 3).entries()) {
+      const assembled = await ingestVersion({
+        catalog: activeCatalog,
+        store: activeStore,
+        packageId: 'managed-update-package',
+        version: `1.${index}.0`,
+        inputPath,
+      });
+      readyVersions.push(
+        await promoteVersion({
+          catalog: activeCatalog,
+          store: activeStore,
+          versionId: assembled.id,
+        })
+      );
+    }
+    const unrelated = await promoteVersion({
+      catalog: activeCatalog,
+      store: activeStore,
+      versionId: (
+        await ingestVersion({
+          catalog: activeCatalog,
+          store: activeStore,
+          packageId: 'unrelated-retained-package',
+          version: '1.0.0',
+          inputPath: paths[3],
+        })
+      ).id,
+    });
+    if (readyVersions.some((version) => !version.casIndexId) || !unrelated.casIndexId) {
+      throw new Error('READY package-management fixtures must have CAS index IDs');
+    }
+
+    const chunkSets: Set<string>[] = [];
+    for (const version of readyVersions) {
+      const chunks = await inspectDesyncIndex({
+        indexId: resolvePipelineCasIndexId(activeStore, version.casIndexId as string),
+        store: activeStore,
+      });
+      chunkSets.push(new Set(chunks.map(({ id }) => id)));
+    }
+    const unrelatedChunks = new Set(
+      (
+        await inspectDesyncIndex({
+          indexId: resolvePipelineCasIndexId(activeStore, unrelated.casIndexId),
+          store: activeStore,
+        })
+      ).map(({ id }) => id)
+    );
+    const allManagedChunkReferences = chunkSets.reduce((sum, ids) => sum + ids.size, 0);
+    const allManagedChunkIds = new Set(chunkSets.flatMap((ids) => [...ids]));
+    expect(allManagedChunkIds.size).toBeLessThan(allManagedChunkReferences);
+    for (let index = 1; index < chunkSets.length; index += 1) {
+      expect([...chunkSets[index - 1]].some((id) => chunkSets[index].has(id))).toBeTrue();
+    }
+    expect(unrelatedChunks).toEqual(chunkSets[1]);
+
+    const [base, updateTwo, updateThree] = readyVersions;
+    if (!base || !updateTwo || !updateThree) {
+      throw new Error('Package-management test did not create all update versions');
+    }
+    const baseOnlyChunkIds = new Set(
+      [...chunkSets[0]].filter(
+        (id) => !chunkSets[1].has(id) && !chunkSets[2].has(id) && !unrelatedChunks.has(id)
+      )
+    );
+    expect(baseOnlyChunkIds.size).toBeGreaterThan(0);
+
+    await activeCatalog.deleteVersion(base.id, { reason: 'creator-request' });
+    await runChunkGarbageCollection({
+      sql: requireSql(),
+      store: activeStore,
+      gracePeriodMs: 0,
+      batchSize: 2,
+    });
+    const chunksAfterBaseDeletion = chunkObjectIds(await listS3Objects(config), config.chunkPrefix);
+    for (const id of baseOnlyChunkIds) {
+      expect(chunksAfterBaseDeletion.has(id)).toBeFalse();
+    }
+    for (const id of new Set([...chunkSets[1], ...chunkSets[2], ...unrelatedChunks])) {
+      expect(chunksAfterBaseDeletion.has(id)).toBeTrue();
+    }
+
+    for (const [index, version] of [updateTwo, updateThree].entries()) {
+      const outputPath = await retrieveVersion({
+        catalog: activeCatalog,
+        store: activeStore,
+        versionId: version.id,
+        outputPath: join(scratch, `management-retrieved-${index + 2}.bin`),
+      });
+      expect(await sha256File(outputPath)).toBe(await sha256File(paths[index + 1]));
+    }
+
+    const deletedUpdates = await activeCatalog.deletePackageVersions('managed-update-package', {
+      reason: 'creator-request',
+    });
+    expect(deletedUpdates.map(({ id }) => id)).toEqual([updateTwo.id, updateThree.id]);
+    await runChunkGarbageCollection({
+      sql: requireSql(),
+      store: activeStore,
+      gracePeriodMs: 0,
+      batchSize: 2,
+    });
+
+    const chunksAfterPackageDeletion = chunkObjectIds(
+      await listS3Objects(config),
+      config.chunkPrefix
+    );
+    const managedOnlyChunkIds = new Set(
+      [...allManagedChunkIds].filter((id) => !unrelatedChunks.has(id))
+    );
+    for (const id of managedOnlyChunkIds) {
+      expect(chunksAfterPackageDeletion.has(id)).toBeFalse();
+    }
+    for (const id of unrelatedChunks) {
+      expect(chunksAfterPackageDeletion.has(id)).toBeTrue();
+    }
+    expect(await activeCatalog.listVersions('managed-update-package')).toEqual([]);
+    expect(await activeCatalog.listVersions('unrelated-retained-package')).toEqual([unrelated]);
+
+    const unrelatedOutput = await retrieveVersion({
+      catalog: activeCatalog,
+      store: activeStore,
+      versionId: unrelated.id,
+      outputPath: join(scratch, 'management-unrelated-after-gc.bin'),
+    });
+    expect(await sha256File(unrelatedOutput)).toBe(await sha256File(paths[3]));
+
+    console.log(
+      `PACKAGE_MANAGEMENT_GC_RESULT managed-references=${allManagedChunkReferences} managed-distinct-chunks=${allManagedChunkIds.size} base-only-deleted=${baseOnlyChunkIds.size} package-only-deleted=${managedOnlyChunkIds.size} unrelated-chunks-kept=${unrelatedChunks.size} updates-retrievable-after-base-delete=yes unrelated-retrievable-after-package-delete=yes`
+    );
+  }, 120_000);
 });

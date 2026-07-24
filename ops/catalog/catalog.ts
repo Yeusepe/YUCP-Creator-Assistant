@@ -14,6 +14,7 @@ export const CATALOG_STATES = [
   'PROMOTING',
   'READY',
   'FAILED',
+  'DELETED',
 ] as const;
 
 export type CatalogState = (typeof CATALOG_STATES)[number];
@@ -22,12 +23,13 @@ export type LiveCatalogState = Extract<CatalogState, 'UPLOADING' | 'PROMOTING'>;
 export const CATALOG_HEARTBEAT_INTERVAL_MS = 30_000;
 
 const allowedTransitions = {
-  CREATED: ['UPLOADING', 'FAILED'],
+  CREATED: ['UPLOADING', 'FAILED', 'DELETED'],
   UPLOADING: ['ASSEMBLED', 'FAILED'],
   ASSEMBLED: ['PROMOTING', 'FAILED'],
   PROMOTING: ['READY', 'FAILED'],
-  READY: [],
-  FAILED: ['UPLOADING'],
+  READY: ['DELETED'],
+  FAILED: ['UPLOADING', 'DELETED'],
+  DELETED: [],
 } as const satisfies Record<CatalogState, readonly CatalogState[]>;
 
 export const ALLOWED_CATALOG_TRANSITIONS: Readonly<Record<CatalogState, readonly CatalogState[]>> =
@@ -54,6 +56,8 @@ export interface PackageVersion {
   casIndexId: string | null;
   state: CatalogState;
   error: string | null;
+  deletedAt: Date | null;
+  deletionReason: string | null;
   attempts: number;
   nextAttemptAt: Date | null;
   createdAt: Date;
@@ -70,6 +74,8 @@ interface PackageVersionRow {
   cas_index_id: string | null;
   state: CatalogState;
   error: string | null;
+  deleted_at: Date | null;
+  deletion_reason: string | null;
   attempts: number;
   next_attempt_at: CatalogTimestamp | null;
   created_at: Date;
@@ -89,6 +95,7 @@ export interface TransitionFields {
   canonicalSha256?: string;
   casIndexId?: string;
   error?: string;
+  deletionReason?: string;
 }
 
 export interface TransitionOptions {
@@ -146,6 +153,8 @@ function toPackageVersion(row: PackageVersionRow): PackageVersion {
     casIndexId: row.cas_index_id,
     state: row.state,
     error: row.error,
+    deletedAt: row.deleted_at,
+    deletionReason: row.deletion_reason,
     attempts: row.attempts,
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
@@ -162,10 +171,12 @@ function validateTransitionFields(
   canonicalSha256: string | null;
   casIndexId: string | null;
   error: string | null;
+  deletionReason: string | null;
 } {
   const formatTag = fields.formatTag ?? current.format_tag;
   const canonicalSha256 = fields.canonicalSha256 ?? current.canonical_sha256;
   const casIndexId = fields.casIndexId ?? current.cas_index_id;
+  const deletionReason = fields.deletionReason?.trim() ?? current.deletion_reason;
 
   if ((canonicalSha256 === null) !== (casIndexId === null)) {
     throw new CatalogInvariantError(
@@ -185,13 +196,32 @@ function validateTransitionFields(
     if (!fields.error?.trim()) {
       throw new CatalogInvariantError('FAILED requires a non-empty error');
     }
-    return { formatTag, canonicalSha256, casIndexId, error: fields.error };
+    return {
+      formatTag,
+      canonicalSha256,
+      casIndexId,
+      error: fields.error,
+      deletionReason: null,
+    };
   }
   if (fields.error !== undefined) {
     throw new CatalogInvariantError('error can only be set when transitioning to FAILED');
   }
 
-  return { formatTag, canonicalSha256, casIndexId, error: null };
+  if (targetState === 'DELETED' && !deletionReason) {
+    throw new CatalogInvariantError('DELETED requires a non-empty deletion reason');
+  }
+  if (targetState !== 'DELETED' && fields.deletionReason !== undefined) {
+    throw new CatalogInvariantError('deletionReason can only be set when transitioning to DELETED');
+  }
+
+  return {
+    formatTag,
+    canonicalSha256,
+    casIndexId,
+    error: null,
+    deletionReason: targetState === 'DELETED' ? deletionReason : null,
+  };
 }
 
 function eventPayload(
@@ -209,6 +239,14 @@ function eventPayload(
     previousState,
     state,
   };
+}
+
+function deletionReason(value: string): string {
+  const reason = value.trim();
+  if (!reason) {
+    throw new CatalogInvariantError('Deletion requires a non-empty reason');
+  }
+  return reason;
 }
 
 export class Catalog {
@@ -262,6 +300,26 @@ export class Catalog {
     return rows[0] ? toPackageVersion(rows[0]) : null;
   }
 
+  async listVersions(
+    packageId: string,
+    options: { includeDeleted?: boolean } = {}
+  ): Promise<PackageVersion[]> {
+    const rows = options.includeDeleted
+      ? await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId}
+          ORDER BY created_at, id
+        `
+      : await this.sql<PackageVersionRow[]>`
+          SELECT *
+          FROM package_versions
+          WHERE package_id = ${packageId} AND state <> 'DELETED'
+          ORDER BY created_at, id
+        `;
+    return rows.map(toPackageVersion);
+  }
+
   async heartbeatVersion(versionId: string, state: LiveCatalogState): Promise<boolean> {
     const rows = await this.sql<{ id: string }[]>`
       UPDATE package_versions
@@ -301,6 +359,11 @@ export class Catalog {
           canonical_sha256 = ${fields.canonicalSha256},
           cas_index_id = ${fields.casIndexId},
           error = ${fields.error},
+          deleted_at = CASE
+            WHEN ${targetState === 'DELETED'} THEN clock_timestamp()
+            ELSE NULL
+          END,
+          deletion_reason = ${fields.deletionReason},
           attempts = ${nextAttempts},
           next_attempt_at = CASE
             WHEN ${enteringFailed}
@@ -331,7 +394,7 @@ export class Catalog {
 
   async advanceVersion(
     versionId: string,
-    targetState: Exclude<CatalogState, 'CREATED' | 'FAILED'>,
+    targetState: Exclude<CatalogState, 'CREATED' | 'FAILED' | 'DELETED'>,
     options: TransitionOptions
   ): Promise<PackageVersion> {
     return this.transition(versionId, targetState, options);
@@ -343,6 +406,122 @@ export class Catalog {
     event: CatalogEvent = { type: 'catalog.version.failed' }
   ): Promise<PackageVersion> {
     return this.transition(versionId, 'FAILED', { fields: { error }, event });
+  }
+
+  async deleteVersion(
+    versionId: string,
+    input: { reason: string; event?: CatalogEvent }
+  ): Promise<PackageVersion> {
+    const reason = deletionReason(input.reason);
+    const event = input.event ?? {
+      type: 'catalog.version.deleted',
+      payload: { reason },
+    };
+    return await this.sql.begin(async (transaction) => {
+      const currentRows = await transaction<PackageVersionRow[]>`
+        SELECT * FROM package_versions WHERE id = ${versionId} FOR UPDATE
+      `;
+      const current = currentRows[0];
+      if (!current) {
+        throw new PackageVersionNotFoundError(versionId);
+      }
+      if (current.state === 'DELETED') {
+        return toPackageVersion(current);
+      }
+      if (!(allowedTransitions[current.state] as readonly CatalogState[]).includes('DELETED')) {
+        throw new IllegalCatalogTransitionError(versionId, current.state, 'DELETED');
+      }
+
+      const updatedRows = await transaction<PackageVersionRow[]>`
+        UPDATE package_versions
+        SET
+          state = 'DELETED',
+          deleted_at = clock_timestamp(),
+          deletion_reason = ${reason},
+          updated_at = clock_timestamp()
+        WHERE id = ${versionId}
+        RETURNING *
+      `;
+      const updated = updatedRows[0];
+      if (!updated) {
+        throw new Error('PostgreSQL did not return the deleted package version');
+      }
+      await transaction`
+        INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+        VALUES (
+          ${randomUUID()},
+          ${versionId},
+          ${event.type},
+          ${transaction.json(eventPayload(event, updated, current.state, 'DELETED'))}
+        )
+      `;
+      return toPackageVersion(updated);
+    });
+  }
+
+  async deletePackageVersions(
+    packageId: string,
+    input: { reason: string }
+  ): Promise<PackageVersion[]> {
+    const reason = deletionReason(input.reason);
+    const result = await this.sql.begin(async (transaction) => {
+      const rows = await transaction<PackageVersionRow[]>`
+        SELECT *
+        FROM package_versions
+        WHERE package_id = ${packageId}
+        ORDER BY created_at, id
+        FOR UPDATE
+      `;
+      const activeRows = rows.filter((row) => row.state !== 'DELETED');
+      const blocked = activeRows.find(
+        (row) => !(allowedTransitions[row.state] as readonly CatalogState[]).includes('DELETED')
+      );
+      if (blocked) {
+        return {
+          blocked: {
+            id: blocked.id,
+            state: blocked.state,
+          },
+          deleted: [] as PackageVersion[],
+        };
+      }
+      const deleted: PackageVersion[] = [];
+      for (const current of activeRows) {
+        const updatedRows = await transaction<PackageVersionRow[]>`
+          UPDATE package_versions
+          SET
+            state = 'DELETED',
+            deleted_at = clock_timestamp(),
+            deletion_reason = ${reason},
+            updated_at = clock_timestamp()
+          WHERE id = ${current.id}
+          RETURNING *
+        `;
+        const updated = updatedRows[0];
+        if (!updated) {
+          throw new Error('PostgreSQL did not return a deleted package version');
+        }
+        const event = {
+          type: 'catalog.version.deleted',
+          payload: { reason },
+        };
+        await transaction`
+          INSERT INTO catalog_outbox (id, aggregate_id, event_type, payload)
+          VALUES (
+            ${randomUUID()},
+            ${updated.id},
+            ${event.type},
+            ${transaction.json(eventPayload(event, updated, current.state, 'DELETED'))}
+          )
+        `;
+        deleted.push(toPackageVersion(updated));
+      }
+      return { blocked: null, deleted };
+    });
+    if (result.blocked) {
+      throw new IllegalCatalogTransitionError(result.blocked.id, result.blocked.state, 'DELETED');
+    }
+    return result.deleted;
   }
 }
 

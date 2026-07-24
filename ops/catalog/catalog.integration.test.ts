@@ -94,6 +94,28 @@ async function createUploadingVersion(version: string): Promise<string> {
   return created.id;
 }
 
+async function createReadyVersion(packageId: string, version: string, digestCharacter: string) {
+  const activeCatalog = requireCatalog();
+  const created = await activeCatalog.createVersion({ packageId, version });
+  await activeCatalog.advanceVersion(created.id, 'UPLOADING', {
+    event: { type: 'catalog.version.uploading' },
+  });
+  await activeCatalog.advanceVersion(created.id, 'ASSEMBLED', {
+    fields: {
+      canonicalSha256: digestCharacter.repeat(64),
+      casIndexId: `s3:${packageId}/${version}.caibx`,
+      formatTag: 'CANONICAL_TARGZ_V1',
+    },
+    event: { type: 'catalog.version.assembled' },
+  });
+  await activeCatalog.advanceVersion(created.id, 'PROMOTING', {
+    event: { type: 'catalog.version.promoting' },
+  });
+  return await activeCatalog.advanceVersion(created.id, 'READY', {
+    event: { type: 'catalog.version.ready' },
+  });
+}
+
 beforeAll(async () => {
   try {
     await requireDocker(['version']);
@@ -368,6 +390,105 @@ describe.serial('PostgreSQL catalog integration', () => {
       WHERE aggregate_id = ${created.id} AND event_type = 'catalog.version.ready'
     `;
     expect(readyEvents[0]?.count).toBe(1);
+  });
+
+  it('version-deletion: tombstones a base version without changing its ready update', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const base = await createReadyVersion('managed-package', '1.0.0', 'a');
+    const update = await createReadyVersion('managed-package', '1.1.0', 'b');
+
+    const deleted = await activeCatalog.deleteVersion(base.id, {
+      reason: 'creator-request',
+    });
+
+    expect(deleted).toMatchObject({
+      id: base.id,
+      packageId: 'managed-package',
+      version: '1.0.0',
+      state: 'DELETED',
+      deletionReason: 'creator-request',
+    });
+    expect(deleted.deletedAt).toBeInstanceOf(Date);
+    expect(await activeCatalog.getVersion(update.id)).toMatchObject({
+      id: update.id,
+      state: 'READY',
+    });
+    expect(await activeCatalog.listVersions('managed-package')).toEqual([update]);
+    expect(await activeCatalog.listVersions('managed-package', { includeDeleted: true })).toEqual([
+      deleted,
+      update,
+    ]);
+
+    const events = await database<
+      { event_type: string; payload: { reason: string; previousState: string; state: string } }[]
+    >`
+      SELECT event_type, payload
+      FROM catalog_outbox
+      WHERE aggregate_id = ${base.id} AND event_type = 'catalog.version.deleted'
+    `;
+    expect([...events]).toEqual([
+      {
+        event_type: 'catalog.version.deleted',
+        payload: expect.objectContaining({
+          previousState: 'READY',
+          reason: 'creator-request',
+          state: 'DELETED',
+        }),
+      },
+    ]);
+  });
+
+  it('package-deletion: tombstones only the selected package and keeps unrelated versions', async () => {
+    const activeCatalog = requireCatalog();
+    const first = await createReadyVersion('package-to-delete', '1.0.0', 'c');
+    const second = await createReadyVersion('package-to-delete', '2.0.0', 'd');
+    const failed = await activeCatalog.createVersion({
+      packageId: 'package-to-delete',
+      version: '3.0.0',
+    });
+    await activeCatalog.markFailed(failed.id, 'creator upload failed');
+    const unrelated = await createReadyVersion('package-to-keep', '1.0.0', 'e');
+
+    const deleted = await activeCatalog.deletePackageVersions('package-to-delete', {
+      reason: 'creator-request',
+    });
+
+    expect(deleted.map(({ id }) => id)).toEqual([first.id, second.id, failed.id]);
+    expect(deleted.every(({ state }) => state === 'DELETED')).toBeTrue();
+    expect(deleted.find(({ id }) => id === failed.id)?.error).toBe('creator upload failed');
+    expect(await activeCatalog.listVersions('package-to-delete')).toEqual([]);
+    expect(await activeCatalog.listVersions('package-to-keep')).toEqual([unrelated]);
+    expect(await activeCatalog.getVersion(unrelated.id)).toEqual(unrelated);
+  });
+
+  it('package-deletion-atomicity: leaves every version active when one version is in flight', async () => {
+    const activeCatalog = requireCatalog();
+    const ready = await createReadyVersion('package-with-live-upload', '1.0.0', 'f');
+    const uploading = await activeCatalog.createVersion({
+      packageId: 'package-with-live-upload',
+      version: '2.0.0',
+    });
+    await activeCatalog.advanceVersion(uploading.id, 'UPLOADING', {
+      event: { type: 'catalog.version.uploading' },
+    });
+
+    let deletionError: unknown;
+    try {
+      await activeCatalog.deletePackageVersions('package-with-live-upload', {
+        reason: 'creator-request',
+      });
+    } catch (error) {
+      deletionError = error;
+    }
+    expect(deletionError).toMatchObject({
+      currentState: 'UPLOADING',
+      targetState: 'DELETED',
+      versionId: uploading.id,
+    });
+
+    expect(await activeCatalog.getVersion(ready.id)).toEqual(ready);
+    expect(await activeCatalog.getVersion(uploading.id)).toMatchObject({ state: 'UPLOADING' });
   });
 
   it('assembled-invariant: rejects ASSEMBLED without a format tag', async () => {

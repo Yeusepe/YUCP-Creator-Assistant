@@ -62,6 +62,57 @@ export const upsertReadyVersion = mutation({
   },
 });
 
+export const markVersionDeleted = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    versionId: v.string(),
+    deletedAt: v.number(),
+  },
+  handler: async (ctx, args): Promise<Id<'package_versions_ref'>> => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+
+    const existing = await ctx.db
+      .query('package_versions_ref')
+      .withIndex('by_version_id', (q) => q.eq('versionId', args.versionId))
+      .first();
+    if (!existing) {
+      throw new Error(`Package version reference not found: ${args.versionId}`);
+    }
+    if (existing.state === 'DELETED') {
+      return existing._id;
+    }
+
+    await ctx.db.patch(existing._id, {
+      state: 'DELETED',
+      deletedAt: args.deletedAt,
+    });
+    if (existing.state !== 'READY') {
+      return existing._id;
+    }
+
+    const fallback = (
+      await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_package_channel', (q) =>
+          q
+            .eq('packageId', existing.packageId)
+            .eq('channel', existing.channel)
+            .eq('state', 'SUPERSEDED')
+        )
+        .collect()
+    ).sort(
+      (left, right) =>
+        right.createdAt - left.createdAt || String(right._id).localeCompare(String(left._id))
+    )[0];
+    if (fallback) {
+      await ctx.db.patch(fallback._id, { state: 'READY' });
+    }
+    return existing._id;
+  },
+});
+
 export const resolveDownloadableVersion = query({
   args: {
     apiSecret: v.string(),

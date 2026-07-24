@@ -232,6 +232,24 @@ describe('desync S3 CAS against throwaway MinIO', () => {
     );
     expect(objectsDeleted).toBe(afterV2.length);
     expect(await listS3Objects(config)).toEqual([]);
+    const retainedPhysicalVersions = (
+      await runCommand('docker', [
+        'exec',
+        containerId,
+        'mc',
+        'ls',
+        '--recursive',
+        '--versions',
+        '--json',
+        `local/${bucket}`,
+      ])
+    ).stdout
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string })
+      .filter((entry) => entry.type === 'file');
+    expect(retainedPhysicalVersions).toEqual([]);
 
     console.log(
       `CAS_S3_E2E_RESULT roundTripSha256=match uncompressedChunks=yes v1Objects=${afterV1.length} v1StoredBytes=${v1StoredBytes} v2DeltaObjects=${v2DeltaObjects} v2DeltaBytes=${v2DeltaBytes} objectsDeleted=${objectsDeleted}`

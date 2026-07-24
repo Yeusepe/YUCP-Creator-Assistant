@@ -88,6 +88,8 @@ function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
     casIndexId: row.cas_index_id,
     state: row.state,
     error: row.error,
+    deletedAt: null,
+    deletionReason: null,
     attempts: row.attempts,
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,

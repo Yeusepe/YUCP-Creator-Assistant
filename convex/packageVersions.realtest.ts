@@ -166,6 +166,85 @@ describe('packageVersions', () => {
     expect(rows.find((row) => row.version === '1.0.0')?.state).toBe('SUPERSEDED');
   });
 
+  it('deletes a base version without breaking the current update', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.delete-base';
+    const baseVersionId = '00000000-0000-4000-8000-000000000001';
+    const updateVersionId = '00000000-0000-4000-8000-000000000002';
+
+    for (const [index, versionId] of [baseVersionId, updateVersionId].entries()) {
+      await t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          packageId,
+          version: `1.${index}.0`,
+          versionId,
+          createdAt: 1_000 + index,
+        })
+      );
+    }
+    await t.mutation(
+      api.packageVersions.markVersionDeleted,
+      await authenticatedReadyVersionArgs({
+        versionId: baseVersionId,
+        deletedAt: 3_000,
+      })
+    );
+
+    const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor: await createDownloadServiceActorBinding(),
+      packageId,
+    });
+    const rows = await t.run(async (ctx) => await ctx.db.query('package_versions_ref').collect());
+    expect(resolved?.versionId).toBe(updateVersionId);
+    expect(rows.find((row) => row.versionId === baseVersionId)).toMatchObject({
+      state: 'DELETED',
+      deletedAt: 3_000,
+    });
+    expect(rows.find((row) => row.versionId === updateVersionId)?.state).toBe('READY');
+  });
+
+  it('removes all deleted versions from download resolution and restores no deleted base', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.delete-all';
+    const versionIds = [
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000003',
+    ];
+
+    for (const [index, versionId] of versionIds.entries()) {
+      await t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          packageId,
+          version: `1.${index}.0`,
+          versionId,
+          createdAt: 1_000 + index,
+        })
+      );
+    }
+    for (const [index, versionId] of versionIds.entries()) {
+      await t.mutation(
+        api.packageVersions.markVersionDeleted,
+        await authenticatedReadyVersionArgs({
+          versionId,
+          deletedAt: 2_000 + index,
+        })
+      );
+    }
+
+    const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor: await createDownloadServiceActorBinding(),
+      packageId,
+    });
+    const rows = await t.run(async (ctx) => await ctx.db.query('package_versions_ref').collect());
+    expect(resolved).toBeNull();
+    expect(rows.every((row) => row.state === 'DELETED')).toBe(true);
+  });
+
   it('resolves the latest READY reference by product or package and returns null when absent', async () => {
     const t = makeTestConvex();
     const catalogProductId = await t.run(async (ctx) => {

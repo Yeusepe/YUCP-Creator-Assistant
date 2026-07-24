@@ -84,7 +84,41 @@ describe('createConvexCatalogPublish', () => {
     });
   });
 
-  it('does not call Convex for non-ready outbox events', async () => {
+  it('maps a DELETED outbox event to one authenticated Convex tombstone', async () => {
+    const mutation = mock(async (_reference: unknown, _args: unknown) => undefined);
+    const publish = createConvexCatalogPublish(config, {
+      createClient: () => ({ mutation }),
+    });
+    const createdAt = new Date('2026-07-17T16:30:00.000Z');
+
+    await publish({
+      id: 'outbox-deleted-1',
+      aggregateId: 'version-123',
+      eventType: 'catalog.version.deleted',
+      payload: {
+        versionId: 'version-123',
+        packageId: 'com.yucp.avatar-tools',
+        version: '1.2.3',
+        previousState: 'READY',
+        state: 'DELETED',
+        reason: 'creator-request',
+      },
+      createdAt,
+    });
+
+    expect(mutation).toHaveBeenCalledTimes(1);
+    const [reference, args] = mutation.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(getFunctionName(reference as never)).toBe(
+      getFunctionName(api.packageVersions.markVersionDeleted)
+    );
+    expect(args).toMatchObject({
+      apiSecret: config.convexApiSecret,
+      versionId: 'version-123',
+      deletedAt: createdAt.getTime(),
+    });
+  });
+
+  it('does not call Convex for other outbox events', async () => {
     const mutation = mock(async (_reference: unknown, _args: unknown) => undefined);
     const createClient = mock(() => ({ mutation }));
     const publish = createConvexCatalogPublish(config, {
