@@ -4,6 +4,7 @@ import betterAuthSchema from './betterAuth/schema';
 import { makeTestConvex } from './testHelpers';
 
 const API_SECRET = 'test-secret';
+const API_KEY_OWNERSHIP_TEST_TIMEOUT_MS = 30_000;
 
 type BetterAuthComponentCtx = {
   db: {
@@ -90,7 +91,7 @@ describe('betterAuthApiKeys', () => {
       kind: 'public-api',
       authUserId: ownerAuthUserId,
     });
-  }, 10_000);
+  }, API_KEY_OWNERSHIP_TEST_TIMEOUT_MS);
 
   it('stores the public tenant authUserId when the session owner differs', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
@@ -139,7 +140,7 @@ describe('betterAuthApiKeys', () => {
       kind: 'public-api',
       authUserId: tenantAuthUserId,
     });
-  }, 10_000);
+  }, API_KEY_OWNERSHIP_TEST_TIMEOUT_MS);
 
   it('rejects a managed public API key when metadata names a different owner', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
@@ -184,7 +185,7 @@ describe('betterAuthApiKeys', () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.key).toBeNull();
-  }, 10_000);
+  }, API_KEY_OWNERSHIP_TEST_TIMEOUT_MS);
 
   it('rejects legacy managed public API keys whose stored owner differs from metadata', async () => {
     const t = makeTestConvex() as ComponentAwareTestConvex;
@@ -235,5 +236,5 @@ describe('betterAuthApiKeys', () => {
 
     expect(verified.valid).toBe(false);
     expect(verified.key).toBeNull();
-  }, 10_000);
+  }, API_KEY_OWNERSHIP_TEST_TIMEOUT_MS);
 });

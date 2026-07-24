@@ -15,6 +15,7 @@ export default defineConfig({
   },
   test: {
     environment: 'edge-runtime',
+    maxWorkers: 4,
     include: ['**/*.realtest.?(c|m)[jt]s?(x)'],
     env: {
       ENCRYPTION_SECRET: 'test-encryption-secret-32-bytes!!',
