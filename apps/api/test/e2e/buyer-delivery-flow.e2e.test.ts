@@ -747,7 +747,8 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     const indexText = await indexResponse.text();
     const index = JSON.parse(indexText) as VpmIndex;
     const alias = buildYucpAliasVpmPackage({
-      catalogProductId: String(catalogProductId),
+      aliasId: String(catalogProductId),
+      catalogProductIds: [String(catalogProductId)],
       vpmBaseUrl: API_BASE_URL,
     });
     const aliasVersion = index.packages[alias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION];
@@ -758,7 +759,7 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
 
     const aliasResponse = await vpmRoutes.serveAliasPackage(
       new Request(alias.manifest.url),
-      String(catalogProductId),
+      alias.manifest.url.split('/').at(-2) ?? '',
       YUCP_ALIAS_BOOTSTRAP_VERSION
     );
     expect(aliasResponse.status).toBe(200);

@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
-import { buildYucpAliasVpmPackage, YUCP_ALIAS_BOOTSTRAP_VERSION } from './vpmAliasPackage';
+import {
+  buildYucpAliasVpmPackage,
+  decodeYucpAliasArtifactDescriptor,
+  YUCP_ALIAS_BOOTSTRAP_VERSION,
+} from './vpmAliasPackage';
 
 const catalogProductId = 'catalog_product_public_alias_123';
+const secondCatalogProductId = 'catalog_product_public_alias_456';
+const aliasId = 'jammr';
 
 describe('YUCP public VPM alias package', () => {
   it('builds one deterministic package.json-only archive', () => {
     const first = buildYucpAliasVpmPackage({
-      catalogProductId,
+      aliasId,
+      catalogProductIds: [catalogProductId, secondCatalogProductId],
       vpmBaseUrl: 'https://vpm.example.test/',
     });
     const second = buildYucpAliasVpmPackage({
-      catalogProductId,
+      aliasId,
+      catalogProductIds: [secondCatalogProductId, catalogProductId],
       vpmBaseUrl: 'https://vpm.example.test/',
     });
 
@@ -25,34 +33,37 @@ describe('YUCP public VPM alias package', () => {
 
   it('contains only public bootstrap metadata and the importer dependency', () => {
     const built = buildYucpAliasVpmPackage({
-      catalogProductId,
+      aliasId,
+      catalogProductIds: [catalogProductId, secondCatalogProductId],
       vpmBaseUrl: 'https://vpm.example.test/',
     });
     const entries = unzipSync(built.bytes);
     const packageJson = JSON.parse(
       Buffer.from(entries['package.json'] ?? []).toString('utf8')
     ) as Record<string, unknown>;
+    const artifactUrl = built.manifest.url;
 
     expect(built.manifest).toMatchObject({
       name: built.packageId,
       version: YUCP_ALIAS_BOOTSTRAP_VERSION,
-      url: `https://vpm.example.test/api/vpm/aliases/${encodeURIComponent(
-        catalogProductId
-      )}/${YUCP_ALIAS_BOOTSTRAP_VERSION}.zip`,
+      url: artifactUrl,
       zipSHA256: built.zipSha256,
       vpmDependencies: {
         'com.yucp.importer': '>=0.1.14',
       },
       yucp: {
         kind: 'alias-v1',
-        aliasId: catalogProductId,
-        catalogProductIds: [catalogProductId],
+        aliasId,
+        catalogProductIds: [catalogProductId, secondCatalogProductId],
         channel: 'stable',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
         minImporterVersion: '0.1.14',
       },
     });
+    expect(artifactUrl).toMatch(
+      /^https:\/\/vpm\.example\.test\/api\/vpm\/aliases\/[A-Za-z0-9_-]+\/1\.0\.0\.zip$/
+    );
     expect(packageJson).toEqual({
       name: built.packageId,
       displayName: built.manifest.displayName,
@@ -77,20 +88,49 @@ describe('YUCP public VPM alias package', () => {
     expect(serialized).not.toContain('download');
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('sig');
+
+    const descriptor = artifactUrl.split('/').at(-2);
+    expect(descriptor).toBeDefined();
+    expect(decodeYucpAliasArtifactDescriptor(descriptor ?? '')).toEqual({
+      aliasId,
+      catalogProductIds: [catalogProductId, secondCatalogProductId],
+    });
   });
 
   it('rejects unsafe origins and unbounded catalog product identifiers', () => {
     expect(() =>
       buildYucpAliasVpmPackage({
-        catalogProductId,
+        aliasId,
+        catalogProductIds: [catalogProductId],
         vpmBaseUrl: 'http://vpm.example.test/',
       })
     ).toThrow('VPM base URL');
     expect(() =>
       buildYucpAliasVpmPackage({
-        catalogProductId: 'x'.repeat(513),
+        aliasId,
+        catalogProductIds: ['x'.repeat(513)],
         vpmBaseUrl: 'https://vpm.example.test/',
       })
     ).toThrow('catalog product ID');
+  });
+
+  it('builds deterministic archives west of UTC at the ZIP epoch boundary', () => {
+    const originalTimezone = process.env.TZ;
+    process.env.TZ = 'America/Bogota';
+    try {
+      expect(() =>
+        buildYucpAliasVpmPackage({
+          aliasId,
+          catalogProductIds: [catalogProductId],
+          vpmBaseUrl: 'https://vpm.example.test/',
+        })
+      ).not.toThrow();
+    } finally {
+      if (originalTimezone === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = originalTimezone;
+      }
+    }
   });
 });

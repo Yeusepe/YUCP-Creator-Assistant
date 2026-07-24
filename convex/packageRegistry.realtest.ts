@@ -463,6 +463,118 @@ describe('packageRegistry', () => {
     expect(product?.packageId).toBe('com.yucp.bound-package');
   });
 
+  it('resolves a product-level entitlement through its provider-neutral catalog identity', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('product_catalog', {
+        authUserId: 'auth-user-legacy-entitlement',
+        productId: 'legacy-jammr-product',
+        provider: 'jinxxy',
+        providerProductRef: 'legacy-jammr-product',
+        displayName: 'JAMMR',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const product = await t.query(
+      api.packageRegistry.getBuyerAccessContextByEntitlement,
+      {
+        apiSecret: 'test-secret',
+        actor: await createServiceActorBinding(['verification-intents:service']),
+        productId: 'legacy-jammr-product',
+        sourceProvider: 'jinxxy',
+      }
+    );
+
+    expect(product?.catalogProductId).toBe(catalogProductId);
+    expect(product?.productId).toBe('legacy-jammr-product');
+  });
+
+  it('resolves one logical product across matching creator storefronts', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-cross-store-product';
+    const [gumroadProductId, jinxxyProductId] = await t.run(async (ctx) => {
+      const now = Date.now();
+      const insertProduct = async (
+        provider: 'gumroad' | 'jinxxy',
+        productId: string,
+        providerProductRef: string
+      ) =>
+        await ctx.db.insert('product_catalog', {
+          authUserId,
+          productId,
+          provider,
+          providerProductRef,
+          displayName: 'JAMMR',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      const gumroad = await insertProduct('gumroad', 'jammr-gumroad', 'gumroad-jammr');
+      const jinxxy = await insertProduct('jinxxy', 'jammr-jinxxy', 'jinxxy-jammr');
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.jammr',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000201',
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId: jinxxy,
+        createdAt: now,
+      });
+      return [gumroad, jinxxy] as const;
+    });
+    const creatorActor = await createCreatorActorBinding(authUserId);
+    const serviceActor = await createServiceActorBinding(['verification-intents:service']);
+
+    const creatorProducts = await t.query(api.packageRegistry.listByAuthUser, {
+      apiSecret: 'test-secret',
+      actor: creatorActor,
+      authUserId,
+      configuredOnly: true,
+      limit: 50,
+    });
+    const buyerProduct = await t.query(
+      api.packageRegistry.getBuyerAccessContextByCatalogProductId,
+      {
+        apiSecret: 'test-secret',
+        actor: serviceActor,
+        catalogProductId: gumroadProductId,
+      }
+    );
+
+    expect(creatorProducts.data).toHaveLength(1);
+    expect(creatorProducts.data[0]).toMatchObject({
+      packageId: 'com.yucp.jammr',
+      catalogProductIds: [gumroadProductId, jinxxyProductId],
+      storefronts: [
+        expect.objectContaining({ provider: 'gumroad' }),
+        expect.objectContaining({ provider: 'jinxxy' }),
+      ],
+    });
+    expect(buyerProduct).toMatchObject({
+      catalogProductId: gumroadProductId,
+      catalogProductIds: [gumroadProductId, jinxxyProductId],
+      packageId: 'com.yucp.jammr',
+      storefronts: [
+        expect.objectContaining({
+          catalogProductId: gumroadProductId,
+          provider: 'gumroad',
+          productId: 'jammr-gumroad',
+        }),
+        expect.objectContaining({
+          catalogProductId: jinxxyProductId,
+          provider: 'jinxxy',
+          productId: 'jammr-jinxxy',
+        }),
+      ],
+    });
+  });
+
   it('resolves human product aliases only within the requested creator profile', async () => {
     const t = makeTestConvex();
     const [firstProductId, secondProductId] = await t.run(async (ctx) => {

@@ -169,6 +169,66 @@ describe('creator packages session routes', () => {
     });
   });
 
+  it('preserves one logical product and every linked storefront in the creator response', async () => {
+    convexQueryMock.mockResolvedValue({
+      data: [
+        {
+          _id: 'catalog_product_gumroad',
+          aliasId: 'jammr',
+          catalogProductIds: ['catalog_product_gumroad', 'catalog_product_jinxxy'],
+          catalogTiers: [],
+          storefronts: [
+            {
+              catalogProductId: 'catalog_product_gumroad',
+              productId: 'jammr-gumroad',
+              provider: 'gumroad',
+              providerProductRef: 'jammr-gumroad-ref',
+              displayName: 'JAMMR',
+            },
+            {
+              catalogProductId: 'catalog_product_jinxxy',
+              productId: 'jammr-jinxxy',
+              provider: 'jinxxy',
+              providerProductRef: 'jammr-jinxxy-ref',
+              displayName: 'JAMMR',
+            },
+          ],
+          productId: 'jammr-gumroad',
+          provider: 'gumroad',
+          providerProductRef: 'jammr-gumroad-ref',
+          displayName: 'JAMMR',
+          packageId: 'com.yucp.jammr',
+          status: 'active',
+          supportsAutoDiscovery: true,
+          createdAt: 100,
+          updatedAt: 200,
+          canArchive: true,
+          canRestore: false,
+          canDelete: true,
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+
+    const response = await createRoutes('creator-123').listPackages(listRequest());
+    const body = (await response.json()) as {
+      data: Array<{
+        aliasId?: string;
+        catalogProductIds?: string[];
+        storefronts?: Array<{ provider: string }>;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]).toMatchObject({
+      aliasId: 'jammr',
+      catalogProductIds: ['catalog_product_gumroad', 'catalog_product_jinxxy'],
+      storefronts: [{ provider: 'gumroad' }, { provider: 'jinxxy' }],
+    });
+  });
+
   it('exposes unconfigured products only when the caller requests the picker feed', async () => {
     convexQueryMock.mockResolvedValue({ data: [], hasMore: false, nextCursor: null });
 

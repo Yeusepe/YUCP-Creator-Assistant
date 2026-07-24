@@ -14,6 +14,10 @@
  *   Sigstore policy engine         https://docs.sigstore.dev/policy-controller/overview/
  */
 
+import {
+  resolveComparableYucpAliasIdsFromCatalogProduct,
+  resolveSharedYucpAliasIdFromCatalogProducts,
+} from '@yucp/shared';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -61,14 +65,28 @@ function normalizePackageName(packageName: string | undefined): string | undefin
   return normalized;
 }
 
-async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'product_catalog'>) {
+type LogicalCatalogProductGroup = {
+  aliasId: string;
+  packageId?: string;
+  products: Doc<'product_catalog'>[];
+};
+
+async function buildCreatorPackageProductSummary(
+  ctx: QueryCtx,
+  product: Doc<'product_catalog'>,
+  resolvedLogicalGroup?: LogicalCatalogProductGroup
+) {
   const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, product._id);
   const deleteBlockedReason = getCatalogProductDeleteBlockedReason(dependencies);
   const status = getCatalogProductWorkspaceStatus(product);
-  const linkedPackageIds = Array.from(
+  const directPackageIds = Array.from(
     new Set(dependencies.packageVersions.map((version) => version.packageId))
   );
-  const packageId = linkedPackageIds.length === 1 ? linkedPackageIds[0] : undefined;
+  const logicalGroup = resolvedLogicalGroup ?? {
+    aliasId: resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ?? String(product._id),
+    ...(directPackageIds.length === 1 ? { packageId: directPackageIds[0] } : {}),
+    products: [product],
+  };
 
   return {
     _id: product._id,
@@ -91,7 +109,10 @@ async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'pr
       .sort((left, right) => left.displayName.localeCompare(right.displayName)),
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
-    packageId,
+    aliasId: logicalGroup.aliasId,
+    catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
+    storefronts: logicalGroup.products.map(buildCatalogStorefront),
+    packageId: logicalGroup.packageId,
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,
@@ -104,6 +125,122 @@ async function buildCreatorPackageProductSummary(ctx: QueryCtx, product: Doc<'pr
     canDelete: deleteBlockedReason === undefined,
     deleteBlockedReason,
   };
+}
+
+function compareCatalogProducts(
+  left: Doc<'product_catalog'>,
+  right: Doc<'product_catalog'>
+): number {
+  return (
+    left.provider.localeCompare(right.provider) ||
+    left.providerProductRef.localeCompare(right.providerProductRef) ||
+    String(left._id).localeCompare(String(right._id))
+  );
+}
+
+function buildCatalogStorefront(product: Doc<'product_catalog'>) {
+  return {
+    catalogProductId: product._id,
+    productId: product.productId,
+    provider: product.provider,
+    providerProductRef: product.providerProductRef,
+    displayName: product.displayName,
+    canonicalSlug: product.canonicalSlug,
+    thumbnailUrl: product.thumbnailUrl,
+  };
+}
+
+async function resolveLogicalCatalogProductGroup(
+  ctx: QueryCtx,
+  product: Doc<'product_catalog'>
+): Promise<LogicalCatalogProductGroup> {
+  const creatorProducts = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', product.authUserId))
+    .collect();
+  const groupsByProductId = await resolveLogicalCatalogProductGroups(ctx, creatorProducts);
+  return (
+    groupsByProductId.get(String(product._id)) ?? {
+      aliasId: String(product._id),
+      products: [product],
+    }
+  );
+}
+
+async function resolveLogicalCatalogProductGroups(
+  ctx: QueryCtx,
+  creatorProducts: ReadonlyArray<Doc<'product_catalog'>>
+): Promise<Map<string, LogicalCatalogProductGroup>> {
+  const activeProducts = creatorProducts
+    .filter((product) => getCatalogProductWorkspaceStatus(product) === 'active')
+    .sort(compareCatalogProducts);
+  const aliasBuckets = new Map<string, Doc<'product_catalog'>[]>();
+  for (const product of activeProducts) {
+    const aliasId = resolveComparableYucpAliasIdsFromCatalogProduct(product)[0];
+    if (!aliasId) continue;
+    const bucket = aliasBuckets.get(aliasId) ?? [];
+    bucket.push(product);
+    aliasBuckets.set(aliasId, bucket);
+  }
+
+  const proposedGroupsByProductId = new Map<string, Doc<'product_catalog'>[]>();
+  for (const product of activeProducts) {
+    proposedGroupsByProductId.set(String(product._id), [product]);
+  }
+  for (const bucket of aliasBuckets.values()) {
+    const providerCounts = new Map<string, number>();
+    for (const product of bucket) {
+      providerCounts.set(product.provider, (providerCounts.get(product.provider) ?? 0) + 1);
+    }
+    if (bucket.length < 2 || !Array.from(providerCounts.values()).every((count) => count === 1)) {
+      continue;
+    }
+    for (const product of bucket) {
+      proposedGroupsByProductId.set(String(product._id), bucket);
+    }
+  }
+
+  const packageIdsByProductId = new Map<string, string[]>();
+  await Promise.all(
+    activeProducts.map(async (product) => {
+      const versions = await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_catalog_product', (q) =>
+          q.eq('catalogProductId', product._id).eq('state', 'READY')
+        )
+        .collect();
+      packageIdsByProductId.set(
+        String(product._id),
+        Array.from(new Set(versions.map((version) => version.packageId)))
+      );
+    })
+  );
+
+  const resolvedGroupsByProductId = new Map<string, LogicalCatalogProductGroup>();
+  for (const product of activeProducts) {
+    const proposedGroup = proposedGroupsByProductId.get(String(product._id)) ?? [product];
+    const proposedPackageIds = Array.from(
+      new Set(
+        proposedGroup.flatMap((candidate) => packageIdsByProductId.get(String(candidate._id)) ?? [])
+      )
+    );
+    const products = proposedPackageIds.length > 1 ? [product] : proposedGroup;
+    const packageIds = Array.from(
+      new Set(
+        products.flatMap((candidate) => packageIdsByProductId.get(String(candidate._id)) ?? [])
+      )
+    );
+    const aliasId =
+      resolveSharedYucpAliasIdFromCatalogProducts(products) ??
+      resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ??
+      String(product._id);
+    resolvedGroupsByProductId.set(String(product._id), {
+      aliasId,
+      ...(packageIds.length === 1 ? { packageId: packageIds[0] } : {}),
+      products,
+    });
+  }
+  return resolvedGroupsByProductId;
 }
 
 export const getRegistration = internalQuery({
@@ -345,20 +482,23 @@ export const listByAuthUser = query({
           product.status === args.status
       );
     }
-    if (args.configuredOnly) {
-      const configuredProducts = await Promise.all(
-        products.map(async (product) => {
-          const readyVersion = await ctx.db
-            .query('package_versions_ref')
-            .withIndex('by_catalog_product', (q) =>
-              q.eq('catalogProductId', product._id).eq('state', 'READY')
-            )
-            .first();
-          return readyVersion ? product : null;
-        })
-      );
-      products = configuredProducts.filter((product) => product !== null);
-    }
+    const logicalGroupsByProductId = await resolveLogicalCatalogProductGroups(ctx, products);
+    const seenLogicalGroups = new Set<string>();
+    products = products.filter((product) => {
+      const group = logicalGroupsByProductId.get(String(product._id));
+      if (!group) {
+        return args.configuredOnly !== true;
+      }
+      if (args.configuredOnly && !group.packageId) {
+        return false;
+      }
+      const identity = group.products.map((candidate) => String(candidate._id)).join('\u0000');
+      if (seenLogicalGroups.has(identity)) {
+        return false;
+      }
+      seenLogicalGroups.add(identity);
+      return true;
+    });
 
     let startIndex = 0;
     if (args.cursor) {
@@ -372,7 +512,13 @@ export const listByAuthUser = query({
     }
     const pageProducts = products.slice(startIndex, startIndex + limit);
     const data = await Promise.all(
-      pageProducts.map((product) => buildCreatorPackageProductSummary(ctx, product))
+      pageProducts.map((product) =>
+        buildCreatorPackageProductSummary(
+          ctx,
+          product,
+          logicalGroupsByProductId.get(String(product._id))
+        )
+      )
     );
     const hasMore = startIndex + limit < products.length;
 
@@ -397,7 +543,11 @@ export const getByIdForAuthUser = query({
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
     const doc = await ctx.db.get(args.catalogProductId);
     if (!doc || doc.authUserId !== args.authUserId) return null;
-    return await buildCreatorPackageProductSummary(ctx, doc);
+    return await buildCreatorPackageProductSummary(
+      ctx,
+      doc,
+      await resolveLogicalCatalogProductGroup(ctx, doc)
+    );
   },
 });
 
@@ -424,6 +574,56 @@ async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
   for (const candidate of [...bySlug, ...byRef]) {
     candidates.set(String(candidate._id), candidate);
   }
+  return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
+}
+
+async function resolveCatalogProductFromEntitlement(
+  ctx: QueryCtx,
+  args: {
+    catalogProductId?: string;
+    productId: string;
+    sourceProvider?: string;
+  }
+) {
+  if (args.catalogProductId) {
+    return await resolveCatalogProduct(ctx, args.catalogProductId);
+  }
+
+  const productId = args.productId.trim();
+  if (!productId) {
+    return null;
+  }
+
+  const [byProductId, byProviderProductRef] = await Promise.all([
+    ctx.db
+      .query('product_catalog')
+      .withIndex('by_product_id', (q) => q.eq('productId', productId))
+      .collect(),
+    ctx.db
+      .query('product_catalog')
+      .withIndex('by_provider_product_ref', (q) => q.eq('providerProductRef', productId))
+      .collect(),
+  ]);
+  const candidates = new Map<string, Doc<'product_catalog'>>();
+  for (const candidate of [...byProductId, ...byProviderProductRef]) {
+    if (getCatalogProductWorkspaceStatus(candidate) === 'active') {
+      candidates.set(String(candidate._id), candidate);
+    }
+  }
+
+  const sourceProvider = args.sourceProvider?.trim();
+  if (sourceProvider) {
+    const providerMatches = Array.from(candidates.values()).filter(
+      (candidate) => candidate.provider === sourceProvider
+    );
+    if (providerMatches.length === 1) {
+      return providerMatches[0] ?? null;
+    }
+    if (providerMatches.length > 1) {
+      return null;
+    }
+  }
+
   return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
 }
 
@@ -478,19 +678,15 @@ async function buildBuyerAccessContext(ctx: QueryCtx, product: Doc<'product_cata
     return null;
   }
 
-  const packageVersions = await ctx.db
-    .query('package_versions_ref')
-    .withIndex('by_catalog_product', (q) =>
-      q.eq('catalogProductId', product._id).eq('state', 'READY')
-    )
-    .collect();
-  const packageIds = new Set(packageVersions.map((version) => version.packageId));
-  const packageId = packageIds.size === 1 ? packageIds.values().next().value : undefined;
+  const logicalGroup = await resolveLogicalCatalogProductGroup(ctx, product);
 
   return {
     catalogProductId: product._id,
+    catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
     creatorAuthUserId: product.authUserId,
-    ...(packageId ? { packageId } : {}),
+    aliasId: logicalGroup.aliasId,
+    ...(logicalGroup.packageId ? { packageId: logicalGroup.packageId } : {}),
+    storefronts: logicalGroup.products.map(buildCatalogStorefront),
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,
@@ -517,6 +713,23 @@ export const getBuyerAccessContextByCatalogProductId = query({
     }
 
     return await buildBuyerAccessContext(ctx, product);
+  },
+});
+
+export const getBuyerAccessContextByEntitlement = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    catalogProductId: v.optional(v.string()),
+    productId: v.string(),
+    sourceProvider: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
+
+    const product = await resolveCatalogProductFromEntitlement(ctx, args);
+    return product ? await buildBuyerAccessContext(ctx, product) : null;
   },
 });
 

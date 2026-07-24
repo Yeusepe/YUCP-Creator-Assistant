@@ -28,7 +28,7 @@ const UNITY_VERSION = '2022.3.22f1';
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
 const CATALOG_PRODUCT_ID = 'catalog_product_local_vpm_fixture';
 const PINNED_TUF_ROOT_SHA256 = 'f4e31f5a47d4f6558fdd51b97e379c34bd42325bcca32d07a9626596bba724af';
-const ZIP_TIMESTAMP = new Date('1980-01-01T00:00:00.000Z');
+const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
 
 type PackageManifest = Record<string, unknown> & {
   displayName: string;
@@ -499,7 +499,8 @@ describe.serial('official VPM CLI bootstrap', () => {
       });
     }
     const alias = buildYucpAliasVpmPackage({
-      catalogProductId: CATALOG_PRODUCT_ID,
+      aliasId: CATALOG_PRODUCT_ID,
+      catalogProductIds: [CATALOG_PRODUCT_ID],
       vpmBaseUrl: baseUrl,
     });
     const aliasPath = new URL(alias.manifest.url).pathname;

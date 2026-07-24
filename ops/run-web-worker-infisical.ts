@@ -2,7 +2,17 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const ROOT_DIR = resolve(import.meta.dir, '..');
-const DEFAULT_COMMAND = ['bun', 'run', '--filter', '@yucp/web', 'worker:dev'] as const;
+const DEFAULT_COMMAND = [
+  'bun',
+  'x',
+  'cross-env',
+  'API_BASE_URL=http://127.0.0.1:3001',
+  'bun',
+  'run',
+  '--filter',
+  '@yucp/web',
+  'worker:dev',
+] as const;
 
 export function buildWebWorkerCommand(forwardedArgs: readonly string[] = []): string[] {
   if (forwardedArgs.length === 0) {

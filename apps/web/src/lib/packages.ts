@@ -1,3 +1,4 @@
+import { resolveComparableYucpAliasIdsFromCatalogProduct } from '@yucp/shared';
 import { apiClient } from '@/api/client';
 
 export interface CreatorCatalogTierSummary {
@@ -14,10 +15,22 @@ export interface CreatorCatalogTierSummary {
   updatedAt: number;
 }
 
+export interface CreatorCatalogStorefrontSummary {
+  catalogProductId: string;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  displayName?: string;
+  canonicalSlug?: string;
+  thumbnailUrl?: string;
+}
+
 export interface CreatorPackageProductSummary {
   _id: string;
+  aliasId?: string;
   aliases?: string[];
   canonicalSlug?: string;
+  catalogProductIds?: string[];
   catalogTiers: CreatorCatalogTierSummary[];
   displayName?: string;
   thumbnailUrl?: string;
@@ -26,6 +39,7 @@ export interface CreatorPackageProductSummary {
   provider: string;
   providerProductRef: string;
   status: 'active' | 'archived';
+  storefronts?: CreatorCatalogStorefrontSummary[];
   supportsAutoDiscovery: boolean;
   createdAt: number;
   updatedAt: number;
@@ -87,16 +101,45 @@ function compareProviderProducts(
   );
 }
 
-function getPickerProductIdentityKey(product: CreatorPackageProductSummary): string {
-  return product.packageId ? `package:${product.packageId}` : `catalog:${product._id}`;
-}
-
 export function groupCreatorPackagePickerProducts(
   products: ReadonlyArray<CreatorPackageProductSummary>
 ): CreatorPackagePickerProduct[] {
-  const grouped = new Map<string, CreatorPackagePickerProduct>();
+  const comparableAliasBuckets = new Map<string, CreatorPackageProductSummary[]>();
   for (const product of products) {
-    const identityKey = getPickerProductIdentityKey(product);
+    const comparableAliasId =
+      resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ?? undefined;
+    if (!comparableAliasId) continue;
+    const bucket = comparableAliasBuckets.get(comparableAliasId) ?? [];
+    bucket.push(product);
+    comparableAliasBuckets.set(comparableAliasId, bucket);
+  }
+
+  const grouped = new Map<string, CreatorPackagePickerProduct>();
+  const assignedProductIds = new Set<string>();
+  for (const [comparableAliasId, bucket] of comparableAliasBuckets) {
+    const providers = new Set(bucket.map((product) => product.provider));
+    const packageIds = new Set(
+      bucket
+        .map((product) => product.packageId?.trim())
+        .filter((packageId): packageId is string => Boolean(packageId))
+    );
+    if (bucket.length < 2 || providers.size !== bucket.length || packageIds.size > 1) {
+      continue;
+    }
+
+    const packageId = packageIds.values().next().value as string | undefined;
+    const identityKey = packageId ? `package:${packageId}` : `alias:${comparableAliasId}`;
+    grouped.set(identityKey, { identityKey, products: [...bucket] });
+    for (const product of bucket) {
+      assignedProductIds.add(product._id);
+    }
+  }
+
+  for (const product of products) {
+    if (assignedProductIds.has(product._id)) continue;
+    const identityKey = product.packageId
+      ? `package:${product.packageId}`
+      : `catalog:${product._id}`;
     const existing = grouped.get(identityKey);
     if (existing) {
       if (!existing.products.some((candidate) => candidate._id === product._id)) {

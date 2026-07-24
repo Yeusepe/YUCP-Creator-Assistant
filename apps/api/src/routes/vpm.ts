@@ -6,7 +6,11 @@ import { createApiServiceActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
-import { buildYucpAliasVpmPackage, YUCP_ALIAS_BOOTSTRAP_VERSION } from './vpmAliasPackage';
+import {
+  buildYucpAliasVpmPackage,
+  decodeYucpAliasArtifactDescriptor,
+  YUCP_ALIAS_BOOTSTRAP_VERSION,
+} from './vpmAliasPackage';
 import { fetchPublicImporterManifest, type VpmImporterManifest } from './vpmImporterPackage';
 
 const VPM_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
@@ -44,12 +48,21 @@ interface CreateVpmRoutesOptions {
 
 type ActiveEntitlement = {
   catalogProductId?: Id<'product_catalog'> | null;
+  productId?: string | null;
+  sourceProvider?: string | null;
 };
 
 type DownloadableVersion = {
   packageId: string;
   version: string;
   versionId: string;
+};
+
+type VpmCatalogGroup = {
+  aliasId?: string;
+  catalogProductId: Id<'product_catalog'>;
+  catalogProductIds?: Id<'product_catalog'>[];
+  packageId?: string;
 };
 
 type VpmRepositoryPackages = Record<
@@ -216,6 +229,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
       return Response.json({ error: 'Invalid or expired VPM repository token' }, { status: 401 });
     }
 
+    let buildPhase = 'actor';
     try {
       const actor = await createApiServiceActorBinding({
         authUserId: verified.authUserId,
@@ -225,6 +239,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
       const convex = getConvexClientFromUrl(config.convexUrl, actor);
       const entitlements: ActiveEntitlement[] = [];
       let cursor: string | undefined;
+      buildPhase = 'entitlements';
       for (;;) {
         const result = (await convex.query(api.entitlements.listByAuthUser, {
           apiSecret: config.convexApiSecret,
@@ -252,21 +267,88 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
           )
         ),
       ];
-      const downloadableVersions = await Promise.all(
-        catalogProductIds.map(async (catalogProductId) => ({
-          catalogProductId,
+      buildPhase = 'catalog-groups';
+      const resolvedGroups = await Promise.all(
+        catalogProductIds.map(
+          async (catalogProductId) =>
+            (await convex.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
+              apiSecret: config.convexApiSecret,
+              actor,
+              catalogProductId: catalogProductId as Id<'product_catalog'>,
+            })) as VpmCatalogGroup | null
+        )
+      );
+      const legacyEntitlementRefs = [
+        ...new Map(
+          entitlements
+            .filter(
+              (
+                entitlement
+              ): entitlement is ActiveEntitlement & {
+                productId: string;
+              } => !entitlement.catalogProductId && Boolean(entitlement.productId?.trim())
+            )
+            .map((entitlement) => [
+              `${entitlement.sourceProvider ?? ''}\u0000${entitlement.productId}`,
+              {
+                productId: entitlement.productId,
+                ...(entitlement.sourceProvider
+                  ? { sourceProvider: entitlement.sourceProvider }
+                  : {}),
+              },
+            ])
+        ).values(),
+      ];
+      buildPhase = 'legacy-groups';
+      const legacyResolvedGroups = await Promise.all(
+        legacyEntitlementRefs.map(
+          async (entitlementRef) =>
+            (await convex.query(api.packageRegistry.getBuyerAccessContextByEntitlement, {
+              apiSecret: config.convexApiSecret,
+              actor,
+              ...entitlementRef,
+            })) as VpmCatalogGroup | null
+        )
+      );
+      const groups = new Map<string, VpmCatalogGroup>();
+      buildPhase = 'grouping';
+      for (const group of [...resolvedGroups, ...legacyResolvedGroups]) {
+        if (!group) continue;
+        const groupCatalogProductIds = [
+          ...new Set((group.catalogProductIds ?? [group.catalogProductId]).map(String)),
+        ].sort((left, right) => left.localeCompare(right));
+        const identity = group.packageId
+          ? `package:${group.packageId}`
+          : `catalog:${groupCatalogProductIds.join('\u0000')}`;
+        if (!groups.has(identity)) {
+          groups.set(identity, {
+            ...group,
+            catalogProductIds: groupCatalogProductIds as Id<'product_catalog'>[],
+          });
+        }
+      }
+      buildPhase = 'versions';
+      const downloadableGroups = await Promise.all(
+        Array.from(groups.values()).map(async (group) => ({
+          group,
           release: (await convex.query(api.packageVersions.resolveDownloadableVersion, {
             apiSecret: config.convexApiSecret,
             actor,
-            catalogProductId: catalogProductId as Id<'product_catalog'>,
+            ...(group.packageId
+              ? { packageId: group.packageId }
+              : { catalogProductId: group.catalogProductId }),
           })) as DownloadableVersion | null,
         }))
       );
-      const aliases = downloadableVersions.flatMap(({ catalogProductId, release }) =>
+      buildPhase = 'aliases';
+      const aliases = downloadableGroups.flatMap(({ group, release }) =>
         release
           ? [
               buildYucpAliasVpmPackage({
-                catalogProductId,
+                aliasId: group.aliasId ?? release.packageId,
+                catalogProductIds: (group.catalogProductIds ?? [group.catalogProductId]).map(
+                  String
+                ),
                 vpmBaseUrl: vpmRepository.vpmBaseUrl,
               }),
             ]
@@ -281,6 +363,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
         return repository;
       }, {});
       if (aliases.length > 0) {
+        buildPhase = 'importer';
         const importerManifest = await getImporterManifest(vpmRepository.publicVpmIndexUrl);
         packages[importerManifest.name] = {
           versions: {
@@ -289,6 +372,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
         };
       }
 
+      buildPhase = 'response';
       const indexUrl = buildIndexUrl(vpmRepository.vpmBaseUrl, token);
       return jsonNoStore({
         name: 'YUCP Buyer Packages',
@@ -308,6 +392,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
         );
       }
       logger.error('Failed to build buyer VPM repository index', {
+        phase: buildPhase,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
       return Response.json({ error: 'Failed to build VPM repository' }, { status: 500 });
@@ -316,7 +401,7 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
 
   async function serveAliasPackage(
     request: Request,
-    catalogProductId: string,
+    artifactDescriptor: string,
     version: string
   ): Promise<Response> {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -331,8 +416,9 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
     }
 
     try {
+      const descriptor = decodeYucpAliasArtifactDescriptor(artifactDescriptor);
       const built = buildYucpAliasVpmPackage({
-        catalogProductId,
+        ...descriptor,
         vpmBaseUrl,
       });
       const headers = new Headers({

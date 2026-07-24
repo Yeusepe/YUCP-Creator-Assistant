@@ -82,11 +82,13 @@ type CreatorCatalogTierSource = {
 
 type CreatorPackageProductSource = {
   _id: string;
+  aliasId?: string;
   aliases?: string[];
   canArchive: boolean;
   canDelete: boolean;
   canRestore: boolean;
   canonicalSlug?: string;
+  catalogProductIds?: string[];
   catalogTiers: CreatorCatalogTierSource[];
   createdAt: number;
   deleteBlockedReason?: string;
@@ -98,7 +100,18 @@ type CreatorPackageProductSource = {
   status: 'active' | 'archived';
   supportsAutoDiscovery: boolean;
   thumbnailUrl?: string;
+  storefronts?: CreatorPackageStorefrontSource[];
   updatedAt: number;
+};
+
+type CreatorPackageStorefrontSource = {
+  catalogProductId: string;
+  canonicalSlug?: string;
+  displayName?: string;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  thumbnailUrl?: string;
 };
 
 function serializeCreatorCatalogTier(tier: CreatorCatalogTierSource) {
@@ -120,8 +133,10 @@ function serializeCreatorCatalogTier(tier: CreatorCatalogTierSource) {
 function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
   return {
     _id: product._id,
+    aliasId: product.aliasId,
     aliases: product.aliases,
     canonicalSlug: product.canonicalSlug,
+    catalogProductIds: product.catalogProductIds,
     catalogTiers: product.catalogTiers.map(serializeCreatorCatalogTier),
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
@@ -130,6 +145,7 @@ function serializeCreatorPackageProduct(product: CreatorPackageProductSource) {
     provider: product.provider,
     providerProductRef: product.providerProductRef,
     status: product.status,
+    storefronts: product.storefronts,
     supportsAutoDiscovery: product.supportsAutoDiscovery,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,

@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { parse as parseDotenv } from 'dotenv';
+import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
 import {
   type DisposableStorageHarness,
   startDisposableStorageHarness,
@@ -19,6 +20,11 @@ const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const DEV_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
 const DEV_HYPERDX_USE_REMOTE_FLAG = 'HYPERDX_DEV_USE_REMOTE';
 const DEV_INGEST_TUS_URL = 'http://localhost:3002';
+const DEV_API_URL = 'http://127.0.0.1:3001';
+const DEV_DELIVERY_URL = 'http://127.0.0.1:3003';
+const DEV_DELIVERY_PORT = '3003';
+const DEV_PUBLIC_VPM_URL = 'http://127.0.0.1:3004';
+const DEV_PUBLIC_VPM_PORT = '3004';
 const DEV_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 const PREFIX_RESET = '\u001B[0m';
 const PREFIX_COLORS = {
@@ -89,10 +95,36 @@ const WINDOWS_TASKKILL_TIMEOUT_MS = 2_000;
 const WINDOWS_POWERSHELL_KILL_TIMEOUT_MS = 5_000;
 
 export function buildDevCommands(
-  _baseEnv: NodeJS.ProcessEnv = process.env,
+  baseEnv: NodeJS.ProcessEnv = process.env,
   infisical = false
 ): readonly DevCommandSpec[] {
   const commands = [...(infisical ? INFISICAL_COMMANDS : DEFAULT_COMMANDS)];
+  commands.push(
+    {
+      name: 'delivery',
+      color: 'magenta',
+      command: 'bun x tsx services/delivery-worker/testDevServer.ts',
+      env: {
+        BUYER_FLOW_CAS_CHUNK_PREFIX: baseEnv.CAS_CHUNK_PREFIX ?? 'chunks/',
+        BUYER_FLOW_CAS_INDEX_PREFIX: baseEnv.CAS_INDEX_PREFIX ?? 'indexes/',
+        BUYER_FLOW_CAS_S3_BUCKET: baseEnv.CAS_S3_BUCKET,
+        BUYER_FLOW_CAS_S3_ENDPOINT: baseEnv.CAS_S3_ENDPOINT,
+        BUYER_FLOW_CAS_S3_READONLY_ACCESS_KEY_ID: baseEnv.CAS_S3_ACCESS_KEY_ID,
+        BUYER_FLOW_CAS_S3_READONLY_SECRET_ACCESS_KEY: baseEnv.CAS_S3_SECRET_ACCESS_KEY,
+        BUYER_FLOW_CAS_S3_REGION: baseEnv.CAS_S3_REGION,
+        BUYER_FLOW_DELIVERY_HMAC_KEY: baseEnv.DELIVERY_HMAC_KEY,
+        BUYER_FLOW_DELIVERY_PORT: DEV_DELIVERY_PORT,
+        BUYER_FLOW_KEEP_ALIVE: '1',
+        BUYER_FLOW_STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
+      },
+    },
+    {
+      name: 'vpm-public',
+      color: 'green',
+      command: 'bun run ops/importer/localVpmServer.ts',
+      env: { PORT: DEV_PUBLIC_VPM_PORT },
+    }
+  );
   commands.push(TUNNEL_COMMAND);
   return commands;
 }
@@ -447,7 +479,11 @@ export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.Proces
 export function applyDisposableStorageProfile(
   baseEnv: NodeJS.ProcessEnv,
   storage: DisposableStorageHarness,
-  uploadHmacKey: string
+  secrets: {
+    deliveryHmacKey: string;
+    uploadHmacKey: string;
+    vpmTokenKey: string;
+  }
 ): NodeJS.ProcessEnv {
   const common = storage.buckets.common;
   return {
@@ -458,12 +494,17 @@ export function applyDisposableStorageProfile(
     CAS_S3_REGION: common.region,
     CAS_S3_SECRET_ACCESS_KEY: common.secretAccessKey,
     CATALOG_DATABASE_URL: storage.postgres.url,
+    DELIVERY_BASE_URL: DEV_DELIVERY_URL,
+    DELIVERY_HMAC_KEY: secrets.deliveryHmacKey,
     INGEST_ALLOWED_ORIGIN: DEV_FRONTEND_URL,
     INGEST_MAX_BYTES: String(DEV_MAX_UPLOAD_BYTES),
     INGEST_TUS_URL: DEV_INGEST_TUS_URL,
     INGEST_UPLOAD_DIR: storage.uploadDir,
     NODE_ENV: baseEnv.NODE_ENV ?? 'development',
-    UPLOAD_HMAC_KEY: uploadHmacKey,
+    UPLOAD_HMAC_KEY: secrets.uploadHmacKey,
+    VPM_BASE_URL: DEV_API_URL,
+    VPM_PUBLIC_INDEX_URL: `${DEV_PUBLIC_VPM_URL}/index.json`,
+    VPM_TOKEN_KEY: secrets.vpmTokenKey,
     YUCP_STORAGE_PROFILE: 'disposable',
   };
 }
@@ -500,11 +541,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const infisical = argv.includes('--infisical');
   const loadedEnv = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
   const storage = await startDisposableStorageHarness();
-  const env = applyDisposableStorageProfile(
-    loadedEnv,
-    storage,
-    randomBytes(32).toString('base64url')
-  );
+  const env = applyDisposableStorageProfile(loadedEnv, storage, {
+    deliveryHmacKey: randomBytes(32).toString('base64url'),
+    uploadHmacKey: randomBytes(32).toString('base64url'),
+    vpmTokenKey: randomBytes(32).toString('base64url'),
+  });
   const supervisor = new DevSupervisor(buildDevCommands(env, infisical), env, {
     prefixOutput: true,
   });

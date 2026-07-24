@@ -214,8 +214,20 @@ describe('DevSupervisor', () => {
     });
   });
 
-  test('buildDevCommands starts the real ingest and scheduler processes', () => {
-    const commands = buildDevCommands({}, true);
+  test('buildDevCommands starts every real package storage and delivery process', () => {
+    const commands = buildDevCommands(
+      {
+        CAS_CHUNK_PREFIX: 'chunks/',
+        CAS_INDEX_PREFIX: 'indexes/',
+        CAS_S3_ACCESS_KEY_ID: 'local-common-key',
+        CAS_S3_BUCKET: 'local-common',
+        CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        CAS_S3_REGION: 'us-east-1',
+        CAS_S3_SECRET_ACCESS_KEY: 'local-common-secret',
+        DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
+      },
+      true
+    );
 
     expect(commands.find((command) => command.name === 'ingest-tus')).toMatchObject({
       command: 'bun run ops/ingest-tus/server.ts',
@@ -223,6 +235,26 @@ describe('DevSupervisor', () => {
     });
     expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
       command: 'bun run ops/scheduler/server.ts',
+    });
+    expect(commands.find((command) => command.name === 'delivery')).toMatchObject({
+      command: 'bun x tsx services/delivery-worker/testDevServer.ts',
+      env: {
+        BUYER_FLOW_CAS_CHUNK_PREFIX: 'chunks/',
+        BUYER_FLOW_CAS_INDEX_PREFIX: 'indexes/',
+        BUYER_FLOW_CAS_S3_BUCKET: 'local-common',
+        BUYER_FLOW_CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        BUYER_FLOW_CAS_S3_READONLY_ACCESS_KEY_ID: 'local-common-key',
+        BUYER_FLOW_CAS_S3_READONLY_SECRET_ACCESS_KEY: 'local-common-secret',
+        BUYER_FLOW_CAS_S3_REGION: 'us-east-1',
+        BUYER_FLOW_DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
+        BUYER_FLOW_DELIVERY_PORT: '3003',
+        BUYER_FLOW_KEEP_ALIVE: '1',
+        BUYER_FLOW_STORAGE_FORMAT_VERSION: 'desync-uncompressed-sha256-v1',
+      },
+    });
+    expect(commands.find((command) => command.name === 'vpm-public')).toMatchObject({
+      command: 'bun run ops/importer/localVpmServer.ts',
+      env: { PORT: '3004' },
     });
   });
 
@@ -251,7 +283,11 @@ describe('DevSupervisor', () => {
         INFISICAL_PROJECT_ID: 'keep-project-id',
       },
       storage,
-      'local-upload-hmac-key'
+      {
+        deliveryHmacKey: 'local-delivery-hmac-key',
+        uploadHmacKey: 'local-upload-hmac-key',
+        vpmTokenKey: 'local-vpm-token-key',
+      }
     );
 
     expect(env).toMatchObject({
@@ -259,12 +295,17 @@ describe('DevSupervisor', () => {
       CAS_S3_BUCKET: 'local-common',
       CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
       CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
+      DELIVERY_BASE_URL: 'http://127.0.0.1:3003',
+      DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
       INFISICAL_PROJECT_ID: 'keep-project-id',
       INGEST_ALLOWED_ORIGIN: 'http://localhost:3000',
       INGEST_MAX_BYTES: String(5 * 1024 * 1024 * 1024),
       INGEST_TUS_URL: 'http://localhost:3002',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-upload',
       UPLOAD_HMAC_KEY: 'local-upload-hmac-key',
+      VPM_BASE_URL: 'http://127.0.0.1:3001',
+      VPM_PUBLIC_INDEX_URL: 'http://127.0.0.1:3004/index.json',
+      VPM_TOKEN_KEY: 'local-vpm-token-key',
       YUCP_STORAGE_PROFILE: 'disposable',
     });
   });

@@ -56,6 +56,8 @@ function xmlDecode(value: string): string {
  * desync itself.
  *
  * AWS Signature V4: https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
+ * AWS S3 retry guidance:
+ * https://docs.aws.amazon.com/AmazonS3/latest/userguide/optimizing-performance-design-patterns.html
  */
 async function signedRequest(input: SignedRequestInput): Promise<Response> {
   const url = buildS3ObjectUrl(input.config, input.key);
@@ -67,7 +69,7 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     secretAccessKey: input.config.secretAccessKey,
     region: input.config.region,
     service: 's3',
-    retries: 0,
+    retries: 2,
   });
   const response = await client.fetch(url, {
     body: input.body,

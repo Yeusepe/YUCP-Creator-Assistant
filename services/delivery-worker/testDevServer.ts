@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { unstable_dev } from 'wrangler';
+import { startLocalDeliveryProxy } from './localDevProxy';
 
 const VAR_NAMES = [
   'CAS_S3_ENDPOINT',
@@ -21,8 +22,21 @@ function requiredVariable(name: (typeof VAR_NAMES)[number]): string {
   return value;
 }
 
+function configuredPort(): number | undefined {
+  const configured = process.env.BUYER_FLOW_DELIVERY_PORT?.trim();
+  if (!configured) {
+    return undefined;
+  }
+  const port = Number(configured);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('Invalid buyer flow delivery Worker port');
+  }
+  return port;
+}
+
 async function main(): Promise<void> {
   const vars = Object.fromEntries(VAR_NAMES.map((name) => [name, requiredVariable(name)]));
+  const port = configuredPort();
   const worker = await unstable_dev(resolve('services/delivery-worker/src/index.ts'), {
     config: resolve('services/delivery-worker/wrangler.toml'),
     experimental: {
@@ -39,14 +53,24 @@ async function main(): Promise<void> {
     persist: false,
     vars,
   });
+  const proxy =
+    port === undefined
+      ? undefined
+      : await startLocalDeliveryProxy({
+          port,
+          upstreamBaseUrl: `http://127.0.0.1:${worker.port}`,
+        });
 
-  process.stdout.write(`DELIVERY_WORKER_READY ${worker.port}\n`);
+  process.stdout.write(`DELIVERY_WORKER_READY ${proxy?.port ?? worker.port}\n`);
   await new Promise<void>((resolveStop) => {
-    process.stdin.resume();
-    process.stdin.once('end', resolveStop);
+    if (process.env.BUYER_FLOW_KEEP_ALIVE !== '1') {
+      process.stdin.resume();
+      process.stdin.once('end', resolveStop);
+    }
     process.once('SIGINT', resolveStop);
     process.once('SIGTERM', resolveStop);
   });
+  await proxy?.stop();
   await worker.stop();
 }
 

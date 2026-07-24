@@ -1,4 +1,13 @@
-import { Button, Card, Chip, ListBox, Select, Skeleton } from '@heroui/react';
+import {
+  Autocomplete,
+  Button,
+  Card,
+  Chip,
+  ListBox,
+  SearchField,
+  Skeleton,
+  useFilter,
+} from '@heroui/react';
 import { DropZone } from '@heroui-pro/react/drop-zone';
 import { EmptyState } from '@heroui-pro/react/empty-state';
 import { Sheet } from '@heroui-pro/react/sheet';
@@ -74,10 +83,28 @@ function getProductSearchText(product: CreatorPackageProductSummary): string {
     product.providerProductRef,
     product.canonicalSlug,
     ...(product.aliases ?? []),
+    ...(product.storefronts?.flatMap((storefront) => [
+      storefront.provider,
+      storefront.providerProductRef,
+      storefront.canonicalSlug,
+    ]) ?? []),
   ]
     .filter(Boolean)
     .join(' ')
     .toLocaleLowerCase();
+}
+
+function getProductStorefronts(product: CreatorPackageProductSummary) {
+  return product.storefronts?.length
+    ? product.storefronts
+    : [
+        {
+          catalogProductId: product._id,
+          productId: product.productId,
+          provider: product.provider,
+          providerProductRef: product.providerProductRef,
+        },
+      ];
 }
 
 function getPickerProduct(
@@ -182,9 +209,16 @@ function ProductRow({
               <p className="text-foreground min-w-0 truncate text-sm font-semibold leading-6 group-hover:underline">
                 {getProductTitle(product)}
               </p>
-              <Chip size="sm" variant="soft" className="text-foreground/60">
-                {formatProviderLabel(product.provider)}
-              </Chip>
+              {getProductStorefronts(product).map((storefront) => (
+                <Chip
+                  key={storefront.catalogProductId}
+                  size="sm"
+                  variant="soft"
+                  className="text-foreground/60"
+                >
+                  {formatProviderLabel(storefront.provider)}
+                </Chip>
+              ))}
               {isArchived ? (
                 <Chip size="sm" variant="soft">
                   Hidden
@@ -192,7 +226,10 @@ function ProductRow({
               ) : null}
             </div>
             <p className="pm-subtle-copy break-all text-sm leading-6">
-              {product.providerProductRef} · Ready for package uploads
+              {getProductStorefronts(product)
+                .map((storefront) => storefront.providerProductRef)
+                .join(' · ')}{' '}
+              · Ready for package uploads
             </p>
           </div>
         </button>
@@ -346,6 +383,7 @@ export function PackageRegistryPanel({
   description = 'Pick a product and upload the file.',
   title = 'Packages',
 }: PackageRegistryPanelProps) {
+  const { contains } = useFilter({ sensitivity: 'base' });
   const queryClient = useQueryClient();
   const toast = useToast();
   const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
@@ -694,46 +732,67 @@ export function PackageRegistryPanel({
                       No active catalog products are available for upload.
                     </p>
                   ) : (
-                    <Select
+                    <Autocomplete
                       aria-label="Catalog product"
                       className="pm-package-picker w-full"
                       placeholder="Choose a product"
-                      selectedKey={selectedPickerEntry?.identityKey ?? null}
-                      onSelectionChange={(key) => {
+                      selectionMode="single"
+                      value={selectedPickerEntry?.identityKey ?? null}
+                      onChange={(key) => {
                         const entry = pickerProducts.find(
                           (candidate) => candidate.identityKey === String(key ?? '')
                         );
                         setSelectedProductId(getPickerProduct(entry)?._id ?? '');
                       }}
+                      onClear={() => setSelectedProductId('')}
                     >
-                      <Select.Trigger>
-                        <Select.Value />
-                        <Select.Indicator />
-                      </Select.Trigger>
-                      <Select.Popover className="pm-package-picker-popover">
-                        <ListBox>
-                          {pickerProducts.map((entry) => {
-                            const product = getPickerProduct(entry);
-                            if (!product) return null;
-                            return (
-                              <ListBox.Item
-                                key={entry.identityKey}
-                                id={entry.identityKey}
-                                textValue={entry.products.map(getProductSearchText).join(' ')}
-                              >
-                                <div className="flex flex-col">
-                                  <span>{getProductTitle(product)}</span>
-                                  <span className="pm-subtle-copy text-xs">
-                                    {getPickerProviderLabel(entry)}
-                                  </span>
-                                </div>
-                                <ListBox.ItemIndicator />
-                              </ListBox.Item>
-                            );
-                          })}
-                        </ListBox>
-                      </Select.Popover>
-                    </Select>
+                      <Autocomplete.Trigger>
+                        <Autocomplete.Value />
+                        <Autocomplete.ClearButton />
+                        <Autocomplete.Indicator />
+                      </Autocomplete.Trigger>
+                      <Autocomplete.Popover className="pm-package-picker-popover">
+                        <Autocomplete.Filter filter={contains}>
+                          <SearchField autoFocus name="package-product-search" variant="secondary">
+                            <SearchField.Group>
+                              <SearchField.SearchIcon />
+                              <SearchField.Input
+                                aria-label="Search products"
+                                placeholder="Search products..."
+                              />
+                              <SearchField.ClearButton />
+                            </SearchField.Group>
+                          </SearchField>
+                          <ListBox
+                            renderEmptyState={() => (
+                              <div className="pm-subtle-copy px-3 py-2 text-sm">
+                                No products match that search.
+                              </div>
+                            )}
+                          >
+                            {pickerProducts.map((entry) => {
+                              const product = getPickerProduct(entry);
+                              if (!product) return null;
+                              return (
+                                <ListBox.Item
+                                  key={entry.identityKey}
+                                  id={entry.identityKey}
+                                  textValue={entry.products.map(getProductSearchText).join(' ')}
+                                >
+                                  <div className="flex flex-col">
+                                    <span>{getProductTitle(product)}</span>
+                                    <span className="pm-subtle-copy text-xs">
+                                      {getPickerProviderLabel(entry)}
+                                    </span>
+                                  </div>
+                                  <ListBox.ItemIndicator />
+                                </ListBox.Item>
+                              );
+                            })}
+                          </ListBox>
+                        </Autocomplete.Filter>
+                      </Autocomplete.Popover>
+                    </Autocomplete>
                   )}
                 </div>
 

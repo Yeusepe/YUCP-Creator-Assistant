@@ -5,8 +5,11 @@ import { strToU8, zipSync } from 'fflate';
 export const YUCP_ALIAS_BOOTSTRAP_VERSION = '1.0.0';
 
 const MAX_CATALOG_PRODUCT_ID_LENGTH = 512;
+const MAX_ALIAS_ID_LENGTH = 512;
+const MAX_CATALOG_PRODUCT_IDS = 16;
+const MAX_ALIAS_DESCRIPTOR_LENGTH = 12_288;
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
-const ZIP_TIMESTAMP = new Date('1980-01-01T00:00:00.000Z');
+const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
 
 export type YucpAliasVpmManifest = {
   author: {
@@ -63,19 +66,89 @@ function normalizeCatalogProductId(value: string): string {
   return normalized;
 }
 
-export function buildYucpAliasVpmPackageId(catalogProductId: string): string {
-  const normalizedCatalogProductId = normalizeCatalogProductId(catalogProductId);
-  const identity = createHash('sha256').update(normalizedCatalogProductId, 'utf8').digest('hex');
+function normalizeAliasId(value: string): string {
+  const normalized = normalizeCatalogProductId(value);
+  if (normalized.length > MAX_ALIAS_ID_LENGTH) {
+    throw new Error('YUCP alias ID must contain 1 through 512 safe characters');
+  }
+  return normalized;
+}
+
+function normalizeCatalogProductIds(values: ReadonlyArray<string>): string[] {
+  const normalized = Array.from(new Set(values.map(normalizeCatalogProductId))).sort(
+    (left, right) => left.localeCompare(right)
+  );
+  if (normalized.length < 1 || normalized.length > MAX_CATALOG_PRODUCT_IDS) {
+    throw new Error('YUCP alias package must contain 1 through 16 catalog product IDs');
+  }
+  return normalized;
+}
+
+function encodeAliasArtifactDescriptor(input: {
+  aliasId: string;
+  catalogProductIds: ReadonlyArray<string>;
+}): string {
+  return Buffer.from(
+    JSON.stringify({
+      v: 1,
+      a: normalizeAliasId(input.aliasId),
+      p: normalizeCatalogProductIds(input.catalogProductIds),
+    }),
+    'utf8'
+  ).toString('base64url');
+}
+
+export function decodeYucpAliasArtifactDescriptor(value: string): {
+  aliasId: string;
+  catalogProductIds: string[];
+} {
+  if (!value || value.length > MAX_ALIAS_DESCRIPTOR_LENGTH || !/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error('YUCP alias artifact descriptor is invalid');
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('YUCP alias artifact descriptor is invalid');
+  }
+  if (
+    !decoded ||
+    typeof decoded !== 'object' ||
+    Array.isArray(decoded) ||
+    (decoded as { v?: unknown }).v !== 1 ||
+    typeof (decoded as { a?: unknown }).a !== 'string' ||
+    !Array.isArray((decoded as { p?: unknown }).p) ||
+    !(decoded as { p: unknown[] }).p.every((entry) => typeof entry === 'string')
+  ) {
+    throw new Error('YUCP alias artifact descriptor is invalid');
+  }
+  const aliasId = normalizeAliasId((decoded as { a: string }).a);
+  const catalogProductIds = normalizeCatalogProductIds((decoded as { p: string[] }).p);
+  const canonicalDescriptor = encodeAliasArtifactDescriptor({ aliasId, catalogProductIds });
+  if (canonicalDescriptor !== value) {
+    throw new Error('YUCP alias artifact descriptor is not canonical');
+  }
+  return { aliasId, catalogProductIds };
+}
+
+export function buildYucpAliasVpmPackageId(input: {
+  aliasId: string;
+  catalogProductIds: ReadonlyArray<string>;
+}): string {
+  const descriptor = encodeAliasArtifactDescriptor(input);
+  const identity = createHash('sha256').update(descriptor, 'utf8').digest('hex');
   return `com.yucp.alias.${identity.slice(0, 32)}`;
 }
 
 export function buildYucpAliasVpmPackage(input: {
-  catalogProductId: string;
+  aliasId: string;
+  catalogProductIds: ReadonlyArray<string>;
   vpmBaseUrl: string;
 }): BuiltYucpAliasVpmPackage {
-  const catalogProductId = normalizeCatalogProductId(input.catalogProductId);
+  const aliasId = normalizeAliasId(input.aliasId);
+  const catalogProductIds = normalizeCatalogProductIds(input.catalogProductIds);
   const vpmBaseUrl = normalizeVpmBaseUrl(input.vpmBaseUrl);
-  const packageId = buildYucpAliasVpmPackageId(catalogProductId);
+  const packageId = buildYucpAliasVpmPackageId({ aliasId, catalogProductIds });
   const displayName = `YUCP Product Bootstrap ${packageId.slice(-8).toUpperCase()}`;
   const packageJson = applyYucpAliasPackageManifestDefaults(
     mergeYucpAliasPackageMetadata({
@@ -92,8 +165,8 @@ export function buildYucpAliasVpmPackage(input: {
           url: 'https://yucp.club/',
         },
       },
-      aliasId: catalogProductId,
-      catalogProductIds: [catalogProductId],
+      aliasId,
+      catalogProductIds,
       channel: 'stable',
     })
   ) as Omit<YucpAliasVpmManifest, 'url' | 'zipSHA256'>;
@@ -107,8 +180,9 @@ export function buildYucpAliasVpmPackage(input: {
     { level: 9 }
   );
   const zipSha256 = createHash('sha256').update(bytes).digest('hex');
+  const descriptor = encodeAliasArtifactDescriptor({ aliasId, catalogProductIds });
   const artifactUrl = `${vpmBaseUrl}/api/vpm/aliases/${encodeURIComponent(
-    catalogProductId
+    descriptor
   )}/${YUCP_ALIAS_BOOTSTRAP_VERSION}.zip`;
 
   return {

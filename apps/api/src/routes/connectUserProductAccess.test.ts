@@ -132,7 +132,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
 mock.module('../verification/verificationConfig', () => ({
   ...verificationConfigActual,
   getVerificationConfig: (provider: string) =>
-    provider === 'gumroad'
+    provider === 'gumroad' || provider === 'jinxxy'
       ? { clientId: 'test-client-id' }
       : verificationConfigActual.getVerificationConfig(provider),
 }));
@@ -829,6 +829,92 @@ describe('connect user product access routes', () => {
     expect(response.headers.get('Set-Cookie')).toContain(
       `yucp_buyer_access_machine=${createdMachineFingerprint}`
     );
+  });
+
+  it('offers every linked storefront verification method for one logical product', async () => {
+    let createdIntent:
+      | {
+          packageId: string;
+          packageName: string;
+          requirements: Array<Record<string, unknown>>;
+        }
+      | undefined;
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_jammr_gumroad',
+          catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.jammr',
+          productId: 'jammr-gumroad',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-jammr-ref',
+          displayName: 'JAMMR',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_jammr_gumroad',
+              productId: 'jammr-gumroad',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-jammr-ref',
+            },
+            {
+              catalogProductId: 'catalog_jammr_jinxxy',
+              productId: 'jammr-jinxxy',
+              provider: 'jinxxy',
+              providerProductRef: 'jinxxy-jammr-ref',
+            },
+          ],
+        };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+    convexMutationMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.verificationIntents.createVerificationIntent) {
+        createdIntent = args as typeof createdIntent;
+        return { intentId: 'intent_jammr' };
+      }
+      throw new Error(`Unexpected mutation reference: ${String(reference)}`);
+    });
+    convexActionMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.verificationIntents.getVerificationIntent) {
+        return { id: 'intent_jammr' };
+      }
+      throw new Error(`Unexpected action reference: ${String(reference)}`);
+    });
+
+    const response = await createRoutes().postBuyerProductAccessVerificationIntent(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_jammr_gumroad', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      'catalog_jammr_gumroad'
+    );
+
+    expect(response.status).toBe(200);
+    expect(createdIntent?.packageId).toBe('com.yucp.jammr');
+    expect(createdIntent?.packageName).toBe('JAMMR');
+    expect(
+      createdIntent?.requirements
+        .filter((requirement) => requirement.kind === 'manual_license')
+        .map((requirement) => ({
+          providerKey: requirement.providerKey,
+          productId: requirement.productId,
+          providerProductRef: requirement.providerProductRef,
+        }))
+    ).toEqual([
+      {
+        providerKey: 'gumroad',
+        productId: 'jammr-gumroad',
+        providerProductRef: 'gumroad-jammr-ref',
+      },
+      {
+        providerKey: 'jinxxy',
+        productId: 'jammr-jinxxy',
+        providerProductRef: 'jinxxy-jammr-ref',
+      },
+    ]);
   });
 
   it('rejects oversized buyer verification intent bodies before reading product access state', async () => {

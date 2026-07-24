@@ -39,7 +39,9 @@ interface CreateConnectUserProductAccessRoutesOptions {
 
 type BuyerAccessCatalogProduct = {
   catalogProductId: Id<'product_catalog'>;
+  catalogProductIds?: Id<'product_catalog'>[];
   creatorAuthUserId: string;
+  packageId?: string;
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -47,6 +49,17 @@ type BuyerAccessCatalogProduct = {
   canonicalSlug?: string;
   thumbnailUrl?: string;
   status: 'active';
+  storefronts?: BuyerAccessStorefront[];
+};
+
+type BuyerAccessStorefront = {
+  catalogProductId: Id<'product_catalog'>;
+  productId: string;
+  provider: string;
+  providerProductRef: string;
+  displayName?: string;
+  canonicalSlug?: string;
+  thumbnailUrl?: string;
 };
 
 function getAllowedOrigins(config: ConnectConfig): Set<string> {
@@ -127,43 +140,61 @@ function buildBuyerAccessIdempotencyKey(
 function buildHostedVerificationRequirements(
   product: BuyerAccessCatalogProduct
 ): VerificationIntentRequirementInput[] {
-  const descriptor = getProviderDescriptor(product.provider);
-  const requirements: VerificationIntentRequirementInput[] = [
-    {
-      methodKey: 'yucp-existing-entitlement',
+  const requirements: VerificationIntentRequirementInput[] = [];
+  for (const storefront of getBuyerAccessStorefronts(product)) {
+    const descriptor = getProviderDescriptor(storefront.provider);
+    const methodSuffix = String(storefront.catalogProductId);
+    requirements.push({
+      methodKey: `yucp-existing-entitlement-${methodSuffix}`,
       providerKey: 'yucp',
       kind: 'existing_entitlement',
       creatorAuthUserId: product.creatorAuthUserId,
-      productId: product.productId,
-    },
-  ];
-
-  if (
-    descriptor?.buyerVerificationMethods.includes('account_link') &&
-    descriptor.supportsBuyerOAuthLink === true &&
-    Boolean(getVerificationConfig(product.provider))
-  ) {
-    requirements.push({
-      methodKey: `${product.provider}-buyer-provider-link`,
-      providerKey: product.provider,
-      kind: 'buyer_provider_link',
-      creatorAuthUserId: product.creatorAuthUserId,
-      productId: product.productId,
+      productId: storefront.productId,
     });
-  }
 
-  if (descriptor?.buyerVerificationMethods.includes('license_key')) {
-    requirements.push({
-      methodKey: `${product.provider}-manual-license`,
-      providerKey: product.provider,
-      kind: 'manual_license',
-      creatorAuthUserId: product.creatorAuthUserId,
-      productId: product.productId,
-      providerProductRef: product.providerProductRef,
-    });
+    if (
+      descriptor?.buyerVerificationMethods.includes('account_link') &&
+      descriptor.supportsBuyerOAuthLink === true &&
+      Boolean(getVerificationConfig(storefront.provider))
+    ) {
+      requirements.push({
+        methodKey: `${storefront.provider}-buyer-provider-link-${methodSuffix}`,
+        providerKey: storefront.provider,
+        kind: 'buyer_provider_link',
+        creatorAuthUserId: product.creatorAuthUserId,
+        productId: storefront.productId,
+      });
+    }
+
+    if (descriptor?.buyerVerificationMethods.includes('license_key')) {
+      requirements.push({
+        methodKey: `${storefront.provider}-manual-license-${methodSuffix}`,
+        providerKey: storefront.provider,
+        kind: 'manual_license',
+        creatorAuthUserId: product.creatorAuthUserId,
+        productId: storefront.productId,
+        providerProductRef: storefront.providerProductRef,
+      });
+    }
   }
 
   return requirements;
+}
+
+function getBuyerAccessStorefronts(product: BuyerAccessCatalogProduct): BuyerAccessStorefront[] {
+  return product.storefronts?.length
+    ? product.storefronts
+    : [
+        {
+          catalogProductId: product.catalogProductId,
+          productId: product.productId,
+          provider: product.provider,
+          providerProductRef: product.providerProductRef,
+          displayName: product.displayName,
+          canonicalSlug: product.canonicalSlug,
+          thumbnailUrl: product.thumbnailUrl,
+        },
+      ];
 }
 
 export function createConnectUserProductAccessRoutes({
@@ -213,33 +244,39 @@ export function createConnectUserProductAccessRoutes({
         scopes: ['entitlements:service'],
       });
       const entitlementConvex = getConvexClientFromUrl(config.convexUrl, entitlementActor);
-      let cursor: string | undefined;
-      do {
-        const entitlementsResult = (await entitlementConvex.query(api.entitlements.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          actor: entitlementActor,
-          authUserId: session.user.id,
-          scope: 'subject_holder',
-          productId: product.productId,
-          status: 'active',
-          limit: 100,
-          ...(cursor ? { cursor } : {}),
-        })) as {
-          data?: Array<{ catalogProductId?: Id<'product_catalog'> | null }>;
-          hasMore?: boolean;
-          nextCursor?: string | null;
-        };
-        activeEntitlement =
-          entitlementsResult.data?.find(
-            (entitlement) =>
-              !entitlement.catalogProductId ||
-              String(entitlement.catalogProductId) === String(product.catalogProductId)
-          ) ?? null;
-        cursor =
-          !activeEntitlement && entitlementsResult.hasMore && entitlementsResult.nextCursor
-            ? entitlementsResult.nextCursor
-            : undefined;
-      } while (!activeEntitlement && cursor);
+      for (const storefront of getBuyerAccessStorefronts(product)) {
+        let cursor: string | undefined;
+        do {
+          const entitlementsResult = (await entitlementConvex.query(
+            api.entitlements.listByAuthUser,
+            {
+              apiSecret: config.convexApiSecret,
+              actor: entitlementActor,
+              authUserId: session.user.id,
+              scope: 'subject_holder',
+              productId: storefront.productId,
+              status: 'active',
+              limit: 100,
+              ...(cursor ? { cursor } : {}),
+            }
+          )) as {
+            data?: Array<{ catalogProductId?: Id<'product_catalog'> | null }>;
+            hasMore?: boolean;
+            nextCursor?: string | null;
+          };
+          activeEntitlement =
+            entitlementsResult.data?.find(
+              (entitlement) =>
+                !entitlement.catalogProductId ||
+                String(entitlement.catalogProductId) === String(storefront.catalogProductId)
+            ) ?? null;
+          cursor =
+            !activeEntitlement && entitlementsResult.hasMore && entitlementsResult.nextCursor
+              ? entitlementsResult.nextCursor
+              : undefined;
+        } while (!activeEntitlement && cursor);
+        if (activeEntitlement) break;
+      }
     }
 
     return { activeEntitlement, product };
@@ -297,6 +334,19 @@ export function createConnectUserProductAccessRoutes({
           provider: product.provider,
           providerLabel: providerLabel(product.provider),
           storefrontUrl: buildCatalogProductUrl(product.provider, product.providerProductRef),
+          ...(product.storefronts?.length
+            ? {
+                storefronts: product.storefronts.map((storefront) => ({
+                  catalogProductId: String(storefront.catalogProductId),
+                  provider: storefront.provider,
+                  providerLabel: providerLabel(storefront.provider),
+                  storefrontUrl: buildCatalogProductUrl(
+                    storefront.provider,
+                    storefront.providerProductRef
+                  ),
+                })),
+              }
+            : {}),
         },
         accessState: {
           hasActiveEntitlement: Boolean(activeEntitlement),
@@ -357,7 +407,9 @@ export function createConnectUserProductAccessRoutes({
           actor: versionActor,
           // Use the RESOLVED catalog product _id, not the raw request alias (slug/provider ref):
           // resolveDownloadableVersion indexes package_versions_ref by the product_catalog id.
-          catalogProductId: product.catalogProductId,
+          ...(product.packageId
+            ? { packageId: product.packageId }
+            : { catalogProductId: product.catalogProductId }),
         }
       )) as { versionId: string } | null;
       if (!downloadableVersion) {
@@ -424,7 +476,7 @@ export function createConnectUserProductAccessRoutes({
         ) ?? '/dashboard';
       const returnUrl = `${config.frontendBaseUrl.replace(/\/$/, '')}${safeReturnPath}`;
       const buyerAccessFingerprint = resolveBuyerAccessMachineFingerprint(request);
-      const packageId = product.productId;
+      const packageId = product.packageId ?? product.productId;
       const packageName = product.displayName ?? product.productId;
       const codeVerifier = `${crypto.randomUUID()}${crypto.randomUUID()}`;
       const requirements = normalizeHostedVerificationRequirements(

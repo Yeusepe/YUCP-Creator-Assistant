@@ -1378,6 +1378,7 @@ const product_catalog = defineTable({
   .index('by_auth_user', ['authUserId'])
   .index('by_auth_user_provider_product_ref', ['authUserId', 'providerProductRef'])
   .index('by_auth_user_slug', ['authUserId', 'canonicalSlug'])
+  .index('by_product_id', ['productId'])
   .index('by_provider_ref', ['provider', 'providerProductRef'])
   .index('by_provider_product_ref', ['providerProductRef'])
   .index('by_slug', ['canonicalSlug'])

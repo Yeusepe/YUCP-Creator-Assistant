@@ -35,6 +35,11 @@ const apiMock = {
   entitlements: {
     listByAuthUser: 'entitlements.listByAuthUser',
   },
+  packageRegistry: {
+    getBuyerAccessContextByCatalogProductId:
+      'packageRegistry.getBuyerAccessContextByCatalogProductId',
+    getBuyerAccessContextByEntitlement: 'packageRegistry.getBuyerAccessContextByEntitlement',
+  },
   packageVersions: {
     resolveDownloadableVersion: 'packageVersions.resolveDownloadableVersion',
   },
@@ -244,9 +249,15 @@ describe('per-buyer VPM routes', () => {
       publicVpmIndexUrl: undefined,
       vpmTokenKey: undefined,
     });
+    const alias = buildYucpAliasVpmPackage({
+      aliasId: 'public-alias',
+      catalogProductIds: ['catalog_public'],
+      vpmBaseUrl: 'https://vpm.test/',
+    });
+    const artifactDescriptor = alias.manifest.url.split('/').at(-2);
     const response = await routes.serveAliasPackage(
-      new Request('https://vpm.test/api/vpm/aliases/catalog_public/1.0.0.zip'),
-      'catalog_public',
+      new Request(alias.manifest.url),
+      artifactDescriptor ?? '',
       YUCP_ALIAS_BOOTSTRAP_VERSION
     );
 
@@ -277,9 +288,23 @@ describe('per-buyer VPM routes', () => {
           nextCursor: null,
         };
       }
-      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
         const catalogProductId = (args as { catalogProductId: string }).catalogProductId;
-        if (catalogProductId === 'catalog_ready') {
+        return {
+          aliasId: catalogProductId,
+          catalogProductId,
+          catalogProductIds: [catalogProductId],
+          packageId:
+            catalogProductId === 'catalog_ready'
+              ? 'com.creator.avatar-tools'
+              : catalogProductId === 'catalog_non_vpm'
+                ? 'com.creator.substance-project'
+                : undefined,
+        };
+      }
+      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+        const query = args as { catalogProductId?: string; packageId?: string };
+        if (query.packageId === 'com.creator.avatar-tools') {
           return {
             contentType: 'application/zip',
             packageId: 'com.creator.avatar-tools',
@@ -287,10 +312,10 @@ describe('per-buyer VPM routes', () => {
             versionId: 'version-ready-123',
           };
         }
-        if (catalogProductId === 'catalog_pending') {
+        if (query.catalogProductId === 'catalog_pending') {
           return null;
         }
-        if (catalogProductId === 'catalog_non_vpm') {
+        if (query.packageId === 'com.creator.substance-project') {
           return {
             contentType: 'application/octet-stream',
             packageId: 'com.creator.substance-project',
@@ -335,11 +360,13 @@ describe('per-buyer VPM routes', () => {
     });
 
     const readyAlias = buildYucpAliasVpmPackage({
-      catalogProductId: 'catalog_ready',
+      aliasId: 'catalog_ready',
+      catalogProductIds: ['catalog_ready'],
       vpmBaseUrl: 'https://vpm.test/',
     });
     const opaqueAlias = buildYucpAliasVpmPackage({
-      catalogProductId: 'catalog_non_vpm',
+      aliasId: 'catalog_non_vpm',
+      catalogProductIds: ['catalog_non_vpm'],
       vpmBaseUrl: 'https://vpm.test/',
     });
     expect(Object.keys(body.packages).sort()).toEqual(
@@ -358,7 +385,7 @@ describe('per-buyer VPM routes', () => {
 
     const artifactResponse = await routes.serveAliasPackage(
       new Request(readyAlias.manifest.url),
-      'catalog_ready',
+      readyAlias.manifest.url.split('/').at(-2) ?? '',
       YUCP_ALIAS_BOOTSTRAP_VERSION
     );
     const artifactBytes = new Uint8Array(await artifactResponse.arrayBuffer());
@@ -376,7 +403,124 @@ describe('per-buyer VPM routes', () => {
     expect(artifactPackageJson.name).toBe(readyAlias.packageId);
     expect(JSON.stringify(artifactPackageJson)).not.toContain('version-ready-123');
     expect(importerIndexFetchMock).toHaveBeenCalledTimes(1);
-    expect(convexQueryMock).toHaveBeenCalledTimes(4);
+    expect(convexQueryMock).toHaveBeenCalledTimes(7);
+  });
+
+  it('publishes one alias with every catalog product in a logical cross-store group', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return {
+          data: [
+            { id: 'ent_gumroad', catalogProductId: 'catalog_jammr_gumroad' },
+            { id: 'ent_jinxxy', catalogProductId: 'catalog_jammr_jinxxy' },
+          ],
+          hasMore: false,
+          nextCursor: null,
+        };
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          aliasId: 'jammr',
+          catalogProductId: (args as { catalogProductId: string }).catalogProductId,
+          catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+          packageId: 'com.yucp.jammr',
+        };
+      }
+      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+        expect(args).toMatchObject({ packageId: 'com.yucp.jammr' });
+        return {
+          packageId: 'com.yucp.jammr',
+          version: '1.0.0',
+          versionId: 'version-jammr',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const token = await validBuyerToken();
+    const response = await createRoutes(null).serveIndex(
+      new Request(`https://vpm.test/api/vpm/${token}/index.json`),
+      token
+    );
+    const body = (await response.json()) as {
+      packages: Record<string, { versions: Record<string, Record<string, unknown>> }>;
+    };
+    const expectedAlias = buildYucpAliasVpmPackage({
+      aliasId: 'jammr',
+      catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+      vpmBaseUrl: 'https://vpm.test/',
+    });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body.packages).sort()).toEqual(
+      ['com.yucp.importer', expectedAlias.packageId].sort()
+    );
+    expect(body.packages[expectedAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
+      expectedAlias.manifest
+    );
+    expect(
+      convexQueryMock.mock.calls.filter(
+        ([reference]) => reference === apiMock.packageVersions.resolveDownloadableVersion
+      )
+    ).toHaveLength(1);
+  });
+
+  it('resolves a legacy product-level entitlement into its logical package group', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return {
+          data: [
+            {
+              id: 'ent_jammr_legacy',
+              productId: 'jinxxy-jammr',
+              sourceProvider: 'jinxxy',
+            },
+          ],
+          hasMore: false,
+          nextCursor: null,
+        };
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByEntitlement) {
+        expect(args).toMatchObject({
+          productId: 'jinxxy-jammr',
+          sourceProvider: 'jinxxy',
+        });
+        return {
+          aliasId: 'jammr',
+          catalogProductId: 'catalog_jammr_jinxxy',
+          catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+          packageId: 'com.yucp.jammr',
+        };
+      }
+      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+        expect(args).toMatchObject({ packageId: 'com.yucp.jammr' });
+        return {
+          packageId: 'com.yucp.jammr',
+          version: '1.0.1',
+          versionId: 'version-jammr-legacy',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const token = await validBuyerToken();
+    const response = await createRoutes(null).serveIndex(
+      new Request(`https://vpm.test/api/vpm/${token}/index.json`),
+      token
+    );
+    const body = (await response.json()) as {
+      packages: Record<string, { versions: Record<string, Record<string, unknown>> }>;
+    };
+    const expectedAlias = buildYucpAliasVpmPackage({
+      aliasId: 'jammr',
+      catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+      vpmBaseUrl: 'https://vpm.test/',
+    });
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(body.packages).sort()).toEqual(
+      ['com.yucp.importer', expectedAlias.packageId].sort()
+    );
   });
 
   it('serves an empty but valid repository when the buyer has no active entitlements', async () => {
@@ -404,6 +548,14 @@ describe('per-buyer VPM routes', () => {
           data: [{ id: 'ent_1', catalogProductId: 'catalog_ready' }],
           hasMore: false,
           nextCursor: null,
+        };
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          aliasId: 'catalog_ready',
+          catalogProductId: 'catalog_ready',
+          catalogProductIds: ['catalog_ready'],
+          packageId: 'com.creator.avatar-tools',
         };
       }
       if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
@@ -458,6 +610,7 @@ describe('per-buyer VPM routes', () => {
       error: 'Failed to build VPM repository',
     });
     expect(loggerErrorMock).toHaveBeenCalledWith('Failed to build buyer VPM repository index', {
+      phase: 'entitlements',
       errorName: 'TypeError',
     });
     expect(JSON.stringify(loggerErrorMock.mock.calls)).not.toContain(rawUpstreamMessage);

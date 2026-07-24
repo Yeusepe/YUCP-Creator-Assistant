@@ -249,6 +249,41 @@ describe('dashboard packages route', () => {
     });
   });
 
+  it('renders one configured product row with every linked storefront', async () => {
+    apiGetMock.mockResolvedValue({
+      data: [
+        {
+          ...duplicateGumroadProduct,
+          catalogProductIds: [duplicateGumroadProduct._id, duplicateJinxxyProduct._id],
+          storefronts: [
+            {
+              catalogProductId: duplicateGumroadProduct._id,
+              productId: duplicateGumroadProduct.productId,
+              provider: 'gumroad',
+              providerProductRef: duplicateGumroadProduct.providerProductRef,
+            },
+            {
+              catalogProductId: duplicateJinxxyProduct._id,
+              productId: duplicateJinxxyProduct.productId,
+              provider: 'jinxxy',
+              providerProductRef: duplicateJinxxyProduct.providerProductRef,
+            },
+          ],
+        },
+      ],
+      hasMore: false,
+      nextCursor: null,
+    });
+    const Component = DashboardPackagesRoute.options.component;
+    if (!Component) throw new Error('Dashboard packages component is missing');
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findAllByText('Cross-store Product')).toHaveLength(1);
+    expect(screen.getByText('Gumroad')).toBeInTheDocument();
+    expect(screen.getByText('Jinxxy')).toBeInTheDocument();
+  });
+
   it('keeps the main list configured-only while the picker exposes first uploads once', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
@@ -330,7 +365,7 @@ describe('dashboard packages route', () => {
     });
   });
 
-  it('keeps identically named products independently selectable for upload', async () => {
+  it('searches and groups matching cross-store products in the upload picker', async () => {
     const Component = DashboardPackagesRoute.options.component;
     if (!Component) throw new Error('Dashboard packages component is missing');
 
@@ -339,8 +374,13 @@ describe('dashboard packages route', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Upload a package' }));
     fireEvent.click(await screen.findByLabelText('Catalog product'));
 
-    expect(screen.getAllByRole('option', { name: /Shared Product Name/i })).toHaveLength(2);
-    fireEvent.click(screen.getByRole('option', { name: /Shared Product Name.*Jinxxy/i }));
+    const search = await screen.findByLabelText('Search products');
+    fireEvent.change(search, { target: { value: 'Shared Product' } });
+    expect(screen.getAllByRole('option', { name: /Shared Product Name/i })).toHaveLength(1);
+    expect(screen.getByRole('option', { name: /Shared Product Name/i })).toHaveTextContent(
+      /Gumroad.*Jinxxy/i
+    );
+    fireEvent.click(screen.getByRole('option', { name: /Shared Product Name/i }));
     fireEvent.change(screen.getByLabelText('Install ID'), {
       target: { value: 'com.creator.shared-product-name' },
     });
@@ -361,7 +401,7 @@ describe('dashboard packages route', () => {
       expect(apiPostMock).toHaveBeenCalledWith('/api/creator/uploads/authorize', {
         packageId: 'com.creator.shared-product-name',
         version: '1.0.0',
-        catalogProductId: 'catalog_product_same_name_b',
+        catalogProductId: 'catalog_product_same_name_a',
       })
     );
   });
