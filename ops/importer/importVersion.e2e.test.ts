@@ -14,7 +14,7 @@ import {
   storeArtifactToStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { runCommand } from '../storage-core/process';
+import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
 import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { importerCapabilityBinding, importVersion } from './importVersion';
@@ -146,19 +146,27 @@ async function writeFixtureTree(rootPath: string, versionSeed: string): Promise<
 async function createRawUnityPackage(sourcePath: string, outputPath: string): Promise<void> {
   const tarPath = `${outputPath}.tar`;
   const timestamp = new Date('2026-01-01T00:00:00.000Z');
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    sourcePath,
-    '.',
-  ]);
+  const archiveTools = await resolveGnuArchiveTools();
+  await runCommand(
+    archiveTools.tarCommand,
+    [
+      '--force-local',
+      '--create',
+      '--file',
+      tarPath,
+      '--format=gnu',
+      '--sort=name',
+      '--directory',
+      sourcePath,
+      '.',
+    ],
+    { env: archiveTools.env }
+  );
   await utimes(tarPath, timestamp, timestamp);
-  await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: outputPath });
+  await runCommand(archiveTools.gzipCommand, ['--stdout', '--', tarPath], {
+    env: archiveTools.env,
+    stdoutPath: outputPath,
+  });
   await rm(tarPath, { force: true });
 }
 

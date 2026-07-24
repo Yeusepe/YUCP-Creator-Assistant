@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { AwsClient } from 'aws4fetch';
 import type { CasConfig } from './config';
 import { buildS3ObjectUrl } from './s3ObjectUrl';
@@ -19,6 +20,7 @@ export interface S3ObjectPage {
 }
 
 type SignedRequestInput = {
+  allowedStatuses?: readonly number[];
   body?: BodyInit;
   config: CasConfig;
   headers?: HeadersInit;
@@ -67,15 +69,91 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
     method: input.method,
     signal: AbortSignal.timeout(input.config.requestTimeoutMs),
   });
-  if (!response.ok) {
+  if (!response.ok && !input.allowedStatuses?.includes(response.status)) {
     throw new Error(`S3 ${input.operation} failed with HTTP status ${response.status}`);
   }
   return response;
 }
 
-/** Create the throwaway MinIO bucket used by the local integration test. */
-export async function createS3Bucket(config: CasConfig): Promise<void> {
-  await signedRequest({ config, method: 'PUT', operation: 'CreateBucket' });
+/**
+ * CreateBucket reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
+ *
+ * Object Lock must be enabled when older S3-compatible providers cannot enable it later.
+ */
+export async function createS3Bucket(
+  config: CasConfig,
+  options: { objectLockEnabled?: boolean } = {}
+): Promise<void> {
+  await signedRequest({
+    config,
+    headers: options.objectLockEnabled
+      ? {
+          'x-amz-bucket-object-lock-enabled': 'true',
+        }
+      : undefined,
+    method: 'PUT',
+    operation: 'CreateBucket',
+  });
+}
+
+/**
+ * PutBucketVersioning reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketVersioning.html
+ */
+export async function enableS3BucketVersioning(config: CasConfig): Promise<void> {
+  const body =
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
+    '<Status>Enabled</Status>' +
+    '</VersioningConfiguration>';
+  await signedRequest({
+    body,
+    config,
+    headers: {
+      'content-md5': createHash('md5').update(body).digest('base64'),
+      'content-type': 'application/xml',
+    },
+    method: 'PUT',
+    operation: 'PutBucketVersioning',
+    query: { versioning: '' },
+  });
+}
+
+/**
+ * GetBucketVersioning reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetBucketVersioning.html
+ */
+export async function getS3BucketVersioning(config: CasConfig): Promise<'Enabled' | 'Suspended'> {
+  const response = await signedRequest({
+    config,
+    method: 'GET',
+    operation: 'GetBucketVersioning',
+    query: { versioning: '' },
+  });
+  const xml = await response.text();
+  const status = xml.match(/<Status>(Enabled|Suspended)<\/Status>/)?.[1];
+  if (status !== 'Enabled' && status !== 'Suspended') {
+    throw new Error('S3 GetBucketVersioning returned no supported status');
+  }
+  return status;
+}
+
+/**
+ * GetObjectLockConfiguration reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObjectLockConfiguration.html
+ */
+export async function getS3ObjectLockConfiguration(config: CasConfig): Promise<'Enabled'> {
+  const response = await signedRequest({
+    config,
+    method: 'GET',
+    operation: 'GetObjectLockConfiguration',
+    query: { 'object-lock': '' },
+  });
+  const xml = await response.text();
+  if (!/<ObjectLockEnabled>Enabled<\/ObjectLockEnabled>/.test(xml)) {
+    throw new Error('S3 GetObjectLockConfiguration returned no enabled state');
+  }
+  return 'Enabled';
 }
 
 /** GetObject reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html */
@@ -104,6 +182,125 @@ export async function putS3Object(input: {
     method: 'PUT',
     operation: 'PutObject',
   });
+}
+
+export type S3ExactObjectVersion = {
+  fileIdentifier: string;
+  versionId: string;
+};
+
+function exactVersionFromResponse(response: Response): S3ExactObjectVersion {
+  const versionId = response.headers.get('x-amz-version-id')?.trim();
+  if (!versionId || versionId === 'null') {
+    throw new Error('S3 versioned object response omitted its exact version identifier');
+  }
+  return {
+    fileIdentifier: versionId,
+    versionId,
+  };
+}
+
+/**
+ * PutObject response reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
+ */
+export async function putS3ObjectVersioned(input: {
+  body: Uint8Array | string;
+  config: CasConfig;
+  contentType: string;
+  key: string;
+}): Promise<S3ExactObjectVersion> {
+  const body =
+    typeof input.body === 'string'
+      ? Uint8Array.from(Buffer.from(input.body))
+      : Uint8Array.from(input.body);
+  return exactVersionFromResponse(
+    await signedRequest({
+      body,
+      config: input.config,
+      headers: {
+        'content-type': input.contentType,
+      },
+      key: input.key,
+      method: 'PUT',
+      operation: 'PutObject',
+    })
+  );
+}
+
+/**
+ * GetObject versionId reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html
+ */
+export async function getS3ObjectVersion(
+  config: CasConfig,
+  key: string,
+  versionId: string
+): Promise<Response> {
+  if (!versionId.trim()) {
+    throw new Error('S3 exact version identifier must not be empty');
+  }
+  const response = await signedRequest({
+    config,
+    key,
+    method: 'GET',
+    operation: 'GetObjectVersion',
+    query: { versionId },
+  });
+  const returnedVersion = exactVersionFromResponse(response);
+  if (returnedVersion.versionId !== versionId) {
+    throw new Error('S3 exact-version read returned a different object version');
+  }
+  return response;
+}
+
+/**
+ * Conditional PutObject reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html
+ */
+export async function putS3ObjectImmutable(input: {
+  body: Uint8Array | string;
+  config: CasConfig;
+  contentType: string;
+  key: string;
+}): Promise<'created' | 'existing'> {
+  const body =
+    typeof input.body === 'string'
+      ? Uint8Array.from(Buffer.from(input.body))
+      : Uint8Array.from(input.body);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await signedRequest({
+      allowedStatuses: [409, 412],
+      body,
+      config: input.config,
+      headers: {
+        'content-type': input.contentType,
+        'if-none-match': '*',
+      },
+      key: input.key,
+      method: 'PUT',
+      operation: 'PutObject',
+    });
+    if (response.ok) {
+      return 'created';
+    }
+    if (response.status === 409) {
+      continue;
+    }
+
+    const existingResponse = await getS3Object(input.config, input.key);
+    const existing = new Uint8Array(await existingResponse.arrayBuffer());
+    if (existing.byteLength !== body.byteLength) {
+      throw new Error('Immutable S3 object exists with different bytes');
+    }
+    if (body.byteLength > 0 && !timingSafeEqual(Buffer.from(existing), Buffer.from(body))) {
+      throw new Error('Immutable S3 object exists with different bytes');
+    }
+    return 'existing';
+  }
+
+  throw new Error('Immutable S3 object write remained in conflict');
 }
 
 /**

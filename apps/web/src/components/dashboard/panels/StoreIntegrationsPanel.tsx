@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { isDashboardAuthError } from '@/hooks/useDashboardSession';
 import type { UserAccountConnection } from '@/lib/dashboard';
 import {
@@ -65,19 +66,7 @@ export function StoreRow({
         {manageHref ? (
           <a href={manageHref} className="store-row-manage-btn">
             Configure
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
+            <Icon name="arrowRight" size={10} />
           </a>
         ) : null}
       </div>
@@ -177,21 +166,7 @@ export function StoreIntegrationsPanel({
       <DashboardSkeletonSwap isLoading={isLoading} skeleton={<DashboardListSkeleton rows={3} />}>
         {linkedProviders.length === 0 ? (
           <div className="intg-empty-state">
-            <svg
-              width="32"
-              height="32"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <path d="M16 10a4 4 0 0 1-8 0" />
-            </svg>
+            <Icon name="store" size={32} />
             <p className="intg-empty-state-text">
               No stores connected yet. Link a storefront in <strong>Connected Platforms</strong> on
               your personal dashboard.

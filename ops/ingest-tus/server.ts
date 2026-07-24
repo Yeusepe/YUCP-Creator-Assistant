@@ -9,6 +9,7 @@ import {
 import {
   type FetchInfisicalSecrets,
   INGEST_INFISICAL_KEYS,
+  isDisposableStorageProfile,
   loadIngestRuntimeEnv,
   requireInfisicalBootstrap,
 } from '../storage-core/config';
@@ -41,7 +42,9 @@ export async function buildIngestTusRuntime(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<IngestTusRuntime> {
-  requireInfisicalBootstrap(env);
+  if (!isDisposableStorageProfile(env)) {
+    requireInfisicalBootstrap(env);
+  }
   const runtimeEnv = await loadIngestRuntimeEnv(env, fetchSecrets);
   const database = openCatalogDatabase(runtimeEnv.catalogDatabaseUrl);
   try {

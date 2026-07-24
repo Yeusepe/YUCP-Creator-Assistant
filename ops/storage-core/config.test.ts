@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, mock } from 'bun:test';
 import { loadCasConfig, loadIngestRuntimeEnv } from './config';
 import { buildDesyncS3StoreUrl, desyncS3ChildEnv } from './desyncCas';
 
@@ -100,5 +100,46 @@ describe('loadIngestRuntimeEnv', () => {
     expect(runtime.cas.chunkPrefix).toBe('chunks/');
     expect(runtime.cas.indexPrefix).toBe('indexes/');
     expect(sourceEnv).toEqual(originalEnv);
+  });
+
+  it('keeps disposable storage values local when Infisical bootstrap values exist', async () => {
+    const sourceEnv = {
+      ...COMPLETE_CAS_ENV,
+      CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+      INFISICAL_CLIENT_ID: 'placeholder-client-id',
+      INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
+      INFISICAL_PROJECT_ID: 'placeholder-project-id',
+      INGEST_MAX_BYTES: '1048576',
+      INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
+      NODE_ENV: 'development',
+      UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
+      YUCP_STORAGE_PROFILE: 'disposable',
+    } satisfies NodeJS.ProcessEnv;
+    const fetchSecrets = mock(async () => ({
+      ...COMPLETE_CAS_ENV,
+      CATALOG_DATABASE_URL: 'postgresql://remote.invalid/catalog',
+      UPLOAD_HMAC_KEY: 'placeholder-remote-upload-hmac-key',
+    }));
+
+    const runtime = await loadIngestRuntimeEnv(sourceEnv, fetchSecrets);
+
+    expect(fetchSecrets).not.toHaveBeenCalled();
+    expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
+    expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
+    expect(runtime.cas.endpoint).toBe(COMPLETE_CAS_ENV.CAS_S3_ENDPOINT);
+  });
+
+  it('rejects the disposable storage profile in production', async () => {
+    await expect(
+      loadIngestRuntimeEnv({
+        ...COMPLETE_CAS_ENV,
+        CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+        INGEST_MAX_BYTES: '1048576',
+        INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
+        NODE_ENV: 'production',
+        UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
+        YUCP_STORAGE_PROFILE: 'disposable',
+      })
+    ).rejects.toThrow('The disposable storage profile cannot run in production');
   });
 });

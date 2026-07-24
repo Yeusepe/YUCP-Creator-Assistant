@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -159,30 +160,19 @@ function OAuthLoginPageContent() {
             {viewState === 'error' && (
               <div id="error-state">
                 <div className="error-icon">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
+                  <Icon name="alert" />
                 </div>
                 <h1>Sign-in failed</h1>
                 <p className="subtitle">Something went wrong during the authorization flow.</p>
                 <div className="error-notice">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="12" y1="8" x2="12" y2="12" />
-                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
+                  <Icon name="alert" />
                   <p>
                     The sign-in could not be completed. This can happen if you denied access, the
                     session expired, or there was a network issue. Please try again.
                   </p>
                 </div>
                 <a id="retry-btn" href={retryPathRef.current} className="retry-btn">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <polyline points="23 4 23 10 17 10" />
-                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                  </svg>
+                  <Icon name="refresh" />
                   Try again
                 </a>
               </div>

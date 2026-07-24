@@ -1,5 +1,7 @@
 import { Button, Card, Chip, ListBox, Select, Skeleton } from '@heroui/react';
-import { DropZone, EmptyState, Sheet } from '@heroui-pro/react';
+import { DropZone } from '@heroui-pro/react/drop-zone';
+import { EmptyState } from '@heroui-pro/react/empty-state';
+import { Sheet } from '@heroui-pro/react/sheet';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountInlineError } from '@/components/account/AccountPage';

@@ -12,6 +12,7 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { type BadgeStatus, StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
@@ -70,22 +71,7 @@ function EntitlementRow({
           {iconPath ? (
             <img src={iconPath} alt="" width={24} height={24} />
           ) : (
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path d="M20 7H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
-              <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
-              <circle cx="12" cy="13" r="1" />
-            </svg>
+            <Icon name="license" />
           )}
         </div>
 
@@ -219,23 +205,7 @@ function AccountLicenses() {
 
         {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length === 0 ? (
           <AccountEmptyState
-            icon={
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <path d="M9 9h6M9 13h4" />
-              </svg>
-            }
+            icon={<Icon name="license" />}
             title="No verified purchases yet"
             description={
               <>

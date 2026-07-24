@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/error')({
@@ -64,20 +65,7 @@ function VerifyErrorPage() {
         className={`verify-error-page text-center max-w-lg w-full px-4 sm:px-6 relative z-10${isVisible ? ' is-visible' : ''}`}
       >
         <div className="mb-6 fade-up" style={{ animationDelay: '0.2s' }}>
-          <svg
-            className="w-16 h-16 mx-auto text-[#c53030]"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+          <Icon name="alert" className="w-16 h-16 mx-auto text-[#c53030]" />
         </div>
         <h1
           className="text-3xl sm:text-4xl text-[#ffffff] mb-4 fade-up"

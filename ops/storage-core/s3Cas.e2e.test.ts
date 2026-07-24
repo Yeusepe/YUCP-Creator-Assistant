@@ -15,7 +15,13 @@ import {
   verifyDesyncCli,
 } from './desyncCas';
 import { runCommand } from './process';
-import { createS3Bucket, deleteS3Objects, getS3Object, listS3Objects } from './s3Control';
+import {
+  createS3Bucket,
+  deleteS3Objects,
+  enableS3BucketVersioning,
+  getS3Object,
+  listS3Objects,
+} from './s3Control';
 
 const MINIO_IMAGE =
   'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -115,6 +121,14 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
     });
     await createS3Bucket(config);
+    await enableS3BucketVersioning(config);
+    await runCommand('docker', [
+      'exec',
+      containerId,
+      '/bin/sh',
+      '-ceu',
+      'mc alias set local http://127.0.0.1:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"',
+    ]);
     const store = s3CasStore(config);
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-cas-s3-e2e-'));
@@ -145,6 +159,28 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       indexId: 'v1.caibx',
       store,
     });
+    await storeArtifactToStore({
+      artifactPath: canonicalV1.path,
+      indexId: 'v1.caibx',
+      store,
+    });
+    const canonicalIndexVersions = (
+      await runCommand('docker', [
+        'exec',
+        containerId,
+        'mc',
+        'ls',
+        '--versions',
+        '--json',
+        `local/${bucket}/${config.indexPrefix}v1.caibx`,
+      ])
+    ).stdout
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string })
+      .filter((entry) => entry.type === 'file');
+    expect(canonicalIndexVersions).toHaveLength(1);
     const afterV1 = await listS3Objects(config);
     expect(afterV1.some((object) => object.key.startsWith(config.chunkPrefix))).toBeTrue();
     expect(afterV1.some((object) => object.key === `${config.indexPrefix}v1.caibx`)).toBeTrue();

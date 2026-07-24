@@ -1,10 +1,9 @@
 /**
  * YUCP Package Name Registry, Layer 1 defense.
  *
- * Enforces namespace ownership: the first verified publisher to sign a
- * packageId owns that name permanently. Subsequent signers with a different
- * yucpUserId are rejected, making it impossible to impersonate an existing
- * package by creating a new account.
+ * Enforces namespace ownership. The first verified publisher to sign or upload
+ * a packageId owns that name permanently. A different yucpUserId cannot claim
+ * the package through another account.
  *
  * Identity is anchored to the Better Auth user ID (yucpUserId), not to any
  * specific storefront account, so creators with multiple stores all bind to
@@ -18,8 +17,8 @@
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
-import type { QueryCtx } from './_generated/server';
-import { internalMutation, internalQuery, query } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
+import { internalMutation, internalQuery, mutation, query } from './_generated/server';
 import { ApiActorBindingV, requireApiActor, requireDelegatedAuthUserActor } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
 import {
@@ -165,6 +164,61 @@ export type RegistrationResult =
   | { registered: false; conflict: true; archived: false }
   | { registered: false; conflict: false; archived: true; reason: string };
 
+type RegisterPackageForIdentityInput = {
+  packageId: string;
+  packageName?: string;
+  publisherId: string;
+  yucpUserId: string;
+};
+
+async function registerPackageForIdentity(
+  ctx: MutationCtx,
+  args: RegisterPackageForIdentityInput
+): Promise<RegistrationResult> {
+  if (!PACKAGE_ID_RE.test(args.packageId)) {
+    throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+  }
+
+  const normalizedPackageName = normalizePackageName(args.packageName);
+  const existing = await ctx.db
+    .query('package_registry')
+    .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+    .first();
+
+  if (existing) {
+    if (existing.yucpUserId !== args.yucpUserId) {
+      return { registered: false, conflict: true, archived: false };
+    }
+    if (isArchivedRegistration(existing)) {
+      return {
+        registered: false,
+        conflict: false,
+        archived: true,
+        reason: PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON,
+      };
+    }
+    await ctx.db.patch(existing._id, {
+      publisherId: args.publisherId,
+      packageName: normalizedPackageName ?? existing.packageName,
+      status: 'active',
+      updatedAt: Date.now(),
+    });
+    return { registered: true, conflict: false, archived: false };
+  }
+
+  const now = Date.now();
+  await ctx.db.insert('package_registry', {
+    packageId: args.packageId,
+    packageName: normalizedPackageName,
+    publisherId: args.publisherId,
+    yucpUserId: args.yucpUserId,
+    status: 'active',
+    registeredAt: now,
+    updatedAt: now,
+  });
+  return { registered: true, conflict: false, archived: false };
+}
+
 export const registerPackage = internalMutation({
   args: {
     packageId: v.string(),
@@ -174,48 +228,66 @@ export const registerPackage = internalMutation({
     yucpUserId: v.string(),
   },
   handler: async (ctx, args): Promise<RegistrationResult> => {
-    if (!PACKAGE_ID_RE.test(args.packageId)) {
-      throw new ConvexError(`Invalid packageId format: ${args.packageId}`);
+    return await registerPackageForIdentity(ctx, args);
+  },
+});
+
+export type CreatorUploadRegistrationResult =
+  | RegistrationResult
+  | {
+      registered: false;
+      conflict: false;
+      archived: false;
+      catalogProductRejected: true;
+    };
+
+export const claimPackageForCreatorUpload = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+    packageId: v.string(),
+  },
+  handler: async (ctx, args): Promise<CreatorUploadRegistrationResult> => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+
+    const product = await ctx.db.get(args.catalogProductId);
+    if (
+      !product ||
+      product.authUserId !== args.authUserId ||
+      getCatalogProductWorkspaceStatus(product) !== 'active'
+    ) {
+      return {
+        registered: false,
+        conflict: false,
+        archived: false,
+        catalogProductRejected: true,
+      };
     }
 
-    const normalizedPackageName = normalizePackageName(args.packageName);
-    const existing = await ctx.db
-      .query('package_registry')
-      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
-      .first();
-
-    if (existing) {
-      if (existing.yucpUserId !== args.yucpUserId) {
-        return { registered: false, conflict: true, archived: false };
-      }
-      if (isArchivedRegistration(existing)) {
-        return {
-          registered: false,
-          conflict: false,
-          archived: true,
-          reason: PACKAGE_ARCHIVED_SIGNING_BLOCKED_REASON,
-        };
-      }
-      await ctx.db.patch(existing._id, {
-        publisherId: args.publisherId,
-        packageName: normalizedPackageName ?? existing.packageName,
-        status: 'active',
-        updatedAt: Date.now(),
-      });
-      return { registered: true, conflict: false, archived: false };
+    const readyVersions = await ctx.db
+      .query('package_versions_ref')
+      .withIndex('by_catalog_product', (q) =>
+        q.eq('catalogProductId', args.catalogProductId).eq('state', 'READY')
+      )
+      .collect();
+    if (readyVersions.some((version) => version.packageId !== args.packageId)) {
+      return {
+        registered: false,
+        conflict: false,
+        archived: false,
+        catalogProductRejected: true,
+      };
     }
 
-    const now = Date.now();
-    await ctx.db.insert('package_registry', {
+    return await registerPackageForIdentity(ctx, {
       packageId: args.packageId,
-      packageName: normalizedPackageName,
-      publisherId: args.publisherId,
-      yucpUserId: args.yucpUserId,
-      status: 'active',
-      registeredAt: now,
-      updatedAt: now,
+      packageName: product.displayName,
+      publisherId: `creator:${args.authUserId}`,
+      yucpUserId: args.authUserId,
     });
-    return { registered: true, conflict: false, archived: false };
   },
 });
 

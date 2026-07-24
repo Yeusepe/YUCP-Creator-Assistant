@@ -13,7 +13,8 @@ import { promoteVersion } from '../ingest-pipeline';
 import {
   type CasConfig,
   type FetchInfisicalSecrets,
-  hydrateEnvFromInfisical,
+  hydrateStorageServiceEnv,
+  isDisposableStorageProfile,
   loadCasConfig,
   requireInfisicalBootstrap,
 } from '../storage-core/config';
@@ -66,8 +67,10 @@ export async function loadSchedulerRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntimeEnv> {
-  requireInfisicalBootstrap(env);
-  const runtimeEnv = await hydrateEnvFromInfisical(env, SCHEDULER_INFISICAL_KEYS, fetchSecrets);
+  if (!isDisposableStorageProfile(env)) {
+    requireInfisicalBootstrap(env);
+  }
+  const runtimeEnv = await hydrateStorageServiceEnv(env, SCHEDULER_INFISICAL_KEYS, fetchSecrets);
 
   return {
     cas: loadCasConfig(runtimeEnv),

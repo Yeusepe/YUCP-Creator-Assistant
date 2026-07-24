@@ -2,6 +2,7 @@ import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import '@/styles/install-result.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/install/success')({
   component: InstallSuccessPage,
@@ -30,19 +31,7 @@ function InstallSuccessPage() {
           />
 
           <div className="install-result-icon install-result-icon--success" aria-hidden="true">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <title>Installation succeeded</title>
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
+            <Icon name="success" size={28} />
           </div>
 
           <h1 className="install-result-heading">Bot installed!</h1>

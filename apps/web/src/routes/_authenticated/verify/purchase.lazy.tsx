@@ -31,6 +31,7 @@ import {
   shouldAutoCheckExistingEntitlement,
 } from './-purchaseUiState';
 import '@/styles/verify-purchase.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/_authenticated/verify/purchase')({
   component: VerifyPurchasePage,
@@ -323,9 +324,7 @@ function OAuthMethodButton({
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
-            <svg viewBox="0 0 16 16" aria-hidden="true" className="vp-status-badge-icon">
-              <polyline points="3 8 6 11 13 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name="check" className="vp-status-badge-icon" />
             Verified
           </span>
         </div>
@@ -504,9 +503,7 @@ function LinkedEntitlementMethodButton({
             </div>
           </div>
           <span className="vp-status-badge vp-status-badge--connected">
-            <svg viewBox="0 0 16 16" aria-hidden="true" className="vp-status-badge-icon">
-              <polyline points="3 8 6 11 13 5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <Icon name="check" className="vp-status-badge-icon" />
             Verified
           </span>
         </div>

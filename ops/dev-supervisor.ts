@@ -1,10 +1,15 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { parse as parseDotenv } from 'dotenv';
+import {
+  type DisposableStorageHarness,
+  startDisposableStorageHarness,
+} from './testing/disposableStorageHarness';
 
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
@@ -13,6 +18,8 @@ const DEV_HYPERDX_APP_URL = 'http://localhost:8080';
 const DEV_HYPERDX_OTLP_HTTP_URL = 'http://localhost:4318';
 const DEV_HYPERDX_OTLP_GRPC_URL = 'localhost:4317';
 const DEV_HYPERDX_USE_REMOTE_FLAG = 'HYPERDX_DEV_USE_REMOTE';
+const DEV_INGEST_TUS_URL = 'http://localhost:3002';
+const DEV_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
 const PREFIX_RESET = '\u001B[0m';
 const PREFIX_COLORS = {
   blue: '\u001B[34m',
@@ -47,6 +54,13 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'web', color: 'yellow', command: 'bun run dev:web' },
   { name: 'hyperdx', color: 'cyan', command: 'bun run dev:hyperdx' },
   { name: 'coupling', color: 'red', command: 'bun run dev', cwd: COUPLING_SERVICE_DIR },
+  {
+    name: 'ingest-tus',
+    color: 'cyan',
+    command: 'bun run ops/ingest-tus/server.ts',
+    env: { PORT: '3002' },
+  },
+  { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
 ];
 
 const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
@@ -56,6 +70,13 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
   { name: 'web', color: 'yellow', command: 'bun run dev:web:infisical' },
   { name: 'hyperdx', color: 'cyan', command: 'bun run dev:hyperdx:infisical' },
   { name: 'coupling', color: 'red', command: 'bun run dev:infisical', cwd: COUPLING_SERVICE_DIR },
+  {
+    name: 'ingest-tus',
+    color: 'cyan',
+    command: 'bun run ops/ingest-tus/server.ts',
+    env: { PORT: '3002' },
+  },
+  { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
 ];
 
 const TUNNEL_COMMAND: DevCommandSpec = {
@@ -423,6 +444,30 @@ export function applyLocalDevDefaults(baseEnv: NodeJS.ProcessEnv): NodeJS.Proces
   };
 }
 
+export function applyDisposableStorageProfile(
+  baseEnv: NodeJS.ProcessEnv,
+  storage: DisposableStorageHarness,
+  uploadHmacKey: string
+): NodeJS.ProcessEnv {
+  const common = storage.buckets.common;
+  return {
+    ...baseEnv,
+    CAS_S3_ACCESS_KEY_ID: common.accessKeyId,
+    CAS_S3_BUCKET: common.bucket,
+    CAS_S3_ENDPOINT: common.endpoint,
+    CAS_S3_REGION: common.region,
+    CAS_S3_SECRET_ACCESS_KEY: common.secretAccessKey,
+    CATALOG_DATABASE_URL: storage.postgres.url,
+    INGEST_ALLOWED_ORIGIN: DEV_FRONTEND_URL,
+    INGEST_MAX_BYTES: String(DEV_MAX_UPLOAD_BYTES),
+    INGEST_TUS_URL: DEV_INGEST_TUS_URL,
+    INGEST_UPLOAD_DIR: storage.uploadDir,
+    NODE_ENV: baseEnv.NODE_ENV ?? 'development',
+    UPLOAD_HMAC_KEY: uploadHmacKey,
+    YUCP_STORAGE_PROFILE: 'disposable',
+  };
+}
+
 async function loadInfisicalEnv(): Promise<NodeJS.ProcessEnv> {
   const localEnvFilePath = path.join(ROOT_DIR, '.env.local');
   const localEnvFile = existsSync(localEnvFilePath) ? await readFile(localEnvFilePath, 'utf8') : '';
@@ -453,44 +498,61 @@ function signalExitCode(signal: NodeJS.Signals): number {
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const infisical = argv.includes('--infisical');
-  const env = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
+  const loadedEnv = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
+  const storage = await startDisposableStorageHarness();
+  const env = applyDisposableStorageProfile(
+    loadedEnv,
+    storage,
+    randomBytes(32).toString('base64url')
+  );
   const supervisor = new DevSupervisor(buildDevCommands(env, infisical), env, {
     prefixOutput: true,
   });
 
-  if (infisical) {
-    await runCommandStep(
-      {
-        name: 'sync',
-        color: 'magenta',
-        command: 'bun run sync:convex:env',
-      },
-      env
+  try {
+    process.stderr.write(
+      `${buildPrefix('storage', 'cyan')}Disposable PostgreSQL and five-bucket MinIO profile ${storage.runId} is ready.\n`
     );
-  }
-
-  await supervisor.start();
-
-  let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
-    if (shuttingDown) {
-      return;
+    if (infisical) {
+      await runCommandStep(
+        {
+          name: 'sync',
+          color: 'magenta',
+          command: 'bun run sync:convex:env',
+        },
+        env
+      );
     }
 
-    shuttingDown = true;
-    await supervisor.shutdown(signal);
-    process.exit(signalExitCode(signal));
-  };
+    await supervisor.start();
 
-  process.on('SIGINT', () => {
-    void shutdown('SIGINT');
-  });
-  process.on('SIGTERM', () => {
-    void shutdown('SIGTERM');
-  });
+    let shuttingDown = false;
+    const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
+      if (shuttingDown) {
+        return;
+      }
 
-  const exitCode = await supervisor.waitForExit();
-  process.exit(exitCode);
+      shuttingDown = true;
+      await supervisor.shutdown(signal);
+      await storage.stop();
+      process.exit(signalExitCode(signal));
+    };
+
+    process.on('SIGINT', () => {
+      void shutdown('SIGINT');
+    });
+    process.on('SIGTERM', () => {
+      void shutdown('SIGTERM');
+    });
+
+    const exitCode = await supervisor.waitForExit();
+    await storage.stop();
+    process.exit(exitCode);
+  } catch (error) {
+    await supervisor.shutdown('SIGINT');
+    await storage.stop();
+    throw error;
+  }
 }
 
 if (import.meta.main) {

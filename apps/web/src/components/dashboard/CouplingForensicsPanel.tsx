@@ -108,38 +108,12 @@ const VERDICT_CONFIG = {
 
 function FxNoteIcon({ tone }: { tone: FxTone }) {
   if (tone === 'success') {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        aria-hidden="true"
-      >
-        <path d="M20 6 9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
+    return <Icon name="check" />;
   }
   if (tone === 'warning' || tone === 'danger') {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-        <path
-          d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <line x1="12" y1="9" x2="12" y2="13" strokeLinecap="round" />
-        <line x1="12" y1="17" x2="12.01" y2="17" strokeLinecap="round" />
-      </svg>
-    );
+    return <Icon name="alert" />;
   }
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" />
-      <line x1="12" y1="16" x2="12" y2="12" strokeLinecap="round" />
-      <line x1="12" y1="8" x2="12.01" y2="8" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name="info" />;
 }
 
 function FxNote({
@@ -387,12 +361,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
           <section className="intg-card animate-in bento-col-12">
             <div className="intg-header">
               <div className="intg-icon">
-                <img
-                  src="/Icons/Shield.png"
-                  alt=""
-                  aria-hidden="true"
-                  style={{ width: '22px', height: '22px', objectFit: 'contain' }}
-                />
+                <Icon name="shield" size={22} />
               </div>
               <div className="intg-copy">
                 <h1 className="intg-title">Creator scope required</h1>
@@ -578,20 +547,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                   {selectedFile ? (
                     <div className="fx-pane flex items-center gap-3 p-4">
                       <span className="fx-icon-chip text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-xl">
-                        <svg
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
+                        <Icon name="auditLog" size={18} />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-foreground truncate text-sm font-medium">
@@ -613,19 +569,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           if (fileInputRef.current) fileInputRef.current.value = '';
                         }}
                       >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          aria-hidden="true"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18" />
-                          <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
+                        <Icon name="close" size={14} />
                       </Button>
                       <input
                         ref={fileInputRef}
@@ -668,21 +612,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                         }}
                       />
                       <span className="fx-icon-chip text-foreground/60 flex size-11 items-center justify-center rounded-full">
-                        <svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="17 8 12 3 7 8" />
-                          <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
+                        <Icon name="upload" size={20} />
                       </span>
                       <p className="text-foreground text-sm font-medium">
                         {isDragOver ? 'Drop to upload' : 'Click to upload or drag & drop'}

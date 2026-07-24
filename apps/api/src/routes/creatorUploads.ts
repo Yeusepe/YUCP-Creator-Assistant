@@ -1,4 +1,5 @@
 import { api } from '../../../../convex/_generated/api';
+import type { Id } from '../../../../convex/_generated/dataModel';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 import {
   signUploadCapability,
@@ -84,12 +85,12 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
       packageId,
     })) as { status: 'active' | 'archived'; yucpUserId: string } | null;
     if (
-      !registration ||
-      registration.yucpUserId !== session.user.id ||
-      registration.status !== 'active'
+      registration &&
+      (registration.yucpUserId !== session.user.id || registration.status !== 'active')
     ) {
       return Response.json({ error: 'Active package ownership required' }, { status: 403 });
     }
+
     const billing = (await convex.query(api.certificateBilling.getAccountOverview, {
       apiSecret: config.convexApiSecret,
       authUserId: session.user.id,
@@ -104,6 +105,11 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     if (!canUpload) {
       return Response.json({ error: 'VPM repository capability required' }, { status: 403 });
     }
+
+    if (!registration && !catalogProductId) {
+      return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+    }
+
     if (catalogProductId) {
       const product = (await convex.query(
         api.packageRegistry.getBuyerAccessContextByCatalogProductId,
@@ -113,10 +119,8 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
           catalogProductId,
         }
       )) as { catalogProductId: string; creatorAuthUserId: string; packageId?: string } | null;
-      // packageId is only known once the catalog product has a READY version. Before that (e.g. the
-      // first upload) it is undefined and the product is not yet bound to any package, so only reject a
-      // CONCRETE mismatch — a product already bound to a different package. Creator ownership of the
-      // requested packageId is already proven by the registration check above.
+      // packageId is known after the catalog product has a READY version.
+      // Before that, only a concrete package mismatch is invalid.
       if (
         !product ||
         product.creatorAuthUserId !== session.user.id ||
@@ -131,6 +135,35 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     const ingestTusUrl = config.ingestTusUrl?.trim();
     if (!uploadHmacKey || !ingestTusUrl) {
       return Response.json({ error: 'Creator uploads are not configured' }, { status: 503 });
+    }
+
+    if (!registration) {
+      const claim = (await convex.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        authUserId: session.user.id,
+        catalogProductId: catalogProductId as Id<'product_catalog'>,
+        packageId,
+      })) as
+        | { registered: true; conflict: false; archived: false }
+        | { registered: false; conflict: true; archived: false }
+        | { registered: false; conflict: false; archived: true; reason: string }
+        | {
+            registered: false;
+            conflict: false;
+            archived: false;
+            catalogProductRejected: true;
+          };
+
+      if ('catalogProductRejected' in claim) {
+        return Response.json({ error: 'Catalog product ownership required' }, { status: 403 });
+      }
+      if (claim.conflict) {
+        return Response.json({ error: 'Package ID is already registered' }, { status: 409 });
+      }
+      if (claim.archived) {
+        return Response.json({ error: claim.reason }, { status: 403 });
+      }
     }
 
     const versionId = crypto.randomUUID();

@@ -1,7 +1,7 @@
 import { useQuery as useConvexQuery } from 'convex/react';
-import { Activity, KeyRound, LayoutGrid, ShieldCheck, Users } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { StatCard } from '@/components/dashboard/cards/StatCard';
+import { Icon } from '@/components/ui/Icon';
 import { api } from '../../../../../../convex/_generated/api';
 
 interface DashboardStats {
@@ -44,7 +44,7 @@ const STAT_DEFINITIONS: ReadonlyArray<{
   {
     key: 'verified-members',
     label: 'Verified members',
-    icon: <Users size={18} strokeWidth={1.75} aria-hidden />,
+    icon: <Icon name="users" size={18} aria-hidden />,
     getValue: (s) => s.totalVerified,
     getTrend: (s) =>
       s.recent24h > 0
@@ -57,7 +57,7 @@ const STAT_DEFINITIONS: ReadonlyArray<{
   {
     key: 'active-products',
     label: 'Active products',
-    icon: <LayoutGrid size={18} strokeWidth={1.75} aria-hidden />,
+    icon: <Icon name="layoutGrid" size={18} aria-hidden />,
     getValue: (s) => s.totalProducts,
     loadingTrendRow: false,
     getHint: () => 'Listed SKUs you can verify against',
@@ -65,7 +65,7 @@ const STAT_DEFINITIONS: ReadonlyArray<{
   {
     key: 'verifications-7d',
     label: 'Verifications (7d)',
-    icon: <ShieldCheck size={18} strokeWidth={1.75} aria-hidden />,
+    icon: <Icon name="shield" size={18} aria-hidden />,
     getValue: (s) => s.recent7d,
     getTrend: (s) => ({
       direction: s.recent24h > 0 ? ('up' as const) : ('neutral' as const),
@@ -78,7 +78,7 @@ const STAT_DEFINITIONS: ReadonlyArray<{
   {
     key: 'active-licenses',
     label: 'Active licenses',
-    icon: <KeyRound size={18} strokeWidth={1.75} aria-hidden />,
+    icon: <Icon name="key" size={18} aria-hidden />,
     getValue: (s) => s.activeLicenses,
     getTrend: (s) => ({
       direction: 'neutral' as const,
@@ -112,7 +112,7 @@ export function StatsOverviewPanel() {
     >
       <header className="dash-home-pulse__header">
         <div className="dash-home-pulse__leading" aria-hidden>
-          <Activity strokeWidth={1.75} />
+          <Icon name="activity" />
         </div>
         <div className="dash-home-pulse__copy">
           <h2 className="dash-home-pulse__title">Verification metrics</h2>

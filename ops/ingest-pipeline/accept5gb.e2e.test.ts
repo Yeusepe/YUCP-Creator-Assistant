@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, rm, stat, statfs, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
@@ -18,7 +18,7 @@ import {
 } from '../storage-core/canonicalizer';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
 import { type S3CasStore, s3CasStore, verifyDesyncCli } from '../storage-core/desyncCas';
-import { runCommand } from '../storage-core/process';
+import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
@@ -30,6 +30,8 @@ const DEFAULT_ACCEPT_SIZE_BYTES = 5 * GIB;
 // This is 20% of the 7.5 GiB host target and remains below a 2 GiB reduced fixture. It allows
 // runtime overhead while still catching accidental whole-artifact buffering in the orchestrator.
 const MAX_ORCHESTRATOR_RSS_BYTES = 1536 * MIB;
+const MAX_JOB_SCRATCH_BYTES = 32 * GIB;
+const SCRATCH_SAMPLE_INTERVAL_MS = 500;
 const POSTGRES_IMAGE =
   'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'; // postgres:17-alpine
 const MINIO_IMAGE =
@@ -91,6 +93,65 @@ function startRssSampler(): { stop: () => number } {
       clearInterval(timer);
       sample();
       return peakRssBytes;
+    },
+  };
+}
+
+async function directoryBytes(path: string): Promise<number> {
+  let total = 0;
+  const entries = await readdir(path, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = join(path, entry.name);
+    if (entry.isDirectory()) {
+      total += await directoryBytes(entryPath);
+      continue;
+    }
+    if (entry.isFile()) {
+      try {
+        total += (await stat(entryPath)).size;
+      } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
+          throw error;
+        }
+      }
+      continue;
+    }
+    throw new Error(`Acceptance scratch contains an unsupported entry: ${entryPath}`);
+  }
+  return total;
+}
+
+function startScratchSampler(path: string): { stop: () => Promise<number> } {
+  let peakBytes = 0;
+  let sampleFailure: unknown;
+  let samplePromise: Promise<void> | undefined;
+  const sample = async () => {
+    if (samplePromise) {
+      return;
+    }
+    samplePromise = (async () => {
+      try {
+        peakBytes = Math.max(peakBytes, await directoryBytes(path));
+      } catch (error) {
+        sampleFailure ??= error;
+      } finally {
+        samplePromise = undefined;
+      }
+    })();
+    await samplePromise;
+  };
+  void sample();
+  const timer = setInterval(() => void sample(), SCRATCH_SAMPLE_INTERVAL_MS);
+  timer.unref();
+  return {
+    stop: async () => {
+      clearInterval(timer);
+      await samplePromise;
+      await sample();
+      if (sampleFailure !== undefined) {
+        throw new Error('Acceptance scratch measurement failed', { cause: sampleFailure });
+      }
+      return peakBytes;
     },
   };
 }
@@ -345,8 +406,9 @@ async function createFixtureTree(root: string, sizeBytes: number): Promise<strin
 }
 
 async function createUnityPackage(sourcePath: string, outputPath: string): Promise<void> {
+  const archiveTools = await resolveGnuArchiveTools();
   await runCommand(
-    'tar',
+    archiveTools.tarCommand,
     [
       '--force-local',
       '--create',
@@ -364,7 +426,7 @@ async function createUnityPackage(sourcePath: string, outputPath: string): Promi
       sourcePath,
       '.',
     ],
-    { env: canonicalizerChildEnv() }
+    { env: canonicalizerChildEnv(archiveTools.env) }
   );
 }
 
@@ -526,14 +588,26 @@ describe.serial('5 GiB bounded-memory ingest and delivery acceptance', () => {
     const rssSampler = startRssSampler();
     const startedAt = performance.now();
     let metrics: AcceptanceMetrics | undefined;
+    let peakScratchBytes = 0;
+    let scratchSampler: ReturnType<typeof startScratchSampler> | undefined;
     let runError: unknown;
     let cleanupError: unknown;
 
     try {
       await setup(resources, sizeBytes);
+      scratchSampler = startScratchSampler(requireResource(resources.scratchPath, 'scratch path'));
       metrics = await runAcceptance(resources, sizeBytes);
     } catch (error) {
       runError = error;
+    }
+
+    try {
+      peakScratchBytes = (await scratchSampler?.stop()) ?? 0;
+    } catch (error) {
+      runError =
+        runError === undefined
+          ? error
+          : new AggregateError([runError, error], 'Acceptance run and measurement both failed');
     }
 
     try {
@@ -558,8 +632,11 @@ describe.serial('5 GiB bounded-memory ingest and delivery acceptance', () => {
     }
 
     expect(peakRssBytes).toBeLessThan(MAX_ORCHESTRATOR_RSS_BYTES);
+    expect(peakScratchBytes).toBeGreaterThanOrEqual(metrics.inputArtifactBytes);
+    expect(peakScratchBytes).toBeLessThan(MAX_JOB_SCRATCH_BYTES);
+    const processUsage = process.resourceUsage();
     console.log(
-      `ACCEPT_5GB_RESULT requestedBytes=${sizeBytes} inputArtifactBytes=${metrics.inputArtifactBytes} canonicalBytes=${metrics.canonicalBytes} byte-exact=true peakRssBytes=${peakRssBytes} peakRssMiB=${(peakRssBytes / MIB).toFixed(1)} memoryBoundBytes=${MAX_ORCHESTRATOR_RSS_BYTES} decompression-budget-ok=true decompressionBudgetBytes=${DEFAULT_MAX_DECOMPRESSED_BYTES} v1ChunkBytes=${metrics.v1ChunkBytes} v2DeltaChunks=${metrics.v2DeltaChunks} v2DedupDeltaBytes=${metrics.v2DeltaBytes} wallTimeSeconds=${wallTimeSeconds.toFixed(1)} cleanup=complete`
+      `ACCEPT_5GB_RESULT requestedBytes=${sizeBytes} inputArtifactBytes=${metrics.inputArtifactBytes} canonicalBytes=${metrics.canonicalBytes} byte-exact=true peakRssBytes=${peakRssBytes} peakRssMiB=${(peakRssBytes / MIB).toFixed(1)} memoryBoundBytes=${MAX_ORCHESTRATOR_RSS_BYTES} peakScratchBytes=${peakScratchBytes} peakScratchGiB=${formatGib(peakScratchBytes)} scratchBoundBytes=${MAX_JOB_SCRATCH_BYTES} userCpuMicros=${processUsage.userCPUTime} systemCpuMicros=${processUsage.systemCPUTime} decompression-budget-ok=true decompressionBudgetBytes=${DEFAULT_MAX_DECOMPRESSED_BYTES} v1ChunkBytes=${metrics.v1ChunkBytes} v2DeltaChunks=${metrics.v2DeltaChunks} v2DedupDeltaBytes=${metrics.v2DeltaBytes} wallTimeSeconds=${wallTimeSeconds.toFixed(1)} cleanup=complete`
     );
   });
 });

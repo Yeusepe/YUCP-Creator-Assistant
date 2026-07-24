@@ -52,6 +52,33 @@
   --font-display: AirbnbCereal, sans-serif;
 }
 
+.yucp-icon {
+  --icon-neutral-primary: oklch(0.3 0.02 245);
+  --icon-neutral-accent: oklch(0.68 0.02 245);
+  --icon-theme-primary-color: var(--icon-neutral-primary);
+  --icon-theme-accent-color: var(--icon-neutral-accent);
+  --icon-render-primary-color: var(--icon-neutral-primary);
+  --icon-render-accent-color: var(--icon-neutral-accent);
+}
+
+.dark .yucp-icon {
+  --icon-neutral-primary: oklch(0.97 0.01 235);
+  --icon-neutral-accent: oklch(0.55 0.04 235);
+}
+
+.yucp-icon[data-icon-color="always"] {
+  --icon-render-primary-color: var(--icon-theme-primary-color);
+  --icon-render-accent-color: var(--icon-theme-accent-color);
+}
+
+.yucp-icon[data-icon-color="interaction"]:hover,
+:is(a, button, [role="button"]):is(:hover, :focus-visible, .is-active, [aria-selected="true"])
+  .yucp-icon[data-icon-color="interaction"],
+:is(.is-active, [aria-selected="true"]) .yucp-icon[data-icon-color="interaction"] {
+  --icon-render-primary-color: var(--icon-theme-primary-color);
+  --icon-render-accent-color: var(--icon-theme-accent-color);
+}
+
 @layer base {
   /* Shared resets matching the original HTML pages.
    * Must be in @layer base so @layer utilities (Tailwind) can override them. */

@@ -30,6 +30,129 @@ async function createCreatorActorBinding(authUserId: string) {
 }
 
 describe('packageRegistry', () => {
+  it('claims a package namespace for an authenticated creator first upload', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'auth-user-first-upload';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'first-upload-product',
+        provider: 'manual',
+        providerProductRef: 'first-upload-product-ref',
+        displayName: 'First Upload Product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+      apiSecret: 'test-secret',
+      actor: await createCreatorActorBinding(authUserId),
+      authUserId,
+      catalogProductId,
+      packageId: 'com.yucp.first-upload',
+    });
+    const registration = await t.query(internal.packageRegistry.getRegistration, {
+      packageId: 'com.yucp.first-upload',
+    });
+
+    expect(result).toEqual({
+      registered: true,
+      conflict: false,
+      archived: false,
+    });
+    expect(registration).toMatchObject({
+      packageId: 'com.yucp.first-upload',
+      packageName: 'First Upload Product',
+      publisherId: `creator:${authUserId}`,
+      yucpUserId: authUserId,
+      status: 'active',
+    });
+  });
+
+  it('rejects a first-upload claim for another creator catalog product', async () => {
+    const t = makeTestConvex();
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      return await ctx.db.insert('product_catalog', {
+        authUserId: 'catalog-owner',
+        productId: 'protected-catalog-product',
+        provider: 'manual',
+        providerProductRef: 'protected-catalog-product-ref',
+        displayName: 'Protected Catalog Product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+      apiSecret: 'test-secret',
+      actor: await createCreatorActorBinding('different-creator'),
+      authUserId: 'different-creator',
+      catalogProductId,
+      packageId: 'com.yucp.unauthorized-claim',
+    });
+    const registration = await t.query(internal.packageRegistry.getRegistration, {
+      packageId: 'com.yucp.unauthorized-claim',
+    });
+
+    expect(result).toEqual({
+      registered: false,
+      conflict: false,
+      archived: false,
+      catalogProductRejected: true,
+    });
+    expect(registration).toBeNull();
+  });
+
+  it('rejects a first-upload claim when the product has another ready package', async () => {
+    const t = makeTestConvex();
+    const authUserId = 'catalog-package-owner';
+    const catalogProductId = await t.run(async (ctx) => {
+      const now = Date.now();
+      const productId = await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'bound-catalog-product',
+        provider: 'manual',
+        providerProductRef: 'bound-catalog-product-ref',
+        displayName: 'Bound Catalog Product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId: 'com.yucp.bound-package',
+        version: '1.0.0',
+        versionId: '00000000-0000-4000-8000-000000000111',
+        state: 'READY',
+        catalogProductId: productId,
+        createdAt: now,
+      });
+      return productId;
+    });
+
+    const result = await t.mutation(api.packageRegistry.claimPackageForCreatorUpload, {
+      apiSecret: 'test-secret',
+      actor: await createCreatorActorBinding(authUserId),
+      authUserId,
+      catalogProductId,
+      packageId: 'com.yucp.different-package',
+    });
+
+    expect(result).toEqual({
+      registered: false,
+      conflict: false,
+      archived: false,
+      catalogProductRejected: true,
+    });
+  });
+
   it('blocks deletion when a catalog product has package-version history', async () => {
     const t = makeTestConvex();
     const authUserId = 'auth-user-package-history';

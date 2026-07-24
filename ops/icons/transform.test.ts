@@ -15,8 +15,8 @@ describe('Flex Flat SVG transform', () => {
     expect(transformed.viewBox).toBe('0 0 14 14');
     expect(transformed.attribution).toBe('Example Streamline Icon: https://streamlinehq.com');
     expect(transformed.paths).toEqual([
-      { d: 'M0 0h7v7H0z' },
-      { d: 'M7 7h7v7H7z', fillOpacity: '0.6' },
+      { d: 'M0 0h7v7H0z', tone: 'primary' },
+      { d: 'M7 7h7v7H7z', tone: 'secondary' },
     ]);
     expect(JSON.stringify(transformed)).not.toMatch(/#8fbffa|#2859c5/i);
   });
@@ -41,7 +41,10 @@ describe('Flex Flat SVG transform', () => {
 
     expect(transformFlexFlatSvg(hostileSvg, 'hostile-attribution')).toEqual({
       attribution: hostileAttribution,
-      paths: [{ d: 'M0 0h7v7H0z' }, { d: 'M7 7h7v7H7z', fillOpacity: '0.6' }],
+      paths: [
+        { d: 'M0 0h7v7H0z', tone: 'primary' },
+        { d: 'M7 7h7v7H7z', tone: 'secondary' },
+      ],
       viewBox: '0 0 14 14',
     });
   });

@@ -41,6 +41,10 @@ export interface LocalEnv {
   DELIVERY_BASE_URL?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
+  /** Public first-party VPM index that supplies the generic importer package. */
+  VPM_PUBLIC_INDEX_URL?: string;
+  /** Purpose-separated HMAC key for stateless VPM repository tokens. */
+  VPM_TOKEN_KEY?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -189,6 +193,8 @@ function loadFromEnv(): LocalEnv {
     DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
     DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
+    VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
+    VPM_TOKEN_KEY: process.env.VPM_TOKEN_KEY,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

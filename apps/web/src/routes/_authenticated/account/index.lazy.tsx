@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
-import { AlertCircle, KeyRound, ShieldCheck } from 'lucide-react';
 import { type CSSProperties, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { AccountProfileSkeleton } from '@/components/account/AccountProfileSkeleton';
+import { Icon } from '@/components/ui/Icon';
 import { ProviderChip } from '@/components/ui/ProviderChip';
 import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
@@ -110,16 +110,7 @@ function AccountProfile() {
             {avatarUrl ? (
               <img src={avatarUrl} alt={displayName} />
             ) : (
-              <svg
-                width="28"
-                height="28"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
-              >
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
-              </svg>
+              <Icon name="profile" size={28} />
             )}
           </div>
           <div className="account-profile-hero-copy">
@@ -149,7 +140,7 @@ function AccountProfile() {
 
       <AccountSectionCard
         className="bento-col-4 animate-in animate-in-delay-2 account-session-card"
-        leading={<KeyRound strokeWidth={1.75} aria-hidden />}
+        leading={<Icon name="key" aria-hidden />}
         eyebrow="Session"
         title="Your access"
         description="How you sign in and what this account can use."
@@ -187,7 +178,7 @@ function AccountProfile() {
 
       <AccountSectionCard
         className="bento-col-12 animate-in animate-in-delay-2"
-        leading={<ShieldCheck strokeWidth={1.75} aria-hidden />}
+        leading={<Icon name="shield" aria-hidden />}
         eyebrow="Account recovery"
         title="Can you get back in if Discord breaks?"
         description="Discord is your normal sign-in. Add backups like passkeys, one-time codes, or a spare inbox so you are never stuck."
@@ -210,7 +201,7 @@ function AccountProfile() {
           <div className="account-status-banner account-status-banner--warning account-status-banner--recovery-cta">
             <div className="account-status-banner-main">
               <span className="account-status-banner-icon" aria-hidden>
-                <AlertCircle strokeWidth={1.75} />
+                <Icon name="alert" />
               </span>
               <div className="account-status-banner-copy">
                 <strong>Add a backup sign-in method</strong>

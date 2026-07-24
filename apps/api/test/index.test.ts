@@ -80,6 +80,8 @@ describe('API server, production app harness', () => {
     expect(process.env.DELIVERY_HMAC_KEY).toBeUndefined();
     expect(process.env.DELIVERY_BASE_URL).toBeUndefined();
     expect(process.env.VPM_BASE_URL).toBeUndefined();
+    expect(process.env.VPM_PUBLIC_INDEX_URL).toBeUndefined();
+    expect(process.env.VPM_TOKEN_KEY).toBeUndefined();
 
     const res = await app.fetch('/health');
     expect(res.status).toBe(200);

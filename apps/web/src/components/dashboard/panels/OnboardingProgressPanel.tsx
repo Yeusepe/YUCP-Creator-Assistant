@@ -1,5 +1,6 @@
 import { ProgressBar } from '@heroui/react';
 import { useMemo } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 interface OnboardingStep {
   id: string;
@@ -31,19 +32,7 @@ function CheckCircle({ completed }: { completed: boolean }) {
         }}
         aria-hidden="true"
       >
-        <svg
-          width="11"
-          height="11"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
+        <Icon name="success" size={11} />
       </div>
     );
   }
@@ -133,19 +122,7 @@ export function OnboardingProgressPanel({ steps, onDismiss }: OnboardingProgress
               className="onboarding-dismiss-btn"
               aria-label="Dismiss getting started checklist"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
+              <Icon name="close" size={14} />
             </button>
           )}
         </div>

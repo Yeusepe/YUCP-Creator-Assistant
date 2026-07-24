@@ -4,9 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { DashboardSkeletonSwap } from '@/components/dashboard/DashboardSkeletonSwap';
 import { DashboardSettingsSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { DashboardPanelErrorState } from '@/components/dashboard/PanelErrorState';
+import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { isDashboardAuthError } from '@/hooks/useDashboardSession';
+import type { IconName } from '@/icons/manifest';
 import type { DashboardGuildChannel, DashboardPolicy, DashboardSettingKey } from '@/lib/dashboard';
 import { getDashboardSettings, listGuildChannels, updateDashboardSetting } from '@/lib/dashboard';
 import {
@@ -58,25 +60,25 @@ const SWITCH_SETTING_CONFIG = [
     key: 'allowMismatchedEmails',
     label: 'Allow Mismatched Emails',
     hint: 'Verify with a different email than Discord.',
-    icon: '/Icons/World.png',
+    icon: 'globe',
   },
   {
     key: 'autoVerifyOnJoin',
     label: 'Auto-Verify on Join',
     hint: 'Automatically verify members when they join the server.',
-    icon: '/Icons/Refresh.png',
+    icon: 'refresh',
   },
   {
     key: 'shareVerificationWithServers',
     label: 'Share Across Servers',
     hint: 'Same Discord account, different servers. Verification carries over.',
-    icon: '/Icons/Link.png',
+    icon: 'link',
   },
   {
     key: 'enableDiscordRoleFromOtherServers',
     label: 'Cross-Server Role Checks',
     hint: 'Check roles from servers the user is in.',
-    icon: '/Icons/PersonKey.png',
+    icon: 'userKey',
   },
 ] as const satisfies ReadonlyArray<{
   key: Extract<
@@ -88,7 +90,7 @@ const SWITCH_SETTING_CONFIG = [
   >;
   label: string;
   hint: string;
-  icon: string;
+  icon: IconName;
 }>;
 
 const SELECT_SETTING_CONFIG = [
@@ -96,7 +98,7 @@ const SELECT_SETTING_CONFIG = [
     key: 'verificationScope',
     label: 'Verification Scope',
     hint: 'How verifications are scoped for buyers.',
-    icon: '/Icons/Key.png',
+    icon: 'key',
     options: [
       { value: 'account', label: 'Account' },
       { value: 'license', label: 'License' },
@@ -106,7 +108,7 @@ const SELECT_SETTING_CONFIG = [
     key: 'duplicateVerificationBehavior',
     label: 'Duplicate Verifications',
     hint: 'What happens when a user verifies twice.',
-    icon: '/Icons/ClapStars.png',
+    icon: 'refresh',
     options: [
       { value: 'allow', label: 'Allow' },
       { value: 'notify', label: 'Notify' },
@@ -117,7 +119,7 @@ const SELECT_SETTING_CONFIG = [
     key: 'suspiciousAccountBehavior',
     label: 'Suspicious Accounts',
     hint: 'How to handle potentially fraudulent accounts.',
-    icon: '/Icons/X.png',
+    icon: 'alert',
     options: [
       { value: 'notify', label: 'Notify' },
       { value: 'quarantine', label: 'Quarantine' },
@@ -131,7 +133,7 @@ const SELECT_SETTING_CONFIG = [
   >;
   label: string;
   hint: string;
-  icon: string;
+  icon: IconName;
   options: ReadonlyArray<{ value: string; label: string }>;
 }>;
 
@@ -140,15 +142,20 @@ const CHANNEL_SETTINGS = [
     key: 'logChannelId' as const,
     label: 'Logs Channel',
     hint: 'Channel where verification activity logs are posted.',
-    icon: '/Icons/Library.png',
+    icon: 'auditLog',
   },
   {
     key: 'announcementsChannelId' as const,
     label: 'Announcements Channel',
     hint: 'Channel where bot updates and announcements are posted.',
-    icon: '/Icons/World.png',
+    icon: 'bell',
   },
-];
+] as const satisfies ReadonlyArray<{
+  key: Extract<DashboardSettingKey, 'logChannelId' | 'announcementsChannelId'>;
+  label: string;
+  hint: string;
+  icon: IconName;
+}>;
 
 const SETTING_LABELS: Record<string, string> = {
   allowMismatchedEmails: 'Allow mismatched emails',
@@ -192,21 +199,7 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
         data-for={settingKey}
         aria-live="polite"
       >
-        <svg
-          aria-hidden="true"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#22c55e"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-          <polyline points="17 21 17 13 7 13 7 21" />
-          <polyline points="7 3 7 8 15 8" />
-        </svg>
+        <Icon name="success" size={14} className="text-green-500" />
       </span>
       <span
         style={{ opacity: state === 'error' ? 1 : 0, transition: 'opacity 0.2s' }}
@@ -214,21 +207,7 @@ function SaveIndicator({ settingKey, state }: { settingKey: string; state: SaveI
         aria-live="assertive"
         hidden={state !== 'error'}
       >
-        <svg
-          aria-hidden="true"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#ef4444"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10" />
-          <line x1="15" y1="9" x2="9" y2="15" />
-          <line x1="9" y1="9" x2="15" y2="15" />
-        </svg>
+        <Icon name="close" size={14} className="text-red-500" />
       </span>
     </>
   );
@@ -271,7 +250,7 @@ function SettingRow({
   control,
   indicator,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   hint: string;
   control: React.ReactNode;
@@ -280,7 +259,7 @@ function SettingRow({
   return (
     <article className="setting-row">
       <div className="setting-row-icon">
-        <img src={icon} alt="" />
+        <Icon name={icon} />
       </div>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <span className="setting-row-label">{label}</span>
@@ -492,7 +471,7 @@ export function ServerSettingsPanel({
       <div className="intg-header">
         <div className="intg-title-row">
           <div className="intg-icon">
-            <img src="/Icons/Wrench.png" alt="" />
+            <Icon name="settings" />
           </div>
           <div className="intg-copy">
             <h2 className="intg-title">General Settings</h2>

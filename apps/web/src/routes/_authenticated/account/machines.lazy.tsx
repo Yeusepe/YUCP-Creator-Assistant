@@ -8,6 +8,7 @@ import {
   CertificateDeviceRow,
 } from '@/components/dashboard/CertificateWorkspacePanels';
 import { DashboardCertificatesSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { StatusChip } from '@/components/ui/StatusChip';
 import { useToast } from '@/components/ui/Toast';
 import { useCreatorCertificateWorkspace } from '@/hooks/useCreatorCertificateWorkspace';
@@ -101,7 +102,7 @@ export default function AccountMachines() {
           <div className="intg-header">
             <div className="intg-title-row">
               <div className="intg-icon">
-                <img src="/Icons/Laptop.png" alt="" aria-hidden="true" />
+                <Icon name="desktop" />
               </div>
               <div className="intg-copy">
                 <h2 className="intg-title">Authorized Machines</h2>
@@ -180,12 +181,7 @@ export default function AccountMachines() {
             ) : (
               <div className="account-empty">
                 <div className="account-empty-icon">
-                  <img
-                    src="/Icons/Laptop.png"
-                    alt=""
-                    aria-hidden="true"
-                    style={{ width: '20px', height: '20px', objectFit: 'contain', opacity: 0.45 }}
-                  />
+                  <Icon name="desktop" style={{ opacity: 0.45 }} />
                 </div>
                 <p className="account-empty-title">No devices enrolled yet</p>
                 <p className="account-empty-desc">

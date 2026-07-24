@@ -1,17 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import {
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  Download,
-  ExternalLink,
-  Package,
-  Store,
-} from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
@@ -68,7 +60,7 @@ function ProgressStep({
   return (
     <li className={`vpa-step vpa-step--${status}`}>
       <span className="vpa-step-dot" aria-hidden="true">
-        {status === 'complete' ? <CheckCircle2 className="size-4" /> : index + 1}
+        {status === 'complete' ? <Icon name="success" className="size-4" /> : index + 1}
       </span>
       <span className="vpa-step-label">{label}</span>
     </li>
@@ -140,12 +132,12 @@ function BuyerProductAccessPage() {
             {product.thumbnailUrl ? (
               <img className="vpa-thumb-img" src={product.thumbnailUrl} alt="" />
             ) : (
-              <Package className="size-7" aria-hidden="true" />
+              <Icon name="package" className="size-7" aria-hidden="true" />
             )}
           </div>
           <div className="vpa-head-text">
             <span className="vpa-provider">
-              <Store className="size-3.5" aria-hidden="true" />
+              <Icon name="store" className="size-3.5" aria-hidden="true" />
               {product.providerLabel}
             </span>
             <h1 className="vpa-title">{product.displayName}</h1>
@@ -162,7 +154,7 @@ function BuyerProductAccessPage() {
         <section className="vpa-action">
           {returnedFromVerification ? (
             <div className="vpa-callout vpa-callout--success">
-              <CheckCircle2 className="size-4" aria-hidden="true" />
+              <Icon name="success" className="size-4" aria-hidden="true" />
               Purchase confirmed. Your private package access is ready.
             </div>
           ) : null}
@@ -187,7 +179,7 @@ function BuyerProductAccessPage() {
           {hasAccess ? (
             <div className="flex flex-wrap gap-2">
               <a className="vp-primary-btn vpa-cta" href={downloadPath}>
-                <Download className="size-4" aria-hidden="true" />
+                <Icon name="download" className="size-4" aria-hidden="true" />
                 Download
               </a>
               <YucpButton
@@ -202,7 +194,7 @@ function BuyerProductAccessPage() {
                   }
                 }}
               >
-                <ExternalLink className="size-4" aria-hidden="true" />
+                <Icon name="externalLink" className="size-4" aria-hidden="true" />
                 {repositoryQuery.isPending ? 'Preparing VCC access...' : 'Add to VCC'}
               </YucpButton>
             </div>
@@ -239,7 +231,8 @@ function BuyerProductAccessPage() {
               onClick={() => setIsManualSetupOpen((current) => !current)}
             >
               Manual setup and troubleshooting
-              <ChevronDown
+              <Icon
+                name="chevronDown"
                 className={`vpa-manual-toggle-icon size-4${isManualSetupOpen ? ' is-open' : ''}`}
                 aria-hidden="true"
               />
@@ -274,7 +267,7 @@ function BuyerProductAccessPage() {
                         void copyRepositoryValue('add-repo', repositoryQuery.data.addRepoUrl)
                       }
                     >
-                      <Copy className="size-3.5" aria-hidden="true" />
+                      <Icon name="copy" className="size-3.5" aria-hidden="true" />
                       Copy
                     </YucpButton>
                   </div>
@@ -289,7 +282,7 @@ function BuyerProductAccessPage() {
                         void copyRepositoryValue('index', repositoryQuery.data.indexUrl)
                       }
                     >
-                      <Copy className="size-3.5" aria-hidden="true" />
+                      <Icon name="copy" className="size-3.5" aria-hidden="true" />
                       Copy
                     </YucpButton>
                   </div>
@@ -314,7 +307,7 @@ function BuyerProductAccessPage() {
               rel="noreferrer"
               className="vpa-foot-link"
             >
-              <ExternalLink className="size-4" aria-hidden="true" />
+              <Icon name="externalLink" className="size-4" aria-hidden="true" />
               Store listing
             </a>
           ) : null}

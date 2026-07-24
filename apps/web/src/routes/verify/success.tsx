@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 
 export const Route = createFileRoute('/verify/success')({
@@ -86,9 +87,7 @@ function VerifySuccessPage() {
           </div>
 
           <div className="verify-success-icon-ring fade-up" style={{ animationDelay: '0.25s' }}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M20 7 10.5 16.5 6 12" />
-            </svg>
+            <Icon name="success" />
           </div>
 
           <h1 className="verify-success-title fade-up" style={{ animationDelay: '0.35s' }}>

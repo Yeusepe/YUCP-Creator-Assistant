@@ -2,6 +2,7 @@ import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { verifyUploadCapability } from '../../../../ops/storage-core/uploadSigning';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
+const convexMutationMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 
 const apiMock = {
   certificateBilling: {
@@ -10,6 +11,7 @@ const apiMock = {
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
+    claimPackageForCreatorUpload: 'packageRegistry.claimPackageForCreatorUpload',
     lookupRegistration: 'packageRegistry.lookupRegistration',
   },
 } as const;
@@ -26,6 +28,7 @@ mock.module('../lib/apiActor', () => ({
 
 mock.module('../lib/convex', () => ({
   getConvexClientFromUrl: () => ({
+    mutation: convexMutationMock,
     query: convexQueryMock,
   }),
 }));
@@ -76,6 +79,7 @@ describe('creator upload authorization', () => {
   });
 
   beforeEach(() => {
+    convexMutationMock.mockReset();
     convexQueryMock.mockReset();
   });
 
@@ -105,6 +109,115 @@ describe('creator upload authorization', () => {
       actor: 'creator-actor-binding',
       packageId: 'com.yucp.avatar',
     });
+  });
+
+  it('claims an unregistered package for the owned catalog product before first upload', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return null;
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog-product-456',
+          creatorAuthUserId: 'creator-123',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockResolvedValue({
+      registered: true,
+      conflict: false,
+      archived: false,
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.first-upload',
+        version: '1.0.0',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(convexMutationMock).toHaveBeenCalledWith(
+      apiMock.packageRegistry.claimPackageForCreatorUpload,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: 'creator-actor-binding',
+        authUserId: 'creator-123',
+        catalogProductId: 'catalog-product-456',
+        packageId: 'com.yucp.first-upload',
+      }
+    );
+  });
+
+  it('returns 409 when another creator wins the package namespace claim', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return null;
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog-product-456',
+          creatorAuthUserId: 'creator-123',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    convexMutationMock.mockResolvedValue({
+      registered: false,
+      conflict: true,
+      archived: false,
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.contested',
+        version: '1.0.0',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: 'Package ID is already registered' });
+  });
+
+  it('does not claim a package namespace when creator uploads are not configured', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return null;
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog-product-456',
+          creatorAuthUserId: 'creator-123',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123', {
+      ingestTusUrl: undefined,
+      uploadHmacKey: undefined,
+    }).authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.unconfigured',
+        version: '1.0.0',
+        catalogProductId: 'catalog-product-456',
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(convexMutationMock).not.toHaveBeenCalled();
   });
 
   it('returns 503 for the package owner when creator uploads are not configured', async () => {

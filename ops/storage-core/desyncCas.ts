@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
 import { commandPathEnv, runCommand } from './process';
-import { deleteS3Objects, getS3Object, putS3Object } from './s3Control';
+import { deleteS3Objects, getS3Object, putS3ObjectImmutable } from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
 
@@ -175,7 +175,7 @@ export async function storeArtifactToStore(input: {
         env: desyncS3ChildEnv(input.store.config),
       }
     );
-    await putS3Object({
+    await putS3ObjectImmutable({
       body: await readFile(indexPath),
       config: input.store.config,
       contentType: 'application/octet-stream',
@@ -222,42 +222,45 @@ export async function inspectDesyncIndex(input: {
   indexId: string;
   store: CasStore;
 }): Promise<DeliveryManifestChunk[]> {
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-inspection-'));
+  const inspectionPath = join(scratchPath, 'chunks.json');
   const indexLocation =
     input.store.kind === 'local'
       ? resolve(input.indexId)
       : buildDesyncS3IndexUrl(input.store.config, input.indexId);
-  const { stdout } = await runCommand(
-    'desync',
-    ['--digest', 'sha256', 'inspect-chunks', '--', indexLocation],
-    {
-      env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
-    }
-  );
-
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error('desync inspect-chunks returned invalid JSON', { cause: error });
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error('desync inspect-chunks did not return a chunk list');
-  }
+    await runCommand('desync', ['--digest', 'sha256', 'inspect-chunks', '--', indexLocation], {
+      env: input.store.kind === 's3' ? desyncS3ChildEnv(input.store.config) : commandPathEnv(),
+      stdoutPath: inspectionPath,
+    });
 
-  return parsed.map((value, index) => {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk at index ${index}`);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await readFile(inspectionPath, 'utf8'));
+    } catch (error) {
+      throw new Error('desync inspect-chunks returned invalid JSON', { cause: error });
     }
-    const id = Reflect.get(value, 'id');
-    const size = Reflect.get(value, 'uncompressed_size');
-    if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id)) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk ID at index ${index}`);
+    if (!Array.isArray(parsed)) {
+      throw new Error('desync inspect-chunks did not return a chunk list');
     }
-    if (!Number.isSafeInteger(size) || (size as number) <= 0) {
-      throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
-    }
-    return { id, size: size as number };
-  });
+
+    return parsed.map((value, index) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk at index ${index}`);
+      }
+      const id = Reflect.get(value, 'id');
+      const size = Reflect.get(value, 'uncompressed_size');
+      if (typeof id !== 'string' || !/^[0-9a-f]{64}$/.test(id)) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk ID at index ${index}`);
+      }
+      if (!Number.isSafeInteger(size) || (size as number) <= 0) {
+        throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
+      }
+      return { id, size: size as number };
+    });
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
 }
 
 export async function writeCasIndexObject(input: {
@@ -274,7 +277,7 @@ export async function writeCasIndexObject(input: {
   }
 
   assertRemoteIndexId(input.indexId);
-  await putS3Object({
+  await putS3ObjectImmutable({
     body: input.body,
     config: input.store.config,
     contentType: input.contentType,

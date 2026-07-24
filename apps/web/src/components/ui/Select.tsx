@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 export interface SelectOption {
   value: string;
@@ -87,21 +88,7 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
         aria-controls={listboxId}
       >
         <span className="ui-select-value">{selectedOption ? selectedOption.label : ''}</span>
-        <svg
-          className="ui-select-arrow"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <path
-            d="M6 9l6 6 6-6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <Icon name="chevronDown" className="ui-select-arrow" />
       </button>
 
       <div className="ui-select-menu" role="listbox" id={listboxId} aria-hidden={!open}>
@@ -127,23 +114,7 @@ export function Select({ id, value, options, onChange, disabled, className }: Se
               }}
             >
               <span className="ui-select-option-indicator" aria-hidden="true">
-                {isSelected && (
-                  <svg
-                    className="ui-select-check"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
+                {isSelected && <Icon name="check" className="ui-select-check" />}
               </span>
               {opt.label}
             </div>

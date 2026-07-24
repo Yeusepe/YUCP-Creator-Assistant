@@ -3,6 +3,7 @@ import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import {
   startAccountRecovery,
@@ -488,41 +489,13 @@ function SignInPageContent({ redirectTo }: Readonly<{ redirectTo?: string | null
           {currentState === 'state-error' && (
             <div id="state-error" className="state active">
               <div className="error-icon" aria-hidden="true">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#f87171"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
+                <Icon name="alert" size={24} />
               </div>
               <h1 className="card-title" style={{ fontSize: '1.2rem', marginBottom: '0.4rem' }}>
                 Sign-in failed
               </h1>
               <div className="error-notice">
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#f87171"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
+                <Icon name="alert" size={13} />
                 <p id="error-detail">{errorMessage}</p>
               </div>
               <div className="sign-in-actions">

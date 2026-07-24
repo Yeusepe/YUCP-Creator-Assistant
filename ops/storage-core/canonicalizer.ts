@@ -7,6 +7,7 @@ import {
   readdir,
   readlink,
   realpath,
+  rename,
   rm,
   stat,
 } from 'node:fs/promises';
@@ -22,7 +23,7 @@ import {
   ZipPassThrough,
 } from 'fflate';
 import { list as listTar } from 'tar';
-import { commandPathEnv, runCommand } from './process';
+import { commandPathEnv, resolveGnuArchiveTools, runCommand } from './process';
 
 export const DEFAULT_MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024 * 1024;
 export const MAX_ARCHIVE_ENTRIES = 100_000;
@@ -39,9 +40,11 @@ const ALLOWED_TAR_ENTRY_TYPES = new Set([
   'GlobalExtendedHeader',
 ]);
 
-export function canonicalizerChildEnv(): NodeJS.ProcessEnv {
+export function canonicalizerChildEnv(
+  baseEnv: NodeJS.ProcessEnv = commandPathEnv()
+): NodeJS.ProcessEnv {
   return {
-    ...commandPathEnv(),
+    ...baseEnv,
     LC_ALL: 'C',
     TZ: 'UTC',
   };
@@ -401,7 +404,8 @@ async function canonicalizeTarGzip(
   const sourceTarPath = join(scratchPath, 'source.tar');
   const canonicalTarPath = join(scratchPath, 'canonical.tar');
   const extractedPath = join(scratchPath, 'entries');
-  const deterministicEnvironment = canonicalizerChildEnv();
+  const archiveTools = await resolveGnuArchiveTools();
+  const deterministicEnvironment = canonicalizerChildEnv(archiveTools.env);
   await mkdir(extractedPath);
 
   const sourceTarFile = openSync(sourceTarPath, 'w');
@@ -421,7 +425,7 @@ async function canonicalizeTarGzip(
   }
   await validateTarArchiveEntries(sourceTarPath, extractedPath);
   await runCommand(
-    'tar',
+    archiveTools.tarCommand,
     [
       '--force-local',
       '--extract',
@@ -437,7 +441,7 @@ async function canonicalizeTarGzip(
   );
   await validateExtractedTarEntries(extractedPath);
   await runCommand(
-    'tar',
+    archiveTools.tarCommand,
     [
       '--force-local',
       '--create',
@@ -456,10 +460,14 @@ async function canonicalizeTarGzip(
     ],
     { env: deterministicEnvironment }
   );
-  await runCommand('gzip', ['-n', '--rsyncable', '--stdout', '--', canonicalTarPath], {
-    env: deterministicEnvironment,
-    stdoutPath: outputPath,
-  });
+  await runCommand(
+    archiveTools.gzipCommand,
+    ['-n', '--rsyncable', '--stdout', '--', canonicalTarPath],
+    {
+      env: deterministicEnvironment,
+      stdoutPath: outputPath,
+    }
+  );
 }
 
 export async function canonicalizeArtifact(input: {
@@ -496,7 +504,8 @@ export async function canonicalizeArtifact(input: {
     } else {
       await copyFile(inputPath, scratchOutputPath);
     }
-    await copyFile(scratchOutputPath, outputPath);
+    // Scratch lives inside outputDirectory, so this is a same-filesystem rename: no byte copy.
+    await rename(scratchOutputPath, outputPath);
     const outputStats = await stat(outputPath);
     return {
       byteLength: outputStats.size,

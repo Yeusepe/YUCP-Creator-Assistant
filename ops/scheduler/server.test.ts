@@ -53,6 +53,7 @@ describe('scheduler production runtime environment', () => {
       convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,
       convexUrl: FETCHED_SCHEDULER_SECRETS.CONVEX_URL,
       internalServiceAuthSecret: FETCHED_SCHEDULER_SECRETS.INTERNAL_SERVICE_AUTH_SECRET,
+      publishTimeoutMs: 15_000,
     });
     expect(runtime.cas.endpoint).toBe(FETCHED_SCHEDULER_SECRETS.CAS_S3_ENDPOINT);
     expect(runtime.cas.accessKeyId).toBe(FETCHED_SCHEDULER_SECRETS.CAS_S3_ACCESS_KEY_ID);
@@ -80,5 +81,27 @@ describe('scheduler production runtime environment', () => {
       'Missing required Infisical bootstrap environment variables'
     );
     expect(fetchSecrets).not.toHaveBeenCalled();
+  });
+
+  it('uses local storage with fetched publisher credentials in the disposable profile', async () => {
+    const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => FETCHED_SCHEDULER_SECRETS);
+    const localEnv = {
+      ...COMPLETE_RAW_ENV,
+      NODE_ENV: 'development',
+      YUCP_STORAGE_PROFILE: 'disposable',
+    } satisfies NodeJS.ProcessEnv;
+
+    const runtime = await loadSchedulerRuntimeEnv(localEnv, fetchSecrets);
+
+    expect(fetchSecrets).toHaveBeenCalledTimes(1);
+    expect(runtime.catalogDatabaseUrl).toBe(COMPLETE_RAW_ENV.CATALOG_DATABASE_URL);
+    expect(runtime.cas.endpoint).toBe(COMPLETE_RAW_ENV.CAS_S3_ENDPOINT);
+    expect(runtime.cas.accessKeyId).toBe(COMPLETE_RAW_ENV.CAS_S3_ACCESS_KEY_ID);
+    expect(runtime.publish).toEqual({
+      convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,
+      convexUrl: FETCHED_SCHEDULER_SECRETS.CONVEX_URL,
+      internalServiceAuthSecret: FETCHED_SCHEDULER_SECRETS.INTERNAL_SERVICE_AUTH_SECRET,
+      publishTimeoutMs: 15_000,
+    });
   });
 });

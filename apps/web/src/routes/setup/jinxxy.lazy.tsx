@@ -1,25 +1,10 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  BellRing,
-  Check,
-  CheckCircle,
-  Copy,
-  ExternalLink,
-  Inbox,
-  Key,
-  PartyPopper,
-  Plus,
-  RefreshCw,
-  Webhook,
-} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { buildSetupAuthQuery, withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/jinxxy-setup.css';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/setup/jinxxy')({
   component: JinxxySetupPage,
@@ -382,20 +367,7 @@ function JinxxySetupPage() {
             className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/80 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
             style={{ textDecoration: 'none' }}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
+            <Icon name="arrowLeft" size={16} />
             Back to Dashboard
           </a>
         )}
@@ -489,7 +461,7 @@ function JinxxySetupPage() {
                         </div>
                         <div className="flex items-center gap-3 p-2 rounded bg-[#0ea5e9]/10 text-white border border-[#0ea5e9] relative">
                           <div className="w-4 h-4 rounded bg-[#0ea5e9] flex items-center justify-center">
-                            <Webhook className="w-3 h-3 text-white" />
+                            <Icon name="webhook" className="w-3 h-3 text-white" />
                           </div>
                           <div className="text-xs font-medium">Webhooks</div>
                           <div className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex items-center">
@@ -526,7 +498,7 @@ function JinxxySetupPage() {
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#0ea5e9] text-white font-bold shadow-lg shadow-[#0ea5e9]/20 hover:bg-[#0ea5e9]/90 hover:scale-[1.02] transition-all w-full sm:w-auto min-h-[44px]"
                     >
-                      <ExternalLink className="w-4 h-4" />
+                      <Icon name="externalLink" className="w-4 h-4" />
                       Open Jinxxy&#8482; Webhooks
                     </a>
                   </div>
@@ -549,11 +521,11 @@ function JinxxySetupPage() {
                           type="button"
                           className="relative bg-white/10 text-white px-4 py-2 rounded text-xs font-bold hover:bg-white/10 transition-colors flex items-center gap-2 border-2 border-[#0ea5e9] glow-highlight"
                         >
-                          <Plus className="w-3 h-3" />
+                          <Icon name="add" className="w-3 h-3" />
                           New Webhook
                         </button>
                         <div className="absolute -bottom-12 left-1/2 -translate-x-1/2 text-[#0ea5e9] flex flex-col items-center">
-                          <ArrowUp className="w-6 h-6 animate-bounce" />
+                          <Icon name="arrowUp" className="w-6 h-6 animate-bounce" />
                           <span className="text-[10px] font-bold uppercase tracking-widest whitespace-nowrap">
                             Click Here
                           </span>
@@ -567,7 +539,7 @@ function JinxxySetupPage() {
                         <div className="ml-auto h-2 w-16 bg-gray-700 rounded" />
                       </div>
                       <div className="flex flex-col items-center justify-center h-32 text-gray-600 text-xs gap-2">
-                        <Inbox className="w-8 h-8 opacity-20" />
+                        <Icon name="inbox" className="w-8 h-8 opacity-20" />
                         No webhooks found
                       </div>
                     </div>
@@ -666,8 +638,8 @@ function JinxxySetupPage() {
                               className={`copy-btn p-2.5 bg-white/10 shadow-sm border border-white/10 hover:border-[#0ea5e9] rounded-lg text-[rgba(255,255,255,0.8)] hover:text-[#0ea5e9] border-smooth-transition${copied.callbackUrl ? ' copied' : ''}`}
                               onClick={(e) => handleCopy(callbackUrl, 'callbackUrl', e)}
                             >
-                              <Copy className="w-4 h-4 copy-icon" />
-                              <Check className="w-4 h-4 checkmark text-green-500" />
+                              <Icon name="copy" className="w-4 h-4 copy-icon" />
+                              <Icon name="check" className="w-4 h-4 checkmark text-green-500" />
                             </button>
                           </div>
                         </div>
@@ -700,7 +672,7 @@ function JinxxySetupPage() {
                               title="Generate a secure random secret"
                               onClick={() => setSigningSecret(generateSecret())}
                             >
-                              <RefreshCw className="w-4 h-4" />
+                              <Icon name="refresh" className="w-4 h-4" />
                             </button>
                             <button
                               type="button"
@@ -708,8 +680,8 @@ function JinxxySetupPage() {
                               title="Copy signing secret"
                               onClick={(e) => handleCopy(signingSecret, 'signingSecret', e)}
                             >
-                              <Copy className="w-4 h-4 copy-icon" />
-                              <Check className="w-4 h-4 checkmark text-green-500" />
+                              <Icon name="copy" className="w-4 h-4 copy-icon" />
+                              <Icon name="check" className="w-4 h-4 checkmark text-green-500" />
                             </button>
                           </div>
                           <p className="mt-2 text-xs text-[rgba(255,255,255,0.65)]">
@@ -738,7 +710,7 @@ function JinxxySetupPage() {
                           </div>
                           <div className="flex items-center gap-3 p-3 bg-[#0ea5e9]/10 border border-[#0ea5e9] rounded relative">
                             <div className="w-5 h-5 bg-[#0ea5e9] rounded flex items-center justify-center shadow-lg shadow-[#0ea5e9]/50">
-                              <Check className="w-3 h-3 text-white" />
+                              <Icon name="check" className="w-3 h-3 text-white" />
                             </div>
                             <span className="text-white text-sm font-medium">order.created</span>
                             <div className="absolute -right-4 top-1/2 -translate-y-1/2 translate-x-full flex items-center">
@@ -798,7 +770,7 @@ function JinxxySetupPage() {
                   <div className="relative bg-[#0f0f0f] rounded-2xl overflow-hidden shadow-2xl border border-gray-800 aspect-[16/10] flex items-center justify-center p-8 bg-opacity-95 text-white font-sans">
                     <div className="flex flex-col items-center gap-6">
                       <div className="relative">
-                        <BellRing className={`w-12 h-12 relative z-10 ${testMockColor}`} />
+                        <Icon name="bell" className={`w-12 h-12 relative z-10 ${testMockColor}`} />
                         <div className="absolute inset-0 bg-[#0ea5e9] rounded-full blur-xl opacity-50 animate-pulse" />
                       </div>
                       <span
@@ -833,7 +805,7 @@ function JinxxySetupPage() {
 
                     {testWebhookReceived && (
                       <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                        <Icon name="success" className="w-5 h-5 flex-shrink-0" />
                         <span>Test webhook received!</span>
                       </div>
                     )}
@@ -865,7 +837,7 @@ function JinxxySetupPage() {
                         </div>
                         <div className="flex items-center gap-3 p-2 rounded bg-[#0ea5e9]/10 text-white border border-[#0ea5e9] relative mt-1">
                           <div className="w-4 h-4 rounded bg-[#0ea5e9] flex items-center justify-center">
-                            <Key className="w-3 h-3 text-white" />
+                            <Icon name="key" className="w-3 h-3 text-white" />
                           </div>
                           <div className="text-xs font-medium">API Keys</div>
                           <div className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex items-center">
@@ -995,7 +967,7 @@ function JinxxySetupPage() {
                         {finishSuccess ? (
                           <>
                             <span>Connected Successfully!</span>
-                            <CheckCircle className="w-5 h-5" />
+                            <Icon name="success" className="w-5 h-5" />
                           </>
                         ) : isFinishing ? (
                           <span>Verifying Connection...</span>
@@ -1004,7 +976,7 @@ function JinxxySetupPage() {
                             <span className="group-hover:tracking-wider transition-all">
                               Complete Setup
                             </span>
-                            <PartyPopper className="w-5 h-5 animate-bounce" />
+                            <Icon name="party" className="w-5 h-5 animate-bounce" />
                           </>
                         )}
                       </button>
@@ -1022,7 +994,7 @@ function JinxxySetupPage() {
                 onClick={handlePrev}
                 className="px-6 py-3 rounded-xl font-bold text-[rgba(255,255,255,0.8)] hover:text-[#ffffff] hover:bg-white/5 disabled:opacity-30 disabled:hover:text-[rgba(255,255,255,0.8)] disabled:hover:bg-transparent transition-colors flex items-center justify-center gap-2 min-h-[44px]"
               >
-                <ArrowLeft className="w-4 h-4" /> Back
+                <Icon name="arrowLeft" className="w-4 h-4" /> Back
               </button>
               {currentStep < TOTAL_STEPS && (
                 <button
@@ -1033,7 +1005,10 @@ function JinxxySetupPage() {
                 >
                   {isSavingSecret ? 'Saving Secret...' : 'Next Step'}
                   {!isSavingSecret && (
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    <Icon
+                      name="arrowRight"
+                      className="w-4 h-4 group-hover:translate-x-1 transition-transform"
+                    />
                   )}
                 </button>
               )}

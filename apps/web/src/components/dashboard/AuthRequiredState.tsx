@@ -1,3 +1,5 @@
+import { Icon } from '@/components/ui/Icon';
+
 export function DashboardAuthRequiredState({
   title,
   description,
@@ -11,20 +13,7 @@ export function DashboardAuthRequiredState({
     <section className="intg-card bento-col-12 animate-in" id={id}>
       <div className="empty-state">
         <div className="intg-icon" style={{ margin: '0 auto 14px' }}>
-          <svg
-            aria-hidden="true"
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="3" y="11" width="18" height="11" rx="2" />
-            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-          </svg>
+          <Icon name="lock" size={18} />
         </div>
         <p className="text-sm font-semibold" style={{ fontFamily: "'AirbnbCereal',sans-serif" }}>
           {title}

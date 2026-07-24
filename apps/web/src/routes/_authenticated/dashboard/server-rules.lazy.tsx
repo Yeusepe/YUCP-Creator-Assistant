@@ -1,4 +1,5 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
+import { Icon } from '@/components/ui/Icon';
 
 export const Route = createLazyFileRoute('/_authenticated/dashboard/server-rules')({
   component: DashboardServerRules,
@@ -19,19 +20,7 @@ function DashboardServerRules() {
               className="intg-icon"
               style={{ margin: '0 auto 16px', width: '48px', height: '48px' }}
             >
-              <svg
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
+              <Icon name="shield" size={22} />
             </div>
             <span className="intg-status-badge" style={{ marginBottom: '14px' }}>
               <span

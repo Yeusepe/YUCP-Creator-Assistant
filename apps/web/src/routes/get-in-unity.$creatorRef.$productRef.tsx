@@ -1,9 +1,9 @@
 import { Card, Skeleton } from '@heroui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
-import { Copy, Download, ExternalLink, LogIn, Package, ShieldCheck, Store } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { usePublicAuth } from '@/hooks/usePublicAuth';
 import {
@@ -89,7 +89,7 @@ function BuyerUnityAccessPage() {
               <div className="space-y-6">
                 <div className="space-y-3 text-center">
                   <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/35 dark:bg-emerald-400/12 dark:text-emerald-200">
-                    <ShieldCheck className="size-7" aria-hidden="true" />
+                    <Icon name="shield" className="size-7" aria-hidden="true" />
                   </div>
                   <p className="text-sm font-medium text-slate-600 dark:text-foreground/75">
                     {returnedVerified ? 'Purchase verified' : 'Private access ready'}
@@ -132,11 +132,11 @@ function BuyerUnityAccessPage() {
                       }
                     }}
                   >
-                    <ExternalLink className="size-4" aria-hidden="true" />
+                    <Icon name="externalLink" className="size-4" aria-hidden="true" />
                     {repositoryQuery.isPending ? 'Preparing VCC access...' : 'Add to VCC'}
                   </YucpButton>
                   <a className="vp-primary-btn" href={downloadPath}>
-                    <Download className="size-4" aria-hidden="true" />
+                    <Icon name="download" className="size-4" aria-hidden="true" />
                     Download
                   </a>
                   {repositoryQuery.data ? (
@@ -145,7 +145,7 @@ function BuyerUnityAccessPage() {
                       isLoading={isCopying}
                       onPress={() => void copyVccLink()}
                     >
-                      <Copy className="size-4" aria-hidden="true" />
+                      <Icon name="copy" className="size-4" aria-hidden="true" />
                       {isCopying ? 'Copying...' : 'Copy VCC setup link'}
                     </YucpButton>
                   ) : null}
@@ -197,7 +197,10 @@ function BuyerUnityAccessPage() {
                         className="size-full object-cover"
                       />
                     ) : (
-                      <Store className="size-8 text-slate-600 dark:text-foreground/70" />
+                      <Icon
+                        name="store"
+                        className="size-8 text-slate-600 dark:text-foreground/70"
+                      />
                     )}
                   </div>
                   <div className="min-w-0 space-y-3">
@@ -213,11 +216,11 @@ function BuyerUnityAccessPage() {
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-foreground/55">
                       <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 dark:border-white/12">
-                        <ShieldCheck className="size-3.5" aria-hidden="true" />
+                        <Icon name="shield" className="size-3.5" aria-hidden="true" />
                         Private and per account
                       </span>
                       <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 dark:border-white/12">
-                        <Package className="size-3.5" aria-hidden="true" />
+                        <Icon name="package" className="size-3.5" aria-hidden="true" />
                         Unity Creator Companion ready
                       </span>
                     </div>
@@ -250,9 +253,9 @@ function BuyerUnityAccessPage() {
                     onPress={() => bootstrapMutation.mutate()}
                   >
                     {isAuthenticated ? (
-                      <ShieldCheck className="size-4" aria-hidden="true" />
+                      <Icon name="shield" className="size-4" aria-hidden="true" />
                     ) : (
-                      <LogIn className="size-4" aria-hidden="true" />
+                      <Icon name="login" className="size-4" aria-hidden="true" />
                     )}
                     {bootstrapMutation.isPending
                       ? isAuthenticated

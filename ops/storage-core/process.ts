@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { closeSync, openSync } from 'node:fs';
+import { closeSync, existsSync, openSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
 export type CommandResult = {
   stderr: string;
@@ -19,6 +20,85 @@ type RunCommandOptions = {
 
 export function commandPathEnv(): NodeJS.ProcessEnv {
   return process.env.PATH ? { PATH: process.env.PATH } : {};
+}
+
+export type GnuArchiveTools = {
+  env: NodeJS.ProcessEnv;
+  gzipCommand: string;
+  tarCommand: string;
+};
+
+let resolvedGnuArchiveTools: Promise<GnuArchiveTools> | undefined;
+
+function uniqueCommands(commands: Array<string | undefined>): string[] {
+  return [...new Set(commands.filter((command): command is string => Boolean(command)))];
+}
+
+async function findCommand(
+  candidates: string[],
+  args: string[],
+  expectedOutput: string,
+  label: string
+): Promise<string> {
+  const failures: string[] = [];
+  for (const candidate of candidates) {
+    if (candidate.includes('\\') && !existsSync(candidate)) {
+      failures.push(`${candidate}: file not found`);
+      continue;
+    }
+    try {
+      const result = await runCommand(candidate, args, { env: commandPathEnv() });
+      if (`${result.stdout}\n${result.stderr}`.includes(expectedOutput)) {
+        return candidate;
+      }
+      failures.push(`${candidate}: required ${label} feature not found`);
+    } catch (error) {
+      failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`GNU ${label} is required.\n${failures.join('\n')}`);
+}
+
+export async function resolveGnuArchiveTools(): Promise<GnuArchiveTools> {
+  resolvedGnuArchiveTools ??= (async () => {
+    const gitToolsPath =
+      process.platform === 'win32'
+        ? join(process.env.ProgramFiles ?? 'C:\\Program Files', 'Git', 'usr', 'bin')
+        : undefined;
+    const tarCommand = await findCommand(
+      uniqueCommands([
+        process.env.YUCP_GNU_TAR_PATH?.trim(),
+        'tar',
+        gitToolsPath ? join(gitToolsPath, 'tar.exe') : undefined,
+      ]),
+      ['--version'],
+      'GNU tar',
+      'tar'
+    );
+    const gzipCommand = await findCommand(
+      uniqueCommands([
+        process.env.YUCP_GZIP_PATH?.trim(),
+        'gzip',
+        gitToolsPath ? join(gitToolsPath, 'gzip.exe') : undefined,
+      ]),
+      ['--help'],
+      '--rsyncable',
+      'gzip'
+    );
+    const toolDirectories = uniqueCommands(
+      [tarCommand, gzipCommand].map((command) =>
+        isAbsolute(command) ? dirname(command) : undefined
+      )
+    );
+    const currentPath = process.env.PATH?.trim();
+    const path = [...toolDirectories, ...(currentPath ? [currentPath] : [])].join(delimiter);
+    return {
+      env: path ? { PATH: path } : {},
+      gzipCommand,
+      tarCommand,
+    };
+  })();
+  return await resolvedGnuArchiveTools;
 }
 
 export async function runCommand(

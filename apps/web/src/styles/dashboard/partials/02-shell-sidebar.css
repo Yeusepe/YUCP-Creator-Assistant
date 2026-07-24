@@ -303,6 +303,81 @@
   margin-bottom: 22px;
 }
 
+/*
+ * Each hue uses its own lightness because equal OKLCH lightness does not produce
+ * equal WCAG luminance. The resulting layer pairs stay between 3:1 and 3.5:1,
+ * preserving separation without making large secondary faces look black.
+ */
+.sidebar-nav-group[data-icon-theme="sky"] {
+  --sidebar-icon-primary: oklch(0.99 0.005 235);
+  --sidebar-icon-accent: oklch(0.64 0.12 248);
+  --sidebar-icon-active-primary: oklch(0.99 0.005 235);
+  --sidebar-icon-active-accent: oklch(0.64 0.17 248);
+}
+
+.dark .sidebar-nav-group[data-icon-theme="sky"] {
+  --sidebar-icon-primary: oklch(0.98 0.005 235);
+  --sidebar-icon-accent: oklch(0.64 0.12 248);
+  --sidebar-icon-active-primary: oklch(0.995 0.005 235);
+  --sidebar-icon-active-accent: oklch(0.64 0.17 248);
+}
+
+.sidebar-nav-group[data-icon-theme="amber"] {
+  --sidebar-icon-primary: oklch(0.99 0.005 92);
+  --sidebar-icon-accent: oklch(0.66 0.12 58);
+  --sidebar-icon-active-primary: oklch(0.99 0.005 92);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 58);
+}
+
+.dark .sidebar-nav-group[data-icon-theme="amber"] {
+  --sidebar-icon-primary: oklch(0.98 0.005 92);
+  --sidebar-icon-accent: oklch(0.66 0.12 58);
+  --sidebar-icon-active-primary: oklch(0.995 0.005 92);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 58);
+}
+
+.sidebar-nav-group[data-icon-theme="teal"] {
+  --sidebar-icon-primary: oklch(0.99 0.005 170);
+  --sidebar-icon-accent: oklch(0.61 0.12 188);
+  --sidebar-icon-active-primary: oklch(0.99 0.005 170);
+  --sidebar-icon-active-accent: oklch(0.61 0.17 188);
+}
+
+.dark .sidebar-nav-group[data-icon-theme="teal"] {
+  --sidebar-icon-primary: oklch(0.98 0.005 170);
+  --sidebar-icon-accent: oklch(0.61 0.12 188);
+  --sidebar-icon-active-primary: oklch(0.995 0.005 170);
+  --sidebar-icon-active-accent: oklch(0.61 0.17 188);
+}
+
+.sidebar-nav-group[data-icon-theme="violet"] {
+  --sidebar-icon-primary: oklch(0.99 0.005 302);
+  --sidebar-icon-accent: oklch(0.66 0.12 298);
+  --sidebar-icon-active-primary: oklch(0.99 0.005 302);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 298);
+}
+
+.dark .sidebar-nav-group[data-icon-theme="violet"] {
+  --sidebar-icon-primary: oklch(0.98 0.005 302);
+  --sidebar-icon-accent: oklch(0.66 0.12 298);
+  --sidebar-icon-active-primary: oklch(0.995 0.005 302);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 298);
+}
+
+.sidebar-nav-group[data-icon-theme="rose"] {
+  --sidebar-icon-primary: oklch(0.99 0.005 18);
+  --sidebar-icon-accent: oklch(0.66 0.12 20);
+  --sidebar-icon-active-primary: oklch(0.99 0.005 18);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 20);
+}
+
+.dark .sidebar-nav-group[data-icon-theme="rose"] {
+  --sidebar-icon-primary: oklch(0.98 0.005 18);
+  --sidebar-icon-accent: oklch(0.66 0.12 20);
+  --sidebar-icon-active-primary: oklch(0.995 0.005 18);
+  --sidebar-icon-active-accent: oklch(0.66 0.17 20);
+}
+
 /* Capability-gated nav items (e.g. forensics): enter when mounted */
 @keyframes sidebar-nav-reveal-in {
   from {
@@ -385,16 +460,30 @@
 }
 
 .sidebar-nav-icon {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  opacity: 0.6;
-  transition: opacity 0.15s ease;
+  opacity: 1;
+  --icon-neutral-primary: oklch(0.99 0.005 235);
+  --icon-neutral-accent: oklch(0.55 0.04 235);
+  --icon-theme-primary-color: var(--sidebar-icon-primary);
+  --icon-theme-accent-color: var(--sidebar-icon-accent);
+}
+
+.dark .sidebar-nav-icon {
+  --icon-neutral-primary: oklch(0.98 0.005 235);
+  --icon-neutral-accent: oklch(0.56 0.04 235);
 }
 
 .sidebar-nav-btn.is-active .sidebar-nav-icon,
 .sidebar-nav-btn:hover .sidebar-nav-icon {
   opacity: 1;
+  --icon-theme-primary-color: var(--sidebar-icon-active-primary);
+  --icon-theme-accent-color: var(--sidebar-icon-active-accent);
+}
+
+.sidebar-nav-icon [data-icon-layer] {
+  transition: fill 0.15s ease;
 }
 
 .sidebar-nav-soon {

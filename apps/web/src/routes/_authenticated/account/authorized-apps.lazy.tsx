@@ -11,6 +11,7 @@ import {
   AccountSectionCard,
 } from '@/components/account/AccountPage';
 import { DashboardListSkeleton } from '@/components/dashboard/DashboardSkeletons';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import {
@@ -184,22 +185,7 @@ function AccountAuthorizedApps() {
 
         {!grantsQuery.isLoading && !grantsQuery.isError && grants.length === 0 ? (
           <AccountEmptyState
-            icon={
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                focusable="false"
-              >
-                <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
-              </svg>
-            }
+            icon={<Icon name="star" size={20} />}
             title="No authorized apps"
             description="Apps you authorize with your account will appear here. You can revoke access at any time."
           />

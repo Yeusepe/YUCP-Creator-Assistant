@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router';
+import { Icon } from '@/components/ui/Icon';
 import { YucpButton } from '@/components/ui/YucpButton';
 
 interface PackageRegistryAccessGateProps {
@@ -25,11 +26,7 @@ export function PackageRegistryAccessGate({
     <section className={className}>
       <div className="intg-header">
         <div className="intg-icon">
-          <img
-            src={mode === 'error' ? '/Icons/Wrench.png' : '/Icons/BagPlus.png'}
-            alt=""
-            aria-hidden="true"
-          />
+          <Icon name={mode === 'error' ? 'alert' : 'package'} />
         </div>
         <div className="intg-copy">
           <h2 className="intg-title">{title}</h2>

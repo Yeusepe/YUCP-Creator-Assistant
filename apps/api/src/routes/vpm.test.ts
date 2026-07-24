@@ -1,10 +1,35 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { verifyDeliveryUrl } from '../../../../ops/storage-core/deliverySigning';
+import { createHash } from 'node:crypto';
+import { unzipSync } from 'fflate';
 import { signVpmRepoToken, verifyVpmRepoToken } from '../../../../ops/storage-core/vpmToken';
 import { createTestLogger } from '../testSupport/loggerMock';
+import { buildYucpAliasVpmPackage, YUCP_ALIAS_BOOTSTRAP_VERSION } from './vpmAliasPackage';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const loggerErrorMock = mock(() => undefined);
+const importerIndexFetchMock = mock(async () =>
+  Response.json({
+    packages: {
+      'com.yucp.importer': {
+        versions: {
+          '0.1.14': {
+            name: 'com.yucp.importer',
+            displayName: 'YUCP Package Importer',
+            version: '0.1.14',
+            unity: '2022.3',
+            description: 'YUCP package importer',
+            author: {
+              name: 'YUCP Club',
+              url: 'https://vpm.yucp.club/',
+            },
+            zipSHA256: 'a'.repeat(64),
+            url: 'https://packages.example.test/com.yucp.importer-0.1.14.zip',
+          },
+        },
+      },
+    },
+  })
+);
 
 const apiMock = {
   entitlements: {
@@ -47,15 +72,15 @@ mock.module('../lib/logger', () => ({
 
 const { createVpmRoutes } = await import('./vpm');
 
-const deliveryHmacKey = 'vpm-route-delivery-hmac-key-32-bytes';
+const vpmTokenKey = 'vpm-route-token-hmac-key-purpose-separated';
 const config = {
   apiBaseUrl: 'https://api.test',
   frontendBaseUrl: 'https://app.test',
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'https://convex.test',
-  deliveryBaseUrl: 'https://delivery.test/',
-  deliveryHmacKey,
+  publicVpmIndexUrl: 'https://vpm.yucp.club/index.json',
   vpmBaseUrl: 'https://vpm.test/',
+  vpmTokenKey,
 };
 
 function createRoutes(userId: string | null, configOverrides: Partial<typeof config> = {}) {
@@ -64,6 +89,7 @@ function createRoutes(userId: string | null, configOverrides: Partial<typeof con
       getSession: async () => (userId ? { user: { id: userId } } : null),
     } as never,
     config: { ...config, ...configOverrides },
+    fetchImpl: importerIndexFetchMock as unknown as typeof fetch,
   });
 }
 
@@ -79,7 +105,7 @@ async function validBuyerToken(expiresAt = Date.now() + 30 * 24 * 60 * 60_000): 
     await signVpmRepoToken({
       authUserId: 'buyer-auth-user',
       expiresAt,
-      key: deliveryHmacKey,
+      key: vpmTokenKey,
     })
   ).token;
 }
@@ -92,6 +118,7 @@ describe('per-buyer VPM routes', () => {
   beforeEach(() => {
     convexQueryMock.mockReset();
     loggerErrorMock.mockReset();
+    importerIndexFetchMock.mockClear();
   });
 
   it('requires a Better Auth session to mint a repository token', async () => {
@@ -103,23 +130,23 @@ describe('per-buyer VPM routes', () => {
 
   it('returns 503 from both routes when optional VPM delivery config is unavailable', async () => {
     const mintResponse = await createRoutes('buyer-auth-user', {
-      deliveryBaseUrl: undefined,
-      deliveryHmacKey: undefined,
+      publicVpmIndexUrl: undefined,
       vpmBaseUrl: undefined,
+      vpmTokenKey: undefined,
     }).mintRepoToken(mintRequest());
     expect(mintResponse.status).toBe(503);
 
     const token = await validBuyerToken();
     const indexResponse = await createRoutes(null, {
-      deliveryBaseUrl: undefined,
+      publicVpmIndexUrl: undefined,
     }).serveIndex(new Request(`https://api.test/api/vpm/${token}/index.json`), token);
     expect(indexResponse.status).toBe(503);
     expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
-  it('requires HTTPS for remote delivery URLs while allowing loopback HTTP', async () => {
+  it('requires HTTPS for the public importer index while allowing loopback HTTP', async () => {
     const remoteHttpResponse = await createRoutes('buyer-auth-user', {
-      deliveryBaseUrl: 'http://delivery.test/',
+      publicVpmIndexUrl: 'http://packages.test/index.json',
     }).mintRepoToken(mintRequest());
     expect(remoteHttpResponse.status).toBe(503);
     await expect(remoteHttpResponse.json()).resolves.toEqual({
@@ -127,12 +154,12 @@ describe('per-buyer VPM routes', () => {
     });
 
     const httpsResponse = await createRoutes('buyer-auth-user', {
-      deliveryBaseUrl: 'https://delivery.test/',
+      publicVpmIndexUrl: 'https://packages.test/index.json',
     }).mintRepoToken(mintRequest());
     expect(httpsResponse.status).toBe(200);
 
     const loopbackResponse = await createRoutes('buyer-auth-user', {
-      deliveryBaseUrl: 'http://localhost:8787/',
+      publicVpmIndexUrl: 'http://localhost:8787/index.json',
     }).mintRepoToken(mintRequest());
     expect(loopbackResponse.status).toBe(200);
   });
@@ -174,7 +201,7 @@ describe('per-buyer VPM routes', () => {
     expect(body.addRepoUrl).toBe(`vcc://vpm/addRepo?url=${encodeURIComponent(body.indexUrl)}`);
     expect(body.expiresAt).toBeGreaterThanOrEqual(beforeRequest + 30 * 24 * 60 * 60_000 - 1_000);
     expect(body.expiresAt).toBeLessThanOrEqual(afterRequest + 30 * 24 * 60 * 60_000);
-    await expect(verifyVpmRepoToken({ key: deliveryHmacKey, token: body.token })).resolves.toEqual({
+    await expect(verifyVpmRepoToken({ key: vpmTokenKey, token: body.token })).resolves.toEqual({
       authUserId: 'buyer-auth-user',
       expiresAt: body.expiresAt,
     });
@@ -183,7 +210,7 @@ describe('per-buyer VPM routes', () => {
   it('does not log raw token-signing error messages', async () => {
     const rawUpstreamMessage = 'VPM repository token HMAC key must be at least 32 UTF-8 bytes';
     const response = await createRoutes('buyer-auth-user', {
-      deliveryHmacKey: 'short-key',
+      vpmTokenKey: 'short-key',
     }).mintRepoToken(mintRequest());
 
     expect(response.status).toBe(500);
@@ -212,7 +239,22 @@ describe('per-buyer VPM routes', () => {
     expect(convexQueryMock).not.toHaveBeenCalled();
   });
 
-  it('serves the VCC repository schema with 1-hour signed READY-version URLs', async () => {
+  it('serves public alias bytes without repository-token or importer-index configuration', async () => {
+    const routes = createRoutes(null, {
+      publicVpmIndexUrl: undefined,
+      vpmTokenKey: undefined,
+    });
+    const response = await routes.serveAliasPackage(
+      new Request('https://vpm.test/api/vpm/aliases/catalog_public/1.0.0.zip'),
+      'catalog_public',
+      YUCP_ALIAS_BOOTSTRAP_VERSION
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+  });
+
+  it('serves public aliases and the importer without paid package URLs', async () => {
     convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
       if (reference === apiMock.entitlements.listByAuthUser) {
         expect(args).toEqual({
@@ -260,12 +302,11 @@ describe('per-buyer VPM routes', () => {
       throw new Error(`Unexpected query ${String(reference)}`);
     });
     const token = await validBuyerToken();
-    const beforeRequest = Date.now();
-    const response = await createRoutes(null).serveIndex(
+    const routes = createRoutes(null);
+    const response = await routes.serveIndex(
       new Request(`https://vpm.test/api/vpm/${token}/index.json`),
       token
     );
-    const afterRequest = Date.now();
     const body = (await response.json()) as {
       author: string;
       id: string;
@@ -282,37 +323,59 @@ describe('per-buyer VPM routes', () => {
       id: 'club.yucp.buyer',
       url: `https://vpm.test/api/vpm/${token}/index.json`,
       packages: {
-        'com.creator.avatar-tools': {
+        'com.yucp.importer': {
           versions: {
-            '1.2.3': {
-              name: 'com.creator.avatar-tools',
-              displayName: 'com.creator.avatar-tools',
-              version: '1.2.3',
-              author: {
-                name: 'YUCP',
-                email: 'contact@yucp.club',
-              },
+            '0.1.14': {
+              name: 'com.yucp.importer',
+              url: 'https://packages.example.test/com.yucp.importer-0.1.14.zip',
             },
           },
         },
       },
     });
-    expect(Object.keys(body.packages)).toEqual(['com.creator.avatar-tools']);
-    const manifest = body.packages['com.creator.avatar-tools']?.versions['1.2.3'];
-    const deliveryUrl = new URL(String(manifest?.url));
-    expect(deliveryUrl.pathname).toBe('/d/version-ready-123');
-    const exp = deliveryUrl.searchParams.get('exp') ?? '';
-    const sig = deliveryUrl.searchParams.get('sig') ?? '';
-    expect(Number(exp) * 1_000).toBeGreaterThanOrEqual(beforeRequest + 60 * 60_000 - 1_000);
-    expect(Number(exp) * 1_000).toBeLessThanOrEqual(afterRequest + 60 * 60_000);
-    await expect(
-      verifyDeliveryUrl({
-        exp,
-        key: deliveryHmacKey,
-        sig,
-        versionId: 'version-ready-123',
-      })
-    ).resolves.toBe(true);
+
+    const readyAlias = buildYucpAliasVpmPackage({
+      catalogProductId: 'catalog_ready',
+      vpmBaseUrl: 'https://vpm.test/',
+    });
+    const opaqueAlias = buildYucpAliasVpmPackage({
+      catalogProductId: 'catalog_non_vpm',
+      vpmBaseUrl: 'https://vpm.test/',
+    });
+    expect(Object.keys(body.packages).sort()).toEqual(
+      ['com.yucp.importer', readyAlias.packageId, opaqueAlias.packageId].sort()
+    );
+    expect(body.packages[readyAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
+      readyAlias.manifest
+    );
+    expect(body.packages[opaqueAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
+      opaqueAlias.manifest
+    );
+    const serializedIndex = JSON.stringify(body);
+    expect(serializedIndex).not.toContain('/d/version-ready-123');
+    expect(serializedIndex).not.toContain('version-non-vpm-456');
+    expect(serializedIndex).not.toContain('sig=');
+
+    const artifactResponse = await routes.serveAliasPackage(
+      new Request(readyAlias.manifest.url),
+      'catalog_ready',
+      YUCP_ALIAS_BOOTSTRAP_VERSION
+    );
+    const artifactBytes = new Uint8Array(await artifactResponse.arrayBuffer());
+    expect(artifactResponse.status).toBe(200);
+    expect(artifactResponse.headers.get('cache-control')).toBe(
+      'public, max-age=31536000, immutable'
+    );
+    expect(createHash('sha256').update(artifactBytes).digest('hex')).toBe(
+      readyAlias.manifest.zipSHA256
+    );
+    const artifactEntries = unzipSync(artifactBytes);
+    const artifactPackageJson = JSON.parse(
+      Buffer.from(artifactEntries['package.json'] ?? []).toString('utf8')
+    ) as Record<string, unknown>;
+    expect(artifactPackageJson.name).toBe(readyAlias.packageId);
+    expect(JSON.stringify(artifactPackageJson)).not.toContain('version-ready-123');
+    expect(importerIndexFetchMock).toHaveBeenCalledTimes(1);
     expect(convexQueryMock).toHaveBeenCalledTimes(4);
   });
 
@@ -331,6 +394,53 @@ describe('per-buyer VPM routes', () => {
       id: 'club.yucp.buyer',
       url: `https://vpm.test/api/vpm/${token}/index.json`,
       packages: {},
+    });
+  });
+
+  it('returns 503 when the public repository lacks the required importer release', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        return {
+          data: [{ id: 'ent_1', catalogProductId: 'catalog_ready' }],
+          hasMore: false,
+          nextCursor: null,
+        };
+      }
+      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
+        return {
+          packageId: 'com.creator.avatar-tools',
+          version: '1.2.3',
+          versionId: 'version-ready-123',
+        };
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+    importerIndexFetchMock.mockImplementationOnce(async () =>
+      Response.json({
+        packages: {
+          'com.yucp.importer': {
+            versions: {
+              '0.1.13': {
+                name: 'com.yucp.importer',
+                displayName: 'YUCP Package Importer',
+                version: '0.1.13',
+                zipSHA256: 'b'.repeat(64),
+                url: 'https://packages.example.test/com.yucp.importer-0.1.13.zip',
+              },
+            },
+          },
+        },
+      })
+    );
+    const token = await validBuyerToken();
+    const response = await createRoutes(null).serveIndex(
+      new Request(`https://vpm.test/api/vpm/${token}/index.json`),
+      token
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'The public YUCP importer is not available',
     });
   });
 

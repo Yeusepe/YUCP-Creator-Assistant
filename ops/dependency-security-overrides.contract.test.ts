@@ -42,4 +42,34 @@ describe('security dependency overrides', () => {
     }
     expect(packageJson.dependencies.tar).toBe(packageJson.overrides.tar);
   });
+
+  it('pins the current package-storage program dependency advisories above patched floors', () => {
+    const minimumRanges: Readonly<Record<string, string>> = {
+      '@better-auth/oauth-provider': '>=1.7.0-beta.4',
+      '@opentelemetry/auto-instrumentations-node': '>=0.78.0',
+      '@opentelemetry/core': '>=2.10.0',
+      '@opentelemetry/exporter-prometheus': '>=0.221.0',
+      '@opentelemetry/propagator-jaeger': '>=2.9.0',
+      '@opentelemetry/sdk-node': '>=0.221.0',
+      sharp: '>=0.35.0',
+    };
+
+    for (const [name, minimumRange] of Object.entries(minimumRanges)) {
+      const version = packageJson.overrides[name];
+      expect(version, `${name} must have a root override`).toBeDefined();
+      expect(
+        Bun.semver.satisfies(version, minimumRange),
+        `${name} ${version} must satisfy ${minimumRange}`
+      ).toBe(true);
+    }
+
+    for (const plugin of [
+      '@better-auth/api-key',
+      '@better-auth/core',
+      '@better-auth/oauth-provider',
+      '@better-auth/passkey',
+    ]) {
+      expect(packageJson.overrides[plugin]).toBe(packageJson.overrides['better-auth']);
+    }
+  });
 });

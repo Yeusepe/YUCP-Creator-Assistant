@@ -7,6 +7,7 @@ import {
   normalizeYucpAliasPackageContract,
   resolveSharedYucpAliasIdFromCatalogProducts,
   resolveYucpAliasIdFromCatalogProduct,
+  YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
   YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION,
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES,
   YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES,
@@ -197,7 +198,7 @@ describe('mergeYucpAliasPackageMetadata', () => {
         aliasId: 'song-thing',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.9',
+        minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
         catalogProductIds: ['product-a', 'product-b'],
         channel: 'stable',
       },
@@ -221,7 +222,7 @@ describe('mergeYucpAliasPackageMetadata', () => {
         channel: 'stable',
       }).yucp
     ).toMatchObject({
-      minImporterVersion: '0.1.9',
+      minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
     });
   });
 
@@ -242,7 +243,7 @@ describe('mergeYucpAliasPackageMetadata', () => {
         channel: 'stable',
       }).yucp
     ).toMatchObject({
-      minImporterVersion: '0.1.9',
+      minImporterVersion: YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION,
     });
   });
 });

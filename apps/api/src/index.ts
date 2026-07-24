@@ -357,9 +357,9 @@ function initializeAuth(webhookBaseUrl?: string) {
       frontendBaseUrl: frontendUrl,
       convexApiSecret: env.CONVEX_API_SECRET ?? '',
       convexUrl,
-      deliveryBaseUrl: env.DELIVERY_BASE_URL,
-      deliveryHmacKey: env.DELIVERY_HMAC_KEY,
+      publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       vpmBaseUrl: env.VPM_BASE_URL,
+      vpmTokenKey: env.VPM_TOKEN_KEY,
     },
   });
 
@@ -901,6 +901,15 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/vpm/repo-token' && vpmRoutes) {
     return vpmRoutes.mintRepoToken(request);
+  }
+  const vpmAliasPackageMatch = pathname.match(/^\/api\/vpm\/aliases\/([^/]+)\/([^/]+)\.zip$/);
+  if (vpmAliasPackageMatch && vpmRoutes) {
+    const catalogProductId = safeDecodeURIComponent(vpmAliasPackageMatch[1] ?? '');
+    const version = safeDecodeURIComponent(vpmAliasPackageMatch[2] ?? '');
+    if (catalogProductId === null || version === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.serveAliasPackage(request, catalogProductId, version);
   }
   const vpmIndexMatch = pathname.match(/^\/api\/vpm\/([^/]+)\/index\.json$/);
   if (vpmIndexMatch && vpmRoutes) {

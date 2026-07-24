@@ -3,6 +3,7 @@ import { normalizeAuthRedirectTarget } from '@yucp/shared/authRedirects';
 import { useCallback, useEffect, useState } from 'react';
 import { PageLoadingOverlay } from '@/components/page/PageLoadingOverlay';
 import { CloudBackground } from '@/components/three/CloudBackground';
+import { Icon } from '@/components/ui/Icon';
 import { usePageLoadingTransition } from '@/hooks/usePageLoadingTransition';
 import { authClient } from '@/lib/auth-client';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
@@ -141,20 +142,7 @@ function SignInRedirectPageContent() {
             )}
             {viewState === 'error' && (
               <div id="error-state">
-                <svg
-                  className="w-16 h-16 mx-auto text-[#c53030] mb-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  ></path>
-                </svg>
+                <Icon name="alert" className="w-16 h-16 mx-auto text-[#c53030] mb-4" />
                 <h1 className="text-xl text-[#ffffff] mb-3">Sign-in failed</h1>
                 <p className="text-[rgba(255,255,255,0.8)] mb-6">
                   Something went wrong. Please try again.

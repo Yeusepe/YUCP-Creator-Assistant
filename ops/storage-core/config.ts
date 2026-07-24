@@ -22,6 +22,15 @@ const REQUIRED_INGEST_INFISICAL_KEYS = [
   ...REQUIRED_CAS_KEYS,
 ] as const;
 
+const DISPOSABLE_STORAGE_OVERRIDE_KEYS = new Set([
+  'UPLOAD_HMAC_KEY',
+  'CATALOG_DATABASE_URL',
+  ...REQUIRED_CAS_KEYS,
+  'INGEST_UPLOAD_DIR',
+  'INGEST_MAX_BYTES',
+  'INGEST_ALLOWED_ORIGIN',
+]);
+
 export const INGEST_INFISICAL_KEYS = [
   ...REQUIRED_INGEST_INFISICAL_KEYS,
   'INGEST_ALLOWED_ORIGIN',
@@ -117,6 +126,16 @@ export function requireInfisicalBootstrap(env: NodeJS.ProcessEnv): void {
   }
 }
 
+export function isDisposableStorageProfile(env: NodeJS.ProcessEnv): boolean {
+  if (normalizeOptional(env.YUCP_STORAGE_PROFILE) !== 'disposable') {
+    return false;
+  }
+  if (normalizeOptional(env.NODE_ENV) === 'production') {
+    throw new Error('The disposable storage profile cannot run in production');
+  }
+  return true;
+}
+
 /**
  * Fetches the configured Infisical environment and gives fetched values precedence over the
  * bootstrap process environment. Required keys are checked against the fetch result itself so a
@@ -138,6 +157,44 @@ export async function hydrateEnvFromInfisical(
   }
 
   return { ...env, ...secrets };
+}
+
+/**
+ * Keep generated local storage credentials authoritative inside the disposable profile.
+ *
+ * Non-storage credentials remain owned by Infisical. Production cannot select this profile.
+ */
+export async function hydrateStorageServiceEnv(
+  env: NodeJS.ProcessEnv,
+  requiredKeys: readonly string[],
+  fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
+): Promise<NodeJS.ProcessEnv> {
+  if (!isDisposableStorageProfile(env)) {
+    return hydrateEnvFromInfisical(env, requiredKeys, fetchSecrets);
+  }
+
+  const localKeys = requiredKeys.filter((key) => DISPOSABLE_STORAGE_OVERRIDE_KEYS.has(key));
+  const missingLocal = localKeys.filter((key) => !normalizeOptional(env[key]));
+  if (missingLocal.length > 0) {
+    throw new Error(`Missing disposable storage values: ${missingLocal.join(', ')}`);
+  }
+
+  const externalKeys = requiredKeys.filter((key) => !DISPOSABLE_STORAGE_OVERRIDE_KEYS.has(key));
+  let runtimeEnv: NodeJS.ProcessEnv = { ...env };
+  if (externalKeys.length > 0) {
+    requireInfisicalBootstrap(env);
+    const secrets = await fetchSecrets(env);
+    const missingExternal = externalKeys.filter((key) => !normalizeOptional(secrets[key]));
+    if (missingExternal.length > 0) {
+      throw new Error(`Missing required Infisical secrets: ${missingExternal.join(', ')}`);
+    }
+    runtimeEnv = { ...env, ...secrets };
+  }
+
+  for (const key of localKeys) {
+    runtimeEnv[key] = env[key];
+  }
+  return runtimeEnv;
 }
 
 export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
@@ -178,7 +235,7 @@ export async function loadIngestRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<IngestRuntimeEnv> {
-  const runtimeEnv = await hydrateEnvFromInfisical(
+  const runtimeEnv = await hydrateStorageServiceEnv(
     env,
     REQUIRED_INGEST_INFISICAL_KEYS,
     fetchSecrets

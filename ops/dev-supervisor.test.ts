@@ -5,6 +5,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  applyDisposableStorageProfile,
   applyLocalDevDefaults,
   buildDevCommands,
   DevSupervisor,
@@ -12,6 +13,7 @@ import {
   killProcessTree,
 } from './dev-supervisor';
 import { buildHyperdxDockerArgs, isDockerUnavailable } from './hyperdx-dev';
+import type { DisposableStorageHarness } from './testing/disposableStorageHarness';
 
 async function waitFor<T>(
   load: () => Promise<T>,
@@ -209,6 +211,61 @@ describe('DevSupervisor', () => {
   test('buildDevCommands keeps the tunnel helper optional', () => {
     expect(buildDevCommands({}, false).find((command) => command.name === 'tunnel')).toMatchObject({
       required: false,
+    });
+  });
+
+  test('buildDevCommands starts the real ingest and scheduler processes', () => {
+    const commands = buildDevCommands({}, true);
+
+    expect(commands.find((command) => command.name === 'ingest-tus')).toMatchObject({
+      command: 'bun run ops/ingest-tus/server.ts',
+      env: { PORT: '3002' },
+    });
+    expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
+      command: 'bun run ops/scheduler/server.ts',
+    });
+  });
+
+  test('applyDisposableStorageProfile shares local upload authority without changing Infisical', () => {
+    const storage = {
+      buckets: {
+        common: {
+          accessKeyId: 'local-common-key',
+          bucket: 'local-common',
+          chunkPrefix: 'chunks/',
+          endpoint: 'http://127.0.0.1:49152',
+          indexPrefix: 'indexes/',
+          region: 'us-east-1',
+          requestTimeoutMs: 30_000,
+          secretAccessKey: 'local-common-secret',
+        },
+      },
+      postgres: {
+        url: 'postgres://postgres:local-password@127.0.0.1:49153/local',
+      },
+      uploadDir: 'C:/tmp/yucp-upload',
+    } as DisposableStorageHarness;
+
+    const env = applyDisposableStorageProfile(
+      {
+        INFISICAL_PROJECT_ID: 'keep-project-id',
+      },
+      storage,
+      'local-upload-hmac-key'
+    );
+
+    expect(env).toMatchObject({
+      CAS_S3_ACCESS_KEY_ID: 'local-common-key',
+      CAS_S3_BUCKET: 'local-common',
+      CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
+      INFISICAL_PROJECT_ID: 'keep-project-id',
+      INGEST_ALLOWED_ORIGIN: 'http://localhost:3000',
+      INGEST_MAX_BYTES: String(5 * 1024 * 1024 * 1024),
+      INGEST_TUS_URL: 'http://localhost:3002',
+      INGEST_UPLOAD_DIR: 'C:/tmp/yucp-upload',
+      UPLOAD_HMAC_KEY: 'local-upload-hmac-key',
+      YUCP_STORAGE_PROFILE: 'disposable',
     });
   });
 

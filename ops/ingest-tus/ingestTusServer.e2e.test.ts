@@ -24,7 +24,7 @@ import {
   s3CasStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { runCommand } from '../storage-core/process';
+import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
 import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { signUploadCapability } from '../storage-core/uploadSigning';
 import { waitForMinioReady } from '../testing/minioReadiness';
@@ -214,19 +214,27 @@ async function createUnityPackageFixture(rootPath: string, outputPath: string): 
   }
 
   const tarPath = `${outputPath}.tar`;
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    rootPath,
-    '.',
-  ]);
+  const archiveTools = await resolveGnuArchiveTools();
+  await runCommand(
+    archiveTools.tarCommand,
+    [
+      '--force-local',
+      '--create',
+      '--file',
+      tarPath,
+      '--format=gnu',
+      '--sort=name',
+      '--directory',
+      rootPath,
+      '.',
+    ],
+    { env: archiveTools.env }
+  );
   await utimes(tarPath, timestamp, timestamp);
-  await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: outputPath });
+  await runCommand(archiveTools.gzipCommand, ['--stdout', '--', tarPath], {
+    env: archiveTools.env,
+    stdoutPath: outputPath,
+  });
   await rm(tarPath, { force: true });
 }
 

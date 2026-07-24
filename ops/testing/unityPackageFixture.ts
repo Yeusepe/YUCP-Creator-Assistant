@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { runCommand } from '../storage-core/process';
+import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
 
 function deterministicBytes(seed: string, byteLength: number): Buffer {
   return createHash('shake256', { outputLength: byteLength }).update(seed).digest();
@@ -76,20 +76,28 @@ export async function createUnityPackageFixture(input: {
     byteScale
   );
   const tarPath = `${input.outputPath}.tar`;
-  await runCommand('tar', [
-    '--force-local',
-    '--create',
-    '--file',
-    tarPath,
-    '--format=gnu',
-    '--sort=name',
-    '--directory',
-    input.treePath,
-    '.',
-  ]);
+  const archiveTools = await resolveGnuArchiveTools();
+  await runCommand(
+    archiveTools.tarCommand,
+    [
+      '--force-local',
+      '--create',
+      '--file',
+      tarPath,
+      '--format=gnu',
+      '--sort=name',
+      '--directory',
+      input.treePath,
+      '.',
+    ],
+    { env: archiveTools.env }
+  );
   try {
     await utimes(tarPath, input.timestamp, input.timestamp);
-    await runCommand('gzip', ['--stdout', '--', tarPath], { stdoutPath: input.outputPath });
+    await runCommand(archiveTools.gzipCommand, ['--stdout', '--', tarPath], {
+      env: archiveTools.env,
+      stdoutPath: input.outputPath,
+    });
   } finally {
     await rm(tarPath, { force: true });
   }

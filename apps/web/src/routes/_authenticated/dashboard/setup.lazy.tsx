@@ -2,6 +2,7 @@ import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
 import { useEffect, useState } from 'react';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { useActiveDashboardContext } from '@/hooks/useActiveDashboardContext';
@@ -1087,20 +1088,10 @@ function RecommendationList({
                         aria-hidden="true"
                       >
                         {isChecked ? (
-                          <svg
-                            aria-hidden="true"
+                          <Icon
+                            name="check"
                             className="h-2.5 w-2.5 text-white dark:text-zinc-950"
-                            viewBox="0 0 10 8"
-                            fill="none"
-                          >
-                            <path
-                              d="M1 4l3 3 5-6"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+                          />
                         ) : null}
                       </span>
                       <div className="flex-1">

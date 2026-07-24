@@ -1,27 +1,10 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import confetti from 'canvas-confetti';
-import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  Home,
-  Mail,
-  PenTool,
-  Plus,
-  Settings,
-  Sliders,
-  Store,
-  Users,
-} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
 import { withSetupAuthUserId } from '@/lib/setupAuth';
 import '@/styles/lemonsqueezy-setup.css';
+import { Icon } from '@/components/ui/Icon';
 import { resolveSetupApiBase } from './-lemonsqueezySetupSupport';
 
 export const Route = createLazyFileRoute('/setup/lemonsqueezy')({
@@ -201,7 +184,7 @@ function LemonSqueezySetupPage() {
             className="fixed top-6 left-6 z-50 inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-xl text-white/70 hover:text-white hover:bg-white/10 transition-all font-bold text-sm shadow-xl"
             style={{ textDecoration: 'none' }}
           >
-            <ArrowLeft size={14} strokeWidth={2.5} />
+            <Icon name="arrowLeft" size={14} />
             Dashboard
           </a>
         )}
@@ -325,30 +308,30 @@ function LemonSqueezySetupPage() {
 
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <Home className="ls-nav-icon" />
+                              <Icon name="home" className="ls-nav-icon" />
                               <span>Home</span>
                             </div>
                           </div>
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <Store className="ls-nav-icon" />
+                              <Icon name="store" className="ls-nav-icon" />
                               <span>Store</span>
                             </div>
-                            <ChevronDown className="ls-nav-chevron" />
+                            <Icon name="chevronDown" className="ls-nav-chevron" />
                           </div>
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <Mail className="ls-nav-icon" />
+                              <Icon name="mail" className="ls-nav-icon" />
                               <span>Email</span>
                             </div>
-                            <ChevronDown className="ls-nav-chevron" />
+                            <Icon name="chevronDown" className="ls-nav-chevron" />
                           </div>
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <Users className="ls-nav-icon" />
+                              <Icon name="users" className="ls-nav-icon" />
                               <span>Affiliates</span>
                             </div>
-                            <ChevronDown className="ls-nav-chevron" />
+                            <Icon name="chevronDown" className="ls-nav-chevron" />
                           </div>
                           <div className="ls-nav-item">
                             <div
@@ -358,10 +341,14 @@ function LemonSqueezySetupPage() {
                                 fontWeight: 600,
                               }}
                             >
-                              <Settings className="ls-nav-icon" style={{ color: '#6366f1' }} />
+                              <Icon
+                                name="settings"
+                                className="ls-nav-icon"
+                                style={{ color: '#6366f1' }}
+                              />
                               <span>Settings</span>
                             </div>
-                            <ChevronUp className="ls-nav-chevron" />
+                            <Icon name="chevronUp" className="ls-nav-chevron" />
                           </div>
 
                           <div className="ls-subnav">
@@ -377,17 +364,17 @@ function LemonSqueezySetupPage() {
 
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <PenTool className="ls-nav-icon" />
+                              <Icon name="edit" className="ls-nav-icon" />
                               <span>Design</span>
                             </div>
-                            <ChevronRight className="ls-nav-chevron" />
+                            <Icon name="chevronRight" className="ls-nav-chevron" />
                           </div>
                           <div className="ls-nav-item">
                             <div className="ls-nav-item-left">
-                              <Sliders className="ls-nav-icon" />
+                              <Icon name="filter" className="ls-nav-icon" />
                               <span>Setup</span>
                             </div>
-                            <ChevronRight className="ls-nav-chevron" />
+                            <Icon name="chevronRight" className="ls-nav-chevron" />
                           </div>
                         </div>
 
@@ -423,7 +410,8 @@ function LemonSqueezySetupPage() {
                                 </div>
                               </div>
                               <div className="ls-new-btn">
-                                <Plus
+                                <Icon
+                                  name="add"
                                   style={{
                                     width: '18px',
                                     height: '18px',
@@ -475,7 +463,7 @@ function LemonSqueezySetupPage() {
                           rel="noopener noreferrer"
                           className="ls-open-btn w-full sm:w-auto"
                         >
-                          <ExternalLink size={16} strokeWidth={2.5} />
+                          <Icon name="externalLink" size={16} />
                           Open Lemon Squeezy&reg; API
                         </a>
                       </div>
@@ -517,7 +505,11 @@ function LemonSqueezySetupPage() {
                           </div>
                           <div className="ls-nav-item active" style={{ marginTop: '40px' }}>
                             <div className="ls-nav-item-left">
-                              <Settings className="ls-nav-icon" style={{ color: '#6366f1' }} />
+                              <Icon
+                                name="settings"
+                                className="ls-nav-icon"
+                                style={{ color: '#6366f1' }}
+                              />
                               <span>Settings</span>
                             </div>
                           </div>
@@ -652,9 +644,9 @@ function LemonSqueezySetupPage() {
                               }}
                             >
                               {showKey ? (
-                                <EyeOff className="w-4 h-4" />
+                                <Icon name="eyeOff" className="w-4 h-4" />
                               ) : (
-                                <Eye className="w-4 h-4" />
+                                <Icon name="eye" className="w-4 h-4" />
                               )}
                             </button>
                           </div>
@@ -685,22 +677,7 @@ function LemonSqueezySetupPage() {
                                 : 'Connect Lemon Squeezy'}
                           </span>
                           {isConnecting && <div className="btn-spinner" />}
-                          {isConnected && (
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              width="18"
-                              height="18"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              aria-hidden="true"
-                            >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
+                          {isConnected && <Icon name="success" size={18} />}
                         </button>
 
                         <p
@@ -764,7 +741,7 @@ function LemonSqueezySetupPage() {
                 }}
                 onClick={() => goToStep(currentStep - 1)}
               >
-                <ArrowLeft size={16} strokeWidth={2} />
+                <Icon name="arrowLeft" size={16} />
                 Back
               </button>
               {currentStep < totalSteps && (
@@ -798,9 +775,9 @@ function LemonSqueezySetupPage() {
                   onClick={() => goToStep(currentStep + 1)}
                 >
                   Next
-                  <ArrowRight
+                  <Icon
+                    name="arrowRight"
                     size={16}
-                    strokeWidth={2.5}
                     className="next-arrow"
                     style={{ transition: 'transform 0.2s ease' }}
                   />

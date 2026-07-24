@@ -43,6 +43,10 @@ import { createAuth } from '../../src/auth';
 import { createConnectUserProductAccessRoutes } from '../../src/routes/connectUserProductAccess';
 import { createVpmRoutes } from '../../src/routes/vpm';
 import {
+  buildYucpAliasVpmPackage,
+  YUCP_ALIAS_BOOTSTRAP_VERSION,
+} from '../../src/routes/vpmAliasPackage';
+import {
   createBetterAuthSession,
   createBetterAuthUser,
   getRealApiHarness,
@@ -385,6 +389,7 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
   const readonlyAccessKey = `readonly-${randomBytes(12).toString('hex')}`;
   const readonlySecretKey = randomBytes(32).toString('hex');
   const deliveryHmacKey = randomBytes(32).toString('hex');
+  const vpmTokenKey = randomBytes(32).toString('hex');
   const bucket = `buyer-delivery-${randomBytes(8).toString('hex')}`;
   const postgresName = `yucp-buyer-delivery-postgres-${randomUUID()}`;
   const minioName = `yucp-buyer-delivery-minio-${randomUUID()}`;
@@ -665,10 +670,28 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
         frontendBaseUrl: 'http://127.0.0.1:3000',
         convexApiSecret: API_SECRET,
         convexUrl: BACKEND_URL,
-        deliveryBaseUrl,
-        deliveryHmacKey,
+        publicVpmIndexUrl: `${API_BASE_URL}/test-public-vpm/index.json`,
         vpmBaseUrl: API_BASE_URL,
+        vpmTokenKey,
       },
+      fetchImpl: (async () =>
+        Response.json({
+          packages: {
+            'com.yucp.importer': {
+              versions: {
+                '0.1.14': {
+                  name: 'com.yucp.importer',
+                  displayName: 'YUCP Package Importer',
+                  version: '0.1.14',
+                  unity: '2022.3',
+                  author: { name: 'YUCP Club' },
+                  zipSHA256: 'a'.repeat(64),
+                  url: `${API_BASE_URL}/test-public-vpm/com.yucp.importer-0.1.14.zip`,
+                },
+              },
+            },
+          },
+        })) as unknown as typeof fetch,
     });
 
     const buyerSession = await createBetterAuthSession(buyer.authUserId);
@@ -694,7 +717,12 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
       String(catalogProductId)
     );
     expect(licenseOkResponse.status).toBe(302);
-    expect(licenseOkResponse.headers.get('location')).toContain(`/d/${ready.id}?`);
+    const authorizedDownloadLocation = licenseOkResponse.headers.get('location');
+    expect(authorizedDownloadLocation).toContain(`/d/${ready.id}?`);
+    if (!authorizedDownloadLocation) {
+      throw new Error('Buyer download route did not return a delivery location');
+    }
+    const deliveryUrl = new URL(authorizedDownloadLocation);
 
     const repoTokenResponse = await vpmRoutes.mintRepoToken(
       new Request(`${API_BASE_URL}/api/vpm/repo-token`, {
@@ -718,12 +746,36 @@ test('delivers the entitled buyer full byte-exact multi-chunk package through th
     expect(indexResponse.status).toBe(200);
     const indexText = await indexResponse.text();
     const index = JSON.parse(indexText) as VpmIndex;
-    const packageVersion = index.packages[PACKAGE_ID]?.versions[PACKAGE_VERSION];
-    expect(packageVersion).toBeDefined();
-    if (!packageVersion) {
-      throw new Error('VPM index did not list the READY package version');
+    const alias = buildYucpAliasVpmPackage({
+      catalogProductId: String(catalogProductId),
+      vpmBaseUrl: API_BASE_URL,
+    });
+    const aliasVersion = index.packages[alias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION];
+    expect(aliasVersion).toEqual(alias.manifest);
+    expect(index.packages['com.yucp.importer']?.versions['0.1.14']).toBeDefined();
+    expect(indexText).not.toContain(`/d/${ready.id}`);
+    expect(indexText).not.toContain(deliveryHmacKey);
+
+    const aliasResponse = await vpmRoutes.serveAliasPackage(
+      new Request(alias.manifest.url),
+      String(catalogProductId),
+      YUCP_ALIAS_BOOTSTRAP_VERSION
+    );
+    expect(aliasResponse.status).toBe(200);
+    const aliasBytes = new Uint8Array(await aliasResponse.arrayBuffer());
+    expect(sha256Bytes(aliasBytes)).toBe(alias.zipSha256);
+    const aliasZip = unzipSync(aliasBytes);
+    expect(JSON.parse(Buffer.from(aliasZip['package.json'] ?? []).toString('utf8'))).toMatchObject({
+      name: alias.packageId,
+      yucp: {
+        kind: 'alias-v1',
+        catalogProductIds: [String(catalogProductId)],
+      },
+    });
+    if (!aliasVersion) {
+      throw new Error('VPM index did not list the public product alias');
     }
-    const deliveryUrl = new URL(packageVersion.url);
+
     expect(deliveryUrl.origin).toBe(deliveryBaseUrl);
     expect(deliveryUrl.pathname).toBe(`/d/${ready.id}`);
     expect(deliveryUrl.searchParams.get('exp')).toBeTruthy();

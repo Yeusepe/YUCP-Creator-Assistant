@@ -1,6 +1,7 @@
 import { createLazyFileRoute, Link } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { BackgroundCanvasRoot } from '@/components/page/BackgroundCanvasRoot';
+import { Icon } from '@/components/ui/Icon';
 import '@/styles/install-result.css';
 
 export const Route = createLazyFileRoute('/install/error')({
@@ -42,20 +43,7 @@ function InstallErrorPage() {
           />
 
           <div className="install-result-icon install-result-icon--error" aria-hidden="true">
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <title>Installation failed</title>
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            <Icon name="close" size={28} />
           </div>
 
           <h1 className="install-result-heading">Installation failed</h1>
