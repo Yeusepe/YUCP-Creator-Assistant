@@ -653,7 +653,7 @@ describe.serial('official VPM CLI bootstrap', () => {
       }
       const unityResults = await readFile(unityTestResults, 'utf8');
       expect(unityResults).toContain('result="Passed"');
-      expect(unityResults).toContain('passed="1"');
+      expect(unityResults).toContain('passed="2"');
       const evidenceDirectory = process.env.YUCP_PACKAGE_EVIDENCE_DIR?.trim();
       if (evidenceDirectory) {
         await mkdir(evidenceDirectory, { recursive: true });
@@ -661,8 +661,14 @@ describe.serial('official VPM CLI bootstrap', () => {
         await copyFile(unityLog, join(evidenceDirectory, 'vpm-alias-trigger.log'));
       }
 
-      const platformTestResults = join(scratchPath, 'vpm-platform-capability-results.xml');
-      const platformTestLog = join(scratchPath, 'vpm-platform-capability.log');
+      const transactionTestResults = join(
+        scratchPath,
+        'project-transaction-results.xml'
+      );
+      const transactionTestLog = join(
+        scratchPath,
+        'project-transaction.log'
+      );
       await runCommand(
         unityExecutable,
         [
@@ -674,26 +680,32 @@ describe.serial('official VPM CLI bootstrap', () => {
           '-testPlatform',
           'EditMode',
           '-testFilter',
-          'YUCP.Importer.Editor.Tests.RuntimePlatformCapabilityTests',
+          'YUCP.Importer.Editor.Tests.ProjectTransactionJournalTests',
           '-testResults',
-          platformTestResults,
+          transactionTestResults,
           '-logFile',
-          platformTestLog,
+          transactionTestLog,
         ],
         {
           env: process.env,
           timeoutMs: 180_000,
         }
       );
-      const platformResults = await readFile(platformTestResults, 'utf8');
-      expect(platformResults).toContain('result="Passed"');
-      expect(platformResults).toContain('passed="3"');
+      const transactionResults = await readFile(
+        transactionTestResults,
+        'utf8'
+      );
+      expect(transactionResults).toContain('result="Passed"');
+      expect(transactionResults).toContain('passed="2"');
       if (evidenceDirectory) {
         await copyFile(
-          platformTestResults,
-          join(evidenceDirectory, 'vpm-platform-capability-results.xml')
+          transactionTestResults,
+          join(evidenceDirectory, 'project-transaction-results.xml')
         );
-        await copyFile(platformTestLog, join(evidenceDirectory, 'vpm-platform-capability.log'));
+        await copyFile(
+          transactionTestLog,
+          join(evidenceDirectory, 'project-transaction.log')
+        );
       }
 
       await runUnityLifecyclePhase({

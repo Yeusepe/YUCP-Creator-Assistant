@@ -357,14 +357,14 @@ export const getDiscordUserIdByAuthUser = internalQuery({
   returns: v.union(v.null(), v.string()),
   handler: async (ctx, args) => {
     interface AccountRecord {
-      accountId?: string;
+      providerAccountId?: string;
     }
     const record = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
       where: buildBetterAuthUserProviderLookupWhere(args.authUserId, 'discord'),
-      select: ['accountId'],
+      select: ['providerAccountId'],
     })) as AccountRecord | null;
-    return record?.accountId ?? null;
+    return record?.providerAccountId ?? null;
   },
 });
 

@@ -35,10 +35,20 @@ export interface LocalEnv {
   UPLOAD_HMAC_KEY?: string;
   /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
   INGEST_TUS_URL?: string;
-  /** Optional delivery signing key. The download route returns 503 when unavailable. */
-  DELIVERY_HMAC_KEY?: string;
-  /** Optional delivery Worker origin. The download route returns 503 when unavailable. */
-  DELIVERY_BASE_URL?: string;
+  /** Delivery Worker origin bound into v2 package grants. */
+  PACKAGE_DELIVERY_AUDIENCE?: string;
+  /** Purpose-separated Ed25519 key identifier for package install contracts. */
+  PACKAGE_INSTALL_SIGNING_KEY_ID?: string;
+  /** Base64url Ed25519 seed for package install contract signing. */
+  PACKAGE_INSTALL_SIGNING_PRIVATE_KEY?: string;
+  /** Internal materialization control-plane origin. */
+  MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL?: string;
+  /** API-only credential for durable materialization job control. */
+  MATERIALIZATION_API_SHARED_SECRET?: string;
+  /** Internal materialization request timeout in milliseconds. */
+  MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS?: string;
+  /** Absolute root containing signed TUF metadata and targets directories. */
+  PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
   /** Public first-party VPM index that supplies the generic importer package. */
@@ -78,7 +88,6 @@ export interface LocalEnv {
   POLAR_SERVER?: string;
   YUCP_COUPLING_SERVICE_BASE_URL?: string;
   YUCP_COUPLING_SERVICE_SHARED_SECRET?: string;
-  COUPLING_SERVICE_SECRET?: string;
   HYPERDX_API_KEY?: string;
   HYPERDX_APP_URL?: string;
   HYPERDX_OTLP_HTTP_URL?: string;
@@ -139,19 +148,6 @@ function isEnvValueMissing(value: string | undefined): boolean {
   return value === undefined || value.trim().length === 0;
 }
 
-function resolveCouplingServiceSharedSecret(
-  env: Record<string, string | undefined> = process.env
-): string | undefined {
-  const preferred = env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim();
-  const legacy = env.COUPLING_SERVICE_SECRET?.trim();
-  if (preferred && legacy && preferred !== legacy) {
-    logger.warn(
-      'YUCP_COUPLING_SERVICE_SHARED_SECRET and COUPLING_SERVICE_SECRET differ; using YUCP_COUPLING_SERVICE_SHARED_SECRET'
-    );
-  }
-  return preferred || legacy;
-}
-
 export function resolveConvexSiteUrl(
   env: Record<string, string | undefined> = process.env
 ): string | undefined {
@@ -190,8 +186,14 @@ function loadFromEnv(): LocalEnv {
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
     UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
-    DELIVERY_HMAC_KEY: process.env.DELIVERY_HMAC_KEY,
-    DELIVERY_BASE_URL: process.env.DELIVERY_BASE_URL,
+    PACKAGE_DELIVERY_AUDIENCE: process.env.PACKAGE_DELIVERY_AUDIENCE,
+    PACKAGE_INSTALL_SIGNING_KEY_ID: process.env.PACKAGE_INSTALL_SIGNING_KEY_ID,
+    PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY,
+    MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
+      process.env.MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL,
+    MATERIALIZATION_API_SHARED_SECRET: process.env.MATERIALIZATION_API_SHARED_SECRET,
+    MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS: process.env.MATERIALIZATION_CONTROL_PLANE_TIMEOUT_MS,
+    PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT: process.env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
     VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
     VPM_TOKEN_KEY: process.env.VPM_TOKEN_KEY,
@@ -220,8 +222,7 @@ function loadFromEnv(): LocalEnv {
     POLAR_WEBHOOK_SECRET: process.env.POLAR_WEBHOOK_SECRET,
     POLAR_SERVER: process.env.POLAR_SERVER,
     YUCP_COUPLING_SERVICE_BASE_URL: process.env.YUCP_COUPLING_SERVICE_BASE_URL,
-    YUCP_COUPLING_SERVICE_SHARED_SECRET: resolveCouplingServiceSharedSecret(process.env),
-    COUPLING_SERVICE_SECRET: process.env.COUPLING_SERVICE_SECRET,
+    YUCP_COUPLING_SERVICE_SHARED_SECRET: process.env.YUCP_COUPLING_SERVICE_SHARED_SECRET,
     HYPERDX_API_KEY: process.env.HYPERDX_API_KEY,
     HYPERDX_APP_URL: process.env.HYPERDX_APP_URL,
     HYPERDX_OTLP_HTTP_URL: process.env.HYPERDX_OTLP_HTTP_URL,

@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { verifyRecoveryContactEnrollment as verifyRecoveryContactEnrollmentRequest } from '@/lib/account';
 import { authClient } from '@/lib/auth-client';
+import { requireTotpBackupCodes } from '@/lib/twoFactorEnrollment';
 import { api } from '../../../../../../convex/_generated/api';
 import type { Id } from '../../../../../../convex/_generated/dataModel';
 
@@ -140,11 +141,11 @@ function AccountSecurityPage() {
   async function handleEnableBackupCodes() {
     setPendingAction('enable-backup-codes');
     try {
-      const result = await authClient.twoFactor.enable({});
+      const result = await authClient.twoFactor.enable({ method: 'totp' });
       if (result.error) {
         throw new Error(result.error.message ?? 'Could not enable backup codes');
       }
-      const codes = result.data?.backupCodes ?? [];
+      const codes = requireTotpBackupCodes(result.data);
       setFreshBackupCodes(codes);
       await syncSecurityState({
         eventType: 'account.security.backup_codes.regenerated',

@@ -46,14 +46,32 @@ export interface CatalogEvent {
   payload?: JsonObject;
 }
 
+export interface ProtectedPackageFile extends JsonObject {
+  materializerType: string;
+  normalizedPath: string;
+  required: boolean;
+  sourceSha256: string;
+}
+
 export interface PackageVersion {
+  activeContentDigest: string | null;
+  activePolicyVersion: string | null;
+  bindingRoot: string | null;
   catalogProductId: string | null;
+  commonRoot: string | null;
   id: string;
+  logicalBytes: number | null;
+  logicalFiles: number | null;
+  manifestSha256: string | null;
   packageId: string;
+  protectedFiles: ProtectedPackageFile[] | null;
+  protectedSourceRoot: string | null;
+  protectionPolicyDigest: string | null;
+  protectionPolicyId: string | null;
   version: string;
-  formatTag: string | null;
-  canonicalSha256: string | null;
-  casIndexId: string | null;
+  sourceFormat: string | null;
+  releaseRoot: string | null;
+  assemblyObjectId: string | null;
   state: CatalogState;
   error: string | null;
   deletedAt: Date | null;
@@ -64,14 +82,51 @@ export interface PackageVersion {
   updatedAt: Date;
 }
 
+export interface PackageQuarantineObject {
+  bytes: number;
+  contentType: string;
+  createdAt: Date;
+  fileIdentifier: string | null;
+  objectKey: string;
+  providerVersion: string | null;
+  sha256: string;
+  state: 'COMMITTED' | 'PENDING' | 'UNCERTAIN';
+  updatedAt: Date;
+  versionId: string;
+}
+
+interface PackageQuarantineObjectRow {
+  bytes: number | string;
+  content_type: string;
+  created_at: Date;
+  file_identifier: string | null;
+  object_key: string;
+  provider_version: string | null;
+  sha256: string;
+  state: PackageQuarantineObject['state'];
+  updated_at: Date;
+  version_id: string;
+}
+
 interface PackageVersionRow {
+  active_content_digest: string | null;
+  active_policy_version: string | null;
+  binding_root: string | null;
   catalog_product_id: string | null;
+  common_root: string | null;
   id: string;
+  logical_bytes: number | null;
+  logical_files: number | null;
+  manifest_sha256: string | null;
   package_id: string;
+  protected_files: ProtectedPackageFile[] | null;
+  protected_source_root: string | null;
+  protection_policy_digest: string | null;
+  protection_policy_id: string | null;
   version: string;
-  format_tag: string | null;
-  canonical_sha256: string | null;
-  cas_index_id: string | null;
+  source_format: string | null;
+  release_root: string | null;
+  assembly_object_id: string | null;
   state: CatalogState;
   error: string | null;
   deleted_at: Date | null;
@@ -91,11 +146,22 @@ export interface CreateVersionInput {
 }
 
 export interface TransitionFields {
-  formatTag?: string;
-  canonicalSha256?: string;
-  casIndexId?: string;
+  activeContentDigest?: string;
+  activePolicyVersion?: string;
+  sourceFormat?: string;
+  releaseRoot?: string;
+  assemblyObjectId?: string;
+  bindingRoot?: string;
+  commonRoot?: string;
   error?: string;
   deletionReason?: string;
+  logicalBytes?: number;
+  logicalFiles?: number;
+  manifestSha256?: string;
+  protectedFiles?: ProtectedPackageFile[];
+  protectedSourceRoot?: string;
+  protectionPolicyDigest?: string;
+  protectionPolicyId?: string;
 }
 
 export interface TransitionOptions {
@@ -144,13 +210,24 @@ export class CatalogOwnershipLostError extends Error {
 
 function toPackageVersion(row: PackageVersionRow): PackageVersion {
   return {
+    activeContentDigest: row.active_content_digest,
+    activePolicyVersion: row.active_policy_version,
+    bindingRoot: row.binding_root,
     catalogProductId: row.catalog_product_id,
+    commonRoot: row.common_root,
     id: row.id,
+    logicalBytes: row.logical_bytes,
+    logicalFiles: row.logical_files,
+    manifestSha256: row.manifest_sha256,
     packageId: row.package_id,
+    protectedFiles: row.protected_files,
+    protectedSourceRoot: row.protected_source_root,
+    protectionPolicyDigest: row.protection_policy_digest,
+    protectionPolicyId: row.protection_policy_id,
     version: row.version,
-    formatTag: row.format_tag,
-    canonicalSha256: row.canonical_sha256,
-    casIndexId: row.cas_index_id,
+    sourceFormat: row.source_format,
+    releaseRoot: row.release_root,
+    assemblyObjectId: row.assembly_object_id,
     state: row.state,
     error: row.error,
     deletedAt: row.deleted_at,
@@ -162,34 +239,91 @@ function toPackageVersion(row: PackageVersionRow): PackageVersion {
   };
 }
 
+function toPackageQuarantineObject(row: PackageQuarantineObjectRow): PackageQuarantineObject {
+  const bytes = Number(row.bytes);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) {
+    throw new CatalogInvariantError('Quarantine object contains an invalid byte length');
+  }
+  return {
+    bytes,
+    contentType: row.content_type,
+    createdAt: row.created_at,
+    fileIdentifier: row.file_identifier,
+    objectKey: row.object_key,
+    providerVersion: row.provider_version,
+    sha256: row.sha256,
+    state: row.state,
+    updatedAt: row.updated_at,
+    versionId: row.version_id,
+  };
+}
+
 function validateTransitionFields(
   current: PackageVersionRow,
   targetState: CatalogState,
   fields: TransitionFields
 ): {
-  formatTag: string | null;
-  canonicalSha256: string | null;
-  casIndexId: string | null;
+  sourceFormat: string | null;
+  releaseRoot: string | null;
+  assemblyObjectId: string | null;
+  activeContentDigest: string | null;
+  activePolicyVersion: string | null;
+  bindingRoot: string | null;
+  commonRoot: string | null;
   error: string | null;
   deletionReason: string | null;
+  logicalBytes: number | null;
+  logicalFiles: number | null;
+  manifestSha256: string | null;
+  protectedFiles: ProtectedPackageFile[] | null;
+  protectedSourceRoot: string | null;
+  protectionPolicyDigest: string | null;
+  protectionPolicyId: string | null;
 } {
-  const formatTag = fields.formatTag ?? current.format_tag;
-  const canonicalSha256 = fields.canonicalSha256 ?? current.canonical_sha256;
-  const casIndexId = fields.casIndexId ?? current.cas_index_id;
+  const sourceFormat = fields.sourceFormat ?? current.source_format;
+  const releaseRoot = fields.releaseRoot ?? current.release_root;
+  const assemblyObjectId = fields.assemblyObjectId ?? current.assembly_object_id;
   const deletionReason = fields.deletionReason?.trim() ?? current.deletion_reason;
+  const activeContentDigest = fields.activeContentDigest ?? current.active_content_digest;
+  const activePolicyVersion = fields.activePolicyVersion?.trim() ?? current.active_policy_version;
+  const bindingRoot = fields.bindingRoot ?? current.binding_root;
+  const commonRoot = fields.commonRoot ?? current.common_root;
+  const logicalBytes = fields.logicalBytes ?? current.logical_bytes;
+  const logicalFiles = fields.logicalFiles ?? current.logical_files;
+  const manifestSha256 = fields.manifestSha256 ?? current.manifest_sha256;
+  const protectedFiles = fields.protectedFiles ?? current.protected_files;
+  const protectedSourceRoot = fields.protectedSourceRoot ?? current.protected_source_root;
+  const protectionPolicyDigest = fields.protectionPolicyDigest ?? current.protection_policy_digest;
+  const protectionPolicyId = fields.protectionPolicyId?.trim() ?? current.protection_policy_id;
 
-  if ((canonicalSha256 === null) !== (casIndexId === null)) {
+  if ((releaseRoot === null) !== (assemblyObjectId === null)) {
     throw new CatalogInvariantError(
-      'canonicalSha256 and casIndexId must either both be present or both be absent'
+      'releaseRoot and assemblyObjectId must either both be present or both be absent'
     );
   }
   if (
     (targetState === 'ASSEMBLED' || targetState === 'PROMOTING' || targetState === 'READY') &&
-    (formatTag === null || canonicalSha256 === null || casIndexId === null)
+    (sourceFormat === null || releaseRoot === null || assemblyObjectId === null)
   ) {
     throw new CatalogInvariantError(
-      `${targetState} requires formatTag, canonicalSha256, and casIndexId`
+      `${targetState} requires sourceFormat, releaseRoot, and assemblyObjectId`
     );
+  }
+  if (
+    targetState === 'READY' &&
+    (!activeContentDigest ||
+      !activePolicyVersion ||
+      !bindingRoot ||
+      !commonRoot ||
+      logicalBytes === null ||
+      logicalFiles === null ||
+      !manifestSha256 ||
+      protectedFiles === null ||
+      !protectedSourceRoot ||
+      !protectionPolicyDigest ||
+      !protectionPolicyId)
+  ) {
+    throw new CatalogInvariantError('READY requires complete logical release v4 publication data');
   }
 
   if (targetState === 'FAILED') {
@@ -197,11 +331,22 @@ function validateTransitionFields(
       throw new CatalogInvariantError('FAILED requires a non-empty error');
     }
     return {
-      formatTag,
-      canonicalSha256,
-      casIndexId,
+      activeContentDigest,
+      activePolicyVersion,
+      bindingRoot,
+      commonRoot,
+      sourceFormat,
+      releaseRoot,
+      assemblyObjectId,
       error: fields.error,
       deletionReason: null,
+      logicalBytes,
+      logicalFiles,
+      manifestSha256,
+      protectedFiles,
+      protectedSourceRoot,
+      protectionPolicyDigest,
+      protectionPolicyId,
     };
   }
   if (fields.error !== undefined) {
@@ -216,11 +361,22 @@ function validateTransitionFields(
   }
 
   return {
-    formatTag,
-    canonicalSha256,
-    casIndexId,
+    activeContentDigest,
+    activePolicyVersion,
+    bindingRoot,
+    commonRoot,
+    sourceFormat,
+    releaseRoot,
+    assemblyObjectId,
     error: null,
     deletionReason: targetState === 'DELETED' ? deletionReason : null,
+    logicalBytes,
+    logicalFiles,
+    manifestSha256,
+    protectedFiles,
+    protectedSourceRoot,
+    protectionPolicyDigest,
+    protectionPolicyId,
   };
 }
 
@@ -257,6 +413,115 @@ export class Catalog {
     retryPolicyOptions: RetryPolicyOptions = {}
   ) {
     this.retryPolicy = resolveRetryPolicy(retryPolicyOptions);
+  }
+
+  async beginQuarantineObject(input: {
+    bytes: number;
+    contentType: string;
+    objectKey: string;
+    sha256: string;
+    versionId: string;
+  }): Promise<PackageQuarantineObject> {
+    const inserted = await this.sql<PackageQuarantineObjectRow[]>`
+      INSERT INTO package_quarantine_objects (
+        version_id,
+        object_key,
+        sha256,
+        bytes,
+        content_type,
+        state
+      )
+      SELECT
+        id,
+        ${input.objectKey},
+        ${input.sha256},
+        ${input.bytes},
+        ${input.contentType},
+        'PENDING'
+      FROM package_versions
+      WHERE id = ${input.versionId}
+        AND state = 'UPLOADING'
+      ON CONFLICT (version_id) DO NOTHING
+      RETURNING *
+    `;
+    const row = inserted[0]
+      ? toPackageQuarantineObject(inserted[0])
+      : await this.getQuarantineObject(input.versionId);
+    if (!row) {
+      const version = await this.getVersion(input.versionId);
+      if (!version) {
+        throw new PackageVersionNotFoundError(input.versionId);
+      }
+      throw new CatalogInvariantError(
+        'Quarantine write intent requires an uploading package version'
+      );
+    }
+    if (
+      row.objectKey !== input.objectKey ||
+      row.sha256 !== input.sha256 ||
+      row.bytes !== input.bytes ||
+      row.contentType !== input.contentType
+    ) {
+      throw new CatalogInvariantError('Quarantine write intent does not match the accepted upload');
+    }
+    return row;
+  }
+
+  async commitQuarantineObject(input: {
+    fileIdentifier: string;
+    providerVersion: string;
+    versionId: string;
+  }): Promise<PackageQuarantineObject> {
+    const updated = await this.sql<PackageQuarantineObjectRow[]>`
+      UPDATE package_quarantine_objects
+      SET
+        state = 'COMMITTED',
+        provider_version = ${input.providerVersion},
+        file_identifier = ${input.fileIdentifier},
+        updated_at = clock_timestamp()
+      WHERE version_id = ${input.versionId}
+        AND state IN ('PENDING', 'UNCERTAIN')
+      RETURNING *
+    `;
+    if (updated[0]) {
+      return toPackageQuarantineObject(updated[0]);
+    }
+    const current = await this.getQuarantineObject(input.versionId);
+    if (!current) {
+      throw new CatalogInvariantError('Quarantine write intent was not found');
+    }
+    if (
+      current.state !== 'COMMITTED' ||
+      current.providerVersion !== input.providerVersion ||
+      current.fileIdentifier !== input.fileIdentifier
+    ) {
+      throw new CatalogInvariantError('Quarantine object exact version is immutable');
+    }
+    return current;
+  }
+
+  async markQuarantineObjectUncertain(versionId: string): Promise<PackageQuarantineObject> {
+    const rows = await this.sql<PackageQuarantineObjectRow[]>`
+      UPDATE package_quarantine_objects
+      SET state = 'UNCERTAIN', updated_at = clock_timestamp()
+      WHERE version_id = ${versionId}
+        AND state IN ('PENDING', 'UNCERTAIN')
+      RETURNING *
+    `;
+    const row = rows[0];
+    if (!row) {
+      throw new CatalogInvariantError('Quarantine write intent cannot become uncertain');
+    }
+    return toPackageQuarantineObject(row);
+  }
+
+  async getQuarantineObject(versionId: string): Promise<PackageQuarantineObject | null> {
+    const rows = await this.sql<PackageQuarantineObjectRow[]>`
+      SELECT *
+      FROM package_quarantine_objects
+      WHERE version_id = ${versionId}
+    `;
+    return rows[0] ? toPackageQuarantineObject(rows[0]) : null;
   }
 
   async createVersion(input: CreateVersionInput): Promise<PackageVersion> {
@@ -355,9 +620,22 @@ export class Catalog {
         UPDATE package_versions
         SET
           state = ${targetState},
-          format_tag = ${fields.formatTag},
-          canonical_sha256 = ${fields.canonicalSha256},
-          cas_index_id = ${fields.casIndexId},
+          source_format = ${fields.sourceFormat},
+          release_root = ${fields.releaseRoot},
+          assembly_object_id = ${fields.assemblyObjectId},
+          active_content_digest = ${fields.activeContentDigest},
+          active_policy_version = ${fields.activePolicyVersion},
+          binding_root = ${fields.bindingRoot},
+          common_root = ${fields.commonRoot},
+          logical_bytes = ${fields.logicalBytes},
+          logical_files = ${fields.logicalFiles},
+          manifest_sha256 = ${fields.manifestSha256},
+          protected_files = ${
+            fields.protectedFiles === null ? null : transaction.json(fields.protectedFiles)
+          },
+          protected_source_root = ${fields.protectedSourceRoot},
+          protection_policy_digest = ${fields.protectionPolicyDigest},
+          protection_policy_id = ${fields.protectionPolicyId},
           error = ${fields.error},
           deleted_at = CASE
             WHEN ${targetState === 'DELETED'} THEN clock_timestamp()

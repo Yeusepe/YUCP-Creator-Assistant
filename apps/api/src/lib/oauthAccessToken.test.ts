@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-let verifyAccessTokenImpl: (token: string, options: unknown) => Promise<unknown>;
+let verifyBearerTokenImpl: (token: string, options: unknown) => Promise<unknown>;
 
-const verifyAccessTokenMock = mock((token: string, options: unknown) =>
-  verifyAccessTokenImpl(token, options)
+const verifyBearerTokenMock = mock((token: string, options: unknown) =>
+  verifyBearerTokenImpl(token, options)
 );
 
 mock.module('better-auth/oauth2', () => ({
-  verifyAccessToken: verifyAccessTokenMock,
+  verifyBearerToken: verifyBearerTokenMock,
 }));
 
 const { verifyBetterAuthAccessToken } = await import('./oauthAccessToken');
@@ -23,14 +23,28 @@ describe('verifyBetterAuthAccessToken', () => {
   };
 
   beforeEach(() => {
-    verifyAccessTokenMock.mockClear();
+    verifyBearerTokenMock.mockClear();
     debug.mockClear();
     warn.mockClear();
-    verifyAccessTokenImpl = async () => ({ sub: 'user_123', scope: 'profile:read' });
+    verifyBearerTokenImpl = async () => ({ sub: 'user_123', scope: 'profile:read' });
+  });
+
+  it('uses the Better Auth 1.7 bearer-token verifier', async () => {
+    const result = await verifyBetterAuthAccessToken('valid-token', options);
+
+    expect(result).toEqual({
+      ok: true,
+      token: {
+        sub: 'user_123',
+        scope: 'profile:read',
+        grantedScopes: ['profile:read'],
+      },
+    });
+    expect(verifyBearerTokenMock).toHaveBeenCalledTimes(1);
   });
 
   it('logs expected invalid-token verifier failures at debug instead of warn', async () => {
-    verifyAccessTokenImpl = async () => {
+    verifyBearerTokenImpl = async () => {
       const error = new Error('no applicable key found in the JSON Web Key Set');
       error.name = 'JWKSNoMatchingKey';
       throw error;
@@ -44,7 +58,7 @@ describe('verifyBetterAuthAccessToken', () => {
   });
 
   it('keeps unexpected verifier failures at warn', async () => {
-    verifyAccessTokenImpl = async () => {
+    verifyBearerTokenImpl = async () => {
       const error = new Error('network timeout while fetching jwks');
       error.name = 'TypeError';
       throw error;

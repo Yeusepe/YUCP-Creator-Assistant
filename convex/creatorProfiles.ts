@@ -248,7 +248,7 @@ export const getDiscordUserIdFromAuthUser = internalQuery({
     });
 
     if (result?.page?.length > 0) {
-      return result.page[0].accountId as string;
+      return result.page[0].providerAccountId as string;
     }
 
     const subject = await ctx.db

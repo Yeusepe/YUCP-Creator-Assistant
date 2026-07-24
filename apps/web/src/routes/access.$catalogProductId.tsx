@@ -74,7 +74,6 @@ function BuyerProductAccessPage() {
   const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(false);
   const [copyingValue, setCopyingValue] = useState<'add-repo' | 'index' | null>(null);
-  const downloadPath = `/api/access/${encodeURIComponent(product.catalogProductId)}/download`;
 
   const repositoryQuery = useQuery({
     queryKey: ['buyer-vpm-repository', authUserId, product.catalogProductId],
@@ -169,7 +168,7 @@ function BuyerProductAccessPage() {
             </h2>
             <p className="vpa-action-desc">
               {hasAccess
-                ? 'Download the package directly or add your private source to VCC.'
+                ? 'Add your private source to VCC. The importer retrieves protected package data.'
                 : isAuthenticated
                   ? `Confirm your ${product.providerLabel} purchase to unlock this product.`
                   : 'Use the Creator Identity connected to your purchases and VCC.'}
@@ -178,10 +177,6 @@ function BuyerProductAccessPage() {
 
           {hasAccess ? (
             <div className="flex flex-wrap gap-2">
-              <a className="vp-primary-btn vpa-cta" href={downloadPath}>
-                <Icon name="download" className="size-4" aria-hidden="true" />
-                Download
-              </a>
               <YucpButton
                 yucp="secondary"
                 pill

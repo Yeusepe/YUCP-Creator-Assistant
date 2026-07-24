@@ -5,6 +5,7 @@ import { createAuth } from './auth';
 import { requireApiSecret } from './lib/apiAuth';
 
 const PUBLIC_API_KEY_PREFIX = 'ypsk_';
+const PUBLIC_API_KEY_CONFIG_ID = 'default';
 const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 const PUBLIC_API_KEY_METADATA_KIND = 'public-api';
 
@@ -66,14 +67,14 @@ function parsePermissionStatements(value: unknown): Record<string, string[]> | n
 type SerializableApiKeyRecord = {
   id?: string;
   _id?: string;
-  userId?: string;
+  configId?: string;
+  referenceId?: string;
   name: string | null;
   start: string | null;
   prefix: string | null;
   enabled: boolean | null;
   permissions?: unknown;
   metadata?: unknown;
-  referenceId?: string | null;
   lastRequest?: unknown;
   expiresAt?: unknown;
   createdAt?: unknown;
@@ -82,7 +83,8 @@ type SerializableApiKeyRecord = {
 
 const API_KEY_SERIALIZATION_SELECT = [
   '_id',
-  'userId',
+  'configId',
+  'referenceId',
   'name',
   'start',
   'prefix',
@@ -93,7 +95,6 @@ const API_KEY_SERIALIZATION_SELECT = [
   'expiresAt',
   'createdAt',
   'updatedAt',
-  'referenceId',
 ];
 
 function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
@@ -102,31 +103,30 @@ function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
   }
 
   const id = value.id ?? value._id ?? '';
-  if (id.length === 0 || typeof value.userId !== 'string' || value.userId.length === 0) {
+  if (
+    id.length === 0 ||
+    typeof value.configId !== 'string' ||
+    value.configId.length === 0 ||
+    typeof value.referenceId !== 'string' ||
+    value.referenceId.length === 0
+  ) {
     return null;
   }
 
   const meta = parseJsonRecord(value.metadata);
 
-  // Accept authUserId directly; fall back to tenantId for keys issued before migration.
-  const resolvedAuthUserId =
-    meta && typeof meta.authUserId === 'string'
-      ? meta.authUserId
-      : meta && typeof meta.tenantId === 'string'
-        ? meta.tenantId
-        : null;
-
   const metadata =
-    meta && typeof meta.kind === 'string' && resolvedAuthUserId !== null
+    meta && typeof meta.kind === 'string' && typeof meta.authUserId === 'string'
       ? {
           kind: meta.kind as string,
-          authUserId: resolvedAuthUserId,
+          authUserId: meta.authUserId,
         }
       : null;
 
   return {
     id,
-    userId: value.userId,
+    configId: value.configId,
+    referenceId: value.referenceId,
     name: value.name,
     start: value.start,
     prefix: value.prefix,
@@ -142,7 +142,8 @@ function serializeApiKeyRecord(value: SerializableApiKeyRecord | null) {
 
 const SerializedApiKey = v.object({
   id: v.string(),
-  userId: v.string(),
+  configId: v.string(),
+  referenceId: v.string(),
   name: v.union(v.string(), v.null()),
   start: v.union(v.string(), v.null()),
   prefix: v.union(v.string(), v.null()),
@@ -165,7 +166,8 @@ interface BetterAuthServerApi {
   listApiKeys(): Promise<
     Array<{
       id: string;
-      userId?: string;
+      configId: string;
+      referenceId: string;
       name: string | null;
       start: string | null;
       prefix: string | null;
@@ -180,7 +182,8 @@ interface BetterAuthServerApi {
   >;
   getApiKey(args: { query: { id: string } }): Promise<{
     id: string;
-    userId?: string;
+    configId: string;
+    referenceId: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -194,6 +197,7 @@ interface BetterAuthServerApi {
   } | null>;
   createApiKey(args: {
     body: {
+      configId: string;
       userId: string;
       name: string;
       prefix: string;
@@ -202,13 +206,13 @@ interface BetterAuthServerApi {
         kind: string;
         authUserId: string;
       };
-      referenceId?: string;
       permissions: Record<string, string[]>;
     };
   }): Promise<{
     key: string;
     id: string;
-    userId?: string;
+    configId: string;
+    referenceId: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -222,6 +226,7 @@ interface BetterAuthServerApi {
   }>;
   verifyApiKey(args: {
     body: {
+      configId: string;
       key: string;
       permissions?: Record<string, string[]>;
     };
@@ -230,7 +235,8 @@ interface BetterAuthServerApi {
     error: { code: string; message?: string } | null;
     key: {
       id: string;
-      userId?: string;
+      configId: string;
+      referenceId: string;
       name: string | null;
       start: string | null;
       prefix: string | null;
@@ -245,12 +251,14 @@ interface BetterAuthServerApi {
   }>;
   updateApiKey(args: {
     body: {
+      configId: string;
       keyId: string;
       enabled?: boolean;
     };
   }): Promise<{
     id: string;
-    userId?: string;
+    configId: string;
+    referenceId: string;
     name: string | null;
     start: string | null;
     prefix: string | null;
@@ -269,8 +277,9 @@ function isManagedPublicApiKey(
 ): value is NonNullable<ReturnType<typeof serializeApiKeyRecord>> {
   return (
     value !== null &&
+    value.configId === PUBLIC_API_KEY_CONFIG_ID &&
     value.metadata?.kind === PUBLIC_API_KEY_METADATA_KIND &&
-    value.metadata.authUserId === value.userId
+    value.metadata.authUserId === value.referenceId
   );
 }
 
@@ -356,7 +365,6 @@ export const getApiKey = query({
 export const createApiKey = mutation({
   args: {
     apiSecret: v.string(),
-    userId: v.string(),
     authUserId: v.string(),
     name: v.string(),
     scopes: v.array(v.string()),
@@ -372,8 +380,7 @@ export const createApiKey = mutation({
     const api = auth.api as unknown as BetterAuthServerApi;
     const created = await api.createApiKey({
       body: {
-        // Better Auth derives API-key referenceId from body.userId.
-        // Managed public keys are owned by the public tenant authUserId.
+        configId: PUBLIC_API_KEY_CONFIG_ID,
         userId: args.authUserId,
         name: args.name,
         prefix: PUBLIC_API_KEY_PREFIX,
@@ -404,51 +411,6 @@ export const createApiKey = mutation({
   },
 });
 
-export const backfillApiKeyReferenceIds = mutation({
-  args: {
-    apiSecret: v.string(),
-    ownerUserId: v.string(),
-    authUserId: v.string(),
-  },
-  returns: v.object({
-    updatedCount: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
-      model: 'apikey',
-      where: [{ field: 'userId', operator: 'eq', value: args.ownerUserId }],
-      select: API_KEY_SERIALIZATION_SELECT,
-      paginationOpts: { cursor: null, numItems: 100 },
-    })) as {
-      page: SerializableApiKeyRecord[];
-    };
-
-    const legacyKeys = result.page
-      .map((record) => serializeApiKeyRecord(record))
-      .filter((record): record is NonNullable<typeof record> =>
-        isManagedPublicApiKeyForAuthUser(record, args.authUserId)
-      )
-      .filter((record) => record.id.length > 0);
-
-    let updatedCount = 0;
-    for (const key of legacyKeys) {
-      await ctx.runMutation(components.betterAuth.adapter.updateOne, {
-        input: {
-          model: 'apikey',
-          update: {
-            referenceId: args.authUserId,
-          },
-          where: [{ field: '_id', operator: 'eq', value: key.id }],
-        },
-      });
-      updatedCount += 1;
-    }
-
-    return { updatedCount };
-  },
-});
-
 export const verifyApiKey = mutation({
   args: {
     apiSecret: v.string(),
@@ -472,6 +434,7 @@ export const verifyApiKey = mutation({
     const api = auth.api as unknown as BetterAuthServerApi;
     const result = await api.verifyApiKey({
       body: {
+        configId: PUBLIC_API_KEY_CONFIG_ID,
         key: args.key,
         permissions:
           args.scopes && args.scopes.length > 0
@@ -525,6 +488,7 @@ export const updateApiKey = mutation({
     const api = auth.api as unknown as BetterAuthServerApi;
     await api.updateApiKey({
       body: {
+        configId: PUBLIC_API_KEY_CONFIG_ID,
         keyId: args.keyId,
         ...(args.enabled !== undefined ? { enabled: args.enabled } : {}),
       },

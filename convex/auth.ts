@@ -13,8 +13,6 @@ import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import { passkey } from '@better-auth/passkey';
 import type { GenericCtx } from '@convex-dev/better-auth';
-import { createClient } from '@convex-dev/better-auth';
-import { convex } from '@convex-dev/better-auth/plugins';
 import { checkout, polar, portal, usage, webhooks } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 import {
@@ -30,6 +28,8 @@ import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
+import { createClient } from './betterAuth/convexClient';
+import { createConvexBetterAuthPlugin } from './betterAuth/convexPlugin';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
 import authSchema from './betterAuth/schema';
@@ -273,6 +273,16 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     baseURL: siteUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
+    user: {
+      additionalFields: {
+        userId: {
+          type: 'string',
+          required: false,
+          input: false,
+          returned: false,
+        },
+      },
+    },
     socialProviders: discordConfig,
     plugins: [
       // oauthProvider depends on the standalone JWT plugin for OAuth/OIDC tokens,
@@ -291,7 +301,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         },
         disableSettingJwtHeader: true,
       }),
-      convex({
+      createConvexBetterAuthPlugin({
         authConfig,
         jwksRotateOnTokenGenerationError: true,
       }),

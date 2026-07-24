@@ -327,7 +327,7 @@ describe('Auth Configuration', () => {
             apiKeys: [
               {
                 id: 'key_123',
-                userId: 'auth_user_123',
+                referenceId: 'auth_user_123',
                 name: 'Prod key',
                 start: 'ypsk_live_abc',
                 prefix: 'ypsk_',
@@ -365,7 +365,7 @@ describe('Auth Configuration', () => {
         expect(result.apiKeys).toEqual([
           {
             id: 'key_123',
-            userId: 'auth_user_123',
+            referenceId: 'auth_user_123',
             name: 'Prod key',
             start: 'ypsk_live_abc',
             prefix: 'ypsk_',

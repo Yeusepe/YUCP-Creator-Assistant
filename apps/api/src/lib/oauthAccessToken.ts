@@ -56,9 +56,11 @@ export async function verifyBetterAuthAccessToken(
   options: VerifyOAuthAccessTokenOptions
 ): Promise<VerifyOAuthAccessTokenResult> {
   try {
-    const { verifyAccessToken } = await import('better-auth/oauth2');
+    // Better Auth 1.7 verifier migration:
+    // https://better-auth.com/docs/guides/1-7-upgrade-guide#dpop-renames-the-token-verifier
+    const { verifyBearerToken } = await import('better-auth/oauth2');
     const authBase = `${options.convexSiteUrl.replace(/\/$/, '')}/api/auth`;
-    const verified = await verifyAccessToken(token, {
+    const verified = await verifyBearerToken(token, {
       verifyOptions: {
         issuer: authBase,
         audience: options.audience,

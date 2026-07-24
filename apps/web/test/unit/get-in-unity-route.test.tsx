@@ -171,10 +171,8 @@ describe('get in unity route', () => {
 
     expect(await screen.findByRole('button', { name: 'Add to VCC' })).toBeEnabled();
     expect(apiPostMock).toHaveBeenCalledWith('/api/vpm/repo-token');
-    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
-      'href',
-      '/api/access/catalog_product_1/download'
-    );
+    expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href^="/api/access/"]')).not.toBeInTheDocument();
     expect(screen.getByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
   });
 

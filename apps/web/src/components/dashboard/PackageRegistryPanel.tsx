@@ -6,6 +6,7 @@ import {
   ListBox,
   SearchField,
   Skeleton,
+  Switch,
   useFilter,
 } from '@heroui/react';
 import { DropZone } from '@heroui-pro/react/drop-zone';
@@ -33,6 +34,7 @@ import { uploadPackageFile } from '@/lib/upload';
 import { copyToClipboard } from '@/lib/utils';
 
 interface PackageRegistryPanelProps {
+  canProtectAssets?: boolean;
   className?: string;
   description?: string;
   title?: string;
@@ -136,6 +138,7 @@ function uploadPackageAndWait(input: {
   version: string;
   catalogProductId: string;
   onProgress: (progress: number) => void;
+  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
 }): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -379,6 +382,7 @@ function ProductDetailsSheet({
 }
 
 export function PackageRegistryPanel({
+  canProtectAssets = false,
   className = 'bento-col-12',
   description = 'Pick a product and upload the file.',
   title = 'Packages',
@@ -397,6 +401,7 @@ export function PackageRegistryPanel({
   const [selectedUpload, setSelectedUpload] = useState<SelectedUpload | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [copyingProductId, setCopyingProductId] = useState<string | null>(null);
+  const [protectSupportedAssets, setProtectSupportedAssets] = useState(canProtectAssets);
 
   const productsQuery = useInfiniteQuery({
     queryKey: creatorProductsQueryKey,
@@ -486,6 +491,9 @@ export function PackageRegistryPanel({
           setSelectedUpload((current) =>
             current ? { ...current, progress: Math.round(progress) } : current
           ),
+        protectionPolicyId: protectSupportedAssets
+          ? 'supported-visual-assets-v1'
+          : 'common-only-v1',
       });
     },
     onSuccess: async () => {
@@ -517,6 +525,7 @@ export function PackageRegistryPanel({
     setVersion('');
     setSelectedUpload(null);
     setFormError(null);
+    setProtectSupportedAssets(canProtectAssets);
     setIsDetailsOpen(false);
     setIsUploadOpen(true);
   }
@@ -794,6 +803,36 @@ export function PackageRegistryPanel({
                       </Autocomplete.Popover>
                     </Autocomplete>
                   )}
+                </div>
+
+                <div className="pm-sheet-section space-y-3 rounded-[20px] p-4">
+                  <div className="space-y-1">
+                    <p className="text-foreground text-sm font-semibold">Server protection</p>
+                    <p className="pm-subtle-copy text-sm leading-6">
+                      The Linux materializer can protect supported PNG and FBX files. Other files
+                      remain byte-exact.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      aria-label="Protect supported visual assets"
+                      isDisabled={!canProtectAssets || uploadMutation.isPending}
+                      isSelected={canProtectAssets && protectSupportedAssets}
+                      onChange={() => setProtectSupportedAssets((current) => !current)}
+                    >
+                      <Switch.Control>
+                        <Switch.Thumb />
+                      </Switch.Control>
+                    </Switch>
+                    <span className="text-foreground text-sm font-medium">
+                      Protect supported visual assets
+                    </span>
+                  </div>
+                  {!canProtectAssets ? (
+                    <p className="pm-subtle-copy text-xs">
+                      Your current plan does not include protected exports.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">

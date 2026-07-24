@@ -69,7 +69,7 @@ function authorizeRequest(body: Record<string, unknown>): Request {
   return new Request('http://localhost:3001/api/creator/uploads/authorize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ protectionPolicyId: 'common-only-v1', ...body }),
   });
 }
 
@@ -395,8 +395,10 @@ describe('creator upload authorization', () => {
     expect(body.catalogProductId).toBe('catalog-product-456');
     expect(body.headers).toEqual({
       'x-yucp-upload-catalog-product-id': 'catalog-product-456',
+      'x-yucp-upload-creator-id': 'creator-123',
       'x-yucp-upload-exp': body.exp,
       'x-yucp-upload-package-id': 'com.yucp.avatar',
+      'x-yucp-upload-protection-policy-id': 'common-only-v1',
       'x-yucp-upload-sig': body.sig,
       'x-yucp-upload-version': '1.2.3',
       'x-yucp-upload-version-id': body.versionId,
@@ -405,8 +407,10 @@ describe('creator upload authorization', () => {
       await verifyUploadCapability(
         {
           catalogProductId: 'catalog-product-456',
+          creatorId: 'creator-123',
           exp: body.exp,
           packageId: 'com.yucp.avatar',
+          protectionPolicyId: 'common-only-v1',
           sig: body.sig,
           version: '1.2.3',
           versionId: body.versionId,
@@ -444,5 +448,34 @@ describe('creator upload authorization', () => {
     );
 
     expect(response.status).toBe(200);
+  });
+
+  it('requires protected exports before signing a protected upload policy', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
+      if (reference === apiMock.packageRegistry.lookupRegistration) {
+        return {
+          packageId: 'com.yucp.avatar',
+          yucpUserId: 'creator-123',
+          status: 'active',
+        };
+      }
+      if (reference === apiMock.certificateBilling.getAccountOverview) {
+        return activeVpmBilling;
+      }
+      throw new Error(`Unexpected query ${String(reference)}`);
+    });
+
+    const response = await createRoutes('creator-123').authorizeUpload(
+      authorizeRequest({
+        packageId: 'com.yucp.avatar',
+        protectionPolicyId: 'supported-visual-assets-v1',
+        version: '1.0.0',
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Protected exports capability required',
+    });
   });
 });

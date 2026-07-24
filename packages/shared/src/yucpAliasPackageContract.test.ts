@@ -38,7 +38,7 @@ describe('normalizeYucpAliasPackageContract', () => {
     });
   });
 
-  it('preserves alias package identity and install footprint metadata', () => {
+  it('preserves only public alias package identity metadata', () => {
     expect(
       normalizeYucpAliasPackageContract({
         kind: 'alias-v1',
@@ -48,21 +48,6 @@ describe('normalizeYucpAliasPackageContract', () => {
         packageVersion: ' 1.0.12 ',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        installPlan: {
-          id: ' plan-1 ',
-          version: ' 1 ',
-          operation: ' install ',
-          status: ' ready ',
-          managedPaths: [
-            ' Packages/com.yucp.songthing/package.json ',
-            'Assets/YUCP Assets/Song Thing/Marker.txt',
-            'Assets/YUCP Assets/Song Thing/Marker.txt',
-          ],
-          generatedPaths: [
-            ' Packages/yucp.installed-packages/Media/com.yucp.songthing/1.0.12/icon.png ',
-          ],
-          sharedPaths: [' Packages/packages-lock.json '],
-        },
       })
     ).toEqual({
       kind: YUCP_ALIAS_PACKAGE_KIND,
@@ -72,21 +57,37 @@ describe('normalizeYucpAliasPackageContract', () => {
       packageVersion: '1.0.12',
       installStrategy: YUCP_ALIAS_PACKAGE_INSTALL_STRATEGIES.serverAuthorized,
       importerPackage: YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
-      installPlan: {
-        planId: 'plan-1',
-        planVersion: '1',
-        operation: 'install',
-        status: 'ready',
-        managedPaths: [
-          'Packages/com.yucp.songthing/package.json',
-          'Assets/YUCP Assets/Song Thing/Marker.txt',
-        ],
-        generatedPaths: [
-          'Packages/yucp.installed-packages/Media/com.yucp.songthing/1.0.12/icon.png',
-        ],
-        sharedPaths: ['Packages/packages-lock.json'],
-      },
     });
+  });
+
+  it('rejects removed install-plan and resolved artifact fields', () => {
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        installPlan: { id: 'removed-plan' },
+      })
+    ).toThrow('installPlan is not supported');
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        resolvedArtifact: { artifactId: 'removed-artifact' },
+      })
+    ).toThrow('resolvedArtifact is not supported');
+    expect(() =>
+      normalizeYucpAliasPackageContract({
+        kind: 'alias-v1',
+        aliasId: 'song-thing',
+        installStrategy: 'server-authorized',
+        importerPackage: 'com.yucp.importer',
+        resolvedRelease: { releaseId: 'removed-release' },
+      })
+    ).toThrow('resolvedRelease is not supported');
   });
 
   it('returns undefined when the contract is absent', () => {

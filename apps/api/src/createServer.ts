@@ -17,9 +17,9 @@
 
 import path from 'node:path';
 import type { Auth } from './auth';
-import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import { createLegacyFrontendMovedResponse, isLegacyFrontendAsset } from './lib/legacyFrontend';
+import type { MaterializationControlClient } from './lib/materializationControlClient';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
@@ -29,7 +29,7 @@ import {
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
 import { createConnectRoutes } from './routes/connect';
-import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
+import { createForensicsRoutes } from './routes/forensics';
 import { createProviderPlatformRoutes } from './routes/providerPlatform';
 import { createPublicRoutes } from './routes/public';
 import { createSuiteRoutes } from './routes/suite';
@@ -66,11 +66,12 @@ export interface TestServerConfig {
   convexApiSecret: string;
   convexSiteUrl: string;
   encryptionSecret: string;
-  couplingServiceBaseUrl?: string;
-  couplingServiceSharedSecret?: string;
   /** Optional, connect/collab Discord OAuth flows are skipped in tests */
   discordClientId?: string;
   discordClientSecret?: string;
+  couplingServiceBaseUrl?: string;
+  couplingServiceSharedSecret?: string;
+  materializationControl?: Pick<MaterializationControlClient, 'listAttributionCandidates'>;
   /** Base URL reported to templates (defaults to http://localhost:<port>) */
   baseUrl?: string;
   /** Frontend/browser URL used for auth callback generation (defaults to baseUrl). */
@@ -117,12 +118,6 @@ function redirectToFrontendRoute(
 export async function createServer(config: TestServerConfig): Promise<TestServer> {
   const baseUrl = config.baseUrl ?? `http://localhost:${config.port}`;
   const frontendUrl = config.frontendUrl ?? baseUrl;
-  validateCouplingServiceBaseUrl({
-    apiBaseUrl: baseUrl,
-    convexSiteUrl: config.convexSiteUrl,
-    couplingServiceBaseUrl: config.couplingServiceBaseUrl,
-  });
-
   const stubAuth = config.auth ?? createStubAuth();
 
   const verificationConfig: VerificationConfig = {
@@ -182,12 +177,17 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     convexApiSecret: config.convexApiSecret,
     encryptionSecret: config.encryptionSecret,
   });
-
-  const couplingRuntimeRoutes = createCouplingRuntimeRoutes({
-    convexUrl: config.convexUrl,
+  const forensicsRoutes = createForensicsRoutes(stubAuth, {
+    apiBaseUrl: baseUrl,
+    couplingServiceBaseUrl: config.couplingServiceBaseUrl ?? '',
+    couplingServiceSharedSecret: config.couplingServiceSharedSecret ?? '',
     convexApiSecret: config.convexApiSecret,
-    couplingServiceBaseUrl: config.couplingServiceBaseUrl,
-    couplingServiceSharedSecret: config.couplingServiceSharedSecret,
+    convexUrl: config.convexUrl,
+    encryptionSecret: config.encryptionSecret,
+    frontendBaseUrl: frontendUrl,
+    ...(config.materializationControl
+      ? { materializationControl: config.materializationControl }
+      : {}),
   });
 
   const webhookHandler = createWebhookHandler({
@@ -245,8 +245,6 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     }
 
     if (pathname.startsWith('/v1/')) {
-      const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
-      if (couplingResponse) return couplingResponse;
       const local = await providerPlatformRoutes.handleRequest(request);
       if (local) return local;
     }
@@ -410,6 +408,13 @@ export async function createServer(config: TestServerConfig): Promise<TestServer
     // Collab routes
     if (pathname.startsWith('/api/collab/')) {
       return collabRoutes.handleCollabRequest(request);
+    }
+
+    if (pathname === '/api/forensics/packages' && request.method === 'GET') {
+      return forensicsRoutes.listPackages(request);
+    }
+    if (pathname === '/api/forensics/lookup' && request.method === 'POST') {
+      return forensicsRoutes.lookup(request);
     }
 
     // Public verification API

@@ -55,14 +55,14 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     invariant:
       'A protected unlock must be refused when the buyer resolves to an identity node carrying an active block, an attestation challenge nonce must be single-use and fresh so a captured submit cannot be replayed, a claimed TPM that fails endorsement-chain or challenge-signature verification must be flagged rather than silently trusted, an identity block must require at least two durable anchors (TPM and/or payment) so a reused or forged soft label alone cannot ban a real customer, and only salted hashes (never raw identifiers) may be persisted.',
     primaryRegressionHomes: ['convex/attestation.realtest.ts'],
-    secondaryRegressionHomes: ['convex/couplingJobAndReveal.realtest.ts'],
+    secondaryRegressionHomes: ['convex/couplingForensics.realtest.ts'],
     remediationHomes: ['convex/attestation.realtest.ts'],
   },
   {
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects.',
     primaryRegressionHomes: [
       'apps/api/src/lib/subjectIdentity.test.ts',
       'apps/api/src/routes/providerPlatform.test.ts',

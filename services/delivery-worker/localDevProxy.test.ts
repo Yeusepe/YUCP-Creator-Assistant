@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { type LocalDeliveryProxy, startLocalDeliveryProxy } from './localDevProxy';
 
 let upstream: ReturnType<typeof Bun.serve> | undefined;
+let renditionUpstream: ReturnType<typeof Bun.serve> | undefined;
 let proxy: LocalDeliveryProxy | undefined;
 
 afterEach(async () => {
@@ -9,6 +10,8 @@ afterEach(async () => {
   proxy = undefined;
   upstream?.stop(true);
   upstream = undefined;
+  renditionUpstream?.stop(true);
+  renditionUpstream = undefined;
 });
 
 describe('local delivery proxy', () => {
@@ -43,5 +46,41 @@ describe('local delivery proxy', () => {
       `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`
     );
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  });
+
+  test('routes protected rendition posts through the stable delivery origin', async () => {
+    upstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch() {
+        return new Response('wrong upstream', { status: 500 });
+      },
+    });
+    renditionUpstream = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request) {
+        expect(request.method).toBe('POST');
+        expect(new URL(request.url).pathname).toBe('/v2/renditions/job-1');
+        expect(await request.json()).toEqual({ receipt: 'signed-receipt' });
+        return new Response('protected bytes', {
+          headers: { 'Content-Type': 'application/zip' },
+        });
+      },
+    });
+    proxy = await startLocalDeliveryProxy({
+      port: 0,
+      renditionUpstreamBaseUrl: `http://127.0.0.1:${renditionUpstream.port}`,
+      upstreamBaseUrl: `http://127.0.0.1:${upstream.port}`,
+    });
+
+    const response = await fetch(`${proxy.baseUrl}/v2/renditions/job-1`, {
+      body: JSON.stringify({ receipt: 'signed-receipt' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('protected bytes');
   });
 });

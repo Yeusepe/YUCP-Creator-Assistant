@@ -10,6 +10,29 @@ const COMPLETE_CAS_ENV = {
   CAS_S3_SECRET_ACCESS_KEY: 'test-secret-key',
 } satisfies NodeJS.ProcessEnv;
 
+const COMPLETE_STORAGE_ROLE_ENV = {
+  COMMON_S3_ACCESS_KEY_ID: 'common-access-key',
+  COMMON_S3_BUCKET: 'common-test',
+  COMMON_S3_ENDPOINT: 'http://127.0.0.1:9000',
+  COMMON_S3_REGION: 'us-east-1',
+  COMMON_S3_SECRET_ACCESS_KEY: 'common-secret-key',
+  METADATA_S3_ACCESS_KEY_ID: 'metadata-access-key',
+  METADATA_S3_BUCKET: 'metadata-test',
+  METADATA_S3_ENDPOINT: 'http://127.0.0.1:9000',
+  METADATA_S3_REGION: 'us-east-1',
+  METADATA_S3_SECRET_ACCESS_KEY: 'metadata-secret-key',
+  PROTECTED_S3_ACCESS_KEY_ID: 'protected-access-key',
+  PROTECTED_S3_BUCKET: 'protected-test',
+  PROTECTED_S3_ENDPOINT: 'http://127.0.0.1:9000',
+  PROTECTED_S3_REGION: 'us-east-1',
+  PROTECTED_S3_SECRET_ACCESS_KEY: 'protected-secret-key',
+  QUARANTINE_S3_ACCESS_KEY_ID: 'quarantine-access-key',
+  QUARANTINE_S3_BUCKET: 'quarantine-test',
+  QUARANTINE_S3_ENDPOINT: 'http://127.0.0.1:9000',
+  QUARANTINE_S3_REGION: 'us-east-1',
+  QUARANTINE_S3_SECRET_ACCESS_KEY: 'quarantine-secret-key',
+} satisfies NodeJS.ProcessEnv;
+
 describe('loadCasConfig', () => {
   it('rejects missing required keys by name without exposing present values', () => {
     const presentValue = 'must-not-appear-in-the-error';
@@ -84,7 +107,7 @@ describe('loadCasConfig', () => {
 describe('loadIngestRuntimeEnv', () => {
   it('validates the complete local ingest contract without Infisical bootstrap credentials', async () => {
     const sourceEnv = {
-      ...COMPLETE_CAS_ENV,
+      ...COMPLETE_STORAGE_ROLE_ENV,
       CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
       INGEST_MAX_BYTES: '1048576',
@@ -97,14 +120,16 @@ describe('loadIngestRuntimeEnv', () => {
     expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
     expect(runtime.ingestUploadDir).toBe('C:/tmp/yucp-ingest-test');
     expect(runtime.ingestMaxBytes).toBe(1_048_576);
-    expect(runtime.cas.chunkPrefix).toBe('chunks/');
-    expect(runtime.cas.indexPrefix).toBe('indexes/');
+    expect(runtime.common.chunkPrefix).toBe('chunks/');
+    expect(runtime.metadata.indexPrefix).toBe('indexes/');
+    expect(runtime.protected.chunkPrefix).toBe('chunks/');
+    expect(runtime.quarantine.bucket).toBe('quarantine-test');
     expect(sourceEnv).toEqual(originalEnv);
   });
 
   it('keeps disposable storage values local when Infisical bootstrap values exist', async () => {
     const sourceEnv = {
-      ...COMPLETE_CAS_ENV,
+      ...COMPLETE_STORAGE_ROLE_ENV,
       CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
       INFISICAL_CLIENT_ID: 'placeholder-client-id',
       INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
@@ -116,7 +141,7 @@ describe('loadIngestRuntimeEnv', () => {
       YUCP_STORAGE_PROFILE: 'disposable',
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async () => ({
-      ...COMPLETE_CAS_ENV,
+      ...COMPLETE_STORAGE_ROLE_ENV,
       CATALOG_DATABASE_URL: 'postgresql://remote.invalid/catalog',
       UPLOAD_HMAC_KEY: 'placeholder-remote-upload-hmac-key',
     }));
@@ -126,13 +151,16 @@ describe('loadIngestRuntimeEnv', () => {
     expect(fetchSecrets).not.toHaveBeenCalled();
     expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
     expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
-    expect(runtime.cas.endpoint).toBe(COMPLETE_CAS_ENV.CAS_S3_ENDPOINT);
+    expect(runtime.common.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.COMMON_S3_ENDPOINT);
+    expect(runtime.metadata.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.METADATA_S3_ENDPOINT);
+    expect(runtime.protected.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.PROTECTED_S3_ENDPOINT);
+    expect(runtime.quarantine.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.QUARANTINE_S3_ENDPOINT);
   });
 
   it('rejects the disposable storage profile in production', async () => {
     await expect(
       loadIngestRuntimeEnv({
-        ...COMPLETE_CAS_ENV,
+        ...COMPLETE_STORAGE_ROLE_ENV,
         CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
         INGEST_MAX_BYTES: '1048576',
         INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',

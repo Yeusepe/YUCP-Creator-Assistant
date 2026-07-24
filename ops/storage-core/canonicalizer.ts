@@ -64,7 +64,7 @@ export type CanonicalArtifact = {
   path: string;
 };
 
-type ZipEntry = {
+export type ZipEntry = {
   completed: boolean;
   directory: boolean;
   name: string;
@@ -236,7 +236,7 @@ async function validateExtractedTarEntries(extractedPath: string): Promise<void>
   await visit(extractedPath);
 }
 
-async function extractZipEntries(
+export async function extractZipEntries(
   inputPath: string,
   scratchPath: string,
   maxDecompressedBytes: number

@@ -11,15 +11,18 @@ export interface UploadAuthorization {
   tusEndpoint: string;
   headers: Record<string, string>;
   catalogProductId?: string;
+  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
 }
 
 export async function authorizeUpload(
   packageId: string,
   version: string,
+  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1',
   catalogProductId?: string
 ): Promise<UploadAuthorization> {
   return await apiClient.post<UploadAuthorization>('/api/creator/uploads/authorize', {
     packageId,
+    protectionPolicyId,
     version,
     ...(catalogProductId ? { catalogProductId } : {}),
   });
@@ -28,6 +31,7 @@ export async function authorizeUpload(
 export async function uploadPackageFile(input: {
   file: File;
   packageId: string;
+  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
   version: string;
   catalogProductId?: string;
   onProgress?: (percent: number) => void;
@@ -37,6 +41,7 @@ export async function uploadPackageFile(input: {
   const authorization = await authorizeUpload(
     input.packageId,
     input.version,
+    input.protectionPolicyId,
     input.catalogProductId
   );
   const catalogProductId = authorization.catalogProductId ?? input.catalogProductId;
@@ -53,6 +58,7 @@ export async function uploadPackageFile(input: {
       filename: input.file.name,
       filetype: input.file.type || 'application/octet-stream',
       packageId: input.packageId,
+      protectionPolicyId: authorization.protectionPolicyId,
       version: input.version,
       ...(catalogProductId ? { catalogProductId } : {}),
     },

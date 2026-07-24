@@ -1,29 +1,14 @@
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/ui/Icon';
+import {
+  ToastContext,
+  type ToastContextValue,
+  type ToastOptions,
+  type ToastType,
+} from '@/components/ui/toastContext';
 
-export type ToastType = 'success' | 'error' | 'warning' | 'info';
-
-export interface ToastAction {
-  label: string;
-  onClick: () => void;
-}
-
-export interface ToastOptions {
-  /** How long to show the toast in ms. Defaults to 4000. Pass 0 for no auto-dismiss. */
-  duration?: number;
-  /** Optional description line below the title. */
-  description?: string;
-  /** Optional action button rendered inside the toast. */
-  action?: ToastAction;
-}
+export type { ToastAction, ToastOptions, ToastType } from '@/components/ui/toastContext';
+export { useToast } from '@/components/ui/toastContext';
 
 interface ToastItem {
   id: string;
@@ -31,19 +16,9 @@ interface ToastItem {
   title: string;
   description?: string;
   duration: number;
-  action?: ToastAction;
+  action?: ToastOptions['action'];
   exiting: boolean;
 }
-
-interface ToastContextValue {
-  success(title: string, options?: ToastOptions): string;
-  error(title: string, options?: ToastOptions): string;
-  warning(title: string, options?: ToastOptions): string;
-  info(title: string, options?: ToastOptions): string;
-  dismiss(id: string): void;
-}
-
-const ToastContext = createContext<ToastContextValue | null>(null);
 
 let counter = 0;
 function uniqueId() {
@@ -96,12 +71,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <ToastList toasts={toasts} onDismiss={dismiss} />
     </ToastContext.Provider>
   );
-}
-
-export function useToast(): ToastContextValue {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error('useToast must be used inside <ToastProvider>');
-  return ctx;
 }
 
 function ToastList({

@@ -5,17 +5,23 @@ import * as ed25519 from '@noble/ed25519';
 import { buildPackageContractGoldenVectors } from './packageContractGoldenVectors';
 import {
   computeOutputTreeRootV2,
+  type DeliveryGrantV2,
   decodeCanonicalPackageCbor,
+  encodeDeliveryGrantV2,
   encodeInstallSessionV2,
+  encodeMaterializationCapabilityV2,
   encodeMaterializationReceiptV2,
   hashPackageContractFields,
   INSTALL_SESSION_TOKEN_TYPE,
   type InstallSessionV2,
+  type MaterializationJobCapabilityV2,
   type MaterializationReceiptV2,
   PACKAGE_CONTRACT_PURPOSES,
   packageContractKeyId,
   signPackageContract,
+  verifyDeliveryGrantV2,
   verifyInstallSessionV2,
+  verifyMaterializationCapabilityV2,
   verifyMaterializationReceiptV2,
   verifyPackageContract,
 } from './packageContractsV2';
@@ -74,6 +80,60 @@ function validationContext() {
     issuer: 'https://api.example.test',
     now: 1_200,
     releaseRoot: DIGEST_A,
+  };
+}
+
+function deliveryGrant(overrides: Partial<DeliveryGrantV2> = {}): DeliveryGrantV2 {
+  return {
+    audience: 'yucp-materialization-source',
+    bindingRoot: DIGEST_B,
+    buyerId: 'data-node-1',
+    creatorId: 'creator-1',
+    deviceKeyThumbprint: DEVICE_KEY,
+    expiresAt: 1_300,
+    grantId: 'source-grant-1',
+    installSessionId: 'job-1',
+    issuedAt: 1_000,
+    issuer: 'https://api.example.test',
+    notBefore: 1_000,
+    productId: 'product-1',
+    releaseRoot: DIGEST_A,
+    scopes: ['materialization-source:version-1'],
+    ...overrides,
+  };
+}
+
+function materializationCapability(
+  overrides: Partial<MaterializationJobCapabilityV2> = {}
+): MaterializationJobCapabilityV2 {
+  return {
+    buyerSubjectPseudonym: 'buyer-pseudonym-1',
+    capabilityId: 'capability-1',
+    creatorId: 'creator-1',
+    expiresAt: 1_300,
+    grantJti: 'grant-1',
+    issuedAt: 1_000,
+    jobId: 'job-1',
+    keyEpoch: 1,
+    leaseGeneration: 3,
+    materializationAlgorithm: 'png-dct-qim-v2',
+    oneUseNonce: new Uint8Array(32).fill(0x44),
+    outputFormat: 'overlay',
+    pluginVersion: 'png-plugin-2',
+    productId: 'product-1',
+    proofKeyThumbprint: DEVICE_KEY,
+    protectedFiles: [
+      {
+        materializerType: 'image/png',
+        normalizedPath: 'Assets/Product/protected.png',
+        required: true,
+        sourceSha256: new Uint8Array(32).fill(0x55),
+      },
+    ],
+    protectedSourceRoot: DIGEST_B,
+    pseudonymMethod: 'hmac-sha256-v1',
+    releaseRoot: DIGEST_A,
+    ...overrides,
   };
 }
 
@@ -160,6 +220,45 @@ describe('package contracts v2', () => {
     ).rejects.toThrow('purpose does not match');
   });
 
+  test('binds a delivery grant to one proof key and exact source scope', async () => {
+    const publicKey = await ed25519.getPublicKeyAsync(PRIVATE_KEY);
+    const signed = await signPackageContract({
+      keyId: KEY_ID,
+      payload: encodeDeliveryGrantV2(deliveryGrant()),
+      privateKey: PRIVATE_KEY,
+      purpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+    });
+
+    await expect(
+      verifyDeliveryGrantV2({
+        context: {
+          audience: 'yucp-materialization-source',
+          deviceKeyThumbprint: DEVICE_KEY,
+          issuer: 'https://api.example.test',
+          now: 1_100,
+          requiredScope: 'materialization-source:version-1',
+        },
+        coseSign1: signed.coseSign1,
+        expectedKeyId: KEY_ID,
+        publicKey,
+      })
+    ).resolves.toEqual(deliveryGrant());
+    await expect(
+      verifyDeliveryGrantV2({
+        context: {
+          audience: 'yucp-materialization-source',
+          deviceKeyThumbprint: DEVICE_KEY,
+          issuer: 'https://api.example.test',
+          now: 1_100,
+          requiredScope: 'materialization-source:version-2',
+        },
+        coseSign1: signed.coseSign1,
+        expectedKeyId: KEY_ID,
+        publicKey,
+      })
+    ).rejects.toThrow('not bound');
+  });
+
   test('rejects noncanonical CBOR and swapped install origins', async () => {
     expect(() => decodeCanonicalPackageCbor(Uint8Array.of(0x18, 0x01))).toThrow();
     const publicKey = await ed25519.getPublicKeyAsync(PRIVATE_KEY);
@@ -231,6 +330,37 @@ describe('package contracts v2', () => {
         rendition: { ...receipt.rendition, providerVersion: '' },
       })
     ).toThrow('providerVersion');
+  });
+
+  test('binds a one-use materialization capability to its job and proof key', async () => {
+    const publicKey = await ed25519.getPublicKeyAsync(PRIVATE_KEY);
+    const capability = materializationCapability();
+    const signed = await signPackageContract({
+      keyId: KEY_ID,
+      payload: encodeMaterializationCapabilityV2(capability),
+      privateKey: PRIVATE_KEY,
+      purpose: PACKAGE_CONTRACT_PURPOSES.materializationCapability,
+    });
+
+    await expect(
+      verifyMaterializationCapabilityV2({
+        coseSign1: signed.coseSign1,
+        expectedKeyId: KEY_ID,
+        publicKey,
+      })
+    ).resolves.toEqual(capability);
+    expect(() =>
+      encodeMaterializationCapabilityV2({
+        ...capability,
+        protectedFiles: [...capability.protectedFiles, { ...capability.protectedFiles[0] }],
+      })
+    ).toThrow('strict UTF-8 path order');
+    expect(() =>
+      encodeMaterializationCapabilityV2({
+        ...capability,
+        expiresAt: capability.issuedAt + 901,
+      })
+    ).toThrow('maximum lifetime');
   });
 
   test('keeps the checked-in golden vectors current', async () => {

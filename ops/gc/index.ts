@@ -1,1 +1,1 @@
-export * from './chunkGc';
+export * from './exactVersionGc';

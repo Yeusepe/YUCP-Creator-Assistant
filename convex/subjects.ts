@@ -19,7 +19,10 @@ import {
   requireServiceActor,
 } from './lib/apiActor';
 import { requireApiSecret } from './lib/apiAuth';
-import { buildBetterAuthEqualityWhere } from './lib/betterAuthAdapter';
+import {
+  buildBetterAuthEqualityWhere,
+  buildBetterAuthOAuthAccountLookupWhere,
+} from './lib/betterAuthAdapter';
 import {
   type ExternalAccountIdentityCandidate,
   selectCanonicalExternalAccountCandidates,
@@ -134,10 +137,7 @@ async function findBetterAuthUserIdsByDiscordUserId(
 ): Promise<string[]> {
   const result = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
     model: 'account',
-    where: buildBetterAuthEqualityWhere([
-      { field: 'accountId', value: discordUserId },
-      { field: 'providerId', value: 'discord' },
-    ]),
+    where: buildBetterAuthOAuthAccountLookupWhere('discord', discordUserId),
     select: ['userId'],
     paginationOpts: { cursor: null, numItems: 10 },
   })) as { page?: Array<{ userId?: string | null }> } | null;

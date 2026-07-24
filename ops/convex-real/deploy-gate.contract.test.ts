@@ -10,12 +10,12 @@ const componentApi = readFileSync(
 );
 describe('self-hosted Convex deploy gate contract', () => {
   it('keeps adapter.create public inside the component and internal to its parent', () => {
-    expect(adapter).toContain('export const create = mutation({');
-    expect(adapter).not.toContain('export const create = internalMutation({');
-    expect(adapter).toContain('userId: dataRecord.referenceId');
+    expect(adapter).toContain('export const create = adapterApi.create');
+    expect(adapter).not.toContain('normalizeApiKeyCreateInput');
+    expect(adapter).not.toContain('rawCreate');
 
     expect(componentApi).toMatch(
-      /create: FunctionReference<\s*"mutation",\s*"internal",\s*\{ input: any/
+      /create: FunctionReference<\s*"mutation",\s*"internal",\s*\{\s*input:\s*\|/
     );
   });
 });

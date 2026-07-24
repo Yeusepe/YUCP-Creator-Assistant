@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   applyDisposableStorageProfile,
+  applyInfisicalDevSecrets,
   applyLocalDevDefaults,
   buildDevCommands,
   DevSupervisor,
@@ -45,7 +46,51 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function storageRoleFixture(role: string) {
+  return {
+    accessKeyId: `local-${role}-key`,
+    bucket: `local-${role}`,
+    chunkPrefix: 'chunks/',
+    endpoint: 'http://127.0.0.1:49152',
+    indexPrefix: 'indexes/',
+    region: 'us-east-1',
+    requestTimeoutMs: 30_000,
+    secretAccessKey: `local-${role}-secret`,
+  };
+}
+
 describe('DevSupervisor', () => {
+  test('the executable entry point awaits asynchronous startup', async () => {
+    const source = await readFile(
+      path.join(process.cwd(), 'ops', 'dev-supervisor.ts'),
+      'utf8'
+    );
+    expect(source).toContain('await main();');
+  });
+
+  test('Infisical development keeps the local browser origin', () => {
+    expect(
+      applyInfisicalDevSecrets(
+        {
+          FRONTEND_URL: 'http://bootstrap.invalid',
+          INFISICAL_PROJECT_ID: 'project-1',
+          MATERIALIZATION_KEY_BROKER_BASE_URL:
+            'https://stale-broker.invalid',
+        },
+        {
+          FRONTEND_URL: 'https://app.example.test',
+          MATERIALIZATION_KEY_BROKER_BASE_URL:
+            'https://coupling.example.test',
+        }
+      )
+    ).toMatchObject({
+      FRONTEND_URL: 'http://localhost:3000',
+      INFISICAL_PROJECT_ID: 'project-1',
+      MATERIALIZATION_KEY_BROKER_BASE_URL:
+        'https://coupling.example.test',
+    });
+  });
+
   test('applyLocalDevDefaults prefers the local ClickStack endpoints for dev runs', async () => {
     const fixturePath = path.join(process.cwd(), 'ops', 'test-fixtures', 'echo-env.mjs');
     const child = spawn(process.execPath, [fixturePath], {
@@ -217,14 +262,21 @@ describe('DevSupervisor', () => {
   test('buildDevCommands starts every real package storage and delivery process', () => {
     const commands = buildDevCommands(
       {
-        CAS_CHUNK_PREFIX: 'chunks/',
-        CAS_INDEX_PREFIX: 'indexes/',
-        CAS_S3_ACCESS_KEY_ID: 'local-common-key',
-        CAS_S3_BUCKET: 'local-common',
-        CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
-        CAS_S3_REGION: 'us-east-1',
-        CAS_S3_SECRET_ACCESS_KEY: 'local-common-secret',
-        DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
+        COMMON_CHUNK_PREFIX: 'chunks/',
+        COMMON_S3_ACCESS_KEY_ID: 'local-common-key',
+        COMMON_S3_BUCKET: 'local-common',
+        COMMON_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        COMMON_S3_REGION: 'us-east-1',
+        COMMON_S3_SECRET_ACCESS_KEY: 'local-common-secret',
+        METADATA_INDEX_PREFIX: 'indexes/',
+        METADATA_S3_ACCESS_KEY_ID: 'local-metadata-key',
+        METADATA_S3_BUCKET: 'local-metadata',
+        METADATA_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        METADATA_S3_REGION: 'us-east-1',
+        METADATA_S3_SECRET_ACCESS_KEY: 'local-metadata-secret',
+        PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
+        PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
+        PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',
       },
       true
     );
@@ -236,17 +288,47 @@ describe('DevSupervisor', () => {
     expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
       command: 'bun run ops/scheduler/server.ts',
     });
+    expect(
+      commands.find((command) => command.name === 'materialization-control')
+    ).toMatchObject({
+      command: 'bun run ops/materialization/server.ts',
+    });
+    expect(
+      commands.find((command) => command.name === 'materializer-linux')
+    ).toMatchObject({
+      command: 'bun run ops/materialization/localWslMaterializer.ts',
+    });
+    expect(
+      commands.find((command) => command.name === 'materialization-source')
+    ).toMatchObject({
+      command:
+        'bun x tsx services/materialization-source-worker/testDevServer.ts',
+    });
+    expect(commands.find((command) => command.name === 'coupling')).toBeUndefined();
+    expect(
+      commands.some((command) =>
+        command.cwd?.replaceAll('\\', '/').endsWith('/ca-coupling')
+      )
+    ).toBeFalse();
     expect(commands.find((command) => command.name === 'delivery')).toMatchObject({
       command: 'bun x tsx services/delivery-worker/testDevServer.ts',
       env: {
-        BUYER_FLOW_CAS_CHUNK_PREFIX: 'chunks/',
-        BUYER_FLOW_CAS_INDEX_PREFIX: 'indexes/',
-        BUYER_FLOW_CAS_S3_BUCKET: 'local-common',
-        BUYER_FLOW_CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
-        BUYER_FLOW_CAS_S3_READONLY_ACCESS_KEY_ID: 'local-common-key',
-        BUYER_FLOW_CAS_S3_READONLY_SECRET_ACCESS_KEY: 'local-common-secret',
-        BUYER_FLOW_CAS_S3_REGION: 'us-east-1',
-        BUYER_FLOW_DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
+        BUYER_FLOW_COMMON_CHUNK_PREFIX: 'chunks/',
+        BUYER_FLOW_COMMON_S3_BUCKET: 'local-common',
+        BUYER_FLOW_COMMON_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        BUYER_FLOW_COMMON_S3_READONLY_ACCESS_KEY_ID: 'local-common-key',
+        BUYER_FLOW_COMMON_S3_READONLY_SECRET_ACCESS_KEY: 'local-common-secret',
+        BUYER_FLOW_COMMON_S3_REGION: 'us-east-1',
+        BUYER_FLOW_METADATA_INDEX_PREFIX: 'indexes/',
+        BUYER_FLOW_METADATA_S3_BUCKET: 'local-metadata',
+        BUYER_FLOW_METADATA_S3_ENDPOINT: 'http://127.0.0.1:49152',
+        BUYER_FLOW_METADATA_S3_READONLY_ACCESS_KEY_ID: 'local-metadata-key',
+        BUYER_FLOW_METADATA_S3_READONLY_SECRET_ACCESS_KEY: 'local-metadata-secret',
+        BUYER_FLOW_METADATA_S3_REGION: 'us-east-1',
+        BUYER_FLOW_PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
+        BUYER_FLOW_PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
+        BUYER_FLOW_PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
+        BUYER_FLOW_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',
         BUYER_FLOW_DELIVERY_PORT: '3003',
         BUYER_FLOW_KEEP_ALIVE: '1',
         BUYER_FLOW_STORAGE_FORMAT_VERSION: 'desync-uncompressed-sha256-v1',
@@ -261,16 +343,11 @@ describe('DevSupervisor', () => {
   test('applyDisposableStorageProfile shares local upload authority without changing Infisical', () => {
     const storage = {
       buckets: {
-        common: {
-          accessKeyId: 'local-common-key',
-          bucket: 'local-common',
-          chunkPrefix: 'chunks/',
-          endpoint: 'http://127.0.0.1:49152',
-          indexPrefix: 'indexes/',
-          region: 'us-east-1',
-          requestTimeoutMs: 30_000,
-          secretAccessKey: 'local-common-secret',
-        },
+        common: storageRoleFixture('common'),
+        metadata: storageRoleFixture('metadata'),
+        protected: storageRoleFixture('protected'),
+        quarantine: storageRoleFixture('quarantine'),
+        renditions: storageRoleFixture('renditions'),
       },
       postgres: {
         url: 'postgres://postgres:local-password@127.0.0.1:49153/local',
@@ -284,19 +361,82 @@ describe('DevSupervisor', () => {
       },
       storage,
       {
-        deliveryHmacKey: 'local-delivery-hmac-key',
+        couplingServiceSharedSecret: 'local-coupling-service-secret',
+        installSigningKeyId: 'local-install-key',
+        installSigningPrivateKey: 'local-install-private-key',
+        installSigningPublicKey: 'local-install-public-key',
+        materializationApiSharedSecret: 'local-materialization-api-secret',
+        materializationCapabilityKeyId: 'local-capability-key',
+        materializationCapabilityPrivateKey: 'local-capability-private-key',
+        materializationCapabilityPublicKey: 'local-capability-public-key',
+        materializationKeyBrokerSharedSecret:
+          'local-key-broker-shared-secret',
+        materializationMaterializerSharedSecret:
+          'local-materializer-shared-secret',
+        materializationReceiptKeyId: 'local-receipt-key',
+        materializationReceiptPrivateKey: 'local-receipt-private-key',
+        materializationReceiptPublicKey: 'local-receipt-public-key',
+        materializationSourceGrantKeyId: 'local-source-grant-key',
+        materializationSourceGrantPrivateKey:
+          'local-source-grant-private-key',
+        materializationSourceGrantPublicKey:
+          'local-source-grant-public-key',
         uploadHmacKey: 'local-upload-hmac-key',
         vpmTokenKey: 'local-vpm-token-key',
       }
     );
 
     expect(env).toMatchObject({
-      CAS_S3_ACCESS_KEY_ID: 'local-common-key',
-      CAS_S3_BUCKET: 'local-common',
-      CAS_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      COMMON_S3_ACCESS_KEY_ID: 'local-common-key',
+      COMMON_S3_BUCKET: 'local-common',
+      COMMON_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      METADATA_S3_ACCESS_KEY_ID: 'local-metadata-key',
+      METADATA_S3_BUCKET: 'local-metadata',
+      METADATA_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      PROTECTED_S3_ACCESS_KEY_ID: 'local-protected-key',
+      PROTECTED_S3_BUCKET: 'local-protected',
+      PROTECTED_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      QUARANTINE_S3_ACCESS_KEY_ID: 'local-quarantine-key',
+      QUARANTINE_S3_BUCKET: 'local-quarantine',
+      QUARANTINE_S3_ENDPOINT: 'http://127.0.0.1:49152',
+      RENDITION_S3_ACCESS_KEY_ID: 'local-renditions-key',
+      RENDITION_S3_BUCKET: 'local-renditions',
+      RENDITION_S3_ENDPOINT: 'http://127.0.0.1:49152',
       CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
-      DELIVERY_BASE_URL: 'http://127.0.0.1:3003',
-      DELIVERY_HMAC_KEY: 'local-delivery-hmac-key',
+      PACKAGE_CATALOG_DATABASE_URL:
+        'postgres://postgres:local-password@127.0.0.1:49153/local',
+      MATERIALIZATION_API_SHARED_SECRET:
+        'local-materialization-api-secret',
+      MATERIALIZATION_CAPABILITY_KEY_ID: 'local-capability-key',
+      MATERIALIZATION_CAPABILITY_PRIVATE_KEY:
+        'local-capability-private-key',
+      MATERIALIZATION_CAPABILITY_PUBLIC_KEY:
+        'local-capability-public-key',
+      MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
+        'http://127.0.0.1:3012',
+      MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL:
+        'http://127.0.0.1:3012',
+      MATERIALIZATION_KEY_BROKER_BASE_URL: 'http://127.0.0.1:8788',
+      MATERIALIZATION_KEY_BROKER_SHARED_SECRET:
+        'local-key-broker-shared-secret',
+      MATERIALIZATION_MATERIALIZER_SHARED_SECRET:
+        'local-materializer-shared-secret',
+      YUCP_COUPLING_SERVICE_BASE_URL: 'http://127.0.0.1:8788',
+      YUCP_COUPLING_SERVICE_SHARED_SECRET:
+        'local-coupling-service-secret',
+      MATERIALIZATION_RECEIPT_KEY_ID: 'local-receipt-key',
+      MATERIALIZATION_RECEIPT_PRIVATE_KEY: 'local-receipt-private-key',
+      MATERIALIZATION_SOURCE_DELIVERY_BASE_URL:
+        'http://127.0.0.1:3005',
+      MATERIALIZATION_SOURCE_GRANT_KEY_ID: 'local-source-grant-key',
+      MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY:
+        'local-source-grant-private-key',
+      MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY:
+        'local-source-grant-public-key',
+      PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
+      PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
+      PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: 'local-install-private-key',
+      PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',
       INFISICAL_PROJECT_ID: 'keep-project-id',
       INGEST_ALLOWED_ORIGIN: 'http://localhost:3000',
       INGEST_MAX_BYTES: String(5 * 1024 * 1024 * 1024),

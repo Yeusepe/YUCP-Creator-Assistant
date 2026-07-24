@@ -1,27 +1,36 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import {
   Catalog,
   type CatalogDatabase,
+  ExactStorageCatalog,
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../catalog';
-import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
+import { parseDeliveryManifest } from '../storage-core/deliveryManifest';
 import {
-  inspectDesyncIndex,
   localCasStore,
+  readCasIndexObject,
   type S3CasStore,
   s3CasStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
-import { createS3Bucket, deleteS3Objects, listS3Objects } from '../storage-core/s3Control';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import {
+  createS3Bucket,
+  deleteS3Objects,
+  enableS3BucketVersioning,
+  listS3Objects,
+} from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
+import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
 import {
   ingestVersion,
   promoteVersion,
@@ -40,8 +49,9 @@ const minioContainerName = `yucp-pipeline-promote-s3-${randomBytes(6).toString('
 
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
-let casConfig: CasConfig | undefined;
-let store: S3CasStore | undefined;
+let commonStore: S3CasStore | undefined;
+let metadataStore: S3CasStore | undefined;
+let protectedStore: S3CasStore | undefined;
 let scratchPath: string | undefined;
 const startedContainers = new Set<string>();
 
@@ -98,10 +108,6 @@ async function publishedPort(containerName: string, containerPort: string): Prom
   return match[1];
 }
 
-function deterministicBytes(seed: string, byteLength: number): Buffer {
-  return createHash('shake256', { outputLength: byteLength }).update(seed).digest();
-}
-
 async function sha256File(filePath: string): Promise<string> {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(filePath)) {
@@ -135,18 +141,15 @@ function requireSql(): CatalogDatabase {
   return sql;
 }
 
-function requireStore(): S3CasStore {
-  if (!store) {
-    throw new Error('Promotion end-to-end CAS store was not initialized');
+function requireStores(): {
+  commonStore: S3CasStore;
+  metadataStore: S3CasStore;
+  protectedStore: S3CasStore;
+} {
+  if (!commonStore || !metadataStore || !protectedStore) {
+    throw new Error('Promotion end-to-end role stores were not initialized');
   }
-  return store;
-}
-
-function requireCasConfig(): CasConfig {
-  if (!casConfig) {
-    throw new Error('Promotion end-to-end CAS config was not initialized');
-  }
-  return casConfig;
+  return { commonStore, metadataStore, protectedStore };
 }
 
 function requireScratchPath(): string {
@@ -170,8 +173,9 @@ async function cleanup(): Promise<void> {
   const activeSql = sql;
   sql = undefined;
   catalog = undefined;
-  casConfig = undefined;
-  store = undefined;
+  commonStore = undefined;
+  metadataStore = undefined;
+  protectedStore = undefined;
   try {
     await activeSql?.end({ timeout: 1 });
   } finally {
@@ -244,15 +248,42 @@ beforeAll(async () => {
     await runCatalogMigrations(sql);
     catalog = new Catalog(sql);
 
-    casConfig = loadCasConfig({
-      CAS_S3_ENDPOINT: minioEndpoint,
-      CAS_S3_REGION: 'us-east-1',
-      CAS_S3_BUCKET: `pipeline-promote-${randomBytes(8).toString('hex')}`,
-      CAS_S3_ACCESS_KEY_ID: accessKeyId,
-      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+    const bucketBase = `pipeline-promote-${randomBytes(8).toString('hex')}`;
+    const roleConfig = (role: string): CasConfig =>
+      loadCasConfig({
+        CAS_S3_ENDPOINT: minioEndpoint,
+        CAS_S3_REGION: 'us-east-1',
+        CAS_S3_BUCKET: `${bucketBase}-${role}`,
+        CAS_S3_ACCESS_KEY_ID: accessKeyId,
+        CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+      });
+    const commonConfig = roleConfig('common');
+    const metadataConfig = roleConfig('metadata');
+    const protectedConfig = roleConfig('protected');
+    for (const config of [commonConfig, metadataConfig, protectedConfig]) {
+      await createS3Bucket(config);
+      await enableS3BucketVersioning(config);
+    }
+    const durableStorage = new DurableExactStorage(
+      new ExactStorageCatalog(requireSql()),
+      new S3ExactStoragePort({
+        common: commonConfig,
+        metadata: metadataConfig,
+        protected: protectedConfig,
+      })
+    );
+    commonStore = s3CasStore(commonConfig, {
+      durableStorage,
+      storageRole: 'common',
     });
-    await createS3Bucket(casConfig);
-    store = s3CasStore(casConfig);
+    metadataStore = s3CasStore(metadataConfig, {
+      durableStorage,
+      storageRole: 'metadata',
+    });
+    protectedStore = s3CasStore(protectedConfig, {
+      durableStorage,
+      storageRole: 'protected',
+    });
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-pipeline-promote-e2e-'));
   } catch (error) {
     await cleanup();
@@ -265,30 +296,27 @@ afterAll(cleanup);
 describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () => {
   it('reassembles before READY, retrieves byte-exact, rejects a missing chunk, and deduplicates', async () => {
     const activeCatalog = requireCatalog();
-    const activeStore = requireStore();
-    const config = requireCasConfig();
+    const stores = requireStores();
+    const commonConfig = stores.commonStore.config;
     const scratch = requireScratchPath();
-    const sharedPrefix = deterministicBytes('shared-prefix', 4 * 1024 * 1024);
-    const sharedSuffix = deterministicBytes('shared-suffix', 4 * 1024 * 1024);
-    const rawV1Path = join(scratch, 'artifact-v1.bin');
-    const rawV2Path = join(scratch, 'artifact-v2.bin');
-    await writeFile(
-      rawV1Path,
-      Buffer.concat([sharedPrefix, deterministicBytes('version-one', 256 * 1024), sharedSuffix])
-    );
-    await writeFile(
-      rawV2Path,
-      Buffer.concat([sharedPrefix, deterministicBytes('version-two', 256 * 1024), sharedSuffix])
-    );
-
-    const canonicalV1 = await canonicalizeArtifact({
-      inputPath: rawV1Path,
-      outputPath: join(scratch, 'expected-v1.canonical'),
+    const rawV1Path = join(scratch, 'artifact-v1.unitypackage');
+    const rawV2Path = join(scratch, 'artifact-v2.unitypackage');
+    const expectedV1 = await createUnityPackageRecordFixture({
+      outputPath: rawV1Path,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'version-one',
+    });
+    await createUnityPackageRecordFixture({
+      outputPath: rawV2Path,
+      timestamp: new Date('2026-07-24T00:00:00.000Z'),
+      versionSeed: 'version-two',
     });
     const assembledV1 = await ingestVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '1.0.0',
       inputPath: rawV1Path,
     });
@@ -297,14 +325,16 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
     await expect(
       retrieveVersion({
         catalog: activeCatalog,
-        store: wrongLocalStore,
+        commonStore: stores.commonStore,
+        metadataStore: wrongLocalStore,
+        protectedStore: stores.protectedStore,
         versionId: assembledV1.id,
-        outputPath: join(scratch, 'wrong-kind-retrieval.bin'),
+        outputPath: join(scratch, 'wrong-kind-retrieval'),
       })
-    ).rejects.toThrow('CAS index store kind s3 does not match local store');
+    ).rejects.toThrow('CAS object store kind s3 does not match local store');
     const readyV1 = await promoteVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      ...stores,
       versionId: assembledV1.id,
     });
     expect(readyV1).toMatchObject({ state: 'READY', error: null });
@@ -318,34 +348,37 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
 
     const retrievedV1Path = await retrieveVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      ...stores,
       versionId: readyV1.id,
-      outputPath: join(scratch, 'retrieved-v1.bin'),
+      outputPath: join(scratch, 'retrieved-v1'),
     });
-    expect(await readFile(retrievedV1Path)).toEqual(await readFile(canonicalV1.path));
-    expect(await sha256File(retrievedV1Path)).toBe(await sha256File(canonicalV1.path));
+    for (const [relativePath, expectedSha256] of expectedV1) {
+      expect(await sha256File(join(retrievedV1Path, relativePath))).toBe(expectedSha256);
+    }
 
-    const afterV1 = await listS3Objects(config);
-    const v1Chunks = afterV1.filter((object) => object.key.startsWith(config.chunkPrefix));
+    const afterV1 = await listS3Objects(commonConfig);
+    const v1Chunks = afterV1.filter((object) => object.key.startsWith(commonConfig.chunkPrefix));
     const v1ChunkBytes = v1Chunks.reduce((total, object) => total + object.size, 0);
     expect(v1Chunks.length).toBeGreaterThan(1);
 
     const assembledV2 = await ingestVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '2.0.0',
       inputPath: rawV2Path,
     });
     const readyV2 = await promoteVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      ...stores,
       versionId: assembledV2.id,
     });
     expect(readyV2.state).toBe('READY');
 
-    const afterV2 = await listS3Objects(config);
-    const v2Chunks = afterV2.filter((object) => object.key.startsWith(config.chunkPrefix));
+    const afterV2 = await listS3Objects(commonConfig);
+    const v2Chunks = afterV2.filter((object) => object.key.startsWith(commonConfig.chunkPrefix));
     const v2ChunkBytes = v2Chunks.reduce((total, object) => total + object.size, 0);
     const v2DeltaBytes = v2ChunkBytes - v1ChunkBytes;
     const v2DeltaChunks = v2Chunks.length - v1Chunks.length;
@@ -354,53 +387,64 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
 
     const assembledKindMismatch = await ingestVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '2.5.0',
       inputPath: rawV1Path,
     });
     await expect(
       promoteVersion({
         catalog: activeCatalog,
-        store: wrongLocalStore,
+        commonStore: stores.commonStore,
+        metadataStore: wrongLocalStore,
+        protectedStore: stores.protectedStore,
         versionId: assembledKindMismatch.id,
       })
-    ).rejects.toThrow('CAS index store kind s3 does not match local store');
+    ).rejects.toThrow('CAS object store kind s3 does not match local store');
     expect(await activeCatalog.getVersion(assembledKindMismatch.id)).toMatchObject({
       state: 'FAILED',
     });
 
     const assembledBad = await ingestVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '3.0.0',
       inputPath: rawV1Path,
     });
-    if (!assembledBad.casIndexId) {
+    if (!assembledBad.assemblyObjectId) {
       throw new Error('Bad-store fixture did not persist a CAS index ID');
     }
-    const badChunks = await inspectDesyncIndex({
-      indexId: resolvePipelineCasIndexId(activeStore, assembledBad.casIndexId),
-      store: activeStore,
-    });
+    const badManifest = parseDeliveryManifest(
+      JSON.parse(
+        await readCasIndexObject({
+          indexId: resolvePipelineCasIndexId(stores.metadataStore, assembledBad.assemblyObjectId),
+          store: stores.metadataStore,
+        })
+      )
+    );
+    const badChunks = badManifest.files.flatMap((file) => file.chunks);
     const missingChunk = badChunks[0];
     if (!missingChunk) {
       throw new Error('Bad-store fixture did not produce a desync chunk');
     }
-    const missingObject = (await listS3Objects(config, config.chunkPrefix)).find((object) =>
-      object.key.endsWith(`/${missingChunk.id}`)
+    const missingObject = (await listS3Objects(commonConfig, commonConfig.chunkPrefix)).find(
+      (object) => object.key.endsWith(`/${missingChunk.id}`)
     );
     if (!missingObject) {
       throw new Error(`Could not find MinIO object for desync chunk ${missingChunk.id}`);
     }
-    await deleteS3Objects(config, [missingObject.key]);
+    await deleteS3Objects(commonConfig, [missingObject.key]);
 
     let promotionError: unknown;
     try {
       await promoteVersion({
         catalog: activeCatalog,
-        store: activeStore,
+        ...stores,
         versionId: assembledBad.id,
       });
     } catch (error) {

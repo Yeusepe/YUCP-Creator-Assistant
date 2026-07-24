@@ -188,12 +188,12 @@ const STUCK_THRESHOLD_MS = 60_000;
 
 interface ReconcilerRow {
   attempts: number;
-  canonical_sha256: string | null;
-  cas_index_id: string | null;
+  release_root: string | null;
+  assembly_object_id: string | null;
   catalog_product_id: string | null;
   created_at: Date;
   error: string | null;
-  format_tag: string | null;
+  source_format: string | null;
   id: string;
   next_attempt_at: Date | null;
   package_id: string;
@@ -205,12 +205,12 @@ interface ReconcilerRow {
 function catalogRow(id: string, state: CatalogState, updatedAt: Date): ReconcilerRow {
   return {
     attempts: 0,
-    canonical_sha256: null,
-    cas_index_id: null,
+    release_root: null,
+    assembly_object_id: null,
     catalog_product_id: null,
     created_at: updatedAt,
     error: null,
-    format_tag: null,
+    source_format: null,
     id,
     next_attempt_at: null,
     package_id: 'heartbeat-test-package',

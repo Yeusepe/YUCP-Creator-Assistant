@@ -78,7 +78,7 @@ interface BetterAuthPermissionStatements {
 
 interface BetterAuthVerifiedApiKey {
   id: string;
-  userId?: string;
+  referenceId: string;
   name?: string | null;
   prefix?: string | null;
   start?: string | null;
@@ -320,7 +320,7 @@ async function defaultVerifyApiKey(
       error: { code: string; message: string | null } | null;
       key: {
         id: string;
-        userId: string;
+        referenceId: string;
         name: string | null;
         start: string | null;
         prefix: string | null;
@@ -339,7 +339,7 @@ async function defaultVerifyApiKey(
 
     return {
       id: result.key.id,
-      userId: result.key.userId,
+      referenceId: result.key.referenceId,
       name: result.key.name,
       start: result.key.start,
       prefix: result.key.prefix,
@@ -520,7 +520,7 @@ async function authenticateServiceKey(
   if (
     metadata?.kind !== 'public-api' ||
     metadata.authUserId !== authUserId ||
-    (typeof verified.userId === 'string' && verified.userId !== authUserId)
+    verified.referenceId !== authUserId
   ) {
     return {
       response: await errorResponseWithSupportCode(

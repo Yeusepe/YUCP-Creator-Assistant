@@ -20,6 +20,19 @@ const databaseName = 'ingest_tus_runtime_test';
 const schedulerDatabaseName = 'scheduler_runtime_test';
 const databasePassword = 'ingest-tus-runtime-test-password';
 const containerName = `yucp-ingest-tus-runtime-${randomUUID()}`;
+const storageRolePrefixes = ['COMMON', 'METADATA', 'PROTECTED'] as const;
+
+function storageRoleSecrets(): Record<string, string> {
+  return Object.fromEntries(
+    storageRolePrefixes.flatMap((prefix) => [
+      [`${prefix}_S3_ENDPOINT`, 'https://s3.example.invalid'],
+      [`${prefix}_S3_REGION`, 'placeholder-region'],
+      [`${prefix}_S3_BUCKET`, `placeholder-${prefix.toLowerCase()}-bucket`],
+      [`${prefix}_S3_ACCESS_KEY_ID`, 'placeholder-write-key-id'],
+      [`${prefix}_S3_SECRET_ACCESS_KEY`, 'placeholder-write-key-secret'],
+    ])
+  );
+}
 
 const openServers = new Set<ReturnType<typeof createServer>>();
 const scratchPaths = new Set<string>();
@@ -166,22 +179,20 @@ describe('ingest-tus production runtime', () => {
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
       UPLOAD_HMAC_KEY: FETCHED_UPLOAD_HMAC_KEY,
       CATALOG_DATABASE_URL: requireCatalogDatabaseUrl(),
-      CAS_S3_ENDPOINT: 'https://s3.example.invalid',
-      CAS_S3_REGION: 'placeholder-region',
-      CAS_S3_BUCKET: 'placeholder-bucket',
-      CAS_S3_ACCESS_KEY_ID: 'placeholder-write-key-id',
-      CAS_S3_SECRET_ACCESS_KEY: 'placeholder-write-key-secret',
+      ...storageRoleSecrets(),
       INGEST_ALLOWED_ORIGIN: FETCHED_ALLOWED_ORIGIN,
     }));
 
     expect(INGEST_TUS_INFISICAL_KEYS).toEqual([
       'UPLOAD_HMAC_KEY',
       'CATALOG_DATABASE_URL',
-      'CAS_S3_ENDPOINT',
-      'CAS_S3_REGION',
-      'CAS_S3_BUCKET',
-      'CAS_S3_ACCESS_KEY_ID',
-      'CAS_S3_SECRET_ACCESS_KEY',
+      ...storageRolePrefixes.flatMap((prefix) => [
+        `${prefix}_S3_ENDPOINT`,
+        `${prefix}_S3_REGION`,
+        `${prefix}_S3_BUCKET`,
+        `${prefix}_S3_ACCESS_KEY_ID`,
+        `${prefix}_S3_SECRET_ACCESS_KEY`,
+      ]),
       'INGEST_ALLOWED_ORIGIN',
     ]);
 
@@ -231,17 +242,21 @@ describe('ingest-tus production runtime', () => {
 
     async function postWithKey(key: string): Promise<Response> {
       const capability = await signUploadCapability({
+        creatorId: 'creator-runtime-test',
         expiresAt: Date.now() + 60_000,
         key,
         packageId: 'com.yucp.runtime-test',
+        protectionPolicyId: 'common-only-v1',
         version: '1.0.0',
         versionId,
       });
       return fetch(`http://127.0.0.1:${port}/files`, {
         method: 'POST',
         headers: {
+          [UPLOAD_CAPABILITY_HEADERS.creatorId]: capability.creatorId,
           [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
           [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
+          [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
           [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
           [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
           [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
@@ -263,11 +278,7 @@ describe('ingest-tus production runtime', () => {
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
       CATALOG_DATABASE_URL: 'postgresql://placeholder.invalid/catalog',
-      CAS_S3_ENDPOINT: 'https://s3.example.invalid',
-      CAS_S3_REGION: 'placeholder-region',
-      CAS_S3_BUCKET: 'placeholder-bucket',
-      CAS_S3_ACCESS_KEY_ID: 'placeholder-write-key-id',
-      CAS_S3_SECRET_ACCESS_KEY: 'placeholder-write-key-secret',
+      ...storageRoleSecrets(),
     }));
 
     await expect(buildIngestTusRuntime(sourceEnv, fetchSecrets)).rejects.toThrow(
@@ -286,11 +297,7 @@ describe('ingest-tus production runtime', () => {
       CONVEX_URL: 'https://placeholder-convex.invalid',
       INTERNAL_SERVICE_AUTH_SECRET: 'placeholder-internal-service-auth-secret',
       CATALOG_DATABASE_URL: requireSchedulerCatalogDatabaseUrl(),
-      CAS_S3_ENDPOINT: 'https://s3.example.invalid',
-      CAS_S3_REGION: 'placeholder-region',
-      CAS_S3_BUCKET: 'placeholder-bucket',
-      CAS_S3_ACCESS_KEY_ID: 'placeholder-write-key-id',
-      CAS_S3_SECRET_ACCESS_KEY: 'placeholder-write-key-secret',
+      ...storageRoleSecrets(),
     }));
 
     const runtime = await buildSchedulerRuntime(sourceEnv, fetchSecrets);

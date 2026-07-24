@@ -68,11 +68,14 @@ function getBuyerDisplayLabel(match: {
   buyerSubjectDisplayName?: string | null;
   buyerProviderUsername?: string | null;
   licenseMasked?: string | null;
+  buyerSubjectPseudonym?: string | null;
 }) {
+  const pseudonym = match.buyerSubjectPseudonym?.trim();
   return (
     match.buyerSubjectDisplayName?.trim() ||
     match.buyerProviderUsername?.trim() ||
     match.licenseMasked?.trim() ||
+    (pseudonym ? `Buyer ${pseudonym.slice(0, 10)}` : null) ||
     null
   );
 }
@@ -277,6 +280,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
       licenseMasked?: string | null;
       buyerProviderUsername?: string | null;
       buyerSubjectDisplayName?: string | null;
+      buyerSubjectPseudonym?: string | null;
       buyerDisplayLabel: string;
     }> = [];
     for (const entry of lookupResult.results) {
@@ -297,6 +301,7 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
             licenseMasked: match.licenseMasked,
             buyerProviderUsername: match.buyerProviderUsername,
             buyerSubjectDisplayName: match.buyerSubjectDisplayName,
+            buyerSubjectPseudonym: match.buyerSubjectPseudonym,
             buyerDisplayLabel,
           });
         }

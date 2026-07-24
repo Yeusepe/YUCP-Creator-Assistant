@@ -6,6 +6,7 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthEndpoint, sessionMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
+import { buildBetterAuthOAuthAccountIdentity } from '../lib/betterAuthAdapter';
 import { createConvexLogger } from '../lib/logger';
 import {
   canonicalizeJson,
@@ -174,6 +175,27 @@ function parseProviderSession(body: Record<string, unknown>): VrchatSessionToken
   };
 }
 
+async function findVrchatOAuthUser(ctx: any, email: string, vrchatUserId: string) {
+  const existing = await ctx.context.internalAdapter.findUserByEmail(email, {
+    includeAccounts: true,
+  });
+  if (!existing) {
+    return null;
+  }
+
+  const account = existing.accounts.find(
+    (entry: any) =>
+      entry.providerId === 'vrchat' && entry.providerAccountId === vrchatUserId
+  );
+  if (!account) {
+    throw new APIError('CONFLICT', {
+      message: 'VRChat account ownership is inconsistent',
+    });
+  }
+
+  return { ...existing, account };
+}
+
 async function createVrchatSession(
   ctx: any,
   vrchatUser: VrchatCurrentUser,
@@ -183,24 +205,20 @@ async function createVrchatSession(
   const displayName = vrchatUser.displayName || vrchatUser.username || vrchatUserId;
   const email = `${vrchatUserId}@vrchat.invalid`;
   const encryptedSession = await serializeStoredSession(providerSession);
-  const existing = await ctx.context.internalAdapter.findOAuthUser(email, vrchatUserId, 'vrchat');
+  const existing = await findVrchatOAuthUser(ctx, email, vrchatUserId);
 
   let user: any;
   if (existing) {
     user = existing.user;
-    const account = existing.accounts.find((entry: any) => entry.providerId === 'vrchat');
-    if (account) {
-      await ctx.context.internalAdapter.updateAccount(account.id, {
-        accessToken: encryptedSession.accessToken,
-        idToken: encryptedSession.idToken,
-      });
-    }
+    await ctx.context.internalAdapter.updateAccount(existing.account.id, {
+      accessToken: encryptedSession.accessToken,
+      idToken: encryptedSession.idToken,
+    });
   } else {
     const created = await ctx.context.internalAdapter.createOAuthUser(
       { name: displayName, email, emailVerified: false },
       {
-        providerId: 'vrchat',
-        accountId: vrchatUserId,
+        ...buildBetterAuthOAuthAccountIdentity('vrchat', vrchatUserId),
         accessToken: encryptedSession.accessToken,
         idToken: encryptedSession.idToken || undefined,
       }
@@ -216,13 +234,13 @@ async function createVrchatSession(
 
 async function rewriteLegacySessionIfNeeded(
   ctx: any,
-  accountId: string,
+  accountRecordId: string,
   session: VrchatSessionTokens,
   legacy: boolean
 ): Promise<void> {
   if (!legacy) return;
   const encryptedSession = await serializeStoredSession(session);
-  await ctx.context.internalAdapter.updateAccount(accountId, {
+  await ctx.context.internalAdapter.updateAccount(accountRecordId, {
     accessToken: encryptedSession.accessToken,
     idToken: encryptedSession.idToken,
   });
@@ -326,12 +344,8 @@ export const vrchat = (): BetterAuthPlugin => ({
         const body = (ctx.body ?? {}) as Record<string, unknown>;
         const vrchatUser = parseVrchatUser(body.vrchatUser);
         const email = `${vrchatUser.id}@vrchat.invalid`;
-        const existing = await ctx.context.internalAdapter.findOAuthUser(
-          email,
-          vrchatUser.id,
-          'vrchat'
-        );
-        const account = existing?.accounts.find((entry: any) => entry.providerId === 'vrchat');
+        const existing = await findVrchatOAuthUser(ctx, email, vrchatUser.id);
+        const account = existing?.account;
 
         logger.info('VRChat session clear provider', {
           vrchatUserId: vrchatUser.id,

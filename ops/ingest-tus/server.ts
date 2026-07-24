@@ -3,6 +3,7 @@ import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
 import {
   Catalog,
   type CatalogDatabase,
+  ExactStorageCatalog,
   openCatalogDatabase,
   runCatalogMigrations,
 } from '../catalog';
@@ -14,7 +15,10 @@ import {
   requireInfisicalBootstrap,
 } from '../storage-core/config';
 import { s3CasStore } from '../storage-core/desyncCas';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
 import { createIngestTusServer } from './ingestTusServer';
+import { createS3QuarantineStorage } from './quarantine';
 
 const DEFAULT_INGEST_TUS_PORT = 3002;
 
@@ -50,15 +54,33 @@ export async function buildIngestTusRuntime(
   try {
     await runCatalogMigrations(database);
     const catalog = new Catalog(database);
-    const store = s3CasStore(runtimeEnv.cas);
-
+    const durableStorage = new DurableExactStorage(
+      new ExactStorageCatalog(database),
+      new S3ExactStoragePort({
+        common: runtimeEnv.common,
+        metadata: runtimeEnv.metadata,
+        protected: runtimeEnv.protected,
+      })
+    );
     return {
       database,
       handler: createIngestTusServer({
         allowedOrigin: runtimeEnv.ingestAllowedOrigin,
         catalog,
+        commonStore: s3CasStore(runtimeEnv.common, {
+          durableStorage,
+          storageRole: 'common',
+        }),
         maxBytes: runtimeEnv.ingestMaxBytes,
-        store,
+        metadataStore: s3CasStore(runtimeEnv.metadata, {
+          durableStorage,
+          storageRole: 'metadata',
+        }),
+        protectedStore: s3CasStore(runtimeEnv.protected, {
+          durableStorage,
+          storageRole: 'protected',
+        }),
+        quarantineStorage: createS3QuarantineStorage(runtimeEnv.quarantine),
         uploadDir: runtimeEnv.ingestUploadDir,
         uploadHmacKey: runtimeEnv.uploadHmacKey,
       }),

@@ -5,8 +5,6 @@ import {
   type CouplingForensicsServiceConfig,
   CouplingServiceConfigurationError,
   runCouplingAttribution,
-  runCouplingForensicsScan,
-  runCouplingForensicsScore,
 } from './couplingForensicsService';
 
 const originalFetch = globalThis.fetch;
@@ -17,9 +15,22 @@ const config: CouplingForensicsServiceConfig = {
 };
 const candidates: CouplingAttributionCandidate[] = [
   {
-    assetPath: 'Assets/Character/body.png',
-    licenseSubject: 'license-subject-1',
-    tokenHash: '0'.repeat(64),
+    algorithmVersion: 'png-dct-qim-v2',
+    attributionId: 'attribution-1',
+    attributionTokenHash: '0'.repeat(64),
+    buyerSubjectPseudonym: 'buyer-subject-1',
+    capabilityId: 'capability-1',
+    creatorId: 'creator-1',
+    jobId: 'job-1',
+    keyEpoch: 1,
+    leaseGeneration: 1,
+    materializerType: 'png',
+    normalizedPath: 'Assets/Character/body.png',
+    outputFormat: 'zip',
+    pluginVersion: 'png-plugin-2',
+    protectedSourceRoot: '1'.repeat(64),
+    releaseRoot: '2'.repeat(64),
+    sourceSha256: '3'.repeat(64),
   },
 ];
 
@@ -32,11 +43,14 @@ describe('runCouplingAttribution', () => {
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
+          schemaVersion: 2,
           results: [
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              matched: false,
+              attributionId: 'attribution-1',
+              buyerSubjectPseudonym: 'buyer-subject-1',
+              matched: true,
             },
           ],
         }),
@@ -67,16 +81,22 @@ describe('runCouplingAttribution', () => {
   });
 
   it('uses an abortable non-redirecting request for attribution calls', async () => {
+    let requestUrl = '';
     let requestInit: RequestInit | undefined;
-    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      requestUrl =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       requestInit = init;
       return new Response(
         JSON.stringify({
+          schemaVersion: 2,
           results: [
             {
               assetPath: 'Assets/Character/body.png',
               assetType: 'png',
-              matched: false,
+              attributionId: 'attribution-1',
+              buyerSubjectPseudonym: 'buyer-subject-1',
+              matched: true,
             },
           ],
         }),
@@ -85,7 +105,7 @@ describe('runCouplingAttribution', () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    await runCouplingAttribution(
+    const result = await runCouplingAttribution(
       [
         {
           assetPath: 'Assets/Character/body.png',
@@ -97,6 +117,21 @@ describe('runCouplingAttribution', () => {
       config
     );
 
+    expect(requestUrl).toBe('https://coupling.internal/v2/internal/coupling/attribution/evaluate');
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      candidates,
+      schemaVersion: 2,
+    });
+    expect(result).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        matchedAttributionId: 'attribution-1',
+        matchedBuyerSubjectPseudonym: 'buyer-subject-1',
+        preclassification: 'decoded',
+      },
+    ]);
     expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
     expect(requestInit?.redirect).toBe('error');
   });
@@ -271,7 +306,7 @@ describe('runCouplingAttribution', () => {
 
   it('rejects non-array attribution results as a controlled upstream protocol error', async () => {
     const fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ results: {} }), {
+      return new Response(JSON.stringify({ results: {}, schemaVersion: 2 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -295,7 +330,7 @@ describe('runCouplingAttribution', () => {
 
   it('rejects oversized attribution response bodies before parsing JSON', async () => {
     const fetchMock = mock(async () => {
-      return new Response(JSON.stringify({ requestId: 'x'.repeat(64), results: [] }), {
+      return new Response(JSON.stringify({ results: [], schemaVersion: 2 }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -347,18 +382,19 @@ describe('runCouplingAttribution', () => {
     expect(message).not.toContain('network down');
   });
 
-  it('does not include uploaded asset paths when rejecting invalid matched license subjects', async () => {
+  it('does not include uploaded asset paths when rejecting unknown attribution records', async () => {
     const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
+          schemaVersion: 2,
           results: [
             {
               assetPath: unsafeAssetPath,
               assetType: 'png',
+              attributionId: 'unknown-attribution',
+              buyerSubjectPseudonym: 'buyer-subject-1',
               matched: true,
-              tokenHex: 'deadbeef',
-              matchedLicenseSubject: 'not-a-sha256-subject',
             },
           ],
         }),
@@ -377,7 +413,7 @@ describe('runCouplingAttribution', () => {
             filePath: assetFixturePath,
           },
         ],
-        [{ ...candidates[0], assetPath: unsafeAssetPath }],
+        [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
         config
       );
     } catch (error) {
@@ -386,25 +422,33 @@ describe('runCouplingAttribution', () => {
 
     expect(caught).toBeInstanceOf(Error);
     const message = caught instanceof Error ? caught.message : String(caught);
-    expect(message).toBe('Coupling service returned an invalid matched license subject');
+    expect(message).toBe('Coupling service returned an unknown matched candidate');
     expect(message).not.toContain(unsafeAssetPath);
   });
 
-  it('rejects matched attribution responses without a valid recovered token', async () => {
+  it('rejects matched attribution responses without exact stored attribution evidence', async () => {
     const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
 
-    for (const tokenHex of [undefined, 'not-a-token']) {
+    for (const result of [
+      {
+        attributionId: undefined,
+        buyerSubjectPseudonym: 'buyer-subject-1',
+      },
+      {
+        attributionId: 'attribution-1',
+        buyerSubjectPseudonym: 'different-subject',
+      },
+    ]) {
       const fetchMock = mock(async () => {
         return new Response(
           JSON.stringify({
+            schemaVersion: 2,
             results: [
               {
                 assetPath: unsafeAssetPath,
                 assetType: 'png',
+                ...result,
                 matched: true,
-                tokenHex,
-                matchedLicenseSubject: 'f'.repeat(64),
-                matchedCandidateAssetPath: unsafeAssetPath,
               },
             ],
           }),
@@ -423,7 +467,7 @@ describe('runCouplingAttribution', () => {
               filePath: assetFixturePath,
             },
           ],
-          [{ ...candidates[0], assetPath: unsafeAssetPath, licenseSubject: 'f'.repeat(64) }],
+          [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
           config
         );
       } catch (error) {
@@ -432,7 +476,7 @@ describe('runCouplingAttribution', () => {
 
       expect(caught).toBeInstanceOf(Error);
       const message = caught instanceof Error ? caught.message : String(caught);
-      expect(message).toBe('Coupling service returned an invalid token');
+      expect(message).toBe('Coupling service returned an unknown matched candidate');
       expect(message).not.toContain(unsafeAssetPath);
     }
   });
@@ -442,6 +486,7 @@ describe('runCouplingAttribution', () => {
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
+          schemaVersion: 2,
           results: [
             {
               assetPath: unsafeAssetPath,
@@ -483,6 +528,7 @@ describe('runCouplingAttribution', () => {
     const fetchMock = mock(async () => {
       return new Response(
         JSON.stringify({
+          schemaVersion: 2,
           results: [
             {
               assetPath: unsafeAssetPath,
@@ -511,7 +557,7 @@ describe('runCouplingAttribution', () => {
             filePath: assetFixturePath,
           },
         ],
-        [{ ...candidates[0], assetPath: unsafeAssetPath }],
+        [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
         config
       );
     } catch (error) {
@@ -532,7 +578,7 @@ describe('runCouplingAttribution', () => {
         setTimeout(
           () =>
             resolve(
-              new Response(JSON.stringify({ results: [] }), {
+              new Response(JSON.stringify({ results: [], schemaVersion: 2 }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
               })
@@ -571,7 +617,7 @@ describe('runCouplingAttribution', () => {
         setTimeout(
           () =>
             resolve(
-              new Response(JSON.stringify({ results: [] }), {
+              new Response(JSON.stringify({ results: [], schemaVersion: 2 }), {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' },
               })
@@ -639,260 +685,5 @@ describe('runCouplingAttribution', () => {
         ),
       ])
     ).rejects.toThrow('Coupling attribution timed out');
-  });
-});
-
-describe('legacy coupling service scan paths', () => {
-  for (const [name, run, expectedUrl] of [
-    ['score', runCouplingForensicsScore, 'https://coupling.internal/v1/coupling/forensic-score'],
-    ['scan', runCouplingForensicsScan, 'https://coupling.internal/v1/coupling/scan'],
-  ] as const) {
-    it(`uses a non-redirecting request for ${name}`, async () => {
-      let requestUrl = '';
-      let requestInit: RequestInit | undefined;
-      const fetchMock = mock(async (input: string | URL | Request, init?: RequestInit) => {
-        requestUrl =
-          typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-        requestInit = init;
-        return new Response(JSON.stringify({ results: [] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await run(
-        [
-          {
-            assetPath: 'Assets/Character/body.png',
-            assetType: 'png',
-            filePath: assetFixturePath,
-          },
-        ],
-        config
-      );
-
-      expect(requestUrl).toBe(expectedUrl);
-      expect(requestInit?.redirect).toBe('error');
-      expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
-    });
-
-    it(`rejects invalid ${name} base URLs before sending requests`, async () => {
-      const fetchMock = mock(async () => {
-        throw new Error(`${name} must not fetch invalid service URLs`);
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      for (const baseUrl of ['file:///tmp/coupling', 'https://user:pass@coupling.internal']) {
-        await expect(
-          run(
-            [
-              {
-                assetPath: 'Assets/Character/body.png',
-                assetType: 'png',
-                filePath: assetFixturePath,
-              },
-            ],
-            { ...config, baseUrl }
-          )
-        ).rejects.toThrow('Coupling service base URL');
-      }
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
-
-    it(`rejects invalid JSON ${name} responses`, async () => {
-      const fetchMock = mock(async () => {
-        return new Response('not-json', {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await expect(
-        run(
-          [
-            {
-              assetPath: 'Assets/Character/body.png',
-              assetType: 'png',
-              filePath: assetFixturePath,
-            },
-          ],
-          config
-        )
-      ).rejects.toThrow('Coupling service returned invalid JSON');
-    });
-
-    it(`maps unreachable ${name} requests to generic coupling service errors`, async () => {
-      const fetchMock = mock(async () => {
-        throw new Error(`dial tcp ${name}.coupling.internal:443: network down`);
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      let caught: unknown;
-      try {
-        await run(
-          [
-            {
-              assetPath: 'Assets/Character/body.png',
-              assetType: 'png',
-              filePath: assetFixturePath,
-            },
-          ],
-          config
-        );
-      } catch (error) {
-        caught = error;
-      }
-
-      expect(caught).toBeInstanceOf(Error);
-      const message = caught instanceof Error ? caught.message : String(caught);
-      expect(message).toBe('Coupling service is unreachable');
-      expect(message).not.toContain('coupling.internal');
-      expect(message).not.toContain('network down');
-    });
-
-    it(`does not apply attribution-specific timeouts to ${name} requests`, async () => {
-      const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-        const signal = init?.signal;
-        return await new Promise<Response>((resolve, reject) => {
-          signal?.addEventListener('abort', () => reject(new Error('fetch aborted')));
-          setTimeout(
-            () =>
-              resolve(
-                new Response(JSON.stringify({ results: [] }), {
-                  status: 200,
-                  headers: { 'Content-Type': 'application/json' },
-                })
-              ),
-            25
-          );
-        });
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await expect(
-        Promise.race([
-          run(
-            [
-              {
-                assetPath: 'Assets/Character/body.png',
-                assetType: 'png',
-                filePath: assetFixturePath,
-              },
-            ],
-            { ...config, attributionTimeoutMs: 1 }
-          ),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('legacy request did not finish')), 100)
-          ),
-        ])
-      ).resolves.toBeDefined();
-    });
-
-    it(`maps timed-out ${name} requests to 504 coupling service errors`, async () => {
-      const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
-        const signal = init?.signal;
-        return await new Promise<Response>((resolve, reject) => {
-          signal?.addEventListener('abort', () => reject(new Error('fetch aborted')));
-          setTimeout(
-            () =>
-              resolve(
-                new Response(JSON.stringify({ results: [] }), {
-                  status: 200,
-                  headers: { 'Content-Type': 'application/json' },
-                })
-              ),
-            100
-          );
-        });
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      await expect(
-        Promise.race([
-          run(
-            [
-              {
-                assetPath: 'Assets/Character/body.png',
-                assetType: 'png',
-                filePath: assetFixturePath,
-              },
-            ],
-            { ...config, requestTimeoutMs: 1 }
-          ),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('timeout was not enforced')), 50)
-          ),
-        ])
-      ).rejects.toThrow(
-        `Coupling ${name === 'score' ? 'forensic-score' : 'service scan'} timed out`
-      );
-    });
-  }
-
-  it('does not include uploaded asset paths in scan validation errors', async () => {
-    const unsafeAssetPath = 'Assets/Customers/buyer@example.com/private.png';
-    const cases = [
-      {
-        result: {
-          assetPath: unsafeAssetPath,
-          assetType: 'png',
-          tokenHex: 'deadbeef',
-          tokenLength: 8,
-        },
-        expectedMessage: 'Coupling service returned an unknown asset path',
-      },
-      {
-        result: {
-          assetPath: 'Assets/Character/body.png',
-          assetType: 'png',
-          tokenHex: 'not-a-token',
-          tokenLength: 11,
-        },
-        expectedMessage: 'Coupling service returned an invalid token',
-      },
-      {
-        result: {
-          assetPath: 'Assets/Character/body.png',
-          assetType: 'png',
-          tokenHex: 'deadbeef',
-          tokenLength: 7,
-        },
-        expectedMessage: 'Coupling service token length mismatch',
-      },
-    ];
-
-    for (const testCase of cases) {
-      const fetchMock = mock(async () => {
-        return new Response(JSON.stringify({ results: [testCase.result] }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-      let caught: unknown;
-      try {
-        await runCouplingForensicsScan(
-          [
-            {
-              assetPath: 'Assets/Character/body.png',
-              assetType: 'png',
-              filePath: assetFixturePath,
-            },
-          ],
-          config
-        );
-      } catch (error) {
-        caught = error;
-      }
-
-      expect(caught).toBeInstanceOf(Error);
-      const message = caught instanceof Error ? caught.message : String(caught);
-      expect(message).toBe(testCase.expectedMessage);
-      expect(message).not.toContain(unsafeAssetPath);
-      expect(message).not.toContain('Assets/Character/body.png');
-    }
   });
 });

@@ -9,6 +9,7 @@ import {
   Catalog,
   type CatalogDatabase,
   CatalogInvariantError,
+  ExactStorageCatalog,
   IllegalCatalogTransitionError,
   openCatalogDatabase,
   reconcileCatalog,
@@ -82,6 +83,23 @@ function requireSql(): CatalogDatabase {
   return sql;
 }
 
+function publicationFields(digestCharacter: string) {
+  return {
+    activeContentDigest: '1'.repeat(64),
+    activePolicyVersion: 'active-content-policy-v1',
+    bindingRoot: '2'.repeat(64),
+    commonRoot: '3'.repeat(64),
+    logicalBytes: 1_024,
+    logicalFiles: 2,
+    manifestSha256: '4'.repeat(64),
+    protectedFiles: [],
+    protectedSourceRoot: '5'.repeat(64),
+    protectionPolicyDigest: '6'.repeat(64),
+    protectionPolicyId: 'common-only-v1',
+    releaseRoot: digestCharacter.repeat(64),
+  };
+}
+
 async function createUploadingVersion(version: string): Promise<string> {
   const activeCatalog = requireCatalog();
   const created = await activeCatalog.createVersion({
@@ -102,9 +120,9 @@ async function createReadyVersion(packageId: string, version: string, digestChar
   });
   await activeCatalog.advanceVersion(created.id, 'ASSEMBLED', {
     fields: {
-      canonicalSha256: digestCharacter.repeat(64),
-      casIndexId: `s3:${packageId}/${version}.caibx`,
-      formatTag: 'CANONICAL_TARGZ_V1',
+      releaseRoot: digestCharacter.repeat(64),
+      assemblyObjectId: `s3:${packageId}/${version}.caibx`,
+      sourceFormat: 'CANONICAL_TARGZ_V1',
     },
     event: { type: 'catalog.version.assembled' },
   });
@@ -112,6 +130,7 @@ async function createReadyVersion(packageId: string, version: string, digestChar
     event: { type: 'catalog.version.promoting' },
   });
   return await activeCatalog.advanceVersion(created.id, 'READY', {
+    fields: publicationFields(digestCharacter),
     event: { type: 'catalog.version.ready' },
   });
 }
@@ -162,7 +181,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await requireSql()`TRUNCATE TABLE catalog_outbox, package_versions`;
+  await requireSql()`TRUNCATE TABLE catalog_outbox, package_versions CASCADE`;
 });
 
 afterAll(async () => {
@@ -177,6 +196,160 @@ afterAll(async () => {
 });
 
 describe.serial('PostgreSQL catalog integration', () => {
+  it('commits one exact canonical object through an idempotent write intent', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const ownerId = await createUploadingVersion('exact-storage-owner');
+    const idempotencyKey = `package-version:${randomUUID()}:chunk:${'a'.repeat(64)}`;
+    const pending = await storage.beginWriteIntent({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 4_096,
+      expectedSha256: 'a'.repeat(64),
+      idempotencyKey,
+      objectKey: `v2/common/chunks/${'b'.repeat(64)}`,
+      operation: 'PUT',
+      ownerId,
+      ownerKind: 'package-version',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    expect(pending).toMatchObject({
+      expectedBytes: 4_096,
+      expectedSha256: 'a'.repeat(64),
+      state: 'ISSUED',
+    });
+
+    const retry = await storage.beginWriteIntent({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 4_096,
+      expectedSha256: 'a'.repeat(64),
+      idempotencyKey,
+      objectKey: `v2/common/chunks/${'b'.repeat(64)}`,
+      operation: 'PUT',
+      ownerId: pending.ownerId,
+      ownerKind: 'package-version',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    expect(retry.id).toBe(pending.id);
+
+    const exact = await storage.commitVerifiedObject({
+      fileIdentifier: 'file-id-1',
+      intentId: pending.id,
+      providerVersion: 'provider-version-1',
+    });
+    expect(exact).toMatchObject({
+      bucketName: 'common',
+      bytes: 4_096,
+      fileIdentifier: 'file-id-1',
+      providerVersion: 'provider-version-1',
+      sha256: 'a'.repeat(64),
+      storageRole: 'common',
+      verificationState: 'VERIFIED',
+    });
+    expect(
+      await storage.findVerifiedCanonical({
+        bytes: 4_096,
+        sha256: 'a'.repeat(64),
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toEqual(exact);
+    expect(
+      await storage.commitVerifiedObject({
+        fileIdentifier: 'file-id-1',
+        intentId: pending.id,
+        providerVersion: 'provider-version-1',
+      })
+    ).toEqual(exact);
+    await storage.linkPackageReleaseObject({
+      logicalDigest: 'a'.repeat(64),
+      logicalKind: 'chunk',
+      objectVersionId: exact.id,
+      packageVersionId: ownerId,
+    });
+    await storage.linkPackageReleaseObject({
+      logicalDigest: 'a'.repeat(64),
+      logicalKind: 'chunk',
+      objectVersionId: exact.id,
+      packageVersionId: ownerId,
+    });
+    const releaseObjects = await requireSql()<
+      {
+        logical_digest: string;
+        logical_kind: string;
+        object_version_id: string;
+        package_version_id: string;
+      }[]
+    >`
+        SELECT
+          encode(logical_digest, 'hex') AS logical_digest,
+          logical_kind,
+          object_version_id,
+          package_version_id
+        FROM package_release_storage_objects
+        WHERE package_version_id = ${ownerId}
+      `;
+    expect([...releaseObjects]).toEqual([
+      {
+        logical_digest: 'a'.repeat(64),
+        logical_kind: 'chunk',
+        object_version_id: exact.id,
+        package_version_id: ownerId,
+      },
+    ]);
+  });
+
+  it('records one exact quarantine version before package assembly', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = await createUploadingVersion('quarantine-exact-version');
+    const pending = await activeCatalog.beginQuarantineObject({
+      bytes: 6_291_456,
+      contentType: 'application/zip',
+      objectKey: `raw/${versionId}/package.zip`,
+      sha256: '7'.repeat(64),
+      versionId,
+    });
+    expect(pending).toMatchObject({
+      bytes: 6_291_456,
+      fileIdentifier: null,
+      providerVersion: null,
+      state: 'PENDING',
+      versionId,
+    });
+
+    const committed = await activeCatalog.commitQuarantineObject({
+      fileIdentifier: 'file-id-1',
+      providerVersion: 'provider-version-1',
+      versionId,
+    });
+    expect(committed).toMatchObject({
+      fileIdentifier: 'file-id-1',
+      providerVersion: 'provider-version-1',
+      state: 'COMMITTED',
+    });
+    expect(
+      await activeCatalog.commitQuarantineObject({
+        fileIdentifier: 'file-id-1',
+        providerVersion: 'provider-version-1',
+        versionId,
+      })
+    ).toEqual(committed);
+    let conflict: unknown;
+    try {
+      await activeCatalog.commitQuarantineObject({
+        fileIdentifier: 'different-file',
+        providerVersion: 'different-version',
+        versionId,
+      });
+    } catch (error) {
+      conflict = error;
+    }
+    expect(conflict).toBeInstanceOf(CatalogInvariantError);
+    expect(String(conflict)).toContain('Quarantine object exact version is immutable');
+  });
+
   it('schema-length-cap: rejects package_id and version longer than 256 characters', async () => {
     const database = requireSql();
     const oversizedValue = 'x'.repeat(257);
@@ -308,16 +481,16 @@ describe.serial('PostgreSQL catalog integration', () => {
       version: '1.0.0',
     });
 
-    expect(created).toMatchObject({ state: 'CREATED', formatTag: null });
+    expect(created).toMatchObject({ state: 'CREATED', sourceFormat: null });
 
     await activeCatalog.advanceVersion(created.id, 'UPLOADING', {
       event: { type: 'catalog.version.uploading' },
     });
     await activeCatalog.advanceVersion(created.id, 'ASSEMBLED', {
       fields: {
-        formatTag: 'CANONICAL_TARGZ_V1',
-        canonicalSha256: sha256,
-        casIndexId: 'indexes/avatar-package/1.0.0.caibx',
+        sourceFormat: 'CANONICAL_TARGZ_V1',
+        releaseRoot: sha256,
+        assemblyObjectId: 'indexes/avatar-package/1.0.0.caibx',
       },
       event: { type: 'catalog.version.assembled' },
     });
@@ -325,20 +498,21 @@ describe.serial('PostgreSQL catalog integration', () => {
       event: { type: 'catalog.version.promoting' },
     });
     const ready = await activeCatalog.advanceVersion(created.id, 'READY', {
+      fields: publicationFields('a'),
       event: { type: 'catalog.version.ready' },
     });
 
     expect(ready).toMatchObject({
       state: 'READY',
-      formatTag: 'CANONICAL_TARGZ_V1',
-      canonicalSha256: sha256,
-      casIndexId: 'indexes/avatar-package/1.0.0.caibx',
+      sourceFormat: 'CANONICAL_TARGZ_V1',
+      releaseRoot: sha256,
+      assemblyObjectId: 'indexes/avatar-package/1.0.0.caibx',
       error: null,
     });
     expect(await activeCatalog.getVersion(created.id)).toMatchObject({
       state: 'READY',
-      canonicalSha256: sha256,
-      casIndexId: 'indexes/avatar-package/1.0.0.caibx',
+      releaseRoot: sha256,
+      assemblyObjectId: 'indexes/avatar-package/1.0.0.caibx',
     });
 
     const retryId = await createUploadingVersion('retry-edge');
@@ -352,9 +526,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     const assembledFailureId = await createUploadingVersion('assembled-failure-edge');
     await activeCatalog.advanceVersion(assembledFailureId, 'ASSEMBLED', {
       fields: {
-        formatTag: 'CANONICAL_ZIP_V1',
-        canonicalSha256: 'b'.repeat(64),
-        casIndexId: 'indexes/assembled.caibx',
+        sourceFormat: 'CANONICAL_ZIP_V1',
+        releaseRoot: 'b'.repeat(64),
+        assemblyObjectId: 'indexes/assembled.caibx',
       },
       event: { type: 'catalog.version.assembled' },
     });
@@ -368,9 +542,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     const promotingFailureId = await createUploadingVersion('promoting-failure-edge');
     await activeCatalog.advanceVersion(promotingFailureId, 'ASSEMBLED', {
       fields: {
-        formatTag: 'CANONICAL_ZIP_V1',
-        canonicalSha256: 'c'.repeat(64),
-        casIndexId: 'indexes/promoting.caibx',
+        sourceFormat: 'CANONICAL_ZIP_V1',
+        releaseRoot: 'c'.repeat(64),
+        assemblyObjectId: 'indexes/promoting.caibx',
       },
       event: { type: 'catalog.version.assembled' },
     });
@@ -499,8 +673,8 @@ describe.serial('PostgreSQL catalog integration', () => {
     try {
       await activeCatalog.advanceVersion(versionId, 'ASSEMBLED', {
         fields: {
-          canonicalSha256: 'd'.repeat(64),
-          casIndexId: 'indexes/missing-format-tag.caibx',
+          releaseRoot: 'd'.repeat(64),
+          assemblyObjectId: 'indexes/missing-format-tag.caibx',
         },
         event: { type: 'catalog.version.assembled' },
       });
@@ -511,13 +685,13 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(transitionError).toBeInstanceOf(CatalogInvariantError);
     expect(transitionError).toHaveProperty(
       'message',
-      'ASSEMBLED requires formatTag, canonicalSha256, and casIndexId'
+      'ASSEMBLED requires sourceFormat, releaseRoot, and assemblyObjectId'
     );
     expect(await activeCatalog.getVersion(versionId)).toMatchObject({
       state: 'UPLOADING',
-      formatTag: null,
-      canonicalSha256: null,
-      casIndexId: null,
+      sourceFormat: null,
+      releaseRoot: null,
+      assemblyObjectId: null,
     });
   });
 
@@ -534,9 +708,9 @@ describe.serial('PostgreSQL catalog integration', () => {
     expect(failed.nextAttemptAt?.getTime()).toBeGreaterThan(failed.updatedAt.getTime());
     expect(failed).toMatchObject({
       state: 'FAILED',
-      formatTag: null,
-      canonicalSha256: null,
-      casIndexId: null,
+      sourceFormat: null,
+      releaseRoot: null,
+      assemblyObjectId: null,
       error: 'failed before upload started',
       attempts: 1,
     });
@@ -554,7 +728,7 @@ describe.serial('PostgreSQL catalog integration', () => {
     let transitionError: unknown;
     try {
       await activeCatalog.transition(created.id, 'READY', {
-        fields: { canonicalSha256: 'd'.repeat(64), casIndexId: 'indexes/illegal.caibx' },
+        fields: { releaseRoot: 'd'.repeat(64), assemblyObjectId: 'indexes/illegal.caibx' },
         event: { type: 'catalog.version.ready' },
       });
     } catch (error) {

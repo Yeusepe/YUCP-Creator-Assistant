@@ -52,7 +52,7 @@ describe('createPublicRoutes timing', () => {
         }) as unknown as ConvexServerClient,
       verifyApiKey: async () => ({
         id: 'key_123',
-        userId: 'creator_123',
+        referenceId: 'creator_123',
         enabled: true,
         metadata: { kind: 'public-api', authUserId: 'creator_123' },
         permissions: { publicApi: ['verification:read'] },

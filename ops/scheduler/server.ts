@@ -5,6 +5,7 @@ import {
   type ConvexCatalogPublishConfig,
   createConvexCatalogPublish,
   DEFAULT_RECONCILE_BATCH_LIMIT,
+  ExactStorageCatalog,
   loadConvexCatalogPublishConfig,
   openCatalogDatabase,
   runCatalogMigrations,
@@ -15,10 +16,13 @@ import {
   type FetchInfisicalSecrets,
   hydrateStorageServiceEnv,
   isDisposableStorageProfile,
-  loadCasConfig,
+  loadStorageRoleConfig,
   requireInfisicalBootstrap,
+  STORAGE_ROLE_PREFIXES,
 } from '../storage-core/config';
 import { s3CasStore } from '../storage-core/desyncCas';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
 import { createIngestScheduler, type IngestScheduler } from './scheduler';
 
 const DEFAULT_SCHEDULER_INTERVAL_MS = 5_000;
@@ -29,15 +33,27 @@ export const SCHEDULER_INFISICAL_KEYS = [
   'CONVEX_URL',
   'INTERNAL_SERVICE_AUTH_SECRET',
   'CATALOG_DATABASE_URL',
-  'CAS_S3_ENDPOINT',
-  'CAS_S3_REGION',
-  'CAS_S3_BUCKET',
-  'CAS_S3_ACCESS_KEY_ID',
-  'CAS_S3_SECRET_ACCESS_KEY',
+  'COMMON_S3_ENDPOINT',
+  'COMMON_S3_REGION',
+  'COMMON_S3_BUCKET',
+  'COMMON_S3_ACCESS_KEY_ID',
+  'COMMON_S3_SECRET_ACCESS_KEY',
+  'METADATA_S3_ENDPOINT',
+  'METADATA_S3_REGION',
+  'METADATA_S3_BUCKET',
+  'METADATA_S3_ACCESS_KEY_ID',
+  'METADATA_S3_SECRET_ACCESS_KEY',
+  'PROTECTED_S3_ENDPOINT',
+  'PROTECTED_S3_REGION',
+  'PROTECTED_S3_BUCKET',
+  'PROTECTED_S3_ACCESS_KEY_ID',
+  'PROTECTED_S3_SECRET_ACCESS_KEY',
 ] as const;
 
 export interface SchedulerRuntimeEnv {
-  cas: CasConfig;
+  common: CasConfig;
+  metadata: CasConfig;
+  protected: CasConfig;
   catalogDatabaseUrl: string;
   publish: ConvexCatalogPublishConfig;
 }
@@ -73,7 +89,9 @@ export async function loadSchedulerRuntimeEnv(
   const runtimeEnv = await hydrateStorageServiceEnv(env, SCHEDULER_INFISICAL_KEYS, fetchSecrets);
 
   return {
-    cas: loadCasConfig(runtimeEnv),
+    common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
+    metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
+    protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     publish: loadConvexCatalogPublishConfig(runtimeEnv),
   };
@@ -92,11 +110,32 @@ export async function buildSchedulerRuntime(
   try {
     await runCatalogMigrations(database);
     const catalog = new Catalog(database);
-    const store = s3CasStore(runtimeEnv.cas);
+    const durableStorage = new DurableExactStorage(
+      new ExactStorageCatalog(database),
+      new S3ExactStoragePort({
+        common: runtimeEnv.common,
+        metadata: runtimeEnv.metadata,
+        protected: runtimeEnv.protected,
+      })
+    );
+    const commonStore = s3CasStore(runtimeEnv.common, {
+      durableStorage,
+      storageRole: 'common',
+    });
+    const metadataStore = s3CasStore(runtimeEnv.metadata, {
+      durableStorage,
+      storageRole: 'metadata',
+    });
+    const protectedStore = s3CasStore(runtimeEnv.protected, {
+      durableStorage,
+      storageRole: 'protected',
+    });
     const scheduler = createIngestScheduler({
       batchLimit: positiveInteger(env, 'SCHEDULER_BATCH_LIMIT', DEFAULT_RECONCILE_BATCH_LIMIT),
       catalog,
+      commonStore,
       database,
+      metadataStore,
       intervalMs: positiveInteger(env, 'SCHEDULER_INTERVAL_MS', DEFAULT_SCHEDULER_INTERVAL_MS),
       onError(error) {
         console.error(
@@ -105,11 +144,11 @@ export async function buildSchedulerRuntime(
       },
       publish: createConvexCatalogPublish(runtimeEnv.publish),
       redrive: async ({ version }) => {
-        const { canonicalSha256, casIndexId, formatTag } = version;
-        if (!casIndexId || !canonicalSha256) {
+        const { releaseRoot, assemblyObjectId, sourceFormat } = version;
+        if (!assemblyObjectId || !releaseRoot) {
           throw new Error(`Automatic redrive requires re-uploading catalog version ${version.id}`);
         }
-        if (!formatTag) {
+        if (!sourceFormat) {
           throw new Error(`Catalog version ${version.id} has incomplete CAS assembly metadata`);
         }
 
@@ -127,7 +166,7 @@ export async function buildSchedulerRuntime(
         }
         if (current.state === 'UPLOADING') {
           current = await catalog.advanceVersion(version.id, 'ASSEMBLED', {
-            fields: { canonicalSha256, casIndexId, formatTag },
+            fields: { releaseRoot, assemblyObjectId, sourceFormat },
             event: { type: 'catalog.version.assembled' },
           });
         }
@@ -136,9 +175,15 @@ export async function buildSchedulerRuntime(
             `Automatic redrive cannot resume catalog version ${version.id} from ${current.state}`
           );
         }
-        await promoteVersion({ catalog, store, versionId: version.id });
+        await promoteVersion({
+          catalog,
+          commonStore,
+          metadataStore,
+          protectedStore,
+          versionId: version.id,
+        });
       },
-      store,
+      protectedStore,
       stuckThresholdMs: positiveInteger(
         env,
         'SCHEDULER_STUCK_THRESHOLD_MS',

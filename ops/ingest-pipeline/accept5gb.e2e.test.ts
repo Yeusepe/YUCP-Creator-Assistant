@@ -481,6 +481,11 @@ async function runAcceptance(
   const sql = requireResource(resources.sql, 'database');
   const config = requireResource(resources.casConfig, 'CAS config');
   const store = requireResource(resources.store, 'CAS store');
+  const stores = {
+    commonStore: store,
+    metadataStore: store,
+    protectedStore: store,
+  };
   const fixturePath = join(scratchPath, 'fixture');
   const rawV1Path = join(scratchPath, 'artifact-v1.unitypackage');
   const rawV2Path = join(scratchPath, 'artifact-v2.unitypackage');
@@ -496,16 +501,18 @@ async function runAcceptance(
   const assembledV1 = await ingestWithoutFalseBomb(
     {
       catalog,
+      creatorId: 'creator-accept-5gb',
       inputPath: rawV1Path,
       packageId: 'pipeline-accept-5gb',
-      store,
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '1.0.0',
     },
     inputArtifactBytes
   );
   await rm(rawV1Path, { force: true });
   expect(assembledV1.state).toBe('ASSEMBLED');
-  const v1CanonicalSha256 = assembledV1.canonicalSha256;
+  const v1CanonicalSha256 = assembledV1.releaseRoot;
   if (!v1CanonicalSha256) {
     throw new Error('Assembled v1 did not persist its canonical SHA-256');
   }
@@ -514,7 +521,11 @@ async function runAcceptance(
   const afterV1 = await listS3Objects(config, config.chunkPrefix);
   const v1ChunkBytes = afterV1.reduce((total, object) => total + object.size, 0);
   expect(afterV1.length).toBeGreaterThan(1);
-  const readyV1 = await promoteVersion({ catalog, store, versionId: assembledV1.id });
+  const readyV1 = await promoteVersion({
+    catalog,
+    ...stores,
+    versionId: assembledV1.id,
+  });
   expect(readyV1.state).toBe('READY');
   expect(await eventTypes(sql, readyV1.id)).toEqual([
     'catalog.version.created',
@@ -527,7 +538,7 @@ async function runAcceptance(
   const retrievedV1Path = await retrieveVersion({
     catalog,
     outputPath: join(scratchPath, 'retrieved-v1.unitypackage'),
-    store,
+    ...stores,
     versionId: readyV1.id,
   });
   expect(await sha256File(retrievedV1Path)).toBe(v1CanonicalSha256);
@@ -537,16 +548,18 @@ async function runAcceptance(
   const assembledV2 = await ingestWithoutFalseBomb(
     {
       catalog,
+      creatorId: 'creator-accept-5gb',
       inputPath: rawV2Path,
       packageId: 'pipeline-accept-5gb',
-      store,
+      protectionPolicyId: 'common-only-v1',
+      ...stores,
       version: '2.0.0',
     },
     (await stat(rawV2Path)).size
   );
   await rm(rawV2Path, { force: true });
   expect(assembledV2.state).toBe('ASSEMBLED');
-  const v2CanonicalSha256 = assembledV2.canonicalSha256;
+  const v2CanonicalSha256 = assembledV2.releaseRoot;
   if (!v2CanonicalSha256) {
     throw new Error('Assembled v2 did not persist its canonical SHA-256');
   }
@@ -560,7 +573,11 @@ async function runAcceptance(
   expect(v2DeltaBytes).toBeLessThan(v1ChunkBytes / 10);
   expect(v2DeltaChunks).toBeGreaterThan(0);
 
-  const readyV2 = await promoteVersion({ catalog, store, versionId: assembledV2.id });
+  const readyV2 = await promoteVersion({
+    catalog,
+    ...stores,
+    versionId: assembledV2.id,
+  });
   expect(readyV2.state).toBe('READY');
   expect(await eventTypes(sql, readyV2.id)).toEqual([
     'catalog.version.created',
@@ -572,7 +589,7 @@ async function runAcceptance(
   const retrievedV2Path = await retrieveVersion({
     catalog,
     outputPath: join(scratchPath, 'retrieved-v2.unitypackage'),
-    store,
+    ...stores,
     versionId: readyV2.id,
   });
   expect(await sha256File(retrievedV2Path)).toBe(v2CanonicalSha256);

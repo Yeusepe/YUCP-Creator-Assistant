@@ -25,12 +25,24 @@ function requireLoopbackBaseUrl(value: string): URL {
 
 export async function startLocalDeliveryProxy(input: {
   port: number;
+  renditionUpstreamBaseUrl?: string;
   upstreamBaseUrl: string;
 }): Promise<LocalDeliveryProxy> {
   const upstreamBaseUrl = requireLoopbackBaseUrl(input.upstreamBaseUrl);
+  const renditionUpstreamBaseUrl = input.renditionUpstreamBaseUrl
+    ? requireLoopbackBaseUrl(input.renditionUpstreamBaseUrl)
+    : undefined;
   const server = createServer(async (request, response) => {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      response.writeHead(405, { Allow: 'GET, HEAD' });
+    const requestPath = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    const isRendition = requestPath.startsWith('/v2/renditions/');
+    const allowed =
+      isRendition && renditionUpstreamBaseUrl
+        ? request.method === 'POST'
+        : request.method === 'GET' || request.method === 'HEAD';
+    if (!allowed) {
+      response.writeHead(405, {
+        Allow: isRendition ? 'POST' : 'GET, HEAD',
+      });
       response.end('Method not allowed');
       return;
     }
@@ -38,8 +50,19 @@ export async function startLocalDeliveryProxy(input: {
     const abortController = new AbortController();
     request.once('aborted', () => abortController.abort());
     try {
-      const target = new URL(request.url ?? '/', upstreamBaseUrl);
+      const target = new URL(
+        request.url ?? '/',
+        isRendition && renditionUpstreamBaseUrl ? renditionUpstreamBaseUrl : upstreamBaseUrl
+      );
+      const body =
+        request.method === 'POST'
+          ? await readBoundedRequestBody(request, 2 * 1024 * 1024)
+          : undefined;
+      const bodyBuffer = body
+        ? (body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer)
+        : undefined;
       const upstream = await fetch(target, {
+        ...(bodyBuffer ? { body: bodyBuffer } : {}),
         headers: request.headers as HeadersInit,
         method: request.method,
         redirect: 'manual',
@@ -98,4 +121,26 @@ export async function startLocalDeliveryProxy(input: {
       await once(server, 'close');
     },
   };
+}
+
+async function readBoundedRequestBody(
+  request: AsyncIterable<Uint8Array>,
+  limit: number
+): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  for await (const chunk of request) {
+    received += chunk.byteLength;
+    if (received > limit) {
+      throw new Error('Local delivery request body exceeded its limit');
+    }
+    chunks.push(chunk);
+  }
+  const body = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
 }

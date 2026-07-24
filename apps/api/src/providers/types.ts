@@ -130,8 +130,6 @@ export interface ConnectConfig {
   discordBotToken?: string;
   convexApiSecret: string;
   convexUrl: string;
-  deliveryBaseUrl?: string;
-  deliveryHmacKey?: string;
   gumroadClientId?: string;
   gumroadClientSecret?: string;
   itchioClientId?: string;

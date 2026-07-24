@@ -13,10 +13,27 @@ export const upsertReadyVersion = mutation({
     packageId: v.string(),
     version: v.string(),
     versionId: v.string(),
+    activeContentDigest: v.string(),
+    activePolicyVersion: v.string(),
+    bindingRoot: v.string(),
+    commonRoot: v.string(),
+    logicalBytes: v.number(),
+    logicalFiles: v.number(),
+    manifestSha256: v.string(),
+    protectedFiles: v.array(
+      v.object({
+        materializerType: v.string(),
+        normalizedPath: v.string(),
+        required: v.boolean(),
+        sourceSha256: v.string(),
+      })
+    ),
+    protectedSourceRoot: v.string(),
+    protectionPolicyDigest: v.string(),
+    protectionPolicyId: v.string(),
+    releaseRoot: v.string(),
     channel: v.optional(v.string()),
     catalogProductId: v.optional(v.id('product_catalog')),
-    totalSize: v.optional(v.number()),
-    contentType: v.optional(v.string()),
     createdAt: v.number(),
   },
   handler: async (ctx, args): Promise<Id<'package_versions_ref'>> => {
@@ -52,11 +69,21 @@ export const upsertReadyVersion = mutation({
       packageId: args.packageId,
       version: args.version,
       versionId: args.versionId,
+      activeContentDigest: args.activeContentDigest,
+      activePolicyVersion: args.activePolicyVersion,
+      bindingRoot: args.bindingRoot,
+      commonRoot: args.commonRoot,
+      logicalBytes: args.logicalBytes,
+      logicalFiles: args.logicalFiles,
+      manifestSha256: args.manifestSha256,
+      protectedFiles: args.protectedFiles,
+      protectedSourceRoot: args.protectedSourceRoot,
+      protectionPolicyDigest: args.protectionPolicyDigest,
+      protectionPolicyId: args.protectionPolicyId,
+      releaseRoot: args.releaseRoot,
       channel,
       state: hasCurrentReadyAtOrAfter ? 'SUPERSEDED' : 'READY',
       catalogProductId: args.catalogProductId,
-      totalSize: args.totalSize,
-      contentType: args.contentType,
       createdAt: args.createdAt,
     });
   },
@@ -120,10 +147,29 @@ export const resolveDownloadableVersion = query({
     catalogProductId: v.optional(v.id('product_catalog')),
     packageId: v.optional(v.string()),
     channel: v.optional(v.string()),
+    releaseRoot: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<Doc<'package_versions_ref'> | null> => {
     requireApiSecret(args.apiSecret);
     await requireServiceActor(args.actor, ['downloads:service']);
+
+    const releaseRoot = args.releaseRoot;
+    if (releaseRoot) {
+      const exact = await ctx.db
+        .query('package_versions_ref')
+        .withIndex('by_release_root', (q) => q.eq('releaseRoot', releaseRoot))
+        .first();
+      if (
+        !exact ||
+        exact.state === 'DELETED' ||
+        (args.packageId !== undefined && exact.packageId !== args.packageId) ||
+        (args.catalogProductId !== undefined &&
+          exact.catalogProductId !== args.catalogProductId)
+      ) {
+        return null;
+      }
+      return exact;
+    }
 
     const channel = args.channel ?? DEFAULT_CHANNEL;
     if (args.catalogProductId) {

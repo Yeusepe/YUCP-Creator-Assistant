@@ -539,7 +539,7 @@ function Sidebar({
                 aria-selected={false}
                 aria-controls="tab-panel-integrations"
               >
-                <Icon name="lock" className="sidebar-nav-icon" />
+                <Icon name="integration" className="sidebar-nav-icon" />
                 Developer Integrations
               </Link>
             </div>

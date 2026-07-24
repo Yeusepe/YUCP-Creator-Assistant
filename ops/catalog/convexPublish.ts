@@ -67,22 +67,45 @@ function requiredPayloadString(payload: Record<string, unknown>, key: string): s
   return value.trim();
 }
 
-function requiredByteLength(payload: Record<string, unknown>): number {
-  const value = payload.byteLength;
+function requiredNonNegativeInteger(payload: Record<string, unknown>, key: string): number {
+  const value = payload[key];
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
-    throw new Error('READY catalog event payload requires a non-negative safe byteLength');
+    throw new Error(`READY catalog event payload requires a non-negative safe ${key}`);
   }
   return value as number;
 }
 
-function optionalContentType(payload: Record<string, unknown>): string | undefined {
-  const value = payload.contentType;
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+function requiredSha256(payload: Record<string, unknown>, key: string): string {
+  const value = requiredPayloadString(payload, key);
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`READY catalog event payload requires lowercase SHA-256 ${key}`);
+  }
+  return value;
 }
 
 function optionalCatalogProductId(payload: Record<string, unknown>): string | undefined {
   const value = payload.catalogProductId;
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function requiredProtectedFiles(payload: Record<string, unknown>) {
+  const value = payload.protectedFiles;
+  if (!Array.isArray(value) || value.length > 512) {
+    throw new Error('READY catalog event payload requires protectedFiles');
+  }
+  return value.map((candidate, index) => {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+      throw new Error(`READY catalog event protectedFiles[${index}] is invalid`);
+    }
+    const file = candidate as Record<string, unknown>;
+    const materializerType = requiredPayloadString(file, 'materializerType');
+    const normalizedPath = requiredPayloadString(file, 'normalizedPath');
+    const sourceSha256 = requiredSha256(file, 'sourceSha256');
+    if (file.required !== true) {
+      throw new Error(`READY catalog event protectedFiles[${index}] must be required`);
+    }
+    return { materializerType, normalizedPath, required: true, sourceSha256 };
+  });
 }
 
 async function createPublisherActor(secret: string): Promise<ApiActorBinding> {
@@ -145,17 +168,26 @@ export function createConvexCatalogPublish(
     }
 
     const catalogProductId = optionalCatalogProductId(event.payload);
-    const contentType = optionalContentType(event.payload);
     await withTimeout(
       client.mutation(api.packageVersions.upsertReadyVersion, {
         apiSecret: config.convexApiSecret,
         actor,
+        activeContentDigest: requiredSha256(event.payload, 'activeContentDigest'),
+        activePolicyVersion: requiredPayloadString(event.payload, 'activePolicyVersion'),
+        bindingRoot: requiredSha256(event.payload, 'bindingRoot'),
+        commonRoot: requiredSha256(event.payload, 'commonRoot'),
+        logicalBytes: requiredNonNegativeInteger(event.payload, 'logicalBytes'),
+        logicalFiles: requiredNonNegativeInteger(event.payload, 'logicalFiles'),
         packageId: requiredPayloadString(event.payload, 'packageId'),
+        manifestSha256: requiredSha256(event.payload, 'manifestSha256'),
+        protectedFiles: requiredProtectedFiles(event.payload),
+        protectedSourceRoot: requiredSha256(event.payload, 'protectedSourceRoot'),
+        protectionPolicyDigest: requiredSha256(event.payload, 'protectionPolicyDigest'),
+        protectionPolicyId: requiredPayloadString(event.payload, 'protectionPolicyId'),
+        releaseRoot: requiredSha256(event.payload, 'releaseRoot'),
         version: requiredPayloadString(event.payload, 'version'),
         versionId: requiredPayloadString(event.payload, 'versionId'),
-        totalSize: requiredByteLength(event.payload),
         ...(catalogProductId ? { catalogProductId } : {}),
-        ...(contentType ? { contentType } : {}),
         createdAt: event.createdAt.getTime(),
       }),
       config.publishTimeoutMs ?? DEFAULT_CONVEX_PUBLISH_TIMEOUT_MS

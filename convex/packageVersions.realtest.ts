@@ -25,6 +25,18 @@ async function authenticatedReadyVersionArgs<T extends Record<string, unknown>>(
   return {
     apiSecret: 'test-secret',
     actor: await createDownloadServiceActorBinding(),
+    activeContentDigest: '55'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    bindingRoot: '22'.repeat(32),
+    commonRoot: '66'.repeat(32),
+    logicalBytes: 1_024,
+    logicalFiles: 2,
+    manifestSha256: '33'.repeat(32),
+    protectedFiles: [],
+    protectedSourceRoot: '77'.repeat(32),
+    protectionPolicyDigest: '88'.repeat(32),
+    protectionPolicyId: 'common-only-v1',
+    releaseRoot: '44'.repeat(32),
     ...input,
   };
 }
@@ -40,8 +52,6 @@ describe('packageVersions', () => {
         packageId: 'com.yucp.avatar-tools',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000001',
-        totalSize: 1_024,
-        contentType: 'application/zip',
         createdAt,
       })
     );
@@ -55,8 +65,8 @@ describe('packageVersions', () => {
       versionId: '00000000-0000-4000-8000-000000000001',
       channel: 'stable',
       state: 'READY',
-      totalSize: 1_024,
-      contentType: 'application/zip',
+      logicalBytes: 1_024,
+      logicalFiles: 2,
       createdAt,
     });
   });
@@ -166,6 +176,58 @@ describe('packageVersions', () => {
     expect(rows.find((row) => row.version === '1.0.0')?.state).toBe('SUPERSEDED');
   });
 
+  it('resolves an exact retained superseded version but rejects a deleted version', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.rollback';
+    const baseVersionId = '00000000-0000-4000-8000-000000000001';
+    const updateVersionId = '00000000-0000-4000-8000-000000000002';
+    const baseReleaseRoot = '01'.repeat(32);
+    const updateReleaseRoot = '02'.repeat(32);
+
+    for (const [index, versionId] of [baseVersionId, updateVersionId].entries()) {
+      await t.mutation(
+        api.packageVersions.upsertReadyVersion,
+        await authenticatedReadyVersionArgs({
+          packageId,
+          version: `1.${index}.0`,
+          versionId,
+          releaseRoot: index === 0 ? baseReleaseRoot : updateReleaseRoot,
+          createdAt: 1_000 + index,
+        })
+      );
+    }
+
+    const actor = await createDownloadServiceActorBinding();
+    const retained = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor,
+      packageId,
+      releaseRoot: baseReleaseRoot,
+    });
+    expect(retained).toMatchObject({
+      packageId,
+      state: 'SUPERSEDED',
+      versionId: baseVersionId,
+    });
+
+    await t.mutation(
+      api.packageVersions.markVersionDeleted,
+      {
+        apiSecret: 'test-secret',
+        actor: await createDownloadServiceActorBinding(),
+        versionId: baseVersionId,
+        deletedAt: 3_000,
+      }
+    );
+    const deleted = await t.query(api.packageVersions.resolveDownloadableVersion, {
+      apiSecret: 'test-secret',
+      actor,
+      packageId,
+      releaseRoot: baseReleaseRoot,
+    });
+    expect(deleted).toBeNull();
+  });
+
   it('deletes a base version without breaking the current update', async () => {
     const t = makeTestConvex();
     const packageId = 'com.yucp.delete-base';
@@ -185,10 +247,12 @@ describe('packageVersions', () => {
     }
     await t.mutation(
       api.packageVersions.markVersionDeleted,
-      await authenticatedReadyVersionArgs({
+      {
+        apiSecret: 'test-secret',
+        actor: await createDownloadServiceActorBinding(),
         versionId: baseVersionId,
         deletedAt: 3_000,
-      })
+      }
     );
 
     const resolved = await t.query(api.packageVersions.resolveDownloadableVersion, {
@@ -228,10 +292,12 @@ describe('packageVersions', () => {
     for (const [index, versionId] of versionIds.entries()) {
       await t.mutation(
         api.packageVersions.markVersionDeleted,
-        await authenticatedReadyVersionArgs({
+        {
+          apiSecret: 'test-secret',
+          actor: await createDownloadServiceActorBinding(),
           versionId,
           deletedAt: 2_000 + index,
-        })
+        }
       );
     }
 

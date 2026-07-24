@@ -17,7 +17,9 @@ export type CreateIngestSchedulerOptions = Omit<
   intervalMs: number;
   onError: (error: unknown) => Promise<void> | void;
   publish?: ReconcileCatalogOptions['publish'];
-  store: CasStore;
+  commonStore: CasStore;
+  metadataStore: CasStore;
+  protectedStore: CasStore;
 };
 
 export interface IngestScheduler {
@@ -43,11 +45,13 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
   const {
     batchLimit,
     catalog,
+    commonStore,
     database,
     intervalMs,
+    metadataStore,
     onError,
     publish = createConvexCatalogPublish(loadConvexCatalogPublishConfig()),
-    store,
+    protectedStore,
     ...reconcileOptions
   } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -85,7 +89,13 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
 
     for (const candidate of candidates) {
       try {
-        await promoteVersion({ catalog, store, versionId: candidate.id });
+        await promoteVersion({
+          catalog,
+          commonStore,
+          metadataStore,
+          protectedStore,
+          versionId: candidate.id,
+        });
       } catch (error) {
         await reportError(error);
       }

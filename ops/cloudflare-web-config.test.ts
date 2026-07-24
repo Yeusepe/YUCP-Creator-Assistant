@@ -47,22 +47,32 @@ describe('cloudflare-web-config', () => {
 
   test('selects only the delivery Worker bindings from the Infisical export', () => {
     expect(DELIVERY_WORKER_BINDING_KEYS).toEqual([
-      'CAS_S3_ENDPOINT',
-      'CAS_S3_REGION',
-      'CAS_S3_BUCKET',
-      'CAS_S3_READONLY_ACCESS_KEY_ID',
-      'CAS_S3_READONLY_SECRET_ACCESS_KEY',
-      'CAS_INDEX_PREFIX',
-      'CAS_CHUNK_PREFIX',
-      'DELIVERY_HMAC_KEY',
+      'COMMON_S3_ENDPOINT',
+      'COMMON_S3_REGION',
+      'COMMON_S3_BUCKET',
+      'COMMON_S3_READONLY_ACCESS_KEY_ID',
+      'COMMON_S3_READONLY_SECRET_ACCESS_KEY',
+      'COMMON_CHUNK_PREFIX',
+      'METADATA_S3_ENDPOINT',
+      'METADATA_S3_REGION',
+      'METADATA_S3_BUCKET',
+      'METADATA_S3_READONLY_ACCESS_KEY_ID',
+      'METADATA_S3_READONLY_SECRET_ACCESS_KEY',
+      'METADATA_INDEX_PREFIX',
+      'PACKAGE_DELIVERY_AUDIENCE',
+      'PACKAGE_INSTALL_ISSUER',
+      'PACKAGE_INSTALL_SIGNING_KEY_ID',
+      'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
       'STORAGE_FORMAT_VERSION',
     ]);
     const source = Object.fromEntries(
       DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
     );
-    source.CAS_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
-    source.CAS_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
-    source.DELIVERY_BASE_URL = 'https://delivery.example.invalid';
+    source.COMMON_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
+    source.COMMON_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
+    source.METADATA_S3_ACCESS_KEY_ID = 'placeholder-write-key-must-not-sync';
+    source.METADATA_S3_SECRET_ACCESS_KEY = 'placeholder-write-secret-must-not-sync';
+    source.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY = 'private-key-must-not-sync';
 
     expect(getDeliveryWorkerBindingValues(source)).toEqual(
       Object.fromEntries(

@@ -40,6 +40,10 @@ export default function DashboardPackages() {
     billing?.capabilities,
     BILLING_CAPABILITY_KEYS.couplingTraceability
   );
+  const hasProtectedExportAccess = hasActiveCreatorBillingCapability(
+    billing?.capabilities,
+    BILLING_CAPABILITY_KEYS.protectedExports
+  );
 
   if (activeView === 'registry' && isLoading) {
     return <DashboardPackagesPending />;
@@ -62,7 +66,7 @@ export default function DashboardPackages() {
                 onRetry={() => void query.refetch()}
               />
             ) : hasRegistryAccess ? (
-              <PackageRegistryPanel />
+              <PackageRegistryPanel canProtectAssets={hasProtectedExportAccess} />
             ) : (
               <PackageRegistryAccessGate mode="missing" />
             )}

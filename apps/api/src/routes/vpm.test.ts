@@ -38,7 +38,6 @@ const apiMock = {
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
-    getBuyerAccessContextByEntitlement: 'packageRegistry.getBuyerAccessContextByEntitlement',
   },
   packageVersions: {
     resolveDownloadableVersion: 'packageVersions.resolveDownloadableVersion',
@@ -465,8 +464,8 @@ describe('per-buyer VPM routes', () => {
     ).toHaveLength(1);
   });
 
-  it('resolves a legacy product-level entitlement into its logical package group', async () => {
-    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+  it('does not resolve product-only entitlements outside canonical catalog identities', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown) => {
       if (reference === apiMock.entitlements.listByAuthUser) {
         return {
           data: [
@@ -480,26 +479,6 @@ describe('per-buyer VPM routes', () => {
           nextCursor: null,
         };
       }
-      if (reference === apiMock.packageRegistry.getBuyerAccessContextByEntitlement) {
-        expect(args).toMatchObject({
-          productId: 'jinxxy-jammr',
-          sourceProvider: 'jinxxy',
-        });
-        return {
-          aliasId: 'jammr',
-          catalogProductId: 'catalog_jammr_jinxxy',
-          catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
-          packageId: 'com.yucp.jammr',
-        };
-      }
-      if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
-        expect(args).toMatchObject({ packageId: 'com.yucp.jammr' });
-        return {
-          packageId: 'com.yucp.jammr',
-          version: '1.0.1',
-          versionId: 'version-jammr-legacy',
-        };
-      }
       throw new Error(`Unexpected query ${String(reference)}`);
     });
 
@@ -511,16 +490,14 @@ describe('per-buyer VPM routes', () => {
     const body = (await response.json()) as {
       packages: Record<string, { versions: Record<string, Record<string, unknown>> }>;
     };
-    const expectedAlias = buildYucpAliasVpmPackage({
-      aliasId: 'jammr',
-      catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
-      vpmBaseUrl: 'https://vpm.test/',
-    });
 
     expect(response.status).toBe(200);
-    expect(Object.keys(body.packages).sort()).toEqual(
-      ['com.yucp.importer', expectedAlias.packageId].sort()
-    );
+    expect(body.packages).toEqual({});
+    expect(
+      convexQueryMock.mock.calls.filter(
+        ([reference]) => reference === apiMock.packageVersions.resolveDownloadableVersion
+      )
+    ).toHaveLength(0);
   });
 
   it('serves an empty but valid repository when the buyer has no active entitlements', async () => {

@@ -50,7 +50,8 @@ async function seedBetterAuthDiscordAccount(
     });
 
     await componentDb.insert('account', {
-      accountId: input.discordUserId,
+      issuer: 'local:oauth:discord',
+      providerAccountId: input.discordUserId,
       providerId: 'discord',
       userId: input.authUserMarker,
       createdAt: now,

@@ -2,6 +2,10 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { BILLING_CAPABILITY_KEYS } from '../../../../convex/lib/billingCapabilities';
 import {
+  isProtectionPolicyId,
+  type ProtectionPolicyId,
+} from '../../../../ops/storage-core/protectionPolicy';
+import {
   signUploadCapability,
   UPLOAD_CAPABILITY_HEADERS,
 } from '../../../../ops/storage-core/uploadSigning';
@@ -64,12 +68,22 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     }
 
     const packageId = requiredString(body, 'packageId');
+    const protectionPolicyId = requiredString(body, 'protectionPolicyId');
     const version = requiredString(body, 'version');
     let catalogProductId =
       body.catalogProductId === undefined ? undefined : requiredString(body, 'catalogProductId');
-    if (!packageId || !version || (body.catalogProductId !== undefined && !catalogProductId)) {
+    if (
+      !packageId ||
+      !version ||
+      !protectionPolicyId ||
+      !isProtectionPolicyId(protectionPolicyId) ||
+      (body.catalogProductId !== undefined && !catalogProductId)
+    ) {
       return Response.json(
-        { error: 'packageId and version are required; catalogProductId must be non-empty' },
+        {
+          error:
+            'packageId, version, and a supported protectionPolicyId are required; catalogProductId must be non-empty',
+        },
         { status: 400 }
       );
     }
@@ -104,6 +118,14 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     );
     if (!canUpload) {
       return Response.json({ error: 'VPM repository capability required' }, { status: 403 });
+    }
+    const canProtect = billing.billing?.capabilities?.some(
+      (capability) =>
+        capability.capabilityKey === BILLING_CAPABILITY_KEYS.protectedExports &&
+        (capability.status === 'active' || capability.status === 'grace')
+    );
+    if (protectionPolicyId !== 'common-only-v1' && !canProtect) {
+      return Response.json({ error: 'Protected exports capability required' }, { status: 403 });
     }
 
     if (!registration && !catalogProductId) {
@@ -169,9 +191,11 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
     const versionId = crypto.randomUUID();
     const capability = await signUploadCapability({
       catalogProductId: catalogProductId ?? undefined,
+      creatorId: session.user.id,
       versionId,
       key: uploadHmacKey,
       packageId,
+      protectionPolicyId: protectionPolicyId as ProtectionPolicyId,
       version,
       expiresAt: Date.now() + UPLOAD_TTL_MS,
     });
@@ -185,7 +209,9 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         : {}),
       [UPLOAD_CAPABILITY_HEADERS.versionId]: capability.versionId,
       [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
+      [UPLOAD_CAPABILITY_HEADERS.creatorId]: encodeURIComponent(capability.creatorId),
       [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
+      [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
       [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
       [UPLOAD_CAPABILITY_HEADERS.version]: encodeURIComponent(capability.version),
     };
@@ -197,6 +223,7 @@ export function createCreatorUploadRoutes({ auth, config }: CreateCreatorUploadR
         sig: capability.sig,
         tusEndpoint: `${ingestTusUrl.replace(/\/+$/, '')}/files`,
         headers,
+        protectionPolicyId: capability.protectionPolicyId,
         ...(catalogProductId ? { catalogProductId } : {}),
       },
       { headers: { 'Cache-Control': 'private, no-store' } }

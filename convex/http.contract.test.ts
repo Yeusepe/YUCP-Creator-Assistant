@@ -16,22 +16,10 @@ describe('convex HTTP security contracts', () => {
     expect(httpSource).not.toContain("request.headers.get('x-forwarded-for')");
   });
 
-  it('checks protected asset bounds before package registration and transparency writes', () => {
-    const limitIndex = httpSource.indexOf(
-      'if (body.protectedAssets && body.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST)'
-    );
-    const registrationIndex = httpSource.indexOf(
-      'const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage'
-    );
-    const logWriteIndex = httpSource.indexOf(
-      'const logResult = await ctx.runMutation(internal.signingLog.writeEntry'
-    );
-
-    expect(limitIndex).toBeGreaterThan(-1);
-    expect(registrationIndex).toBeGreaterThan(-1);
-    expect(logWriteIndex).toBeGreaterThan(-1);
-    expect(limitIndex).toBeLessThan(registrationIndex);
-    expect(limitIndex).toBeLessThan(logWriteIndex);
+  it('does not accept protected material or content keys through the public signature route', () => {
+    expect(httpSource).not.toContain('contentKeyBase64');
+    expect(httpSource).not.toContain('wrappedContentKey');
+    expect(httpSource).not.toContain('body.protectedAssets');
   });
 
   it('verifies bearer certs against configured trusted roots instead of only the active signing root', () => {

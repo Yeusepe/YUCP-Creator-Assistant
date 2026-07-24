@@ -19,6 +19,23 @@ import { makeTestConvex, seedGuildLink } from './testHelpers';
 const DUMMY_DISCORD_SOURCE_GUILD_ID = '100000000000000001';
 const DUMMY_DISCORD_REQUIRED_ROLE_ID = '100000000000000002';
 
+function readyPublicationFields() {
+  return {
+    activeContentDigest: '11'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    bindingRoot: '22'.repeat(32),
+    commonRoot: '33'.repeat(32),
+    logicalBytes: 1,
+    logicalFiles: 1,
+    manifestSha256: '44'.repeat(32),
+    protectedFiles: [],
+    protectedSourceRoot: '55'.repeat(32),
+    protectionPolicyDigest: '66'.repeat(32),
+    protectionPolicyId: 'common-only-v1',
+    releaseRoot: '77'.repeat(32),
+  };
+}
+
 async function getRoleRuleCounts(t: ReturnType<typeof makeTestConvex>) {
   return t.run(async (ctx) => ({
     roleRules: (await ctx.db.query('role_rules').collect()).length,
@@ -181,6 +198,7 @@ describe('role rules CRUD and isolation', () => {
         updatedAt: now,
       });
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.role-delete-history',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000098',

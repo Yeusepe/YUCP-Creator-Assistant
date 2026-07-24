@@ -41,7 +41,7 @@ const NAV_GROUPS = [
         exact: false,
         label: 'My Licenses',
         headerTitle: 'Verified Purchases',
-        icon: 'license',
+        icon: 'userKey',
       },
       {
         to: '/account/authorized-apps' as const,

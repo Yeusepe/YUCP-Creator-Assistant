@@ -65,11 +65,9 @@ function RootComponent() {
   return (
     <RootDocument runtimeConfig={runtimeConfig}>
       <RuntimeConfigProvider value={runtimeConfig}>
-        <ToastProvider>
-          <AppEffects />
-          <Outlet />
-          <CookiePreferencesPrompt />
-        </ToastProvider>
+        <AppEffects />
+        <Outlet />
+        <CookiePreferencesPrompt />
       </RuntimeConfigProvider>
     </RootDocument>
   );
@@ -140,9 +138,11 @@ function RootDocument({
         <HeadContent />
       </head>
       <body>
-        {children}
-        <div id="portal-root" className="portal-root" />
-        <Scripts />
+        <ToastProvider>
+          {children}
+          <div id="portal-root" className="portal-root" />
+          <Scripts />
+        </ToastProvider>
       </body>
     </html>
   );

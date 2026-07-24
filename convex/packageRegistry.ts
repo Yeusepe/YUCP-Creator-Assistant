@@ -557,9 +557,9 @@ async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
     return null;
   }
 
-  const legacyId = ctx.db.normalizeId('product_catalog', trimmed);
-  if (legacyId) {
-    return await ctx.db.get(legacyId);
+  const catalogId = ctx.db.normalizeId('product_catalog', trimmed);
+  if (catalogId) {
+    return await ctx.db.get(catalogId);
   }
 
   const bySlug = await ctx.db
@@ -574,56 +574,6 @@ async function resolveCatalogProduct(ctx: QueryCtx, ref: string) {
   for (const candidate of [...bySlug, ...byRef]) {
     candidates.set(String(candidate._id), candidate);
   }
-  return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
-}
-
-async function resolveCatalogProductFromEntitlement(
-  ctx: QueryCtx,
-  args: {
-    catalogProductId?: string;
-    productId: string;
-    sourceProvider?: string;
-  }
-) {
-  if (args.catalogProductId) {
-    return await resolveCatalogProduct(ctx, args.catalogProductId);
-  }
-
-  const productId = args.productId.trim();
-  if (!productId) {
-    return null;
-  }
-
-  const [byProductId, byProviderProductRef] = await Promise.all([
-    ctx.db
-      .query('product_catalog')
-      .withIndex('by_product_id', (q) => q.eq('productId', productId))
-      .collect(),
-    ctx.db
-      .query('product_catalog')
-      .withIndex('by_provider_product_ref', (q) => q.eq('providerProductRef', productId))
-      .collect(),
-  ]);
-  const candidates = new Map<string, Doc<'product_catalog'>>();
-  for (const candidate of [...byProductId, ...byProviderProductRef]) {
-    if (getCatalogProductWorkspaceStatus(candidate) === 'active') {
-      candidates.set(String(candidate._id), candidate);
-    }
-  }
-
-  const sourceProvider = args.sourceProvider?.trim();
-  if (sourceProvider) {
-    const providerMatches = Array.from(candidates.values()).filter(
-      (candidate) => candidate.provider === sourceProvider
-    );
-    if (providerMatches.length === 1) {
-      return providerMatches[0] ?? null;
-    }
-    if (providerMatches.length > 1) {
-      return null;
-    }
-  }
-
   return candidates.size === 1 ? (Array.from(candidates.values())[0] ?? null) : null;
 }
 
@@ -647,9 +597,9 @@ async function resolveCreatorCatalogProduct(ctx: QueryCtx, creatorRef: string, p
     return null;
   }
 
-  const legacyId = ctx.db.normalizeId('product_catalog', normalizedProductRef);
-  if (legacyId) {
-    const product = await ctx.db.get(legacyId);
+  const catalogId = ctx.db.normalizeId('product_catalog', normalizedProductRef);
+  if (catalogId) {
+    const product = await ctx.db.get(catalogId);
     return product?.authUserId === creatorAuthUserId ? product : null;
   }
 
@@ -713,23 +663,6 @@ export const getBuyerAccessContextByCatalogProductId = query({
     }
 
     return await buildBuyerAccessContext(ctx, product);
-  },
-});
-
-export const getBuyerAccessContextByEntitlement = query({
-  args: {
-    apiSecret: v.string(),
-    actor: ApiActorBindingV,
-    catalogProductId: v.optional(v.string()),
-    productId: v.string(),
-    sourceProvider: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    requireApiSecret(args.apiSecret);
-    await requireApiActor(args.actor);
-
-    const product = await resolveCatalogProductFromEntitlement(ctx, args);
-    return product ? await buildBuyerAccessContext(ctx, product) : null;
   },
 });
 

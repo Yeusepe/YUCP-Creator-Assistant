@@ -57,16 +57,18 @@ describe('resolveSiteUrl', () => {
 
 describe('loadEnv', () => {
   it('keeps delivery and VPM configuration optional when all values are unset', () => {
-    delete process.env.DELIVERY_HMAC_KEY;
-    delete process.env.DELIVERY_BASE_URL;
+    delete process.env.PACKAGE_DELIVERY_AUDIENCE;
+    delete process.env.PACKAGE_INSTALL_SIGNING_KEY_ID;
+    delete process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY;
     delete process.env.VPM_BASE_URL;
     delete process.env.VPM_PUBLIC_INDEX_URL;
     delete process.env.VPM_TOKEN_KEY;
 
     const env = loadEnv();
 
-    expect(env).toHaveProperty('DELIVERY_HMAC_KEY', undefined);
-    expect(env).toHaveProperty('DELIVERY_BASE_URL', undefined);
+    expect(env).toHaveProperty('PACKAGE_DELIVERY_AUDIENCE', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_KEY_ID', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_PRIVATE_KEY', undefined);
     expect(env).toHaveProperty('VPM_BASE_URL', undefined);
     expect(env).toHaveProperty('VPM_PUBLIC_INDEX_URL', undefined);
     expect(env).toHaveProperty('VPM_TOKEN_KEY', undefined);
@@ -127,13 +129,5 @@ describe('loadEnv', () => {
     } finally {
       process.chdir(originalCwd);
     }
-  });
-
-  it('falls back to COUPLING_SERVICE_SECRET when the YUCP alias is absent', () => {
-    process.env.COUPLING_SERVICE_SECRET = 'legacy-secret';
-
-    expect(loadEnv()).toMatchObject({
-      YUCP_COUPLING_SERVICE_SHARED_SECRET: 'legacy-secret',
-    });
   });
 });

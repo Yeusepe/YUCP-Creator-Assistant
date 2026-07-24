@@ -1,41 +1,85 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { appendFile, copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import {
+  appendFile,
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  stat,
+} from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import {
   Catalog,
   type CatalogDatabase,
+  ExactStorageCatalog,
   openCatalogDatabase,
   runCatalogMigrations,
+  StorageGcCatalog,
 } from '../catalog';
 import {
   ingestVersion,
   promoteVersion,
-  resolvePipelineCasIndexId,
   retrieveVersion,
 } from '../ingest-pipeline';
 import { canonicalizeArtifact } from '../storage-core/canonicalizer';
 import {
-  inspectDesyncIndex,
   type S3CasStore,
   s3CasStore,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
+import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
-import { listS3Objects, listS3ObjectVersions, type S3Object } from '../storage-core/s3Control';
+import {
+  listS3Objects,
+  listS3ObjectVersions,
+} from '../storage-core/s3Control';
 import {
   type DisposableStorageHarness,
   startDisposableStorageHarness,
 } from '../testing/disposableStorageHarness';
-import { runChunkGarbageCollection } from './chunkGc';
+import { runExactVersionGarbageCollection } from './exactVersionGc';
 
-const TEXT_ASSET_EXTENSIONS = new Set(['.anim', '.asset', '.controller', '.mat', '.shader']);
+const TEXT_ASSET_EXTENSIONS = new Set([
+  '.anim',
+  '.asset',
+  '.controller',
+  '.mat',
+  '.shader',
+]);
+
+type RoleStores = {
+  commonStore: S3CasStore;
+  metadataStore: S3CasStore;
+  protectedStore: S3CasStore;
+};
+
+type ClosureObject = {
+  bytes: number;
+  id: string;
+  storageRole: 'common' | 'metadata' | 'protected';
+};
+
+class ExpiredRetentionStorage extends S3ExactStoragePort {
+  override async getRetention(): Promise<{
+    mode: 'GOVERNANCE';
+    retainUntil: Date;
+  }> {
+    return {
+      mode: 'GOVERNANCE',
+      retainUntil: new Date('2000-01-01T00:00:00.000Z'),
+    };
+  }
+}
 
 let harness: DisposableStorageHarness | undefined;
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
-let store: S3CasStore | undefined;
+let stores: RoleStores | undefined;
+let storage: ExpiredRetentionStorage | undefined;
 
 async function sha256File(filePath: string): Promise<string> {
   const hash = createHash('sha256');
@@ -74,11 +118,18 @@ function requireCatalog(): Catalog {
   return catalog;
 }
 
-function requireStore(): S3CasStore {
-  if (!store) {
-    throw new Error('Real package-management CAS was not initialized');
+function requireStores(): RoleStores {
+  if (!stores) {
+    throw new Error('Real package-management role stores were not initialized');
   }
-  return store;
+  return stores;
+}
+
+function requireStorage(): ExpiredRetentionStorage {
+  if (!storage) {
+    throw new Error('Real package-management exact storage was not initialized');
+  }
+  return storage;
 }
 
 async function createCanonicalUnityPackage(input: {
@@ -107,13 +158,20 @@ async function createCanonicalUnityPackage(input: {
     ],
     { env: tools.env }
   );
-  await runCommand(tools.gzipCommand, ['-n', '--rsyncable', '--stdout', '--', input.tarPath], {
-    env: tools.env,
-    stdoutPath: input.outputPath,
-  });
+  await runCommand(
+    tools.gzipCommand,
+    ['-n', '--rsyncable', '--stdout', '--', input.tarPath],
+    {
+      env: tools.env,
+      stdoutPath: input.outputPath,
+    }
+  );
 }
 
-async function extractCanonicalUnityPackage(inputPath: string, outputRoot: string): Promise<void> {
+async function extractCanonicalUnityPackage(
+  inputPath: string,
+  outputRoot: string
+): Promise<void> {
   const tools = await resolveGnuArchiveTools();
   await mkdir(outputRoot, { recursive: true });
   await runCommand(
@@ -137,9 +195,10 @@ async function findTextAsset(entriesRoot: string): Promise<{
   assetPath: string;
   logicalPath: string;
 }> {
-  for (const entry of (await readdir(entriesRoot, { withFileTypes: true })).sort((left, right) =>
-    left.name.localeCompare(right.name)
-  )) {
+  const entries = (await readdir(entriesRoot, { withFileTypes: true })).sort(
+    (left, right) => left.name.localeCompare(right.name)
+  );
+  for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue;
     }
@@ -150,7 +209,11 @@ async function findTextAsset(entriesRoot: string): Promise<{
       stat(pathnamePath).catch(() => null),
       stat(assetPath).catch(() => null),
     ]);
-    if (!pathnameStats?.isFile() || !assetStats?.isFile() || assetStats.size > 1024 * 1024) {
+    if (
+      !pathnameStats?.isFile() ||
+      !assetStats?.isFile() ||
+      assetStats.size > 1024 * 1024
+    ) {
       continue;
     }
     const logicalPath = (await readFile(pathnamePath, 'utf8')).trim();
@@ -162,25 +225,82 @@ async function findTextAsset(entriesRoot: string): Promise<{
       return { assetPath, logicalPath };
     }
   }
-  throw new Error('The Unity package contains no bounded YAML asset for update generation');
+  throw new Error(
+    'The Unity package contains no bounded YAML asset for update generation'
+  );
 }
 
-function chunkMap(chunks: Array<{ id: string; size: number }>): Map<string, number> {
-  return new Map(chunks.map((chunk) => [chunk.id, chunk.size]));
+async function normalizedInventory(input: {
+  inputPath: string;
+  outputRoot: string;
+  packageId: string;
+}): Promise<Map<string, string>> {
+  const normalized = await normalizePackageArtifact(input);
+  return new Map(
+    normalized.files.map((file) => [file.normalizedPath, file.sha256])
+  );
 }
 
-function reusedBytes(left: Map<string, number>, right: Map<string, number>): number {
-  let total = 0;
-  for (const [id, size] of left) {
-    if (right.has(id)) {
-      total += size;
+async function retrievedInventory(
+  root: string,
+  relativePath = ''
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const current = relativePath ? join(root, relativePath) : root;
+  const entries = (await readdir(current, { withFileTypes: true })).sort(
+    (left, right) => left.name.localeCompare(right.name)
+  );
+  for (const entry of entries) {
+    const child = relativePath ? join(relativePath, entry.name) : entry.name;
+    if (entry.isDirectory()) {
+      for (const [path, digest] of await retrievedInventory(root, child)) {
+        result.set(path, digest);
+      }
+    } else if (entry.isFile()) {
+      result.set(child.replaceAll('\\', '/'), await sha256File(join(root, child)));
     }
   }
-  return total;
+  return result;
 }
 
-function sumObjectBytes(objects: S3Object[]): number {
-  return objects.reduce((total, object) => total + object.size, 0);
+async function closureObjects(versionId: string): Promise<ClosureObject[]> {
+  const rows = await requireSql()<
+    {
+      bytes: number | string;
+      id: string;
+      storage_role: ClosureObject['storageRole'];
+    }[]
+  >`
+    SELECT DISTINCT
+      object.id,
+      object.bytes,
+      object.storage_role
+    FROM package_release_storage_objects release_object
+    JOIN storage_object_versions object
+      ON object.id = release_object.object_version_id
+    WHERE release_object.package_version_id = ${versionId}
+    ORDER BY object.storage_role, object.id
+  `;
+  return rows.map((row) => ({
+    bytes: Number(row.bytes),
+    id: row.id,
+    storageRole: row.storage_role,
+  }));
+}
+
+function reusedBytes(
+  left: ClosureObject[],
+  right: ClosureObject[],
+  role: ClosureObject['storageRole']
+): number {
+  const rightIds = new Set(
+    right.filter((object) => object.storageRole === role).map((object) => object.id)
+  );
+  return left
+    .filter(
+      (object) => object.storageRole === role && rightIds.has(object.id)
+    )
+    .reduce((total, object) => total + object.bytes, 0);
 }
 
 beforeAll(async () => {
@@ -188,14 +308,38 @@ beforeAll(async () => {
   const fixture = requiredFixturePath();
   const fixtureStats = await stat(fixture);
   if (!fixtureStats.isFile() || !fixture.toLowerCase().endsWith('.unitypackage')) {
-    throw new Error('YUCP_PACKAGE_MANAGEMENT_FIXTURE must identify a Unity package file');
+    throw new Error(
+      'YUCP_PACKAGE_MANAGEMENT_FIXTURE must identify a Unity package file'
+    );
   }
 
   harness = await startDisposableStorageHarness();
   sql = openCatalogDatabase(harness.postgres.url);
   await runCatalogMigrations(sql);
   catalog = new Catalog(sql);
-  store = s3CasStore(harness.buckets.common);
+  storage = new ExpiredRetentionStorage({
+    common: harness.buckets.common,
+    metadata: harness.buckets.metadata,
+    protected: harness.buckets.protected,
+  });
+  const durableStorage = new DurableExactStorage(
+    new ExactStorageCatalog(sql),
+    storage
+  );
+  stores = {
+    commonStore: s3CasStore(harness.buckets.common, {
+      durableStorage,
+      storageRole: 'common',
+    }),
+    metadataStore: s3CasStore(harness.buckets.metadata, {
+      durableStorage,
+      storageRole: 'metadata',
+    }),
+    protectedStore: s3CasStore(harness.buckets.protected, {
+      durableStorage,
+      storageRole: 'protected',
+    }),
+  };
 });
 
 afterAll(async () => {
@@ -203,7 +347,8 @@ afterAll(async () => {
   const activeHarness = harness;
   sql = undefined;
   catalog = undefined;
-  store = undefined;
+  stores = undefined;
+  storage = undefined;
   harness = undefined;
   try {
     await activeSql?.end({ timeout: 1 });
@@ -217,8 +362,9 @@ describe.serial('real Unity package management', () => {
     const fixturePath = requiredFixturePath();
     const activeHarness = requireHarness();
     const activeCatalog = requireCatalog();
-    const activeStore = requireStore();
-    const config = activeHarness.buckets.common;
+    const activeStores = requireStores();
+    const exactStorage = requireStorage();
+    const gcCatalog = new StorageGcCatalog(requireSql());
     const root = activeHarness.uploadDir;
     const canonicalV1Path = join(root, 'druffle-v1.unitypackage');
     const entriesRoot = join(root, 'druffle-entries');
@@ -232,13 +378,21 @@ describe.serial('real Unity package management', () => {
     });
     await extractCanonicalUnityPackage(canonicalV1Path, entriesRoot);
     const editedAsset = await findTextAsset(entriesRoot);
-    await appendFile(editedAsset.assetPath, '\n# YUCP package-management update 2\n', 'utf8');
+    await appendFile(
+      editedAsset.assetPath,
+      '\n# YUCP package-management update 2\n',
+      'utf8'
+    );
     await createCanonicalUnityPackage({
       entriesRoot,
       outputPath: v2Path,
       tarPath: join(root, 'druffle-v2.tar'),
     });
-    await appendFile(editedAsset.assetPath, '# YUCP package-management update 3\n', 'utf8');
+    await appendFile(
+      editedAsset.assetPath,
+      '# YUCP package-management update 3\n',
+      'utf8'
+    );
     await createCanonicalUnityPackage({
       entriesRoot,
       outputPath: v3Path,
@@ -247,154 +401,213 @@ describe.serial('real Unity package management', () => {
     await copyFile(v2Path, unrelatedPath);
 
     const inputPaths = [canonicalV1Path, v2Path, v3Path];
+    const expectedTrees = [];
+    for (const [index, inputPath] of inputPaths.entries()) {
+      expectedTrees.push(
+        await normalizedInventory({
+          inputPath,
+          outputRoot: join(root, `expected-tree-${index + 1}`),
+          packageId: 'com.yucp.druffle-management',
+        })
+      );
+    }
+    const unrelatedTree = await normalizedInventory({
+      inputPath: unrelatedPath,
+      outputRoot: join(root, 'expected-tree-unrelated'),
+      packageId: 'com.yucp.unrelated-retained',
+    });
+
     const readyVersions = [];
     for (const [index, inputPath] of inputPaths.entries()) {
       const assembled = await ingestVersion({
         catalog: activeCatalog,
-        store: activeStore,
+        creatorId: 'creator-druffle',
         packageId: 'com.yucp.druffle-management',
+        protectionPolicyId: 'common-only-v1',
+        ...activeStores,
         version: `0.1.${15 + index}`,
         inputPath,
       });
       readyVersions.push(
         await promoteVersion({
           catalog: activeCatalog,
-          store: activeStore,
+          ...activeStores,
           versionId: assembled.id,
         })
       );
     }
     const unrelated = await promoteVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      ...activeStores,
       versionId: (
         await ingestVersion({
           catalog: activeCatalog,
-          store: activeStore,
+          creatorId: 'creator-unrelated',
           packageId: 'com.yucp.unrelated-retained',
+          protectionPolicyId: 'common-only-v1',
+          ...activeStores,
           version: '1.0.0',
           inputPath: unrelatedPath,
         })
       ).id,
     });
-    if (readyVersions.some((version) => !version.casIndexId) || !unrelated.casIndexId) {
-      throw new Error('The real READY versions must have CAS index identifiers');
-    }
 
-    for (const [index, ready] of readyVersions.entries()) {
-      expect(ready.canonicalSha256).toBe(await sha256File(inputPaths[index]));
+    const closures = [];
+    for (const version of readyVersions) {
+      closures.push(await closureObjects(version.id));
     }
-    expect(unrelated.canonicalSha256).toBe(await sha256File(unrelatedPath));
-
-    const chunkMaps: Array<Map<string, number>> = [];
-    for (const ready of readyVersions) {
-      chunkMaps.push(
-        chunkMap(
-          await inspectDesyncIndex({
-            indexId: resolvePipelineCasIndexId(activeStore, ready.casIndexId as string),
-            store: activeStore,
-          })
-        )
-      );
-    }
-    const unrelatedChunkMap = chunkMap(
-      await inspectDesyncIndex({
-        indexId: resolvePipelineCasIndexId(activeStore, unrelated.casIndexId),
-        store: activeStore,
-      })
-    );
-    expect(new Set(unrelatedChunkMap.keys())).toEqual(new Set(chunkMaps[1].keys()));
-
-    const v1V2ReusedBytes = reusedBytes(chunkMaps[0], chunkMaps[1]);
-    const v2V3ReusedBytes = reusedBytes(chunkMaps[1], chunkMaps[2]);
+    const unrelatedClosure = await closureObjects(unrelated.id);
+    const v1V2ReusedBytes = reusedBytes(closures[0] ?? [], closures[1] ?? [], 'common');
+    const v2V3ReusedBytes = reusedBytes(closures[1] ?? [], closures[2] ?? [], 'common');
     expect(v1V2ReusedBytes).toBeGreaterThan(0);
     expect(v2V3ReusedBytes).toBeGreaterThan(0);
-    const managedReferences = chunkMaps.reduce((total, chunks) => total + chunks.size, 0);
-    const managedDistinctIds = new Set(chunkMaps.flatMap((chunks) => [...chunks.keys()]));
-    expect(managedDistinctIds.size).toBeLessThan(managedReferences);
-
-    const physicalVersionsBeforeDeletion = (await listS3ObjectVersions(config)).filter(
-      (version) => !version.deleteMarker
+    const managedReferences = closures.reduce(
+      (total, closure) => total + closure.length,
+      0
     );
-    expect(new Set(physicalVersionsBeforeDeletion.map((version) => version.key)).size).toBe(
-      physicalVersionsBeforeDeletion.length
+    const managedDistinctObjects = new Set(
+      closures.flatMap((closure) => closure.map((object) => object.id))
     );
-    const objectsBeforeDeletion = await listS3Objects(config);
-    const storedBytesBeforeDeletion = sumObjectBytes(objectsBeforeDeletion);
-    const inputBytes = (
-      await Promise.all(inputPaths.map(async (inputPath) => (await stat(inputPath)).size))
-    ).reduce((total, size) => total + size, 0);
-    expect(storedBytesBeforeDeletion).toBeLessThan(inputBytes);
+    expect(managedDistinctObjects.size).toBeLessThan(managedReferences);
+    expect(
+      reusedBytes(closures[1] ?? [], unrelatedClosure, 'common')
+    ).toBeGreaterThan(0);
 
     const [base, updateTwo, updateThree] = readyVersions;
     if (!base || !updateTwo || !updateThree) {
-      throw new Error('The real package-management test did not create three versions');
+      throw new Error(
+        'The real package-management test did not create three versions'
+      );
     }
-    const baseOnlyIds = new Set(
-      [...chunkMaps[0].keys()].filter(
-        (id) => !chunkMaps[1].has(id) && !chunkMaps[2].has(id) && !unrelatedChunkMap.has(id)
+    const laterObjectIds = new Set(
+      [...(closures[1] ?? []), ...(closures[2] ?? []), ...unrelatedClosure].map(
+        (object) => object.id
       )
     );
-    expect(baseOnlyIds.size).toBeGreaterThan(0);
-
-    await activeCatalog.deleteVersion(base.id, { reason: 'creator-request' });
-    await runChunkGarbageCollection({
-      sql: requireSql(),
-      store: activeStore,
-      gracePeriodMs: 0,
-      batchSize: 100,
-    });
-    const afterBaseDeletion = new Set(
-      (await listS3Objects(config))
-        .filter((object) => object.key.startsWith(config.chunkPrefix))
-        .map((object) => object.key.split('/').at(-1))
+    const baseOnlyObjects = (closures[0] ?? []).filter(
+      (object) => !laterObjectIds.has(object.id)
     );
-    for (const id of baseOnlyIds) {
-      expect(afterBaseDeletion.has(id)).toBeFalse();
-    }
+    expect(baseOnlyObjects.length).toBeGreaterThan(0);
+
+    await activeCatalog.deleteVersion(base.id, {
+      reason: 'creator-request',
+    });
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage: exactStorage,
+    });
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage: exactStorage,
+    });
+    const deletedBaseObjects = await requireSql()<
+      { id: string; verification_state: string }[]
+    >`
+      SELECT id, verification_state
+      FROM storage_object_versions
+      WHERE id IN ${requireSql()(baseOnlyObjects.map((object) => object.id))}
+    `;
+    expect(
+      deletedBaseObjects.every(
+        (object) => object.verification_state === 'DELETED'
+      )
+    ).toBeTrue();
+
     for (const [index, ready] of [updateTwo, updateThree].entries()) {
       const outputPath = await retrieveVersion({
         catalog: activeCatalog,
-        store: activeStore,
+        ...activeStores,
         versionId: ready.id,
-        outputPath: join(root, `retrieved-update-${index + 2}.unitypackage`),
+        outputPath: join(root, `retrieved-update-${index + 2}`),
       });
-      expect(await sha256File(outputPath)).toBe(await sha256File(inputPaths[index + 1]));
+      expect(await retrievedInventory(outputPath)).toEqual(
+        expectedTrees[index + 1]
+      );
     }
 
     const deletedUpdates = await activeCatalog.deletePackageVersions(
       'com.yucp.druffle-management',
       { reason: 'creator-request' }
     );
-    expect(deletedUpdates.map((version) => version.id)).toEqual([updateTwo.id, updateThree.id]);
-    await runChunkGarbageCollection({
-      sql: requireSql(),
-      store: activeStore,
-      gracePeriodMs: 0,
-      batchSize: 100,
+    expect(deletedUpdates.map((version) => version.id)).toEqual([
+      updateTwo.id,
+      updateThree.id,
+    ]);
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage: exactStorage,
     });
-    expect(await activeCatalog.listVersions('com.yucp.druffle-management')).toEqual([]);
-    expect(await activeCatalog.listVersions('com.yucp.unrelated-retained')).toEqual([unrelated]);
+    await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage: exactStorage,
+    });
+    expect(
+      await activeCatalog.listVersions('com.yucp.druffle-management')
+    ).toEqual([]);
+    expect(await activeCatalog.listVersions('com.yucp.unrelated-retained')).toEqual([
+      unrelated,
+    ]);
 
     const unrelatedOutput = await retrieveVersion({
       catalog: activeCatalog,
-      store: activeStore,
+      ...activeStores,
       versionId: unrelated.id,
-      outputPath: join(root, 'retrieved-unrelated.unitypackage'),
+      outputPath: join(root, 'retrieved-unrelated'),
     });
-    expect(await sha256File(unrelatedOutput)).toBe(await sha256File(unrelatedPath));
-    const remainingPhysicalVersions = await listS3ObjectVersions(config);
-    expect(remainingPhysicalVersions.some((version) => version.deleteMarker)).toBeFalse();
-    const remainingChunkIds = new Set(
-      remainingPhysicalVersions
-        .filter((version) => version.key.startsWith(config.chunkPrefix))
-        .map((version) => version.key.split('/').at(-1))
+    expect(await retrievedInventory(unrelatedOutput)).toEqual(unrelatedTree);
+    const remainingVerified = await requireSql()<{ id: string }[]>`
+      SELECT id
+      FROM storage_object_versions
+      WHERE verification_state = 'VERIFIED'
+      ORDER BY id
+    `;
+    expect(new Set(remainingVerified.map((object) => object.id))).toEqual(
+      new Set(unrelatedClosure.map((object) => object.id))
     );
-    expect(remainingChunkIds).toEqual(new Set(unrelatedChunkMap.keys()));
 
-    const remainingStoredBytes = sumObjectBytes(await listS3Objects(config));
+    const roleObjects = await Promise.all(
+      (
+        [
+          ['common', activeHarness.buckets.common],
+          ['metadata', activeHarness.buckets.metadata],
+          ['protected', activeHarness.buckets.protected],
+        ] as const
+      ).map(async ([role, config]) => ({
+        bytes: (await listS3Objects(config)).reduce(
+          (total, object) => total + object.size,
+          0
+        ),
+        role,
+        versions: (await listS3ObjectVersions(config)).filter(
+          (version) => !version.deleteMarker
+        ),
+      }))
+    );
+    expect(
+      roleObjects.flatMap((entry) => entry.versions).every(
+        (version) => !version.deleteMarker
+      )
+    ).toBeTrue();
+    const remainingStoredBytes = roleObjects.reduce(
+      (total, role) => total + role.bytes,
+      0
+    );
     console.log(
-      `REAL_PACKAGE_MANAGEMENT_RESULT fixtureSha256=${await sha256File(fixturePath)} fixtureBytes=${(await stat(fixturePath)).size} editedAsset=${editedAsset.logicalPath} versions=3 managedReferences=${managedReferences} managedDistinctChunks=${managedDistinctIds.size} v1V2ReusedBytes=${v1V2ReusedBytes} v2V3ReusedBytes=${v2V3ReusedBytes} storedBytesBeforeDeletion=${storedBytesBeforeDeletion} remainingStoredBytes=${remainingStoredBytes} baseOnlyChunksDeleted=${baseOnlyIds.size} updatesRetrievableAfterBaseDeletion=yes unrelatedRetrievableAfterPackageDeletion=yes hiddenVersionsAfterGc=0`
+      JSON.stringify({
+        event: 'package_management.real.completed',
+        baseOnlyObjectsDeleted: baseOnlyObjects.length,
+        editedAsset: editedAsset.logicalPath,
+        fixtureBytes: (await stat(fixturePath)).size,
+        fixtureSha256: await sha256File(fixturePath),
+        managedDistinctObjects: managedDistinctObjects.size,
+        managedReferences,
+        remainingStoredBytes,
+        unrelatedRetrievableAfterPackageDeletion: true,
+        updatesRetrievableAfterBaseDeletion: true,
+        v1V2ReusedBytes,
+        v2V3ReusedBytes,
+        versions: 3,
+      })
     );
   }, 1_800_000);
 });

@@ -17,6 +17,16 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
     secret: process.env.BETTER_AUTH_SECRET ?? 'MISSING_BETTER_AUTH_SECRET_CONFIGURE_CONVEX_ENV',
     baseURL: 'https://example.com',
     database: {} as never,
+    user: {
+      additionalFields: {
+        userId: {
+          type: 'string',
+          required: false,
+          input: false,
+          returned: false,
+        },
+      },
+    },
     plugins: [
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,

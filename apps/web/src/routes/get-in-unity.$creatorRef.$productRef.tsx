@@ -77,7 +77,6 @@ function BuyerUnityAccessPage() {
 
   const hasAccess = accessState.hasActiveEntitlement;
   const returnedVerified = Boolean(search.grant && search.intent_id && hasAccess);
-  const downloadPath = `/api/access/${encodeURIComponent(product.catalogProductId)}/download`;
 
   return (
     <div className="min-h-screen bg-transparent dark:bg-transparent">
@@ -98,7 +97,8 @@ function BuyerUnityAccessPage() {
                     {product.displayName}
                   </h1>
                   <p className="mx-auto max-w-2xl text-sm text-slate-600 dark:text-foreground/70">
-                    Add your private repository to VCC, or download the current package directly.
+                    Add your private repository to VCC. The importer retrieves protected package
+                    data.
                   </p>
                 </div>
 
@@ -116,7 +116,7 @@ function BuyerUnityAccessPage() {
                       Access
                     </p>
                     <p className="text-sm text-slate-950 dark:text-foreground">
-                      Private VPM repository and signed download
+                      Private VPM repository and authenticated importer delivery
                     </p>
                   </div>
                 </div>
@@ -135,10 +135,6 @@ function BuyerUnityAccessPage() {
                     <Icon name="externalLink" className="size-4" aria-hidden="true" />
                     {repositoryQuery.isPending ? 'Preparing VCC access...' : 'Add to VCC'}
                   </YucpButton>
-                  <a className="vp-primary-btn" href={downloadPath}>
-                    <Icon name="download" className="size-4" aria-hidden="true" />
-                    Download
-                  </a>
                   {repositoryQuery.data ? (
                     <YucpButton
                       yucp="ghost"

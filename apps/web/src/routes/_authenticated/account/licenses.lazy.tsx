@@ -71,7 +71,7 @@ function EntitlementRow({
           {iconPath ? (
             <img src={iconPath} alt="" width={24} height={24} />
           ) : (
-            <Icon name="license" />
+            <Icon name="userKey" />
           )}
         </div>
 
@@ -205,7 +205,7 @@ function AccountLicenses() {
 
         {!licensesQuery.isLoading && !licensesQuery.isError && allEntitlements.length === 0 ? (
           <AccountEmptyState
-            icon={<Icon name="license" />}
+            icon={<Icon name="userKey" />}
             title="No verified purchases yet"
             description={
               <>

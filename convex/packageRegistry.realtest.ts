@@ -7,6 +7,23 @@ import { makeTestConvex } from './testHelpers';
 process.env.CONVEX_API_SECRET = 'test-secret';
 process.env.INTERNAL_SERVICE_AUTH_SECRET = 'test-internal-service-secret';
 
+function readyPublicationFields() {
+  return {
+    activeContentDigest: '11'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    bindingRoot: '22'.repeat(32),
+    commonRoot: '33'.repeat(32),
+    logicalBytes: 1,
+    logicalFiles: 1,
+    manifestSha256: '44'.repeat(32),
+    protectedFiles: [],
+    protectedSourceRoot: '55'.repeat(32),
+    protectionPolicyDigest: '66'.repeat(32),
+    protectionPolicyId: 'common-only-v1',
+    releaseRoot: '77'.repeat(32),
+  };
+}
+
 async function createServiceActorBinding(scopes: readonly string[]) {
   const now = Date.now();
   return await createApiActorBinding(
@@ -127,6 +144,7 @@ describe('packageRegistry', () => {
         updatedAt: now,
       });
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.bound-package',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000111',
@@ -169,6 +187,7 @@ describe('packageRegistry', () => {
         updatedAt: now,
       });
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.package-history',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000099',
@@ -211,6 +230,7 @@ describe('packageRegistry', () => {
           updatedAt: now,
         });
         await ctx.db.insert('package_versions_ref', {
+          ...readyPublicationFields(),
           packageId: `com.yucp.${productId}`,
           version: '1.0.0',
           versionId: crypto.randomUUID(),
@@ -278,6 +298,7 @@ describe('packageRegistry', () => {
         const firstConfigured = await insertProduct('configured-product-1', 'configured-ref-1');
         const secondConfigured = await insertProduct('configured-product-2', 'configured-ref-2');
         await ctx.db.insert('package_versions_ref', {
+          ...readyPublicationFields(),
           packageId: 'com.yucp.configured-one',
           version: '1.0.0',
           versionId: '00000000-0000-4000-8000-000000000011',
@@ -286,6 +307,7 @@ describe('packageRegistry', () => {
           createdAt: now,
         });
         await ctx.db.insert('package_versions_ref', {
+          ...readyPublicationFields(),
           packageId: 'com.yucp.configured-two',
           version: '1.0.0',
           versionId: '00000000-0000-4000-8000-000000000012',
@@ -443,6 +465,7 @@ describe('packageRegistry', () => {
         updatedAt: now,
       });
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.bound-package',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000001',
@@ -461,37 +484,6 @@ describe('packageRegistry', () => {
     });
 
     expect(product?.packageId).toBe('com.yucp.bound-package');
-  });
-
-  it('resolves a product-level entitlement through its provider-neutral catalog identity', async () => {
-    const t = makeTestConvex();
-    const catalogProductId = await t.run(async (ctx) => {
-      const now = Date.now();
-      return await ctx.db.insert('product_catalog', {
-        authUserId: 'auth-user-legacy-entitlement',
-        productId: 'legacy-jammr-product',
-        provider: 'jinxxy',
-        providerProductRef: 'legacy-jammr-product',
-        displayName: 'JAMMR',
-        status: 'active',
-        supportsAutoDiscovery: true,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-
-    const product = await t.query(
-      api.packageRegistry.getBuyerAccessContextByEntitlement,
-      {
-        apiSecret: 'test-secret',
-        actor: await createServiceActorBinding(['verification-intents:service']),
-        productId: 'legacy-jammr-product',
-        sourceProvider: 'jinxxy',
-      }
-    );
-
-    expect(product?.catalogProductId).toBe(catalogProductId);
-    expect(product?.productId).toBe('legacy-jammr-product');
   });
 
   it('resolves one logical product across matching creator storefronts', async () => {
@@ -518,6 +510,7 @@ describe('packageRegistry', () => {
       const gumroad = await insertProduct('gumroad', 'jammr-gumroad', 'gumroad-jammr');
       const jinxxy = await insertProduct('jinxxy', 'jammr-jinxxy', 'jinxxy-jammr');
       await ctx.db.insert('package_versions_ref', {
+        ...readyPublicationFields(),
         packageId: 'com.yucp.jammr',
         version: '1.0.0',
         versionId: '00000000-0000-4000-8000-000000000201',

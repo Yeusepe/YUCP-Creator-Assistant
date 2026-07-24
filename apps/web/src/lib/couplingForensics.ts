@@ -10,6 +10,8 @@ export interface CouplingForensicsPackageSummary {
 export interface CouplingForensicsMatchSummary {
   matchId: string;
   buyerMatchId?: string | null;
+  attributionId?: string | null;
+  buyerSubjectPseudonym?: string | null;
   assetPath: string;
   createdAt: number;
   runtimeArtifactVersion?: string | null;
@@ -29,9 +31,13 @@ export interface CouplingForensicsAssetResult {
   assetPath: string;
   assetType: 'png' | 'fbx';
   decoderKind: string;
-  tokenLength: number;
   matched: boolean;
-  classification: 'attributed' | 'hostile_unknown';
+  layerBClassification:
+    | 'trace-recovered'
+    | 'tamper-suspected'
+    | 'trace-likely-stripped'
+    | 'unsupported-transform'
+    | 'no-signal-found';
   matches: CouplingForensicsMatchSummary[];
 }
 

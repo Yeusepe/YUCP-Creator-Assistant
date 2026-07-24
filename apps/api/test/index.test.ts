@@ -76,9 +76,10 @@ describe('API server, production app harness', () => {
 
   afterAll(() => app.dispose());
 
-  it('boots and serves health with optional delivery and VPM variables unset', async () => {
-    expect(process.env.DELIVERY_HMAC_KEY).toBeUndefined();
-    expect(process.env.DELIVERY_BASE_URL).toBeUndefined();
+  it('boots and serves health with optional package install and VPM variables unset', async () => {
+    expect(process.env.PACKAGE_DELIVERY_AUDIENCE).toBeUndefined();
+    expect(process.env.PACKAGE_INSTALL_SIGNING_KEY_ID).toBeUndefined();
+    expect(process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY).toBeUndefined();
     expect(process.env.VPM_BASE_URL).toBeUndefined();
     expect(process.env.VPM_PUBLIC_INDEX_URL).toBeUndefined();
     expect(process.env.VPM_TOKEN_KEY).toBeUndefined();
@@ -149,13 +150,15 @@ describe('API server, production app harness', () => {
     expect(body.paths).toHaveProperty('/verification/check');
   });
 
-  it('mounts the buyer download route through the API dispatcher', async () => {
-    const response = await app.fetch('/api/access/catalog-product-123/download', {
+  it('mounts the signed package install session route through the API dispatcher', async () => {
+    const response = await app.fetch('/api/v2/package-installs/sessions', {
       method: 'POST',
     });
 
-    expect(response.status).toBe(405);
-    await expect(response.json()).resolves.toEqual({ error: 'Method not allowed' });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'Package install sessions are not configured',
+    });
   });
 
   it('keeps every migrated page route on its prior frontend redirect', async () => {

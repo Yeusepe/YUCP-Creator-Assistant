@@ -37,7 +37,6 @@ interface ConnectApiAccessRoutesOptions {
 async function createManagedPublicApiKey(
   config: ConnectConfig,
   logger: StructuredLogger,
-  ownerUserId: string,
   input: {
     name: string;
     scopes: string[];
@@ -52,7 +51,6 @@ async function createManagedPublicApiKey(
   try {
     const result = (await convex.mutation(api.betterAuthApiKeys.createApiKey, {
       apiSecret: config.convexApiSecret,
-      userId: ownerUserId,
       authUserId: input.authUserId,
       name: input.name,
       scopes: input.scopes,
@@ -92,7 +90,6 @@ async function createManagedPublicApiKey(
   } catch (error) {
     logger.error('Create API key via Convex failed', {
       authUserId: input.authUserId,
-      userId: ownerUserId,
       error: error instanceof Error ? error.message : String(error),
     });
     return {
@@ -114,7 +111,7 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
 
     try {
       const convex = getConvexClientFromUrl(config.convexUrl);
-      let data = (await convex.query(api.betterAuthApiKeys.listApiKeysForAuthUser, {
+      const data = (await convex.query(api.betterAuthApiKeys.listApiKeysForAuthUser, {
         apiSecret: config.convexApiSecret,
         authUserId: required.session.user.id === authUserId ? required.session.user.id : authUserId,
       })) as Array<{
@@ -128,20 +125,6 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
         expiresAt: number | null;
         createdAt: number | null;
       }>;
-
-      if (data.length === 0 && authUserId) {
-        const backfill = (await convex.mutation(api.betterAuthApiKeys.backfillApiKeyReferenceIds, {
-          apiSecret: config.convexApiSecret,
-          ownerUserId: required.session.user.id,
-          authUserId,
-        })) as { updatedCount: number };
-        if (backfill.updatedCount > 0) {
-          data = (await convex.query(api.betterAuthApiKeys.listApiKeysForAuthUser, {
-            apiSecret: config.convexApiSecret,
-            authUserId,
-          })) as typeof data;
-        }
-      }
 
       const keys = data
         .map((key) => ({
@@ -199,17 +182,12 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
         typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
           ? body.expiresAt
           : undefined;
-      const { response, data } = await createManagedPublicApiKey(
-        config,
-        logger,
-        required.session.user.id,
-        {
-          name,
-          scopes,
-          authUserId,
-          expiresAt,
-        }
-      );
+      const { response, data } = await createManagedPublicApiKey(config, logger, {
+        name,
+        scopes,
+        authUserId,
+        expiresAt,
+      });
 
       if (!response.ok || !data?.id || !data.key) {
         logger.warn('Create API key rejected by Better Auth', {
@@ -691,7 +669,7 @@ export function createConnectApiAccessRoutes(options: ConnectApiAccessRoutesOpti
           : typeof body.expiresAt === 'number' && Number.isFinite(body.expiresAt)
             ? body.expiresAt
             : toTimestamp(existing.expiresAt);
-      const created = await createManagedPublicApiKey(config, logger, required.session.user.id, {
+      const created = await createManagedPublicApiKey(config, logger, {
         name: nextName,
         scopes,
         authUserId,

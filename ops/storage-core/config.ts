@@ -8,10 +8,31 @@ const REQUIRED_CAS_KEYS = [
   'CAS_S3_SECRET_ACCESS_KEY',
 ] as const;
 
+export const STORAGE_ROLE_PREFIXES = {
+  common: 'COMMON',
+  metadata: 'METADATA',
+  protected: 'PROTECTED',
+  quarantine: 'QUARANTINE',
+} as const;
+
+type StorageRolePrefix = (typeof STORAGE_ROLE_PREFIXES)[keyof typeof STORAGE_ROLE_PREFIXES];
+
+function roleRequiredKeys(prefix: StorageRolePrefix): string[] {
+  return [
+    `${prefix}_S3_ENDPOINT`,
+    `${prefix}_S3_REGION`,
+    `${prefix}_S3_BUCKET`,
+    `${prefix}_S3_ACCESS_KEY_ID`,
+    `${prefix}_S3_SECRET_ACCESS_KEY`,
+  ];
+}
+
+const REQUIRED_STORAGE_ROLE_KEYS = Object.values(STORAGE_ROLE_PREFIXES).flatMap(roleRequiredKeys);
+
 const REQUIRED_INGEST_KEYS = [
   'UPLOAD_HMAC_KEY',
   'CATALOG_DATABASE_URL',
-  ...REQUIRED_CAS_KEYS,
+  ...REQUIRED_STORAGE_ROLE_KEYS,
   'INGEST_UPLOAD_DIR',
   'INGEST_MAX_BYTES',
 ] as const;
@@ -19,13 +40,13 @@ const REQUIRED_INGEST_KEYS = [
 const REQUIRED_INGEST_INFISICAL_KEYS = [
   'UPLOAD_HMAC_KEY',
   'CATALOG_DATABASE_URL',
-  ...REQUIRED_CAS_KEYS,
+  ...REQUIRED_STORAGE_ROLE_KEYS,
 ] as const;
 
 const DISPOSABLE_STORAGE_OVERRIDE_KEYS = new Set([
   'UPLOAD_HMAC_KEY',
   'CATALOG_DATABASE_URL',
-  ...REQUIRED_CAS_KEYS,
+  ...REQUIRED_STORAGE_ROLE_KEYS,
   'INGEST_UPLOAD_DIR',
   'INGEST_MAX_BYTES',
   'INGEST_ALLOWED_ORIGIN',
@@ -57,7 +78,10 @@ export type IngestRuntimeEnv = {
   ingestUploadDir: string;
   ingestMaxBytes: number;
   ingestAllowedOrigin?: string;
-  cas: CasConfig;
+  common: CasConfig;
+  metadata: CasConfig;
+  protected: CasConfig;
+  quarantine: CasConfig;
 };
 
 function normalizeOptional(value: string | undefined): string | undefined {
@@ -66,6 +90,14 @@ function normalizeOptional(value: string | undefined): string | undefined {
 }
 
 function requireValue(env: NodeJS.ProcessEnv, key: (typeof REQUIRED_INGEST_KEYS)[number]): string {
+  const value = normalizeOptional(env[key]);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
+function requiredString(env: NodeJS.ProcessEnv, key: string): string {
   const value = normalizeOptional(env[key]);
   if (!value) {
     throw new Error(`Missing required environment variable: ${key}`);
@@ -226,6 +258,23 @@ export function loadCasConfig(env: NodeJS.ProcessEnv = process.env): CasConfig {
   };
 }
 
+export function loadStorageRoleConfig(
+  env: NodeJS.ProcessEnv,
+  prefix: StorageRolePrefix
+): CasConfig {
+  const mapped: NodeJS.ProcessEnv = {
+    CAS_S3_ACCESS_KEY_ID: requiredString(env, `${prefix}_S3_ACCESS_KEY_ID`),
+    CAS_S3_BUCKET: requiredString(env, `${prefix}_S3_BUCKET`),
+    CAS_S3_ENDPOINT: requiredString(env, `${prefix}_S3_ENDPOINT`),
+    CAS_S3_REGION: requiredString(env, `${prefix}_S3_REGION`),
+    CAS_S3_SECRET_ACCESS_KEY: requiredString(env, `${prefix}_S3_SECRET_ACCESS_KEY`),
+    CAS_S3_REQUEST_TIMEOUT_MS: env[`${prefix}_S3_REQUEST_TIMEOUT_MS`],
+    CAS_CHUNK_PREFIX: env[`${prefix}_CHUNK_PREFIX`] ?? 'chunks/',
+    CAS_INDEX_PREFIX: env[`${prefix}_INDEX_PREFIX`] ?? 'indexes/',
+  };
+  return loadCasConfig(mapped);
+}
+
 /**
  * Hydrate the ingest runtime from Infisical when a complete machine-identity bootstrap is present,
  * then validate the whole local runtime contract. Secret values are never logged or included in
@@ -257,6 +306,9 @@ export async function loadIngestRuntimeEnv(
     ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,
     ingestAllowedOrigin: normalizeOptional(runtimeEnv.INGEST_ALLOWED_ORIGIN),
-    cas: loadCasConfig(runtimeEnv),
+    common: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.common),
+    metadata: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.metadata),
+    protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
+    quarantine: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.quarantine),
   };
 }

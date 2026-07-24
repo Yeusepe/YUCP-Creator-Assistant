@@ -5,5 +5,12 @@
     "noEmit": true,
     "types": ["node", "bun"]
   },
-  "include": ["./deliveryWorker.e2e.test.ts", "./testDevServer.ts", "../../ops/testing/**/*.ts"]
+  "include": [
+    "./worker-test-runtime.d.ts",
+    "./deliveryWorker.test.ts",
+    "./deliveryWorker.e2e.test.ts",
+    "./testDevServer.ts",
+    "./src/**/*.ts",
+    "../../ops/testing/**/*.ts"
+  ]
 }

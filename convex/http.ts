@@ -79,11 +79,8 @@ import {
   getBetterAuthPage,
 } from './lib/betterAuthAdapter';
 import { isSigningRequestTimestampFresh, verifySigningProof } from './lib/certificateSigning';
-import { deriveCouplingRuntimeEnvelopeKeyBytes } from './lib/couplingRuntimeEnvelope';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import { type PublicProductRecord } from './lib/publicProducts';
-import { RELEASE_CHANNELS, RELEASE_PLATFORMS } from './lib/releaseArtifactKeys';
-import { decryptArtifactEnvelope, sha256HexBytes } from './lib/releaseArtifactEnvelope';
 import { constantTimeEqual } from './lib/vrchat/crypto';
 import {
   base64ToBytes,
@@ -96,7 +93,6 @@ import {
   signPackageCertificateData,
   signYucpTrustBundleJwt,
   verifyCertEnvelopeAgainstPinnedRoots,
-  verifyCouplingRuntimeJwtAgainstPinnedRoots,
 } from './lib/yucpCrypto';
 import { handleOAuthAuthorizationServerMetadata } from './oauthDiscovery';
 import './polyfills';
@@ -125,9 +121,6 @@ async function sha256HexHttp(input: string): Promise<string> {
     .join('');
 }
 
-const PROTECTED_ASSET_ID_RE = /^[a-f0-9]{32}$/;
-const PROJECT_ID_RE = /^[a-f0-9]{32}$/;
-const MAX_PROTECTED_ASSETS_PER_REQUEST = 100;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const JSON_SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
@@ -431,17 +424,15 @@ async function buildManifestCertificateChain(
 }
 
 /**
- * Verify a YUCP OAuth Bearer access token and return the authenticated user ID
- * plus any profile claims embedded in the token (name, email).
+ * Verify a YUCP OAuth resource request and return the authenticated user ID.
  *
- * The token is a JWT issued by Better Auth's oauth-provider plugin.
- * Profile claims (name, email) are embedded via customAccessTokenClaims so
- * that callers never need a secondary DB lookup, the token is the source of truth.
+ * The verifier validates bearer tokens and complete DPoP request bindings.
  *
- * Reference: https://www.rfc-editor.org/rfc/rfc9700.html (OAuth 2.0 Security BCP)
+ * Better Auth reference:
+ * https://better-auth.com/docs/beta/plugins/oauth-provider#verification
  */
-async function verifyOAuthToken(
-  token: string,
+async function verifyOAuthRequest(
+  request: Request,
   siteUrl: string,
   requiredScope: string
 ): Promise<
@@ -449,34 +440,23 @@ async function verifyOAuthToken(
   | { ok: false; error: string }
 > {
   try {
-    const { verifyAccessToken } = await import('better-auth/oauth2');
+    const { requestToResourceInput, verifyAccessTokenRequest } =
+      await import('better-auth/oauth2');
     const authBase = `${siteUrl.replace(/\/$/, '')}/api/auth`;
 
-    // Detect token type for diagnostics: JWTs are 3 dot-separated base64 segments
-    const _isJwtShape = (token.match(/\./g) ?? []).length === 2;
-
-    const verified = await verifyAccessToken(token, {
+    const verified = await verifyAccessTokenRequest(requestToResourceInput(request), {
       verifyOptions: {
         issuer: authBase,
         audience: 'yucp-public-api',
       },
       jwksUrl: `${authBase}/jwks`,
+      scopes: [requiredScope],
     });
 
-    // Require the exact scope this endpoint needs
     const claims = verified as Record<string, unknown>;
-    const scope: string = (claims.scope as string) ?? '';
-    const scopes = scope.split(' ');
-    if (!scopes.includes(requiredScope)) {
-      return { ok: false, error: `Token missing required scope: ${requiredScope}` };
-    }
-
-    // Better Auth puts the user ID in auth_user_id (custom claim) and sub
     const userId = (claims.auth_user_id as string) ?? (claims.sub as string);
     if (!userId) return { ok: false, error: 'No user identity in token' };
 
-    // Read stable profile claims embedded by customAccessTokenClaims on the server.
-    // This avoids a DB lookup, the JWT is the source of truth for name/email.
     const name = (claims.name as string) ?? null;
     const email = (claims.email as string) ?? null;
 
@@ -650,14 +630,10 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
     // /v1/me is an identity endpoint, any valid token (any scope) should
     // identify the caller. Use the minimum scope so narrowly-scoped tokens
     // (e.g. verification:read only) can still introspect their own identity.
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'me-read', {
       limit: 120,
@@ -700,12 +676,8 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
     const authStart = performance.now();
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'products:read');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'products:read');
     const authDuration = performance.now() - authStart;
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'products-list', {
@@ -752,13 +724,13 @@ http.route({
       const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
         model: 'account',
         where: buildBetterAuthUserProviderLookupWhere(tokenResult.yucpUserId, 'discord'),
-        select: ['accountId'],
-      })) as { accountId?: string } | null;
+        select: ['providerAccountId'],
+      })) as { providerAccountId?: string } | null;
 
-      if (discordAccount?.accountId) {
+      if (discordAccount?.providerAccountId) {
         const collabConnections = await ctx.runQuery(
           internal.collaboratorInvites.getActiveByCollaboratorDiscord,
-          { collaboratorDiscordUserId: discordAccount.accountId }
+          { collaboratorDiscordUserId: discordAccount.providerAccountId }
         );
 
         for (const conn of collabConnections) {
@@ -900,11 +872,7 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     const devPublicKey = request.headers.get('X-Dev-Public-Key');
@@ -950,11 +918,7 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const rateLimitResponse = await applyHttpRateLimit(ctx, request, 'certificate-devices', {
       limit: 60,
@@ -982,12 +946,7 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    // Verify YUCP OAuth access token (issued via PKCE flow from Unity Editor)
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
     const { yucpUserId } = tokenResult;
     const actor = await createServiceActorBinding({
@@ -1219,15 +1178,6 @@ http.route({
       requestNonce?: string;
       requestTimestamp?: number;
       requestSignature?: string;
-      protectedAssets?: Array<{
-        protectedAssetId: string;
-        unlockMode: 'wrapped_content_key' | 'content_key_b64';
-        wrappedContentKey?: string;
-        contentKeyBase64?: string;
-        contentHash?: string;
-        manifestBindingSha256?: string;
-        displayName?: string;
-      }>;
     };
     try {
       body = (await request.json()) as typeof body;
@@ -1288,38 +1238,6 @@ http.route({
       return errorResponse('Signing proof nonce has already been used', 409);
     }
 
-    if (body.protectedAssets && body.protectedAssets.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      return errorResponse(
-        `Maximum of ${MAX_PROTECTED_ASSETS_PER_REQUEST} protected assets per request`,
-        400
-      );
-    }
-
-    if (body.protectedAssets && body.protectedAssets.length > 0) {
-      for (const asset of body.protectedAssets) {
-        if (!PROTECTED_ASSET_ID_RE.test(asset.protectedAssetId)) {
-          return errorResponse('Invalid protectedAssetId format', 400);
-        }
-        if (asset.unlockMode === 'wrapped_content_key') {
-          if (!asset.wrappedContentKey) {
-            return errorResponse('wrappedContentKey is required for wrapped protected assets', 400);
-          }
-        } else if (asset.unlockMode === 'content_key_b64') {
-          if (!asset.contentKeyBase64) {
-            return errorResponse('contentKeyBase64 is required for blob protected assets', 400);
-          }
-        } else {
-          return errorResponse('Invalid protected asset unlockMode', 400);
-        }
-        if (asset.contentHash && !/^[0-9a-f]{64}$/.test(asset.contentHash)) {
-          return errorResponse('Invalid protected asset contentHash format', 400);
-        }
-        if (asset.manifestBindingSha256 && !/^[0-9a-f]{64}$/.test(asset.manifestBindingSha256)) {
-          return errorResponse('Invalid protected asset manifestBindingSha256 format', 400);
-        }
-      }
-    }
-
     // Layer 1: enforce package namespace ownership
     const regResult = await ctx.runMutation(internal.packageRegistry.registerPackage, {
       packageId: body.packageId,
@@ -1365,18 +1283,6 @@ http.route({
         },
         409
       );
-    }
-
-    if (body.protectedAssets && body.protectedAssets.length > 0) {
-      await ctx.runMutation(internal.yucpLicenses.upsertProtectedAssets, {
-        packageId: body.packageId,
-        contentHash: body.contentHash,
-        packageVersion: body.packageVersion,
-        publisherId,
-        yucpUserId,
-        certNonce: envelope.cert.nonce,
-        protectedAssets: body.protectedAssets,
-      });
     }
 
     if (certificateEntitlements.workspaceKey) {
@@ -1446,11 +1352,7 @@ http.route({
     const siteUrl = process.env.CONVEX_SITE_URL;
     if (!siteUrl) return errorResponse('Service not configured', 503);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <access_token> required', 401);
-
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'cert:issue');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'cert:issue');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     let body: { certNonce: string; reason?: string };
@@ -1586,11 +1488,7 @@ http.route({
     if (!siteUrl || !publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
     const publicAuthIssuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
 
-    const authHeader = request.headers.get('Authorization');
-    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token) return errorResponse('Authorization: Bearer <oauth_access_token> required', 401);
-
-    const tokenResult = await verifyOAuthToken(token, siteUrl, 'verification:read');
+    const tokenResult = await verifyOAuthRequest(request, siteUrl, 'verification:read');
     if (!tokenResult.ok) return errorResponse(tokenResult.error, 401);
 
     let body: {
@@ -1633,16 +1531,16 @@ http.route({
     const discordAccount = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
       model: 'account',
       where: buildBetterAuthUserProviderLookupWhere(tokenResult.yucpUserId, 'discord'),
-      select: ['accountId'],
-    })) as { accountId?: string } | null;
+      select: ['providerAccountId'],
+    })) as { providerAccountId?: string } | null;
 
-    if (!discordAccount?.accountId) {
+    if (!discordAccount?.providerAccountId) {
       return errorResponse('No Discord account linked. Sign in with Discord via YUCP first.', 403);
     }
 
     // Find subject record by their Discord user ID
     const subject = await ctx.runQuery(internal.yucpLicenses.getSubjectByDiscordUser, {
-      discordUserId: discordAccount.accountId,
+      discordUserId: discordAccount.providerAccountId,
     });
     if (!subject) {
       return errorResponse(
@@ -1692,7 +1590,7 @@ http.route({
     const claims: LicenseClaims = {
       iss: publicAuthIssuer,
       aud: 'yucp-license-gate',
-      sub: await sha256HexHttp(discordAccount.accountId),
+      sub: await sha256HexHttp(discordAccount.providerAccountId),
       jti: nonce,
       package_id: packageId,
       machine_fingerprint: machineFingerprint,
@@ -1712,62 +1610,6 @@ http.route({
     );
 
     return jsonResponse({ success: true, token: licenseToken, expiresAt: exp });
-  }),
-});
-
-http.route({
-  method: 'POST',
-  path: '/v1/licenses/unlock-protected',
-  handler: httpAction(async (ctx, request) => {
-    let body: {
-      packageId: string;
-      protectedAssetId: string;
-      projectId: string;
-      machineFingerprint: string;
-      licenseToken: string;
-    };
-
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return errorResponse('Invalid JSON body', 400);
-    }
-
-    const { packageId, protectedAssetId, projectId, machineFingerprint, licenseToken } = body ?? {};
-    if (!packageId || !protectedAssetId || !projectId || !machineFingerprint || !licenseToken) {
-      return errorResponse(
-        'packageId, protectedAssetId, projectId, machineFingerprint, and licenseToken are required',
-        400
-      );
-    }
-
-    if (!PROTECTED_ASSET_ID_RE.test(protectedAssetId)) {
-      return errorResponse('Invalid protectedAssetId format', 400);
-    }
-    if (!PROJECT_ID_RE.test(projectId)) {
-      return errorResponse('Invalid projectId format', 400);
-    }
-
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
-    const result = await ctx.runAction(internal.yucpLicenses.issueProtectedUnlock, {
-      packageId,
-      protectedAssetId,
-      machineFingerprint,
-      projectId,
-      licenseToken,
-      issuerBaseUrl: publicIssuerBaseUrl,
-    });
-
-    if (!result.success) {
-      return jsonResponse({ error: result.error }, 422);
-    }
-
-    return jsonResponse({
-      success: true,
-      unlockToken: result.unlockToken,
-      expiresAt: result.expiresAt,
-    });
   }),
 });
 
@@ -2340,173 +2182,6 @@ http.route({
       ...(parsed.appeal === undefined ? {} : { appeal: parsed.appeal }),
     });
     return jsonResponse({ success: true });
-  }),
-});
-
-// POST /v1/licenses/revoke-grant, revoke a protected materialization grant (admin/CONVEX_API_SECRET)
-// NOTE: revocation is forward-looking only. It cannot claw back already-materialized plaintext.
-http.route({
-  method: 'POST',
-  path: '/v1/licenses/revoke-grant',
-  handler: httpAction(async (ctx, request) => {
-    const apiSecret = process.env.CONVEX_API_SECRET;
-    const auth = request.headers.get('Authorization');
-    if (!apiSecret || !constantTimeEqual(auth ?? '', `Bearer ${apiSecret}`)) {
-      return errorResponse('Unauthorized', 401);
-    }
-
-    let body: { grantId: string; reason: string; revokedByUserId: string };
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return errorResponse('Invalid JSON body', 400);
-    }
-    if (!body?.grantId || !body?.reason || !body?.revokedByUserId) {
-      return errorResponse('grantId, reason, and revokedByUserId are required', 400);
-    }
-
-    const result = await ctx.runMutation(internal.yucpLicenses.revokeGrant, {
-      grantId: body.grantId,
-      reason: body.reason,
-      revokedByUserId: body.revokedByUserId,
-    });
-
-    if (!result.success) {
-      return jsonResponse({ error: result.error }, 422);
-    }
-
-    return jsonResponse({ success: true });
-  }),
-});
-
-// POST /v1/licenses/coupling-job — issue per-asset coupling tokens for an entitled VPM install
-// and record forensic traces. The client passes its machine-bound license token; the server
-// re-validates it. Returns empty files (skipReason) when no coupling-runtime artifact is active.
-http.route({
-  method: 'POST',
-  path: '/v1/licenses/coupling-job',
-  handler: httpAction(async (ctx, request) => {
-    let body: {
-      packageId: string;
-      projectId: string;
-      machineFingerprint: string;
-      licenseToken: string;
-      assetPaths: string[];
-    };
-    try {
-      body = (await request.json()) as typeof body;
-    } catch {
-      return errorResponse('Invalid JSON body', 400);
-    }
-
-    const { packageId, projectId, machineFingerprint, licenseToken, assetPaths } = body ?? {};
-    if (!packageId || !projectId || !machineFingerprint || !licenseToken) {
-      return errorResponse(
-        'packageId, projectId, machineFingerprint, and licenseToken are required',
-        400
-      );
-    }
-    if (!Array.isArray(assetPaths)) {
-      return errorResponse('assetPaths must be an array', 400);
-    }
-    if (assetPaths.length > MAX_PROTECTED_ASSETS_PER_REQUEST) {
-      return errorResponse('Too many coupling asset paths', 400);
-    }
-    if (!PROJECT_ID_RE.test(projectId)) {
-      return errorResponse('Invalid projectId format', 400);
-    }
-
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
-
-    const result = await ctx.runAction(internal.yucpLicenses.issueCouplingJob, {
-      packageId,
-      projectId,
-      machineFingerprint,
-      licenseToken,
-      assetPaths,
-      issuerBaseUrl: publicIssuerBaseUrl,
-    });
-
-    if (!result.success) {
-      return jsonResponse({ error: result.error }, 422);
-    }
-    return jsonResponse({
-      success: true,
-      runtimeToken: result.runtimeToken,
-      runtimeSha256: result.runtimeSha256,
-      expiresAt: result.expiresAt,
-      skipReason: result.skipReason,
-      files: result.files ?? [],
-    });
-  }),
-});
-
-// GET /v1/licenses/coupling-runtime?token=... — stream the decrypted coupling-runtime DLL.
-// The token is the short-lived runtime token minted by /v1/licenses/coupling-job. The stored
-// artifact is enveloped, so we decrypt server-side and return the runnable plaintext bytes.
-http.route({
-  method: 'GET',
-  path: '/v1/licenses/coupling-runtime',
-  handler: httpAction(async (ctx, request) => {
-    const token = new URL(request.url).searchParams.get('token');
-    if (!token) {
-      return errorResponse('token is required', 400);
-    }
-
-    const publicIssuerBaseUrl = resolveConfiguredPublicApiBaseUrl();
-    if (!publicIssuerBaseUrl) return errorResponse('Service not configured', 503);
-    const issuer = buildPublicAuthIssuer(publicIssuerBaseUrl);
-
-    const claims = await verifyCouplingRuntimeJwtAgainstPinnedRoots(token, issuer);
-    if (!claims) {
-      return errorResponse('Runtime token is invalid or expired', 401);
-    }
-
-    const artifact = await ctx.runQuery(
-      internal.releaseArtifacts.getActiveCouplingRuntimeForDownload,
-      { channel: RELEASE_CHANNELS.stable, platform: RELEASE_PLATFORMS.winX64 }
-    );
-    if (!artifact) {
-      return errorResponse('Coupling runtime is not available', 404);
-    }
-    // The token was minted for a specific artifact; refuse if it rotated under us so the
-    // client's runtimeSha256 check can't silently fail (it should re-request a coupling job).
-    if (artifact.plaintextSha256 !== claims.plaintext_sha256) {
-      return errorResponse('Coupling runtime changed; please retry', 409);
-    }
-
-    const ciphertextResponse = await fetch(artifact.downloadUrl);
-    if (!ciphertextResponse.ok) {
-      return errorResponse('Coupling runtime storage unavailable', 502);
-    }
-    const ciphertext = new Uint8Array(await ciphertextResponse.arrayBuffer());
-
-    const keyBytes = await deriveCouplingRuntimeEnvelopeKeyBytes({
-      artifactKey: artifact.artifactKey,
-      channel: artifact.channel,
-      platform: artifact.platform,
-      version: artifact.version,
-      plaintextSha256: artifact.plaintextSha256,
-    });
-    let plaintext: Uint8Array;
-    try {
-      plaintext = await decryptArtifactEnvelope(ciphertext, keyBytes, artifact.envelopeIvBase64);
-    } catch {
-      return errorResponse('Coupling runtime could not be decrypted', 500);
-    }
-    if ((await sha256HexBytes(plaintext)) !== artifact.plaintextSha256) {
-      return errorResponse('Coupling runtime integrity check failed', 500);
-    }
-
-    return new Response(plaintext.buffer as ArrayBuffer, {
-      status: 200,
-      headers: new Headers({
-        'Content-Type': 'application/octet-stream',
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff',
-      }),
-    });
   }),
 });
 

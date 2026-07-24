@@ -9,7 +9,7 @@ import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router
 import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './lib/cors';
-import { validateCouplingServiceBaseUrl } from './lib/couplingRuntimeConfig';
+import { validateCouplingServiceBaseUrl } from './lib/couplingServiceConfig';
 import { getRequired, loadEnv, loadEnvAsync } from './lib/env';
 import { applyResponseSecurityHeaders } from './lib/httpSecurity';
 import {
@@ -18,12 +18,16 @@ import {
   isLegacyFrontendAsset,
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
+import { loadMaterializationControlClient } from './lib/materializationControlClient';
+import { verifyBetterAuthAccessToken } from './lib/oauthAccessToken';
 import {
   annotateApiSpan,
   getActiveTraceIds,
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import { createConvexPackageInstallAccess } from './lib/packageInstallAccess';
+import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
@@ -47,7 +51,11 @@ import {
   type VerificationConfig,
 } from './routes';
 import { createCollabRoutes } from './routes/collab';
-import { createCouplingRuntimeRoutes } from './routes/couplingRuntimeGateway';
+import { createPackageInstallerTufRoute } from './routes/packageInstallerTuf';
+import {
+  createPackageInstallSessionRoute,
+  createPackageMaterializationStatusRoute,
+} from './routes/packageInstallSessions';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
 import { createSuiteRoutes } from './routes/suite';
@@ -66,7 +74,6 @@ let creatorUploadRoutes: ReturnType<typeof createCreatorUploadRoutes> | null = n
 let vpmRoutes: ReturnType<typeof createVpmRoutes> | null = null;
 let accountSecurityRoutes: ReturnType<typeof createAccountSecurityRoutes> | null = null;
 let forensicsRoutes: ReturnType<typeof createForensicsRoutes> | null = null;
-let couplingRuntimeRoutes: ReturnType<typeof createCouplingRuntimeRoutes> | null = null;
 let providerPlatformRoutes: ReturnType<typeof createProviderPlatformRoutes> | null = null;
 let webhookHandler: ReturnType<typeof createWebhookHandler> | null = null;
 let collabRoutes: ReturnType<typeof createCollabRoutes> | null = null;
@@ -74,6 +81,9 @@ let publicRoutes: ReturnType<typeof createPublicRoutes> | null = null;
 let publicV2Routes: ReturnType<typeof createPublicV2Routes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
 let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
+let packageInstallSessionRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageMaterializationStatusRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallerTufRoute: ((request: Request) => Promise<Response>) | null = null;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -92,9 +102,7 @@ function parseBearerToken(authHeader: string | null): string | null {
 }
 
 function getCouplingServiceSharedSecret(env: ReturnType<typeof loadEnv>): string {
-  return (
-    env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() || env.COUPLING_SERVICE_SECRET?.trim() || ''
-  );
+  return env.YUCP_COUPLING_SERVICE_SHARED_SECRET?.trim() ?? '';
 }
 
 function safeDecodeURIComponent(value: string): string | null {
@@ -220,9 +228,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     getRequired('YUCP_COUPLING_SERVICE_BASE_URL');
     getPublicApiRateLimitStore();
     if (!couplingServiceSharedSecret) {
-      throw new Error(
-        'YUCP_COUPLING_SERVICE_SHARED_SECRET or COUPLING_SERVICE_SECRET must be configured in production'
-      );
+      throw new Error('YUCP_COUPLING_SERVICE_SHARED_SECRET must be configured in production');
     }
   }
   const configuredPolarKeys = [env.POLAR_ACCESS_TOKEN, env.POLAR_WEBHOOK_SECRET].filter(
@@ -317,8 +323,6 @@ function initializeAuth(webhookBaseUrl?: string) {
     discordBotToken: env.DISCORD_BOT_TOKEN,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
-    deliveryBaseUrl: env.DELIVERY_BASE_URL,
-    deliveryHmacKey: env.DELIVERY_HMAC_KEY,
     gumroadClientId: env.GUMROAD_CLIENT_ID ?? env.GUMROAD_API_KEY,
     gumroadClientSecret: env.GUMROAD_CLIENT_SECRET ?? env.GUMROAD_SECRET_KEY,
     itchioClientId: env.ITCHIO_CLIENT_ID,
@@ -363,6 +367,50 @@ function initializeAuth(webhookBaseUrl?: string) {
     },
   });
 
+  const packageInstallConfig = loadPackageInstallSessionConfig(env);
+  const materializationControl = loadMaterializationControlClient(env);
+  packageInstallSessionRoute = packageInstallConfig
+    ? createPackageInstallSessionRoute({
+        accessPort: createConvexPackageInstallAccess({
+          convexApiSecret: env.CONVEX_API_SECRET ?? '',
+          convexUrl,
+        }),
+        audience: packageInstallConfig.audience,
+        issuer: new URL(publicBaseUrl).origin,
+        keyId: packageInstallConfig.keyId,
+        ...(materializationControl ? { materializationControl } : {}),
+        privateKey: packageInstallConfig.privateKey,
+        async verifyAccessToken(token) {
+          const result = await verifyBetterAuthAccessToken(token, {
+            audience: 'yucp-public-api',
+            convexSiteUrl,
+            logger,
+            logContext: 'Package install token verification failed',
+            requiredScopes: ['products:read'],
+          });
+          return result.ok
+            ? { buyerId: result.token.sub, ok: true }
+            : {
+                ok: false,
+                status: result.reason === 'insufficient_scope' ? 403 : 401,
+              };
+        },
+      })
+    : null;
+  packageMaterializationStatusRoute =
+    packageInstallConfig && materializationControl
+      ? createPackageMaterializationStatusRoute({
+          audience: packageInstallConfig.audience,
+          issuer: new URL(publicBaseUrl).origin,
+          keyId: packageInstallConfig.keyId,
+          materializationControl,
+          privateKey: packageInstallConfig.privateKey,
+        })
+      : null;
+  packageInstallerTufRoute = env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT
+    ? createPackageInstallerTufRoute(env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT)
+    : null;
+
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
     convexUrl,
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
@@ -376,13 +424,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     convexApiSecret: env.CONVEX_API_SECRET ?? '',
     convexUrl,
     encryptionSecret,
-  });
-
-  couplingRuntimeRoutes = createCouplingRuntimeRoutes({
-    convexUrl,
-    convexApiSecret: env.CONVEX_API_SECRET ?? '',
-    couplingServiceBaseUrl: env.YUCP_COUPLING_SERVICE_BASE_URL ?? '',
-    couplingServiceSharedSecret,
+    ...(materializationControl ? { materializationControl } : {}),
   });
 
   providerPlatformRoutes = createProviderPlatformRoutes(auth, {
@@ -529,14 +571,6 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname.startsWith('/api/creator/packages')) {
     if (isRateLimited(`creator-packages:${clientAddress}`, 120, 60_000)) {
-      return new Response(JSON.stringify({ error: 'Too many requests' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-  }
-  if (pathname.startsWith('/api/access/')) {
-    if (isRateLimited(`buyer-download:${clientAddress}`, 120, 60_000)) {
       return new Response(JSON.stringify({ error: 'Too many requests' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
@@ -701,13 +735,6 @@ async function routeRequest(request: Request): Promise<Response> {
   // requests to Convex. Auth, YUCP OAuth, and the versioned public API (/v1/)
   // all live on Convex .site.
   // When the API runs on localhost, proxy so everything works from a single origin.
-  if (pathname.startsWith('/v1/') && couplingRuntimeRoutes) {
-    const couplingResponse = await couplingRuntimeRoutes.handleRequest(request);
-    if (couplingResponse) {
-      return couplingResponse;
-    }
-  }
-
   if (pathname.startsWith('/v1/') && providerPlatformRoutes) {
     const localV1Response = await providerPlatformRoutes.handleRequest(request);
     if (localV1Response) {
@@ -902,6 +929,33 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/vpm/repo-token' && vpmRoutes) {
     return vpmRoutes.mintRepoToken(request);
   }
+  if (pathname === '/api/v2/package-installs/sessions') {
+    if (!packageInstallSessionRoute) {
+      return Response.json(
+        { error: 'Package install sessions are not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallSessionRoute(request);
+  }
+  if (pathname === '/api/v2/package-installs/materialization-status') {
+    if (!packageMaterializationStatusRoute) {
+      return Response.json(
+        { error: 'Protected materialization is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageMaterializationStatusRoute(request);
+  }
+  if (pathname.startsWith('/api/v2/package-installer/tuf/')) {
+    if (!packageInstallerTufRoute) {
+      return Response.json(
+        { error: 'Package installer trust repository is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallerTufRoute(request);
+  }
   const vpmAliasPackageMatch = pathname.match(/^\/api\/vpm\/aliases\/([^/]+)\/([^/]+)\.zip$/);
   if (vpmAliasPackageMatch && vpmRoutes) {
     const catalogProductId = safeDecodeURIComponent(vpmAliasPackageMatch[1] ?? '');
@@ -934,14 +988,6 @@ async function routeRequest(request: Request): Promise<Response> {
   }
   if (pathname === '/api/connect/user/verify/start' && connectRoutes) {
     return connectRoutes.postUserVerifyStart(request);
-  }
-  const buyerDownloadMatch = pathname.match(/^\/api\/access\/([^/]+)\/download$/);
-  if (buyerDownloadMatch && connectRoutes) {
-    const catalogProductId = safeDecodeURIComponent(buyerDownloadMatch[1]);
-    if (catalogProductId === null) {
-      return badPathEncodingResponse();
-    }
-    return connectRoutes.downloadBuyerProductAccess(request, catalogProductId);
   }
   const buyerProductAccessMatch = pathname.match(/^\/api\/connect\/user\/product-access\/([^/]+)$/);
   if (buyerProductAccessMatch && connectRoutes) {

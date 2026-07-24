@@ -113,16 +113,12 @@ mock.module('./lib/yucpCrypto', () => ({
   base64ToBytes: (_value: string) => new Uint8Array(),
   getConfiguredYucpJwkSet: () => ({ keys: [] }),
   resolvePinnedYucpSigningRoot: resolvePinnedYucpSigningRootMock,
-  signCouplingRuntimeJwt: mock(async () => 'signed-runtime-jwt'),
   signLicenseJwt: mock(async () => 'signed-license-jwt'),
-  signProtectedUnlockJwt: mock(async () => 'signed-protected-unlock-jwt'),
   signPackageCertificateData: mock(async () => 'signed-certificate'),
   signYucpTrustBundleJwt: mock(async () => 'signed-trust-bundle'),
   verifyCertEnvelope: mock(async () => true),
   verifyCertEnvelopeAgainstPinnedRoots: verifyCertEnvelopeAgainstPinnedRootsMock,
-  verifyCouplingRuntimeJwtAgainstPinnedRoots: mock(async () => null),
   verifyLicenseJwtAgainstPinnedRoots: mock(async () => null),
-  verifyProtectedUnlockJwtAgainstPinnedRoots: mock(async () => null),
 }));
 
 mock.module('./oauthDiscovery', () => ({

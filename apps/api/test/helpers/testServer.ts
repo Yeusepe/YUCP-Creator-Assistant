@@ -23,8 +23,6 @@ const DEFAULTS: TestServerConfig = {
   convexApiSecret: 'test-api-secret-min-32-characters!!',
   convexSiteUrl: 'http://localhost:3210',
   encryptionSecret: 'test-encryption-secret-32-chars!!',
-  couplingServiceBaseUrl: 'http://127.0.0.1:8788',
-  couplingServiceSharedSecret: 'test-coupling-secret',
   discordClientId: 'test-discord-client-id',
   discordClientSecret: 'test-discord-client-secret',
 };

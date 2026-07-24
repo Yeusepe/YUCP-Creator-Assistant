@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import type { ExtractedForensicsAsset } from './couplingForensicsArchives';
@@ -11,67 +10,17 @@ export type CouplingForensicsServiceConfig = {
   responseMaxBytes?: number;
 };
 
-export type CouplingForensicsFinding = {
-  assetPath: string;
-  assetType: 'png' | 'fbx';
-  decoderKind: string;
-  tokenHex: string;
-  tokenLength: number;
-};
-
 export type ForensicPreclassification = 'decoded' | 'likely-stripped' | 'no-signal';
 
 export type ForensicsScoreResult = {
   assetPath: string;
   assetType: 'png' | 'fbx';
   decoderKind: string;
+  matchedAttributionId?: string;
+  matchedBuyerSubjectPseudonym?: string;
   preclassification: ForensicPreclassification;
-  tokenHex?: string;
-  tokenLength?: number;
-  matchedLicenseSubject?: string;
-  matchedCandidateAssetPath?: string;
-  nativeCode?: number;
-  decodeError?: string;
 };
 
-type CouplingServiceResponse = {
-  error?:
-    | string
-    | {
-        code?: unknown;
-        message?: unknown;
-      };
-  results?: Array<{
-    assetPath?: string;
-    assetType?: string;
-    decoderKind?: string;
-    tokenHex?: string;
-    tokenLength?: number;
-  }>;
-};
-
-type ForensicScoreServiceResponse = {
-  error?:
-    | string
-    | {
-        code?: unknown;
-        message?: unknown;
-      };
-  requestId?: string;
-  results?: Array<{
-    assetPath?: string;
-    assetType?: string;
-    decoderKind?: string;
-    preclassification?: string;
-    tokenHex?: string;
-    tokenLength?: number;
-    nativeCode?: number;
-    decodeError?: string;
-  }>;
-};
-
-const HEX_RE = /^[0-9a-f]+$/;
-const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
 const COUPLING_SERVICE_RESPONSE_MAX_BYTES = 1024 * 1024;
 const METADATA_SERVICE_HOSTS = new Set([
@@ -218,62 +167,13 @@ function isIpv6LinkLocal(hostname: string): boolean {
   return (Number.parseInt(firstHextet, 16) & 0xffc0) === 0xfe80;
 }
 
-function buildCouplingScanUrl(baseUrl: string): string {
-  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/scan');
-}
-
-function validateCouplingScanResult(
-  input: ExtractedForensicsAsset[],
-  payload: CouplingServiceResponse
-): CouplingForensicsFinding[] {
-  const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
-  const results = getServiceResults(payload);
-  return results.map((entry) => {
-    const assetPath = entry.assetPath?.trim() || '';
-    const tokenHex = entry.tokenHex?.trim().toLowerCase() || '';
-    const tokenLength = Number(entry.tokenLength ?? 0);
-    const inputEntry = assetByPath.get(assetPath);
-    if (!inputEntry) {
-      throw new CouplingServiceRequestError('Coupling service returned an unknown asset path', 502);
-    }
-    if (!tokenHex || !HEX_RE.test(tokenHex)) {
-      throw new CouplingServiceRequestError('Coupling service returned an invalid token', 502);
-    }
-    if (tokenLength <= 0 || tokenHex.length !== tokenLength) {
-      throw new CouplingServiceRequestError('Coupling service token length mismatch', 502);
-    }
-    return {
-      assetPath,
-      assetType: normalizeAssetType(entry.assetType || inputEntry.assetType),
-      decoderKind: entry.decoderKind?.trim() || inputEntry.assetType,
-      tokenHex,
-      tokenLength,
-    };
-  });
-}
-
-async function buildRequestBody(assets: ExtractedForensicsAsset[]): Promise<string> {
-  const serializedAssets = await Promise.all(
-    assets.map(async (asset) => ({
-      assetPath: asset.assetPath,
-      assetType: asset.assetType,
-      contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
-    }))
-  );
-
-  return JSON.stringify({
-    mode: 'scan',
-    assets: serializedAssets,
-  });
-}
-
-function parseResponsePayload(responseText: string): CouplingServiceResponse | null {
+function parseResponsePayload<T>(responseText: string): T | null {
   if (!responseText.trim()) {
-    return {};
+    return {} as T;
   }
 
   try {
-    return JSON.parse(responseText) as CouplingServiceResponse;
+    return JSON.parse(responseText) as T;
   } catch {
     return null;
   }
@@ -319,10 +219,6 @@ function getServiceResults<T>(payload: { results?: T[] }): T[] {
     throw new CouplingServiceRequestError('Coupling service returned invalid results', 502);
   }
   return payload.results;
-}
-
-function buildForensicScoreUrl(baseUrl: string): string {
-  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/forensic-score');
 }
 
 function resolveCouplingRequestTimeoutMs(configured?: number): number {
@@ -408,143 +304,23 @@ async function fetchCouplingServiceResponse(
   }
 }
 
-function validateForensicsScoreResult(
-  input: ExtractedForensicsAsset[],
-  payload: ForensicScoreServiceResponse
-): ForensicsScoreResult[] {
-  const assetByPath = new Map(input.map((entry) => [entry.assetPath, entry]));
-  const results = getServiceResults(payload);
-  const validatedResults = new Map<string, ForensicsScoreResult>();
-
-  for (const entry of results) {
-    const assetPath = entry.assetPath?.trim() || '';
-    const inputEntry = assetByPath.get(assetPath);
-    if (!inputEntry) {
-      throw new CouplingServiceRequestError('Coupling service returned an unknown asset path', 502);
-    }
-    if (validatedResults.has(assetPath)) {
-      throw new CouplingServiceRequestError(
-        'Coupling service returned a duplicate asset path',
-        502
-      );
-    }
-
-    const preclassificationRaw = entry.preclassification?.trim() ?? '';
-    const preclassification: ForensicPreclassification =
-      preclassificationRaw === 'decoded' ||
-      preclassificationRaw === 'likely-stripped' ||
-      preclassificationRaw === 'no-signal'
-        ? (preclassificationRaw as ForensicPreclassification)
-        : 'no-signal';
-
-    const result: ForensicsScoreResult = {
-      assetPath,
-      assetType: normalizeAssetType(entry.assetType || inputEntry.assetType),
-      decoderKind: entry.decoderKind?.trim() || inputEntry.assetType,
-      preclassification,
-    };
-
-    if (preclassification === 'decoded' && entry.tokenHex) {
-      const tokenHex = entry.tokenHex.trim().toLowerCase();
-      const tokenLength = Number(entry.tokenLength ?? 0);
-      if (HEX_RE.test(tokenHex) && tokenLength > 0 && tokenHex.length === tokenLength) {
-        result.tokenHex = tokenHex;
-        result.tokenLength = tokenLength;
-      }
-    }
-
-    if (entry.nativeCode !== undefined) {
-      result.nativeCode = entry.nativeCode;
-    }
-
-    if (entry.decodeError) {
-      result.decodeError = entry.decodeError.trim();
-    }
-
-    validatedResults.set(assetPath, result);
-  }
-
-  return input.map((asset) => {
-    const existing = validatedResults.get(asset.assetPath);
-    if (existing) {
-      return existing;
-    }
-    return {
-      assetPath: asset.assetPath,
-      assetType: asset.assetType,
-      decoderKind: asset.assetType,
-      preclassification: 'no-signal',
-    };
-  });
-}
-
-export async function runCouplingForensicsScore(
-  assets: ExtractedForensicsAsset[],
-  config: CouplingForensicsServiceConfig
-): Promise<ForensicsScoreResult[]> {
-  if (assets.length === 0) {
-    return [];
-  }
-
-  const sharedSecret = config.sharedSecret.trim();
-  if (!sharedSecret) {
-    throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
-  }
-
-  let response: Response;
-  let responseText: string;
-  try {
-    ({ response, responseText } = await fetchCouplingServiceResponse(
-      buildForensicScoreUrl(config.baseUrl),
-      {
-        method: 'POST',
-        redirect: 'error',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${sharedSecret}`,
-          'Cache-Control': 'no-store',
-          'Content-Type': 'application/json',
-        },
-        body: await buildRequestBody(assets),
-      },
-      config,
-      'Coupling forensic-score timed out',
-      config.requestTimeoutMs
-    ));
-  } catch (error) {
-    if (
-      error instanceof CouplingServiceRequestError ||
-      error instanceof CouplingServiceConfigurationError
-    ) {
-      throw error;
-    }
-    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
-  }
-
-  const payload = parseResponsePayload(responseText) as ForensicScoreServiceResponse | null;
-
-  if (!response.ok) {
-    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
-    throw new CouplingServiceRequestError(
-      `Coupling forensic-score failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
-      response.status
-    );
-  }
-
-  if (!payload) {
-    throw new CouplingServiceRequestError(
-      'Coupling service returned invalid JSON',
-      response.status
-    );
-  }
-
-  return validateForensicsScoreResult(assets, payload);
-}
-
 export type CouplingAttributionCandidate = {
-  assetPath: string;
-  licenseSubject: string;
-  tokenHash: string;
+  algorithmVersion: string;
+  attributionId: string;
+  attributionTokenHash: string;
+  buyerSubjectPseudonym: string;
+  capabilityId: string;
+  creatorId: string;
+  jobId: string;
+  keyEpoch: number;
+  leaseGeneration: number;
+  materializerType: 'fbx' | 'png';
+  normalizedPath: string;
+  outputFormat: 'zip';
+  pluginVersion: string;
+  protectedSourceRoot: string;
+  releaseRoot: string;
+  sourceSha256: string;
 };
 
 type AttributeServiceResponse = {
@@ -554,29 +330,18 @@ type AttributeServiceResponse = {
         code?: unknown;
         message?: unknown;
       };
-  requestId?: string;
+  schemaVersion?: number;
   results?: Array<{
     assetPath?: string;
     assetType?: string;
+    attributionId?: string;
+    buyerSubjectPseudonym?: string;
     matched?: boolean;
-    tokenHex?: string;
-    matchedLicenseSubject?: string;
-    matchedCandidateAssetPath?: string;
-    wmVersion?: number;
-    attempted?: number;
   }>;
 };
 
 function buildAttributeUrl(baseUrl: string): string {
-  return buildCouplingServiceUrl(baseUrl, 'v1/coupling/attribute');
-}
-
-function sha256HexFromString(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-function buildAttributionCandidateKey(candidate: CouplingAttributionCandidate): string {
-  return `${candidate.assetPath.trim()}\0${candidate.licenseSubject.trim().toLowerCase()}\0${candidate.tokenHash.trim().toLowerCase()}`;
+  return buildCouplingServiceUrl(baseUrl, 'v2/internal/coupling/attribution/evaluate');
 }
 
 async function buildAttributeRequestBody(
@@ -593,11 +358,8 @@ async function buildAttributeRequestBody(
 
   return JSON.stringify({
     assets: serializedAssets,
-    candidates: candidates.map((candidate) => ({
-      assetPath: candidate.assetPath,
-      licenseSubject: candidate.licenseSubject,
-      tokenHash: candidate.tokenHash,
-    })),
+    candidates,
+    schemaVersion: 2,
   });
 }
 
@@ -607,9 +369,18 @@ function validateAttributionResult(
   payload: AttributeServiceResponse
 ): ForensicsScoreResult[] {
   const assetByPath = buildAssetMapByPath(input, 'attribution input');
-  const candidateKeys = new Set(
-    candidates.map((candidate) => buildAttributionCandidateKey(candidate))
+  const candidateById = new Map(
+    candidates.map((candidate) => [candidate.attributionId, candidate])
   );
+  if (candidateById.size !== candidates.length) {
+    throw new CouplingServiceRequestError('Duplicate attribution candidate identifier', 502);
+  }
+  if (payload.schemaVersion !== 2) {
+    throw new CouplingServiceRequestError(
+      'Coupling service returned an unsupported attribution schema',
+      502
+    );
+  }
   const results = getServiceResults(payload);
   const validatedResults = new Map<string, ForensicsScoreResult>();
 
@@ -627,33 +398,15 @@ function validateAttributionResult(
     }
 
     const assetType = normalizeAssetType(entry.assetType || inputEntry.assetType);
-    // Seed-iteration attribution decodes only when a candidate's re-derived seed matches, so a
-    // matched asset is a recovered trace ('decoded'); anything else carries no usable signal.
     if (entry.matched === true) {
-      const tokenHex = entry.tokenHex?.trim().toLowerCase() || '';
-      if (!tokenHex || !HEX_RE.test(tokenHex)) {
-        throw new CouplingServiceRequestError('Coupling service returned an invalid token', 502);
-      }
-      const matchedLicenseSubject = entry.matchedLicenseSubject?.trim().toLowerCase() || '';
-      if (!SHA256_HEX_RE.test(matchedLicenseSubject)) {
-        throw new CouplingServiceRequestError(
-          'Coupling service returned an invalid matched license subject',
-          502
-        );
-      }
-      const matchedCandidateAssetPath = entry.matchedCandidateAssetPath?.trim() || '';
-      if (!matchedCandidateAssetPath) {
-        throw new CouplingServiceRequestError(
-          'Coupling service returned an invalid matched candidate asset path',
-          502
-        );
-      }
-      const matchedCandidateKey = buildAttributionCandidateKey({
-        assetPath: matchedCandidateAssetPath,
-        licenseSubject: matchedLicenseSubject,
-        tokenHash: sha256HexFromString(tokenHex),
-      });
-      if (!candidateKeys.has(matchedCandidateKey)) {
+      const attributionId = entry.attributionId?.trim() || '';
+      const buyerSubjectPseudonym = entry.buyerSubjectPseudonym?.trim() || '';
+      const candidate = candidateById.get(attributionId);
+      if (
+        !candidate ||
+        candidate.normalizedPath !== assetPath ||
+        candidate.buyerSubjectPseudonym !== buyerSubjectPseudonym
+      ) {
         throw new CouplingServiceRequestError(
           'Coupling service returned an unknown matched candidate',
           502
@@ -663,11 +416,9 @@ function validateAttributionResult(
         assetPath,
         assetType,
         decoderKind: assetType,
+        matchedAttributionId: attributionId,
+        matchedBuyerSubjectPseudonym: buyerSubjectPseudonym,
         preclassification: 'decoded',
-        tokenHex,
-        tokenLength: tokenHex.length,
-        matchedLicenseSubject,
-        matchedCandidateAssetPath,
       });
       continue;
     }
@@ -694,14 +445,6 @@ function validateAttributionResult(
   });
 }
 
-/**
- * Forensic attribution: ask the closed coupling service to decode each leaked asset by iterating
- * the supplied buyer candidates (it re-derives each per-job placement seed from the recorded
- * assetPath + licenseSubject). A matched asset comes back as a recovered trace with its token and
- * matched subject; the caller turns that into an exact candidate lookup for identity enrichment.
- * No watermark secrets leave the service; only candidate (assetPath, licenseSubject, tokenHash)
- * tuples go in.
- */
 export async function runCouplingAttribution(
   assets: ExtractedForensicsAsset[],
   candidates: CouplingAttributionCandidate[],
@@ -755,7 +498,7 @@ export async function runCouplingAttribution(
     throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
   }
 
-  const payload = parseResponsePayload(responseText) as AttributeServiceResponse | null;
+  const payload = parseResponsePayload<AttributeServiceResponse>(responseText);
 
   if (!response.ok) {
     const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
@@ -773,67 +516,4 @@ export async function runCouplingAttribution(
   }
 
   return validateAttributionResult(assets, candidates, payload);
-}
-
-export async function runCouplingForensicsScan(
-  assets: ExtractedForensicsAsset[],
-  config: CouplingForensicsServiceConfig
-): Promise<CouplingForensicsFinding[]> {
-  if (assets.length === 0) {
-    return [];
-  }
-
-  const sharedSecret = config.sharedSecret.trim();
-  if (!sharedSecret) {
-    throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
-  }
-
-  let response: Response;
-  let responseText: string;
-  try {
-    ({ response, responseText } = await fetchCouplingServiceResponse(
-      buildCouplingScanUrl(config.baseUrl),
-      {
-        method: 'POST',
-        redirect: 'error',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${sharedSecret}`,
-          'Cache-Control': 'no-store',
-          'Content-Type': 'application/json',
-        },
-        body: await buildRequestBody(assets),
-      },
-      config,
-      'Coupling service scan timed out',
-      config.requestTimeoutMs
-    ));
-  } catch (error) {
-    if (
-      error instanceof CouplingServiceRequestError ||
-      error instanceof CouplingServiceConfigurationError
-    ) {
-      throw error;
-    }
-    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
-  }
-
-  const payload = parseResponsePayload(responseText);
-
-  if (!response.ok) {
-    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
-    throw new CouplingServiceRequestError(
-      `Coupling service scan failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
-      response.status
-    );
-  }
-
-  if (!payload) {
-    throw new CouplingServiceRequestError(
-      'Coupling service returned invalid JSON',
-      response.status
-    );
-  }
-
-  return validateCouplingScanResult(assets, payload);
 }

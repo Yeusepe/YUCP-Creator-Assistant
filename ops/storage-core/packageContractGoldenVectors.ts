@@ -2,11 +2,15 @@ import { createHash } from 'node:crypto';
 import * as ed25519 from '@noble/ed25519';
 import {
   computeOutputTreeRootV2,
+  type DeliveryGrantV2,
   encodeCanonicalPackageCbor,
+  encodeDeliveryGrantV2,
   encodeInstallSessionV2,
+  encodeMaterializationCapabilityV2,
   encodeMaterializationReceiptV2,
   INSTALL_SESSION_TOKEN_TYPE,
   type InstallSessionV2,
+  type MaterializationJobCapabilityV2,
   type MaterializationReceiptV2,
   PACKAGE_CONTRACT_PURPOSES,
   type PackageContractCborValue,
@@ -68,6 +72,25 @@ function sampleInstallSession(): InstallSessionV2 {
   };
 }
 
+function sampleDeliveryGrant(): DeliveryGrantV2 {
+  return {
+    audience: 'yucp-delivery',
+    bindingRoot: digest(0x22),
+    buyerId: 'buyer-1',
+    creatorId: 'creator-1',
+    deviceKeyThumbprint: digest(0x33),
+    expiresAt: 1_300,
+    grantId: 'grant-1',
+    installSessionId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
+    issuedAt: 1_000,
+    issuer: 'https://api.example.test',
+    notBefore: 1_000,
+    productId: 'product-1',
+    releaseRoot: digest(0x11),
+    scopes: ['chunks:read', 'metadata:read'],
+  };
+}
+
 function sampleMaterializationReceipt(): MaterializationReceiptV2 {
   const outputFiles = [
     {
@@ -111,6 +134,37 @@ function sampleMaterializationReceipt(): MaterializationReceiptV2 {
     },
     runtimeBuild: 'runtime-1',
     traceId: 'trace-1',
+  };
+}
+
+function sampleMaterializationCapability(): MaterializationJobCapabilityV2 {
+  return {
+    buyerSubjectPseudonym: 'buyer-pseudonym-1',
+    capabilityId: 'capability-1',
+    creatorId: 'creator-1',
+    expiresAt: 1_300,
+    grantJti: 'grant-1',
+    issuedAt: 1_000,
+    jobId: 'job-1',
+    keyEpoch: 1,
+    leaseGeneration: 3,
+    materializationAlgorithm: 'png-dct-qim-v2',
+    oneUseNonce: digest(0x44),
+    outputFormat: 'overlay',
+    pluginVersion: 'png-plugin-2',
+    productId: 'product-1',
+    proofKeyThumbprint: digest(0x33),
+    protectedFiles: [
+      {
+        materializerType: 'image/png',
+        normalizedPath: 'Assets/Product/protected.png',
+        required: true,
+        sourceSha256: digest(0x55),
+      },
+    ],
+    protectedSourceRoot: digest(0x22),
+    pseudonymMethod: 'hmac-sha256-v1',
+    releaseRoot: digest(0x11),
   };
 }
 
@@ -217,38 +271,9 @@ function samplePayload(purpose: PackageContractPurpose): Map<number, PackageCont
         [8, 1_000],
       ]);
     case PACKAGE_CONTRACT_PURPOSES.deliveryGrant:
-      return cborMap([
-        [0, 2],
-        [1, 'grant-1'],
-        [2, 'https://api.example.test'],
-        [3, 'yucp-delivery'],
-        [4, 'creator-1'],
-        [5, 'buyer-1'],
-        [6, 'product-1'],
-        [7, digest(0x11)],
-        [8, digest(0x22)],
-        [9, digest(0x33)],
-        [10, 1_000],
-        [11, 1_000],
-        [12, 1_300],
-        [13, ['metadata:read', 'chunks:read']],
-        [14, '018f8c03-3880-7d40-a8d5-b190a64141cc'],
-      ]);
+      throw new Error('DeliveryGrantV2 uses its typed golden payload');
     case PACKAGE_CONTRACT_PURPOSES.materializationCapability:
-      return cborMap([
-        [0, 2],
-        [1, 'capability-1'],
-        [2, 'creator-1'],
-        [3, 'buyer-1'],
-        [4, 'product-1'],
-        [5, digest(0x11)],
-        [6, digest(0x22)],
-        [7, digest(0x33)],
-        [8, 1_000],
-        [9, 1_000],
-        [10, 1_300],
-        [11, 'materialize:file-set'],
-      ]);
+      throw new Error('MaterializationJobCapabilityV2 uses its typed golden payload');
     case PACKAGE_CONTRACT_PURPOSES.activeContentInventory:
       return cborMap([
         [0, 2],
@@ -280,9 +305,13 @@ export async function buildPackageContractGoldenVectors() {
     const payload =
       purpose === PACKAGE_CONTRACT_PURPOSES.installSession
         ? encodeInstallSessionV2(sampleInstallSession())
-        : purpose === PACKAGE_CONTRACT_PURPOSES.materializationReceipt
-          ? encodeMaterializationReceiptV2(sampleMaterializationReceipt())
-          : encodeCanonicalPackageCbor(samplePayload(purpose));
+        : purpose === PACKAGE_CONTRACT_PURPOSES.deliveryGrant
+          ? encodeDeliveryGrantV2(sampleDeliveryGrant())
+          : purpose === PACKAGE_CONTRACT_PURPOSES.materializationCapability
+            ? encodeMaterializationCapabilityV2(sampleMaterializationCapability())
+            : purpose === PACKAGE_CONTRACT_PURPOSES.materializationReceipt
+              ? encodeMaterializationReceiptV2(sampleMaterializationReceipt())
+              : encodeCanonicalPackageCbor(samplePayload(purpose));
     const signed = await signPackageContract({
       keyId: KEY_ID,
       payload,

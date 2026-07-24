@@ -333,6 +333,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.first-upload',
         version: '1.0.0',
         catalogProductId: 'catalog_product_first_upload',
+        protectionPolicyId: 'supported-visual-assets-v1',
       })
     );
   });
@@ -402,6 +403,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.shared-product-name',
         version: '1.0.0',
         catalogProductId: 'catalog_product_same_name_a',
+        protectionPolicyId: 'supported-visual-assets-v1',
       })
     );
   });
@@ -476,6 +478,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.avatar-bundle',
         version: '2.4.0',
         catalogProductId: 'catalog_product_1',
+        protectionPolicyId: 'supported-visual-assets-v1',
       })
     );
     expect(uploadStartMock).toHaveBeenCalledOnce();

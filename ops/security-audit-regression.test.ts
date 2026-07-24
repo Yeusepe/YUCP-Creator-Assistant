@@ -35,12 +35,8 @@ describe('security audit invariants', () => {
   });
 
   it('does not persist raw device identifiers for protected asset flows', () => {
-    const unlocksBlock = tableBlock('protected_asset_unlocks');
-
-    expect(unlocksBlock).not.toContain('machineFingerprint: v.string()');
-    expect(unlocksBlock).not.toContain('projectId: v.string()');
-    expect(unlocksBlock).toContain('machineFingerprintHash: v.string()');
-    expect(unlocksBlock).toContain('projectIdHash: v.string()');
+    expect(schemaSource).not.toContain('const protected_asset_unlocks = defineTable');
+    expect(schemaSource).not.toContain('const protected_assets = defineTable');
 
     const verificationIntentsBlock = tableBlock('verification_intents');
     expect(verificationIntentsBlock).not.toContain('machineFingerprint: v.string()');

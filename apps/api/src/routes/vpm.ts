@@ -278,41 +278,9 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
             })) as VpmCatalogGroup | null
         )
       );
-      const legacyEntitlementRefs = [
-        ...new Map(
-          entitlements
-            .filter(
-              (
-                entitlement
-              ): entitlement is ActiveEntitlement & {
-                productId: string;
-              } => !entitlement.catalogProductId && Boolean(entitlement.productId?.trim())
-            )
-            .map((entitlement) => [
-              `${entitlement.sourceProvider ?? ''}\u0000${entitlement.productId}`,
-              {
-                productId: entitlement.productId,
-                ...(entitlement.sourceProvider
-                  ? { sourceProvider: entitlement.sourceProvider }
-                  : {}),
-              },
-            ])
-        ).values(),
-      ];
-      buildPhase = 'legacy-groups';
-      const legacyResolvedGroups = await Promise.all(
-        legacyEntitlementRefs.map(
-          async (entitlementRef) =>
-            (await convex.query(api.packageRegistry.getBuyerAccessContextByEntitlement, {
-              apiSecret: config.convexApiSecret,
-              actor,
-              ...entitlementRef,
-            })) as VpmCatalogGroup | null
-        )
-      );
       const groups = new Map<string, VpmCatalogGroup>();
       buildPhase = 'grouping';
-      for (const group of [...resolvedGroups, ...legacyResolvedGroups]) {
+      for (const group of resolvedGroups) {
         if (!group) continue;
         const groupCatalogProductIds = [
           ...new Set((group.catalogProductIds ?? [group.catalogProductId]).map(String)),

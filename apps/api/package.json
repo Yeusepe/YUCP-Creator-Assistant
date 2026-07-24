@@ -28,7 +28,7 @@
     "@yucp/private-rpc": "workspace:*",
     "@yucp/providers": "workspace:*",
     "@yucp/shared": "workspace:*",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.0-rc.2",
     "canvas-confetti": "^1.9.3",
     "convex": "1.42.1",
     "holographic-sticker": "^1.0.4",

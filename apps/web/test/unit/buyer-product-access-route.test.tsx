@@ -100,7 +100,7 @@ describe('buyer product access route', () => {
     await waitFor(() => expect(clearProductAccessGrantFromUrlMock).toHaveBeenCalledOnce());
   });
 
-  it('offers the local signed-download endpoint to entitled buyers', () => {
+  it('exposes no paid artifact URL outside the authenticated importer flow', async () => {
     const Component = BuyerProductAccessRoute.options.component;
     if (!Component) {
       throw new Error('Buyer product access route component is not defined');
@@ -124,10 +124,9 @@ describe('buyer product access route', () => {
 
     render(<Component />, { wrapper: createWrapper() });
 
-    expect(screen.getByRole('link', { name: 'Download' })).toHaveAttribute(
-      'href',
-      '/api/access/catalog%2Fproduct/download'
-    );
+    expect(await screen.findByRole('button', { name: 'Add to VCC' })).toBeEnabled();
+    expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
+    expect(document.querySelector('a[href^="/api/access/"]')).not.toBeInTheDocument();
   });
 
   it('mints and shows the buyer VPM handoff with a copyable index URL', async () => {

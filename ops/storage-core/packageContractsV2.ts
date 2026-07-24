@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import * as ed25519 from '@noble/ed25519';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { decode, encode, rfc8949EncodeOptions } from 'cborg';
 
 /**
@@ -13,6 +13,8 @@ export const PACKAGE_COSE_ALGORITHM_EDDSA = -8;
 export const PACKAGE_COSE_PURPOSE_HEADER = 1001;
 export const INSTALL_SESSION_TOKEN_TYPE = 'YUCP-InstallSession';
 export const INSTALL_SESSION_MAX_LIFETIME_SECONDS = 15 * 60;
+export const DELIVERY_GRANT_MAX_LIFETIME_SECONDS = 15 * 60;
+export const MATERIALIZATION_CAPABILITY_MAX_LIFETIME_SECONDS = 15 * 60;
 
 export const PACKAGE_CONTRACT_PURPOSES = {
   activeContentInventory: 'active-content-inventory-v2',
@@ -81,6 +83,60 @@ export type InstallSessionValidationContext = {
   releaseRoot: Uint8Array;
 };
 
+export type DeliveryGrantV2 = {
+  audience: string;
+  bindingRoot: Uint8Array;
+  buyerId: string;
+  creatorId: string;
+  deviceKeyThumbprint: Uint8Array;
+  expiresAt: number;
+  grantId: string;
+  installSessionId: string;
+  issuedAt: number;
+  issuer: string;
+  notBefore: number;
+  productId: string;
+  releaseRoot: Uint8Array;
+  scopes: string[];
+};
+
+export type DeliveryGrantValidationContext = {
+  audience: string;
+  deviceKeyThumbprint: Uint8Array;
+  issuer: string;
+  now: number;
+  requiredScope: string;
+};
+
+export type MaterializationCapabilityFileV2 = {
+  materializerType: string;
+  normalizedPath: string;
+  required: boolean;
+  sourceSha256: Uint8Array;
+};
+
+export type MaterializationJobCapabilityV2 = {
+  buyerSubjectPseudonym: string;
+  capabilityId: string;
+  creatorId: string;
+  expiresAt: number;
+  grantJti: string;
+  issuedAt: number;
+  jobId: string;
+  keyEpoch: number;
+  leaseGeneration: number;
+  materializationAlgorithm: string;
+  oneUseNonce: Uint8Array;
+  outputFormat: 'overlay' | 'zip';
+  pluginVersion: string;
+  productId: string;
+  proofKeyThumbprint: Uint8Array;
+  protectedFiles: MaterializationCapabilityFileV2[];
+  protectedSourceRoot: Uint8Array;
+  pseudonymMethod: string;
+  releaseRoot: Uint8Array;
+};
+
 export type MaterializedFileV2 = {
   attributionId: string;
   normalizedPath: string;
@@ -131,7 +187,7 @@ export type SignedPackageContract = {
   payload: Uint8Array;
 };
 
-const textDecoder = new TextDecoder('utf-8', { fatal: true });
+const textDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 const textEncoder = new TextEncoder();
 const SHA256_BYTES = 32;
 const ED25519_SIGNATURE_BYTES = 64;
@@ -167,11 +223,11 @@ export function hashPackageContractFields(
   if (!PACKAGE_HASH_PURPOSE_PATTERN.test(purpose)) {
     throw new Error('Package hash purpose must be a versioned ASCII YUCP purpose');
   }
-  const hash = createHash('sha256');
-  hash.update(purpose, 'ascii');
+  const hash = sha256.create();
+  hash.update(textEncoder.encode(purpose));
   for (const field of fields) {
-    const length = Buffer.allocUnsafe(8);
-    length.writeBigUInt64BE(BigInt(field.byteLength));
+    const length = new Uint8Array(8);
+    new DataView(length.buffer).setBigUint64(0, BigInt(field.byteLength));
     hash.update(length);
     hash.update(field);
   }
@@ -340,7 +396,16 @@ function requireNonNegativeInteger(
 }
 
 function compareUtf8(left: string, right: string): number {
-  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+  const leftBytes = textEncoder.encode(left);
+  const rightBytes = textEncoder.encode(right);
+  const length = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < length; index += 1) {
+    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return leftBytes.byteLength - rightBytes.byteLength;
 }
 
 function requireMaterializedPath(value: string, name: string): string {
@@ -361,8 +426,8 @@ function uint64Bytes(value: number): Uint8Array {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error('Unsigned 64-bit value must be a non-negative safe integer');
   }
-  const bytes = Buffer.allocUnsafe(8);
-  bytes.writeBigUInt64BE(BigInt(value));
+  const bytes = new Uint8Array(8);
+  new DataView(bytes.buffer).setBigUint64(0, BigInt(value));
   return bytes;
 }
 
@@ -378,6 +443,255 @@ export function computeOutputTreeRootV2(files: readonly MaterializedFileV2[]): U
       uint64Bytes(file.outputBytes),
     ])
   );
+}
+
+function materializationCapabilityFileMap(file: MaterializationCapabilityFileV2) {
+  return new Map<number, PackageContractCborValue>([
+    [0, file.normalizedPath],
+    [1, file.materializerType],
+    [2, file.sourceSha256],
+    [3, file.required],
+  ]);
+}
+
+function materializationCapabilityMap(capability: MaterializationJobCapabilityV2) {
+  return new Map<number, PackageContractCborValue>([
+    [0, PACKAGE_CONTRACT_VERSION],
+    [1, capability.capabilityId],
+    [2, capability.jobId],
+    [3, capability.leaseGeneration],
+    [4, capability.creatorId],
+    [5, capability.productId],
+    [6, capability.buyerSubjectPseudonym],
+    [7, capability.pseudonymMethod],
+    [8, capability.releaseRoot],
+    [9, capability.protectedSourceRoot],
+    [10, capability.keyEpoch],
+    [11, capability.materializationAlgorithm],
+    [12, capability.pluginVersion],
+    [13, capability.outputFormat],
+    [14, capability.protectedFiles.map(materializationCapabilityFileMap)],
+    [15, capability.oneUseNonce],
+    [16, capability.issuedAt],
+    [17, capability.expiresAt],
+    [18, capability.grantJti],
+    [19, capability.proofKeyThumbprint],
+  ]);
+}
+
+export function validateMaterializationCapabilityV2(
+  capability: MaterializationJobCapabilityV2
+): void {
+  for (const [name, value] of Object.entries({
+    buyerSubjectPseudonym: capability.buyerSubjectPseudonym,
+    capabilityId: capability.capabilityId,
+    creatorId: capability.creatorId,
+    grantJti: capability.grantJti,
+    jobId: capability.jobId,
+    materializationAlgorithm: capability.materializationAlgorithm,
+    pluginVersion: capability.pluginVersion,
+    productId: capability.productId,
+    pseudonymMethod: capability.pseudonymMethod,
+  })) {
+    requireBoundedText(value, `MaterializationJobCapabilityV2.${name}`, 512);
+  }
+  requireBytes(capability.releaseRoot, 'MaterializationJobCapabilityV2.releaseRoot', SHA256_BYTES);
+  requireBytes(
+    capability.protectedSourceRoot,
+    'MaterializationJobCapabilityV2.protectedSourceRoot',
+    SHA256_BYTES
+  );
+  requireBytes(
+    capability.proofKeyThumbprint,
+    'MaterializationJobCapabilityV2.proofKeyThumbprint',
+    SHA256_BYTES
+  );
+  requireBytes(capability.oneUseNonce, 'MaterializationJobCapabilityV2.oneUseNonce', SHA256_BYTES);
+  requireNonNegativeInteger(
+    capability.leaseGeneration,
+    'MaterializationJobCapabilityV2.leaseGeneration'
+  );
+  requireNonNegativeInteger(capability.keyEpoch, 'MaterializationJobCapabilityV2.keyEpoch');
+  if (
+    !Number.isSafeInteger(capability.issuedAt) ||
+    !Number.isSafeInteger(capability.expiresAt) ||
+    capability.issuedAt < 0 ||
+    capability.expiresAt <= capability.issuedAt
+  ) {
+    throw new Error('MaterializationJobCapabilityV2 time claims are invalid');
+  }
+  if (
+    capability.expiresAt - capability.issuedAt >
+    MATERIALIZATION_CAPABILITY_MAX_LIFETIME_SECONDS
+  ) {
+    throw new Error('MaterializationJobCapabilityV2 exceeds its maximum lifetime');
+  }
+  if (capability.outputFormat !== 'overlay' && capability.outputFormat !== 'zip') {
+    throw new Error('MaterializationJobCapabilityV2 output format is invalid');
+  }
+  if (capability.protectedFiles.length === 0 || capability.protectedFiles.length > 512) {
+    throw new Error(
+      'MaterializationJobCapabilityV2 protected file count must be between 1 and 512'
+    );
+  }
+  for (const [index, file] of capability.protectedFiles.entries()) {
+    requireMaterializedPath(
+      requireBoundedText(
+        file.normalizedPath,
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].normalizedPath`,
+        1_024
+      ),
+      `MaterializationJobCapabilityV2.protectedFiles[${index}].normalizedPath`
+    );
+    requireBoundedText(
+      file.materializerType,
+      `MaterializationJobCapabilityV2.protectedFiles[${index}].materializerType`,
+      128
+    );
+    requireBytes(
+      file.sourceSha256,
+      `MaterializationJobCapabilityV2.protectedFiles[${index}].sourceSha256`,
+      SHA256_BYTES
+    );
+    if (typeof file.required !== 'boolean') {
+      throw new Error(
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].required must be boolean`
+      );
+    }
+    if (
+      index > 0 &&
+      compareUtf8(capability.protectedFiles[index - 1].normalizedPath, file.normalizedPath) >= 0
+    ) {
+      throw new Error(
+        'MaterializationJobCapabilityV2 protected files must use strict UTF-8 path order'
+      );
+    }
+  }
+}
+
+export function encodeMaterializationCapabilityV2(
+  capability: MaterializationJobCapabilityV2
+): Uint8Array {
+  validateMaterializationCapabilityV2(capability);
+  return encodeCanonicalPackageCbor(materializationCapabilityMap(capability));
+}
+
+export function decodeMaterializationCapabilityV2(
+  payload: Uint8Array
+): MaterializationJobCapabilityV2 {
+  const map = requireMap(decodeCanonicalPackageCbor(payload), 'MaterializationJobCapabilityV2');
+  requireExactLabels(
+    map,
+    Array.from({ length: 20 }, (_, index) => index),
+    'MaterializationJobCapabilityV2'
+  );
+  if (requireInteger(map.get(0), 'MaterializationJobCapabilityV2.schemaVersion') !== 2) {
+    throw new Error('MaterializationJobCapabilityV2 schema version is invalid');
+  }
+  const outputFormat = requireString(map.get(13), 'MaterializationJobCapabilityV2.outputFormat');
+  if (outputFormat !== 'overlay' && outputFormat !== 'zip') {
+    throw new Error('MaterializationJobCapabilityV2 output format is invalid');
+  }
+  const protectedFiles = requireArray(
+    map.get(14),
+    'MaterializationJobCapabilityV2.protectedFiles'
+  ).map((value, index) => {
+    const file = requireMap(value, `MaterializationJobCapabilityV2.protectedFiles[${index}]`);
+    requireExactLabels(
+      file,
+      [0, 1, 2, 3],
+      `MaterializationJobCapabilityV2.protectedFiles[${index}]`
+    );
+    const required = file.get(3);
+    if (typeof required !== 'boolean') {
+      throw new Error(
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].required must be boolean`
+      );
+    }
+    return {
+      materializerType: requireBoundedText(
+        file.get(1),
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].materializerType`,
+        128
+      ),
+      normalizedPath: requireMaterializedPath(
+        requireBoundedText(
+          file.get(0),
+          `MaterializationJobCapabilityV2.protectedFiles[${index}].normalizedPath`,
+          1_024
+        ),
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].normalizedPath`
+      ),
+      required,
+      sourceSha256: requireBytes(
+        file.get(2),
+        `MaterializationJobCapabilityV2.protectedFiles[${index}].sourceSha256`,
+        SHA256_BYTES
+      ),
+    };
+  });
+  const capability: MaterializationJobCapabilityV2 = {
+    buyerSubjectPseudonym: requireBoundedText(
+      map.get(6),
+      'MaterializationJobCapabilityV2.buyerSubjectPseudonym',
+      512
+    ),
+    capabilityId: requireBoundedText(
+      map.get(1),
+      'MaterializationJobCapabilityV2.capabilityId',
+      512
+    ),
+    creatorId: requireBoundedText(map.get(4), 'MaterializationJobCapabilityV2.creatorId', 512),
+    expiresAt: requireInteger(map.get(17), 'MaterializationJobCapabilityV2.expiresAt'),
+    grantJti: requireBoundedText(map.get(18), 'MaterializationJobCapabilityV2.grantJti', 512),
+    issuedAt: requireInteger(map.get(16), 'MaterializationJobCapabilityV2.issuedAt'),
+    jobId: requireBoundedText(map.get(2), 'MaterializationJobCapabilityV2.jobId', 512),
+    keyEpoch: requireNonNegativeInteger(map.get(10), 'MaterializationJobCapabilityV2.keyEpoch'),
+    leaseGeneration: requireNonNegativeInteger(
+      map.get(3),
+      'MaterializationJobCapabilityV2.leaseGeneration'
+    ),
+    materializationAlgorithm: requireBoundedText(
+      map.get(11),
+      'MaterializationJobCapabilityV2.materializationAlgorithm',
+      512
+    ),
+    oneUseNonce: requireBytes(
+      map.get(15),
+      'MaterializationJobCapabilityV2.oneUseNonce',
+      SHA256_BYTES
+    ),
+    outputFormat,
+    pluginVersion: requireBoundedText(
+      map.get(12),
+      'MaterializationJobCapabilityV2.pluginVersion',
+      512
+    ),
+    productId: requireBoundedText(map.get(5), 'MaterializationJobCapabilityV2.productId', 512),
+    proofKeyThumbprint: requireBytes(
+      map.get(19),
+      'MaterializationJobCapabilityV2.proofKeyThumbprint',
+      SHA256_BYTES
+    ),
+    protectedFiles,
+    protectedSourceRoot: requireBytes(
+      map.get(9),
+      'MaterializationJobCapabilityV2.protectedSourceRoot',
+      SHA256_BYTES
+    ),
+    pseudonymMethod: requireBoundedText(
+      map.get(7),
+      'MaterializationJobCapabilityV2.pseudonymMethod',
+      512
+    ),
+    releaseRoot: requireBytes(
+      map.get(8),
+      'MaterializationJobCapabilityV2.releaseRoot',
+      SHA256_BYTES
+    ),
+  };
+  validateMaterializationCapabilityV2(capability);
+  return capability;
 }
 
 function materializedFileMap(file: MaterializedFileV2) {
@@ -686,6 +1000,120 @@ export function decodeMaterializationReceiptV2(payload: Uint8Array): Materializa
   return receipt;
 }
 
+function deliveryGrantMap(grant: DeliveryGrantV2) {
+  return new Map<number, PackageContractCborValue>([
+    [0, PACKAGE_CONTRACT_VERSION],
+    [1, grant.grantId],
+    [2, grant.issuer],
+    [3, grant.audience],
+    [4, grant.creatorId],
+    [5, grant.buyerId],
+    [6, grant.productId],
+    [7, grant.releaseRoot],
+    [8, grant.bindingRoot],
+    [9, grant.deviceKeyThumbprint],
+    [10, grant.issuedAt],
+    [11, grant.notBefore],
+    [12, grant.expiresAt],
+    [13, grant.scopes],
+    [14, grant.installSessionId],
+  ]);
+}
+
+export function validateDeliveryGrantV2(
+  grant: DeliveryGrantV2,
+  context?: DeliveryGrantValidationContext
+): void {
+  for (const [name, value] of Object.entries({
+    audience: grant.audience,
+    buyerId: grant.buyerId,
+    creatorId: grant.creatorId,
+    grantId: grant.grantId,
+    installSessionId: grant.installSessionId,
+    issuer: grant.issuer,
+    productId: grant.productId,
+  })) {
+    requireBoundedText(value, `DeliveryGrantV2.${name}`, 512);
+  }
+  const issuer = normalizeOrigin(grant.issuer, 'DeliveryGrantV2.issuer');
+  requireBytes(grant.releaseRoot, 'DeliveryGrantV2.releaseRoot', SHA256_BYTES);
+  requireBytes(grant.bindingRoot, 'DeliveryGrantV2.bindingRoot', SHA256_BYTES);
+  requireBytes(grant.deviceKeyThumbprint, 'DeliveryGrantV2.deviceKeyThumbprint', SHA256_BYTES);
+  if (grant.scopes.length < 1 || grant.scopes.length > 16) {
+    throw new Error('DeliveryGrantV2 scope count must be between 1 and 16');
+  }
+  for (const [index, scope] of grant.scopes.entries()) {
+    requireBoundedText(scope, `DeliveryGrantV2.scopes[${index}]`, 512);
+    if (index > 0 && compareUtf8(grant.scopes[index - 1] ?? '', scope) >= 0) {
+      throw new Error('DeliveryGrantV2 scopes must use strict UTF-8 order');
+    }
+  }
+  if (
+    !Number.isSafeInteger(grant.issuedAt) ||
+    !Number.isSafeInteger(grant.notBefore) ||
+    !Number.isSafeInteger(grant.expiresAt) ||
+    grant.issuedAt < 0 ||
+    grant.notBefore < grant.issuedAt ||
+    grant.expiresAt <= grant.notBefore ||
+    grant.expiresAt - grant.issuedAt > DELIVERY_GRANT_MAX_LIFETIME_SECONDS
+  ) {
+    throw new Error('DeliveryGrantV2 time claims are invalid');
+  }
+  if (!context) {
+    return;
+  }
+  if (context.now < grant.notBefore || context.now >= grant.expiresAt) {
+    throw new Error('DeliveryGrantV2 is not active');
+  }
+  if (
+    grant.audience !== context.audience ||
+    issuer !== normalizeOrigin(context.issuer, 'Expected delivery grant issuer') ||
+    !bytesEqual(grant.deviceKeyThumbprint, context.deviceKeyThumbprint) ||
+    !grant.scopes.includes(context.requiredScope)
+  ) {
+    throw new Error('DeliveryGrantV2 is not bound to the requested delivery');
+  }
+}
+
+export function encodeDeliveryGrantV2(grant: DeliveryGrantV2): Uint8Array {
+  validateDeliveryGrantV2(grant);
+  return encodeCanonicalPackageCbor(deliveryGrantMap(grant));
+}
+
+export function decodeDeliveryGrantV2(payload: Uint8Array): DeliveryGrantV2 {
+  const map = requireMap(decodeCanonicalPackageCbor(payload), 'DeliveryGrantV2');
+  requireExactLabels(
+    map,
+    Array.from({ length: 15 }, (_, index) => index),
+    'DeliveryGrantV2'
+  );
+  if (requireInteger(map.get(0), 'DeliveryGrantV2.schemaVersion') !== 2) {
+    throw new Error('DeliveryGrantV2 schema version is invalid');
+  }
+  const grant: DeliveryGrantV2 = {
+    audience: requireBoundedText(map.get(3), 'DeliveryGrantV2.audience', 512),
+    bindingRoot: requireBytes(map.get(8), 'DeliveryGrantV2.bindingRoot', SHA256_BYTES),
+    buyerId: requireBoundedText(map.get(5), 'DeliveryGrantV2.buyerId', 512),
+    creatorId: requireBoundedText(map.get(4), 'DeliveryGrantV2.creatorId', 512),
+    deviceKeyThumbprint: requireBytes(
+      map.get(9),
+      'DeliveryGrantV2.deviceKeyThumbprint',
+      SHA256_BYTES
+    ),
+    expiresAt: requireInteger(map.get(12), 'DeliveryGrantV2.expiresAt'),
+    grantId: requireBoundedText(map.get(1), 'DeliveryGrantV2.grantId', 512),
+    installSessionId: requireBoundedText(map.get(14), 'DeliveryGrantV2.installSessionId', 512),
+    issuedAt: requireInteger(map.get(10), 'DeliveryGrantV2.issuedAt'),
+    issuer: requireBoundedText(map.get(2), 'DeliveryGrantV2.issuer', 2_048),
+    notBefore: requireInteger(map.get(11), 'DeliveryGrantV2.notBefore'),
+    productId: requireBoundedText(map.get(6), 'DeliveryGrantV2.productId', 512),
+    releaseRoot: requireBytes(map.get(7), 'DeliveryGrantV2.releaseRoot', SHA256_BYTES),
+    scopes: readStringArray(map.get(13), 'DeliveryGrantV2.scopes'),
+  };
+  validateDeliveryGrantV2(grant);
+  return grant;
+}
+
 function bootstrapMap(bootstrap: InstallSessionBootstrapV2) {
   return new Map<number, PackageContractCborValue>([
     [0, bootstrap.kind],
@@ -983,6 +1411,39 @@ export async function verifyMaterializationReceiptV2(input: {
       publicKey: input.publicKey,
     })
   );
+}
+
+export async function verifyMaterializationCapabilityV2(input: {
+  coseSign1: Uint8Array;
+  expectedKeyId?: Uint8Array;
+  publicKey: Uint8Array;
+}): Promise<MaterializationJobCapabilityV2> {
+  return decodeMaterializationCapabilityV2(
+    await verifyPackageContract({
+      coseSign1: input.coseSign1,
+      expectedKeyId: input.expectedKeyId,
+      expectedPurpose: PACKAGE_CONTRACT_PURPOSES.materializationCapability,
+      publicKey: input.publicKey,
+    })
+  );
+}
+
+export async function verifyDeliveryGrantV2(input: {
+  context: DeliveryGrantValidationContext;
+  coseSign1: Uint8Array;
+  expectedKeyId?: Uint8Array;
+  publicKey: Uint8Array;
+}): Promise<DeliveryGrantV2> {
+  const grant = decodeDeliveryGrantV2(
+    await verifyPackageContract({
+      coseSign1: input.coseSign1,
+      expectedKeyId: input.expectedKeyId,
+      expectedPurpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+      publicKey: input.publicKey,
+    })
+  );
+  validateDeliveryGrantV2(grant, input.context);
+  return grant;
 }
 
 export async function verifyInstallSessionV2(input: {

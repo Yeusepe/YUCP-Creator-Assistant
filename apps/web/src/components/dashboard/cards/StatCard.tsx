@@ -21,7 +21,7 @@ function TrendArrow({ direction }: { direction: 'up' | 'down' | 'neutral' }) {
     return <Icon name="minus" size={12} />;
   }
 
-  return <Icon name={direction === 'up' ? 'arrowUp' : 'arrowDown'} size={12} />;
+  return <Icon name={direction === 'up' ? 'arrowUp' : 'chevronDown'} size={12} />;
 }
 
 export function StatCard({

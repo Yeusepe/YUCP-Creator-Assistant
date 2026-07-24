@@ -3,10 +3,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
+import type { DurableExactStorage } from './durableExactStorage';
+import type { StorageRole } from './exactStorage';
 import { commandPathEnv, runCommand } from './process';
 import { deleteS3Objects, getS3Object, putS3ObjectImmutable } from './s3Control';
 
 const REQUIRED_DESYNC_COMMANDS = ['make', 'extract', 'chop', 'cat', 'inspect-chunks'] as const;
+const DESYNC_CHUNK_PROFILE = '64:256:1024';
 
 export type LocalStoreMeasurement = {
   bytes: number;
@@ -21,6 +24,8 @@ export type LocalCasStore = {
 export type S3CasStore = {
   kind: 's3';
   config: CasConfig;
+  durableStorage?: DurableExactStorage;
+  storageRole?: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
 };
 
 export type CasStore = LocalCasStore | S3CasStore;
@@ -29,8 +34,14 @@ export function localCasStore(storePath: string): LocalCasStore {
   return { kind: 'local', storePath };
 }
 
-export function s3CasStore(config: CasConfig): S3CasStore {
-  return { kind: 's3', config };
+export function s3CasStore(
+  config: CasConfig,
+  options: {
+    durableStorage?: DurableExactStorage;
+    storageRole?: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
+  } = {}
+): S3CasStore {
+  return { kind: 's3', config, ...options };
 }
 
 async function runDesyncWithUncompressedStore(
@@ -154,6 +165,8 @@ export async function storeArtifactToStore(input: {
     await mkdir(storePath, { recursive: true });
     await runDesyncWithUncompressedStore(storePath, [
       'make',
+      '--chunk-size',
+      DESYNC_CHUNK_PROFILE,
       '--store',
       storePath,
       '--',
@@ -170,7 +183,16 @@ export async function storeArtifactToStore(input: {
   try {
     await runDesyncWithUncompressedStore(
       storeUrl,
-      ['make', '--store', storeUrl, '--', indexPath, artifactPath],
+      [
+        'make',
+        '--chunk-size',
+        DESYNC_CHUNK_PROFILE,
+        '--store',
+        storeUrl,
+        '--',
+        indexPath,
+        artifactPath,
+      ],
       {
         env: desyncS3ChildEnv(input.store.config),
       }
@@ -181,6 +203,54 @@ export async function storeArtifactToStore(input: {
       contentType: 'application/octet-stream',
       key: `${input.store.config.indexPrefix}${input.indexId}`,
     });
+  } finally {
+    await rm(scratchPath, { force: true, recursive: true });
+  }
+}
+
+export async function produceFileChunks(input: {
+  artifactPath: string;
+  onChunk: (chunk: {
+    bytes: Uint8Array;
+    sha256: string;
+    size: number;
+  }) => Promise<DeliveryManifestChunk>;
+}): Promise<DeliveryManifestChunk[]> {
+  const artifactPath = resolve(input.artifactPath);
+  const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-desync-file-recipe-'));
+  const indexPath = join(scratchPath, 'file.caibx');
+  const storePath = join(scratchPath, 'chunks');
+  try {
+    await mkdir(storePath, { recursive: true });
+    await runDesyncWithUncompressedStore(storePath, [
+      'make',
+      '--chunk-size',
+      DESYNC_CHUNK_PROFILE,
+      '--store',
+      storePath,
+      '--',
+      indexPath,
+      artifactPath,
+    ]);
+    const inspected = await inspectDesyncIndex({
+      indexId: indexPath,
+      store: localCasStore(scratchPath),
+    });
+    const chunks: DeliveryManifestChunk[] = [];
+    for (const chunk of inspected) {
+      const bytes = new Uint8Array(await readFile(join(storePath, chunk.id.slice(0, 4), chunk.id)));
+      if (bytes.byteLength !== chunk.size) {
+        throw new Error('desync chunk length changed after inspection');
+      }
+      chunks.push(
+        await input.onChunk({
+          bytes,
+          sha256: chunk.id,
+          size: chunk.size,
+        })
+      );
+    }
+    return chunks;
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
   }
@@ -256,7 +326,7 @@ export async function inspectDesyncIndex(input: {
       if (!Number.isSafeInteger(size) || (size as number) <= 0) {
         throw new Error(`desync inspect-chunks returned an invalid chunk size at index ${index}`);
       }
-      return { id, size: size as number };
+      return { id, sha256: id, size: size as number };
     });
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
