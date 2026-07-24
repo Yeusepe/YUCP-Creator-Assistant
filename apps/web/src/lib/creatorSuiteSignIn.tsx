@@ -1,5 +1,5 @@
-import { KeyRound } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 /** Full wordmark used on the generic Creator Suite OAuth / sign-in page only. */
 export const CREATOR_SUITE_LOGO_SRC = '/Icons/SuiteLogo.png';
@@ -56,7 +56,7 @@ function DiscordGlyph() {
 }
 
 function PasskeyGlyph() {
-  return <KeyRound width={16} height={16} strokeWidth={2} aria-hidden={true} />;
+  return <Icon name="key" size={16} aria-hidden={true} />;
 }
 
 export function CreatorSuiteSignInMethodIcon({

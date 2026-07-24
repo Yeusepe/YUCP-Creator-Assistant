@@ -1,9 +1,9 @@
 import { createLazyFileRoute } from '@tanstack/react-router';
 import { useMutation as useConvexMutation, useQuery as useConvexQuery } from 'convex/react';
-import { AlertCircle, KeyRound, Mail, ShieldAlert, ShieldCheck, Ticket } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AccountPage, AccountSectionCard } from '@/components/account/AccountPage';
 import { AccountSecuritySkeleton } from '@/components/account/AccountSecuritySkeleton';
+import { Icon } from '@/components/ui/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { YucpButton } from '@/components/ui/YucpButton';
 import { verifyRecoveryContactEnrollment as verifyRecoveryContactEnrollmentRequest } from '@/lib/account';
@@ -311,7 +311,7 @@ function AccountSecurityPage() {
     <AccountPage>
       <AccountSectionCard
         className="bento-col-12"
-        leading={<ShieldCheck strokeWidth={1.75} aria-hidden />}
+        leading={<Icon name="shield" aria-hidden />}
         eyebrow="Recovery status"
         title="Can you get back in without Discord?"
         description="You usually sign in with Discord. Add at least one backup so you are not locked out if you lose Discord, your phone, or access to your main email."
@@ -329,7 +329,7 @@ function AccountSecurityPage() {
           <div className="account-status-banner account-status-banner--warning account-status-banner--notice">
             <div className="account-status-banner-main">
               <span className="account-status-banner-icon" aria-hidden>
-                <AlertCircle strokeWidth={1.75} />
+                <Icon name="alert" />
               </span>
               <div className="account-status-banner-copy">
                 <strong>Add a backup before you need it</strong>
@@ -378,7 +378,7 @@ function AccountSecurityPage() {
             <div className="account-recovery-method-head">
               <div className="account-recovery-method-title-group">
                 <span className="account-recovery-method-icon">
-                  <KeyRound strokeWidth={1.75} aria-hidden />
+                  <Icon name="key" aria-hidden />
                 </span>
                 <div className="account-recovery-method-titles">
                   <p className="account-recovery-method-name">Passkeys</p>
@@ -437,7 +437,7 @@ function AccountSecurityPage() {
             <div className="account-recovery-method-head">
               <div className="account-recovery-method-title-group">
                 <span className="account-recovery-method-icon account-recovery-method-icon--amber">
-                  <Ticket strokeWidth={1.75} aria-hidden />
+                  <Icon name="ticket" aria-hidden />
                 </span>
                 <div className="account-recovery-method-titles">
                   <p className="account-recovery-method-name">Backup codes</p>
@@ -489,7 +489,7 @@ function AccountSecurityPage() {
             <div className="account-recovery-method-head">
               <div className="account-recovery-method-title-group">
                 <span className="account-recovery-method-icon account-recovery-method-icon--violet">
-                  <Mail strokeWidth={1.75} aria-hidden />
+                  <Icon name="mail" aria-hidden />
                 </span>
                 <div className="account-recovery-method-titles">
                   <p className="account-recovery-method-name">Recovery email</p>
@@ -600,7 +600,7 @@ function AccountSecurityPage() {
 
       <AccountSectionCard
         className="bento-col-12 account-surface-card--security-emergency"
-        leading={<ShieldAlert strokeWidth={1.75} aria-hidden />}
+        leading={<Icon name="shieldAlert" aria-hidden />}
         eyebrow="If access might be stolen"
         title="Pause risky channels"
         description="Use these only when you suspect someone else reached your email or Discord. We will block recovery through the channel you mark until you replace it."
