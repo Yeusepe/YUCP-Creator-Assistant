@@ -16,6 +16,7 @@ import type * as auth from "../auth.js";
 import type * as authViewer from "../authViewer.js";
 import type * as backgroundSync from "../backgroundSync.js";
 import type * as betterAuthApiKeys from "../betterAuthApiKeys.js";
+import type * as betterAuthV17Migration from "../betterAuthV17Migration.js";
 import type * as bindings from "../bindings.js";
 import type * as catalogTiers from "../catalogTiers.js";
 import type * as certificateBilling from "../certificateBilling.js";
@@ -140,6 +141,7 @@ declare const fullApi: ApiFromModules<{
   authViewer: typeof authViewer;
   backgroundSync: typeof backgroundSync;
   betterAuthApiKeys: typeof betterAuthApiKeys;
+  betterAuthV17Migration: typeof betterAuthV17Migration;
   bindings: typeof bindings;
   catalogTiers: typeof catalogTiers;
   certificateBilling: typeof certificateBilling;

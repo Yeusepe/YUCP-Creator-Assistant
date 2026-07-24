@@ -301,7 +301,7 @@ export const selectFields = <
 // Manually filter an individual document by where clauses. This is used to
 // simplify queries that can only return 0 or 1 documents, or "in" clauses that
 // query multiple single documents in parallel.
-const filterByWhere = <
+export const filterByWhere = <
   T extends TableNamesInDataModel<GenericDataModel>,
   D extends DocumentByName<GenericDataModel, T>,
 >(

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountIdentityMigration from "../accountIdentityMigration.js";
 import type * as adapter from "../adapter.js";
 import type * as auth from "../auth.js";
 import type * as convexClient_adapter from "../convexClient/adapter.js";
@@ -22,6 +23,7 @@ import type * as jwks from "../jwks.js";
 import type * as jwtAdapter from "../jwtAdapter.js";
 import type * as oauthProviderScopes from "../oauthProviderScopes.js";
 import type * as options from "../options.js";
+import type * as v17Migration from "../v17Migration.js";
 
 import type {
   ApiFromModules,
@@ -31,6 +33,7 @@ import type {
 import { anyApi, componentsGeneric } from "convex/server";
 
 const fullApi: ApiFromModules<{
+  accountIdentityMigration: typeof accountIdentityMigration;
   adapter: typeof adapter;
   auth: typeof auth;
   "convexClient/adapter": typeof convexClient_adapter;
@@ -45,6 +48,7 @@ const fullApi: ApiFromModules<{
   jwtAdapter: typeof jwtAdapter;
   oauthProviderScopes: typeof oauthProviderScopes;
   options: typeof options;
+  v17Migration: typeof v17Migration;
 }> = anyApi as any;
 
 /**

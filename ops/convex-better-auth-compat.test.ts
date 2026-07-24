@@ -14,13 +14,21 @@ describe('@convex-dev/better-auth compatibility patch', () => {
       dependencies?: Record<string, string>;
       overrides?: Record<string, string>;
     };
-    const [schemaSource, generatorSource, runtimeAuthSource, schemaOptionsSource] =
-      await Promise.all([
-        readRepoFile('convex/betterAuth/schema.ts'),
-        readRepoFile('convex/betterAuth/convexClient/createSchema.ts'),
-        readRepoFile('convex/auth.ts'),
-        readRepoFile('convex/betterAuth/options.ts'),
-      ]);
+    const [
+      schemaSource,
+      generatedSchemaSource,
+      generatorSource,
+      runtimeAuthSource,
+      schemaOptionsSource,
+      migrationSource,
+    ] = await Promise.all([
+      readRepoFile('convex/betterAuth/schema.ts'),
+      readRepoFile('convex/betterAuth/schema.generated.ts'),
+      readRepoFile('convex/betterAuth/convexClient/createSchema.ts'),
+      readRepoFile('convex/auth.ts'),
+      readRepoFile('convex/betterAuth/options.ts'),
+      readRepoFile('convex/betterAuth/v17Migration.ts'),
+    ]);
     const supportedVersion = '1.7.0-rc.2';
 
     for (const packageName of [
@@ -33,16 +41,24 @@ describe('@convex-dev/better-auth compatibility patch', () => {
       expect(rootPackageJson.dependencies?.[packageName]).toBe(supportedVersion);
       expect(rootPackageJson.overrides?.[packageName]).toBe(supportedVersion);
     }
-    expect(schemaSource).toContain('issuer: v.string()');
-    expect(schemaSource).toContain('providerAccountId: v.string()');
-    expect(schemaSource).not.toContain('accountId: v.string()');
+    expect(generatedSchemaSource).toContain('issuer: v.string()');
+    expect(generatedSchemaSource).toContain('providerAccountId: v.string()');
+    expect(generatedSchemaSource).not.toContain('accountId: v.string()');
+    expect(schemaSource).toContain('accountId: v.optional(v.string())');
+    expect(schemaSource).toContain('issuer: v.optional(v.string())');
+    expect(schemaSource).toContain('providerAccountId: v.optional(v.string())');
+    expect(schemaSource).toContain('userId: v.optional(v.string())');
+    expect(migrationSource).toContain('export const auditPage = query({');
+    expect(migrationSource).toContain('export const migratePage = mutation({');
+    expect(migrationSource).toContain('paginator(ctx.db, schema).query(table).paginate');
+    expect(migrationSource).not.toContain('ctx.db.query(table).paginate');
     expect(generatorSource).toContain(
       'account: [["issuer", "providerAccountId"], ["providerId", "userId"]]'
     );
-    expect(generatorSource).toContain(
-      'apikey: ["configId", "expiresAt", "referenceId"]'
+    expect(generatorSource).toContain('apikey: ["configId", "expiresAt", "referenceId"]');
+    expect(generatedSchemaSource).toContain(
+      `bunx auth@${supportedVersion} generate --output "./schema.generated.ts"`
     );
-    expect(schemaSource).toContain(`bunx auth@${supportedVersion} generate --output "./schema.ts"`);
     expect(generatorSource).toContain(`bunx auth@${supportedVersion} generate`);
     for (const authSource of [runtimeAuthSource, schemaOptionsSource]) {
       expect(authSource).toContain('additionalFields:');

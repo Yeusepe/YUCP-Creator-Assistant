@@ -62,12 +62,13 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects. A Better Auth schema upgrade must use an audited, collision-blocking, resumable migration that preserves account rows, sessions, tokens, passkeys, and API keys.',
     primaryRegressionHomes: [
       'apps/api/src/lib/subjectIdentity.test.ts',
       'apps/api/src/routes/providerPlatform.test.ts',
       'convex/identitySync.realtest.ts',
       'convex/betterAuthApiKeys.realtest.ts',
+      'convex/betterAuthV17Migration.realtest.ts',
     ],
     secondaryRegressionHomes: [
       'apps/api/src/verification/completeLicense.test.ts',
@@ -75,6 +76,7 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
       'convex/licenseVerification.realtest.ts',
     ],
     remediationHomes: [
+      'convex/betterAuthV17Migration.realtest.ts',
       'ops/subject-ownership-remediation.test.ts',
       'ops/buyer-attribution-remediation.test.ts',
     ],
@@ -160,6 +162,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './convex/identitySync.realtest.ts',
       './convex/attestation.realtest.ts',
       './convex/betterAuthApiKeys.realtest.ts',
+      './convex/betterAuthV17Migration.realtest.ts',
     ],
     covers: ['identity', 'attestation'],
   },

@@ -5,12 +5,14 @@ import {
 } from "convex/server";
 import type { FunctionHandle, SchemaDefinition } from "convex/server";
 import { v } from "convex/values";
-import type { GenericId } from "convex/values";
+import type { GenericId, Infer } from "convex/values";
 import { asyncMap } from "convex-helpers";
 import { partial } from "convex-helpers/validators";
 import {
+  adapterArgsValidator,
   adapterWhereValidator,
   checkUniqueFields,
+  filterByWhere,
   hasUniqueFields,
   listOne,
   paginate,
@@ -19,6 +21,128 @@ import {
 import { getAuthTables } from "better-auth/db";
 import type { TableNames } from "../_generated/dataModel.js";
 import type { BetterAuthOptions } from "better-auth/minimal";
+import { deriveBetterAuthV17AccountIdentity } from "../accountIdentityMigration.js";
+
+type AdapterQueryArgs = Infer<typeof adapterArgsValidator>;
+
+function equalityText(args: AdapterQueryArgs, field: string): string | undefined {
+  const clause = args.where?.find(
+    (candidate) =>
+      candidate.field === field &&
+      (!candidate.operator || candidate.operator === "eq") &&
+      typeof candidate.value === "string"
+  );
+  return typeof clause?.value === "string" && clause.value.length > 0
+    ? clause.value
+    : undefined;
+}
+
+function normalizeLegacyAccountForRead(doc: Record<string, any>) {
+  if (doc.issuer && doc.providerAccountId) {
+    return doc;
+  }
+  const identity = deriveBetterAuthV17AccountIdentity({
+    accountId: doc.accountId,
+    providerId: doc.providerId,
+    userId: doc.userId,
+    password: doc.password,
+  });
+  return identity ? { ...doc, ...identity } : doc;
+}
+
+function normalizeModelForRead(model: string, doc: Record<string, any>) {
+  return model === "account" ? normalizeLegacyAccountForRead(doc) : doc;
+}
+
+async function findLegacyAccountForIdentity(
+  ctx: any,
+  args: AdapterQueryArgs
+): Promise<Record<string, any> | null> {
+  if (args.model !== "account") {
+    return null;
+  }
+  const issuer = equalityText(args, "issuer");
+  const providerAccountId = equalityText(args, "providerAccountId");
+  if (!issuer || !providerAccountId) {
+    return null;
+  }
+  const candidates = await ctx.db
+    .query("account")
+    .withIndex("accountId", (q: any) => q.eq("accountId", providerAccountId))
+    .take(3);
+  const matches = candidates.filter((candidate: Record<string, any>) => {
+    if (candidate.issuer || candidate.providerAccountId) {
+      return false;
+    }
+    const identity = deriveBetterAuthV17AccountIdentity({
+      accountId: candidate.accountId,
+      providerId: candidate.providerId,
+      userId: candidate.userId,
+      password: candidate.password,
+    });
+    return identity?.issuer === issuer && identity.providerAccountId === providerAccountId;
+  });
+  if (matches.length > 1) {
+    throw new Error("Legacy Better Auth account identity is ambiguous");
+  }
+  const match = matches[0] ? normalizeLegacyAccountForRead(matches[0]) : null;
+  return filterByWhere(match as any, args.where) ? match : null;
+}
+
+async function listOneForAdapter(
+  ctx: any,
+  schema: SchemaDefinition<any, any>,
+  betterAuthSchema: ReturnType<typeof getAuthTables>,
+  args: AdapterQueryArgs
+) {
+  if (args.model !== "account") {
+    return await listOne(ctx, schema, betterAuthSchema, args as any);
+  }
+  const doc = await listOne(ctx, schema, betterAuthSchema, {
+    ...args,
+    select: undefined,
+  } as any);
+  const resolved = doc
+    ? normalizeLegacyAccountForRead(doc as Record<string, any>)
+    : await findLegacyAccountForIdentity(ctx, args);
+  return selectFields(resolved as any, args.select);
+}
+
+async function paginateForAdapter(
+  ctx: any,
+  schema: SchemaDefinition<any, any>,
+  betterAuthSchema: ReturnType<typeof getAuthTables>,
+  args: AdapterQueryArgs & {
+    paginationOpts: { cursor: string | null; numItems: number };
+  }
+) {
+  if (args.model !== "account") {
+    return await paginate(ctx, schema, betterAuthSchema, args as any);
+  }
+  const result = await paginate(ctx, schema, betterAuthSchema, {
+    ...args,
+    select: undefined,
+  } as any);
+  if (result.page.length > 0) {
+    return {
+      ...result,
+      page: result.page.map((doc) =>
+        selectFields(normalizeLegacyAccountForRead(doc as Record<string, any>) as any, args.select)
+      ),
+    };
+  }
+  if (args.paginationOpts.cursor) {
+    return result;
+  }
+  const fallback = await findLegacyAccountForIdentity(ctx, args);
+  return fallback
+    ? {
+        page: [selectFields(fallback as any, args.select)],
+        isDone: true,
+        continueCursor: "",
+      }
+    : result;
+}
 
 const whereValidator = (
   schema: SchemaDefinition<any, any>,
@@ -123,7 +247,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         join: v.optional(v.any()),
       },
       handler: async (ctx, args) => {
-        return await listOne(ctx, schema, betterAuthSchema, args);
+        return await listOneForAdapter(ctx, schema, betterAuthSchema, args);
       },
     }),
     findMany: queryGeneric({
@@ -145,7 +269,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         paginationOpts: paginationOptsValidator,
       },
       handler: async (ctx, args) => {
-        return await paginate(ctx, schema, betterAuthSchema, args);
+        return await paginateForAdapter(ctx, schema, betterAuthSchema, args);
       },
     }),
     updateOne: mutationGeneric({
@@ -166,7 +290,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onUpdateHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+        const doc = await listOneForAdapter(ctx, schema, betterAuthSchema, args.input);
         if (!doc) {
           throw new Error(`Failed to update ${args.input.model}`);
         }
@@ -208,9 +332,9 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
               `Failed to update ${args.input.model} (deleted by onUpdate trigger?)`
             );
           }
-          return innerUpdatedDoc;
+          return normalizeModelForRead(args.input.model, innerUpdatedDoc);
         }
-        return updatedDoc;
+        return normalizeModelForRead(args.input.model, updatedDoc);
       },
     }),
     updateMany: mutationGeneric({
@@ -232,7 +356,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onUpdateHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const { page, ...result } = await paginate(
+        const { page, ...result } = await paginateForAdapter(
           ctx,
           schema,
           betterAuthSchema,
@@ -307,7 +431,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onDeleteHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+        const doc = await listOneForAdapter(ctx, schema, betterAuthSchema, args.input);
         if (!doc) {
           return null;
         }
@@ -337,7 +461,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onUpdateHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+        const doc = await listOneForAdapter(ctx, schema, betterAuthSchema, args.input);
         if (!doc) {
           return null;
         }
@@ -396,9 +520,9 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
               `Failed to increment ${args.input.model} after the update trigger`
             );
           }
-          return innerUpdatedDoc;
+          return normalizeModelForRead(args.input.model, innerUpdatedDoc);
         }
-        return updatedDoc;
+        return normalizeModelForRead(args.input.model, updatedDoc);
       },
     }),
     deleteOne: mutationGeneric({
@@ -415,7 +539,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onDeleteHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const doc = await listOne(ctx, schema, betterAuthSchema, args.input);
+        const doc = await listOneForAdapter(ctx, schema, betterAuthSchema, args.input);
         if (!doc) {
           return;
         }
@@ -444,7 +568,7 @@ export const createApi = <Schema extends SchemaDefinition<any, any>>(
         onDeleteHandle: v.optional(v.string()),
       },
       handler: async (ctx, args) => {
-        const { page, ...result } = await paginate(
+        const { page, ...result } = await paginateForAdapter(
           ctx,
           schema,
           betterAuthSchema,
