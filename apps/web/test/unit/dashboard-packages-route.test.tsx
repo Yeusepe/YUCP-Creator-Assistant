@@ -117,6 +117,7 @@ const product = {
   canonicalSlug: 'avatar-bundle',
   catalogTiers: [],
   displayName: 'Avatar Bundle',
+  packageId: 'com.creator.avatar-bundle',
   productId: 'gumroad-avatar-bundle',
   provider: 'gumroad',
   providerProductRef: 'store-ref-1',
@@ -135,6 +136,7 @@ const firstUploadProduct = {
   aliases: ['First Upload Product'],
   canonicalSlug: 'first-upload-product',
   displayName: 'First Upload Product',
+  packageId: undefined,
   productId: 'first-upload-product',
   providerProductRef: 'first-upload-ref',
 };
@@ -333,7 +335,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.first-upload',
         version: '1.0.0',
         catalogProductId: 'catalog_product_first_upload',
-        protectionPolicyId: 'supported-visual-assets-v1',
+        protectionPolicyId: 'supported-visual-assets-v2',
       })
     );
   });
@@ -403,7 +405,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.shared-product-name',
         version: '1.0.0',
         catalogProductId: 'catalog_product_same_name_a',
-        protectionPolicyId: 'supported-visual-assets-v1',
+        protectionPolicyId: 'supported-visual-assets-v2',
       })
     );
   });
@@ -455,9 +457,7 @@ describe('dashboard packages route', () => {
     if (!productRow) throw new Error('Product row was not rendered');
 
     fireEvent.click(within(productRow).getByRole('button', { name: 'Upload' }));
-    fireEvent.change(await screen.findByLabelText('Install ID'), {
-      target: { value: 'com.creator.avatar-bundle' },
-    });
+    expect(await screen.findByLabelText('Install ID')).toHaveValue('com.creator.avatar-bundle');
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '2.4.0' } });
     const fileInput = screen.getByLabelText('Choose package file');
     expect(fileInput).toHaveAttribute('accept', expect.stringContaining('.spp'));
@@ -478,7 +478,7 @@ describe('dashboard packages route', () => {
         packageId: 'com.creator.avatar-bundle',
         version: '2.4.0',
         catalogProductId: 'catalog_product_1',
-        protectionPolicyId: 'supported-visual-assets-v1',
+        protectionPolicyId: 'supported-visual-assets-v2',
       })
     );
     expect(uploadStartMock).toHaveBeenCalledOnce();

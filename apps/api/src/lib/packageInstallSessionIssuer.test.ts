@@ -57,6 +57,7 @@ describe('issuePackageInstallSession', () => {
       issuer,
       keyId,
       now,
+      operation: 'install',
       privateKey,
       publication: publication(),
       sessionId: 'session-1',
@@ -81,6 +82,7 @@ describe('issuePackageInstallSession', () => {
         deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
         issuer,
         now: now + 1,
+        operation: 'install',
         releaseRoot: Uint8Array.from(Buffer.from(releaseRoot, 'hex')),
       },
     });
@@ -120,6 +122,7 @@ describe('issuePackageInstallSession', () => {
         issuer,
         keyId,
         now: 2_000_000_000,
+        operation: 'install',
         privateKey,
         publication: publication({ releaseRoot: 'not-a-digest' }),
         sessionId: 'session-1',
@@ -137,6 +140,7 @@ describe('issuePackageInstallSession', () => {
         issuer,
         keyId,
         now: 2_000_000_000,
+        operation: 'install',
         privateKey,
         publication: publication(),
         sessionId: 'session-1',
@@ -155,6 +159,7 @@ describe('issuePackageInstallSession', () => {
       keyId,
       materializationJobId: 'job-protected-1',
       now: 2_000_000_000,
+      operation: 'install',
       privateKey,
       publication: publication({
         protectedFiles: [

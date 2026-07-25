@@ -97,6 +97,12 @@ function publicationFields(digestCharacter: string) {
     protectionPolicyDigest: '6'.repeat(64),
     protectionPolicyId: 'common-only-v1',
     releaseRoot: digestCharacter.repeat(64),
+    vpmDependencies: {
+      'com.example.runtime': '>=2.0.0',
+    },
+    vpmRepositories: {
+      'Example Repository': 'https://packages.example.test/index.json',
+    },
   };
 }
 
@@ -508,11 +514,20 @@ describe.serial('PostgreSQL catalog integration', () => {
       releaseRoot: sha256,
       assemblyObjectId: 'indexes/avatar-package/1.0.0.caibx',
       error: null,
+      vpmDependencies: {
+        'com.example.runtime': '>=2.0.0',
+      },
+      vpmRepositories: {
+        'Example Repository': 'https://packages.example.test/index.json',
+      },
     });
     expect(await activeCatalog.getVersion(created.id)).toMatchObject({
       state: 'READY',
       releaseRoot: sha256,
       assemblyObjectId: 'indexes/avatar-package/1.0.0.caibx',
+      vpmDependencies: {
+        'com.example.runtime': '>=2.0.0',
+      },
     });
 
     const retryId = await createUploadingVersion('retry-edge');

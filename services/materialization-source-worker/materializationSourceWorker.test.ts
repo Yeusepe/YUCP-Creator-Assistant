@@ -106,6 +106,7 @@ function protectedManifest(
     chunkAvgKib: 256,
     commonRoot: identity.commonRoot,
     files,
+    normalizationPolicyVersion: 'package-normalization-policy-v2',
     packageId: 'com.yucp.example',
     protectedSourceRoot: identity.protectedSourceRoot,
     protectionPolicyDigest: '55'.repeat(32),
@@ -115,6 +116,8 @@ function protectedManifest(
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
     version: '1.0.0',
     versionId,
+    vpmDependencies: {},
+    vpmRepositories: {},
   });
   const body = JSON.stringify(manifest);
   const publication = createLogicalReleasePublicationV4({

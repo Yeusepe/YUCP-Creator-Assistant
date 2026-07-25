@@ -1,4 +1,4 @@
-export const PUBLIC_API_AUDIENCE = 'yucp-public-api';
+export const PUBLIC_API_AUDIENCE = 'https://api.creators.yucp.club';
 export const PUBLIC_API_KEY_PERMISSION_NAMESPACE = 'publicApi';
 export const PUBLIC_API_KEY_PREFIX = 'ypsk_';
 

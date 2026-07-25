@@ -29,9 +29,14 @@ import {
   type S3CasStore,
   writeCasIndexObject,
 } from '../storage-core/desyncCas';
+import { prepareInstallablePackageTree } from '../storage-core/installablePackageTree';
 import { reconstructLogicalFile, storeLogicalFile } from '../storage-core/logicalFileCas';
 import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
-import { classifyPackageFiles, type ProtectionPolicyId } from '../storage-core/protectionPolicy';
+import {
+  classifyPackageFiles,
+  type ProtectionPolicyId,
+  protectionMaterializationPolicy,
+} from '../storage-core/protectionPolicy';
 import {
   createLogicalReleasePublicationV4,
   createLogicalReleaseRootV4,
@@ -88,6 +93,27 @@ export interface PromoteVersionInput {
   metadataStore: CasStore;
   protectedStore: CasStore;
   versionId: string;
+}
+
+export function protectedMaterializationFiles(input: {
+  files: readonly DeliveryManifest['files'][number][];
+  protectionPolicyId: string;
+}) {
+  const materializationPolicy = protectionMaterializationPolicy(input.protectionPolicyId);
+  const required = materializationPolicy.protectedFileRequirement === 'required';
+  return input.files
+    .filter((file) => file.classification === 'protected')
+    .map((file) => {
+      if (!file.materializerType) {
+        throw new Error(`Protected file ${file.normalizedPath} has no materializer type`);
+      }
+      return {
+        materializerType: file.materializerType,
+        normalizedPath: file.normalizedPath,
+        required,
+        sourceSha256: file.sha256,
+      };
+    });
 }
 
 type ResolvedAssemblyStorage = {
@@ -303,10 +329,12 @@ export async function assembleVersion(
       outputRoot: join(scratchPath, 'tree'),
       packageId: version.packageId,
     });
+    const prepared = await prepareInstallablePackageTree(normalized.files);
     const classified = classifyPackageFiles({
-      files: normalized.files,
+      files: prepared.files,
       policyId: input.protectionPolicyId,
     });
+    const bootstrapMetadata = prepared.bootstrapMetadata;
     const release = createLogicalReleaseRootV4({
       files: classified.files,
       packageId: version.packageId,
@@ -344,6 +372,7 @@ export async function assembleVersion(
       chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
       commonRoot: release.commonRoot,
       files,
+      normalizationPolicyVersion: prepared.normalizationPolicyVersion,
       packageId: version.packageId,
       protectedSourceRoot: release.protectedSourceRoot,
       protectionPolicyDigest: classified.digest,
@@ -353,6 +382,8 @@ export async function assembleVersion(
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       version: version.version,
       versionId: version.id,
+      vpmDependencies: bootstrapMetadata.vpmDependencies,
+      vpmRepositories: bootstrapMetadata.vpmRepositories,
     });
     storage = resolveAssemblyStorage(input.metadataStore, version.id);
     signal?.throwIfAborted();
@@ -378,10 +409,14 @@ export async function assembleVersion(
           activePolicyVersion: active.policyVersion,
           logicalBytes: classified.files.reduce((total, file) => total + file.bytes, 0),
           logicalFiles: classified.files.length,
+          normalizationExcludedFiles: prepared.excludedFiles.length,
+          normalizationPolicyVersion: prepared.normalizationPolicyVersion,
           protectionPolicyDigest: classified.digest,
           protectionPolicyId: classified.id,
           protectedFiles: classified.files.filter((file) => file.classification === 'protected')
             .length,
+          vpmDependencies: bootstrapMetadata.vpmDependencies,
+          vpmRepositories: bootstrapMetadata.vpmRepositories,
         },
       },
     });
@@ -474,14 +509,7 @@ async function finishPromotion(
       throw new Error(`Publication release root changed for package version ${promoting.id}`);
     }
     const logicalBytes = manifest.files.reduce((total, file) => total + file.bytes, 0);
-    const protectedFiles = manifest.files
-      .filter((file) => file.classification === 'protected')
-      .map((file) => ({
-        materializerType: file.materializerType as string,
-        normalizedPath: file.normalizedPath,
-        required: true,
-        sourceSha256: file.sha256,
-      }));
+    const protectedFiles = protectedMaterializationFiles(manifest);
 
     signal.throwIfAborted();
     const publishedManifestSha256 = await writePipelineMetadata({
@@ -507,6 +535,8 @@ async function finishPromotion(
         protectedSourceRoot: manifest.protectedSourceRoot,
         protectionPolicyDigest: manifest.protectionPolicyDigest,
         protectionPolicyId: manifest.protectionPolicyId,
+        vpmDependencies: manifest.vpmDependencies,
+        vpmRepositories: manifest.vpmRepositories,
       },
       event: {
         type: 'catalog.version.ready',
@@ -524,6 +554,8 @@ async function finishPromotion(
           protectionPolicyId: manifest.protectionPolicyId,
           releaseRoot: publication.releaseRoot,
           verification: 'logical-tree-full-reassembly',
+          vpmDependencies: manifest.vpmDependencies,
+          vpmRepositories: manifest.vpmRepositories,
         },
       },
     });

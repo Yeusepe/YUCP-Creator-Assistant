@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { isIP } from 'node:net';
@@ -10,7 +10,6 @@ import { LocalTcpBridge, type LocalTcpBridgeRoute } from './localTcpBridge';
 const execFileAsync = promisify(execFile);
 const DEFAULT_DISTRIBUTION = 'YUCP-Materializer';
 const LINUX_SERVICE_ROOT = '/home/yucp/ca-coupling';
-const MASTER_CREDENTIAL_PATH = '/home/yucp/.config/yucp-materializer/materialization-master-epochs';
 const LINUX_ENTRYPOINT = '/home/yucp/ca-coupling/deploy/run-local-wsl-materializer.sh';
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
 
@@ -32,9 +31,9 @@ const WSL_ENVIRONMENT_NAMES = [
   'MATERIALIZATION_HEALTH_HOST',
   'MATERIALIZATION_HEALTH_PORT',
   'MATERIALIZATION_KEY_BROKER_SHARED_SECRET',
+  'MATERIALIZATION_KEY_EPOCH',
   'MATERIALIZATION_LANE',
   'MATERIALIZATION_LEASE_DURATION_MS',
-  'MATERIALIZATION_MASTER_EPOCH_KEYS_FILE',
   'MATERIALIZATION_MATERIALIZER_SHARED_SECRET',
   'MATERIALIZATION_POLL_INTERVAL_MS',
   'MATERIALIZATION_RUNTIME_LIBRARY_PATH',
@@ -133,9 +132,9 @@ export function buildWslEnvironment(input: WslEnvironmentInput): NodeJS.ProcessE
       'MATERIALIZATION_KEY_BROKER_SHARED_SECRET',
       24
     ),
+    MATERIALIZATION_KEY_EPOCH: input.baseEnv.MATERIALIZATION_KEY_EPOCH?.trim() || '1',
     MATERIALIZATION_LANE: 'large',
     MATERIALIZATION_LEASE_DURATION_MS: '600000',
-    MATERIALIZATION_MASTER_EPOCH_KEYS_FILE: MASTER_CREDENTIAL_PATH,
     MATERIALIZATION_MATERIALIZER_SHARED_SECRET: requireEnvironment(
       input.baseEnv,
       'MATERIALIZATION_MATERIALIZER_SHARED_SECRET',
@@ -196,6 +195,50 @@ export function parseWslNetworkProbe(value: string): LocalMaterializerNetwork {
   };
 }
 
+export async function waitForLocalMaterializerDependencies(
+  options: {
+    fetchImplementation?: (input: string, init?: RequestInit) => Promise<Response>;
+    retryIntervalMs?: number;
+    timeoutMs?: number;
+  } = {}
+): Promise<void> {
+  const fetchImplementation = options.fetchImplementation ?? fetch;
+  const retryIntervalMs = options.retryIntervalMs ?? 250;
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  if (
+    !Number.isSafeInteger(retryIntervalMs) ||
+    retryIntervalMs < 1 ||
+    retryIntervalMs > 5_000 ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 120_000
+  ) {
+    throw new Error('Local materializer dependency wait configuration is invalid');
+  }
+  const pending = new Set(['http://127.0.0.1:3005/', 'http://127.0.0.1:3012/']);
+  const deadline = Date.now() + timeoutMs;
+  while (pending.size > 0 && Date.now() < deadline) {
+    for (const endpoint of pending) {
+      try {
+        const remainingMs = Math.max(1, deadline - Date.now());
+        const response = await fetchImplementation(endpoint, {
+          signal: AbortSignal.timeout(Math.min(2_000, remainingMs)),
+        });
+        await response.body?.cancel().catch(() => undefined);
+        pending.delete(endpoint);
+      } catch {
+        // The bounded loop retries until both fixed local listeners are ready.
+      }
+    }
+    if (pending.size > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+    }
+  }
+  if (pending.size > 0) {
+    throw new Error('Local materializer dependencies did not become ready');
+  }
+}
+
 async function runPreparation(distribution: string, linuxSourceRoot: string): Promise<void> {
   await execFileAsync('wsl.exe', buildPreparationArguments(distribution, linuxSourceRoot), {
     timeout: 120_000,
@@ -215,32 +258,6 @@ export function buildPreparationArguments(distribution: string, linuxSourceRoot:
     `${linuxSourceRoot}/deploy/prepare-local-wsl-materializer.sh`,
     linuxSourceRoot,
   ];
-}
-
-export function buildMasterCredentialArguments(distribution: string): string[] {
-  return [
-    '-d',
-    distribution,
-    '--',
-    '/bin/bash',
-    `${LINUX_SERVICE_ROOT}/deploy/write-local-master-credential.sh`,
-  ];
-}
-
-async function writeMasterCredential(distribution: string, credential: string): Promise<void> {
-  const child = spawn('wsl.exe', buildMasterCredentialArguments(distribution), {
-    stdio: ['pipe', 'ignore', 'pipe'],
-    windowsHide: true,
-  });
-  const stderr: Buffer[] = [];
-  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
-  child.stdin?.end(credential, 'utf8');
-  const [exitCode] = await once(child, 'close');
-  if (exitCode !== 0) {
-    throw new Error(
-      `The local materializer credential write failed with exit code ${String(exitCode)}`
-    );
-  }
 }
 
 function createDpopPrivateKey(): string {
@@ -267,16 +284,7 @@ export async function startLocalWslMaterializer(
   const linuxSourceRoot = windowsPathToWslPath(sourceRoot);
   const network = await resolveWslNetwork(distribution);
   await runPreparation(distribution, linuxSourceRoot);
-  const keyEpoch = Number(baseEnv.MATERIALIZATION_KEY_EPOCH ?? '1');
-  if (!Number.isSafeInteger(keyEpoch) || keyEpoch < 0) {
-    throw new Error('MATERIALIZATION_KEY_EPOCH is invalid');
-  }
-  await writeMasterCredential(
-    distribution,
-    JSON.stringify({
-      [keyEpoch]: randomBytes(32).toString('base64url'),
-    })
-  );
+  await waitForLocalMaterializerDependencies();
   const bridge = new LocalTcpBridge(
     buildLocalMaterializerBridgeRoutes({
       ...network,

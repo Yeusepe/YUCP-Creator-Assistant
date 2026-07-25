@@ -60,6 +60,7 @@ function session(overrides: Partial<InstallSessionV2> = {}): InstallSessionV2 {
     keyId: 'test-root-2026-01',
     maxLifetimeSeconds: 900,
     notBefore: 1_000,
+    operation: 'install',
     productId: 'product-1',
     releaseRoot: DIGEST_A,
     sessionId: '018f8c03-3880-7d40-a8d5-b190a64141cc',
@@ -79,6 +80,7 @@ function validationContext() {
     deviceKeyThumbprint: DEVICE_KEY,
     issuer: 'https://api.example.test',
     now: 1_200,
+    operation: 'install' as const,
     releaseRoot: DIGEST_A,
   };
 }
@@ -256,7 +258,7 @@ describe('package contracts v2', () => {
         expectedKeyId: KEY_ID,
         publicKey,
       })
-    ).rejects.toThrow('not bound');
+    ).rejects.toThrow('scope is not bound to the requested delivery');
   });
 
   test('rejects noncanonical CBOR and swapped install origins', async () => {

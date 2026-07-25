@@ -58,6 +58,7 @@ describe('resolveSiteUrl', () => {
 describe('loadEnv', () => {
   it('keeps delivery and VPM configuration optional when all values are unset', () => {
     delete process.env.PACKAGE_DELIVERY_AUDIENCE;
+    delete process.env.PACKAGE_INSTALL_ISSUER;
     delete process.env.PACKAGE_INSTALL_SIGNING_KEY_ID;
     delete process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY;
     delete process.env.VPM_BASE_URL;
@@ -67,6 +68,7 @@ describe('loadEnv', () => {
     const env = loadEnv();
 
     expect(env).toHaveProperty('PACKAGE_DELIVERY_AUDIENCE', undefined);
+    expect(env).toHaveProperty('PACKAGE_INSTALL_ISSUER', undefined);
     expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_KEY_ID', undefined);
     expect(env).toHaveProperty('PACKAGE_INSTALL_SIGNING_PRIVATE_KEY', undefined);
     expect(env).toHaveProperty('VPM_BASE_URL', undefined);

@@ -44,7 +44,10 @@ import { requireApiSecret } from './lib/apiAuth';
 import { PII_PURPOSES } from './lib/credentialKeys';
 import { upsertLicenseSubjectLink } from './lib/licenseSubjectLink';
 import { encryptPii } from './lib/piiCrypto';
-import { verifyLicenseWithProviderRuntime } from './lib/providerLicenseVerification';
+import {
+  type ProviderLicenseVerificationResult,
+  verifyLicenseWithProviderRuntime,
+} from './lib/providerLicenseVerification';
 import { buildPublicAuthIssuer, resolveConfiguredPublicApiBaseUrl } from './lib/publicAuthIssuer';
 import {
   type LicenseClaims,
@@ -69,6 +72,11 @@ type LicenseProofResult = {
   creatorAuthUserId?: string;
   productId?: string;
   catalogProductId?: Id<'product_catalog'>;
+  providerUserId?: string;
+  externalOrderId?: string;
+  externalLicenseId?: string;
+  providerProductId?: string;
+  providerTierRef?: string;
 };
 
 async function hashManualLicenseKey(licenseKey: string): Promise<string> {
@@ -217,6 +225,32 @@ export const lookupProductByProviderRef = query({
   handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
     requireApiSecret(args.apiSecret);
     return await ctx.runQuery(internal.yucpLicenses.getProductByProviderRef, {
+      provider: args.provider,
+      providerProductRef: args.providerProductRef,
+    });
+  },
+});
+
+export const lookupProductByProviderRefForCreator = query({
+  args: {
+    apiSecret: v.string(),
+    authUserId: v.string(),
+    provider: v.string(),
+    providerProductRef: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({
+      authUserId: v.string(),
+      productId: v.string(),
+      catalogProductId: v.id('product_catalog'),
+      displayName: v.optional(v.string()),
+    })
+  ),
+  handler: async (ctx, args): Promise<ProductByProviderRefResult> => {
+    requireApiSecret(args.apiSecret);
+    return await ctx.runQuery(internal.yucpLicenses.getProductByProviderRefForCreator, {
+      authUserId: args.authUserId,
       provider: args.provider,
       providerProductRef: args.providerProductRef,
     });
@@ -628,6 +662,11 @@ export const verifyLicenseProof = internalAction({
     creatorAuthUserId: v.optional(v.string()),
     productId: v.optional(v.string()),
     catalogProductId: v.optional(v.id('product_catalog')),
+    providerUserId: v.optional(v.string()),
+    externalOrderId: v.optional(v.string()),
+    externalLicenseId: v.optional(v.string()),
+    providerProductId: v.optional(v.string()),
+    providerTierRef: v.optional(v.string()),
   }),
   handler: async (ctx, args): Promise<LicenseProofResult> => {
     if (!args.packageId || !args.licenseKey || !args.provider || !args.productPermalink) {
@@ -637,7 +676,7 @@ export const verifyLicenseProof = internalAction({
       return { success: false, error: 'License verification failed' };
     }
 
-    let verifyResult: { valid: boolean; reason?: string } | null = null;
+    let verifyResult: ProviderLicenseVerificationResult | null = null;
 
     const product =
       args.provider === 'manual' && args.creatorAuthUserId && args.productId
@@ -697,11 +736,44 @@ export const verifyLicenseProof = internalAction({
       });
     }
 
-    if (!verifyResult?.valid) {
+    if (!verifyResult?.valid || !product) {
       return { success: false, error: verifyResult?.reason ?? 'License verification failed' };
     }
 
-    return { success: true };
+    let verifiedProduct = product;
+    const returnedProviderProductId = verifyResult.providerProductId?.trim();
+    if (
+      returnedProviderProductId &&
+      returnedProviderProductId !== args.productPermalink.trim()
+    ) {
+      const returnedProduct = await ctx.runQuery(
+        internal.yucpLicenses.getProductByProviderRefForCreator,
+        {
+          authUserId: product.authUserId,
+          provider: args.provider,
+          providerProductRef: returnedProviderProductId,
+        }
+      );
+      if (!returnedProduct || returnedProduct.productId !== product.productId) {
+        return {
+          success: false,
+          error: 'License does not belong to the requested product',
+        };
+      }
+      verifiedProduct = returnedProduct;
+    }
+
+    return {
+      success: true,
+      creatorAuthUserId: verifiedProduct.authUserId,
+      productId: verifiedProduct.productId,
+      catalogProductId: verifiedProduct.catalogProductId,
+      providerUserId: verifyResult.providerUserId,
+      externalOrderId: verifyResult.externalOrderId,
+      externalLicenseId: verifyResult.externalLicenseId,
+      providerProductId: verifyResult.providerProductId,
+      providerTierRef: verifyResult.providerTierRef,
+    };
   },
 });
 

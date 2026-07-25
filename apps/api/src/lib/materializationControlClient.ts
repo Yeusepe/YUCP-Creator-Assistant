@@ -7,6 +7,8 @@ const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/ca
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 const MAXIMUM_RESPONSE_BYTES = 64 * 1024;
+const MAXIMUM_RECEIPT_BYTES = 256 * 1024;
+const MAXIMUM_STATUS_RESPONSE_BYTES = MAXIMUM_RECEIPT_BYTES + 4 * 1024;
 const MAXIMUM_ATTRIBUTION_RESPONSE_BYTES = 1024 * 1024;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -126,7 +128,7 @@ function validateStatus(value: unknown): MaterializationStatus {
   }
   if (body.status === 'succeeded') {
     return {
-      receipt: requireText(body.receipt, 'receipt', 256 * 1024),
+      receipt: requireText(body.receipt, 'receipt', MAXIMUM_RECEIPT_BYTES),
       receiptId: requireText(body.receiptId, 'receipt identifier', 128),
       status: 'succeeded',
     };
@@ -280,7 +282,9 @@ export function createMaterializationControlClient(
       }
     },
     async getStatus(input) {
-      return validateStatus(await post(STATUS_PATH, input, 200));
+      return validateStatus(
+        await post(STATUS_PATH, input, 200, undefined, MAXIMUM_STATUS_RESPONSE_BYTES)
+      );
     },
     async listAttributionCandidates(input) {
       return validateAttributionCandidates(

@@ -105,6 +105,8 @@ function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    vpmDependencies: {},
+    vpmRepositories: {},
   };
 }
 

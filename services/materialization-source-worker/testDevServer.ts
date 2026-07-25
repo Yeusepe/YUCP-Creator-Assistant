@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import { unstable_dev } from 'wrangler';
+import { startLocalWranglerWorker } from '../../ops/testing/localWranglerWorker';
 
 const VARIABLE_NAMES = [
   'DELIVERY_GRANT_ISSUER',
@@ -39,37 +39,27 @@ function configuredPort(): number {
 }
 
 async function main(): Promise<void> {
-  const worker = await unstable_dev(
-    resolve('services/materialization-source-worker/src/index.ts'),
-    {
-      config: resolve('services/materialization-source-worker/wrangler.jsonc'),
-      experimental: {
-        disableDevRegistry: true,
-        disableExperimentalWarning: true,
-        forceLocal: true,
-        testMode: true,
-        watch: false,
-      },
-      inspect: false,
-      ip: process.env.MATERIALIZATION_SOURCE_WORKER_HOST?.trim() ?? '127.0.0.1',
-      local: true,
-      logLevel: 'none',
-      persist: false,
-      port: configuredPort(),
-      vars: Object.fromEntries(VARIABLE_NAMES.map((name) => [name, requiredVariable(name)])),
-    }
-  );
-
-  process.stdout.write(`MATERIALIZATION_SOURCE_WORKER_READY ${worker.port}\n`);
-  await new Promise<void>((resolveStop) => {
-    if (process.env.MATERIALIZATION_SOURCE_WORKER_KEEP_ALIVE !== '1') {
-      process.stdin.resume();
-      process.stdin.once('end', resolveStop);
-    }
-    process.once('SIGINT', resolveStop);
-    process.once('SIGTERM', resolveStop);
+  const port = configuredPort();
+  const worker = await startLocalWranglerWorker({
+    config: resolve('services/materialization-source-worker/wrangler.jsonc'),
+    entrypoint: resolve('services/materialization-source-worker/src/index.ts'),
+    port,
+    vars: Object.fromEntries(VARIABLE_NAMES.map((name) => [name, requiredVariable(name)])),
   });
-  await worker.stop();
+
+  try {
+    process.stdout.write(`MATERIALIZATION_SOURCE_WORKER_READY ${new URL(worker.baseUrl).port}\n`);
+    await new Promise<void>((resolveStop) => {
+      if (process.env.MATERIALIZATION_SOURCE_WORKER_KEEP_ALIVE !== '1') {
+        process.stdin.resume();
+        process.stdin.once('end', resolveStop);
+      }
+      process.once('SIGINT', resolveStop);
+      process.once('SIGTERM', resolveStop);
+    });
+  } finally {
+    await worker.stop();
+  }
 }
 
 main().catch((error: unknown) => {

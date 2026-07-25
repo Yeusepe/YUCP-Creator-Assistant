@@ -7,7 +7,7 @@ import { api } from '../../../../../convex/_generated/api';
 import { createAuthUserActorBinding } from '../../lib/apiActor';
 import { getConvexClientFromUrl } from '../../lib/convex';
 import { logger } from '../../lib/logger';
-import { verifyBetterAuthAccessToken } from '../../lib/oauthAccessToken';
+import { verifyPublicApiAccessToken } from '../../lib/publicApiAccessToken';
 import { buildTimedResponse, type RouteTimingCollector } from '../../lib/requestTiming';
 import { errorResponse, generateRequestId } from './helpers';
 import type { PublicV2Config } from './types';
@@ -156,17 +156,15 @@ export async function resolveAuth(
       ? await timing.measure(
           'auth_oauth',
           () =>
-            verifyBetterAuthAccessToken(bearerToken, {
+            verifyPublicApiAccessToken(bearerToken, {
               convexSiteUrl: config.convexSiteUrl,
-              audience: config.oauthAudience ?? 'yucp-public-api',
               requiredScopes,
               logger,
             }),
           'verify OAuth access token'
         )
-      : await verifyBetterAuthAccessToken(bearerToken, {
+      : await verifyPublicApiAccessToken(bearerToken, {
           convexSiteUrl: config.convexSiteUrl,
-          audience: config.oauthAudience ?? 'yucp-public-api',
           requiredScopes,
           logger,
         });

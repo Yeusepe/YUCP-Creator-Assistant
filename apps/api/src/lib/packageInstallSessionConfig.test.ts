@@ -7,11 +7,13 @@ describe('package install session configuration', () => {
     expect(
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.from(privateKey).toString('base64url'),
       })
     ).toEqual({
       audience: 'https://delivery.example.test',
+      issuer: 'https://api.example.test',
       keyId: 'package-install-2026-01',
       privateKey,
     });
@@ -30,6 +32,7 @@ describe('package install session configuration', () => {
     expect(() =>
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test/path',
+        PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.alloc(32, 1).toString('base64url'),
       })
@@ -37,6 +40,7 @@ describe('package install session configuration', () => {
     expect(() =>
       loadPackageInstallSessionConfig({
         PACKAGE_DELIVERY_AUDIENCE: 'https://delivery.example.test',
+        PACKAGE_INSTALL_ISSUER: 'https://api.example.test',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'package-install-2026-01',
         PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: Buffer.alloc(31, 1).toString('base64url'),
       })

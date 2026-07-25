@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import * as ed25519 from '@noble/ed25519';
 import { verifyDpopProof } from '../../../../ops/storage-core/dpop';
 import {
+  type InstallSessionOperation,
   packageContractKeyId,
   verifyDeliveryGrantV2,
 } from '../../../../ops/storage-core/packageContractsV2';
@@ -62,7 +63,6 @@ export interface PackageInstallMaterializationJobControl {
     grantJti: string;
     jobId: string;
     productId: string;
-    protectedFiles: PackageInstallPublication['protectedFiles'];
     protectedSourceRoot: string;
     releaseRoot: string;
     sourceLogicalBytes: number;
@@ -94,6 +94,7 @@ type PackageInstallSessionRequest = {
   catalogProductIds: string[];
   deviceKeyThumbprint: string;
   idempotencyKey: string;
+  operation: InstallSessionOperation;
   targetReleaseRoot?: string;
 };
 
@@ -146,11 +147,21 @@ function normalizeRequestBody(body: Record<string, unknown>): PackageInstallSess
   ) {
     throw new RequestBodyError('deviceKeyThumbprint must be a lowercase SHA-256 digest', 400);
   }
+  if (
+    body.operation !== 'install' &&
+    body.operation !== 'preflight' &&
+    body.operation !== 'repair' &&
+    body.operation !== 'rollback' &&
+    body.operation !== 'update'
+  ) {
+    throw new RequestBodyError('operation is invalid', 400);
+  }
   return {
     aliasId: normalizeIdentifier(body.aliasId, 'aliasId'),
     catalogProductIds,
     deviceKeyThumbprint: body.deviceKeyThumbprint,
     idempotencyKey: normalizeIdentifier(body.idempotencyKey, 'idempotencyKey'),
+    operation: body.operation,
     ...(body.targetReleaseRoot !== undefined
       ? {
           targetReleaseRoot:
@@ -260,7 +271,8 @@ export function createPackageInstallSessionRoute(
       return jsonNoStore({ error: 'Product is not yet published' }, 404);
     }
     const protectedPublication = publication.protectedFiles.length > 0;
-    if (protectedPublication && !options.materializationControl) {
+    const requiresMaterialization = protectedPublication && input.operation !== 'preflight';
+    if (requiresMaterialization && !options.materializationControl) {
       return jsonNoStore({ error: 'Protected materialization is not configured' }, 503);
     }
     const identityFields = [
@@ -268,12 +280,13 @@ export function createPackageInstallSessionRoute(
       input.aliasId,
       input.deviceKeyThumbprint,
       input.idempotencyKey,
+      input.operation,
       publication.versionId,
       publication.releaseRoot,
     ];
     const sessionId = deterministicInstallIdentifier('session', identityFields);
     const deliveryGrantId = deterministicInstallIdentifier('grant', identityFields);
-    const materializationJobId = protectedPublication
+    const materializationJobId = requiresMaterialization
       ? deterministicInstallIdentifier('job', identityFields)
       : undefined;
     const issued = await issuePackageInstallSession({
@@ -285,6 +298,7 @@ export function createPackageInstallSessionRoute(
       keyId: options.keyId,
       ...(materializationJobId ? { materializationJobId } : {}),
       now: Math.floor(Date.now() / 1000),
+      operation: input.operation,
       privateKey: options.privateKey,
       publication,
       sessionId,
@@ -299,7 +313,6 @@ export function createPackageInstallSessionRoute(
           grantJti: issued.deliveryGrantId,
           jobId: materializationJobId,
           productId: publication.packageId,
-          protectedFiles: publication.protectedFiles,
           protectedSourceRoot: publication.protectedSourceRoot,
           releaseRoot: publication.releaseRoot,
           sourceLogicalBytes: publication.logicalBytes,

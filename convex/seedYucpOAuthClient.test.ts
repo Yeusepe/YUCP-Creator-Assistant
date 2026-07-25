@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
+  buildPublicApiOAuthResourceRecord,
+  buildUnityOAuthClientResourceLink,
   buildUnityOAuthClientMetadata,
   getUnityOAuthClientDescriptors,
 } from './seedYucpOAuthClient';
 import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
+import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 
 describe('buildUnityOAuthClientMetadata', () => {
   it('serializes Unity OAuth client metadata as a JSON string for Better Auth storage', () => {
@@ -50,6 +53,27 @@ describe('getUnityOAuthClientDescriptors', () => {
       for (const scope of descriptor.scopes) {
         expect(providerScopes.has(scope)).toBe(true);
       }
+    }
+  });
+});
+
+describe('Unity OAuth protected resource records', () => {
+  it('uses the shared RFC 8707 resource and complete scope policy', () => {
+    expect(buildPublicApiOAuthResourceRecord()).toEqual({
+      identifier: PUBLIC_API_AUDIENCE,
+      name: 'YUCP public API',
+      allowedScopes: [...OAUTH_PROVIDER_SCOPES],
+      disabled: false,
+      policyVersion: 1,
+    });
+  });
+
+  it('links every Unity public client to the public API resource', () => {
+    for (const descriptor of getUnityOAuthClientDescriptors()) {
+      expect(buildUnityOAuthClientResourceLink(descriptor)).toEqual({
+        clientId: descriptor.clientId,
+        resourceId: PUBLIC_API_AUDIENCE,
+      });
     }
   });
 });

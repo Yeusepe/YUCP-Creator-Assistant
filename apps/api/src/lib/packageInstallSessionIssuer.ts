@@ -3,6 +3,7 @@ import {
   encodeDeliveryGrantV2,
   encodeInstallSessionV2,
   INSTALL_SESSION_TOKEN_TYPE,
+  type InstallSessionOperation,
   type InstallSessionV2,
   PACKAGE_CONTRACT_PURPOSES,
   packageContractKeyId,
@@ -49,6 +50,7 @@ export interface IssuePackageInstallSessionInput {
   keyId: string;
   materializationJobId?: string;
   now: number;
+  operation: InstallSessionOperation;
   privateKey: Uint8Array;
   publication: PackageInstallPublication;
   sessionId: string;
@@ -151,14 +153,15 @@ export async function issuePackageInstallSession(
     throw new Error('Install session identifiers must use safe delivery characters');
   }
   const hasProtectedFiles = publication.protectedFiles.length > 0;
+  const requiresMaterialization = hasProtectedFiles && input.operation !== 'preflight';
   const materializationJobId = input.materializationJobId
     ? requireText(input.materializationJobId, 'materializationJobId')
     : undefined;
   if (
-    hasProtectedFiles !== Boolean(materializationJobId) ||
+    requiresMaterialization !== Boolean(materializationJobId) ||
     (materializationJobId && !SAFE_ID_PATTERN.test(materializationJobId))
   ) {
-    throw new Error('materializationJobId must match the protected publication state');
+    throw new Error('materializationJobId must match the lifecycle operation and publication');
   }
   const keyIdBytes = packageContractKeyId(keyId);
   if (!Number.isSafeInteger(input.now) || input.now < 0) {
@@ -195,6 +198,7 @@ export async function issuePackageInstallSession(
     keyId,
     maxLifetimeSeconds: INSTALL_SESSION_LIFETIME_SECONDS,
     notBefore: input.now,
+    operation: input.operation,
     productId: publication.packageId,
     releaseRoot,
     sessionId,

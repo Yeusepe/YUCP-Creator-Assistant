@@ -80,6 +80,8 @@ export interface PackageVersion {
   nextAttemptAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
 }
 
 export interface PackageQuarantineObject {
@@ -135,6 +137,8 @@ interface PackageVersionRow {
   next_attempt_at: CatalogTimestamp | null;
   created_at: Date;
   updated_at: Date;
+  vpm_dependencies: Record<string, string>;
+  vpm_repositories: Record<string, string>;
 }
 
 export interface CreateVersionInput {
@@ -162,6 +166,8 @@ export interface TransitionFields {
   protectedSourceRoot?: string;
   protectionPolicyDigest?: string;
   protectionPolicyId?: string;
+  vpmDependencies?: Record<string, string>;
+  vpmRepositories?: Record<string, string>;
 }
 
 export interface TransitionOptions {
@@ -236,6 +242,8 @@ function toPackageVersion(row: PackageVersionRow): PackageVersion {
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    vpmDependencies: row.vpm_dependencies,
+    vpmRepositories: row.vpm_repositories,
   };
 }
 
@@ -279,6 +287,8 @@ function validateTransitionFields(
   protectedSourceRoot: string | null;
   protectionPolicyDigest: string | null;
   protectionPolicyId: string | null;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
 } {
   const sourceFormat = fields.sourceFormat ?? current.source_format;
   const releaseRoot = fields.releaseRoot ?? current.release_root;
@@ -295,6 +305,17 @@ function validateTransitionFields(
   const protectedSourceRoot = fields.protectedSourceRoot ?? current.protected_source_root;
   const protectionPolicyDigest = fields.protectionPolicyDigest ?? current.protection_policy_digest;
   const protectionPolicyId = fields.protectionPolicyId?.trim() ?? current.protection_policy_id;
+  const vpmDependencies = fields.vpmDependencies ?? current.vpm_dependencies;
+  const vpmRepositories = fields.vpmRepositories ?? current.vpm_repositories;
+
+  if (
+    Object.keys(vpmDependencies).length > 64 ||
+    Object.values(vpmDependencies).some((value) => typeof value !== 'string') ||
+    Object.keys(vpmRepositories).length > 16 ||
+    Object.values(vpmRepositories).some((value) => typeof value !== 'string')
+  ) {
+    throw new CatalogInvariantError('VPM bootstrap metadata is invalid');
+  }
 
   if ((releaseRoot === null) !== (assemblyObjectId === null)) {
     throw new CatalogInvariantError(
@@ -347,6 +368,8 @@ function validateTransitionFields(
       protectedSourceRoot,
       protectionPolicyDigest,
       protectionPolicyId,
+      vpmDependencies,
+      vpmRepositories,
     };
   }
   if (fields.error !== undefined) {
@@ -377,6 +400,8 @@ function validateTransitionFields(
     protectedSourceRoot,
     protectionPolicyDigest,
     protectionPolicyId,
+    vpmDependencies,
+    vpmRepositories,
   };
 }
 
@@ -636,6 +661,8 @@ export class Catalog {
           protected_source_root = ${fields.protectedSourceRoot},
           protection_policy_digest = ${fields.protectionPolicyDigest},
           protection_policy_id = ${fields.protectionPolicyId},
+          vpm_dependencies = ${transaction.json(fields.vpmDependencies)},
+          vpm_repositories = ${transaction.json(fields.vpmRepositories)},
           error = ${fields.error},
           deleted_at = CASE
             WHEN ${targetState === 'DELETED'} THEN clock_timestamp()

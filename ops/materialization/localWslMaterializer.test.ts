@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildLocalMaterializerBridgeRoutes,
-  buildMasterCredentialArguments,
   buildPreparationArguments,
   buildWslEnvironment,
   parseWslNetworkProbe,
   requireLoopbackEndpointPort,
+  waitForLocalMaterializerDependencies,
   windowsPathToWslPath,
 } from './localWslMaterializer';
 
@@ -49,10 +49,7 @@ describe('local WSL materializer orchestration', () => {
       windowsHostIp: '172.24.0.1',
     });
     expect(env.MATERIALIZATION_CONTROL_PLANE_BASE_URL).toBe('http://127.0.0.1:3012');
-    expect(env.MATERIALIZATION_MASTER_EPOCH_KEYS_FILE).toBe(
-      '/home/yucp/.config/yucp-materializer/materialization-master-epochs'
-    );
-    expect(env.MATERIALIZATION_MASTER_EPOCH_KEYS).toBeUndefined();
+    expect(env.MATERIALIZATION_KEY_EPOCH).toBe('1');
     expect(env.MATERIALIZATION_POLL_INTERVAL_MS).toBe('1000');
     expect(env.YUCP_MINIO_PORT).toBeUndefined();
     expect(env.WSLENV).not.toContain('YUCP_MINIO_PORT');
@@ -81,7 +78,7 @@ describe('local WSL materializer orchestration', () => {
     );
   });
 
-  test('runs preparation and credential writes from Linux script files', () => {
+  test('runs private service preparation from a Linux script file', () => {
     expect(
       buildPreparationArguments(
         'YUCP-Materializer',
@@ -95,12 +92,25 @@ describe('local WSL materializer orchestration', () => {
       '/mnt/e/GitDevelopment/Development/ca-coupling/deploy/prepare-local-wsl-materializer.sh',
       '/mnt/e/GitDevelopment/Development/ca-coupling',
     ]);
-    expect(buildMasterCredentialArguments('YUCP-Materializer')).toEqual([
-      '-d',
-      'YUCP-Materializer',
-      '--',
-      '/bin/bash',
-      '/home/yucp/ca-coupling/deploy/write-local-master-credential.sh',
-    ]);
+  });
+
+  test('waits for Windows control and source listeners before starting WSL proxies', async () => {
+    const attempts = new Map<string, number>();
+    await waitForLocalMaterializerDependencies({
+      fetchImplementation: async (input) => {
+        const url = String(input);
+        const attempt = (attempts.get(url) ?? 0) + 1;
+        attempts.set(url, attempt);
+        if (attempt === 1) {
+          throw new Error('listener is not ready');
+        }
+        return new Response('ready', { status: 404 });
+      },
+      retryIntervalMs: 1,
+      timeoutMs: 1_000,
+    });
+
+    expect(attempts.get('http://127.0.0.1:3005/')).toBe(2);
+    expect(attempts.get('http://127.0.0.1:3012/')).toBe(2);
   });
 });

@@ -2644,6 +2644,8 @@ const package_versions_ref = defineTable({
   protectionPolicyDigest: v.string(),
   protectionPolicyId: v.string(),
   releaseRoot: v.string(),
+  vpmDependencies: v.record(v.string(), v.string()),
+  vpmRepositories: v.record(v.string(), v.string()),
   channel: v.optional(v.string()),
   state: v.union(v.literal('READY'), v.literal('SUPERSEDED'), v.literal('DELETED')),
   deletedAt: v.optional(v.number()),
@@ -2711,22 +2713,6 @@ const http_rate_limits = defineTable({
 })
   .index('by_key_window', ['key', 'windowStart'])
   .index('by_window_start', ['windowStart']);
-
-/**
- * Short-lived session store for the RFC 8252 loopback OAuth proxy.
- * Maps an OAuth `state` parameter to the original loopback redirect_uri
- * so the callback can forward the code back to the Unity editor process.
- */
-const oauth_loopback_sessions = defineTable({
-  /** The `state` parameter sent by the Unity client, used as the lookup key */
-  oauthState: v.string(),
-  /** The original loopback redirect_uri (e.g. http://127.0.0.1:PORT/callback) */
-  originalRedirectUri: v.string(),
-  /** Unix ms, records when the session was created so TTL can be enforced */
-  createdAt: v.number(),
-})
-  .index('by_oauth_state', ['oauthState'])
-  .index('by_created_at', ['createdAt']);
 
 /**
  * Used YUCP JWT nonces, tracks consumed nonces for replay prevention.
@@ -2899,7 +2885,6 @@ export default defineSchema({
   package_versions_ref,
   signing_log,
   cert_issuance_log,
-  oauth_loopback_sessions,
   used_nonces,
 
   // HTTP rate limiting for unauthenticated public endpoints

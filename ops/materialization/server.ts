@@ -21,7 +21,7 @@ const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
 const REQUEST_BODY_LIMIT = 64 * 1_024;
-const COMPLETION_BODY_LIMIT = 2 * 1_024 * 1_024;
+const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
 type ConsumeCapabilityInput = Parameters<MaterializationBroker['consumeCapability']>[0];
@@ -207,13 +207,6 @@ function requireInteger(value: unknown, name: string, minimum = 0): number {
   return value as number;
 }
 
-function requireBoolean(value: unknown, name: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new RequestBoundaryError(400, `${name}_invalid`, `${name} is invalid`);
-  }
-  return value;
-}
-
 function requireSha256(value: unknown, name: string): Uint8Array {
   if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) {
     throw new RequestBoundaryError(400, `${name}_invalid`, `${name} is invalid`);
@@ -281,19 +274,6 @@ function parseAttributionRecords(value: unknown): CompleteRenditionInput['attrib
   });
 }
 
-function parseProtectedFiles(value: unknown): CreateInstallJobInput['protectedFiles'] {
-  return requireArray(value, 'protected_files', 512).map((entry) => {
-    const file = requireObject(entry, 'protected_file');
-    requireExactKeys(file, ['materializerType', 'normalizedPath', 'required', 'sourceSha256']);
-    return {
-      materializerType: requireString(file.materializerType, 'materializer_type', 128),
-      normalizedPath: requireString(file.normalizedPath, 'normalized_path', 1_024),
-      required: requireBoolean(file.required, 'required'),
-      sourceSha256: requireSha256(file.sourceSha256, 'source_sha256'),
-    };
-  });
-}
-
 function publicRouteUrl(publicBaseUrl: string, path: string): string {
   const base = new URL(publicBaseUrl);
   if (
@@ -309,6 +289,26 @@ function publicRouteUrl(publicBaseUrl: string, path: string): string {
     throw new Error('Materialization control-plane public base URL is invalid');
   }
   return new URL(path, `${base.toString().replace(/\/$/, '')}/`).toString();
+}
+
+function classifyMaterializationControlError(pathname: string, error: unknown): string | null {
+  if (pathname !== CREATE_JOB_PATH || !(error instanceof Error)) {
+    return null;
+  }
+  if (error.message.includes('ready canonical package version')) {
+    return 'materialization_source_mismatch';
+  }
+  if (error.message.includes('conflicts with different immutable input')) {
+    return 'materialization_job_conflict';
+  }
+  if (
+    error.name === 'TimeoutError' ||
+    error.message.includes('key broker') ||
+    error.message.includes('subject preparation')
+  ) {
+    return 'materialization_dependency_unavailable';
+  }
+  return null;
 }
 
 export function createMaterializationControlPlaneHandler(
@@ -396,9 +396,14 @@ export function createMaterializationControlPlaneHandler(
     }
     try {
       const requestNow = now();
+      const carriesCapability =
+        url.pathname === CONSUME_PATH ||
+        url.pathname === UPLOAD_TICKET_PATH ||
+        url.pathname === COMPLETE_PATH ||
+        url.pathname === FAIL_JOB_PATH;
       const body = await readBoundedJson(
         request,
-        url.pathname === COMPLETE_PATH ? COMPLETION_BODY_LIMIT : REQUEST_BODY_LIMIT
+        carriesCapability ? CAPABILITY_REQUEST_BODY_LIMIT : REQUEST_BODY_LIMIT
       );
       if (url.pathname === CREATE_JOB_PATH) {
         requireExactKeys(body, [
@@ -408,7 +413,6 @@ export function createMaterializationControlPlaneHandler(
           'grantJti',
           'jobId',
           'productId',
-          'protectedFiles',
           'protectedSourceRoot',
           'releaseRoot',
           'sourceLogicalBytes',
@@ -429,7 +433,6 @@ export function createMaterializationControlPlaneHandler(
           outputFormat: 'zip',
           pluginVersion: config.pluginVersion,
           productId: requireString(body.productId, 'product_id'),
-          protectedFiles: parseProtectedFiles(body.protectedFiles),
           protectedSourceRoot: requireSha256(body.protectedSourceRoot, 'protected_source_root'),
           releaseRoot: requireSha256(body.releaseRoot, 'release_root'),
           sourceLogicalBytes: requireInteger(body.sourceLogicalBytes, 'source_logical_bytes'),
@@ -515,7 +518,11 @@ export function createMaterializationControlPlaneHandler(
         );
       }
 
-      const capability = requireBase64Url(body.capability, 'capability', 128 * 1_024);
+      const capability = requireBase64Url(
+        body.capability,
+        'capability',
+        CAPABILITY_REQUEST_BODY_LIMIT
+      );
       const proof = requireProof(body.proof);
       const materializerId = requireString(body.materializerId, 'materializer_id');
       const verifiedProof = await verifyDpopProof({
@@ -636,7 +643,8 @@ export function createMaterializationControlPlaneHandler(
         return noStoreJson({ error: error.code }, error.status, traceId);
       }
       const errorCode =
-        url.pathname === CREATE_JOB_PATH
+        classifyMaterializationControlError(url.pathname, error) ??
+        (url.pathname === CREATE_JOB_PATH
           ? 'materialization_job_rejected'
           : url.pathname === ATTRIBUTION_CANDIDATES_PATH
             ? 'materialization_attribution_lookup_rejected'
@@ -650,7 +658,7 @@ export function createMaterializationControlPlaneHandler(
                     ? 'capability_rejected'
                     : url.pathname === UPLOAD_TICKET_PATH
                       ? 'rendition_upload_rejected'
-                      : 'rendition_completion_rejected';
+                      : 'rendition_completion_rejected');
       emit('rejected', errorCode);
       return noStoreJson({ error: errorCode }, 403, traceId);
     }

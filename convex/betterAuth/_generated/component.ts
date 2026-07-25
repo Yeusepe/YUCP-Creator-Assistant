@@ -105,7 +105,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -186,7 +185,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -656,12 +654,11 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 data: {
                   accessToken?: null | string;
                   accessTokenExpiresAt?: null | number;
-                  accountId?: string;
                   createdAt: number;
                   idToken?: null | string;
-                  issuer?: string;
+                  issuer: string;
                   password?: null | string;
-                  providerAccountId?: string;
+                  providerAccountId: string;
                   providerId: string;
                   refreshToken?: null | string;
                   refreshTokenExpiresAt?: null | number;
@@ -683,7 +680,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
               }
             | {
                 data: {
-                  configId?: null | string;
+                  configId: string;
                   createdAt: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -697,14 +694,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
-                  referenceId?: null | string;
+                  referenceId: string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
                   requestCount?: null | number;
                   start?: null | string;
                   updatedAt: number;
-                  userId?: string;
                 };
                 model: "apikey";
               }
@@ -954,7 +950,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -1035,7 +1030,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -1560,7 +1554,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -1641,7 +1634,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -2265,7 +2257,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -2350,7 +2341,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -2906,7 +2896,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 update: {
                   accessToken?: null | string;
                   accessTokenExpiresAt?: null | number;
-                  accountId?: string;
                   createdAt?: number;
                   idToken?: null | string;
                   issuer?: string;
@@ -2922,7 +2911,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -3002,7 +2990,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "apikey";
                 update: {
-                  configId?: null | string;
+                  configId?: string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -3016,14 +3004,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
-                  referenceId?: null | string;
+                  referenceId?: string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
                   requestCount?: null | number;
                   start?: null | string;
                   updatedAt?: number;
-                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
@@ -3034,7 +3021,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -3710,7 +3696,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 update: {
                   accessToken?: null | string;
                   accessTokenExpiresAt?: null | number;
-                  accountId?: string;
                   createdAt?: number;
                   idToken?: null | string;
                   issuer?: string;
@@ -3726,7 +3711,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                 where?: Array<{
                   connector?: "AND" | "OR";
                   field:
-                    | "accountId"
                     | "issuer"
                     | "providerAccountId"
                     | "providerId"
@@ -3806,7 +3790,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
             | {
                 model: "apikey";
                 update: {
-                  configId?: null | string;
+                  configId?: string;
                   createdAt?: number;
                   enabled?: null | boolean;
                   expiresAt?: null | number;
@@ -3820,14 +3804,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                   rateLimitEnabled?: null | boolean;
                   rateLimitMax?: null | number;
                   rateLimitTimeWindow?: null | number;
-                  referenceId?: null | string;
+                  referenceId?: string;
                   refillAmount?: null | number;
                   refillInterval?: null | number;
                   remaining?: null | number;
                   requestCount?: null | number;
                   start?: null | string;
                   updatedAt?: number;
-                  userId?: string;
                 };
                 where?: Array<{
                   connector?: "AND" | "OR";
@@ -3838,7 +3821,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
                     | "referenceId"
                     | "prefix"
                     | "key"
-                    | "userId"
                     | "refillInterval"
                     | "refillAmount"
                     | "lastRefillAt"
@@ -4404,75 +4386,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           onUpdateHandle?: string;
         },
         any,
-        Name
-      >;
-    };
-    v17Migration: {
-      auditPage: FunctionReference<
-        "query",
-        "internal",
-        { cursor: null | string; limit: number; table: "account" | "apikey" },
-        {
-          blockers: Array<{
-            code:
-              | "api_key_owner_conflict"
-              | "credential_subject_mismatch"
-              | "duplicate_legacy_identity"
-              | "duplicate_target_identity"
-              | "empty_api_key_config"
-              | "empty_api_key_owner"
-              | "empty_legacy_account_id"
-              | "empty_provider_id"
-              | "partial_target_identity"
-              | "target_identity_collision"
-              | "target_identity_mismatch";
-            recordId: string;
-          }>;
-          continueCursor: string;
-          current: number;
-          isDone: boolean;
-          pendingBackfill: number;
-          pendingCleanup: number;
-          scanned: number;
-          table: "account" | "apikey";
-        },
-        Name
-      >;
-      migratePage: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          cursor: null | string;
-          limit: number;
-          phase: "backfill" | "cleanup";
-          table: "account" | "apikey";
-        },
-        {
-          blockers: Array<{
-            code:
-              | "api_key_owner_conflict"
-              | "credential_subject_mismatch"
-              | "duplicate_legacy_identity"
-              | "duplicate_target_identity"
-              | "empty_api_key_config"
-              | "empty_api_key_owner"
-              | "empty_legacy_account_id"
-              | "empty_provider_id"
-              | "partial_target_identity"
-              | "target_identity_collision"
-              | "target_identity_mismatch";
-            recordId: string;
-          }>;
-          continueCursor: string;
-          current: number;
-          isDone: boolean;
-          migrated: number;
-          pendingBackfill: number;
-          pendingCleanup: number;
-          phase: "backfill" | "cleanup";
-          scanned: number;
-          table: "account" | "apikey";
-        },
         Name
       >;
     };

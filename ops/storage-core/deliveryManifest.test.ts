@@ -12,6 +12,7 @@ describe('logical tree delivery manifest', () => {
       activePolicyVersion: 'active-content-policy-v1',
       chunkAvgKib: 256,
       commonRoot: '55'.repeat(32),
+      normalizationPolicyVersion: 'package-normalization-policy-v2',
       files: [
         {
           bytes: 4096,
@@ -30,10 +31,22 @@ describe('logical tree delivery manifest', () => {
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       version: '1.2.3',
       versionId: 'version-1',
+      vpmDependencies: {
+        'com.example.runtime': '>=2.0.0',
+      },
+      vpmRepositories: {
+        'Example Repository': 'https://packages.example.test/index.json',
+      },
     });
 
     expect(manifest.files[0]?.sha256).toBe('11'.repeat(32));
     expect(manifest.activeContentDigest).toBe('44'.repeat(32));
+    expect(manifest.vpmDependencies).toEqual({
+      'com.example.runtime': '>=2.0.0',
+    });
+    expect(manifest.vpmRepositories).toEqual({
+      'Example Repository': 'https://packages.example.test/index.json',
+    });
   });
 
   test('rejects unsorted or escaping logical files', () => {
@@ -43,6 +56,7 @@ describe('logical tree delivery manifest', () => {
         activePolicyVersion: 'active-content-policy-v1',
         chunkAvgKib: 256,
         commonRoot: '55'.repeat(32),
+        normalizationPolicyVersion: 'package-normalization-policy-v2',
         files: [
           {
             bytes: 1,
@@ -68,6 +82,8 @@ describe('logical tree delivery manifest', () => {
         storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
         version: '1.2.3',
         versionId: 'version-1',
+        vpmDependencies: {},
+        vpmRepositories: {},
       })
     ).toThrow('sorted');
 
@@ -77,6 +93,7 @@ describe('logical tree delivery manifest', () => {
         activePolicyVersion: 'active-content-policy-v1',
         chunkAvgKib: 256,
         commonRoot: '55'.repeat(32),
+        normalizationPolicyVersion: 'package-normalization-policy-v2',
         files: [
           {
             bytes: 1,
@@ -95,6 +112,8 @@ describe('logical tree delivery manifest', () => {
         storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
         version: '1.2.3',
         versionId: 'version-1',
+        vpmDependencies: {},
+        vpmRepositories: {},
       })
     ).toThrow('normalizedPath');
   });
@@ -106,6 +125,7 @@ describe('logical tree delivery manifest', () => {
       activePolicyVersion: 'active-content-policy-v1',
       chunkAvgKib: 256,
       commonRoot: '55'.repeat(32),
+      normalizationPolicyVersion: 'package-normalization-policy-v2',
       files: [
         {
           bytes: 0,
@@ -124,6 +144,8 @@ describe('logical tree delivery manifest', () => {
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       version: '1.2.3',
       versionId: 'version-1',
+      vpmDependencies: {},
+      vpmRepositories: {},
     });
 
     expect(manifest.files[0]?.chunks).toHaveLength(1);

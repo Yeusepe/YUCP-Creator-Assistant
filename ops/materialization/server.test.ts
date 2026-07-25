@@ -13,12 +13,12 @@ function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 }
 
-function createProof(target = endpoint, jti = 'proof-1') {
+function createProof(target = endpoint, jti = 'proof-1', accessToken = capabilityToken) {
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const jwk = publicKey.export({ format: 'jwk' });
   const header = encodeJson({ alg: 'ES256', jwk, typ: 'dpop+jwt' });
   const payload = encodeJson({
-    ath: createHash('sha256').update(capabilityToken, 'ascii').digest('base64url'),
+    ath: createHash('sha256').update(accessToken, 'ascii').digest('base64url'),
     htm: 'POST',
     htu: target,
     iat: now,
@@ -48,7 +48,7 @@ describe('materialization control-plane HTTP boundary', () => {
         consumeCapability: async (input) => {
           calls += 1;
           expect(input.materializerId).toBe('data-node-1');
-          expect(input.proofJti).toBe('proof-1');
+          expect(input.proofJti).toBe(calls === 1 ? 'proof-1' : 'proof-large');
           expect(input.verifiedProofKeyThumbprint).toHaveLength(32);
           return {
             algorithmVersion: 'png-dct-qim-v2',
@@ -135,6 +135,24 @@ describe('materialization control-plane HTTP boundary', () => {
       success: true,
     });
     expect(calls).toBe(1);
+
+    const largeCapability = 'A'.repeat(256 * 1_024);
+    const largeAccepted = await handler(
+      new Request(endpoint, {
+        body: JSON.stringify({
+          capability: largeCapability,
+          materializerId: 'data-node-1',
+          proof: createProof(endpoint, 'proof-large', largeCapability),
+        }),
+        headers: {
+          Authorization: `Bearer ${materializerSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(largeAccepted.status).toBe(200);
+    expect(calls).toBe(2);
   });
 
   it('rejects an oversized or malformed request before capability verification', async () => {
@@ -183,7 +201,7 @@ describe('materialization control-plane HTTP boundary', () => {
         body: '{}',
         headers: {
           Authorization: `Bearer ${materializerSecret}`,
-          'Content-Length': '70000',
+          'Content-Length': String(2 * 1_024 * 1_024 + 1),
           'Content-Type': 'application/json',
         },
         method: 'POST',
@@ -343,6 +361,8 @@ describe('materialization control-plane HTTP boundary', () => {
       'https://control.example.test/v2/internal/materialization-attribution/candidates';
     const failEndpoint = 'https://control.example.test/v2/internal/materialization-jobs/fail';
     const calls: string[] = [];
+    const rejectedEvents: Array<{ errorCode?: string; status: string }> = [];
+    let rejectCreate = false;
     const handler = createMaterializationControlPlaneHandler({
       apiSharedSecret: apiSecret,
       broker: {
@@ -362,9 +382,14 @@ describe('materialization control-plane HTTP boundary', () => {
           throw new Error('must not run');
         },
         createInstallJob: async (input) => {
+          if (rejectCreate) {
+            throw new Error(
+              'Materialization source does not match the ready canonical package version'
+            );
+          }
           calls.push(`create:${input.buyerId}:${input.materializationAlgorithm}`);
           expect(input.outputFormat).toBe('zip');
-          expect(input.protectedFiles[0]?.normalizedPath).toBe('Assets/Product/a.png');
+          expect(input).not.toHaveProperty('protectedFiles');
         },
         failCapabilityJob: async (input) => {
           calls.push(`fail:${input.materializerId}:${input.proofJti}`);
@@ -401,6 +426,11 @@ describe('materialization control-plane HTTP boundary', () => {
       materializationAlgorithm: 'png-dct-qim-v2',
       materializerSharedSecret: materializerSecret,
       now: () => new Date(now * 1_000),
+      onEvent: (event) => {
+        if (event.status === 'rejected') {
+          rejectedEvents.push(event);
+        }
+      },
       pluginVersion: 'png-plugin-2',
       publicBaseUrl: 'https://control.example.test',
     });
@@ -411,14 +441,6 @@ describe('materialization control-plane HTTP boundary', () => {
       grantJti: 'grant-1',
       jobId: 'job-1',
       productId: 'product-1',
-      protectedFiles: [
-        {
-          materializerType: 'png',
-          normalizedPath: 'Assets/Product/a.png',
-          required: true,
-          sourceSha256: '4'.repeat(64),
-        },
-      ],
       protectedSourceRoot: '3'.repeat(64),
       releaseRoot: '1'.repeat(64),
       sourceLogicalBytes: 100,
@@ -449,6 +471,24 @@ describe('materialization control-plane HTTP boundary', () => {
     );
     expect(created.status).toBe(202);
     expect(await created.json()).toEqual({ jobId: 'job-1', status: 'queued' });
+
+    rejectCreate = true;
+    const rejectedCreate = await handler(
+      new Request(createEndpoint, {
+        body: JSON.stringify({
+          ...JSON.parse(createBody),
+          jobId: 'job-invalid-source',
+        }),
+        headers: {
+          Authorization: `Bearer ${apiSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    rejectCreate = false;
+    expect(rejectedCreate.status).toBe(403);
+    expect(rejectedEvents.at(-1)?.errorCode).toBe('materialization_source_mismatch');
 
     const claimed = await handler(
       new Request(claimEndpoint, {

@@ -138,7 +138,10 @@ function uploadPackageAndWait(input: {
   version: string;
   catalogProductId: string;
   onProgress: (progress: number) => void;
-  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
+  protectionPolicyId:
+    | 'common-only-v1'
+    | 'supported-visual-assets-v1'
+    | 'supported-visual-assets-v2';
 }): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -492,7 +495,7 @@ export function PackageRegistryPanel({
             current ? { ...current, progress: Math.round(progress) } : current
           ),
         protectionPolicyId: protectSupportedAssets
-          ? 'supported-visual-assets-v1'
+          ? 'supported-visual-assets-v2'
           : 'common-only-v1',
       });
     },
@@ -521,7 +524,7 @@ export function PackageRegistryPanel({
 
   function openUpload(product?: CreatorPackageProductSummary) {
     setSelectedProductId(product?._id ?? '');
-    setPackageId('');
+    setPackageId(product?.packageId ?? '');
     setVersion('');
     setSelectedUpload(null);
     setFormError(null);
@@ -751,9 +754,14 @@ export function PackageRegistryPanel({
                         const entry = pickerProducts.find(
                           (candidate) => candidate.identityKey === String(key ?? '')
                         );
-                        setSelectedProductId(getPickerProduct(entry)?._id ?? '');
+                        const product = getPickerProduct(entry);
+                        setSelectedProductId(product?._id ?? '');
+                        setPackageId(product?.packageId ?? '');
                       }}
-                      onClear={() => setSelectedProductId('')}
+                      onClear={() => {
+                        setSelectedProductId('');
+                        setPackageId('');
+                      }}
                     >
                       <Autocomplete.Trigger>
                         <Autocomplete.Value />

@@ -1,4 +1,7 @@
-import { type PublicApiScope, PUBLIC_API_SCOPES } from '@yucp/shared';
+import {
+  type PublicApiScope,
+  PUBLIC_API_SCOPES,
+} from '@yucp/shared';
 
 // `offline_access` is the standard OIDC scope Better Auth uses to issue
 // refresh tokens for authorization-code clients.

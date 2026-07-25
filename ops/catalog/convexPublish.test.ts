@@ -67,6 +67,12 @@ describe('createConvexCatalogPublish', () => {
         releaseRoot: '44'.repeat(32),
         state: 'READY',
         verification: 'full-reassembly',
+        vpmDependencies: {
+          'com.example.runtime': '>=2.0.0',
+        },
+        vpmRepositories: {
+          'Example Repository': 'https://packages.example.test/index.json',
+        },
       },
       createdAt,
     };
@@ -105,6 +111,12 @@ describe('createConvexCatalogPublish', () => {
       protectionPolicyId: 'supported-visual-assets-v1',
       releaseRoot: '44'.repeat(32),
       createdAt: createdAt.getTime(),
+      vpmDependencies: {
+        'com.example.runtime': '>=2.0.0',
+      },
+      vpmRepositories: {
+        'Example Repository': 'https://packages.example.test/index.json',
+      },
     });
     await expect(
       verifyApiActorBinding(
@@ -116,6 +128,59 @@ describe('createConvexCatalogPublish', () => {
       service: 'catalog-ready-publisher',
       scopes: ['downloads:service'],
     });
+  });
+
+  it('preserves best-effort protected file requirements', async () => {
+    const mutation = mock(async (_reference: unknown, _args: unknown) => 'version-ref-id');
+    const publish = createConvexCatalogPublish(config, {
+      createClient: () => ({ mutation }),
+    });
+
+    await publish({
+      id: 'outbox-ready-best-effort',
+      aggregateId: 'version-best-effort',
+      eventType: 'catalog.version.ready',
+      payload: {
+        versionId: 'version-best-effort',
+        packageId: 'com.yucp.best-effort',
+        version: '2.0.0',
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        commonRoot: '33'.repeat(32),
+        logicalBytes: 64,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        protectedFiles: [
+          {
+            materializerType: 'png',
+            normalizedPath: 'Assets/Textures/tiny.png',
+            required: false,
+            sourceSha256: '55'.repeat(32),
+          },
+        ],
+        protectedSourceRoot: '66'.repeat(32),
+        protectionPolicyDigest: '77'.repeat(32),
+        protectionPolicyId: 'supported-visual-assets-v2',
+        previousState: 'PROMOTING',
+        releaseRoot: '88'.repeat(32),
+        state: 'READY',
+        verification: 'full-reassembly',
+        vpmDependencies: {},
+        vpmRepositories: {},
+      },
+      createdAt: new Date('2026-07-24T12:00:00.000Z'),
+    });
+
+    const [, args] = mutation.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(args.protectedFiles).toEqual([
+      {
+        materializerType: 'png',
+        normalizedPath: 'Assets/Textures/tiny.png',
+        required: false,
+        sourceSha256: '55'.repeat(32),
+      },
+    ]);
   });
 
   it('maps a DELETED outbox event to one authenticated Convex tombstone', async () => {
@@ -197,6 +262,8 @@ describe('createConvexCatalogPublish', () => {
         protectionPolicyDigest: '88'.repeat(32),
         protectionPolicyId: 'common-only-v1',
         releaseRoot: '44'.repeat(32),
+        vpmDependencies: {},
+        vpmRepositories: {},
       },
       createdAt: new Date('2026-07-17T15:30:00.000Z'),
     };

@@ -50,7 +50,7 @@ type CreateMaterializationJobInput = {
 
 export type CreateInstallMaterializationJobInput = Omit<
   CreateMaterializationJobInput,
-  'buyerSubjectPseudonym' | 'encryptedSubjectMapping' | 'pseudonymMethod'
+  'buyerSubjectPseudonym' | 'encryptedSubjectMapping' | 'protectedFiles' | 'pseudonymMethod'
 > & {
   buyerId: string;
 };
@@ -621,6 +621,51 @@ export class MaterializationBroker {
   async createInstallJob(input: CreateInstallMaterializationJobInput): Promise<void> {
     const buyerId = requireText(input.buyerId, 'buyerId', 512);
     const { buyerId: _buyerId, ...jobInput } = input;
+    if (!UUID_PATTERN.test(requireText(input.sourceVersionId, 'sourceVersionId', 128))) {
+      throw new Error('sourceVersionId is invalid');
+    }
+    const sources = await this.sql<
+      {
+        bindingRoot: string | null;
+        logicalBytes: number;
+        logicalFiles: number;
+        manifestSha256: string | null;
+        packageId: string;
+        protectedFiles: StoredProtectedFile[] | null;
+        protectedSourceRoot: string | null;
+        releaseRoot: string | null;
+      }[]
+    >`
+      SELECT
+        binding_root AS "bindingRoot",
+        logical_bytes::float8 AS "logicalBytes",
+        logical_files AS "logicalFiles",
+        manifest_sha256 AS "manifestSha256",
+        package_id AS "packageId",
+        protected_files AS "protectedFiles",
+        protected_source_root AS "protectedSourceRoot",
+        release_root AS "releaseRoot"
+      FROM package_versions
+      WHERE
+        id = ${input.sourceVersionId}
+        AND state = 'READY'
+        AND deleted_at IS NULL
+    `;
+    const source = sources[0];
+    if (
+      !source ||
+      source.packageId !== input.productId ||
+      source.logicalBytes !== input.sourceLogicalBytes ||
+      source.logicalFiles !== input.sourceLogicalFiles ||
+      source.bindingRoot !== Buffer.from(input.bindingRoot).toString('hex') ||
+      source.protectedSourceRoot !== Buffer.from(input.protectedSourceRoot).toString('hex') ||
+      source.releaseRoot !== Buffer.from(input.releaseRoot).toString('hex') ||
+      source.manifestSha256 !== Buffer.from(input.sourceManifestSha256).toString('hex') ||
+      !source.protectedFiles
+    ) {
+      throw new Error('Materialization source does not match the ready canonical package version');
+    }
+    const protectedFiles = restoreProtectedFiles(source.protectedFiles);
     const subject = await this.keyBroker.prepareSubject({
       buyerId,
       creatorId: input.creatorId,
@@ -630,6 +675,7 @@ export class MaterializationBroker {
     });
     await this.createJob({
       ...jobInput,
+      protectedFiles,
       ...subject,
     });
   }
@@ -726,35 +772,61 @@ export class MaterializationBroker {
         sourceSha256: string;
       }>
     >`
+      WITH ranked_candidates AS (
+        SELECT
+          a.algorithm_version AS "algorithmVersion",
+          a.attribution_id AS "attributionId",
+          encode(a.attribution_token_hash, 'hex') AS "attributionTokenHash",
+          j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
+          a.capability_id AS "capabilityId",
+          extract(epoch FROM a.created_at) * 1000 AS "createdAt",
+          j.creator_id AS "creatorId",
+          j.id AS "jobId",
+          a.key_epoch AS "keyEpoch",
+          j.lease_generation AS "leaseGeneration",
+          protected_file.value->>'materializerType' AS "materializerType",
+          a.normalized_path AS "normalizedPath",
+          a.output_format AS "outputFormat",
+          a.plugin_version AS "pluginVersion",
+          encode(j.protected_source_root, 'hex') AS "protectedSourceRoot",
+          encode(j.release_root, 'hex') AS "releaseRoot",
+          encode(a.source_sha256, 'hex') AS "sourceSha256",
+          row_number() OVER (
+            PARTITION BY a.attribution_id
+            ORDER BY a.created_at DESC, j.id DESC
+          ) AS canonical_rank
+        FROM materialization_attribution_records a
+        JOIN materialization_jobs j ON j.id = a.job_id
+        JOIN LATERAL jsonb_array_elements(j.protected_files) protected_file(value)
+          ON
+            protected_file.value->>'normalizedPath' = a.normalized_path
+            AND protected_file.value->>'sourceSha256' = encode(a.source_sha256, 'hex')
+        WHERE
+          j.creator_id = ${creatorId}
+          AND j.product_id = ${productId}
+          AND j.state = 'SUCCEEDED'
+      )
       SELECT
-        a.algorithm_version AS "algorithmVersion",
-        a.attribution_id AS "attributionId",
-        encode(a.attribution_token_hash, 'hex') AS "attributionTokenHash",
-        j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
-        a.capability_id AS "capabilityId",
-        extract(epoch FROM a.created_at) * 1000 AS "createdAt",
-        j.creator_id AS "creatorId",
-        j.id AS "jobId",
-        a.key_epoch AS "keyEpoch",
-        j.lease_generation AS "leaseGeneration",
-        protected_file.value->>'materializerType' AS "materializerType",
-        a.normalized_path AS "normalizedPath",
-        a.output_format AS "outputFormat",
-        a.plugin_version AS "pluginVersion",
-        encode(j.protected_source_root, 'hex') AS "protectedSourceRoot",
-        encode(j.release_root, 'hex') AS "releaseRoot",
-        encode(a.source_sha256, 'hex') AS "sourceSha256"
-      FROM materialization_attribution_records a
-      JOIN materialization_jobs j ON j.id = a.job_id
-      JOIN LATERAL jsonb_array_elements(j.protected_files) protected_file(value)
-        ON
-          protected_file.value->>'normalizedPath' = a.normalized_path
-          AND protected_file.value->>'sourceSha256' = encode(a.source_sha256, 'hex')
-      WHERE
-        j.creator_id = ${creatorId}
-        AND j.product_id = ${productId}
-        AND j.state = 'SUCCEEDED'
-      ORDER BY a.created_at DESC, a.attribution_id
+        "algorithmVersion",
+        "attributionId",
+        "attributionTokenHash",
+        "buyerSubjectPseudonym",
+        "capabilityId",
+        "createdAt",
+        "creatorId",
+        "jobId",
+        "keyEpoch",
+        "leaseGeneration",
+        "materializerType",
+        "normalizedPath",
+        "outputFormat",
+        "pluginVersion",
+        "protectedSourceRoot",
+        "releaseRoot",
+        "sourceSha256"
+      FROM ranked_candidates
+      WHERE canonical_rank = 1
+      ORDER BY "createdAt" DESC, "attributionId"
       LIMIT ${MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT + 1}
     `;
     const truncated = rows.length > MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT;
@@ -860,6 +932,20 @@ export class MaterializationBroker {
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs);
     return this.sql.begin(async (transaction) => {
+      await transaction`
+        UPDATE materialization_jobs
+        SET
+          state = 'QUEUED',
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          heartbeat_at = NULL,
+          last_error_code = 'MATERIALIZATION_LEASE_EXPIRED',
+          updated_at = ${now}
+        WHERE
+          lane = ${lane}
+          AND state = 'MATERIALIZING'
+          AND lease_expires_at <= ${now}
+      `;
       const active = await transaction<{ id: string }[]>`
         SELECT id
         FROM materialization_jobs

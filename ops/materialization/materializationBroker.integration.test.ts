@@ -270,21 +270,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       materializationAlgorithm: 'png-dct-qim-v2',
       outputFormat: 'zip' as const,
       pluginVersion: 'png-plugin-2',
-      productId: 'product-1',
-      protectedFiles: [
-        {
-          materializerType: 'png',
-          normalizedPath: 'Assets/Product/a.png',
-          required: true,
-          sourceSha256: new Uint8Array(32).fill(0x41),
-        },
-        {
-          materializerType: 'png',
-          normalizedPath: 'Assets/Product/b.png',
-          required: true,
-          sourceSha256: new Uint8Array(32).fill(0x42),
-        },
-      ],
+      productId: 'com.yucp.materialization-test',
       protectedSourceRoot: new Uint8Array(32).fill(0x22),
       releaseRoot: new Uint8Array(32).fill(0x11),
       sourceLogicalBytes: 4_096,
@@ -318,7 +304,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     try {
       await broker.createInstallJob({
         ...installJob,
-        productId: 'different-product',
+        creatorId: 'different-creator',
       });
     } catch (error) {
       immutableConflict = error;
@@ -514,7 +500,7 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     ).toEqual(completed);
     const attributionCandidates = await broker.listAttributionCandidates({
       creatorId: 'creator-1',
-      productId: 'product-1',
+      productId: 'com.yucp.materialization-test',
     });
     expect(attributionCandidates).toEqual({
       candidateLimit: 512,
@@ -541,6 +527,90 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       ],
       truncated: false,
     });
+
+    await broker.createInstallJob({
+      ...installJob,
+      grantJti: 'grant-2',
+      id: 'job-2',
+      traceId: 'trace-2',
+    });
+    const secondClaim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-1',
+      now: new Date((nowSeconds + 4) * 1_000),
+    });
+    expect(secondClaim).toMatchObject({
+      jobId: 'job-2',
+      leaseGeneration: 1,
+      status: 'claimed',
+    });
+    if (secondClaim.status !== 'claimed') {
+      throw new Error('Expected the repeated materialization job to be claimed');
+    }
+    const secondSigned = await broker.issueCapability({
+      jobId: secondClaim.jobId,
+      keyId: capabilityKeyId,
+      leaseGeneration: secondClaim.leaseGeneration,
+      leaseOwner: 'data-node-1',
+      lifetimeSeconds: 300,
+      now: new Date((nowSeconds + 4) * 1_000),
+      privateKey: capabilityPrivateKey,
+      proofKeyThumbprint: new Uint8Array(32).fill(0x33),
+    });
+    await broker.consumeCapability({
+      coseSign1: secondSigned.coseSign1,
+      expectedKeyId: capabilityKeyId,
+      materializerId: 'data-node-1',
+      now: new Date((nowSeconds + 5) * 1_000),
+      publicKey: capabilityPublicKey,
+      proofJti: 'proof-second-consume',
+      traceId: 'trace-2',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
+    });
+    const secondUpload = await broker.prepareRenditionUpload({
+      bytes: renditionArchive.byteLength,
+      capabilityId: secondSigned.capability.capabilityId,
+      coseSign1: secondSigned.coseSign1,
+      jobId: 'job-2',
+      leaseGeneration: 1,
+      materializerId: 'data-node-1',
+      now: new Date((nowSeconds + 6) * 1_000),
+      proofJti: 'proof-second-upload',
+      sha256: renditionSha256,
+      traceId: 'trace-2',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x33),
+    });
+    renditionVersion = 'rendition-version-2';
+    const secondCompleted = await broker.completeRendition({
+      ...completionInput,
+      capabilityId: secondSigned.capability.capabilityId,
+      coseSign1: secondSigned.coseSign1,
+      jobId: 'job-2',
+      now: new Date((nowSeconds + 7) * 1_000),
+      outputTreeRoot: trustedOutputTreeRoot,
+      proofJti: 'proof-second-complete',
+      providerVersion: renditionVersion,
+      traceId: 'trace-2',
+      writeIntentId: secondUpload.writeIntentId,
+    });
+    expect(secondCompleted).toMatchObject({ success: true });
+    const repeatedAttributionRows = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM materialization_attribution_records
+      WHERE attribution_id = 'attribution-1'
+    `;
+    expect(repeatedAttributionRows[0]?.count).toBe(2);
+    const repeatedAttributionCandidates = await broker.listAttributionCandidates({
+      creatorId: 'creator-1',
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(repeatedAttributionCandidates.candidates).toHaveLength(1);
+    expect(repeatedAttributionCandidates.candidates[0]).toMatchObject({
+      attributionId: 'attribution-1',
+      capabilityId: secondSigned.capability.capabilityId,
+      jobId: 'job-2',
+    });
+    expect(repeatedAttributionCandidates.truncated).toBe(false);
 
     let replayError: unknown;
     try {
@@ -589,19 +659,11 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       materializationAlgorithm: 'png-dct-qim-v2',
       outputFormat: 'zip' as const,
       pluginVersion: 'png-plugin-2',
-      productId: 'product-1',
-      protectedFiles: [
-        {
-          materializerType: 'png',
-          normalizedPath: 'Assets/Product/a.png',
-          required: true,
-          sourceSha256: new Uint8Array(32).fill(0x41),
-        },
-      ],
+      productId: 'com.yucp.materialization-test',
       protectedSourceRoot: new Uint8Array(32).fill(0x22),
       releaseRoot: new Uint8Array(32).fill(0x11),
       sourceLogicalBytes: 4_096,
-      sourceLogicalFiles: 1,
+      sourceLogicalFiles: 2,
       sourceManifestSha256: new Uint8Array(32).fill(0x88),
       sourceVersionId,
       traceId: 'trace-lane',
@@ -625,6 +687,70 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       activeJobId: 'job-1',
       queuePosition: 1,
       status: 'saturated',
+    });
+  });
+
+  it('reclaims an expired materializing lease before admitting queued work', async () => {
+    const broker = new MaterializationBroker({
+      keyBroker,
+      receiptSigning: {
+        keyId: receiptKeyId,
+        lifetimeSeconds: 7 * 24 * 60 * 60,
+        privateKey: receiptPrivateKey,
+      },
+      renditionStorage,
+      sourceGrant: {
+        audience: 'yucp-materialization-source',
+        baseUrl: 'https://delivery.example.test',
+        issuer: 'https://api.example.test',
+        keyId: sourceGrantKeyId,
+        lifetimeSeconds: 300,
+        privateKey: sourceGrantPrivateKey,
+      },
+      sql: requireSql(),
+    });
+    const base = {
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-1',
+      creatorId: 'creator-1',
+      grantJti: 'grant-expired-lease',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip' as const,
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-expired-lease',
+    };
+    await broker.createInstallJob({ ...base, id: 'job-expired' });
+    await broker.createInstallJob({ ...base, id: 'job-next' });
+    expect(
+      await broker.claimNextJob({
+        leaseDurationMs: 60_000,
+        leaseOwner: 'data-node-1',
+        now: new Date(nowSeconds * 1_000),
+      })
+    ).toMatchObject({
+      jobId: 'job-expired',
+      leaseGeneration: 1,
+      status: 'claimed',
+    });
+
+    expect(
+      await broker.claimNextJob({
+        leaseDurationMs: 60_000,
+        leaseOwner: 'data-node-1',
+        now: new Date((nowSeconds + 61) * 1_000),
+      })
+    ).toMatchObject({
+      jobId: 'job-expired',
+      leaseGeneration: 2,
+      status: 'claimed',
     });
   });
 });

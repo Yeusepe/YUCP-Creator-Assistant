@@ -23,6 +23,7 @@ export type DeliveryManifest = {
   chunkAvgKib: number;
   files: DeliveryManifestFile[];
   commonRoot: string;
+  normalizationPolicyVersion: string;
   packageId: string;
   protectionPolicyDigest: string;
   protectionPolicyId: string;
@@ -32,6 +33,8 @@ export type DeliveryManifest = {
   storageFormatVersion: string;
   version: string;
   versionId: string;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
 };
 
 const STORAGE_FORMAT_VERSION_PATTERN = /^[a-z0-9][a-z0-9.-]{0,63}$/;
@@ -214,8 +217,16 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
   }
   const files = value.files.map(parseFile);
   const packageId = parseIdentity(value.packageId, 'packageId');
+  const normalizationPolicyVersion = parseIdentity(
+    value.normalizationPolicyVersion,
+    'normalizationPolicyVersion'
+  );
   const protectionPolicyId = parseIdentity(value.protectionPolicyId, 'protectionPolicyId');
   const version = parseIdentity(value.version, 'version');
+  const bootstrapMetadata = normalizeVpmBootstrapMetadata({
+    vpmDependencies: value.vpmDependencies,
+    vpmRepositories: value.vpmRepositories,
+  });
   let chunkCount = 0;
   for (let index = 0; index < files.length; index++) {
     const file = files[index] as DeliveryManifestFile;
@@ -237,6 +248,7 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
     chunkAvgKib: value.chunkAvgKib,
     commonRoot: value.commonRoot,
     files,
+    normalizationPolicyVersion,
     packageId,
     protectionPolicyDigest: value.protectionPolicyDigest,
     protectionPolicyId,
@@ -246,9 +258,13 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
     storageFormatVersion: value.storageFormatVersion,
     version,
     versionId: value.versionId,
+    vpmDependencies: bootstrapMetadata.vpmDependencies,
+    vpmRepositories: bootstrapMetadata.vpmRepositories,
   };
 }
 
 export function createDeliveryManifest(input: DeliveryManifest): DeliveryManifest {
   return parseDeliveryManifest(input);
 }
+
+import { normalizeVpmBootstrapMetadata } from './vpmBootstrapMetadata';

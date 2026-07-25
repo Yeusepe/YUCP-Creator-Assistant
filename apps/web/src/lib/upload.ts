@@ -11,13 +11,19 @@ export interface UploadAuthorization {
   tusEndpoint: string;
   headers: Record<string, string>;
   catalogProductId?: string;
-  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
+  protectionPolicyId:
+    | 'common-only-v1'
+    | 'supported-visual-assets-v1'
+    | 'supported-visual-assets-v2';
 }
 
 export async function authorizeUpload(
   packageId: string,
   version: string,
-  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1',
+  protectionPolicyId:
+    | 'common-only-v1'
+    | 'supported-visual-assets-v1'
+    | 'supported-visual-assets-v2',
   catalogProductId?: string
 ): Promise<UploadAuthorization> {
   return await apiClient.post<UploadAuthorization>('/api/creator/uploads/authorize', {
@@ -31,7 +37,10 @@ export async function authorizeUpload(
 export async function uploadPackageFile(input: {
   file: File;
   packageId: string;
-  protectionPolicyId: 'common-only-v1' | 'supported-visual-assets-v1';
+  protectionPolicyId:
+    | 'common-only-v1'
+    | 'supported-visual-assets-v1'
+    | 'supported-visual-assets-v2';
   version: string;
   catalogProductId?: string;
   onProgress?: (percent: number) => void;

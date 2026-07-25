@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { NormalizedPackageFile } from './packageNormalizer';
 
-export const PROTECTION_POLICY_IDS = ['common-only-v1', 'supported-visual-assets-v1'] as const;
+export const PROTECTION_POLICY_IDS = [
+  'common-only-v1',
+  'supported-visual-assets-v1',
+  'supported-visual-assets-v2',
+] as const;
 
 export type ProtectionPolicyId = (typeof PROTECTION_POLICY_IDS)[number];
 
@@ -16,7 +20,12 @@ export type ProtectionPolicySnapshot = {
   id: ProtectionPolicyId;
 };
 
-const policyDefinitions: Record<
+export type ProtectionMaterializationPolicy = {
+  minimumCoupledFiles: number;
+  protectedFileRequirement: 'best-effort' | 'required';
+};
+
+const classificationRules: Record<
   ProtectionPolicyId,
   ReadonlyArray<{ extension: string; materializerType: 'fbx' | 'png' }>
 > = {
@@ -25,17 +34,43 @@ const policyDefinitions: Record<
     { extension: '.fbx', materializerType: 'fbx' },
     { extension: '.png', materializerType: 'png' },
   ],
+  'supported-visual-assets-v2': [
+    { extension: '.fbx', materializerType: 'fbx' },
+    { extension: '.png', materializerType: 'png' },
+  ],
+};
+
+const materializationPolicies: Record<ProtectionPolicyId, ProtectionMaterializationPolicy> = {
+  'common-only-v1': {
+    minimumCoupledFiles: 0,
+    protectedFileRequirement: 'required',
+  },
+  'supported-visual-assets-v1': {
+    minimumCoupledFiles: 1,
+    protectedFileRequirement: 'required',
+  },
+  'supported-visual-assets-v2': {
+    minimumCoupledFiles: 1,
+    protectedFileRequirement: 'best-effort',
+  },
 };
 
 export function isProtectionPolicyId(value: string): value is ProtectionPolicyId {
   return (PROTECTION_POLICY_IDS as readonly string[]).includes(value);
 }
 
+export function protectionMaterializationPolicy(policyId: string): ProtectionMaterializationPolicy {
+  if (!isProtectionPolicyId(policyId)) {
+    throw new Error(`Unknown protection policy: ${policyId}`);
+  }
+  return { ...materializationPolicies[policyId] };
+}
+
 export function classifyPackageFiles(input: {
   files: readonly NormalizedPackageFile[];
   policyId: ProtectionPolicyId;
 }): ProtectionPolicySnapshot {
-  const rules = policyDefinitions[input.policyId];
+  const rules = classificationRules[input.policyId];
   const files = input.files.map((file): ClassifiedPackageFile => {
     const normalizedPath = file.normalizedPath.toLocaleLowerCase('en-US');
     const rule = rules.find(({ extension }) => normalizedPath.endsWith(extension));
@@ -47,14 +82,27 @@ export function classifyPackageFiles(input: {
         }
       : { ...file, classification: 'common' };
   });
-  const policyBody = JSON.stringify({
-    id: input.policyId,
-    rules,
-    schemaVersion: 1,
-  });
+  const isBestEffortPolicy = input.policyId === 'supported-visual-assets-v2';
+  const policyBody = JSON.stringify(
+    isBestEffortPolicy
+      ? {
+          id: input.policyId,
+          materialization: materializationPolicies[input.policyId],
+          rules,
+          schemaVersion: 2,
+        }
+      : {
+          id: input.policyId,
+          rules,
+          schemaVersion: 1,
+        }
+  );
   return {
     digest: createHash('sha256')
-      .update('yucp:protection-policy:v1\0', 'utf8')
+      .update(
+        isBestEffortPolicy ? 'yucp:protection-policy:v2\0' : 'yucp:protection-policy:v1\0',
+        'utf8'
+      )
       .update(policyBody, 'utf8')
       .digest('hex'),
     files,

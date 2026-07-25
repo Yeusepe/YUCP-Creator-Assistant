@@ -1,4 +1,4 @@
-import { createApi } from './convexClient';
+import { createApi } from '@convex-dev/better-auth';
 import { createSchemaAuthOptions } from './options';
 import schema from './schema';
 

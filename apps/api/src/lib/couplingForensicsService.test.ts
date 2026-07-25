@@ -13,26 +13,25 @@ const config: CouplingForensicsServiceConfig = {
   baseUrl: 'https://coupling.internal',
   sharedSecret: ['unit', 'test', 'coupling', 'bearer'].join('-'),
 };
-const candidates: CouplingAttributionCandidate[] = [
-  {
-    algorithmVersion: 'png-dct-qim-v2',
-    attributionId: 'attribution-1',
-    attributionTokenHash: '0'.repeat(64),
-    buyerSubjectPseudonym: 'buyer-subject-1',
-    capabilityId: 'capability-1',
-    creatorId: 'creator-1',
-    jobId: 'job-1',
-    keyEpoch: 1,
-    leaseGeneration: 1,
-    materializerType: 'png',
-    normalizedPath: 'Assets/Character/body.png',
-    outputFormat: 'zip',
-    pluginVersion: 'png-plugin-2',
-    protectedSourceRoot: '1'.repeat(64),
-    releaseRoot: '2'.repeat(64),
-    sourceSha256: '3'.repeat(64),
-  },
-];
+const primaryCandidate: CouplingAttributionCandidate = {
+  algorithmVersion: 'png-dct-qim-v2',
+  attributionId: 'attribution-1',
+  attributionTokenHash: '0'.repeat(64),
+  buyerSubjectPseudonym: 'buyer-subject-1',
+  capabilityId: 'capability-1',
+  creatorId: 'creator-1',
+  jobId: 'job-1',
+  keyEpoch: 1,
+  leaseGeneration: 1,
+  materializerType: 'png',
+  normalizedPath: 'Assets/Character/body.png',
+  outputFormat: 'zip',
+  pluginVersion: 'png-plugin-2',
+  protectedSourceRoot: '1'.repeat(64),
+  releaseRoot: '2'.repeat(64),
+  sourceSha256: '3'.repeat(64),
+};
+const candidates: CouplingAttributionCandidate[] = [primaryCandidate];
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -134,6 +133,89 @@ describe('runCouplingAttribution', () => {
     ]);
     expect(requestInit?.signal).toBeInstanceOf(AbortSignal);
     expect(requestInit?.redirect).toBe('error');
+  });
+
+  it('uses bounded attribution batches and omits assets without stored candidates', async () => {
+    const secondCandidate: CouplingAttributionCandidate = {
+      ...primaryCandidate,
+      attributionId: 'attribution-2',
+      normalizedPath: 'Assets/Character/detail.png',
+    };
+    const requestBodies: Array<{
+      assets: Array<{ assetPath: string }>;
+      candidates: CouplingAttributionCandidate[];
+      schemaVersion: number;
+    }> = [];
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as (typeof requestBodies)[number];
+      requestBodies.push(body);
+      return new Response(
+        JSON.stringify({
+          schemaVersion: 2,
+          results: body.assets.map((asset) => ({
+            assetPath: asset.assetPath,
+            assetType: 'png',
+            matched: false,
+          })),
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+        {
+          assetPath: 'Assets/Character/detail.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+        {
+          assetPath: 'Assets/Character/unprotected.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      [primaryCandidate, secondCandidate],
+      { ...config, requestMaxBytes: 40_000 }
+    );
+
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies.map((body) => body.assets.map((asset) => asset.assetPath))).toEqual([
+      ['Assets/Character/body.png'],
+      ['Assets/Character/detail.png'],
+    ]);
+    expect(
+      requestBodies.map((body) => body.candidates.map((candidate) => candidate.attributionId))
+    ).toEqual([['attribution-1'], ['attribution-2']]);
+    expect(requestBodies.every((body) => Buffer.byteLength(JSON.stringify(body)) <= 40_000)).toBe(
+      true
+    );
+    expect(result).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        preclassification: 'no-signal',
+      },
+      {
+        assetPath: 'Assets/Character/detail.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        preclassification: 'no-signal',
+      },
+      {
+        assetPath: 'Assets/Character/unprotected.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        preclassification: 'no-signal',
+      },
+    ]);
   });
 
   it('rejects non-http attribution base URLs before sending requests', async () => {
@@ -413,7 +495,7 @@ describe('runCouplingAttribution', () => {
             filePath: assetFixturePath,
           },
         ],
-        [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
+        [{ ...primaryCandidate, normalizedPath: unsafeAssetPath }],
         config
       );
     } catch (error) {
@@ -467,7 +549,7 @@ describe('runCouplingAttribution', () => {
               filePath: assetFixturePath,
             },
           ],
-          [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
+          [{ ...primaryCandidate, normalizedPath: unsafeAssetPath }],
           config
         );
       } catch (error) {
@@ -557,7 +639,7 @@ describe('runCouplingAttribution', () => {
             filePath: assetFixturePath,
           },
         ],
-        [{ ...candidates[0]!, normalizedPath: unsafeAssetPath }],
+        [{ ...primaryCandidate, normalizedPath: unsafeAssetPath }],
         config
       );
     } catch (error) {

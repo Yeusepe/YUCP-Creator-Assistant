@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Auth } from '../auth';
 

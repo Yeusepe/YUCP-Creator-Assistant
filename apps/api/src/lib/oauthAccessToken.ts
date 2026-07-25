@@ -9,7 +9,7 @@ interface LoggerLike {
   warn(message: string, metadata?: Record<string, unknown>): void;
 }
 
-interface VerifyOAuthAccessTokenOptions {
+export interface VerifyOAuthAccessTokenOptions {
   audience: string;
   convexSiteUrl: string;
   logger?: LoggerLike;

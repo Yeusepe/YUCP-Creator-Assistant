@@ -25,7 +25,7 @@
  *
  *   POST /v1/certificates
  *        Issue a signing certificate for the authenticated creator.
- *        Scope: cert:issue   Audience: yucp-public-api
+ *        Scope: cert:issue   Audience: https://api.creators.yucp.club
  *        Body: { devPublicKey (base64 Ed25519), publisherName }
  *        Returns: { success, certificate: CertEnvelope }
  *
@@ -54,9 +54,8 @@
  *   POST /v1/attestation/internal/identity-block-reviews
  *        Apply a review decision to a pending identity block.
  *
- * OAuth infrastructure (not public API, these are part of the PKCE flow):
- *   GET  /api/yucp/oauth/authorize , loopback port proxy (RFC 8252)
- *   GET  /api/yucp/oauth/callback  , restores original loopback port
+ * OAuth infrastructure:
+ *   Better Auth owns the authorization, token, and RFC 8252 loopback behavior.
  *
  * References:
  *   PKCE flow          https://www.rfc-editor.org/rfc/rfc7636
@@ -66,6 +65,7 @@
  */
 
 import { PROVIDER_REGISTRY, PROVIDER_REGISTRY_BY_KEY } from '@yucp/providers/providerMetadata';
+import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 import { httpRouter } from 'convex/server';
 import { api, components, internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
@@ -447,7 +447,7 @@ async function verifyOAuthRequest(
     const verified = await verifyAccessTokenRequest(requestToResourceInput(request), {
       verifyOptions: {
         issuer: authBase,
-        audience: 'yucp-public-api',
+        audience: PUBLIC_API_AUDIENCE,
       },
       jwksUrl: `${authBase}/jwks`,
       scopes: [requiredScope],
@@ -466,115 +466,6 @@ async function verifyOAuthRequest(
     return { ok: false, error: msg };
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RFC 8252 loopback proxy, wildcard port support for Unity Editor OAuth
-//
-// Better Auth's oauthProvider does not yet support wildcard loopback ports
-// (https://github.com/better-auth/better-auth/issues/8426). This proxy:
-//   1. Accepts redirect_uri=http://127.0.0.1:PORT/callback (any ephemeral port)
-//   2. Stores {state → originalRedirectUri} server-side (10-min TTL)
-//   3. Forwards to Better Auth with redirect_uri normalised to our fixed callback
-//   4. On callback, looks up stored URI and redirects to the original port
-//
-// Unity sends to:  GET /api/yucp/oauth/authorize  (not /api/auth/oauth2/authorize)
-// After auth:      GET /api/yucp/oauth/callback   (receives code, restores port)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-const _SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
-function isLoopback(uri: string): boolean {
-  try {
-    return LOOPBACK_HOSTS.has(new URL(uri).hostname);
-  } catch {
-    return false;
-  }
-}
-
-http.route({
-  method: 'GET',
-  path: '/api/yucp/oauth/authorize',
-  handler: httpAction(async (ctx, request) => {
-    const siteUrl = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
-    if (!siteUrl) return errorResponse('Service not configured', 503);
-
-    const incoming = new URL(request.url);
-    const redirectUri = incoming.searchParams.get('redirect_uri');
-    const state = incoming.searchParams.get('state');
-
-    if (!redirectUri || !state) {
-      return errorResponse('redirect_uri and state are required', 400);
-    }
-
-    // Keep the Unity native-app public client in sync at authorize time so
-    // deployments do not depend on a separate manual seed step.
-    await ctx.runMutation(internal.seedYucpOAuthClient.seedUnityOAuthClient, {});
-
-    // Enforce minimum state entropy: at least 32 URL-safe characters (≥128 bits
-    // of entropy when randomly generated), preventing predictable CSRF tokens.
-    const STATE_RE = /^[A-Za-z0-9\-_.~]{32,512}$/;
-    if (!STATE_RE.test(state)) {
-      return errorResponse(
-        'state must be at least 32 URL-safe characters (use a cryptographically random value)',
-        400
-      );
-    }
-
-    if (!isLoopback(redirectUri)) {
-      // Non-loopback clients go directly, no port proxy needed
-      incoming.pathname = '/api/auth/oauth2/authorize';
-      return Response.redirect(incoming.toString(), 302);
-    }
-
-    // Store the original loopback URI server-side keyed by state
-    await ctx.runMutation(internal.oauthLoopback.storeSession, {
-      oauthState: state,
-      originalRedirectUri: redirectUri,
-    });
-
-    // Replace redirect_uri with our fixed callback endpoint
-    incoming.pathname = '/api/auth/oauth2/authorize';
-    incoming.searchParams.set('redirect_uri', `${siteUrl}/api/yucp/oauth/callback`);
-    return Response.redirect(incoming.toString(), 302);
-  }),
-});
-
-http.route({
-  method: 'GET',
-  path: '/api/yucp/oauth/callback',
-  handler: httpAction(async (ctx, request) => {
-    const url = new URL(request.url);
-    const state = url.searchParams.get('state');
-    const code = url.searchParams.get('code');
-    const error = url.searchParams.get('error');
-
-    if (!state) return errorResponse('Missing state parameter', 400);
-
-    // Atomically look up and consume the loopback session (prevents TOCTOU)
-    const session = await ctx.runMutation(internal.oauthLoopback.consumeSession, {
-      oauthState: state,
-    });
-
-    if (!session) {
-      return new Response(
-        '<html><body><p>OAuth session expired or not found. Please try again in Unity.</p></body></html>',
-        { status: 400, headers: { 'Content-Type': 'text/html' } }
-      );
-    }
-
-    // Build the redirect back to the Unity local server
-    const target = new URL(session.originalRedirectUri);
-    if (code) target.searchParams.set('code', code);
-    if (state) target.searchParams.set('state', state);
-    if (error) target.searchParams.set('error', error);
-
-    const errorDesc = url.searchParams.get('error_description');
-    if (errorDesc) target.searchParams.set('error_description', errorDesc);
-
-    return Response.redirect(target.toString(), 302);
-  }),
-});
 
 // Better Auth exposes the OAuth server config at /api/auth/.well-known/* as a
 // server-only endpoint. We mirror the required RFC 8414 path at the issuer root

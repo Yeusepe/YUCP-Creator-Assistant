@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createAuthOptions } from '../auth';
+import {
+  PUBLIC_API_AUDIENCE,
+} from '@yucp/shared';
 import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 import { createSchemaAuthOptions } from './options';
 import { tables } from './schema';
@@ -63,8 +66,35 @@ describe('createSchemaAuthOptions', () => {
 
     expect(jwtPlugin?.options?.jwks?.keyPairConfig?.alg).toBe('RS256');
     expect(jwtPlugin?.options?.jwt?.issuer).toBe('https://example.convex.site/api/auth');
-    expect(jwtPlugin?.options?.jwt?.audience).toBe('yucp-public-api');
+    expect(jwtPlugin?.options?.jwt?.audience).toBe(PUBLIC_API_AUDIENCE);
     expect(convexPlugin).toBeDefined();
+  });
+
+  it('enforces the persisted RFC 8707 public API resource', () => {
+    expect(new URL(PUBLIC_API_AUDIENCE).protocol).toBe('https:');
+
+    for (const options of [
+      createSchemaAuthOptions(),
+      createAuthOptions({} as never),
+    ]) {
+      const oauthPlugin = options.plugins?.find(
+        (plugin) => plugin.id === 'oauth-provider'
+      ) as
+        | {
+            options?: {
+              enforcePerClientResources?: boolean;
+              resourceSeedMode?: string;
+              resources?: unknown[];
+              validAudiences?: readonly string[];
+            };
+          }
+        | undefined;
+
+      expect(oauthPlugin?.options?.validAudiences).toBeUndefined();
+      expect(oauthPlugin?.options?.enforcePerClientResources).toBeTrue();
+      expect(oauthPlugin?.options?.resources).toBeUndefined();
+      expect(oauthPlugin?.options?.resourceSeedMode).toBeUndefined();
+    }
   });
 
   it('registers refresh-token OAuth scopes in runtime and schema auth options', () => {

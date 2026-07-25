@@ -19,11 +19,13 @@ import {
 import worker from './src/index';
 
 const originalFetch = globalThis.fetch;
+const originalWarn = console.warn;
 const grantPrivateKey = new Uint8Array(32).fill(0x39);
 const grantKeyId = packageContractKeyId('delivery-grant-test-2026-01');
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  console.warn = originalWarn;
 });
 
 function encodeJson(value: unknown): string {
@@ -105,6 +107,7 @@ function commonManifest(
     chunkAvgKib: 256,
     commonRoot: identity.commonRoot,
     files,
+    normalizationPolicyVersion: 'package-normalization-policy-v2',
     packageId: 'com.yucp.example',
     protectedSourceRoot: identity.protectedSourceRoot,
     protectionPolicyDigest: '55'.repeat(32),
@@ -114,6 +117,8 @@ function commonManifest(
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
     version: '1.0.0',
     versionId,
+    vpmDependencies: {},
+    vpmRepositories: {},
   });
   const body = JSON.stringify(manifest);
   const publication = createLogicalReleasePublicationV4({
@@ -194,6 +199,10 @@ async function testEnv() {
 
 describe('common package delivery Worker', () => {
   it('rejects an unauthorized request before storage', async () => {
+    const warnings: string[] = [];
+    console.warn = mock((message: string) => {
+      warnings.push(message);
+    });
     let storageFetches = 0;
     globalThis.fetch = mock(async () => {
       storageFetches += 1;
@@ -208,6 +217,9 @@ describe('common package delivery Worker', () => {
     expect(response.status).toBe(403);
     expect(response.headers.get('x-delivery-storage-fetches')).toBe('0');
     expect(storageFetches).toBe(0);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"event":"delivery.request.denied"');
+    expect(warnings[0]).not.toContain('Authorization');
   });
 
   it('uses isolated metadata and common credentials for a verified release', async () => {

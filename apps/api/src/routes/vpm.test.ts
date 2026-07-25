@@ -3,19 +3,35 @@ import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { signVpmRepoToken, verifyVpmRepoToken } from '../../../../ops/storage-core/vpmToken';
 import { createTestLogger } from '../testSupport/loggerMock';
-import { buildYucpAliasVpmPackage, YUCP_ALIAS_BOOTSTRAP_VERSION } from './vpmAliasPackage';
+import { buildYucpAliasBootstrapVersion, buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
 const convexQueryMock = mock(async (_reference?: unknown, _args?: unknown) => null as unknown);
 const loggerErrorMock = mock(() => undefined);
-const importerIndexFetchMock = mock(async () =>
-  Response.json({
+const importerIndexFetchMock = mock(async (input: RequestInfo | URL) => {
+  if (String(input) === 'https://vcc.vrcfury.com/') {
+    return Response.json({
+      packages: {
+        'com.vrcfury.vrcfury': {
+          versions: {
+            '1.1384.0': {
+              name: 'com.vrcfury.vrcfury',
+              displayName: 'VRCFury',
+              version: '1.1384.0',
+              url: 'https://vcc.vrcfury.com/download/1.1384.0',
+            },
+          },
+        },
+      },
+    });
+  }
+  return Response.json({
     packages: {
       'com.yucp.importer': {
         versions: {
-          '0.1.14': {
+          '0.1.28': {
             name: 'com.yucp.importer',
             displayName: 'YUCP Package Importer',
-            version: '0.1.14',
+            version: '0.1.28',
             unity: '2022.3',
             description: 'YUCP package importer',
             author: {
@@ -23,13 +39,13 @@ const importerIndexFetchMock = mock(async () =>
               url: 'https://vpm.yucp.club/',
             },
             zipSHA256: 'a'.repeat(64),
-            url: 'https://packages.example.test/com.yucp.importer-0.1.14.zip',
+            url: 'https://packages.example.test/com.yucp.importer-0.1.28.zip',
           },
         },
       },
     },
-  })
-);
+  });
+});
 
 const apiMock = {
   entitlements: {
@@ -83,6 +99,7 @@ const config = {
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'https://convex.test',
   publicVpmIndexUrl: 'https://vpm.yucp.club/index.json',
+  trustedVpmRepositoryUrls: JSON.stringify(['https://vcc.vrcfury.com/']),
   vpmBaseUrl: 'https://vpm.test/',
   vpmTokenKey,
 };
@@ -250,14 +267,16 @@ describe('per-buyer VPM routes', () => {
     });
     const alias = buildYucpAliasVpmPackage({
       aliasId: 'public-alias',
+      bootstrapVersion: '1.20660.12345',
       catalogProductIds: ['catalog_public'],
+      vpmDependencies: {},
       vpmBaseUrl: 'https://vpm.test/',
     });
     const artifactDescriptor = alias.manifest.url.split('/').at(-2);
     const response = await routes.serveAliasPackage(
       new Request(alias.manifest.url),
       artifactDescriptor ?? '',
-      YUCP_ALIAS_BOOTSTRAP_VERSION
+      alias.manifest.version
     );
 
     expect(response.status).toBe(200);
@@ -306,9 +325,16 @@ describe('per-buyer VPM routes', () => {
         if (query.packageId === 'com.creator.avatar-tools') {
           return {
             contentType: 'application/zip',
+            createdAt: 1_700_000_000_123,
             packageId: 'com.creator.avatar-tools',
             version: '1.2.3',
             versionId: 'version-ready-123',
+            vpmDependencies: {
+              'com.vrcfury.vrcfury': '>=1.1258.0',
+            },
+            vpmRepositories: {
+              'VRCFury Repo': 'https://vcc.vrcfury.com/',
+            },
           };
         }
         if (query.catalogProductId === 'catalog_pending') {
@@ -317,9 +343,12 @@ describe('per-buyer VPM routes', () => {
         if (query.packageId === 'com.creator.substance-project') {
           return {
             contentType: 'application/octet-stream',
+            createdAt: 1_700_000_000_124,
             packageId: 'com.creator.substance-project',
             version: '3.0.0',
             versionId: 'version-non-vpm-456',
+            vpmDependencies: {},
+            vpmRepositories: {},
           };
         }
       }
@@ -349,9 +378,9 @@ describe('per-buyer VPM routes', () => {
       packages: {
         'com.yucp.importer': {
           versions: {
-            '0.1.14': {
+            '0.1.28': {
               name: 'com.yucp.importer',
-              url: 'https://packages.example.test/com.yucp.importer-0.1.14.zip',
+              url: 'https://packages.example.test/com.yucp.importer-0.1.28.zip',
             },
           },
         },
@@ -360,23 +389,38 @@ describe('per-buyer VPM routes', () => {
 
     const readyAlias = buildYucpAliasVpmPackage({
       aliasId: 'catalog_ready',
+      bootstrapVersion: buildYucpAliasBootstrapVersion(1_700_000_000_123),
       catalogProductIds: ['catalog_ready'],
+      vpmDependencies: {
+        'com.vrcfury.vrcfury': '>=1.1258.0',
+      },
       vpmBaseUrl: 'https://vpm.test/',
     });
     const opaqueAlias = buildYucpAliasVpmPackage({
       aliasId: 'catalog_non_vpm',
+      bootstrapVersion: buildYucpAliasBootstrapVersion(1_700_000_000_124),
       catalogProductIds: ['catalog_non_vpm'],
+      vpmDependencies: {},
       vpmBaseUrl: 'https://vpm.test/',
     });
     expect(Object.keys(body.packages).sort()).toEqual(
-      ['com.yucp.importer', readyAlias.packageId, opaqueAlias.packageId].sort()
+      [
+        'com.vrcfury.vrcfury',
+        'com.yucp.importer',
+        readyAlias.packageId,
+        opaqueAlias.packageId,
+      ].sort()
     );
-    expect(body.packages[readyAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
+    expect(body.packages[readyAlias.packageId]?.versions[readyAlias.manifest.version]).toEqual(
       readyAlias.manifest
     );
-    expect(body.packages[opaqueAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
+    expect(body.packages[opaqueAlias.packageId]?.versions[opaqueAlias.manifest.version]).toEqual(
       opaqueAlias.manifest
     );
+    expect(body.packages['com.vrcfury.vrcfury']?.versions['1.1384.0']).toMatchObject({
+      name: 'com.vrcfury.vrcfury',
+      url: 'https://vcc.vrcfury.com/download/1.1384.0',
+    });
     const serializedIndex = JSON.stringify(body);
     expect(serializedIndex).not.toContain('/d/version-ready-123');
     expect(serializedIndex).not.toContain('version-non-vpm-456');
@@ -385,7 +429,7 @@ describe('per-buyer VPM routes', () => {
     const artifactResponse = await routes.serveAliasPackage(
       new Request(readyAlias.manifest.url),
       readyAlias.manifest.url.split('/').at(-2) ?? '',
-      YUCP_ALIAS_BOOTSTRAP_VERSION
+      readyAlias.manifest.version
     );
     const artifactBytes = new Uint8Array(await artifactResponse.arrayBuffer());
     expect(artifactResponse.status).toBe(200);
@@ -401,7 +445,7 @@ describe('per-buyer VPM routes', () => {
     ) as Record<string, unknown>;
     expect(artifactPackageJson.name).toBe(readyAlias.packageId);
     expect(JSON.stringify(artifactPackageJson)).not.toContain('version-ready-123');
-    expect(importerIndexFetchMock).toHaveBeenCalledTimes(1);
+    expect(importerIndexFetchMock).toHaveBeenCalledTimes(2);
     expect(convexQueryMock).toHaveBeenCalledTimes(7);
   });
 
@@ -428,9 +472,12 @@ describe('per-buyer VPM routes', () => {
       if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
         expect(args).toMatchObject({ packageId: 'com.yucp.jammr' });
         return {
+          createdAt: 1_700_000_000_125,
           packageId: 'com.yucp.jammr',
           version: '1.0.0',
           versionId: 'version-jammr',
+          vpmDependencies: {},
+          vpmRepositories: {},
         };
       }
       throw new Error(`Unexpected query ${String(reference)}`);
@@ -446,7 +493,9 @@ describe('per-buyer VPM routes', () => {
     };
     const expectedAlias = buildYucpAliasVpmPackage({
       aliasId: 'jammr',
+      bootstrapVersion: buildYucpAliasBootstrapVersion(1_700_000_000_125),
       catalogProductIds: ['catalog_jammr_gumroad', 'catalog_jammr_jinxxy'],
+      vpmDependencies: {},
       vpmBaseUrl: 'https://vpm.test/',
     });
 
@@ -454,9 +503,9 @@ describe('per-buyer VPM routes', () => {
     expect(Object.keys(body.packages).sort()).toEqual(
       ['com.yucp.importer', expectedAlias.packageId].sort()
     );
-    expect(body.packages[expectedAlias.packageId]?.versions[YUCP_ALIAS_BOOTSTRAP_VERSION]).toEqual(
-      expectedAlias.manifest
-    );
+    expect(
+      body.packages[expectedAlias.packageId]?.versions[expectedAlias.manifest.version]
+    ).toEqual(expectedAlias.manifest);
     expect(
       convexQueryMock.mock.calls.filter(
         ([reference]) => reference === apiMock.packageVersions.resolveDownloadableVersion
@@ -537,9 +586,12 @@ describe('per-buyer VPM routes', () => {
       }
       if (reference === apiMock.packageVersions.resolveDownloadableVersion) {
         return {
+          createdAt: 1_700_000_000_126,
           packageId: 'com.creator.avatar-tools',
           version: '1.2.3',
           versionId: 'version-ready-123',
+          vpmDependencies: {},
+          vpmRepositories: {},
         };
       }
       throw new Error(`Unexpected query ${String(reference)}`);

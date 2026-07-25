@@ -37,6 +37,8 @@ export interface LocalEnv {
   INGEST_TUS_URL?: string;
   /** Delivery Worker origin bound into v2 package grants. */
   PACKAGE_DELIVERY_AUDIENCE?: string;
+  /** Canonical public API origin bound into v2 package grants. */
+  PACKAGE_INSTALL_ISSUER?: string;
   /** Purpose-separated Ed25519 key identifier for package install contracts. */
   PACKAGE_INSTALL_SIGNING_KEY_ID?: string;
   /** Base64url Ed25519 seed for package install contract signing. */
@@ -55,6 +57,8 @@ export interface LocalEnv {
   VPM_PUBLIC_INDEX_URL?: string;
   /** Purpose-separated HMAC key for stateless VPM repository tokens. */
   VPM_TOKEN_KEY?: string;
+  /** JSON array of public VPM repository URLs that package releases can reference. */
+  VPM_TRUSTED_REPOSITORY_URLS?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -187,6 +191,7 @@ function loadFromEnv(): LocalEnv {
     UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
     PACKAGE_DELIVERY_AUDIENCE: process.env.PACKAGE_DELIVERY_AUDIENCE,
+    PACKAGE_INSTALL_ISSUER: process.env.PACKAGE_INSTALL_ISSUER,
     PACKAGE_INSTALL_SIGNING_KEY_ID: process.env.PACKAGE_INSTALL_SIGNING_KEY_ID,
     PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY,
     MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
@@ -197,6 +202,7 @@ function loadFromEnv(): LocalEnv {
     VPM_BASE_URL: process.env.VPM_BASE_URL,
     VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
     VPM_TOKEN_KEY: process.env.VPM_TOKEN_KEY,
+    VPM_TRUSTED_REPOSITORY_URLS: process.env.VPM_TRUSTED_REPOSITORY_URLS,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

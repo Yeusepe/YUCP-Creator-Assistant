@@ -7,6 +7,7 @@ export type CouplingForensicsServiceConfig = {
   sharedSecret: string;
   requestTimeoutMs?: number;
   attributionTimeoutMs?: number;
+  requestMaxBytes?: number;
   responseMaxBytes?: number;
 };
 
@@ -22,6 +23,7 @@ export type ForensicsScoreResult = {
 };
 
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
+const ATTRIBUTION_REQUEST_MAX_BYTES = 24 * 1024 * 1024;
 const COUPLING_SERVICE_RESPONSE_MAX_BYTES = 1024 * 1024;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
@@ -236,6 +238,14 @@ function resolveCouplingResponseMaxBytes(config: CouplingForensicsServiceConfig)
   return COUPLING_SERVICE_RESPONSE_MAX_BYTES;
 }
 
+function resolveCouplingRequestMaxBytes(config: CouplingForensicsServiceConfig): number {
+  const configured = config.requestMaxBytes;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
+  }
+  return ATTRIBUTION_REQUEST_MAX_BYTES;
+}
+
 async function readResponseTextWithLimit(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) {
     return '';
@@ -344,23 +354,44 @@ function buildAttributeUrl(baseUrl: string): string {
   return buildCouplingServiceUrl(baseUrl, 'v2/internal/coupling/attribution/evaluate');
 }
 
-async function buildAttributeRequestBody(
-  assets: ExtractedForensicsAsset[],
-  candidates: CouplingAttributionCandidate[]
-): Promise<string> {
-  const serializedAssets = await Promise.all(
-    assets.map(async (asset) => ({
-      assetPath: asset.assetPath,
-      assetType: asset.assetType,
-      contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
-    }))
-  );
+type SerializedAttributionAsset = {
+  assetPath: string;
+  assetType: 'png' | 'fbx';
+  contentBase64: string;
+};
 
+type AttributionBatch = {
+  assets: ExtractedForensicsAsset[];
+  candidates: CouplingAttributionCandidate[];
+  serializedAssets: SerializedAttributionAsset[];
+};
+
+function buildAttributeRequestBody(
+  serializedAssets: SerializedAttributionAsset[],
+  candidates: CouplingAttributionCandidate[]
+): string {
   return JSON.stringify({
     assets: serializedAssets,
     candidates,
     schemaVersion: 2,
   });
+}
+
+function buildCandidateMapByPath(
+  candidates: CouplingAttributionCandidate[]
+): Map<string, CouplingAttributionCandidate[]> {
+  const candidateIds = new Set<string>();
+  const candidatesByPath = new Map<string, CouplingAttributionCandidate[]>();
+  for (const candidate of candidates) {
+    if (candidateIds.has(candidate.attributionId)) {
+      throw new CouplingServiceRequestError('Duplicate attribution candidate identifier', 502);
+    }
+    candidateIds.add(candidate.attributionId);
+    const pathCandidates = candidatesByPath.get(candidate.normalizedPath) ?? [];
+    pathCandidates.push(candidate);
+    candidatesByPath.set(candidate.normalizedPath, pathCandidates);
+  }
+  return candidatesByPath;
 }
 
 function validateAttributionResult(
@@ -462,58 +493,127 @@ export async function runCouplingAttribution(
     }));
   }
   buildAssetMapByPath(assets, 'attribution input');
+  const candidatesByPath = buildCandidateMapByPath(candidates);
 
   const sharedSecret = config.sharedSecret.trim();
   if (!sharedSecret) {
     throw new CouplingServiceConfigurationError('Coupling service shared secret is not configured');
   }
 
-  let response: Response;
-  let responseText: string;
-  try {
-    ({ response, responseText } = await fetchCouplingServiceResponse(
-      buildAttributeUrl(config.baseUrl),
-      {
-        method: 'POST',
-        redirect: 'error',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${sharedSecret}`,
-          'Cache-Control': 'no-store',
-          'Content-Type': 'application/json',
-        },
-        body: await buildAttributeRequestBody(assets, candidates),
-      },
-      config,
-      'Coupling attribution timed out',
-      config.attributionTimeoutMs ?? config.requestTimeoutMs
-    ));
-  } catch (error) {
-    if (
-      error instanceof CouplingServiceRequestError ||
-      error instanceof CouplingServiceConfigurationError
-    ) {
-      throw error;
+  const requestMaxBytes = resolveCouplingRequestMaxBytes(config);
+  const resultsByPath = new Map<string, ForensicsScoreResult>();
+  let batch: AttributionBatch = {
+    assets: [],
+    candidates: [],
+    serializedAssets: [],
+  };
+
+  const runBatch = async (current: AttributionBatch): Promise<void> => {
+    if (current.assets.length === 0) {
+      return;
     }
-    throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
+    const requestBody = buildAttributeRequestBody(current.serializedAssets, current.candidates);
+    if (Buffer.byteLength(requestBody) > requestMaxBytes) {
+      throw new CouplingServiceRequestError(
+        'Coupling attribution asset exceeds the request size limit',
+        502
+      );
+    }
+
+    let response: Response;
+    let responseText: string;
+    try {
+      ({ response, responseText } = await fetchCouplingServiceResponse(
+        buildAttributeUrl(config.baseUrl),
+        {
+          method: 'POST',
+          redirect: 'error',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${sharedSecret}`,
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/json',
+          },
+          body: requestBody,
+        },
+        config,
+        'Coupling attribution timed out',
+        config.attributionTimeoutMs ?? config.requestTimeoutMs
+      ));
+    } catch (error) {
+      if (
+        error instanceof CouplingServiceRequestError ||
+        error instanceof CouplingServiceConfigurationError
+      ) {
+        throw error;
+      }
+      throw new CouplingServiceRequestError('Coupling service is unreachable', 503);
+    }
+
+    const payload = parseResponsePayload<AttributeServiceResponse>(responseText);
+
+    if (!response.ok) {
+      const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
+      throw new CouplingServiceRequestError(
+        `Coupling attribution failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
+        response.status
+      );
+    }
+
+    if (!payload) {
+      throw new CouplingServiceRequestError(
+        'Coupling service returned invalid JSON',
+        response.status
+      );
+    }
+
+    for (const result of validateAttributionResult(current.assets, current.candidates, payload)) {
+      resultsByPath.set(result.assetPath, result);
+    }
+  };
+
+  for (const asset of assets) {
+    const pathCandidates = candidatesByPath.get(asset.assetPath);
+    if (!pathCandidates?.length) {
+      continue;
+    }
+    const serializedAsset: SerializedAttributionAsset = {
+      assetPath: asset.assetPath,
+      assetType: asset.assetType,
+      contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
+    };
+    const nextBatch: AttributionBatch = {
+      assets: [...batch.assets, asset],
+      candidates: [...batch.candidates, ...pathCandidates],
+      serializedAssets: [...batch.serializedAssets, serializedAsset],
+    };
+
+    if (
+      batch.assets.length > 0 &&
+      Buffer.byteLength(
+        buildAttributeRequestBody(nextBatch.serializedAssets, nextBatch.candidates)
+      ) > requestMaxBytes
+    ) {
+      await runBatch(batch);
+      batch = {
+        assets: [asset],
+        candidates: [...pathCandidates],
+        serializedAssets: [serializedAsset],
+      };
+      continue;
+    }
+
+    batch = nextBatch;
   }
+  await runBatch(batch);
 
-  const payload = parseResponsePayload<AttributeServiceResponse>(responseText);
-
-  if (!response.ok) {
-    const detail = extractCouplingServiceErrorDetail(payload, responseText, response.statusText);
-    throw new CouplingServiceRequestError(
-      `Coupling attribution failed with status ${response.status}${detail ? `: ${detail}` : ''}`,
-      response.status
-    );
-  }
-
-  if (!payload) {
-    throw new CouplingServiceRequestError(
-      'Coupling service returned invalid JSON',
-      response.status
-    );
-  }
-
-  return validateAttributionResult(assets, candidates, payload);
+  return assets.map(
+    (asset) =>
+      resultsByPath.get(asset.assetPath) ?? {
+        assetPath: asset.assetPath,
+        assetType: asset.assetType,
+        decoderKind: asset.assetType,
+        preclassification: 'no-signal',
+      }
+  );
 }

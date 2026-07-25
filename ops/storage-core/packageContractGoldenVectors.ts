@@ -64,6 +64,7 @@ function sampleInstallSession(): InstallSessionV2 {
     keyId: 'test-root-2026-01',
     maxLifetimeSeconds: 900,
     notBefore: 1_000,
+    operation: 'install',
     productId: 'product-1',
     releaseRoot: digest(0x11),
     sessionId: '018f8c03-3880-7d40-a8d5-b190a64141cc',

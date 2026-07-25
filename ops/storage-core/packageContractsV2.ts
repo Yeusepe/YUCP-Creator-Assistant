@@ -48,6 +48,8 @@ export type InstallSessionBootstrapV2 = {
   url: string;
 };
 
+export type InstallSessionOperation = 'install' | 'preflight' | 'repair' | 'rollback' | 'update';
+
 export type InstallSessionV2 = {
   aliasId: string;
   allowedApiOrigins: string[];
@@ -64,6 +66,7 @@ export type InstallSessionV2 = {
   keyId: string;
   maxLifetimeSeconds: number;
   notBefore: number;
+  operation: InstallSessionOperation;
   productId: string;
   releaseRoot: Uint8Array;
   sessionId: string;
@@ -80,6 +83,7 @@ export type InstallSessionValidationContext = {
   deviceKeyThumbprint: Uint8Array;
   issuer: string;
   now: number;
+  operation: InstallSessionOperation;
   releaseRoot: Uint8Array;
 };
 
@@ -1065,13 +1069,17 @@ export function validateDeliveryGrantV2(
   if (context.now < grant.notBefore || context.now >= grant.expiresAt) {
     throw new Error('DeliveryGrantV2 is not active');
   }
-  if (
-    grant.audience !== context.audience ||
-    issuer !== normalizeOrigin(context.issuer, 'Expected delivery grant issuer') ||
-    !bytesEqual(grant.deviceKeyThumbprint, context.deviceKeyThumbprint) ||
-    !grant.scopes.includes(context.requiredScope)
-  ) {
-    throw new Error('DeliveryGrantV2 is not bound to the requested delivery');
+  if (grant.audience !== context.audience) {
+    throw new Error('DeliveryGrantV2 audience is not bound to the requested delivery');
+  }
+  if (issuer !== normalizeOrigin(context.issuer, 'Expected delivery grant issuer')) {
+    throw new Error('DeliveryGrantV2 issuer is not bound to the requested delivery');
+  }
+  if (!bytesEqual(grant.deviceKeyThumbprint, context.deviceKeyThumbprint)) {
+    throw new Error('DeliveryGrantV2 device key is not bound to the requested delivery');
+  }
+  if (!grant.scopes.includes(context.requiredScope)) {
+    throw new Error('DeliveryGrantV2 scope is not bound to the requested delivery');
   }
 }
 
@@ -1145,6 +1153,7 @@ function installSessionMap(session: InstallSessionV2) {
     [18, session.expiresAt],
     [19, session.sessionId],
     [20, session.maxLifetimeSeconds],
+    [21, session.operation],
   ]);
 }
 
@@ -1157,7 +1166,7 @@ export function decodeInstallSessionV2(payload: Uint8Array): InstallSessionV2 {
   const map = requireMap(decodeCanonicalPackageCbor(payload), 'InstallSessionV2');
   requireExactLabels(
     map,
-    Array.from({ length: 21 }, (_, index) => index),
+    Array.from({ length: 22 }, (_, index) => index),
     'InstallSessionV2'
   );
   const bootstrap = requireArray(map.get(15), 'InstallSessionV2.bootstrap').map((value, index) => {
@@ -1197,6 +1206,7 @@ export function decodeInstallSessionV2(payload: Uint8Array): InstallSessionV2 {
     keyId: requireString(map.get(4), 'InstallSessionV2.keyId'),
     maxLifetimeSeconds: requireInteger(map.get(20), 'InstallSessionV2.maxLifetimeSeconds'),
     notBefore: requireInteger(map.get(17), 'InstallSessionV2.notBefore'),
+    operation: requireString(map.get(21), 'InstallSessionV2.operation') as InstallSessionOperation,
     productId: requireString(map.get(7), 'InstallSessionV2.productId'),
     releaseRoot: requireBytes(map.get(10), 'InstallSessionV2.releaseRoot', SHA256_BYTES),
     sessionId: requireString(map.get(19), 'InstallSessionV2.sessionId'),
@@ -1216,6 +1226,9 @@ export function validateInstallSessionV2(
 ): void {
   if (session.tokenType !== INSTALL_SESSION_TOKEN_TYPE) {
     throw new Error('InstallSessionV2 token type is invalid');
+  }
+  if (!['install', 'preflight', 'repair', 'rollback', 'update'].includes(session.operation)) {
+    throw new Error('InstallSessionV2 operation is invalid');
   }
   for (const [name, value] of Object.entries({
     aliasId: session.aliasId,
@@ -1283,6 +1296,7 @@ export function validateInstallSessionV2(
     session.aliasId !== context.aliasId ||
     session.audience !== context.audience ||
     session.issuer !== context.issuer ||
+    session.operation !== context.operation ||
     !bytesEqual(session.releaseRoot, context.releaseRoot) ||
     !bytesEqual(session.bindingRoot, context.bindingRoot) ||
     !bytesEqual(session.deviceKeyThumbprint, context.deviceKeyThumbprint)

@@ -56,7 +56,12 @@ interface DevSupervisorOptions {
 }
 
 const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
-  { name: 'convex', color: 'blue', command: 'bunx convex dev' },
+  {
+    name: 'convex',
+    color: 'blue',
+    command:
+      'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
+  },
   { name: 'api', color: 'magenta', command: 'bun run dev:api' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web' },
@@ -64,19 +69,24 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   {
     name: 'ingest-tus',
     color: 'cyan',
-    command: 'bun run ops/ingest-tus/server.ts',
+    command: 'bun run --watch ops/ingest-tus/server.ts',
     env: { PORT: '3002' },
   },
   { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
   {
     name: 'materialization-control',
     color: 'red',
-    command: 'bun run ops/materialization/server.ts',
+    command: 'bun run --watch ops/materialization/server.ts',
   },
 ];
 
 const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
-  { name: 'convex', color: 'blue', command: 'bunx convex dev' },
+  {
+    name: 'convex',
+    color: 'blue',
+    command:
+      'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
+  },
   { name: 'api', color: 'magenta', command: 'bun run dev:api:infisical' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot:infisical' },
   { name: 'web', color: 'yellow', command: 'bun run dev:web:infisical' },
@@ -84,14 +94,14 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
   {
     name: 'ingest-tus',
     color: 'cyan',
-    command: 'bun run ops/ingest-tus/server.ts',
+    command: 'bun run --watch ops/ingest-tus/server.ts',
     env: { PORT: '3002' },
   },
   { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
   {
     name: 'materialization-control',
     color: 'red',
-    command: 'bun run ops/materialization/server.ts',
+    command: 'bun run --watch ops/materialization/server.ts',
   },
 ];
 
@@ -113,7 +123,7 @@ export function buildDevCommands(
     {
       name: 'delivery',
       color: 'magenta',
-      command: 'bun x tsx services/delivery-worker/testDevServer.ts',
+      command: 'bun x tsx watch services/delivery-worker/testDevServer.ts',
       env: {
         BUYER_FLOW_COMMON_CHUNK_PREFIX: baseEnv.COMMON_CHUNK_PREFIX ?? 'chunks/',
         BUYER_FLOW_COMMON_S3_BUCKET: baseEnv.COMMON_S3_BUCKET,
@@ -131,13 +141,14 @@ export function buildDevCommands(
           baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
         BUYER_FLOW_METADATA_S3_REGION: baseEnv.METADATA_S3_REGION,
         BUYER_FLOW_PACKAGE_DELIVERY_AUDIENCE: baseEnv.PACKAGE_DELIVERY_AUDIENCE,
-        BUYER_FLOW_PACKAGE_INSTALL_ISSUER: DEV_API_URL,
+        BUYER_FLOW_PACKAGE_INSTALL_ISSUER: baseEnv.PACKAGE_INSTALL_ISSUER,
         BUYER_FLOW_PACKAGE_INSTALL_SIGNING_KEY_ID: baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
         BUYER_FLOW_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY:
           baseEnv.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
         BUYER_FLOW_RENDITION_PACKAGE_DELIVERY_AUDIENCE:
           baseEnv.PACKAGE_DELIVERY_AUDIENCE,
-        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_ISSUER: DEV_API_URL,
+        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_ISSUER:
+          baseEnv.PACKAGE_INSTALL_ISSUER,
         BUYER_FLOW_RENDITION_PACKAGE_INSTALL_SIGNING_KEY_ID:
           baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
         BUYER_FLOW_RENDITION_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY:
@@ -171,7 +182,7 @@ export function buildDevCommands(
       name: 'materialization-source',
       color: 'red',
       command:
-        'bun x tsx services/materialization-source-worker/testDevServer.ts',
+        'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
       env: {
         MATERIALIZATION_SOURCE_WORKER_DELIVERY_GRANT_ISSUER:
           baseEnv.MATERIALIZATION_SOURCE_GRANT_ISSUER,
@@ -749,6 +760,7 @@ export function applyDisposableStorageProfile(
     MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY:
       secrets.materializationSourceGrantPublicKey,
     PACKAGE_DELIVERY_AUDIENCE: DEV_DELIVERY_URL,
+    PACKAGE_INSTALL_ISSUER: DEV_API_URL,
     PACKAGE_INSTALL_SIGNING_KEY_ID: secrets.installSigningKeyId,
     PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: secrets.installSigningPrivateKey,
     PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: secrets.installSigningPublicKey,
@@ -761,6 +773,10 @@ export function applyDisposableStorageProfile(
     VPM_BASE_URL: DEV_API_URL,
     VPM_PUBLIC_INDEX_URL: `${DEV_PUBLIC_VPM_URL}/index.json`,
     VPM_TOKEN_KEY: secrets.vpmTokenKey,
+    VPM_TRUSTED_REPOSITORY_URLS: JSON.stringify([
+      'https://vcc.vrcfury.com/',
+      'https://vpm.yucp.club/index.json',
+    ]),
     YUCP_COUPLING_SERVICE_BASE_URL: 'http://127.0.0.1:8788',
     YUCP_COUPLING_SERVICE_SHARED_SECRET:
       secrets.couplingServiceSharedSecret,

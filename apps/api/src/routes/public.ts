@@ -2,7 +2,7 @@ import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
-import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { verifyPublicApiAccessToken } from '../lib/publicApiAccessToken';
 import { PUBLIC_API_KEY_PREFIX } from '../lib/publicApiKeys';
 import { buildTimedResponse, RouteTimingCollector } from '../lib/requestTiming';
 import { createPublicApiSupportError } from '../lib/verificationSupport';
@@ -17,7 +17,6 @@ export interface PublicRouteConfig {
   convexUrl: string;
   convexApiSecret: string;
   convexSiteUrl: string;
-  oauthAudience?: string;
 }
 
 export interface SubjectSelectorById {
@@ -295,9 +294,8 @@ async function defaultVerifyAccessToken(
   config: PublicRouteConfig,
   scopes: string[]
 ): Promise<{ sub: string } | null> {
-  const result = await verifyBetterAuthAccessToken(token, {
+  const result = await verifyPublicApiAccessToken(token, {
     convexSiteUrl: config.convexSiteUrl,
-    audience: config.oauthAudience ?? 'yucp-public-api',
     requiredScopes: scopes,
     logger,
     logContext: 'Public API OAuth token verification failed',

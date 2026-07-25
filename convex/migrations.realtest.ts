@@ -24,6 +24,235 @@ type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
   ) => void;
 };
 
+describe('provider license intent entitlement remediation', () => {
+  it('attaches unambiguous catalog identities to active provider entitlements and evidence', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const authUserId = 'creator-entitlement-catalog-repair';
+    const subjectId = await t.run(async (ctx) => {
+      return await ctx.db.insert('subjects', {
+        authUserId: 'buyer-entitlement-catalog-repair',
+        primaryDiscordUserId: 'discord-entitlement-catalog-repair',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId,
+        productId: 'logical-entitlement-catalog-repair',
+        provider: 'jinxxy',
+        providerProductRef: 'jinxxy-entitlement-catalog-repair',
+        displayName: 'Entitlement Catalog Repair',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    const { entitlementId, evidenceId } = await t.run(async (ctx) => {
+      const sourceReference = 'jinxxy:catalog-repair-order:catalog-repair-license';
+      const entitlementId = await ctx.db.insert('entitlements', {
+        authUserId,
+        subjectId,
+        productId: 'jinxxy-entitlement-catalog-repair',
+        sourceProvider: 'jinxxy',
+        sourceReference,
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      const evidenceId = await ctx.db.insert('entitlement_evidence', {
+        authUserId,
+        subjectId,
+        providerKey: 'jinxxy',
+        sourceReference,
+        evidenceType: 'license_verification',
+        status: 'active',
+        productId: 'jinxxy-entitlement-catalog-repair',
+        observedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return { entitlementId, evidenceId };
+    });
+
+    const result = await t.mutation(internal.migrations.repairEntitlementCatalogProductIds, {
+      limit: 10,
+    });
+    const stored = await t.run(async (ctx) => ({
+      entitlement: await ctx.db.get(entitlementId),
+      evidence: await ctx.db.get(evidenceId),
+    }));
+
+    expect(result).toMatchObject({
+      scanned: 1,
+      repaired: 1,
+      evidenceRepaired: 1,
+      ambiguous: 0,
+      unresolved: 0,
+      isDone: true,
+    });
+    expect(stored.entitlement).toMatchObject({ catalogProductId });
+    expect(stored.evidence).toMatchObject({ catalogProductId });
+  });
+
+  it('resets incomplete provider proofs and preserves verified intents with canonical entitlements', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-provider-license-intent-repair';
+    const productId = 'product-provider-license-intent-repair';
+    const packageId = 'pkg.provider-license-intent-repair';
+    const catalogProductId = await t.run(async (ctx) => {
+      return await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId,
+        provider: 'jinxxy',
+        providerProductRef: 'jinxxy-provider-license-intent-repair',
+        displayName: 'Provider License Intent Repair',
+        status: 'active',
+        supportsAutoDiscovery: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+    await t.mutation(internal.packageRegistry.registerPackage, {
+      packageId,
+      packageName: 'Provider License Intent Repair',
+      publisherId: 'publisher-provider-license-intent-repair',
+      yucpUserId: creatorAuthUserId,
+    });
+
+    const fixture = await t.run(async (ctx) => {
+      const incompleteSubjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-provider-license-intent-incomplete',
+        primaryDiscordUserId: 'discord-provider-license-intent-incomplete',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const preservedSubjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-provider-license-intent-preserved',
+        primaryDiscordUserId: 'discord-provider-license-intent-preserved',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const expiredSubjectId = await ctx.db.insert('subjects', {
+        authUserId: 'buyer-provider-license-intent-expired',
+        primaryDiscordUserId: 'discord-provider-license-intent-expired',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+      const requirement = {
+        methodKey: 'jinxxy-license',
+        providerKey: 'jinxxy',
+        kind: 'manual_license' as const,
+        title: 'Jinxxy license',
+        creatorAuthUserId,
+        productId,
+        providerProductRef: 'jinxxy-provider-license-intent-repair',
+      };
+      const incompleteIntentId = await ctx.db.insert('verification_intents', {
+        authUserId: 'buyer-provider-license-intent-incomplete',
+        subjectId: incompleteSubjectId,
+        packageId,
+        machineFingerprint: 'machine-provider-license-intent-incomplete',
+        codeChallenge: 'challenge-provider-license-intent-incomplete',
+        returnUrl: 'https://example.com/return',
+        requirements: [requirement],
+        status: 'verified',
+        verifiedMethodKey: requirement.methodKey,
+        verificationGrantJti: 'grant-provider-license-intent-incomplete',
+        verificationGrantExpiresAt: now + 60_000,
+        expiresAt: now + 60_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const preservedIntentId = await ctx.db.insert('verification_intents', {
+        authUserId: 'buyer-provider-license-intent-preserved',
+        subjectId: preservedSubjectId,
+        packageId,
+        machineFingerprint: 'machine-provider-license-intent-preserved',
+        codeChallenge: 'challenge-provider-license-intent-preserved',
+        returnUrl: 'https://example.com/return',
+        requirements: [requirement],
+        status: 'verified',
+        verifiedMethodKey: requirement.methodKey,
+        verificationGrantJti: 'grant-provider-license-intent-preserved',
+        verificationGrantExpiresAt: now + 60_000,
+        expiresAt: now + 60_000,
+        createdAt: now,
+        updatedAt: now,
+      });
+      const expiredIntentId = await ctx.db.insert('verification_intents', {
+        authUserId: 'buyer-provider-license-intent-expired',
+        subjectId: expiredSubjectId,
+        packageId,
+        machineFingerprint: 'machine-provider-license-intent-expired',
+        codeChallenge: 'challenge-provider-license-intent-expired',
+        returnUrl: 'https://example.com/return',
+        requirements: [requirement],
+        status: 'verified',
+        verifiedMethodKey: requirement.methodKey,
+        verificationGrantJti: 'grant-provider-license-intent-expired',
+        verificationGrantExpiresAt: now - 1,
+        expiresAt: now - 1,
+        createdAt: now - 120_000,
+        updatedAt: now - 120_000,
+      });
+      await ctx.db.insert('entitlements', {
+        authUserId: creatorAuthUserId,
+        subjectId: preservedSubjectId,
+        productId,
+        catalogProductId,
+        sourceProvider: 'jinxxy',
+        sourceReference: 'jinxxy:preserved-order:preserved-license',
+        status: 'active',
+        grantedAt: now,
+        updatedAt: now,
+      });
+      return { incompleteIntentId, preservedIntentId, expiredIntentId };
+    });
+
+    const result = await t.mutation(
+      internal.migrations.resetIncompleteProviderLicenseIntents,
+      { limit: 10 }
+    );
+    const stored = await t.run(async (ctx) => ({
+      incomplete: await ctx.db.get(fixture.incompleteIntentId),
+      preserved: await ctx.db.get(fixture.preservedIntentId),
+      expired: await ctx.db.get(fixture.expiredIntentId),
+    }));
+
+    expect(result).toMatchObject({
+      scanned: 3,
+      reset: 1,
+      preserved: 1,
+      expired: 1,
+      isDone: true,
+    });
+    expect(stored.incomplete).toMatchObject({
+      status: 'pending',
+      errorCode: 'provider_license_reverification_required',
+    });
+    expect(stored.incomplete?.verifiedMethodKey).toBeUndefined();
+    expect(stored.incomplete?.verificationGrantJti).toBeUndefined();
+    expect(stored.incomplete?.verificationGrantExpiresAt).toBeUndefined();
+    expect(stored.preserved).toMatchObject({
+      status: 'verified',
+      verifiedMethodKey: 'jinxxy-license',
+    });
+    expect(stored.expired).toMatchObject({
+      status: 'expired',
+      errorCode: 'expired',
+    });
+    expect(stored.expired?.verifiedMethodKey).toBeUndefined();
+  });
+});
+
 async function seedBetterAuthDiscordAccount(
   t: ComponentAwareTestConvex,
   input: {

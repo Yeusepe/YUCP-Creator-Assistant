@@ -484,6 +484,20 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     );
   } catch (error) {
     const httpError = error instanceof HttpError ? error : new HttpError(403, 'Forbidden');
+    const reason =
+      error instanceof Error && error.message.length <= 256
+        ? error.message
+        : 'Unknown delivery error';
+    console.warn(
+      JSON.stringify({
+        event: 'delivery.request.denied',
+        method: request.method,
+        pathname: new URL(request.url).pathname,
+        reason,
+        status: httpError.status,
+        storageFetches: httpError.storageFetches,
+      })
+    );
     return noStoreResponse(httpError.message, httpError.status, httpError.storageFetches, {
       'content-type': 'text/plain; charset=utf-8',
     });

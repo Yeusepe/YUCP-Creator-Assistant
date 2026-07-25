@@ -4,9 +4,7 @@
  * Manual repair:
  *   npx convex run seedYucpOAuthClient:seedUnityOAuthClient
  *
- * This is safe to run again. The Convex-owned /api/yucp/oauth/authorize route
- * also calls this idempotently so deployments self-heal without a separate
- * production-only seed step.
+ * This is safe to run again. Run it after each Convex deployment.
  *
  * References:
  *   - Better Auth oauthProvider plugin docs:
@@ -19,8 +17,10 @@ import { components } from './_generated/api';
 import { internalMutation } from './_generated/server';
 import {
   OAUTH_REFRESH_TOKEN_SCOPE,
+  OAUTH_PROVIDER_SCOPES,
   type OAuthProviderScope,
 } from './betterAuth/oauthProviderScopes';
+import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
 
 type UnityOAuthClientDescriptor = {
@@ -55,6 +55,117 @@ export function buildUnityOAuthClientMetadata(descriptor: UnityOAuthClientDescri
     platform: 'unity',
     authDomain: descriptor.authDomain,
   });
+}
+
+export function buildPublicApiOAuthResourceRecord() {
+  return {
+    identifier: PUBLIC_API_AUDIENCE,
+    name: 'YUCP public API',
+    allowedScopes: [...OAUTH_PROVIDER_SCOPES],
+    disabled: false,
+    policyVersion: 1,
+  };
+}
+
+export function buildUnityOAuthClientResourceLink(
+  descriptor: UnityOAuthClientDescriptor
+) {
+  return {
+    clientId: descriptor.clientId,
+    resourceId: PUBLIC_API_AUDIENCE,
+  };
+}
+
+async function upsertPublicApiOAuthResource(ctx: any) {
+  const desiredResource = {
+    ...buildPublicApiOAuthResourceRecord(),
+    updatedAt: Date.now(),
+  };
+  const existingResult = (await ctx.runQuery(
+    components.betterAuth.adapter.findMany,
+    {
+      model: 'oauthResource',
+      where: [
+        {
+          field: 'identifier',
+          value: PUBLIC_API_AUDIENCE,
+          operator: 'eq',
+        },
+      ],
+      limit: 1,
+      paginationOpts: { cursor: null, numItems: 1 },
+    }
+  )) as BetterAuthPageResult<{ identifier: string }>;
+  const existing = getBetterAuthPage(existingResult);
+
+  if (existing.length > 0) {
+    await ctx.runMutation(components.betterAuth.adapter.updateOne as any, {
+      input: {
+        model: 'oauthResource',
+        where: [
+          {
+            field: 'identifier',
+            value: PUBLIC_API_AUDIENCE,
+            operator: 'eq',
+          },
+        ],
+        update: desiredResource,
+      },
+    });
+    return { created: false, updated: true };
+  }
+
+  await ctx.runMutation(components.betterAuth.adapter.create, {
+    input: {
+      model: 'oauthResource',
+      data: {
+        createdAt: Date.now(),
+        ...desiredResource,
+      },
+    },
+  });
+  return { created: true, updated: false };
+}
+
+async function ensureUnityOAuthClientResourceLink(
+  ctx: any,
+  descriptor: UnityOAuthClientDescriptor
+) {
+  const desiredLink = buildUnityOAuthClientResourceLink(descriptor);
+  const existingResult = (await ctx.runQuery(
+    components.betterAuth.adapter.findMany,
+    {
+      model: 'oauthClientResource',
+      where: [
+        {
+          field: 'clientId',
+          value: desiredLink.clientId,
+          operator: 'eq',
+        },
+      ],
+      paginationOpts: { cursor: null, numItems: 100 },
+    }
+  )) as BetterAuthPageResult<{ clientId: string; resourceId: string }>;
+  const existing = getBetterAuthPage(existingResult);
+
+  if (
+    existing.some(
+      (link) => link.resourceId === desiredLink.resourceId
+    )
+  ) {
+    return { created: false };
+  }
+
+  await ctx.runMutation(components.betterAuth.adapter.create, {
+    input: {
+      model: 'oauthClientResource',
+      data: {
+        ...desiredLink,
+        createdAt: Date.now(),
+      },
+    },
+  });
+  return { created: true };
 }
 
 async function upsertUnityOAuthClient(
@@ -118,19 +229,24 @@ async function upsertUnityOAuthClient(
 export const seedUnityOAuthClient = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const siteUrl = (process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '');
-    if (!siteUrl) throw new Error('CONVEX_SITE_URL env var is not set');
-
-    // The fixed callback URL that the loopback proxy normalises to.
-    // Unity actually sends redirect_uri=http://127.0.0.1:PORT/callback,
-    // but our /api/yucp/oauth/authorize handler rewrites it to this fixed URL
-    // before passing to Better Auth, so this is what Better Auth validates.
-    const callbackUrl = `${siteUrl}/api/yucp/oauth/callback`;
+    // Better Auth applies the RFC 8252 loopback-port exception when the
+    // requested URI has this exact scheme, host, path, and query.
+    const callbackUrl = 'http://127.0.0.1/callback';
+    const resource = await upsertPublicApiOAuthResource(ctx);
     const results = [];
     for (const descriptor of UNITY_NATIVE_OAUTH_CLIENTS) {
-      results.push(await upsertUnityOAuthClient(ctx, descriptor, callbackUrl));
+      const client = await upsertUnityOAuthClient(
+        ctx,
+        descriptor,
+        callbackUrl
+      );
+      const resourceLink = await ensureUnityOAuthClientResourceLink(
+        ctx,
+        descriptor
+      );
+      results.push({ client, resourceLink });
     }
-    return { ensured: results };
+    return { resource, ensured: results };
   },
 });
 

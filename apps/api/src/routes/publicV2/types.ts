@@ -5,7 +5,6 @@ export interface PublicV2Config {
   convexSiteUrl: string;
   encryptionSecret: string;
   frontendBaseUrl: string;
-  oauthAudience?: string;
 }
 
 export type RouteHandler = (

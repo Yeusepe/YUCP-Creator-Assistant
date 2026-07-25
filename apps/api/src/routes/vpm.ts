@@ -7,11 +7,17 @@ import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import {
+  buildYucpAliasBootstrapVersion,
   buildYucpAliasVpmPackage,
   decodeYucpAliasArtifactDescriptor,
-  YUCP_ALIAS_BOOTSTRAP_VERSION,
 } from './vpmAliasPackage';
-import { fetchPublicImporterManifest, type VpmImporterManifest } from './vpmImporterPackage';
+import { selectPublicImporterManifest } from './vpmImporterPackage';
+import {
+  fetchVpmRepositoryIndex,
+  mergeVpmRepositoryPackages,
+  type VpmRepositoryIndex,
+  type VpmRepositoryPackages,
+} from './vpmRepository';
 
 const VPM_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 const IMPORTER_MANIFEST_CACHE_MS = 5 * 60_000;
@@ -36,6 +42,7 @@ export interface VpmRouteConfig {
   convexApiSecret: string;
   convexUrl: string;
   publicVpmIndexUrl?: string;
+  trustedVpmRepositoryUrls?: string;
   vpmBaseUrl?: string;
   vpmTokenKey?: string;
 }
@@ -53,9 +60,12 @@ type ActiveEntitlement = {
 };
 
 type DownloadableVersion = {
+  createdAt: number;
   packageId: string;
   version: string;
   versionId: string;
+  vpmDependencies: Record<string, string>;
+  vpmRepositories: Record<string, string>;
 };
 
 type VpmCatalogGroup = {
@@ -64,13 +74,6 @@ type VpmCatalogGroup = {
   catalogProductIds?: Id<'product_catalog'>[];
   packageId?: string;
 };
-
-type VpmRepositoryPackages = Record<
-  string,
-  {
-    versions: Record<string, Record<string, unknown>>;
-  }
->;
 
 function allowedOrigins(config: VpmRouteConfig): Set<string> {
   return new Set([new URL(config.apiBaseUrl).origin, new URL(config.frontendBaseUrl).origin]);
@@ -106,6 +109,7 @@ function getConfiguredVpmBaseUrl(config: VpmRouteConfig): string | null {
 
 function getConfiguredVpmRepository(config: VpmRouteConfig): {
   publicVpmIndexUrl: string;
+  trustedRepositoryUrls: Set<string>;
   vpmBaseUrl: string;
   vpmTokenKey: string;
 } | null {
@@ -128,8 +132,36 @@ function getConfiguredVpmRepository(config: VpmRouteConfig): {
   } catch {
     return null;
   }
+  let trustedRepositoryValues: unknown = [];
+  try {
+    trustedRepositoryValues = config.trustedVpmRepositoryUrls?.trim()
+      ? JSON.parse(config.trustedVpmRepositoryUrls)
+      : [];
+  } catch {
+    return null;
+  }
+  if (
+    !Array.isArray(trustedRepositoryValues) ||
+    trustedRepositoryValues.length > 32 ||
+    !trustedRepositoryValues.every((value) => typeof value === 'string')
+  ) {
+    return null;
+  }
+  const trustedRepositoryUrls = new Set<string>([new URL(publicVpmIndexUrl).toString()]);
+  try {
+    for (const value of trustedRepositoryValues as string[]) {
+      const url = new URL(value);
+      if (!isHttpsOrLoopbackHttp(url) || url.username || url.password || url.search || url.hash) {
+        return null;
+      }
+      trustedRepositoryUrls.add(url.toString());
+    }
+  } catch {
+    return null;
+  }
   return {
     publicVpmIndexUrl,
+    trustedRepositoryUrls,
     vpmBaseUrl,
     vpmTokenKey,
   };
@@ -148,31 +180,33 @@ function buildAddRepoUrl(indexUrl: string): string {
 }
 
 export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRoutesOptions) {
-  let importerManifestCache:
-    | {
-        expiresAt: number;
-        manifest: VpmImporterManifest;
-      }
-    | undefined;
-
-  async function getImporterManifest(publicVpmIndexUrl: string): Promise<VpmImporterManifest> {
-    if (importerManifestCache && importerManifestCache.expiresAt > Date.now()) {
-      return importerManifestCache.manifest;
+  const repositoryCache = new Map<
+    string,
+    {
+      expiresAt: number;
+      index: VpmRepositoryIndex;
     }
-    let manifest: VpmImporterManifest;
+  >();
+
+  async function getRepositoryIndex(indexUrl: string): Promise<VpmRepositoryIndex> {
+    const cached = repositoryCache.get(indexUrl);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.index;
+    }
+    let index: VpmRepositoryIndex;
     try {
-      manifest = await fetchPublicImporterManifest({
+      index = await fetchVpmRepositoryIndex({
         fetchImpl,
-        publicVpmIndexUrl,
+        indexUrl,
       });
     } catch (error) {
       throw new PublicImporterUnavailableError({ cause: error });
     }
-    importerManifestCache = {
+    repositoryCache.set(indexUrl, {
       expiresAt: Date.now() + IMPORTER_MANIFEST_CACHE_MS,
-      manifest,
-    };
-    return manifest;
+      index,
+    });
+    return index;
   }
 
   async function mintRepoToken(request: Request): Promise<Response> {
@@ -314,9 +348,11 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
           ? [
               buildYucpAliasVpmPackage({
                 aliasId: group.aliasId ?? release.packageId,
+                bootstrapVersion: buildYucpAliasBootstrapVersion(release.createdAt),
                 catalogProductIds: (group.catalogProductIds ?? [group.catalogProductId]).map(
                   String
                 ),
+                vpmDependencies: release.vpmDependencies,
                 vpmBaseUrl: vpmRepository.vpmBaseUrl,
               }),
             ]
@@ -325,19 +361,37 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
       const packages = aliases.reduce<VpmRepositoryPackages>((repository, alias) => {
         repository[alias.packageId] = {
           versions: {
-            [YUCP_ALIAS_BOOTSTRAP_VERSION]: alias.manifest,
+            [alias.manifest.version]: alias.manifest,
           },
         };
         return repository;
       }, {});
       if (aliases.length > 0) {
         buildPhase = 'importer';
-        const importerManifest = await getImporterManifest(vpmRepository.publicVpmIndexUrl);
-        packages[importerManifest.name] = {
-          versions: {
-            [importerManifest.version]: importerManifest,
-          },
-        };
+        const publicIndex = await getRepositoryIndex(vpmRepository.publicVpmIndexUrl);
+        try {
+          selectPublicImporterManifest(publicIndex);
+        } catch (error) {
+          throw new PublicImporterUnavailableError({ cause: error });
+        }
+        mergeVpmRepositoryPackages(packages, publicIndex.packages);
+
+        buildPhase = 'dependency-repositories';
+        const dependencyRepositoryUrls = [
+          ...new Set(
+            downloadableGroups.flatMap(({ release }) =>
+              release ? Object.values(release.vpmRepositories) : []
+            )
+          ),
+        ].sort((left, right) => left.localeCompare(right));
+        for (const repositoryUrl of dependencyRepositoryUrls) {
+          const normalizedUrl = new URL(repositoryUrl).toString();
+          if (!vpmRepository.trustedRepositoryUrls.has(normalizedUrl)) {
+            throw new Error('A package release references an untrusted VPM repository');
+          }
+          const dependencyIndex = await getRepositoryIndex(normalizedUrl);
+          mergeVpmRepositoryPackages(packages, dependencyIndex.packages);
+        }
       }
 
       buildPhase = 'response';
@@ -379,12 +433,11 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
     if (!vpmBaseUrl) {
       return Response.json({ error: 'VPM delivery is not configured' }, { status: 503 });
     }
-    if (version !== YUCP_ALIAS_BOOTSTRAP_VERSION) {
-      return Response.json({ error: 'VPM alias package not found' }, { status: 404 });
-    }
-
     try {
       const descriptor = decodeYucpAliasArtifactDescriptor(artifactDescriptor);
+      if (version !== descriptor.bootstrapVersion) {
+        return Response.json({ error: 'VPM alias package not found' }, { status: 404 });
+      }
       const built = buildYucpAliasVpmPackage({
         ...descriptor,
         vpmBaseUrl,

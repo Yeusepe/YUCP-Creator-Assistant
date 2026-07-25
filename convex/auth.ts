@@ -12,7 +12,8 @@ import './polyfills';
 import { apiKey } from '@better-auth/api-key';
 import { oauthProvider } from '@better-auth/oauth-provider';
 import { passkey } from '@better-auth/passkey';
-import type { GenericCtx } from '@convex-dev/better-auth';
+import { createClient, type GenericCtx } from '@convex-dev/better-auth';
+import { convex } from '@convex-dev/better-auth/plugins';
 import { checkout, polar, portal, usage, webhooks } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 import {
@@ -28,8 +29,6 @@ import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
-import { createClient } from './betterAuth/convexClient';
-import { createConvexBetterAuthPlugin } from './betterAuth/convexPlugin';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
 import authSchema from './betterAuth/schema';
@@ -301,7 +300,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         },
         disableSettingJwtHeader: true,
       }),
-      createConvexBetterAuthPlugin({
+      convex({
         authConfig,
         jwksRotateOnTokenGenerationError: true,
       }),
@@ -320,7 +319,8 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         loginPage: `${siteUrl.replace(/\/$/, '')}/oauth/login`,
         consentPage: `${siteUrl.replace(/\/$/, '')}/oauth/consent`,
         scopes: [...OAUTH_PROVIDER_SCOPES],
-        validAudiences: [PUBLIC_API_AUDIENCE],
+        cachedResources: new Set([PUBLIC_API_AUDIENCE]),
+        enforcePerClientResources: true,
         cachedTrustedClients,
         allowDynamicClientRegistration: false,
         allowUnauthenticatedClientRegistration: false,

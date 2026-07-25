@@ -83,4 +83,22 @@ describe('local delivery proxy', () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe('protected bytes');
   });
+
+  test('uses the in-process Worker client without a second loopback fetch', async () => {
+    let receivedPath = '';
+    proxy = await startLocalDeliveryProxy({
+      port: 0,
+      upstreamBaseUrl: 'http://127.0.0.1:1',
+      upstreamFetch: async (request) => {
+        receivedPath = new URL(request.url).pathname;
+        return new Response('worker response', { status: 200 });
+      },
+    });
+
+    const response = await fetch(`${proxy.baseUrl}/v2/delivery/version-1/manifest`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('worker response');
+    expect(receivedPath).toBe('/v2/delivery/version-1/manifest');
+  });
 });

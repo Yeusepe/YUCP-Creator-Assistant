@@ -35,14 +35,6 @@ describe('materialization control client', () => {
       grantJti: 'grant-1',
       jobId: 'job-1',
       productId: 'com.yucp.jammr',
-      protectedFiles: [
-        {
-          materializerType: 'png',
-          normalizedPath: 'Assets/Jammr/a.png',
-          required: true,
-          sourceSha256: '44'.repeat(32),
-        },
-      ],
       protectedSourceRoot: '33'.repeat(32),
       releaseRoot: '11'.repeat(32),
       sourceLogicalBytes: 100,
@@ -64,7 +56,35 @@ describe('materialization control client', () => {
     expect(requests[0]?.headers.get('traceparent')).toBe(
       '00-11111111111111111111111111111111-2222222222222222-01'
     );
-    expect(JSON.stringify(await requests[0]?.clone().json())).not.toContain(sharedSecret);
+    const createBody = (await requests[0]?.clone().json()) as Record<string, unknown>;
+    expect(JSON.stringify(createBody)).not.toContain(sharedSecret);
+    expect(createBody).not.toHaveProperty('protectedFiles');
+  });
+
+  test('reads a protected materialization receipt larger than the default response limit', async () => {
+    const encodedReceipt = 'A'.repeat(108_000);
+    const client = createMaterializationControlClient({
+      baseUrl,
+      fetchImplementation: mock(async () =>
+        Response.json({
+          receipt: encodedReceipt,
+          receiptId: 'receipt-large-1',
+          status: 'succeeded',
+        })
+      ),
+      sharedSecret,
+    });
+
+    await expect(
+      client.getStatus({
+        grantJti: 'grant-1',
+        jobId: 'job-1',
+      })
+    ).resolves.toEqual({
+      receipt: encodedReceipt,
+      receiptId: 'receipt-large-1',
+      status: 'succeeded',
+    });
   });
 
   test('lists bounded attribution candidates from the durable control plane', async () => {
@@ -141,14 +161,6 @@ describe('materialization control client', () => {
         grantJti: 'grant-1',
         jobId: 'job-1',
         productId: 'com.yucp.jammr',
-        protectedFiles: [
-          {
-            materializerType: 'png',
-            normalizedPath: 'Assets/Jammr/a.png',
-            required: true,
-            sourceSha256: '44'.repeat(32),
-          },
-        ],
         protectedSourceRoot: '33'.repeat(32),
         releaseRoot: '11'.repeat(32),
         sourceLogicalBytes: 100,

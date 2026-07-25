@@ -275,6 +275,7 @@ describe('DevSupervisor', () => {
         METADATA_S3_REGION: 'us-east-1',
         METADATA_S3_SECRET_ACCESS_KEY: 'local-metadata-secret',
         PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
+        PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
         PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
         PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',
       },
@@ -282,7 +283,7 @@ describe('DevSupervisor', () => {
     );
 
     expect(commands.find((command) => command.name === 'ingest-tus')).toMatchObject({
-      command: 'bun run ops/ingest-tus/server.ts',
+      command: 'bun run --watch ops/ingest-tus/server.ts',
       env: { PORT: '3002' },
     });
     expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
@@ -291,7 +292,7 @@ describe('DevSupervisor', () => {
     expect(
       commands.find((command) => command.name === 'materialization-control')
     ).toMatchObject({
-      command: 'bun run ops/materialization/server.ts',
+      command: 'bun run --watch ops/materialization/server.ts',
     });
     expect(
       commands.find((command) => command.name === 'materializer-linux')
@@ -302,7 +303,7 @@ describe('DevSupervisor', () => {
       commands.find((command) => command.name === 'materialization-source')
     ).toMatchObject({
       command:
-        'bun x tsx services/materialization-source-worker/testDevServer.ts',
+        'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
     });
     expect(commands.find((command) => command.name === 'coupling')).toBeUndefined();
     expect(
@@ -311,7 +312,7 @@ describe('DevSupervisor', () => {
       )
     ).toBeFalse();
     expect(commands.find((command) => command.name === 'delivery')).toMatchObject({
-      command: 'bun x tsx services/delivery-worker/testDevServer.ts',
+      command: 'bun x tsx watch services/delivery-worker/testDevServer.ts',
       env: {
         BUYER_FLOW_COMMON_CHUNK_PREFIX: 'chunks/',
         BUYER_FLOW_COMMON_S3_BUCKET: 'local-common',
@@ -434,6 +435,7 @@ describe('DevSupervisor', () => {
       MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY:
         'local-source-grant-public-key',
       PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
+      PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
       PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
       PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: 'local-install-private-key',
       PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: 'local-install-public-key',

@@ -19,7 +19,7 @@ import {
 } from './lib/legacyFrontend';
 import { logger } from './lib/logger';
 import { loadMaterializationControlClient } from './lib/materializationControlClient';
-import { verifyBetterAuthAccessToken } from './lib/oauthAccessToken';
+import { bindPublicApiOAuthResource } from './lib/oauthTokenResource';
 import {
   annotateApiSpan,
   getActiveTraceIds,
@@ -28,6 +28,7 @@ import {
 } from './lib/observability';
 import { createConvexPackageInstallAccess } from './lib/packageInstallAccess';
 import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
+import { verifyPublicApiAccessToken } from './lib/publicApiAccessToken';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
@@ -364,6 +365,7 @@ function initializeAuth(webhookBaseUrl?: string) {
       publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       vpmBaseUrl: env.VPM_BASE_URL,
       vpmTokenKey: env.VPM_TOKEN_KEY,
+      trustedVpmRepositoryUrls: env.VPM_TRUSTED_REPOSITORY_URLS,
     },
   });
 
@@ -376,13 +378,12 @@ function initializeAuth(webhookBaseUrl?: string) {
           convexUrl,
         }),
         audience: packageInstallConfig.audience,
-        issuer: new URL(publicBaseUrl).origin,
+        issuer: packageInstallConfig.issuer,
         keyId: packageInstallConfig.keyId,
         ...(materializationControl ? { materializationControl } : {}),
         privateKey: packageInstallConfig.privateKey,
         async verifyAccessToken(token) {
-          const result = await verifyBetterAuthAccessToken(token, {
-            audience: 'yucp-public-api',
+          const result = await verifyPublicApiAccessToken(token, {
             convexSiteUrl,
             logger,
             logContext: 'Package install token verification failed',
@@ -401,7 +402,7 @@ function initializeAuth(webhookBaseUrl?: string) {
     packageInstallConfig && materializationControl
       ? createPackageMaterializationStatusRoute({
           audience: packageInstallConfig.audience,
-          issuer: new URL(publicBaseUrl).origin,
+          issuer: packageInstallConfig.issuer,
           keyId: packageInstallConfig.keyId,
           materializationControl,
           privateKey: packageInstallConfig.privateKey,
@@ -761,14 +762,8 @@ async function routeRequest(request: Request): Promise<Response> {
       proxyHeaders.delete('host');
       proxyHeaders.set('host', new URL(convexSiteUrl).host);
 
-      // ── RFC 8252 loopback redirect_uri rewrite for token exchange ──────────
-      // During authorize, /api/yucp/oauth/authorize already replaced the
-      // loopback redirect_uri with the fixed Convex callback URL so that
-      // Better Auth can validate it.  During token exchange the client sends
-      // the original loopback URI again (as required by RFC 6749 §4.1.3), but
-      // Better Auth will reject it because it no longer matches what was stored.
-      // Solution: when we see a loopback (127.0.0.1 or ::1) redirect_uri in the
-      // token exchange body we silently rewrite it to the same fixed URL.
+      // Better Auth owns RFC 8252 redirect matching. The API proxy only binds
+      // token requests to the public API resource.
       let proxyBody: BodyInit | undefined =
         request.method !== 'GET' && request.method !== 'HEAD'
           ? ((request.body as BodyInit | null | undefined) ?? undefined)
@@ -780,23 +775,16 @@ async function routeRequest(request: Request): Promise<Response> {
         (request.headers.get('content-type') ?? '').includes('x-www-form-urlencoded')
       ) {
         const text = await request.text();
-        const params = new URLSearchParams(text);
-        const redir = params.get('redirect_uri') ?? '';
-        const hadResource = params.has('resource');
-        if (/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/.test(redir)) {
-          params.set('redirect_uri', `${convexSiteUrl}/api/yucp/oauth/callback`);
-        }
+        const requestParams = new URLSearchParams(text);
+        const hadResource = requestParams.has('resource');
         // Always inject the resource parameter so the oauth-provider issues a
         // JWT access token (audience-bound) rather than an opaque token.
         // Without `resource`, isJwtAccessToken is false and verifyAccessToken
         // later fails with "no token payload".
-        if (!hadResource) {
-          params.set('resource', 'yucp-public-api');
-        }
+        const params = bindPublicApiOAuthResource(requestParams);
         const rewritten = params.toString();
-        logger.info('Token exchange rewrite', {
+        logger.info('Token exchange resource binding', {
           grant_type: params.get('grant_type'),
-          redirect_uri_rewritten: redir ? redir.substring(0, 40) : '(none)',
           resource_was_present: hadResource,
           resource_now: params.get('resource'),
         });

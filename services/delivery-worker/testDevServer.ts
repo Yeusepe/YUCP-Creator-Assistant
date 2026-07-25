@@ -1,6 +1,9 @@
 import { resolve } from 'node:path';
-import { unstable_dev } from 'wrangler';
-import { startLocalDeliveryProxy } from './localDevProxy';
+import {
+  type LocalWranglerWorker,
+  startLocalWranglerWorker,
+} from '../../ops/testing/localWranglerWorker';
+import { type LocalDeliveryProxy, startLocalDeliveryProxy } from './localDevProxy';
 
 const VAR_NAMES = [
   'COMMON_S3_ENDPOINT',
@@ -63,64 +66,57 @@ function configuredPort(): number | undefined {
   return port;
 }
 
+function writeStructuredLog(log: unknown): void {
+  // Preserve Worker denial diagnostics in the supervisor's correlated local log.
+  process.stderr.write(`${JSON.stringify(log)}\n`);
+}
+
 async function main(): Promise<void> {
   const vars = Object.fromEntries(VAR_NAMES.map((name) => [name, requiredVariable(name)]));
   const port = configuredPort();
-  const worker = await unstable_dev(resolve('services/delivery-worker/src/index.ts'), {
+  const worker = await startLocalWranglerWorker({
     config: resolve('services/delivery-worker/wrangler.jsonc'),
-    experimental: {
-      disableDevRegistry: true,
-      disableExperimentalWarning: true,
-      forceLocal: true,
-      testMode: true,
-      watch: false,
-    },
-    inspect: false,
-    ip: '127.0.0.1',
-    local: true,
-    logLevel: 'none',
-    persist: false,
+    entrypoint: resolve('services/delivery-worker/src/index.ts'),
+    onStructuredLog: writeStructuredLog,
+    port: 0,
     vars,
   });
-  const renditionWorker = await unstable_dev(resolve('services/rendition-worker/src/index.ts'), {
-    config: resolve('services/rendition-worker/wrangler.jsonc'),
-    experimental: {
-      disableDevRegistry: true,
-      disableExperimentalWarning: true,
-      forceLocal: true,
-      testMode: true,
-      watch: false,
-    },
-    inspect: false,
-    ip: '127.0.0.1',
-    local: true,
-    logLevel: 'none',
-    persist: false,
-    vars: Object.fromEntries(
-      RENDITION_VAR_NAMES.map((name) => [name, requiredRenditionVariable(name)])
-    ),
-  });
-  const proxy =
-    port === undefined
-      ? undefined
-      : await startLocalDeliveryProxy({
-          port,
-          renditionUpstreamBaseUrl: `http://127.0.0.1:${renditionWorker.port}`,
-          upstreamBaseUrl: `http://127.0.0.1:${worker.port}`,
-        });
-
-  process.stdout.write(`DELIVERY_WORKER_READY ${proxy?.port ?? worker.port}\n`);
-  await new Promise<void>((resolveStop) => {
-    if (process.env.BUYER_FLOW_KEEP_ALIVE !== '1') {
-      process.stdin.resume();
-      process.stdin.once('end', resolveStop);
-    }
-    process.once('SIGINT', resolveStop);
-    process.once('SIGTERM', resolveStop);
-  });
-  await proxy?.stop();
-  await renditionWorker.stop();
-  await worker.stop();
+  let renditionWorker: LocalWranglerWorker | undefined;
+  let proxy: LocalDeliveryProxy | undefined;
+  try {
+    renditionWorker = await startLocalWranglerWorker({
+      config: resolve('services/rendition-worker/wrangler.jsonc'),
+      entrypoint: resolve('services/rendition-worker/src/index.ts'),
+      onStructuredLog: writeStructuredLog,
+      port: 0,
+      vars: Object.fromEntries(
+        RENDITION_VAR_NAMES.map((name) => [name, requiredRenditionVariable(name)])
+      ),
+    });
+    proxy =
+      port === undefined
+        ? undefined
+        : await startLocalDeliveryProxy({
+            port,
+            renditionUpstreamBaseUrl: renditionWorker.baseUrl,
+            renditionUpstreamFetch: renditionWorker.dispatch,
+            upstreamBaseUrl: worker.baseUrl,
+            upstreamFetch: worker.dispatch,
+          });
+    process.stdout.write(`DELIVERY_WORKER_READY ${proxy?.port ?? new URL(worker.baseUrl).port}\n`);
+    await new Promise<void>((resolveStop) => {
+      if (process.env.BUYER_FLOW_KEEP_ALIVE !== '1') {
+        process.stdin.resume();
+        process.stdin.once('end', resolveStop);
+      }
+      process.once('SIGINT', resolveStop);
+      process.once('SIGTERM', resolveStop);
+    });
+  } finally {
+    await proxy?.stop();
+    await renditionWorker?.stop();
+    await worker.stop();
+  }
 }
 
 main().catch((error: unknown) => {

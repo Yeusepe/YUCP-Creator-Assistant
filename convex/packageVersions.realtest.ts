@@ -37,6 +37,8 @@ async function authenticatedReadyVersionArgs<T extends Record<string, unknown>>(
     protectionPolicyDigest: '88'.repeat(32),
     protectionPolicyId: 'common-only-v1',
     releaseRoot: '44'.repeat(32),
+    vpmDependencies: {},
+    vpmRepositories: {},
     ...input,
   };
 }

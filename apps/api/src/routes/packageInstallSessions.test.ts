@@ -80,6 +80,7 @@ function requestBody(): Record<string, unknown> {
     catalogProductIds: ['catalog-jammr-gumroad', 'catalog-jammr-jinxxy'],
     deviceKeyThumbprint,
     idempotencyKey: 'lifecycle-run-1',
+    operation: 'install',
   };
 }
 
@@ -169,6 +170,7 @@ describe('package install session route', () => {
         deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
         issuer,
         now: Math.floor(Date.now() / 1000),
+        operation: 'install',
         releaseRoot: Uint8Array.from(Buffer.from('11'.repeat(32), 'hex')),
       },
     });
@@ -349,6 +351,7 @@ describe('package install session route', () => {
       productId: 'com.yucp.jammr',
       sourceVersionId: 'version-jammr-123',
     });
+    expect(createJob.mock.calls[0]?.[0]).not.toHaveProperty('protectedFiles');
     const signedGrant = await verifyDeliveryGrantV2({
       coseSign1: Buffer.from(firstBody.deliveryGrant, 'base64url'),
       expectedKeyId: new TextEncoder().encode(keyId),
@@ -364,6 +367,81 @@ describe('package install session route', () => {
     expect(createJob.mock.calls[0]?.[0]).toMatchObject({
       grantJti: signedGrant.grantId,
     });
+  });
+
+  test('issues metadata-only preflight without creating a protected materialization job', async () => {
+    const createJob = mock(async (_input: unknown) => undefined);
+    const port = accessPort({
+      resolvePublication: mock(async () => ({
+        activeContentDigest: '66'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        aliasId: 'jammr',
+        bindingRoot: '22'.repeat(32),
+        catalogProductIds: ['catalog-jammr-gumroad', 'catalog-jammr-jinxxy'],
+        commonRoot: '77'.repeat(32),
+        creatorId: 'creator-1',
+        logicalBytes: 42_000,
+        logicalFiles: 12,
+        manifestSha256: '33'.repeat(32),
+        packageId: 'com.yucp.jammr',
+        protectedFiles: [
+          {
+            materializerType: 'png',
+            normalizedPath: 'Assets/Jammr/a.png',
+            required: true,
+            sourceSha256: 'aa'.repeat(32),
+          },
+        ],
+        protectedSourceRoot: '88'.repeat(32),
+        protectionPolicyDigest: '99'.repeat(32),
+        protectionPolicyId: 'supported-visual-assets-v1',
+        releaseRoot: '11'.repeat(32),
+        version: '1.2.3',
+        versionId: 'version-jammr-123',
+      })),
+    });
+    const handler = createPackageInstallSessionRoute({
+      accessPort: port,
+      audience,
+      issuer,
+      keyId,
+      materializationControl: { createJob },
+      privateKey,
+      verifyAccessToken: async () => ({ ok: true, buyerId: 'buyer-1' }),
+    });
+
+    const response = await handler(
+      request({
+        ...requestBody(),
+        operation: 'preflight',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      installSession: string;
+      materializationJobId?: string;
+    };
+    expect(body).not.toHaveProperty('materializationJobId');
+    expect(createJob).not.toHaveBeenCalled();
+    const session = await verifyInstallSessionV2({
+      coseSign1: Buffer.from(body.installSession, 'base64url'),
+      expectedKeyId: new TextEncoder().encode(keyId),
+      publicKey,
+      context: {
+        aliasId: 'jammr',
+        allowedApiOrigins: [issuer],
+        allowedArtifactOrigins: [audience],
+        audience,
+        bindingRoot: Buffer.from('22'.repeat(32), 'hex'),
+        deviceKeyThumbprint: Buffer.from(deviceKeyThumbprint, 'hex'),
+        issuer,
+        now: Math.floor(Date.now() / 1_000),
+        operation: 'preflight',
+        releaseRoot: Buffer.from('11'.repeat(32), 'hex'),
+      },
+    });
+    expect(session).toMatchObject({ operation: 'preflight' });
   });
 
   test('authorizes materialization status with the signed grant and device DPoP key', async () => {
@@ -390,6 +468,7 @@ describe('package install session route', () => {
       keyId,
       materializationJobId: 'job-protected-1',
       now: Math.floor(Date.now() / 1_000),
+      operation: 'install',
       privateKey,
       publication: {
         activeContentDigest: '66'.repeat(32),

@@ -21,6 +21,8 @@ function readyPublicationFields() {
     protectionPolicyDigest: '66'.repeat(32),
     protectionPolicyId: 'common-only-v1',
     releaseRoot: '77'.repeat(32),
+    vpmDependencies: {},
+    vpmRepositories: {},
   };
 }
 

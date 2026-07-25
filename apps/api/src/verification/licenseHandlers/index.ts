@@ -107,6 +107,47 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
         };
       }
 
+      const requestedProviderProductId = productId?.trim();
+      if (!requestedProviderProductId) {
+        return { success: false, error: 'Product is required' };
+      }
+      const requestedProduct = await convex.query(
+        api.yucpLicenses.lookupProductByProviderRefForCreator,
+        {
+          apiSecret: config.convexApiSecret,
+          authUserId: creatorAuthUserId,
+          provider,
+          providerProductRef: requestedProviderProductId,
+        }
+      );
+      if (!requestedProduct) {
+        return { success: false, error: 'Product is not configured for license verification' };
+      }
+
+      let verifiedProduct = requestedProduct;
+      const returnedProviderProductId = result.providerProductId?.trim();
+      if (returnedProviderProductId && returnedProviderProductId !== requestedProviderProductId) {
+        const returnedProduct = await convex.query(
+          api.yucpLicenses.lookupProductByProviderRefForCreator,
+          {
+            apiSecret: config.convexApiSecret,
+            authUserId: creatorAuthUserId,
+            provider,
+            providerProductRef: returnedProviderProductId,
+          }
+        );
+        if (
+          !returnedProduct ||
+          returnedProduct.catalogProductId !== requestedProduct.catalogProductId
+        ) {
+          return {
+            success: false,
+            error: 'License does not belong to the requested product',
+          };
+        }
+        verifiedProduct = returnedProduct;
+      }
+
       const licenseKeyDigest = await sha256Hex(licenseKey);
       const providerUserId =
         result.providerUserId ??
@@ -142,7 +183,8 @@ export function getHandler(provider: string): LicenseVerificationHandler | null 
             providerUserId,
             productsToGrant: [
               {
-                productId: result.providerProductId ?? productId ?? '',
+                productId: verifiedProduct.productId,
+                catalogProductId: verifiedProduct.catalogProductId,
                 sourceReference,
                 providerTierRefs: result.providerTierRef ? [result.providerTierRef] : undefined,
               },

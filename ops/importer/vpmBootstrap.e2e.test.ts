@@ -14,11 +14,8 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Zippable } from 'fflate';
-import { zipSync } from 'fflate';
-import {
-  buildYucpAliasVpmPackage,
-  YUCP_ALIAS_BOOTSTRAP_VERSION,
-} from '../../apps/api/src/routes/vpmAliasPackage';
+import { unzipSync, zipSync } from 'fflate';
+import { buildYucpAliasVpmPackage } from '../../apps/api/src/routes/vpmAliasPackage';
 import { runCommand } from '../storage-core/process';
 
 const REPOSITORY_ROOT = join(import.meta.dir, '..', '..');
@@ -28,6 +25,7 @@ const UNITY_VERSION = '2022.3.22f1';
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
 const CATALOG_PRODUCT_ID = 'catalog_product_local_vpm_fixture';
 const PINNED_TUF_ROOT_SHA256 = 'f4e31f5a47d4f6558fdd51b97e379c34bd42325bcca32d07a9626596bba724af';
+const PUBLIC_ARCHIVE_EXCLUDED_ROOTS = new Set(['Tests', 'Tests.meta']);
 const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
 
 type PackageManifest = Record<string, unknown> & {
@@ -155,6 +153,11 @@ async function buildPackageArchive(
     directoryEntries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of directoryEntries) {
       const absolutePath = join(directoryPath, entry.name);
+      const archivePath = relative(packagePath, absolutePath).split(sep).join('/');
+      const archiveRoot = archivePath.split('/', 1)[0];
+      if (archiveRoot && PUBLIC_ARCHIVE_EXCLUDED_ROOTS.has(archiveRoot)) {
+        continue;
+      }
       if (entry.isSymbolicLink()) {
         throw new Error(`The importer package contains a symbolic link: ${absolutePath}`);
       }
@@ -165,7 +168,6 @@ async function buildPackageArchive(
       if (!entry.isFile()) {
         throw new Error(`The importer package contains an unsupported entry: ${absolutePath}`);
       }
-      const archivePath = relative(packagePath, absolutePath).split(sep).join('/');
       let bytes = new Uint8Array(await readFile(absolutePath));
       if (archivePath === 'package.json' && manifestVersion) {
         const manifest = JSON.parse(new TextDecoder().decode(bytes)) as PackageManifest;
@@ -179,6 +181,22 @@ async function buildPackageArchive(
 
   await addDirectory(packagePath);
   return zipSync(entries, { level: 9 });
+}
+
+async function writeImporterRuntimeTestHarness(
+  unityProjectPath: string,
+  importerPackagePath: string
+): Promise<void> {
+  const testDirectory = join(unityProjectPath, 'Assets', 'ImporterRuntimeTests', 'Editor');
+  const sourceDirectory = join(importerPackagePath, 'Tests', 'Editor');
+  await mkdir(testDirectory, { recursive: true });
+  for (const fileName of [
+    'ProjectTransactionJournalTests.cs',
+    'VpmAliasTriggerTests.cs',
+    'com.yucp.importer.Editor.Tests.asmdef',
+  ]) {
+    await copyFile(join(sourceDirectory, fileName), join(testDirectory, fileName));
+  }
 }
 
 async function writeUnityLifecycleStateTest(unityProjectPath: string): Promise<void> {
@@ -286,6 +304,14 @@ async function inventoryPackageFiles(packagePath: string): Promise<Record<string
   return inventory;
 }
 
+function inventoryPackageArchive(archive: Uint8Array): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(unzipSync(archive))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([path, bytes]) => [path, sha256(bytes)])
+  );
+}
+
 function packageResponse(bytes: Uint8Array, request: Request): Response {
   return new Response(request.method === 'HEAD' ? null : Uint8Array.from(bytes).buffer, {
     status: 200,
@@ -339,6 +365,17 @@ function requireImporterManifest(
     throw new Error(`The disposable VPM repository is missing importer ${version}`);
   }
   return manifest;
+}
+
+function requireImporterArtifact(
+  artifacts: ReadonlyMap<string, Uint8Array>,
+  version: string
+): Uint8Array {
+  const artifact = artifacts.get(`/${IMPORTER_PACKAGE_ID}-${version}.zip`);
+  if (!artifact) {
+    throw new Error(`The disposable VPM repository is missing importer artifact ${version}`);
+  }
+  return artifact;
 }
 
 async function runUnityLifecyclePhase(input: {
@@ -415,7 +452,7 @@ describe.serial('official VPM CLI bootstrap', () => {
     ) as PackageManifest;
     expect(importerPackageJson).toMatchObject({
       name: IMPORTER_PACKAGE_ID,
-      version: '0.1.14',
+      version: '0.1.28',
     });
 
     const restored = await runCommand(dotnetExecutable, ['tool', 'restore'], {
@@ -454,6 +491,7 @@ describe.serial('official VPM CLI bootstrap', () => {
       'm_EditorVersion: 2022.3.22f1\n'
     );
     await writeUnityLifecycleStateTest(unityProjectPath);
+    await writeImporterRuntimeTestHarness(unityProjectPath, importerPackagePath);
 
     const requests: string[] = [];
     let repositoryState: TestRepositoryState | undefined;
@@ -481,7 +519,7 @@ describe.serial('official VPM CLI bootstrap', () => {
     });
 
     const baseUrl = `http://127.0.0.1:${server.port}`;
-    const importerVersions = [importerPackageJson.version, '0.1.15'] as const;
+    const importerVersions = [importerPackageJson.version, '0.1.27'] as const;
     const importerArtifacts = new Map<string, Uint8Array>();
     const importerManifests = new Map<string, PackageManifest>();
     for (const version of importerVersions) {
@@ -500,7 +538,9 @@ describe.serial('official VPM CLI bootstrap', () => {
     }
     const alias = buildYucpAliasVpmPackage({
       aliasId: CATALOG_PRODUCT_ID,
+      bootstrapVersion: '1.20660.12345',
       catalogProductIds: [CATALOG_PRODUCT_ID],
+      vpmDependencies: {},
       vpmBaseUrl: baseUrl,
     });
     const aliasPath = new URL(alias.manifest.url).pathname;
@@ -525,7 +565,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           },
           [alias.packageId]: {
             versions: {
-              [YUCP_ALIAS_BOOTSTRAP_VERSION]: alias.manifest,
+              [alias.manifest.version]: alias.manifest,
             },
           },
         },
@@ -558,7 +598,11 @@ describe.serial('official VPM CLI bootstrap', () => {
       });
       expect(
         await inventoryPackageFiles(join(unityProjectPath, 'Packages', IMPORTER_PACKAGE_ID))
-      ).toEqual(await inventoryPackageFiles(importerPackagePath));
+      ).toEqual(
+        inventoryPackageArchive(
+          requireImporterArtifact(importerArtifacts, importerPackageJson.version)
+        )
+      );
       const pinnedTufRootPath = join(
         unityProjectPath,
         'Packages',
@@ -581,9 +625,9 @@ describe.serial('official VPM CLI bootstrap', () => {
       const installedAlias = JSON.parse(installedAliasText) as Record<string, unknown>;
       expect(installedAlias).toMatchObject({
         name: alias.packageId,
-        version: YUCP_ALIAS_BOOTSTRAP_VERSION,
+        version: alias.manifest.version,
         vpmDependencies: {
-          [IMPORTER_PACKAGE_ID]: '>=0.1.14',
+          [IMPORTER_PACKAGE_ID]: '>=0.1.25',
         },
         yucp: {
           aliasId: CATALOG_PRODUCT_ID,
@@ -603,7 +647,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         locked?: Record<string, { version?: string }>;
       };
       expect(vpmManifest.dependencies?.[alias.packageId]?.version).toBe(
-        YUCP_ALIAS_BOOTSTRAP_VERSION
+        alias.manifest.version
       );
       expect(vpmManifest.locked?.[IMPORTER_PACKAGE_ID]?.version).toBe(importerPackageJson.version);
       expect(requests).toContain('GET /index.json');
@@ -696,7 +740,21 @@ describe.serial('official VPM CLI bootstrap', () => {
         'utf8'
       );
       expect(transactionResults).toContain('result="Passed"');
-      expect(transactionResults).toContain('passed="2"');
+      expect(transactionResults).toContain('passed="10"');
+      for (const testName of [
+        'ApplyCommitsOnlyPreverifiedStagingFiles',
+        'ApplyReadsVerifiedStagingFilesPastTheWindowsPathLimit',
+        'ApplyRejectsAConcurrentProjectMutation',
+        'ApplyRejectsCorruptStagingBeforeLiveMutation',
+        'ApplyRemovesOnlyUnchangedObsoleteOwnedFiles',
+        'AssetEditingTransactionAlwaysEndsAfterFailure',
+        'InspectReportsCommittedPackageDescriptorChanges',
+        'RecoverCommitsAPreparedTransaction',
+        'RemoveOwnedFilesPreservesModifiedContent',
+        'RollBackCommittedRestoresPriorFiles',
+      ]) {
+        expect(transactionResults).toContain(`name="${testName}"`);
+      }
       if (evidenceDirectory) {
         await copyFile(
           transactionTestResults,
@@ -719,10 +777,10 @@ describe.serial('official VPM CLI bootstrap', () => {
         unityProjectPath,
       });
 
-      const updateVersion = '0.1.15';
-      importerRepositoryVersions[updateVersion] = requireImporterManifest(
+      const rollbackVersion = '0.1.27';
+      importerRepositoryVersions[rollbackVersion] = requireImporterManifest(
         importerManifests,
-        updateVersion
+        rollbackVersion
       );
       // Explicit package versions and project resolution follow the official VPM CLI contract.
       // https://vcc.docs.vrchat.com/vpm/cli/
@@ -731,7 +789,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         [
           'add',
           'package',
-          `${IMPORTER_PACKAGE_ID}@${updateVersion}`,
+          `${IMPORTER_PACKAGE_ID}@${rollbackVersion}`,
           '--project',
           unityProjectPath,
         ],
@@ -741,14 +799,14 @@ describe.serial('official VPM CLI bootstrap', () => {
         await readInstalledPackageManifest(unityProjectPath, IMPORTER_PACKAGE_ID)
       ).toMatchObject({
         name: IMPORTER_PACKAGE_ID,
-        version: updateVersion,
+        version: rollbackVersion,
       });
       await runUnityLifecyclePhase({
         aliasPackageId: alias.packageId,
         aliasPresent: true,
         evidenceDirectory,
-        importerVersion: updateVersion,
-        phase: 'update',
+        importerVersion: rollbackVersion,
+        phase: 'rollback',
         scratchPath,
         unityExecutable,
         unityProjectPath,
@@ -773,7 +831,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         aliasPackageId: alias.packageId,
         aliasPresent: true,
         evidenceDirectory,
-        importerVersion: updateVersion,
+        importerVersion: rollbackVersion,
         phase: 'repair',
         scratchPath,
         unityExecutable,
@@ -802,7 +860,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         aliasPresent: true,
         evidenceDirectory,
         importerVersion: importerPackageJson.version,
-        phase: 'rollback',
+        phase: 'update',
         scratchPath,
         unityExecutable,
         unityProjectPath,

@@ -6,6 +6,9 @@
  * - npx convex run migrations:purgeLegacyOutboxVerifyPromptRefreshJobs
  * - npx convex run migrations:purgeRoleRuleSourceGuildNames
  * - npx convex run migrations:migrateLegacyLicenseSubjectLinks
+ * - npx convex run migrations:repairEntitlementCatalogProductIds
+ * - npx convex run migrations:resetIncompleteProviderLicenseIntents
+ * - npx convex run migrations:backfillPackageVersionVpmMetadata
  * Re-run until the relevant migration returns 0 remaining records.
  */
 
@@ -95,6 +98,343 @@ type SubjectOwnershipCandidate = {
 const DEFAULT_BUYER_ATTRIBUTION_REPORT_LIMIT = 50;
 const DEFAULT_SUBJECT_OWNERSHIP_REPORT_LIMIT = 50;
 const REPORTABLE_BINDING_STATUSES = new Set<Doc<'bindings'>['status']>(['active', 'pending']);
+
+export const backfillPackageVersionVpmMetadata = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+    packageId: v.string(),
+    vpmDependencies: v.record(v.string(), v.string()),
+    vpmRepositories: v.record(v.string(), v.string()),
+  },
+  returns: v.object({
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+    scanned: v.number(),
+    updated: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const page = await ctx.db
+      .query('package_versions_ref')
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    let updated = 0;
+    for (const version of page.page) {
+      if (version.packageId !== args.packageId) {
+        continue;
+      }
+      await ctx.db.patch(version._id, {
+        vpmDependencies: args.vpmDependencies,
+        vpmRepositories: args.vpmRepositories,
+      });
+      updated++;
+    }
+    return {
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      scanned: page.page.length,
+      updated,
+    };
+  },
+});
+
+type CatalogProductResolution =
+  | { status: 'resolved'; catalogProduct: Doc<'product_catalog'> }
+  | { status: 'ambiguous' }
+  | { status: 'unresolved' };
+
+async function resolveEntitlementCatalogProduct(
+  ctx: Pick<MutationCtx, 'db'>,
+  entitlement: Doc<'entitlements'>
+): Promise<CatalogProductResolution> {
+  const evidenceRows = await ctx.db
+    .query('entitlement_evidence')
+    .withIndex('by_source_reference', (q) =>
+      q
+        .eq('providerKey', entitlement.sourceProvider)
+        .eq('sourceReference', entitlement.sourceReference)
+    )
+    .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+    .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+    .filter((q) => q.eq(q.field('productId'), entitlement.productId))
+    .collect();
+  const evidenceCatalogIds = Array.from(
+    new Set(
+      evidenceRows.flatMap((evidence) =>
+        evidence.catalogProductId ? [String(evidence.catalogProductId)] : []
+      )
+    )
+  );
+  if (evidenceCatalogIds.length > 1) {
+    return { status: 'ambiguous' };
+  }
+  if (evidenceCatalogIds.length === 1) {
+    const evidenceCatalogProduct = await ctx.db.get(
+      evidenceCatalogIds[0] as Id<'product_catalog'>
+    );
+    if (
+      evidenceCatalogProduct &&
+      evidenceCatalogProduct.authUserId === entitlement.authUserId &&
+      evidenceCatalogProduct.provider === entitlement.sourceProvider &&
+      evidenceCatalogProduct.status === 'active'
+    ) {
+      return { status: 'resolved', catalogProduct: evidenceCatalogProduct };
+    }
+  }
+
+  const providerReferenceMatches = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user_provider_product_ref', (q) =>
+      q
+        .eq('authUserId', entitlement.authUserId)
+        .eq('providerProductRef', entitlement.productId)
+    )
+    .filter((q) => q.eq(q.field('provider'), entitlement.sourceProvider))
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .collect();
+  if (providerReferenceMatches.length === 1) {
+    return { status: 'resolved', catalogProduct: providerReferenceMatches[0] };
+  }
+  if (providerReferenceMatches.length > 1) {
+    return { status: 'ambiguous' };
+  }
+
+  const localProductMatches = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user', (q) => q.eq('authUserId', entitlement.authUserId))
+    .filter((q) => q.eq(q.field('provider'), entitlement.sourceProvider))
+    .filter((q) => q.eq(q.field('productId'), entitlement.productId))
+    .filter((q) => q.eq(q.field('status'), 'active'))
+    .collect();
+  if (localProductMatches.length === 1) {
+    return { status: 'resolved', catalogProduct: localProductMatches[0] };
+  }
+  return { status: localProductMatches.length > 1 ? 'ambiguous' : 'unresolved' };
+}
+
+export const repairEntitlementCatalogProductIds = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    repaired: v.number(),
+    evidenceRepaired: v.number(),
+    ambiguous: v.number(),
+    unresolved: v.number(),
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const page = await ctx.db
+      .query('entitlements')
+      .withIndex('by_status', (q) => q.eq('status', 'active'))
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const now = Date.now();
+    let repaired = 0;
+    let evidenceRepaired = 0;
+    let ambiguous = 0;
+    let unresolved = 0;
+
+    for (const entitlement of page.page) {
+      if (entitlement.catalogProductId) {
+        continue;
+      }
+      const resolution = await resolveEntitlementCatalogProduct(ctx, entitlement);
+      if (resolution.status === 'ambiguous') {
+        ambiguous++;
+        continue;
+      }
+      if (resolution.status === 'unresolved') {
+        unresolved++;
+        continue;
+      }
+
+      await ctx.db.patch(entitlement._id, {
+        catalogProductId: resolution.catalogProduct._id,
+        updatedAt: now,
+      });
+      repaired++;
+
+      const evidenceRows = await ctx.db
+        .query('entitlement_evidence')
+        .withIndex('by_source_reference', (q) =>
+          q
+            .eq('providerKey', entitlement.sourceProvider)
+            .eq('sourceReference', entitlement.sourceReference)
+        )
+        .filter((q) => q.eq(q.field('authUserId'), entitlement.authUserId))
+        .filter((q) => q.eq(q.field('subjectId'), entitlement.subjectId))
+        .filter((q) => q.eq(q.field('productId'), entitlement.productId))
+        .collect();
+      for (const evidence of evidenceRows) {
+        if (evidence.catalogProductId) {
+          continue;
+        }
+        await ctx.db.patch(evidence._id, {
+          catalogProductId: resolution.catalogProduct._id,
+          updatedAt: now,
+        });
+        evidenceRepaired++;
+      }
+    }
+
+    return {
+      scanned: page.page.length,
+      repaired,
+      evidenceRepaired,
+      ambiguous,
+      unresolved,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+async function resolveProviderLicenseIntentCatalogProduct(
+  ctx: Pick<MutationCtx, 'db'>,
+  intent: Doc<'verification_intents'>,
+  requirement: Doc<'verification_intents'>['requirements'][number]
+): Promise<Doc<'product_catalog'> | null> {
+  if (!requirement.providerProductRef) {
+    return null;
+  }
+
+  const packageRegistration = await ctx.db
+    .query('package_registry')
+    .withIndex('by_package_id', (q) => q.eq('packageId', intent.packageId))
+    .first();
+  const creatorAuthUserId = requirement.creatorAuthUserId ?? packageRegistration?.yucpUserId;
+  if (!creatorAuthUserId) {
+    return null;
+  }
+  if (packageRegistration && packageRegistration.yucpUserId !== creatorAuthUserId) {
+    return null;
+  }
+
+  const candidates = await ctx.db
+    .query('product_catalog')
+    .withIndex('by_auth_user_provider_product_ref', (q) =>
+      q
+        .eq('authUserId', creatorAuthUserId)
+        .eq('providerProductRef', requirement.providerProductRef as string)
+    )
+    .collect();
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.provider === requirement.providerKey &&
+        candidate.status === 'active' &&
+        (!requirement.productId || candidate.productId === requirement.productId)
+    ) ?? null
+  );
+}
+
+export const resetIncompleteProviderLicenseIntents = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    reset: v.number(),
+    preserved: v.number(),
+    expired: v.number(),
+    skipped: v.number(),
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 100, 500));
+    const page = await ctx.db
+      .query('verification_intents')
+      .withIndex('by_status_expires', (q) => q.eq('status', 'verified'))
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    const now = Date.now();
+    let reset = 0;
+    let preserved = 0;
+    let expired = 0;
+    let skipped = 0;
+
+    for (const intent of page.page) {
+      const requirement = intent.requirements.find(
+        (entry) =>
+          entry.methodKey === intent.verifiedMethodKey &&
+          entry.kind === 'manual_license' &&
+          entry.providerKey !== 'manual'
+      );
+      if (!requirement) {
+        skipped++;
+        continue;
+      }
+
+      if (intent.expiresAt <= now) {
+        await ctx.db.patch(intent._id, {
+          status: 'expired',
+          verifiedMethodKey: undefined,
+          verificationGrantJti: undefined,
+          verificationGrantExpiresAt: undefined,
+          errorCode: 'expired',
+          errorMessage: 'Verification intent has expired',
+          updatedAt: now,
+        });
+        expired++;
+        continue;
+      }
+
+      const catalogProduct = await resolveProviderLicenseIntentCatalogProduct(
+        ctx,
+        intent,
+        requirement
+      );
+      const entitlement =
+        intent.subjectId && catalogProduct
+          ? await ctx.db
+              .query('entitlements')
+              .withIndex('by_auth_user_subject', (q) =>
+                q
+                  .eq('authUserId', catalogProduct.authUserId)
+                  .eq('subjectId', intent.subjectId as Id<'subjects'>)
+              )
+              .filter((q) =>
+                q.and(
+                  q.eq(q.field('catalogProductId'), catalogProduct._id),
+                  q.eq(q.field('status'), 'active')
+                )
+              )
+              .first()
+          : null;
+      if (entitlement) {
+        preserved++;
+        continue;
+      }
+
+      await ctx.db.patch(intent._id, {
+        status: 'pending',
+        verifiedMethodKey: undefined,
+        verificationGrantJti: undefined,
+        verificationGrantExpiresAt: undefined,
+        verificationGrantUsedAt: undefined,
+        errorCode: 'provider_license_reverification_required',
+        errorMessage: 'Enter the license again to create canonical package access.',
+        updatedAt: now,
+      });
+      reset++;
+    }
+
+    return {
+      scanned: page.page.length,
+      reset,
+      preserved,
+      expired,
+      skipped,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
 
 const LEGACY_TABLES = [
   'bindings',

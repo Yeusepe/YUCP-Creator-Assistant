@@ -8,7 +8,7 @@
 import { api } from '../../../../convex/_generated/api';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { logger } from '../lib/logger';
-import { verifyBetterAuthAccessToken } from '../lib/oauthAccessToken';
+import { verifyPublicApiAccessToken } from '../lib/publicApiAccessToken';
 
 const REQUIRED_SCOPE = 'verification:read';
 const MAX_PRODUCT_IDS_PER_CHECK = 50;
@@ -49,9 +49,8 @@ async function authenticateSuiteRequest(
     return errorResponse('unauthorized', 'Missing or invalid Authorization header', 401);
   }
 
-  const result = await verifyBetterAuthAccessToken(token, {
+  const result = await verifyPublicApiAccessToken(token, {
     convexSiteUrl: config.convexSiteUrl,
-    audience: 'yucp-public-api',
     requiredScopes: [REQUIRED_SCOPE],
     logger,
     logContext: 'Suite token verification failed',

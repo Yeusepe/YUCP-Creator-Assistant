@@ -5,7 +5,9 @@ import type { Zippable } from 'fflate';
 import { zipSync } from 'fflate';
 
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
-const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
+const PUBLIC_ARCHIVE_EXCLUDED_ROOTS = new Set(['Tests', 'Tests.meta']);
+const ZIP_TIMESTAMP_EPOCH = Date.UTC(2000, 0, 1, 12, 0, 0);
+const ZIP_TIMESTAMP_SLOT_COUNT = 36_525 * 21_600;
 
 type ImporterManifest = Record<string, unknown> & {
   displayName: string;
@@ -38,6 +40,23 @@ export type LocalImporterRepository = {
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function packageVersionTimestamp(packageVersion: string): Date {
+  const digest = createHash('sha256')
+    .update('yucp-vpm-package-timestamp-v1\0')
+    .update(packageVersion)
+    .digest();
+  const slot = digest.readUInt32BE(0) % ZIP_TIMESTAMP_SLOT_COUNT;
+  const reference = new Date(ZIP_TIMESTAMP_EPOCH + slot * 2_000);
+  return new Date(
+    reference.getUTCFullYear(),
+    reference.getUTCMonth(),
+    reference.getUTCDate(),
+    reference.getUTCHours(),
+    reference.getUTCMinutes(),
+    reference.getUTCSeconds()
+  );
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -86,14 +105,23 @@ function validateManifest(value: unknown): ImporterManifest {
   };
 }
 
-export async function buildVpmPackageArchive(packagePath: string): Promise<Uint8Array> {
+export async function buildVpmPackageArchive(
+  packagePath: string,
+  packageVersion: string
+): Promise<Uint8Array> {
   const entries: Zippable = {};
+  const timestamp = packageVersionTimestamp(packageVersion);
 
   async function addDirectory(directoryPath: string): Promise<void> {
     const directoryEntries = await readdir(directoryPath, { withFileTypes: true });
     directoryEntries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of directoryEntries) {
       const absolutePath = join(directoryPath, entry.name);
+      const archivePath = relative(packagePath, absolutePath).split(sep).join('/');
+      const archiveRoot = archivePath.split('/', 1)[0];
+      if (archiveRoot && PUBLIC_ARCHIVE_EXCLUDED_ROOTS.has(archiveRoot)) {
+        continue;
+      }
       if (entry.isSymbolicLink()) {
         throw new Error(`The importer package contains a symbolic link: ${absolutePath}`);
       }
@@ -104,10 +132,9 @@ export async function buildVpmPackageArchive(packagePath: string): Promise<Uint8
       if (!entry.isFile()) {
         throw new Error(`The importer package contains an unsupported entry: ${absolutePath}`);
       }
-      const archivePath = relative(packagePath, absolutePath).split(sep).join('/');
       entries[archivePath] = [
         new Uint8Array(await readFile(absolutePath)),
-        { level: 9, mtime: ZIP_TIMESTAMP },
+        { level: 9, mtime: timestamp },
       ];
     }
   }
@@ -145,7 +172,7 @@ export async function buildLocalImporterRepository(input: {
   const manifest = validateManifest(
     JSON.parse(await readFile(join(input.importerPath, 'package.json'), 'utf8'))
   );
-  const archive = await buildVpmPackageArchive(input.importerPath);
+  const archive = await buildVpmPackageArchive(input.importerPath, manifest.version);
   const archivePath = `/packages/${IMPORTER_PACKAGE_ID}-${manifest.version}.zip`;
   const indexUrl = `${baseUrl}/index.json`;
   const packageManifest = {
