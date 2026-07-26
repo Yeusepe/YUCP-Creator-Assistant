@@ -5,9 +5,9 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { parse as parseDotenv } from 'dotenv';
 import * as ed25519 from '@noble/ed25519';
 import { fetchInfisicalSecrets } from '@yucp/shared/infisical/fetchSecrets';
+import { parse as parseDotenv } from 'dotenv';
 import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
 import {
   type DisposableStorageHarness,
@@ -59,8 +59,7 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   {
     name: 'convex',
     color: 'blue',
-    command:
-      'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
+    command: 'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
   },
   { name: 'api', color: 'magenta', command: 'bun run dev:api' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot' },
@@ -84,8 +83,7 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
   {
     name: 'convex',
     color: 'blue',
-    command:
-      'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
+    command: 'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient',
   },
   { name: 'api', color: 'magenta', command: 'bun run dev:api:infisical' },
   { name: 'bot', color: 'green', command: 'bun run dev:bot:infisical' },
@@ -129,44 +127,33 @@ export function buildDevCommands(
         BUYER_FLOW_COMMON_S3_BUCKET: baseEnv.COMMON_S3_BUCKET,
         BUYER_FLOW_COMMON_S3_ENDPOINT: baseEnv.COMMON_S3_ENDPOINT,
         BUYER_FLOW_COMMON_S3_READONLY_ACCESS_KEY_ID: baseEnv.COMMON_S3_ACCESS_KEY_ID,
-        BUYER_FLOW_COMMON_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.COMMON_S3_SECRET_ACCESS_KEY,
+        BUYER_FLOW_COMMON_S3_READONLY_SECRET_ACCESS_KEY: baseEnv.COMMON_S3_SECRET_ACCESS_KEY,
         BUYER_FLOW_COMMON_S3_REGION: baseEnv.COMMON_S3_REGION,
         BUYER_FLOW_METADATA_INDEX_PREFIX: baseEnv.METADATA_INDEX_PREFIX ?? 'indexes/',
         BUYER_FLOW_METADATA_S3_BUCKET: baseEnv.METADATA_S3_BUCKET,
         BUYER_FLOW_METADATA_S3_ENDPOINT: baseEnv.METADATA_S3_ENDPOINT,
-        BUYER_FLOW_METADATA_S3_READONLY_ACCESS_KEY_ID:
-          baseEnv.METADATA_S3_ACCESS_KEY_ID,
-        BUYER_FLOW_METADATA_S3_READONLY_SECRET_ACCESS_KEY:
-          baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
+        BUYER_FLOW_METADATA_S3_READONLY_ACCESS_KEY_ID: baseEnv.METADATA_S3_ACCESS_KEY_ID,
+        BUYER_FLOW_METADATA_S3_READONLY_SECRET_ACCESS_KEY: baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
         BUYER_FLOW_METADATA_S3_REGION: baseEnv.METADATA_S3_REGION,
         BUYER_FLOW_PACKAGE_DELIVERY_AUDIENCE: baseEnv.PACKAGE_DELIVERY_AUDIENCE,
         BUYER_FLOW_PACKAGE_INSTALL_ISSUER: baseEnv.PACKAGE_INSTALL_ISSUER,
         BUYER_FLOW_PACKAGE_INSTALL_SIGNING_KEY_ID: baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
-        BUYER_FLOW_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY:
-          baseEnv.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
-        BUYER_FLOW_RENDITION_PACKAGE_DELIVERY_AUDIENCE:
-          baseEnv.PACKAGE_DELIVERY_AUDIENCE,
-        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_ISSUER:
-          baseEnv.PACKAGE_INSTALL_ISSUER,
-        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_SIGNING_KEY_ID:
-          baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
+        BUYER_FLOW_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY: baseEnv.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
+        BUYER_FLOW_RENDITION_PACKAGE_DELIVERY_AUDIENCE: baseEnv.PACKAGE_DELIVERY_AUDIENCE,
+        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_ISSUER: baseEnv.PACKAGE_INSTALL_ISSUER,
+        BUYER_FLOW_RENDITION_PACKAGE_INSTALL_SIGNING_KEY_ID: baseEnv.PACKAGE_INSTALL_SIGNING_KEY_ID,
         BUYER_FLOW_RENDITION_PACKAGE_INSTALL_SIGNING_PUBLIC_KEY:
           baseEnv.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
-        BUYER_FLOW_RENDITION_RENDITION_RECEIPT_KEY_ID:
-          baseEnv.MATERIALIZATION_RECEIPT_KEY_ID,
+        BUYER_FLOW_RENDITION_RENDITION_RECEIPT_KEY_ID: baseEnv.MATERIALIZATION_RECEIPT_KEY_ID,
         BUYER_FLOW_RENDITION_RENDITION_RECEIPT_PUBLIC_KEY:
           baseEnv.MATERIALIZATION_RECEIPT_PUBLIC_KEY,
-        BUYER_FLOW_RENDITION_RENDITION_S3_BUCKET:
-          baseEnv.RENDITION_S3_BUCKET,
-        BUYER_FLOW_RENDITION_RENDITION_S3_ENDPOINT:
-          baseEnv.RENDITION_S3_ENDPOINT,
+        BUYER_FLOW_RENDITION_RENDITION_S3_BUCKET: baseEnv.RENDITION_S3_BUCKET,
+        BUYER_FLOW_RENDITION_RENDITION_S3_ENDPOINT: baseEnv.RENDITION_S3_ENDPOINT,
         BUYER_FLOW_RENDITION_RENDITION_S3_READONLY_ACCESS_KEY_ID:
           baseEnv.RENDITION_S3_ACCESS_KEY_ID,
         BUYER_FLOW_RENDITION_RENDITION_S3_READONLY_SECRET_ACCESS_KEY:
           baseEnv.RENDITION_S3_SECRET_ACCESS_KEY,
-        BUYER_FLOW_RENDITION_RENDITION_S3_REGION:
-          baseEnv.RENDITION_S3_REGION,
+        BUYER_FLOW_RENDITION_RENDITION_S3_REGION: baseEnv.RENDITION_S3_REGION,
         BUYER_FLOW_DELIVERY_PORT: DEV_DELIVERY_PORT,
         BUYER_FLOW_KEEP_ALIVE: '1',
         BUYER_FLOW_STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
@@ -181,8 +168,7 @@ export function buildDevCommands(
     {
       name: 'materialization-source',
       color: 'red',
-      command:
-        'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
+      command: 'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
       env: {
         MATERIALIZATION_SOURCE_WORKER_DELIVERY_GRANT_ISSUER:
           baseEnv.MATERIALIZATION_SOURCE_GRANT_ISSUER,
@@ -195,32 +181,24 @@ export function buildDevCommands(
           baseEnv.MATERIALIZATION_SOURCE_GRANT_AUDIENCE,
         MATERIALIZATION_SOURCE_WORKER_METADATA_INDEX_PREFIX:
           baseEnv.METADATA_INDEX_PREFIX ?? 'indexes/',
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_BUCKET:
-          baseEnv.METADATA_S3_BUCKET,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_ENDPOINT:
-          baseEnv.METADATA_S3_ENDPOINT,
+        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_BUCKET: baseEnv.METADATA_S3_BUCKET,
+        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_ENDPOINT: baseEnv.METADATA_S3_ENDPOINT,
         MATERIALIZATION_SOURCE_WORKER_METADATA_S3_READONLY_ACCESS_KEY_ID:
           baseEnv.METADATA_S3_ACCESS_KEY_ID,
         MATERIALIZATION_SOURCE_WORKER_METADATA_S3_READONLY_SECRET_ACCESS_KEY:
           baseEnv.METADATA_S3_SECRET_ACCESS_KEY,
-        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_REGION:
-          baseEnv.METADATA_S3_REGION,
-        MATERIALIZATION_SOURCE_WORKER_PORT:
-          DEV_MATERIALIZATION_SOURCE_PORT,
+        MATERIALIZATION_SOURCE_WORKER_METADATA_S3_REGION: baseEnv.METADATA_S3_REGION,
+        MATERIALIZATION_SOURCE_WORKER_PORT: DEV_MATERIALIZATION_SOURCE_PORT,
         MATERIALIZATION_SOURCE_WORKER_PROTECTED_CHUNK_PREFIX:
           baseEnv.PROTECTED_CHUNK_PREFIX ?? 'chunks/',
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_BUCKET:
-          baseEnv.PROTECTED_S3_BUCKET,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_ENDPOINT:
-          baseEnv.PROTECTED_S3_ENDPOINT,
+        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_BUCKET: baseEnv.PROTECTED_S3_BUCKET,
+        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_ENDPOINT: baseEnv.PROTECTED_S3_ENDPOINT,
         MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_READONLY_ACCESS_KEY_ID:
           baseEnv.PROTECTED_S3_ACCESS_KEY_ID,
         MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_READONLY_SECRET_ACCESS_KEY:
           baseEnv.PROTECTED_S3_SECRET_ACCESS_KEY,
-        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_REGION:
-          baseEnv.PROTECTED_S3_REGION,
-        MATERIALIZATION_SOURCE_WORKER_STORAGE_FORMAT_VERSION:
-          DESYNC_STORAGE_FORMAT_VERSION,
+        MATERIALIZATION_SOURCE_WORKER_PROTECTED_S3_REGION: baseEnv.PROTECTED_S3_REGION,
+        MATERIALIZATION_SOURCE_WORKER_STORAGE_FORMAT_VERSION: DESYNC_STORAGE_FORMAT_VERSION,
       },
     }
   );
@@ -247,20 +225,10 @@ async function generateLocalTufRepository(input: {
 }): Promise<void> {
   const configuredGo = input.baseEnv.YUCP_GO_EXECUTABLE?.trim();
   const workspaceGo = 'E:\\YUCPTools\\go-1.26.5\\go\\bin\\go.exe';
-  const goExecutable =
-    configuredGo || (existsSync(workspaceGo) ? workspaceGo : 'go');
+  const goExecutable = configuredGo || (existsSync(workspaceGo) ? workspaceGo : 'go');
   const helperRoot = path.join(ROOT_DIR, 'Verify', 'Native', 'transfer-helper');
-  const pinnedRoot = path.join(
-    helperRoot,
-    'internal',
-    'tufclient',
-    'testdata',
-    '1.root.json'
-  );
-  const helperExecutable = path.join(
-    path.dirname(input.outputRoot),
-    'yucp-transfer-helper.exe'
-  );
+  const pinnedRoot = path.join(helperRoot, 'internal', 'tufclient', 'testdata', '1.root.json');
+  const helperExecutable = path.join(path.dirname(input.outputRoot), 'yucp-transfer-helper.exe');
   const runGo = async (args: string[], failureLabel: string): Promise<void> => {
     const child = spawn(goExecutable, args, {
       cwd: helperRoot,
@@ -274,21 +242,12 @@ async function generateLocalTufRepository(input: {
     if (exitCode !== 0) {
       const detail = Buffer.concat(stderr).toString('utf8').trim();
       throw new Error(
-        `${failureLabel} failed with exit code ${String(exitCode)}${
-          detail ? `: ${detail}` : ''
-        }`
+        `${failureLabel} failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
       );
     }
   };
   await runGo(
-    [
-      'build',
-      '-trimpath',
-      '-ldflags=-s -w',
-      '-o',
-      helperExecutable,
-      './cmd/yucp-transfer-helper',
-    ],
+    ['build', '-trimpath', '-ldflags=-s -w', '-o', helperExecutable, './cmd/yucp-transfer-helper'],
     'Local transfer-helper build'
   );
   await runGo(
@@ -301,6 +260,8 @@ async function generateLocalTufRepository(input: {
       pinnedRoot,
       '--helper',
       helperExecutable,
+      '--metadata-version',
+      String(Date.now()),
       '--install-key-id',
       input.installKeyId,
       '--install-public-key',
@@ -714,51 +675,32 @@ export function applyDisposableStorageProfile(
     PACKAGE_CATALOG_DATABASE_URL: storage.postgres.url,
     MATERIALIZATION_ALGORITHM_VERSION:
       baseEnv.MATERIALIZATION_ALGORITHM_VERSION ?? 'png-dct-qim-v2',
-    MATERIALIZATION_API_SHARED_SECRET:
-      secrets.materializationApiSharedSecret,
-    MATERIALIZATION_CAPABILITY_KEY_ID:
-      secrets.materializationCapabilityKeyId,
+    MATERIALIZATION_API_SHARED_SECRET: secrets.materializationApiSharedSecret,
+    MATERIALIZATION_CAPABILITY_KEY_ID: secrets.materializationCapabilityKeyId,
     MATERIALIZATION_CAPABILITY_LIFETIME_SECONDS: '300',
-    MATERIALIZATION_CAPABILITY_PRIVATE_KEY:
-      secrets.materializationCapabilityPrivateKey,
-    MATERIALIZATION_CAPABILITY_PUBLIC_KEY:
-      secrets.materializationCapabilityPublicKey,
-    MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
-      'http://127.0.0.1:3012',
-    MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL:
-      'http://127.0.0.1:3012',
-    MATERIALIZATION_KEY_EPOCH:
-      baseEnv.MATERIALIZATION_KEY_EPOCH ?? '1',
-    MATERIALIZATION_KEY_BROKER_BASE_URL:
-      'http://127.0.0.1:8788',
-    MATERIALIZATION_KEY_BROKER_SHARED_SECRET:
-      secrets.materializationKeyBrokerSharedSecret,
+    MATERIALIZATION_CAPABILITY_PRIVATE_KEY: secrets.materializationCapabilityPrivateKey,
+    MATERIALIZATION_CAPABILITY_PUBLIC_KEY: secrets.materializationCapabilityPublicKey,
+    MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: 'http://127.0.0.1:3012',
+    MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL: 'http://127.0.0.1:3012',
+    MATERIALIZATION_KEY_EPOCH: baseEnv.MATERIALIZATION_KEY_EPOCH ?? '1',
+    MATERIALIZATION_KEY_BROKER_BASE_URL: 'http://127.0.0.1:8788',
+    MATERIALIZATION_KEY_BROKER_SHARED_SECRET: secrets.materializationKeyBrokerSharedSecret,
     MATERIALIZATION_MATERIALIZER_SHARED_SECRET:
       baseEnv.MATERIALIZATION_MATERIALIZER_SHARED_SECRET ??
       secrets.materializationMaterializerSharedSecret,
-    MATERIALIZATION_PLUGIN_VERSION:
-      baseEnv.MATERIALIZATION_PLUGIN_VERSION ?? 'coupling-server-v2',
-    MATERIALIZATION_RECEIPT_KEY_ID:
-      secrets.materializationReceiptKeyId,
-    MATERIALIZATION_RECEIPT_PRIVATE_KEY:
-      secrets.materializationReceiptPrivateKey,
-    MATERIALIZATION_RECEIPT_PUBLIC_KEY:
-      secrets.materializationReceiptPublicKey,
+    MATERIALIZATION_PLUGIN_VERSION: baseEnv.MATERIALIZATION_PLUGIN_VERSION ?? 'coupling-server-v3',
+    MATERIALIZATION_RECEIPT_KEY_ID: secrets.materializationReceiptKeyId,
+    MATERIALIZATION_RECEIPT_PRIVATE_KEY: secrets.materializationReceiptPrivateKey,
+    MATERIALIZATION_RECEIPT_PUBLIC_KEY: secrets.materializationReceiptPublicKey,
     MATERIALIZATION_SOURCE_DELIVERY_BASE_URL:
-      baseEnv.MATERIALIZATION_SOURCE_DELIVERY_BASE_URL ??
-      DEV_MATERIALIZATION_SOURCE_URL,
+      baseEnv.MATERIALIZATION_SOURCE_DELIVERY_BASE_URL ?? DEV_MATERIALIZATION_SOURCE_URL,
     MATERIALIZATION_SOURCE_GRANT_AUDIENCE:
-      baseEnv.MATERIALIZATION_SOURCE_GRANT_AUDIENCE ??
-      DEV_MATERIALIZATION_SOURCE_URL,
+      baseEnv.MATERIALIZATION_SOURCE_GRANT_AUDIENCE ?? DEV_MATERIALIZATION_SOURCE_URL,
     MATERIALIZATION_SOURCE_GRANT_ISSUER:
-      baseEnv.MATERIALIZATION_SOURCE_GRANT_ISSUER ??
-      'http://127.0.0.1:3012',
-    MATERIALIZATION_SOURCE_GRANT_KEY_ID:
-      secrets.materializationSourceGrantKeyId,
-    MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY:
-      secrets.materializationSourceGrantPrivateKey,
-    MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY:
-      secrets.materializationSourceGrantPublicKey,
+      baseEnv.MATERIALIZATION_SOURCE_GRANT_ISSUER ?? 'http://127.0.0.1:3012',
+    MATERIALIZATION_SOURCE_GRANT_KEY_ID: secrets.materializationSourceGrantKeyId,
+    MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY: secrets.materializationSourceGrantPrivateKey,
+    MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY: secrets.materializationSourceGrantPublicKey,
     PACKAGE_DELIVERY_AUDIENCE: DEV_DELIVERY_URL,
     PACKAGE_INSTALL_ISSUER: DEV_API_URL,
     PACKAGE_INSTALL_SIGNING_KEY_ID: secrets.installSigningKeyId,
@@ -778,8 +720,7 @@ export function applyDisposableStorageProfile(
       'https://vpm.yucp.club/index.json',
     ]),
     YUCP_COUPLING_SERVICE_BASE_URL: 'http://127.0.0.1:8788',
-    YUCP_COUPLING_SERVICE_SHARED_SECRET:
-      secrets.couplingServiceSharedSecret,
+    YUCP_COUPLING_SERVICE_SHARED_SECRET: secrets.couplingServiceSharedSecret,
     YUCP_STORAGE_PROFILE: 'disposable',
   };
 }
@@ -796,9 +737,7 @@ async function loadInfisicalEnv(): Promise<NodeJS.ProcessEnv> {
   };
   const secrets = await fetchInfisicalSecrets(bootstrapEnv);
   if (Object.keys(secrets).length === 0) {
-    throw new Error(
-      'Infisical returned no secrets for the development supervisor'
-    );
+    throw new Error('Infisical returned no secrets for the development supervisor');
   }
   return applyInfisicalDevSecrets(bootstrapEnv, secrets);
 }
@@ -837,10 +776,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const materializationReceiptPublicKey = Buffer.from(
     await ed25519.getPublicKeyAsync(materializationReceiptPrivateKey)
   ).toString('base64url');
-  const tufRepositoryRoot = path.join(
-    path.dirname(storage.uploadDir),
-    'package-installer-tuf'
-  );
+  const tufRepositoryRoot = path.join(path.dirname(storage.uploadDir), 'package-installer-tuf');
   await generateLocalTufRepository({
     baseEnv: loadedEnv,
     installKeyId: installSigningKeyId,
@@ -856,36 +792,30 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     },
     storage,
     {
-    couplingServiceSharedSecret: randomBytes(32).toString('base64url'),
-    installSigningKeyId,
-    installSigningPrivateKey: installSigningPrivateKey.toString('base64url'),
-    installSigningPublicKey,
-    materializationApiSharedSecret: randomBytes(32).toString('base64url'),
-    materializationCapabilityKeyId: `local-capability-${storage.runId}`,
-    materializationCapabilityPrivateKey:
-      materializationCapabilityPrivateKey.toString('base64url'),
-    materializationCapabilityPublicKey: Buffer.from(
-      await ed25519.getPublicKeyAsync(materializationCapabilityPrivateKey)
-    ).toString('base64url'),
-    materializationKeyBrokerSharedSecret: randomBytes(32).toString(
-      'base64url'
-    ),
-    materializationMaterializerSharedSecret: randomBytes(32).toString(
-      'base64url'
-    ),
-    materializationReceiptKeyId,
-    materializationReceiptPrivateKey:
-      materializationReceiptPrivateKey.toString('base64url'),
-    materializationReceiptPublicKey,
-    materializationSourceGrantKeyId:
-      `local-source-grant-${storage.runId}`,
-    materializationSourceGrantPrivateKey:
-      materializationSourceGrantPrivateKey.toString('base64url'),
-    materializationSourceGrantPublicKey: Buffer.from(
-      await ed25519.getPublicKeyAsync(materializationSourceGrantPrivateKey)
-    ).toString('base64url'),
-    uploadHmacKey: randomBytes(32).toString('base64url'),
-    vpmTokenKey: randomBytes(32).toString('base64url'),
+      couplingServiceSharedSecret: randomBytes(32).toString('base64url'),
+      installSigningKeyId,
+      installSigningPrivateKey: installSigningPrivateKey.toString('base64url'),
+      installSigningPublicKey,
+      materializationApiSharedSecret: randomBytes(32).toString('base64url'),
+      materializationCapabilityKeyId: `local-capability-${storage.runId}`,
+      materializationCapabilityPrivateKey:
+        materializationCapabilityPrivateKey.toString('base64url'),
+      materializationCapabilityPublicKey: Buffer.from(
+        await ed25519.getPublicKeyAsync(materializationCapabilityPrivateKey)
+      ).toString('base64url'),
+      materializationKeyBrokerSharedSecret: randomBytes(32).toString('base64url'),
+      materializationMaterializerSharedSecret: randomBytes(32).toString('base64url'),
+      materializationReceiptKeyId,
+      materializationReceiptPrivateKey: materializationReceiptPrivateKey.toString('base64url'),
+      materializationReceiptPublicKey,
+      materializationSourceGrantKeyId: `local-source-grant-${storage.runId}`,
+      materializationSourceGrantPrivateKey:
+        materializationSourceGrantPrivateKey.toString('base64url'),
+      materializationSourceGrantPublicKey: Buffer.from(
+        await ed25519.getPublicKeyAsync(materializationSourceGrantPrivateKey)
+      ).toString('base64url'),
+      uploadHmacKey: randomBytes(32).toString('base64url'),
+      vpmTokenKey: randomBytes(32).toString('base64url'),
     }
   );
   const supervisor = new DevSupervisor(buildDevCommands(env, infisical), env, {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { loadCasConfig } from './config';
-import { putS3ObjectImmutable } from './s3Control';
+import { putS3ObjectImmutable, putS3ObjectVersioned } from './s3Control';
 
 const originalFetch = globalThis.fetch;
 
@@ -20,6 +20,34 @@ function config() {
 }
 
 describe('S3 immutable exact versions', () => {
+  it('creates a replaceable exact version with verifiable content metadata', async () => {
+    const body = Uint8Array.from([4, 3, 2, 1]);
+    const digest = createHash('sha256').update(body).digest('hex');
+    let request: Request | undefined;
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      request = new Request(input);
+      return new Response(null, {
+        headers: { 'x-amz-version-id': 'version-replaceable' },
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await putS3ObjectVersioned({
+      body,
+      config: config(),
+      contentType: 'application/json',
+      key: 'v2/metadata/tuf/package-installer/metadata/timestamp.json',
+    });
+
+    expect(result).toEqual({
+      bytes: body.byteLength,
+      fileIdentifier: 'version-replaceable',
+      sha256: digest,
+      versionId: 'version-replaceable',
+    });
+    expect(request?.headers.get('if-none-match')).toBeNull();
+    expect(request?.headers.get('x-amz-meta-yucp-sha256')).toBe(digest);
+  });
+
   it('returns the exact version created by a conditional immutable put', async () => {
     const body = Uint8Array.from([1, 2, 3, 4]);
     let request: Request | undefined;

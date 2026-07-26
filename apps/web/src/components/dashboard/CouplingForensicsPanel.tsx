@@ -56,10 +56,11 @@ function noRetryOn4xx(failureCount: number, error: unknown): boolean {
 function getVerdictKind(
   status: CouplingForensicsLookupResponse['lookupStatus'],
   buyerCount: number
-): 'match' | 'trace_unresolved' | 'tampered' | 'no_match' | 'no_assets' {
+): 'match' | 'trace_unresolved' | 'tampered' | 'no_signal' | 'no_match' | 'no_assets' {
   if (status === 'attributed' && buyerCount > 0) return 'match';
   if (status === 'attributed') return 'trace_unresolved';
   if (status === 'tampered_suspected') return 'tampered';
+  if (status === 'no_signal_found') return 'no_signal';
   if (status === 'no_candidate_assets') return 'no_assets';
   return 'no_match';
 }
@@ -94,6 +95,12 @@ const VERDICT_CONFIG = {
     title: 'Tracking removed',
     description:
       "This file was modified to remove identifying information. We can't trace it to a specific buyer, but the file was tampered with.",
+  },
+  no_signal: {
+    tone: 'info',
+    title: 'No tracking signal found',
+    description:
+      'The file has no valid buyer signal. It can be an original file, an older release, or a modified copy.',
   },
   no_assets: {
     tone: 'info',
@@ -186,16 +193,19 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     if (!file) {
       setSelectedFile(null);
       setInlineError(null);
+      setLookupResult(null);
       return true;
     }
     const validationError = getForensicsFileValidationError(file);
     if (validationError) {
       setSelectedFile(null);
       setInlineError(validationError);
+      setLookupResult(null);
       return false;
     }
     setSelectedFile(file);
     setInlineError(null);
+    setLookupResult(null);
     return true;
   };
 
@@ -497,8 +507,14 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                     selectionMode="single"
                     isDisabled={lookupMutation.isPending || packageOptions.length === 0}
                     value={selectedPackageId || null}
-                    onChange={(key) => setSelectedPackageId(key ? String(key) : '')}
-                    onClear={() => setSelectedPackageId('')}
+                    onChange={(key) => {
+                      setSelectedPackageId(key ? String(key) : '');
+                      setLookupResult(null);
+                    }}
+                    onClear={() => {
+                      setSelectedPackageId('');
+                      setLookupResult(null);
+                    }}
                   >
                     <Autocomplete.Trigger>
                       <Autocomplete.Value />

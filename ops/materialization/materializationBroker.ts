@@ -196,7 +196,7 @@ export type MaterializationAttributionCandidate = {
   jobId: string;
   keyEpoch: number;
   leaseGeneration: number;
-  materializerType: 'fbx' | 'png';
+  materializerType: 'fbx' | 'png' | 'zip';
   normalizedPath: string;
   outputFormat: 'zip';
   pluginVersion: string;
@@ -835,7 +835,9 @@ export class MaterializationBroker {
       .map((row): MaterializationAttributionCandidate => {
         const createdAt = Math.floor(Number(row.createdAt));
         if (
-          (row.materializerType !== 'fbx' && row.materializerType !== 'png') ||
+          (row.materializerType !== 'fbx' &&
+            row.materializerType !== 'png' &&
+            row.materializerType !== 'zip') ||
           row.outputFormat !== 'zip' ||
           !Number.isSafeInteger(createdAt) ||
           createdAt < 0

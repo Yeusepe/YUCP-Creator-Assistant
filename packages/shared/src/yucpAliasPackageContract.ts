@@ -17,7 +17,7 @@ export const YUCP_FORWARDED_TOOLCHAIN_PACKAGE_IDS = [
   YUCP_ALIAS_PACKAGE_IMPORTER_PACKAGES.importer,
   YUCP_MOTION_TOOLKIT_PACKAGE_ID,
 ] as const;
-export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.25';
+export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION = '0.1.31';
 export const YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_VERSION = `>=${YUCP_ALIAS_PACKAGE_DEFAULT_IMPORTER_MIN_VERSION}`;
 
 export type YucpAliasPackageInstallStrategy =
@@ -374,11 +374,8 @@ export function applyYucpAliasPackageManifestDefaults(
     : isRecord(metadata.dependencies)
       ? { ...metadata.dependencies }
       : {};
-  const existingImporterDependency = vpmDependencies[aliasContract.importerPackage];
-  if (typeof existingImporterDependency !== 'string' || !existingImporterDependency.trim()) {
-    vpmDependencies[aliasContract.importerPackage] =
-      resolveImporterDependencyRequirement(aliasContract);
-  }
+  vpmDependencies[aliasContract.importerPackage] =
+    resolveImporterDependencyRequirement(aliasContract);
 
   const { dependencies: _legacyDependencies, ...restMetadata } = metadata;
   return {

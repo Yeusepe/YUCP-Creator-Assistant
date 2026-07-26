@@ -55,8 +55,14 @@ convex/tsconfig.tsbuildinfo
 /apps/api/test-results
 /apps/api/test-results
 /apps/web/.tanstack
-/Verify/Native/
+/Verify/Native/*
+!/Verify/Native/transfer-helper/
+!/Verify/Native/transfer-helper/**
 /.volumes
+/.idea/
+/.orchestration/
+/TestResults/
+/longtail.csv
 
 # Licensed Streamline artwork is generated locally and must never be committed.
 /apps/web/src/icons/generated.tsx*

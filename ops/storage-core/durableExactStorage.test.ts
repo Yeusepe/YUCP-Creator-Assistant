@@ -86,6 +86,19 @@ function storage(calls: string[]): ExactStoragePort {
         storageRole: exact.storageRole,
       };
     },
+    async putVersioned() {
+      calls.push('storage.put-versioned');
+      const exact = object();
+      return {
+        bucketName: exact.bucketName,
+        bytes: exact.bytes,
+        fileIdentifier: exact.fileIdentifier,
+        objectKey: exact.objectKey,
+        providerVersion: exact.providerVersion,
+        sha256: exact.sha256,
+        storageRole: exact.storageRole,
+      };
+    },
   };
 }
 
@@ -262,5 +275,134 @@ describe('durable exact storage', () => {
       })
     ).toEqual(object());
     expect(calls).toEqual(['catalog.begin', 'catalog.find', 'storage.head', 'catalog.commit']);
+  });
+
+  it('creates a replaceable version through the same durable intent boundary', async () => {
+    const calls: string[] = [];
+    const catalog: ExactStorageCatalogPort = {
+      async beginWriteIntent() {
+        calls.push('catalog.begin');
+        return {
+          ...pendingIntent(),
+          idempotencyKey: 'tuf:publication:timestamp',
+          ownerId: 'publication-1',
+          ownerKind: 'maintenance',
+          storageDomain: null,
+          storageRole: 'metadata',
+        };
+      },
+      async commitVerifiedObject() {
+        calls.push('catalog.commit');
+        return {
+          ...object(),
+          bucketName: 'metadata',
+          storageRole: 'metadata',
+        };
+      },
+      async findVerifiedCanonical() {
+        throw new Error('Unexpected canonical lookup');
+      },
+      async getCommittedObjectForIntent() {
+        return null;
+      },
+      async getPackageReleaseObject() {
+        throw new Error('Unexpected release read');
+      },
+      async linkPackageReleaseObject() {
+        throw new Error('Unexpected release link');
+      },
+      async markWriteIntentUncertain() {
+        calls.push('catalog.uncertain');
+      },
+    };
+    const exactStorage = storage(calls);
+    exactStorage.bucketName = () => 'metadata';
+    exactStorage.putVersioned = async () => {
+      calls.push('storage.put-versioned');
+      return {
+        bucketName: 'metadata',
+        bytes: body.byteLength,
+        fileIdentifier: object().fileIdentifier,
+        objectKey: object().objectKey,
+        providerVersion: object().providerVersion,
+        sha256,
+        storageRole: 'metadata',
+      };
+    };
+    exactStorage.headExactVersion = async () => ({
+      ...head(),
+      bucketName: 'metadata',
+      contentType: 'application/json',
+      storageRole: 'metadata',
+    });
+    const durable = new DurableExactStorage(catalog, exactStorage);
+
+    await (
+      durable as DurableExactStorage & {
+        putVersioned(input: {
+          body: Uint8Array;
+          contentType: string;
+          idempotencyKey: string;
+          objectKey: string;
+          ownerId: string;
+          ownerKind: 'maintenance';
+          storageRole: 'metadata';
+        }): Promise<StorageObjectVersion>;
+      }
+    ).putVersioned({
+      body,
+      contentType: 'application/json',
+      idempotencyKey: 'tuf:publication:timestamp',
+      objectKey: object().objectKey,
+      ownerId: 'publication-1',
+      ownerKind: 'maintenance',
+      storageRole: 'metadata',
+    });
+
+    expect(calls).toEqual(['catalog.begin', 'storage.put-versioned', 'catalog.commit']);
+  });
+
+  it('requires reconciliation before retrying an uncertain provider write', async () => {
+    const calls: string[] = [];
+    const catalog: ExactStorageCatalogPort = {
+      async beginWriteIntent() {
+        calls.push('catalog.begin');
+        return { ...pendingIntent(), state: 'UNCERTAIN' };
+      },
+      async commitVerifiedObject() {
+        throw new Error('Unexpected commit');
+      },
+      async findVerifiedCanonical() {
+        throw new Error('Unexpected canonical lookup');
+      },
+      async getCommittedObjectForIntent() {
+        calls.push('catalog.committed');
+        return null;
+      },
+      async getPackageReleaseObject() {
+        throw new Error('Unexpected release read');
+      },
+      async linkPackageReleaseObject() {
+        throw new Error('Unexpected release link');
+      },
+      async markWriteIntentUncertain() {
+        throw new Error('Unexpected uncertain transition');
+      },
+    };
+    const durable = new DurableExactStorage(catalog, storage(calls));
+
+    await expect(
+      durable.putImmutable({
+        body,
+        contentType: 'application/octet-stream',
+        idempotencyKey: 'package:version:chunk',
+        objectKey: 'v2/common/chunks/object',
+        ownerId: 'version-1',
+        ownerKind: 'package-version',
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).rejects.toThrow('requires reconciliation');
+    expect(calls).toEqual(['catalog.begin', 'catalog.committed']);
   });
 });

@@ -14,6 +14,8 @@ import {
   openCatalogDatabase,
   reconcileCatalog,
   runCatalogMigrations,
+  type StorageObjectVersion,
+  TufRepositoryCatalog,
 } from './index';
 
 const postgresImage =
@@ -187,7 +189,13 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await requireSql()`TRUNCATE TABLE catalog_outbox, package_versions CASCADE`;
+  await requireSql()`
+    TRUNCATE TABLE
+      catalog_outbox,
+      package_versions,
+      tuf_repositories
+    CASCADE
+  `;
 });
 
 afterAll(async () => {
@@ -202,6 +210,138 @@ afterAll(async () => {
 });
 
 describe.serial('PostgreSQL catalog integration', () => {
+  it('allocates durable TUF versions and exposes only a complete publication', async () => {
+    const database = requireSql();
+    const tuf = new TufRepositoryCatalog(database);
+    const targetPath = `targets/helper/windows-amd64/${'1'.repeat(64)}.yucp-transfer-helper.exe`;
+    const first = await tuf.reservePublication({
+      idempotencyKey: 'release-build-1',
+      repositoryId: 'package-installer',
+      rootVersion: 1,
+      targetPaths: [targetPath],
+    });
+    const second = await tuf.reservePublication({
+      idempotencyKey: 'release-build-2',
+      repositoryId: 'package-installer',
+      rootVersion: 1,
+      targetPaths: [targetPath],
+    });
+    expect([first.metadataVersion, second.metadataVersion]).toEqual([1, 2]);
+    expect(
+      await tuf.reservePublication({
+        idempotencyKey: 'release-build-1',
+        repositoryId: 'package-installer',
+        rootVersion: 1,
+        targetPaths: [targetPath],
+      })
+    ).toMatchObject({
+      id: first.id,
+      metadataVersion: 1,
+    });
+
+    const expectedPaths = [
+      targetPath,
+      'metadata/1.root.json',
+      'metadata/1.targets.json',
+      'metadata/1.snapshot.json',
+      'metadata/timestamp.json',
+    ];
+    const objects = new Map<string, StorageObjectVersion>();
+    for (const [index, repositoryPath] of expectedPaths.entries()) {
+      const objectKey = `v2/metadata/tuf/package-installer/${repositoryPath}`;
+      const id = randomUUID();
+      const sha256 = (index + 1).toString(16).padStart(64, '0');
+      await database`
+        INSERT INTO storage_object_versions (
+          id,
+          storage_role,
+          bucket_name,
+          object_key,
+          provider_version,
+          file_identifier,
+          sha256,
+          bytes,
+          content_type,
+          verification_state,
+          verified_at
+        )
+        VALUES (
+          ${id},
+          'metadata',
+          'metadata',
+          ${objectKey},
+          ${`provider-${index + 1}`},
+          ${`file-${index + 1}`},
+          decode(${sha256}, 'hex'),
+          ${index + 1},
+          'application/json',
+          'VERIFIED',
+          clock_timestamp()
+        )
+      `;
+      objects.set(repositoryPath, {
+        bucketName: 'metadata',
+        bytes: index + 1,
+        contentType: 'application/json',
+        fileIdentifier: `file-${index + 1}`,
+        id,
+        objectKey,
+        providerVersion: `provider-${index + 1}`,
+        sha256,
+        storageRole: 'metadata',
+        verificationState: 'VERIFIED',
+        verifiedAt: new Date(),
+      });
+    }
+
+    const timestampObject = objects.get('metadata/timestamp.json');
+    if (!timestampObject) {
+      throw new Error('Test TUF timestamp object was not created');
+    }
+
+    let timestampError: unknown;
+    try {
+      await tuf.recordObject({
+        object: timestampObject,
+        publicationId: first.id,
+        repositoryPath: 'metadata/timestamp.json',
+      });
+    } catch (error) {
+      timestampError = error;
+    }
+    expect(String(timestampError)).toContain('TUF timestamp must be recorded last');
+
+    for (const repositoryPath of expectedPaths.slice(0, -1)) {
+      const object = objects.get(repositoryPath);
+      if (!object) {
+        throw new Error(`Test TUF object was not created: ${repositoryPath}`);
+      }
+      await tuf.recordObject({
+        object,
+        publicationId: first.id,
+        repositoryPath,
+      });
+    }
+    expect(await tuf.getPublishedObject('package-installer', targetPath)).toBeNull();
+    await tuf.recordObject({
+      object: timestampObject,
+      publicationId: first.id,
+      repositoryPath: 'metadata/timestamp.json',
+    });
+    await tuf.markPublished({ publicationId: first.id });
+
+    expect(
+      await tuf.getPublishedObject('package-installer', 'metadata/timestamp.json')
+    ).toMatchObject({
+      id: timestampObject.id,
+      providerVersion: 'provider-5',
+    });
+    expect(await tuf.getPublishedObject('package-installer', targetPath)).toMatchObject({
+      id: objects.get(targetPath)?.id,
+      providerVersion: 'provider-1',
+    });
+  });
+
   it('commits one exact canonical object through an idempotent write intent', async () => {
     const storage = new ExactStorageCatalog(requireSql());
     const ownerId = await createUploadingVersion('exact-storage-owner');

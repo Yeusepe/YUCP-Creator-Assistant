@@ -6,3 +6,4 @@ export * from './migrate';
 export * from './reconciler';
 export * from './retry-policy';
 export * from './storageGcCatalog';
+export * from './tufRepositoryCatalog';

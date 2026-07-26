@@ -211,6 +211,11 @@ export type S3ImmutableObjectVersion = S3ExactObjectVersion & {
   status: 'created' | 'existing';
 };
 
+export type S3VersionedObjectVersion = S3ExactObjectVersion & {
+  bytes: number;
+  sha256: string;
+};
+
 export type S3ObjectRetention = {
   mode: 'COMPLIANCE' | 'GOVERNANCE';
   retainUntil: Date;
@@ -260,23 +265,30 @@ export async function putS3ObjectVersioned(input: {
   config: CasConfig;
   contentType: string;
   key: string;
-}): Promise<S3ExactObjectVersion> {
+}): Promise<S3VersionedObjectVersion> {
   const body =
     typeof input.body === 'string'
       ? Uint8Array.from(Buffer.from(input.body))
       : Uint8Array.from(input.body);
-  return exactVersionFromResponse(
+  const sha256 = createHash('sha256').update(body).digest('hex');
+  const version = exactVersionFromResponse(
     await signedRequest({
       body,
       config: input.config,
       headers: {
         'content-type': input.contentType,
+        'x-amz-meta-yucp-sha256': sha256,
       },
       key: input.key,
       method: 'PUT',
       operation: 'PutObject',
     })
   );
+  return {
+    ...version,
+    bytes: body.byteLength,
+    sha256,
+  };
 }
 
 function xmlEncode(value: string): string {

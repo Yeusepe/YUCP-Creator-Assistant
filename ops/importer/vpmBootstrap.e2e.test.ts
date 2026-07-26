@@ -452,7 +452,7 @@ describe.serial('official VPM CLI bootstrap', () => {
     ) as PackageManifest;
     expect(importerPackageJson).toMatchObject({
       name: IMPORTER_PACKAGE_ID,
-      version: '0.1.28',
+      version: '0.1.31',
     });
 
     const restored = await runCommand(dotnetExecutable, ['tool', 'restore'], {
@@ -627,7 +627,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         name: alias.packageId,
         version: alias.manifest.version,
         vpmDependencies: {
-          [IMPORTER_PACKAGE_ID]: '>=0.1.25',
+          [IMPORTER_PACKAGE_ID]: '>=0.1.31',
         },
         yucp: {
           aliasId: CATALOG_PRODUCT_ID,
@@ -697,7 +697,13 @@ describe.serial('official VPM CLI bootstrap', () => {
       }
       const unityResults = await readFile(unityTestResults, 'utf8');
       expect(unityResults).toContain('result="Passed"');
-      expect(unityResults).toContain('passed="2"');
+      expect(unityResults).toContain('failed="0"');
+      expect(unityResults).toContain(
+        'name="OfficialVpmAliasContractEntersTheAuthorizedFlow"'
+      );
+      expect(unityResults).toContain(
+        'name="LifecycleCompletionRemovesOnlyTheVpmAliasBootstrap"'
+      );
       const evidenceDirectory = process.env.YUCP_PACKAGE_EVIDENCE_DIR?.trim();
       if (evidenceDirectory) {
         await mkdir(evidenceDirectory, { recursive: true });

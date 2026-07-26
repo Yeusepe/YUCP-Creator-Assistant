@@ -817,8 +817,8 @@ export function PackageRegistryPanel({
                   <div className="space-y-1">
                     <p className="text-foreground text-sm font-semibold">Server protection</p>
                     <p className="pm-subtle-copy text-sm leading-6">
-                      The Linux materializer can protect supported PNG and FBX files. Other files
-                      remain byte-exact.
+                      The Linux materializer protects supported PNG and FBX files, including copies
+                      inside ZIP archives. Other files remain byte-exact.
                     </p>
                   </div>
                   <div className="flex items-center gap-3">

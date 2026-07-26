@@ -153,6 +153,7 @@ export const recordLookupAudit = mutation({
       v.literal('attributed'),
       v.literal('tampered_suspected'),
       v.literal('hostile_unknown'),
+      v.literal('no_signal_found'),
       v.literal('no_candidate_assets'),
       v.literal('denied'),
       v.literal('error')

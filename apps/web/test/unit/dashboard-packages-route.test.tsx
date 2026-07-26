@@ -297,6 +297,11 @@ describe('dashboard packages route', () => {
     expect(screen.queryByText('Cross-store Product')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Upload a package' }));
+    expect(
+      await screen.findByText(
+        'The Linux materializer protects supported PNG and FBX files, including copies inside ZIP archives. Other files remain byte-exact.'
+      )
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(apiGetMock).toHaveBeenCalledWith('/api/creator/packages', {
         params: { configured: 'false', limit: '100' },

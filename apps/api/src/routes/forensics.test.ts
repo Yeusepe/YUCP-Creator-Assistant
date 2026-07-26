@@ -242,7 +242,59 @@ describe('forensics routes', () => {
     );
   });
 
-  test('returns a tamper verdict when no authorized candidate decodes', async () => {
+  test('attributes a relocated archive asset through its durable candidate identifier', async () => {
+    const relocatedAssetPath = 'Recovered/Textures/body.png';
+    installAuthorization();
+    extractCouplingForensicsArchiveMock.mockResolvedValue({
+      assets: [
+        {
+          assetPath: relocatedAssetPath,
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      declaredPackageIds: ['com.yucp.jammr'],
+    });
+    const { routes } = createRoutes();
+    globalThis.fetch = mock(async () =>
+      Response.json({
+        results: [
+          {
+            assetPath: relocatedAssetPath,
+            assetType: 'png',
+            attributionId: candidate.attributionId,
+            buyerSubjectPseudonym,
+            matched: true,
+          },
+        ],
+        schemaVersion: 2,
+      })
+    ) as unknown as typeof fetch;
+
+    const response = await routes.lookup(lookupRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      decodedAssetCount: 1,
+      lookupStatus: 'attributed',
+      results: [
+        {
+          assetPath: relocatedAssetPath,
+          layerBClassification: 'trace-recovered',
+          matched: true,
+          matches: [
+            {
+              assetPath: candidate.normalizedPath,
+              attributionId: candidate.attributionId,
+              buyerSubjectPseudonym,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test('does not report tampering when no authorized candidate decodes', async () => {
     installAuthorization();
     const { routes } = createRoutes();
     globalThis.fetch = mock(async () =>
@@ -263,7 +315,7 @@ describe('forensics routes', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       decodedAssetCount: 0,
-      lookupStatus: 'tampered_suspected',
+      lookupStatus: 'no_signal_found',
       results: [
         {
           layerBClassification: 'no-signal-found',
@@ -330,7 +382,7 @@ describe('forensics routes', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      lookupStatus: 'hostile_unknown',
+      lookupStatus: 'no_signal_found',
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

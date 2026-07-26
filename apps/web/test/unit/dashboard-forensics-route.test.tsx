@@ -519,6 +519,112 @@ describe('dashboard forensics route', () => {
     expect(forensicsApi.runCouplingForensicsLookup).not.toHaveBeenCalled();
   });
 
+  it('does not claim tracking removal when the decoder finds no signal', async () => {
+    runCouplingForensicsLookupMock.mockResolvedValue({
+      packageId: 'pkg.creator.bundle',
+      lookupStatus: 'no_signal_found',
+      message: 'No valid coupling signal was found.',
+      candidateAssetCount: 1,
+      decodedAssetCount: 0,
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          decoderKind: 'png',
+          matched: false,
+          layerBClassification: 'no-signal-found',
+          matches: [],
+        },
+      ],
+    } as never);
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const fileInput = document.getElementById('forensics-file');
+    if (!(fileInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['archive'], 'uncoupled.zip', { type: 'application/zip' })],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /find buyer/i }));
+
+    await waitFor(() => expect(screen.getByText('No tracking signal found')).toBeInTheDocument());
+    expect(screen.queryByText('Tracking removed')).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The file has no valid buyer signal. It can be an original file, an older release, or a modified copy.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('clears the prior verdict when the creator selects a different file', async () => {
+    runCouplingForensicsLookupMock.mockResolvedValue({
+      packageId: 'pkg.creator.bundle',
+      lookupStatus: 'attributed',
+      message: 'Authorized matches found',
+      candidateAssetCount: 1,
+      decodedAssetCount: 1,
+      results: [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          decoderKind: 'png',
+          tokenLength: 64,
+          matched: true,
+          matches: [
+            {
+              matchId: 'match-buyer-one',
+              buyerMatchId: 'buyer-license-one',
+              assetPath: 'Assets/Character/body.png',
+              createdAt: 1_744_317_600_000,
+              runtimeArtifactVersion: 'coupling-server-v3',
+              provider: 'jinxxy',
+              buyerSubjectDisplayName: 'Buyer One',
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<CouplingForensicsPanel />, { wrapper: createWrapper() });
+
+    await waitFor(() =>
+      expect(document.getElementById('forensics-file')).toBeInstanceOf(HTMLInputElement)
+    );
+    const firstInput = document.getElementById('forensics-file');
+    if (!(firstInput instanceof HTMLInputElement)) {
+      throw new Error('Forensics file input was not rendered');
+    }
+    fireEvent.change(firstInput, {
+      target: {
+        files: [new File(['first'], 'first.zip', { type: 'application/zip' })],
+      },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /find buyer/i }));
+
+    await waitFor(() => expect(screen.getByText('Buyer identified')).toBeInTheDocument());
+    const selectedInput = document.getElementById('forensics-file');
+    if (!(selectedInput instanceof HTMLInputElement)) {
+      throw new Error('Selected-state forensics file input was not rendered');
+    }
+    fireEvent.change(selectedInput, {
+      target: {
+        files: [new File(['second'], 'second.zip', { type: 'application/zip' })],
+      },
+    });
+
+    expect(screen.getByText('second.zip')).toBeInTheDocument();
+    expect(screen.queryByText('Buyer identified')).not.toBeInTheDocument();
+    expect(screen.queryByText('Buyer One')).not.toBeInTheDocument();
+  });
+
   it('surfaces an unresolved trace state when a trace matches but no buyer identity is available', async () => {
     runCouplingForensicsLookupMock.mockResolvedValue({
       packageId: 'pkg.creator.bundle',

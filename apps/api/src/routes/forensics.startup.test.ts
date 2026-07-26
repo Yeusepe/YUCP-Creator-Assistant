@@ -334,7 +334,7 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
-      lookupStatus: 'tampered_suspected',
+      lookupStatus: 'no_signal_found',
       candidateAssetCount: 1,
     });
     expect(receivedCouplingAuthorization).toBe(`Bearer ${COUPLING_SHARED_SECRET}`);

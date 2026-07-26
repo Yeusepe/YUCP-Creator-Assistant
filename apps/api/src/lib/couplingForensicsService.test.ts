@@ -135,7 +135,166 @@ describe('runCouplingAttribution', () => {
     expect(requestInit?.redirect).toBe('error');
   });
 
-  it('uses bounded attribution batches and omits assets without stored candidates', async () => {
+  it('correlates an inner asset with its archive materialization candidate', async () => {
+    const archiveCandidate: CouplingAttributionCandidate = {
+      ...primaryCandidate,
+      attributionId: 'attribution-zip',
+      materializerType: 'zip',
+      normalizedPath: 'Assets/JAMMR/Textures/Case.zip',
+    };
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string }>;
+        candidates: CouplingAttributionCandidate[];
+      };
+      expect(body.assets.map((asset) => asset.assetPath)).toEqual(['Case/Jammer_Albedo.png']);
+      expect(body.candidates).toEqual([archiveCandidate]);
+      return Response.json({
+        schemaVersion: 2,
+        results: [
+          {
+            assetPath: 'Case/Jammer_Albedo.png',
+            assetType: 'png',
+            attributionId: archiveCandidate.attributionId,
+            buyerSubjectPseudonym: archiveCandidate.buyerSubjectPseudonym,
+            matched: true,
+          },
+        ],
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Case/Jammer_Albedo.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      [archiveCandidate],
+      config
+    );
+
+    expect(result).toEqual([
+      {
+        assetPath: 'Case/Jammer_Albedo.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        matchedAttributionId: 'attribution-zip',
+        matchedBuyerSubjectPseudonym: 'buyer-subject-1',
+        preclassification: 'decoded',
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('correlates a relocated archive asset with its original materialization candidate', async () => {
+    const relocatedAssetPath = 'Case/Jammer_Albedo.png';
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string; contentBase64: string }>;
+        candidates: CouplingAttributionCandidate[];
+      };
+      expect(body.assets).toEqual([
+        {
+          assetPath: relocatedAssetPath,
+          assetType: 'png',
+          contentBase64: expect.any(String),
+        },
+      ]);
+      expect(body.candidates).toEqual([primaryCandidate]);
+      return Response.json({
+        schemaVersion: 2,
+        results: [
+          {
+            assetPath: relocatedAssetPath,
+            assetType: 'png',
+            attributionId: primaryCandidate.attributionId,
+            buyerSubjectPseudonym: primaryCandidate.buyerSubjectPseudonym,
+            matched: true,
+          },
+        ],
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await runCouplingAttribution(
+      [
+        {
+          assetPath: relocatedAssetPath,
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      [primaryCandidate],
+      config
+    );
+
+    expect(result).toEqual([
+      {
+        assetPath: relocatedAssetPath,
+        assetType: 'png',
+        decoderKind: 'png',
+        matchedAttributionId: primaryCandidate.attributionId,
+        matchedBuyerSubjectPseudonym: primaryCandidate.buyerSubjectPseudonym,
+        preclassification: 'decoded',
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('tries matching asset basenames before the remaining compatible candidates', async () => {
+    const decoyCandidate: CouplingAttributionCandidate = {
+      ...primaryCandidate,
+      attributionId: 'attribution-decoy',
+      normalizedPath: 'Assets/Character/unrelated.png',
+    };
+    const detailCandidate: CouplingAttributionCandidate = {
+      ...primaryCandidate,
+      attributionId: 'attribution-detail',
+      normalizedPath: 'Assets/Character/detail.png',
+    };
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+        candidates: CouplingAttributionCandidate[];
+      };
+      expect(body.candidates.map((candidate) => candidate.attributionId)).toEqual([
+        primaryCandidate.attributionId,
+        detailCandidate.attributionId,
+        decoyCandidate.attributionId,
+      ]);
+      return Response.json({
+        schemaVersion: 2,
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          matched: false,
+        })),
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Recovered/Case/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+        {
+          assetPath: 'Relocated/Textures/detail.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      [decoyCandidate, primaryCandidate, detailCandidate],
+      config
+    );
+  });
+
+  it('uses bounded attribution batches and checks relocated assets against compatible candidates', async () => {
     const secondCandidate: CouplingAttributionCandidate = {
       ...primaryCandidate,
       attributionId: 'attribution-2',
@@ -182,18 +341,23 @@ describe('runCouplingAttribution', () => {
         },
       ],
       [primaryCandidate, secondCandidate],
-      { ...config, requestMaxBytes: 40_000 }
+      { ...config, requestMaxBytes: 50_000 }
     );
 
-    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies).toHaveLength(3);
     expect(requestBodies.map((body) => body.assets.map((asset) => asset.assetPath))).toEqual([
       ['Assets/Character/body.png'],
       ['Assets/Character/detail.png'],
+      ['Assets/Character/unprotected.png'],
     ]);
     expect(
       requestBodies.map((body) => body.candidates.map((candidate) => candidate.attributionId))
-    ).toEqual([['attribution-1'], ['attribution-2']]);
-    expect(requestBodies.every((body) => Buffer.byteLength(JSON.stringify(body)) <= 40_000)).toBe(
+    ).toEqual([
+      ['attribution-1', 'attribution-2'],
+      ['attribution-2', 'attribution-1'],
+      ['attribution-1', 'attribution-2'],
+    ]);
+    expect(requestBodies.every((body) => Buffer.byteLength(JSON.stringify(body)) <= 50_000)).toBe(
       true
     );
     expect(result).toEqual([

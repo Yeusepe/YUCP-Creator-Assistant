@@ -28,10 +28,10 @@ const importerIndexFetchMock = mock(async (input: RequestInfo | URL) => {
     packages: {
       'com.yucp.importer': {
         versions: {
-          '0.1.28': {
+          '0.1.31': {
             name: 'com.yucp.importer',
             displayName: 'YUCP Package Importer',
-            version: '0.1.28',
+            version: '0.1.31',
             unity: '2022.3',
             description: 'YUCP package importer',
             author: {
@@ -39,7 +39,7 @@ const importerIndexFetchMock = mock(async (input: RequestInfo | URL) => {
               url: 'https://vpm.yucp.club/',
             },
             zipSHA256: 'a'.repeat(64),
-            url: 'https://packages.example.test/com.yucp.importer-0.1.28.zip',
+            url: 'https://packages.example.test/com.yucp.importer-0.1.31.zip',
           },
         },
       },
@@ -378,9 +378,9 @@ describe('per-buyer VPM routes', () => {
       packages: {
         'com.yucp.importer': {
           versions: {
-            '0.1.28': {
+            '0.1.31': {
               name: 'com.yucp.importer',
-              url: 'https://packages.example.test/com.yucp.importer-0.1.28.zip',
+              url: 'https://packages.example.test/com.yucp.importer-0.1.31.zip',
             },
           },
         },

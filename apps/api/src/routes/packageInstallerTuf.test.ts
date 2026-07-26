@@ -24,6 +24,27 @@ async function fixture() {
 }
 
 describe('package installer TUF route', () => {
+  test('serves one provider-neutral exact repository object', async () => {
+    const reads: string[] = [];
+    const route = createPackageInstallerTufRoute({
+      async read(role, repositoryPath) {
+        reads.push(`${role}/${repositoryPath}`);
+        return {
+          body: new TextEncoder().encode('{"signed":"timestamp"}'),
+          contentType: 'application/json',
+        };
+      },
+    });
+
+    const response = await route(
+      new Request('https://api.example.test/api/v2/package-installer/tuf/metadata/timestamp.json')
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('{"signed":"timestamp"}');
+    expect(reads).toEqual(['metadata/timestamp.json']);
+  });
+
   test('serves exact signed repository bytes with bounded cache policy', async () => {
     const { route } = await fixture();
     const metadata = await route(

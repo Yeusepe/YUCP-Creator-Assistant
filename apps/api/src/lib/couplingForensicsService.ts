@@ -324,7 +324,7 @@ export type CouplingAttributionCandidate = {
   jobId: string;
   keyEpoch: number;
   leaseGeneration: number;
-  materializerType: 'fbx' | 'png';
+  materializerType: 'fbx' | 'png' | 'zip';
   normalizedPath: string;
   outputFormat: 'zip';
   pluginVersion: string;
@@ -377,21 +377,61 @@ function buildAttributeRequestBody(
   });
 }
 
-function buildCandidateMapByPath(
+function buildCandidatePoolsByAssetType(
   candidates: CouplingAttributionCandidate[]
-): Map<string, CouplingAttributionCandidate[]> {
+): Map<ExtractedForensicsAsset['assetType'], CouplingAttributionCandidate[]> {
   const candidateIds = new Set<string>();
-  const candidatesByPath = new Map<string, CouplingAttributionCandidate[]>();
+  const candidatesByAssetType = new Map<
+    ExtractedForensicsAsset['assetType'],
+    CouplingAttributionCandidate[]
+  >([
+    ['fbx', []],
+    ['png', []],
+  ]);
   for (const candidate of candidates) {
     if (candidateIds.has(candidate.attributionId)) {
       throw new CouplingServiceRequestError('Duplicate attribution candidate identifier', 502);
     }
     candidateIds.add(candidate.attributionId);
-    const pathCandidates = candidatesByPath.get(candidate.normalizedPath) ?? [];
-    pathCandidates.push(candidate);
-    candidatesByPath.set(candidate.normalizedPath, pathCandidates);
+    if (candidate.materializerType === 'zip') {
+      candidatesByAssetType.get('fbx')?.push(candidate);
+      candidatesByAssetType.get('png')?.push(candidate);
+      continue;
+    }
+    candidatesByAssetType.get(candidate.materializerType)?.push(candidate);
   }
-  return candidatesByPath;
+  return candidatesByAssetType;
+}
+
+function mergeAttributionCandidates(
+  ...groups: CouplingAttributionCandidate[][]
+): CouplingAttributionCandidate[] {
+  const merged = new Map<string, CouplingAttributionCandidate>();
+  for (const candidate of groups.flat()) {
+    merged.set(candidate.attributionId, candidate);
+  }
+  return [...merged.values()];
+}
+
+function attributionBasename(value: string): string {
+  const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
+  return (normalized.slice(normalized.lastIndexOf('/') + 1) || normalized).toLowerCase();
+}
+
+function prioritizeCandidatesForAssets(
+  assets: ExtractedForensicsAsset[],
+  candidates: CouplingAttributionCandidate[]
+): CouplingAttributionCandidate[] {
+  const assetBasenames = new Set(assets.map((asset) => attributionBasename(asset.assetPath)));
+  const preferred: CouplingAttributionCandidate[] = [];
+  const remaining: CouplingAttributionCandidate[] = [];
+  for (const candidate of candidates) {
+    const target = assetBasenames.has(attributionBasename(candidate.normalizedPath))
+      ? preferred
+      : remaining;
+    target.push(candidate);
+  }
+  return [...preferred, ...remaining];
 }
 
 function validateAttributionResult(
@@ -435,7 +475,9 @@ function validateAttributionResult(
       const candidate = candidateById.get(attributionId);
       if (
         !candidate ||
-        candidate.normalizedPath !== assetPath ||
+        assetType !== inputEntry.assetType ||
+        (candidate.materializerType !== 'zip' &&
+          candidate.materializerType !== inputEntry.assetType) ||
         candidate.buyerSubjectPseudonym !== buyerSubjectPseudonym
       ) {
         throw new CouplingServiceRequestError(
@@ -493,7 +535,7 @@ export async function runCouplingAttribution(
     }));
   }
   buildAssetMapByPath(assets, 'attribution input');
-  const candidatesByPath = buildCandidateMapByPath(candidates);
+  const candidatesByAssetType = buildCandidatePoolsByAssetType(candidates);
 
   const sharedSecret = config.sharedSecret.trim();
   if (!sharedSecret) {
@@ -512,7 +554,8 @@ export async function runCouplingAttribution(
     if (current.assets.length === 0) {
       return;
     }
-    const requestBody = buildAttributeRequestBody(current.serializedAssets, current.candidates);
+    const prioritizedCandidates = prioritizeCandidatesForAssets(current.assets, current.candidates);
+    const requestBody = buildAttributeRequestBody(current.serializedAssets, prioritizedCandidates);
     if (Buffer.byteLength(requestBody) > requestMaxBytes) {
       throw new CouplingServiceRequestError(
         'Coupling attribution asset exceeds the request size limit',
@@ -567,14 +610,18 @@ export async function runCouplingAttribution(
       );
     }
 
-    for (const result of validateAttributionResult(current.assets, current.candidates, payload)) {
+    for (const result of validateAttributionResult(
+      current.assets,
+      prioritizedCandidates,
+      payload
+    )) {
       resultsByPath.set(result.assetPath, result);
     }
   };
 
   for (const asset of assets) {
-    const pathCandidates = candidatesByPath.get(asset.assetPath);
-    if (!pathCandidates?.length) {
+    const compatibleCandidates = candidatesByAssetType.get(asset.assetType) ?? [];
+    if (compatibleCandidates.length === 0) {
       continue;
     }
     const serializedAsset: SerializedAttributionAsset = {
@@ -584,7 +631,7 @@ export async function runCouplingAttribution(
     };
     const nextBatch: AttributionBatch = {
       assets: [...batch.assets, asset],
-      candidates: [...batch.candidates, ...pathCandidates],
+      candidates: mergeAttributionCandidates(batch.candidates, compatibleCandidates),
       serializedAssets: [...batch.serializedAssets, serializedAsset],
     };
 
@@ -597,7 +644,7 @@ export async function runCouplingAttribution(
       await runBatch(batch);
       batch = {
         assets: [asset],
-        candidates: [...pathCandidates],
+        candidates: [...compatibleCandidates],
         serializedAssets: [serializedAsset],
       };
       continue;

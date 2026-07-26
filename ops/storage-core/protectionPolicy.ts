@@ -11,7 +11,7 @@ export type ProtectionPolicyId = (typeof PROTECTION_POLICY_IDS)[number];
 
 export type ClassifiedPackageFile = NormalizedPackageFile & {
   classification: 'common' | 'protected';
-  materializerType?: 'fbx' | 'png';
+  materializerType?: 'fbx' | 'png' | 'zip';
 };
 
 export type ProtectionPolicySnapshot = {
@@ -27,7 +27,10 @@ export type ProtectionMaterializationPolicy = {
 
 const classificationRules: Record<
   ProtectionPolicyId,
-  ReadonlyArray<{ extension: string; materializerType: 'fbx' | 'png' }>
+  ReadonlyArray<{
+    extension: string;
+    materializerType: 'fbx' | 'png' | 'zip';
+  }>
 > = {
   'common-only-v1': [],
   'supported-visual-assets-v1': [
@@ -37,6 +40,7 @@ const classificationRules: Record<
   'supported-visual-assets-v2': [
     { extension: '.fbx', materializerType: 'fbx' },
     { extension: '.png', materializerType: 'png' },
+    { extension: '.zip', materializerType: 'zip' },
   ],
 };
 
@@ -51,7 +55,7 @@ const materializationPolicies: Record<ProtectionPolicyId, ProtectionMaterializat
   },
   'supported-visual-assets-v2': {
     minimumCoupledFiles: 1,
-    protectedFileRequirement: 'best-effort',
+    protectedFileRequirement: 'required',
   },
 };
 
@@ -82,9 +86,9 @@ export function classifyPackageFiles(input: {
         }
       : { ...file, classification: 'common' };
   });
-  const isBestEffortPolicy = input.policyId === 'supported-visual-assets-v2';
+  const isZipAwarePolicy = input.policyId === 'supported-visual-assets-v2';
   const policyBody = JSON.stringify(
-    isBestEffortPolicy
+    isZipAwarePolicy
       ? {
           id: input.policyId,
           materialization: materializationPolicies[input.policyId],
@@ -100,7 +104,7 @@ export function classifyPackageFiles(input: {
   return {
     digest: createHash('sha256')
       .update(
-        isBestEffortPolicy ? 'yucp:protection-policy:v2\0' : 'yucp:protection-policy:v1\0',
+        isZipAwarePolicy ? 'yucp:protection-policy:v2\0' : 'yucp:protection-policy:v1\0',
         'utf8'
       )
       .update(policyBody, 'utf8')

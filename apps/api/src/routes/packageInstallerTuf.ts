@@ -37,13 +37,62 @@ function decodeSafePath(value: string): string[] | null {
   return segments;
 }
 
-export function createPackageInstallerTufRoute(
+export type PackageInstallerTufRepositoryObject = {
+  body: Uint8Array;
+  contentType: string;
+};
+
+export interface PackageInstallerTufRepository {
+  read(
+    role: 'metadata' | 'targets',
+    repositoryPath: string
+  ): Promise<PackageInstallerTufRepositoryObject | null>;
+}
+
+export function createFileSystemPackageInstallerTufRepository(
   configuredRoot: string
-): (request: Request) => Promise<Response> {
+): PackageInstallerTufRepository {
   if (!path.isAbsolute(configuredRoot)) {
     throw new Error('PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT must be absolute');
   }
   const rootPromise = realpath(configuredRoot);
+  return {
+    async read(role, repositoryPath) {
+      try {
+        const repositoryRoot = await rootPromise;
+        const roleRoot = await realpath(path.join(repositoryRoot, role));
+        const candidate = path.join(roleRoot, ...repositoryPath.split('/'));
+        const resolved = await realpath(candidate);
+        const boundary = `${roleRoot}${path.sep}`;
+        if (!resolved.startsWith(boundary)) {
+          return null;
+        }
+        const stat = await lstat(resolved);
+        const limit = role === 'metadata' ? MAX_METADATA_BYTES : MAX_TARGET_BYTES;
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > limit) {
+          return null;
+        }
+        return {
+          body: Uint8Array.from(await readFile(resolved)),
+          contentType:
+            role === 'metadata' || resolved.endsWith('.json')
+              ? 'application/json'
+              : 'application/octet-stream',
+        };
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+export function createPackageInstallerTufRoute(
+  configuredRepository: string | PackageInstallerTufRepository
+): (request: Request) => Promise<Response> {
+  const repository =
+    typeof configuredRepository === 'string'
+      ? createFileSystemPackageInstallerTufRepository(configuredRepository)
+      : configuredRepository;
   return async (request) => {
     if (request.method !== 'GET') {
       return response('Method not allowed', 405, {
@@ -60,36 +109,22 @@ export function createPackageInstallerTufRoute(
       });
     }
     try {
-      const repositoryRoot = await rootPromise;
-      const roleRoot = await realpath(path.join(repositoryRoot, role));
-      const candidate = path.join(roleRoot, ...segments);
-      const resolved = await realpath(candidate);
-      const boundary = `${roleRoot}${path.sep}`;
-      if (!resolved.startsWith(boundary)) {
-        return response('Not found', 404, {
-          'content-type': 'text/plain; charset=utf-8',
-        });
-      }
-      const stat = await lstat(resolved);
+      const object = await repository.read(role, segments.join('/'));
       const limit = role === 'metadata' ? MAX_METADATA_BYTES : MAX_TARGET_BYTES;
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > limit) {
+      if (!object || object.body.byteLength < 1 || object.body.byteLength > limit) {
         return response('Not found', 404, {
           'content-type': 'text/plain; charset=utf-8',
         });
       }
-      const bytes = await readFile(resolved);
       const isTimestamp = role === 'metadata' && segments.at(-1) === 'timestamp.json';
-      return response(bytes, 200, {
+      return response(Buffer.from(object.body), 200, {
         'cache-control': isTimestamp
           ? 'public, max-age=0, must-revalidate'
           : role === 'metadata'
             ? 'public, max-age=60, must-revalidate'
             : 'public, max-age=31536000, immutable',
-        'content-length': String(bytes.byteLength),
-        'content-type':
-          role === 'metadata' || resolved.endsWith('.json')
-            ? 'application/json'
-            : 'application/octet-stream',
+        'content-length': String(object.body.byteLength),
+        'content-type': object.contentType,
       });
     } catch {
       return response('Not found', 404, {

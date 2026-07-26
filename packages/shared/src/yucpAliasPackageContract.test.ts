@@ -297,4 +297,25 @@ describe('applyYucpAliasPackageManifestDefaults', () => {
       },
     });
   });
+
+  it('replaces a stale manifest dependency with the alias contract minimum', () => {
+    expect(
+      applyYucpAliasPackageManifestDefaults({
+        vpmDependencies: {
+          'com.yucp.importer': '>=0.1.25',
+        },
+        yucp: {
+          kind: 'alias-v1',
+          aliasId: 'creator-alias',
+          installStrategy: 'server-authorized',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '0.1.31',
+        },
+      })
+    ).toMatchObject({
+      vpmDependencies: {
+        'com.yucp.importer': '>=0.1.31',
+      },
+    });
+  });
 });

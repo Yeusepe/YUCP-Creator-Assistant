@@ -149,7 +149,7 @@ function validateAttributionCandidate(value: unknown): MaterializationAttributio
   const materializerType = candidate.materializerType;
   const outputFormat = candidate.outputFormat;
   if (
-    (materializerType !== 'fbx' && materializerType !== 'png') ||
+    (materializerType !== 'fbx' && materializerType !== 'png' && materializerType !== 'zip') ||
     outputFormat !== 'zip' ||
     !Number.isSafeInteger(candidate.keyEpoch) ||
     (candidate.keyEpoch as number) < 0 ||

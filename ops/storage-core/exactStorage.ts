@@ -9,6 +9,7 @@ import {
   listS3ObjectVersions,
   putS3FileVersioned,
   putS3ObjectImmutable,
+  putS3ObjectVersioned,
   type S3ObjectRetention,
 } from './s3Control';
 
@@ -41,6 +42,11 @@ export type ExactImmutableObjectVersion = ExactObjectVersion & {
   bytes: number;
   sha256: string;
   status: 'created' | 'existing';
+};
+
+export type ExactVersionedObjectVersion = ExactObjectVersion & {
+  bytes: number;
+  sha256: string;
 };
 
 export type ExactFileVersion = ExactObjectVersion & {
@@ -109,6 +115,12 @@ export interface ExactStoragePort {
     objectKey: string;
     role: StorageRole;
   }): Promise<ExactImmutableObjectVersion>;
+  putVersioned(input: {
+    body: Uint8Array | string;
+    contentType: string;
+    objectKey: string;
+    role: StorageRole;
+  }): Promise<ExactVersionedObjectVersion>;
 }
 
 export class S3ExactStoragePort implements ExactStoragePort {
@@ -287,6 +299,25 @@ export class S3ExactStoragePort implements ExactStoragePort {
       bytes: version.bytes,
       sha256: version.sha256,
       status: version.status,
+    };
+  }
+
+  async putVersioned(input: {
+    body: Uint8Array | string;
+    contentType: string;
+    objectKey: string;
+    role: StorageRole;
+  }): Promise<ExactVersionedObjectVersion> {
+    const version = await putS3ObjectVersioned({
+      body: input.body,
+      config: this.#config(input.role),
+      contentType: input.contentType,
+      key: input.objectKey,
+    });
+    return {
+      ...this.#version(input.role, input.objectKey, version),
+      bytes: version.bytes,
+      sha256: version.sha256,
     };
   }
 }

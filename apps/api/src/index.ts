@@ -27,6 +27,11 @@ import {
   withApiRequestSpan,
 } from './lib/observability';
 import { createConvexPackageInstallAccess } from './lib/packageInstallAccess';
+import {
+  buildPackageInstallerTufRepository,
+  loadPackageInstallerTufRepositoryConfig,
+  type PackageInstallerTufRepositoryRuntime,
+} from './lib/packageInstallerTufRepository';
 import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
 import { verifyPublicApiAccessToken } from './lib/publicApiAccessToken';
 import {
@@ -85,6 +90,7 @@ let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let packageInstallSessionRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageMaterializationStatusRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageInstallerTufRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallerTufRuntime: PackageInstallerTufRepositoryRuntime | null = null;
 let allowedCorsOrigins = new Set<string>();
 
 // Resolved after initializeAuth - used for apiBase injection and CORS
@@ -408,8 +414,11 @@ function initializeAuth(webhookBaseUrl?: string) {
           privateKey: packageInstallConfig.privateKey,
         })
       : null;
-  packageInstallerTufRoute = env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT
-    ? createPackageInstallerTufRoute(env.PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT)
+  packageInstallerTufRuntime = buildPackageInstallerTufRepository(
+    loadPackageInstallerTufRepositoryConfig(env)
+  );
+  packageInstallerTufRoute = packageInstallerTufRuntime
+    ? createPackageInstallerTufRoute(packageInstallerTufRuntime.repository)
     : null;
 
   accountSecurityRoutes = createAccountSecurityRoutes(auth, {
@@ -1421,10 +1430,27 @@ async function main() {
   );
 
   // Start HTTP server
-  Bun.serve({
+  const server = Bun.serve({
     hostname,
     port,
     fetch: requestHandler,
+  });
+
+  let stopping = false;
+  const stop = async (signal: NodeJS.Signals): Promise<void> => {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+    await server.stop(false);
+    await packageInstallerTufRuntime?.close?.();
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+  process.once('SIGINT', () => {
+    void stop('SIGINT');
+  });
+  process.once('SIGTERM', () => {
+    void stop('SIGTERM');
   });
 
   logger.info('API server ready', {

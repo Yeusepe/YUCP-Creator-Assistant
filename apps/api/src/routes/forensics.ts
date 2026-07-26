@@ -58,6 +58,7 @@ type ForensicsLookupStatus =
   | 'attributed'
   | 'tampered_suspected'
   | 'hostile_unknown'
+  | 'no_signal_found'
   | 'no_candidate_assets';
 
 type LayerBClassification =
@@ -75,6 +76,8 @@ function buildLookupMessage(status: ForensicsLookupStatus): string {
       return 'Candidate assets were found, but no valid coupling signals could be decoded';
     case 'hostile_unknown':
       return 'The uploaded archive did not resolve to an authorized trace record';
+    case 'no_signal_found':
+      return 'No valid coupling signal was found';
     case 'no_candidate_assets':
       return 'No coupling candidate assets were found';
   }
@@ -82,7 +85,13 @@ function buildLookupMessage(status: ForensicsLookupStatus): string {
 
 function buildAuditStatus(
   status: ForensicsLookupStatus
-): 'matched' | 'attributed' | 'tampered_suspected' | 'hostile_unknown' | 'no_candidate_assets' {
+):
+  | 'matched'
+  | 'attributed'
+  | 'tampered_suspected'
+  | 'hostile_unknown'
+  | 'no_signal_found'
+  | 'no_candidate_assets' {
   switch (status) {
     case 'attributed':
       return 'attributed';
@@ -90,6 +99,8 @@ function buildAuditStatus(
       return 'tampered_suspected';
     case 'hostile_unknown':
       return 'hostile_unknown';
+    case 'no_signal_found':
+      return 'no_signal_found';
     case 'no_candidate_assets':
       return 'no_candidate_assets';
   }
@@ -272,11 +283,7 @@ function buildMatchedAttributionCandidate(
     return null;
   }
   const candidate = candidatesById.get(scoreResult.matchedAttributionId);
-  if (
-    !candidate ||
-    candidate.buyerSubjectPseudonym !== scoreResult.matchedBuyerSubjectPseudonym ||
-    candidate.assetPath !== scoreResult.assetPath
-  ) {
+  if (!candidate || candidate.buyerSubjectPseudonym !== scoreResult.matchedBuyerSubjectPseudonym) {
     throw new CouplingServiceRequestError(
       'Coupling attribution returned a match outside the authorized candidate set',
       502
@@ -632,7 +639,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       }
 
       if (candidateResult.candidates.length === 0) {
-        const lookupStatus: ForensicsLookupStatus = 'hostile_unknown';
+        const lookupStatus: ForensicsLookupStatus = 'no_signal_found';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
@@ -688,8 +695,25 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
       );
 
       if (decodedResults.length === 0) {
+        const results = scoreResults.map((scoreResult) => ({
+          assetPath: scoreResult.assetPath,
+          assetType: scoreResult.assetType,
+          decoderKind: scoreResult.decoderKind,
+          layerBClassification: classifyLayerB(scoreResult, new Set()) as LayerBClassification,
+          matched: false,
+          matches: [],
+        }));
+        const hasPositiveTamperEvidence = results.some(
+          (result) =>
+            result.layerBClassification === 'tamper-suspected' ||
+            result.layerBClassification === 'trace-likely-stripped'
+        );
         const lookupStatus: ForensicsLookupStatus =
-          scoreResults.length > 0 ? 'tampered_suspected' : 'no_candidate_assets';
+          scoreResults.length === 0
+            ? 'no_candidate_assets'
+            : hasPositiveTamperEvidence
+              ? 'tampered_suspected'
+              : 'no_signal_found';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
@@ -700,15 +724,6 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           matchedAttributionCount: 0,
           uploadSha256,
         });
-
-        const results = scoreResults.map((scoreResult) => ({
-          assetPath: scoreResult.assetPath,
-          assetType: scoreResult.assetType,
-          decoderKind: scoreResult.decoderKind,
-          layerBClassification: classifyLayerB(scoreResult, new Set()) as LayerBClassification,
-          matched: false,
-          matches: [],
-        }));
 
         return jsonResponse({
           packageId,
