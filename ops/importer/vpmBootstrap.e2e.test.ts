@@ -759,10 +759,11 @@ async function runUnitySmartUninstallPhase(input: {
   } catch (error) {
     const log = await readFile(unityLog, 'utf8').catch(() => '');
     const logTail = log.split(/\r?\n/).slice(-200).join('\n');
+    const testResults = await readFile(unityTestResults, 'utf8').catch(() => '');
     throw new Error(
       `Unity did not complete the smart VPM uninstall: ${
         error instanceof Error ? error.message : String(error)
-      }\n${logTail}`
+      }\n${testResults}\n${logTail}`
     );
   }
 
