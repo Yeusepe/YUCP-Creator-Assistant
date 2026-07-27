@@ -7,6 +7,9 @@ ARG DESYNC_VERSION=1.0.3
 ARG DESYNC_SHA256=ad4dd9e91b57eef8627d2038df09281d7f38dca02eeca0e66592b54087619953
 
 RUN set -eu; \
+    apt-get update; \
+    apt-get install --yes --no-install-recommends curl ca-certificates; \
+    rm -rf /var/lib/apt/lists/*; \
     archive="desync_${DESYNC_VERSION}_linux_amd64.tar.gz"; \
     curl --fail --location --silent --show-error \
       --output "/tmp/${archive}" \
