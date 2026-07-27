@@ -34,6 +34,7 @@ import {
 } from './importer/localVpmRepository';
 import {
   createNativeRuntimeRelease,
+  type NativeRuntimePublisherIdentity,
   readNativeRuntimeReleaseManifest,
 } from './importer/nativeRuntimeRelease';
 import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
@@ -481,7 +482,7 @@ async function runLocalAuthenticodeCommand(input: {
   helperPath: string;
   signerPath: string;
   subject: string;
-}): Promise<string> {
+}): Promise<NativeRuntimePublisherIdentity> {
   const child = spawn(
     input.signerPath,
     ['--subject', input.subject, '--artifact', input.helperPath, '--artifact', input.brokerPath],
@@ -510,18 +511,28 @@ async function runLocalAuthenticodeCommand(input: {
       `Local Authenticode signing failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
     );
   }
-  let result: { thumbprint?: unknown };
+  let result: { certificateSha256?: unknown; subject?: unknown };
   try {
     result = JSON.parse(Buffer.concat(stdout).toString('utf8')) as {
-      thumbprint?: unknown;
+      certificateSha256?: unknown;
+      subject?: unknown;
     };
   } catch {
     throw new Error('Local Authenticode signing returned an invalid result');
   }
-  if (typeof result.thumbprint !== 'string') {
-    throw new Error('Local Authenticode signing returned no certificate thumbprint');
+  if (
+    typeof result.certificateSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(result.certificateSha256)
+  ) {
+    throw new Error('Local Authenticode signing returned an invalid certificate SHA-256');
   }
-  return result.thumbprint;
+  if (result.subject !== input.subject) {
+    throw new Error('Local Authenticode signing returned an unexpected certificate subject');
+  }
+  return {
+    certificateSha256: result.certificateSha256,
+    subject: result.subject,
+  };
 }
 
 async function prepareLocalNativeRuntimeRelease(input: {
@@ -535,18 +546,16 @@ async function prepareLocalNativeRuntimeRelease(input: {
   trustedRootPath: string;
 }): Promise<LocalNativeRuntimeRelease> {
   const subject = `CN=YUCP Local Development ${input.runId}`;
-  const thumbprint = await runLocalAuthenticodeCommand({
+  const publisher = await runLocalAuthenticodeCommand({
     brokerPath: input.brokerPath,
     helperPath: input.helperPath,
     signerPath: input.signerPath,
     subject,
   });
-  if (!/^[0-9A-F]{40}$/.test(thumbprint)) {
-    throw new Error('Local Authenticode signing returned an invalid certificate thumbprint');
-  }
   const manifestPath = await createNativeRuntimeRelease({
     executablePath: input.helperPath,
     metadataUrl: input.metadataUrl,
+    publisherInspector: async () => publisher,
     publisherTrustMode: 'pinned-development',
     releasePath: input.releasePath,
     targetsUrl: input.targetsUrl,

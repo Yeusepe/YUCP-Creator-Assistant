@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -40,14 +42,19 @@ func main() {
 		os.Exit(2)
 	}
 
-	thumbprint, _, err := localauthenticode.SignFiles(paths, *subject, time.Now())
+	_, certificate, err := localauthenticode.SignFiles(paths, *subject, time.Now())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	certificateSHA256 := sha256.Sum256(certificate.Raw)
 	result, err := json.Marshal(struct {
-		Thumbprint string `json:"thumbprint"`
-	}{Thumbprint: thumbprint})
+		CertificateSHA256 string `json:"certificateSha256"`
+		Subject           string `json:"subject"`
+	}{
+		CertificateSHA256: hex.EncodeToString(certificateSHA256[:]),
+		Subject:           certificate.Subject.String(),
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
