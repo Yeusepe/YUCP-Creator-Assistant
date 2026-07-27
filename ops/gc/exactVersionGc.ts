@@ -1,7 +1,4 @@
-import type {
-  StorageGcCatalog,
-  StorageGcDeletion,
-} from '../catalog/storageGcCatalog';
+import type { StorageGcCatalog, StorageGcDeletion } from '../catalog/storageGcCatalog';
 import type { ExactStoragePort } from '../storage-core/exactStorage';
 
 const DEFAULT_DELETION_LIMIT = 100;
@@ -32,9 +29,7 @@ async function exactVersionStillExists(
     objectKey: deletion.objectKey,
     role: deletion.storageRole,
   });
-  return versions.some(
-    (version) => version.providerVersion === deletion.providerVersion
-  );
+  return versions.some((version) => version.providerVersion === deletion.providerVersion);
 }
 
 async function processDeletion(input: {
@@ -45,6 +40,16 @@ async function processDeletion(input: {
   storage: ExactStoragePort;
 }): Promise<void> {
   try {
+    if (
+      !(await input.catalog.revalidatePendingDeletion({
+        journalId: input.deletion.journalId,
+        now: input.now,
+        objectVersionId: input.deletion.objectVersionId,
+      }))
+    ) {
+      input.result.failedObjects += 1;
+      return;
+    }
     if (!(await exactVersionStillExists(input.deletion, input.storage))) {
       await input.catalog.completeDeletion({
         journalId: input.deletion.journalId,
@@ -100,11 +105,7 @@ export async function runExactVersionGarbageCollection(input: {
   storage: ExactStoragePort;
 }): Promise<ExactVersionGarbageCollectionResult> {
   const deletionLimit = input.deletionLimit ?? DEFAULT_DELETION_LIMIT;
-  if (
-    !Number.isSafeInteger(deletionLimit) ||
-    deletionLimit < 1 ||
-    deletionLimit > 1000
-  ) {
+  if (!Number.isSafeInteger(deletionLimit) || deletionLimit < 1 || deletionLimit > 1000) {
     throw new Error('Exact-version GC deletion limit is invalid');
   }
   const now = input.now ?? new Date();

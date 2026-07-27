@@ -65,6 +65,29 @@ describe('package installer TUF route', () => {
     expect(target.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
   });
 
+  test('serves helper targets above 64 MiB within the publisher limit', async () => {
+    const helper = new Uint8Array(65 * 1024 * 1024);
+    const route = createPackageInstallerTufRoute({
+      async read() {
+        return {
+          body: helper,
+          contentType: 'application/octet-stream',
+        };
+      },
+    });
+
+    const response = await route(
+      new Request(
+        `https://api.example.test/api/v2/package-installer/tuf/targets/${'55'.repeat(
+          32
+        )}.yucp-package-broker.exe`
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBe(String(helper.byteLength));
+  });
+
   test('rejects traversal and methods before any repository read', async () => {
     const { route } = await fixture();
     expect(

@@ -1144,7 +1144,7 @@ describe.serial('official VPM CLI bootstrap', () => {
       );
       const transactionResults = await readFile(transactionTestResults, 'utf8');
       expect(transactionResults).toContain('result="Passed"');
-      expect(transactionResults).toContain('passed="10"');
+      expect(transactionResults).toContain('failed="0"');
       for (const testName of [
         'ApplyCommitsOnlyPreverifiedStagingFiles',
         'ApplyReadsVerifiedStagingFilesPastTheWindowsPathLimit',
@@ -1153,9 +1153,11 @@ describe.serial('official VPM CLI bootstrap', () => {
         'ApplyRemovesOnlyUnchangedObsoleteOwnedFiles',
         'AssetEditingTransactionAlwaysEndsAfterFailure',
         'InspectReportsCommittedPackageDescriptorChanges',
+        'PrepareRejectsAConcurrentProjectMutation',
         'RecoverCommitsAPreparedTransaction',
         'RemoveOwnedFilesPreservesModifiedContent',
         'RollBackCommittedRestoresPriorFiles',
+        'RollbackRestoresAnEntryWithADurableBackup',
       ]) {
         expect(transactionResults).toContain(`name="${testName}"`);
       }

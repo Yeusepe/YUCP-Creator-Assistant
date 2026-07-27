@@ -216,6 +216,92 @@ describe.serial('exact-version garbage collection', () => {
     }
   }, 180_000);
 
+  it('revalidates a recovered deletion after TUF reachability changes', async () => {
+    const activeHarness = requireHarness();
+    const activeSql = requireSql();
+    const exactCatalog = new ExactStorageCatalog(activeSql);
+    const gcCatalog = new StorageGcCatalog(activeSql);
+    const tufCatalog = new TufRepositoryCatalog(activeSql);
+    const storage = new ExpiredRetentionStorage({
+      metadata: activeHarness.buckets.metadata,
+    });
+    const durableStorage = new DurableExactStorage(exactCatalog, storage);
+    const repositoryId = `gc-recovery-${randomUUID().slice(0, 8)}`;
+    const publication = await tufCatalog.reservePublication({
+      idempotencyKey: `gc-tuf-recovery-${randomUUID()}`,
+      repositoryId,
+      rootVersion: 1,
+      targetPaths: [],
+    });
+    const repositoryPath =
+      publication.expectedPaths.find((candidate) => candidate !== 'metadata/timestamp.json') ??
+      publication.expectedPaths[0];
+    if (!repositoryPath) {
+      throw new Error('TUF recovery fixture has no repository path');
+    }
+    const object = await durableStorage.putImmutable({
+      body: new TextEncoder().encode('TUF object claimed before publication'),
+      contentType: 'application/json',
+      idempotencyKey: `gc-tuf-recovery:${publication.id}:${repositoryPath}`,
+      objectKey: `v2/metadata/tuf/${repositoryId}/${repositoryPath}`,
+      ownerId: publication.id,
+      ownerKind: 'maintenance',
+      storageRole: 'metadata',
+    });
+    const first = await gcCatalog.observeGeneration(new Date());
+    const second = await gcCatalog.observeGeneration(
+      new Date(first.generation.completedAt.getTime() + 1)
+    );
+    const claimed = await gcCatalog.claimDeletionCandidate({
+      generationId: second.generation.id,
+      now: second.generation.completedAt,
+    });
+    expect(claimed?.objectVersionId).toBe(object.id);
+
+    await activeSql`
+      INSERT INTO tuf_publication_objects (
+        publication_id,
+        repository_path,
+        object_version_id
+      )
+      VALUES (
+        ${publication.id},
+        ${repositoryPath},
+        ${object.id}
+      )
+    `;
+
+    const recovered = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      now: new Date(second.generation.completedAt.getTime() + 2),
+      storage,
+    });
+    const states = await activeSql<{ candidate_state: string; journal_state: string }[]>`
+      SELECT
+        candidate.state AS candidate_state,
+        journal.state AS journal_state
+      FROM storage_gc_candidates candidate
+      JOIN storage_gc_deletion_journal journal
+        ON journal.object_version_id = candidate.object_version_id
+      WHERE candidate.object_version_id = ${object.id}
+    `;
+
+    expect(recovered.deletedObjects).toBe(0);
+    expect(recovered.recoveredDeletions).toBe(1);
+    expect(Array.from(states)).toEqual([
+      {
+        candidate_state: 'FAILED',
+        journal_state: 'FAILED',
+      },
+    ]);
+    expect(
+      await storage.listExactVersions({
+        objectKey: object.objectKey,
+        role: 'metadata',
+      })
+    ).toHaveLength(1);
+  }, 180_000);
+
   it('requires two generations and preserves shared and unrelated objects', async () => {
     const activeHarness = requireHarness();
     const activeSql = requireSql();

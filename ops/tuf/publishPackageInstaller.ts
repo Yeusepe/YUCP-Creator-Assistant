@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstallerLimits';
 import {
   ExactStorageCatalog,
   openCatalogDatabase,
@@ -22,7 +23,6 @@ import {
 
 const HELPER_TARGET = 'helper/windows-amd64/yucp-transfer-helper.exe';
 const TRUST_TARGET = 'package-install-trust.json';
-const MAX_HELPER_BYTES = 256 * 1024 * 1024;
 const REQUIRED_KEYS = [
   'CATALOG_DATABASE_URL',
   'METADATA_S3_ENDPOINT',
@@ -237,7 +237,7 @@ export async function publishPackageInstallerTuf(
     'PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH'
   );
   const [root, helper] = await Promise.all([readFile(rootPath), readFile(helperPath)]);
-  if (helper.byteLength < 1 || helper.byteLength > MAX_HELPER_BYTES) {
+  if (helper.byteLength < 1 || helper.byteLength > MAX_PACKAGE_INSTALLER_HELPER_BYTES) {
     throw new Error('Package installer helper length is invalid');
   }
   verifyPinnedRoot(root, required(env, 'PACKAGE_INSTALLER_TUF_ROOT_SHA256'));

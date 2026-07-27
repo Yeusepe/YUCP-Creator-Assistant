@@ -368,6 +368,115 @@ export class StorageGcCatalog {
     return rows.map(toDeletion);
   }
 
+  async revalidatePendingDeletion(input: {
+    journalId: string;
+    now?: Date;
+    objectVersionId: string;
+  }): Promise<boolean> {
+    const now = input.now ?? new Date();
+    const reachabilityError =
+      'Storage GC deletion was cancelled because the object became reachable';
+    return this.sql.begin(async (transaction) => {
+      const pending = await transaction<{ deletion_allowed: boolean }[]>`
+        SELECT (
+          NOT EXISTS (
+            SELECT 1
+            FROM package_release_storage_objects release_object
+            JOIN package_versions package_version
+              ON package_version.id = release_object.package_version_id
+            WHERE release_object.object_version_id = object.id
+              AND (
+                package_version.state <> 'DELETED'
+                OR EXISTS (
+                  SELECT 1
+                  FROM storage_gc_release_pins pin
+                  WHERE pin.package_version_id = package_version.id
+                    AND pin.released_at IS NULL
+                    AND (pin.expires_at IS NULL OR pin.expires_at > ${now})
+                )
+              )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM storage_write_intents intent
+            LEFT JOIN package_versions owner_version
+              ON intent.owner_kind = 'package-version'
+              AND owner_version.id::text = intent.owner_id
+            WHERE (
+                intent.object_version_id = object.id
+                OR intent.candidate_object_version_id = object.id
+              )
+              AND (
+                intent.state IN ('ISSUED', 'UNCERTAIN')
+                OR (
+                  intent.state = 'COMMITTED'
+                  AND (
+                    intent.owner_kind = 'vpm-alias-publication'
+                    OR (
+                      intent.owner_kind = 'package-version'
+                      AND owner_version.state <> 'DELETED'
+                    )
+                  )
+                )
+              )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM tuf_publication_objects publication_object
+            JOIN tuf_publications publication
+              ON publication.id = publication_object.publication_id
+            WHERE publication_object.object_version_id = object.id
+              AND publication.state IN ('RESERVED', 'PUBLISHING', 'PUBLISHED')
+          )
+        ) AS deletion_allowed
+        FROM storage_gc_deletion_journal journal
+        JOIN storage_gc_candidates candidate
+          ON candidate.object_version_id = journal.object_version_id
+        JOIN storage_object_versions object
+          ON object.id = journal.object_version_id
+        WHERE journal.id = ${input.journalId}
+          AND journal.object_version_id = ${input.objectVersionId}
+          AND journal.state = 'STARTED'
+          AND candidate.state = 'DELETING'
+          AND object.verification_state = 'VERIFIED'
+        FOR UPDATE OF journal, candidate, object
+      `;
+      const deletionAllowed = pending[0]?.deletion_allowed;
+      if (deletionAllowed === undefined) {
+        throw new Error('Storage GC pending deletion fence is invalid');
+      }
+      if (deletionAllowed) {
+        return true;
+      }
+      const candidates = await transaction<{ object_version_id: string }[]>`
+        UPDATE storage_gc_candidates
+        SET
+          state = 'FAILED',
+          last_error = ${reachabilityError},
+          retention_until = NULL,
+          updated_at = clock_timestamp()
+        WHERE object_version_id = ${input.objectVersionId}
+          AND state = 'DELETING'
+        RETURNING object_version_id
+      `;
+      const journals = await transaction<{ id: string }[]>`
+        UPDATE storage_gc_deletion_journal
+        SET
+          state = 'FAILED',
+          error = ${reachabilityError},
+          completed_at = clock_timestamp()
+        WHERE id = ${input.journalId}
+          AND object_version_id = ${input.objectVersionId}
+          AND state = 'STARTED'
+        RETURNING id
+      `;
+      if (candidates.length !== 1 || journals.length !== 1) {
+        throw new Error('Storage GC reachability cancellation did not finalize');
+      }
+      return false;
+    });
+  }
+
   async claimDeletionCandidate(input: {
     generationId: number;
     now?: Date;

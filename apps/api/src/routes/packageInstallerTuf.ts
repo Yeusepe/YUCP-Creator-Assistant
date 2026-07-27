@@ -1,9 +1,10 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { MAX_PACKAGE_INSTALLER_HELPER_BYTES } from '@yucp/shared/packageInstallerLimits';
 
 const ROUTE_PATTERN = /^\/api\/v2\/package-installer\/tuf\/(metadata|targets)\/(.+)$/;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
-const MAX_TARGET_BYTES = 64 * 1024 * 1024;
+const MAX_TARGET_BYTES = MAX_PACKAGE_INSTALLER_HELPER_BYTES;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
 
 function response(body: BodyInit | null, status: number, headers?: HeadersInit): Response {
