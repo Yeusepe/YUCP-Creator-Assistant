@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import {
+  loadPackageInstallerTufRepositoryConfig,
+  type PackageInstallerTufRepositoryEnvironment,
+} from '../apps/api/src/lib/packageInstallerTufRepository';
 
 const repoRoot = path.resolve(import.meta.dir, '..');
 
 async function readOpsFile(relativePath: string) {
   return readFile(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function readTemplateValue(template: string, key: string): string {
+  const match = template.match(new RegExp(`^\\s+${key}:\\s+"([^"]+)"\\s*$`, 'm'));
+  if (!match?.[1]) {
+    throw new Error(`Missing Infisical template value for ${key}`);
+  }
+  return match[1];
 }
 
 describe('Convex Infisical prod helpers', () => {
@@ -33,5 +45,36 @@ describe('Convex Infisical prod helpers', () => {
     expect(syncConvexEnv).toContain("'DISCORD_BOT_TOKEN'");
     expect(secretsTemplate).toContain('ROLE_SYNC_VIA_WORKPOOL');
     expect(secretsTemplate).toContain('DISCORD_BOT_TOKEN');
+  });
+
+  it('documents a production-safe exact-storage TUF repository', async () => {
+    const secretsTemplate = await readOpsFile('ops/infisical/secrets.template.yaml');
+    const exactStorageKeys = [
+      'PACKAGE_INSTALLER_TUF_CATALOG_DATABASE_URL',
+      'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
+      'PACKAGE_INSTALLER_TUF_S3_ACCESS_KEY_ID',
+      'PACKAGE_INSTALLER_TUF_S3_BUCKET',
+      'PACKAGE_INSTALLER_TUF_S3_ENDPOINT',
+      'PACKAGE_INSTALLER_TUF_S3_REGION',
+      'PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS',
+      'PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY',
+    ];
+
+    expect(secretsTemplate).not.toContain('PACKAGE_INSTALLER_TUF_REPOSITORY_ROOT:');
+    for (const key of exactStorageKeys) {
+      expect(secretsTemplate).toContain(`${key}:`);
+    }
+    const templateEnvironment = Object.fromEntries(
+      exactStorageKeys.map((key) => [key, readTemplateValue(secretsTemplate, key)])
+    ) as PackageInstallerTufRepositoryEnvironment;
+    expect(
+      loadPackageInstallerTufRepositoryConfig({
+        ...templateEnvironment,
+        NODE_ENV: 'production',
+      })
+    ).toMatchObject({
+      kind: 'exact-storage',
+      repositoryId: 'package-installer',
+    });
   });
 });
