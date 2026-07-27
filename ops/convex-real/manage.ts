@@ -429,14 +429,13 @@ async function acquireEnvIsolationLock(envDirectory: string): Promise<() => Prom
       }
       let removeStaleLock = false;
       try {
-        const [lockText, metadata] = await Promise.all([
-          readFile(lockPath, 'utf8'),
-          stat(lockPath),
-        ]);
-        const lock = JSON.parse(lockText) as { pid?: unknown };
-        removeStaleLock =
-          Date.now() - metadata.mtimeMs > ENV_ISOLATION_STALE_MS ||
-          (typeof lock.pid === 'number' && !processExists(lock.pid));
+        const metadata = await stat(lockPath);
+        if (Date.now() - metadata.mtimeMs > ENV_ISOLATION_STALE_MS) {
+          removeStaleLock = true;
+        } else {
+          const lock = JSON.parse(await readFile(lockPath, 'utf8')) as { pid?: unknown };
+          removeStaleLock = typeof lock.pid === 'number' && !processExists(lock.pid);
+        }
       } catch {
         removeStaleLock = false;
       }

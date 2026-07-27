@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -112,6 +120,29 @@ describe('self-hosted Convex environment isolation', () => {
       expect(readFileSync(envFile, 'utf8')).toBe(original);
       expect(readdirSync(directory)).toEqual(['.env.local']);
     } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers an old lock when its owner was interrupted before writing ownership', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
+    const lockPath = join(directory, '.convex-self-hosted-env.lock');
+    writeFileSync(lockPath, '');
+    const oldTimestamp = new Date(Date.now() - 11 * 60_000);
+    utimesSync(lockPath, oldTimestamp, oldTimestamp);
+    let isolation: Promise<void> | undefined;
+
+    try {
+      isolation = withSelfHostedConvexEnvFileMovedAside(async () => undefined, directory);
+      const outcome = await Promise.race([
+        isolation.then(() => 'completed' as const),
+        Bun.sleep(250).then(() => 'timed-out' as const),
+      ]);
+      expect(outcome).toBe('completed');
+      expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      rmSync(lockPath, { force: true });
+      await isolation?.catch(() => undefined);
       rmSync(directory, { recursive: true, force: true });
     }
   });
