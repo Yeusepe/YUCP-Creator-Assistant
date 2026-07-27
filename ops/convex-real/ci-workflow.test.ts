@@ -39,6 +39,15 @@ describe('self-hosted Convex CI workflow', () => {
     expect(deployGate).not.toContain("'--codegen'");
   });
 
+  it('starts the backend before taking the deploy environment lock', () => {
+    const main = deployGate.slice(deployGate.indexOf('async function main'));
+    const ensureBackend = main.indexOf('await ensureRealBackendUp()');
+    const deployLock = main.indexOf('await withSelfHostedConvexEnvFileMovedAside');
+
+    expect(ensureBackend).toBeGreaterThan(-1);
+    expect(deployLock).toBeGreaterThan(ensureBackend);
+  });
+
   it('blocks the real backend suite on a successful deploy', () => {
     const realBackendJob = workflow.slice(
       workflow.indexOf('  convex-real:'),

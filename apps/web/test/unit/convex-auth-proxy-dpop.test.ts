@@ -53,6 +53,8 @@ describe('Convex Better Auth proxy DPoP contract', () => {
       method: 'GET',
       headers: new Headers({
         accept: 'application/json',
+        'x-forwarded-host': 'localhost:3000',
+        'x-forwarded-proto': 'http',
       }),
       get redirect(): RequestRedirect {
         throw new Error('Not implemented: get redirect for Request');
@@ -62,9 +64,7 @@ describe('Convex Better Auth proxy DPoP contract', () => {
       },
     } as Request;
 
-    expect(() =>
-      canonicalizeBetterAuthProxyRequest(request, 'http://localhost:3000')
-    ).not.toThrow();
+    expect(() => canonicalizeBetterAuthProxyRequest(request)).not.toThrow();
   });
 
   it('restores the public token URL before Better Auth validates the signed htu claim', async () => {
@@ -78,15 +78,14 @@ describe('Convex Better Auth proxy DPoP contract', () => {
           'content-type': 'application/x-www-form-urlencoded',
           dpop: proof,
           traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+          'x-forwarded-host': 'localhost:3000',
+          'x-forwarded-proto': 'http',
         },
         body: 'grant_type=authorization_code&code=test-code',
       }
     );
 
-    const canonicalRequest = canonicalizeBetterAuthProxyRequest(
-      internalRequest,
-      'http://localhost:3000'
-    );
+    const canonicalRequest = canonicalizeBetterAuthProxyRequest(internalRequest);
 
     expect(internalRequest.url).toBe(
       'https://example.convex.site/api/auth/oauth2/token?source=package-broker'
