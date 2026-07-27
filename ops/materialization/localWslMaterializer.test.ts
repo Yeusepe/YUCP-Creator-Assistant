@@ -81,10 +81,18 @@ describe('local WSL materializer orchestration', () => {
     });
     expect(env.MATERIALIZATION_CONTROL_PLANE_BASE_URL).toBe('http://127.0.0.1:3012');
     expect(env.MATERIALIZATION_KEY_EPOCH).toBe('1');
+    expect(env.MATERIALIZATION_CHUNK_CACHE_MAX_BYTES).toBe('4294967296');
+    expect(env.MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES).toBe(
+      '13958643712'
+    );
     expect(env.MATERIALIZATION_POLL_INTERVAL_MS).toBe('1000');
     expect(env.YUCP_MINIO_PORT).toBeUndefined();
     expect(env.WSLENV).not.toContain('YUCP_MINIO_PORT');
     expect(env.WSLENV).toContain('MATERIALIZATION_DPOP_PRIVATE_KEY_PKCS8');
+    expect(env.WSLENV).toContain('MATERIALIZATION_CHUNK_CACHE_MAX_BYTES');
+    expect(env.WSLENV).toContain(
+      'MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES'
+    );
   });
 
   test('isolates each disposable worker and forwards its dynamic source endpoint', () => {

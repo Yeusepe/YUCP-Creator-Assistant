@@ -105,6 +105,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/renditions/configuration/` | `RENDITION_S3_ENDPOINT`, `RENDITION_S3_REGION`, `RENDITION_S3_BUCKET`, `RENDITION_S3_REQUEST_TIMEOUT_MS` | Linux materializer and rendition Worker |
 | `/storage/renditions/write/` | `RENDITION_S3_ACCESS_KEY_ID`, `RENDITION_S3_SECRET_ACCESS_KEY` | Linux materializer |
 | `/storage/renditions/read/` | `RENDITION_S3_READONLY_ACCESS_KEY_ID`, `RENDITION_S3_READONLY_SECRET_ACCESS_KEY` | rendition Worker |
+| `/storage/materialization/capacity/` | `MATERIALIZATION_CHUNK_CACHE_MAX_BYTES`, `MATERIALIZATION_EMERGENCY_DISK_FLOOR_BYTES` | Linux materializer |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
 | `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL` | apps/api and VPM only |
 | `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
