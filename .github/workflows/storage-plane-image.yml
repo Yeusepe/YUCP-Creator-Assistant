@@ -1,0 +1,51 @@
+name: Storage Plane Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/**"
+      - "packages/**"
+      - "bun.lock"
+      - "package.json"
+      - "tsconfig*.json"
+      - ".github/workflows/storage-plane-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push storage-plane image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build image
+        env:
+          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
+          DOCKER_BUILDKIT: "1"
+        run: |
+          set -euo pipefail
+          printf '%s' "$HEROUI_AUTH_TOKEN" > /tmp/heroui_token
+          docker build \
+            --file ops/deploy/storage-plane.Dockerfile \
+            --secret id=HEROUI_AUTH_TOKEN,src=/tmp/heroui_token \
+            --tag "ghcr.io/yeusepe/yucp-storage-plane:${GITHUB_SHA}" \
+            --tag "ghcr.io/yeusepe/yucp-storage-plane:latest" \
+            .
+          rm -f /tmp/heroui_token
+
+      - name: Push image
+        run: |
+          docker push "ghcr.io/yeusepe/yucp-storage-plane:${GITHUB_SHA}"
+          docker push "ghcr.io/yeusepe/yucp-storage-plane:latest"

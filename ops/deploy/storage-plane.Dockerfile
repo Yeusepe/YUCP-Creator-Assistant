@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.7
+# One image for the four storage-plane services. SERVICE_ENTRY selects the
+# entrypoint at runtime: ingest-tus | scheduler | gc | materialization.
+FROM oven/bun:1.3.14
+
+ARG DESYNC_VERSION=1.0.3
+ARG DESYNC_SHA256=ad4dd9e91b57eef8627d2038df09281d7f38dca02eeca0e66592b54087619953
+
+RUN set -eu; \
+    archive="desync_${DESYNC_VERSION}_linux_amd64.tar.gz"; \
+    curl --fail --location --silent --show-error \
+      --output "/tmp/${archive}" \
+      "https://github.com/folbricht/desync/releases/download/v${DESYNC_VERSION}/${archive}"; \
+    echo "${DESYNC_SHA256}  /tmp/${archive}" | sha256sum --check --strict; \
+    tar --extract --gzip --file "/tmp/${archive}" --directory /usr/local/bin desync; \
+    chmod 0755 /usr/local/bin/desync; \
+    rm "/tmp/${archive}"; \
+    desync --help > /dev/null
+
+WORKDIR /src
+COPY . .
+
+RUN --mount=type=secret,id=HEROUI_AUTH_TOKEN,required=true \
+    HEROUI_AUTH_TOKEN="$(cat /run/secrets/HEROUI_AUTH_TOKEN)" bun install --frozen-lockfile
+
+ENV NODE_ENV=production
+ENV LOG_LEVEL=info
+
+RUN printf '%s\n' \
+      '#!/bin/sh' \
+      'set -eu' \
+      'case "${SERVICE_ENTRY:-}" in' \
+      '  ingest-tus) exec bun run ops/ingest-tus/server.ts ;;' \
+      '  scheduler) exec bun run ops/scheduler/server.ts ;;' \
+      '  gc) exec bun run ops/gc/server.ts ;;' \
+      '  materialization) exec bun run ops/materialization/server.ts ;;' \
+      '  *) echo "SERVICE_ENTRY must be one of: ingest-tus, scheduler, gc, materialization" >&2; exit 64 ;;' \
+      'esac' \
+      > /usr/local/bin/storage-plane-entry \
+    && chmod 0755 /usr/local/bin/storage-plane-entry
+
+CMD ["/usr/local/bin/storage-plane-entry"]
