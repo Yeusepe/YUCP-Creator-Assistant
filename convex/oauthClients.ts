@@ -1,7 +1,11 @@
+import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 import { v } from 'convex/values';
-import { mutation, type QueryCtx, query } from './_generated/server';
+import { components } from './_generated/api';
+import { internalMutation, mutation, type QueryCtx, query } from './_generated/server';
 import { createAuth } from './auth';
 import { requireApiSecret } from './lib/apiAuth';
+import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
+import { getPackageBrokerOAuthClientDescriptors } from './seedYucpOAuthClient';
 
 type OAuthClientRecord = {
   client_id: string;
@@ -265,6 +269,66 @@ export const getOAuthClientPublic = query({
   },
 });
 
+/**
+ * Which client ids the public API backfill should link.
+ *
+ * The first-party native clients are seeded with their own least-privilege
+ * resource links, so they are excluded: linking the consumer installer to the
+ * public API would hand it an audience it has no business requesting.
+ */
+export function selectClientIdsNeedingPublicApiLink(
+  clientIds: readonly (string | undefined | null)[]
+): string[] {
+  const seeded = new Set(
+    getPackageBrokerOAuthClientDescriptors().map((descriptor) => descriptor.clientId)
+  );
+
+  return Array.from(
+    new Set(
+      clientIds.filter(
+        (clientId): clientId is string =>
+          typeof clientId === 'string' && clientId.length > 0 && !seeded.has(clientId)
+      )
+    )
+  );
+}
+
+/**
+ * Link a client to the public API resource.
+ *
+ * `oauthProvider` runs with `enforcePerClientResources: true`, so a token
+ * request naming a resource is rejected with `invalid_target` unless an
+ * `oauthClientResource` row ties the client to it. `apps/api` injects
+ * `resource=PUBLIC_API_AUDIENCE` into every token exchange that omits one
+ * (`bindDefaultOAuthResource`), which means every creator-registered app needs
+ * this link or it can never exchange a code.
+ *
+ * Idempotent, so it is safe to call on create and from the backfill.
+ */
+async function ensurePublicApiResourceLink(ctx: any, clientId: string) {
+  const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    model: 'oauthClientResource',
+    where: [{ field: 'clientId', value: clientId, operator: 'eq' }],
+    paginationOpts: { cursor: null, numItems: 100 },
+  })) as BetterAuthPageResult<{ clientId: string; resourceId: string }>;
+
+  if (getBetterAuthPage(existingResult).some((link) => link.resourceId === PUBLIC_API_AUDIENCE)) {
+    return { clientId, created: false };
+  }
+
+  await ctx.runMutation(components.betterAuth.adapter.create, {
+    input: {
+      model: 'oauthClientResource',
+      data: {
+        clientId,
+        resourceId: PUBLIC_API_AUDIENCE,
+        createdAt: Date.now(),
+      },
+    },
+  });
+  return { clientId, created: true };
+}
+
 export const createOAuthClient = mutation({
   args: {
     apiSecret: v.string(),
@@ -300,6 +364,10 @@ export const createOAuthClient = mutation({
         ...clientArgs,
       },
     })) as OAuthClientResponse;
+
+    if (response?.client_id) {
+      await ensurePublicApiResourceLink(ctx, response.client_id);
+    }
 
     return normalizeOAuthClientRecord(response, true);
   },
@@ -380,6 +448,48 @@ export const deleteOAuthClient = mutation({
       },
     });
 
+    // Drop the resource links too, so a later client id reuse cannot inherit
+    // authorization from a deleted client.
+    await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+      input: {
+        model: 'oauthClientResource',
+        where: [{ field: 'clientId', value: args.clientId, operator: 'eq' }],
+      },
+      paginationOpts: { cursor: null, numItems: 100 },
+    });
+
     return { success: true };
+  },
+});
+
+/**
+ * Backfill the public API resource link for OAuth clients registered before the
+ * link was created automatically. Those clients cannot exchange a code at all.
+ *
+ *   npx convex run oauthClients:backfillPublicApiResourceLinks
+ *
+ * Safe to run again; only missing links are written.
+ */
+export const backfillPublicApiResourceLinks = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const clientsResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+      model: 'oauthClient',
+      paginationOpts: { cursor: null, numItems: 1000 },
+    })) as BetterAuthPageResult<{ clientId: string }>;
+
+    const targets = selectClientIdsNeedingPublicApiLink(
+      getBetterAuthPage(clientsResult).map((client) => client?.clientId)
+    );
+
+    const linked = [];
+    for (const clientId of targets) {
+      linked.push(await ensurePublicApiResourceLink(ctx, clientId));
+    }
+
+    return {
+      inspected: linked.length,
+      created: linked.filter((entry) => entry.created).length,
+    };
   },
 });
