@@ -34,7 +34,8 @@ type ManagedCredentials struct {
 	Store          *TokenStore
 	Now            func() time.Time
 
-	mu sync.Mutex
+	deviceMu  sync.Mutex
+	userLocks credentialUserLocks
 }
 
 func (credentials *ManagedCredentials) Access(
@@ -60,9 +61,14 @@ func (credentials *ManagedCredentials) Access(
 			"package broker OAuth flow is not configured",
 		)
 	}
-	credentials.mu.Lock()
-	defer credentials.mu.Unlock()
+	releaseUser, err := credentials.userLocks.acquire(ctx, clientIdentity.UserSID)
+	if err != nil {
+		return OAuthTokens{}, deviceidentity.Identity{}, err
+	}
+	defer releaseUser()
+	credentials.deviceMu.Lock()
 	identity, err := deviceidentity.LoadOrCreate(credentials.StateRoot)
+	credentials.deviceMu.Unlock()
 	if err != nil {
 		return OAuthTokens{}, deviceidentity.Identity{}, err
 	}
@@ -114,4 +120,60 @@ func (credentials *ManagedCredentials) Access(
 		return OAuthTokens{}, deviceidentity.Identity{}, err
 	}
 	return authorized, identity, nil
+}
+
+type credentialUserLocks struct {
+	mu      sync.Mutex
+	entries map[string]*credentialUserLock
+}
+
+type credentialUserLock struct {
+	gate       chan struct{}
+	references int
+}
+
+func (locks *credentialUserLocks) acquire(
+	ctx context.Context,
+	userSID string,
+) (func(), error) {
+	locks.mu.Lock()
+	if locks.entries == nil {
+		locks.entries = make(map[string]*credentialUserLock)
+	}
+	entry := locks.entries[userSID]
+	if entry == nil {
+		entry = &credentialUserLock{gate: make(chan struct{}, 1)}
+		entry.gate <- struct{}{}
+		locks.entries[userSID] = entry
+	}
+	entry.references++
+	locks.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		locks.releaseReference(userSID, entry)
+		return nil, ctx.Err()
+	case <-entry.gate:
+		if err := ctx.Err(); err != nil {
+			entry.gate <- struct{}{}
+			locks.releaseReference(userSID, entry)
+			return nil, err
+		}
+		return func() {
+			entry.gate <- struct{}{}
+			locks.releaseReference(userSID, entry)
+		}, nil
+	}
+}
+
+func (locks *credentialUserLocks) releaseReference(
+	userSID string,
+	entry *credentialUserLock,
+) {
+	locks.mu.Lock()
+	defer locks.mu.Unlock()
+	entry.references--
+	if entry.references == 0 && locks.entries[userSID] == entry {
+		delete(locks.entries, userSID)
+	}
 }
