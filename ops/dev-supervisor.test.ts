@@ -104,6 +104,7 @@ describe('DevSupervisor', () => {
     const runtime = await startDisposableDevRuntime({
       commands: [],
       infisical: false,
+      packageRuntimeAuthBaseUrl: 'http://127.0.0.1:3211/api/auth',
       prefixOutput: false,
     });
     const storageRoot = path.dirname(runtime.storage.uploadDir);
@@ -141,6 +142,7 @@ describe('DevSupervisor', () => {
     const runtime = await startDisposableDevRuntime({
       commands: [],
       infisical: false,
+      packageRuntimeAuthBaseUrl: 'http://127.0.0.1:3211/api/auth',
       prefixOutput: false,
     });
     const containerName = runtime.env.HYPERDX_DEV_CONTAINER_NAME;

@@ -217,6 +217,7 @@ export interface StartDisposableDevRuntimeOptions {
   commands?: readonly DevCommandSpec[];
   convexProfile?: 'development' | 'self-hosted';
   infisical?: boolean;
+  packageRuntimeAuthBaseUrl?: string;
   ports?: DevPortSet;
   prefixOutput?: boolean;
 }
@@ -434,6 +435,42 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolvePackageRuntimeAuthBaseUrl(
+  env: NodeJS.ProcessEnv,
+  configuredUrl: string | undefined
+): string {
+  const explicitUrl = configuredUrl?.trim() || env.BETTER_AUTH_URL?.trim();
+  const convexSiteUrl = env.CONVEX_SITE_URL?.trim();
+  const rawUrl =
+    explicitUrl || (convexSiteUrl ? `${convexSiteUrl.replace(/\/$/, '')}/api/auth` : '');
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(
+      'BETTER_AUTH_URL, CONVEX_SITE_URL, or packageRuntimeAuthBaseUrl is required for the local package runtime'
+    );
+  }
+  const loopbackHttp =
+    parsed.protocol === 'http:' &&
+    (parsed.hostname === 'localhost' ||
+      parsed.hostname === '127.0.0.1' ||
+      parsed.hostname === '[::1]');
+  if (
+    (parsed.protocol !== 'https:' && !loopbackHttp) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname === '/' ||
+    rawUrl.endsWith('/') ||
+    parsed.toString() !== rawUrl
+  ) {
+    throw new Error('The local package runtime authorization URL is invalid');
+  }
+  return rawUrl;
+}
+
 type LocalNativeRuntimeRelease = {
   cleanup: () => Promise<void>;
   manifestPath: string;
@@ -442,59 +479,14 @@ type LocalNativeRuntimeRelease = {
 async function runLocalAuthenticodeCommand(input: {
   brokerPath: string;
   helperPath: string;
-  operation: 'cleanup' | 'sign';
+  signerPath: string;
   subject: string;
-  thumbprint?: string;
 }): Promise<string> {
-  if (process.platform !== 'win32') {
-    throw new Error('Local Windows package runtime signing requires Windows');
-  }
-  const powershell = path.join(
-    process.env.SystemRoot ?? 'C:\\Windows',
-    'System32',
-    'WindowsPowerShell',
-    'v1.0',
-    'powershell.exe'
-  );
-  const signScript = [
-    'Import-Module PKI',
-    '$certificate = $null',
-    'try {',
-    '$certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $env:YUCP_LOCAL_SIGNING_SUBJECT -CertStoreLocation Cert:\\CurrentUser\\My -KeyAlgorithm RSA -KeyLength 3072 -HashAlgorithm SHA256 -KeyExportPolicy NonExportable -NotAfter ([DateTime]::UtcNow.AddDays(1))',
-    "foreach ($artifact in @($env:YUCP_LOCAL_HELPER_PATH, $env:YUCP_LOCAL_BROKER_PATH)) { $result = Set-AuthenticodeSignature -LiteralPath $artifact -Certificate $certificate -HashAlgorithm SHA256; if ($null -eq $result.SignerCertificate -or $result.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) { throw 'Local Authenticode signing did not attach the expected certificate' } }",
-    "foreach ($artifact in @($env:YUCP_LOCAL_HELPER_PATH, $env:YUCP_LOCAL_BROKER_PATH)) { $result = Get-AuthenticodeSignature -LiteralPath $artifact; if ($null -eq $result.SignerCertificate -or $result.SignerCertificate.Thumbprint -ne $certificate.Thumbprint -or ($result.Status -ne 'Valid' -and $result.Status -ne 'UnknownError')) { throw ('Local Authenticode verification failed: ' + $result.StatusMessage) } }",
-    '[Console]::Out.Write($certificate.Thumbprint)',
-    '} catch {',
-    "if ($null -ne $certificate) { $store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser'); try { $store.Open('ReadWrite'); foreach ($storedCertificate in @($store.Certificates.Find('FindByThumbprint', $certificate.Thumbprint, $false))) { $store.Remove($storedCertificate) } } finally { $store.Dispose() } }",
-    'throw',
-    '}',
-  ].join('; ');
-  const cleanupScript = [
-    '$thumbprint = $env:YUCP_LOCAL_SIGNING_THUMBPRINT',
-    "$store = [System.Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser'); try { $store.Open('ReadWrite'); foreach ($certificate in @($store.Certificates.Find('FindByThumbprint', $thumbprint, $false))) { $store.Remove($certificate) } } finally { $store.Dispose() }",
-  ].join('; ');
   const child = spawn(
-    powershell,
-    [
-      '-NoLogo',
-      '-NoProfile',
-      '-NonInteractive',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      input.operation === 'sign' ? signScript : cleanupScript,
-    ],
+    input.signerPath,
+    ['--subject', input.subject, '--artifact', input.helperPath, '--artifact', input.brokerPath],
     {
-      env: {
-        SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
-        PATHEXT: process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD',
-        TEMP: process.env.TEMP ?? '',
-        TMP: process.env.TMP ?? '',
-        YUCP_LOCAL_BROKER_PATH: input.brokerPath,
-        YUCP_LOCAL_HELPER_PATH: input.helperPath,
-        YUCP_LOCAL_SIGNING_SUBJECT: input.subject,
-        YUCP_LOCAL_SIGNING_THUMBPRINT: input.thumbprint ?? '',
-      },
+      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     }
@@ -510,15 +502,26 @@ async function runLocalAuthenticodeCommand(input: {
   }, 60_000);
   const [exitCode] = await once(child, 'close').finally(() => clearTimeout(timeout));
   if (timedOut) {
-    throw new Error(`Local Authenticode ${input.operation} timed out`);
+    throw new Error('Local Authenticode signing timed out');
   }
   if (exitCode !== 0) {
     const detail = Buffer.concat(stderr).toString('utf8').trim();
     throw new Error(
-      `Local Authenticode ${input.operation} failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
+      `Local Authenticode signing failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
     );
   }
-  return Buffer.concat(stdout).toString('utf8').trim();
+  let result: { thumbprint?: unknown };
+  try {
+    result = JSON.parse(Buffer.concat(stdout).toString('utf8')) as {
+      thumbprint?: unknown;
+    };
+  } catch {
+    throw new Error('Local Authenticode signing returned an invalid result');
+  }
+  if (typeof result.thumbprint !== 'string') {
+    throw new Error('Local Authenticode signing returned no certificate thumbprint');
+  }
+  return result.thumbprint;
 }
 
 async function prepareLocalNativeRuntimeRelease(input: {
@@ -527,6 +530,7 @@ async function prepareLocalNativeRuntimeRelease(input: {
   metadataUrl: string;
   releasePath: string;
   runId: string;
+  signerPath: string;
   targetsUrl: string;
   trustedRootPath: string;
 }): Promise<LocalNativeRuntimeRelease> {
@@ -534,43 +538,24 @@ async function prepareLocalNativeRuntimeRelease(input: {
   const thumbprint = await runLocalAuthenticodeCommand({
     brokerPath: input.brokerPath,
     helperPath: input.helperPath,
-    operation: 'sign',
+    signerPath: input.signerPath,
     subject,
   });
   if (!/^[0-9A-F]{40}$/.test(thumbprint)) {
     throw new Error('Local Authenticode signing returned an invalid certificate thumbprint');
   }
-  try {
-    const manifestPath = await createNativeRuntimeRelease({
-      executablePath: input.helperPath,
-      metadataUrl: input.metadataUrl,
-      publisherTrustMode: 'pinned-development',
-      releasePath: input.releasePath,
-      targetsUrl: input.targetsUrl,
-      trustedRootPath: input.trustedRootPath,
-    });
-    return {
-      manifestPath,
-      cleanup: async () => {
-        await runLocalAuthenticodeCommand({
-          brokerPath: input.brokerPath,
-          helperPath: input.helperPath,
-          operation: 'cleanup',
-          subject,
-          thumbprint,
-        });
-      },
-    };
-  } catch (error) {
-    await runLocalAuthenticodeCommand({
-      brokerPath: input.brokerPath,
-      helperPath: input.helperPath,
-      operation: 'cleanup',
-      subject,
-      thumbprint,
-    }).catch(() => undefined);
-    throw error;
-  }
+  const manifestPath = await createNativeRuntimeRelease({
+    executablePath: input.helperPath,
+    metadataUrl: input.metadataUrl,
+    publisherTrustMode: 'pinned-development',
+    releasePath: input.releasePath,
+    targetsUrl: input.targetsUrl,
+    trustedRootPath: input.trustedRootPath,
+  });
+  return {
+    manifestPath,
+    cleanup: () => Promise.resolve(),
+  };
 }
 
 async function generateLocalTufRepository(input: {
@@ -591,6 +576,12 @@ async function generateLocalTufRepository(input: {
   const pinnedRoot = path.join(helperRoot, 'internal', 'tufclient', 'testdata', '1.root.json');
   const helperExecutable = path.join(path.dirname(input.outputRoot), 'yucp-transfer-helper.exe');
   const brokerExecutable = path.join(path.dirname(input.outputRoot), 'yucp-package-broker.exe');
+  const signerExecutable = path.join(
+    path.dirname(input.outputRoot),
+    process.platform === 'win32'
+      ? 'yucp-local-authenticode-sign.exe'
+      : 'yucp-local-authenticode-sign'
+  );
   const runGo = async (
     args: string[],
     failureLabel: string,
@@ -622,12 +613,25 @@ async function generateLocalTufRepository(input: {
     'Local package-broker build',
     { CGO_ENABLED: '0', GOARCH: 'amd64', GOOS: 'windows' }
   );
+  await runGo(
+    [
+      'build',
+      '-trimpath',
+      '-ldflags=-s -w',
+      '-o',
+      signerExecutable,
+      './cmd/yucp-local-authenticode-sign',
+    ],
+    'Local Authenticode signer build',
+    { CGO_ENABLED: '0' }
+  );
   const nativeRuntimeRelease = await prepareLocalNativeRuntimeRelease({
     brokerPath: brokerExecutable,
     helperPath: helperExecutable,
     metadataUrl: `${input.apiBaseUrl}/api/v2/package-installer/tuf/metadata`,
     releasePath: path.dirname(input.outputRoot),
     runId: input.runId,
+    signerPath: signerExecutable,
     targetsUrl: `${input.apiBaseUrl}/api/v2/package-installer/tuf/targets`,
     trustedRootPath: pinnedRoot,
   });
@@ -1339,13 +1343,13 @@ async function startDevRuntime(
       await ed25519.getPublicKeyAsync(materializationReceiptPrivateKey)
     ).toString('base64url');
     const tufRepositoryRoot = path.join(path.dirname(storage.uploadDir), 'package-installer-tuf');
-    const localConvexSiteUrl = loadedEnv.CONVEX_SITE_URL?.trim();
-    if (!localConvexSiteUrl) {
-      throw new Error('CONVEX_SITE_URL is required for the local package runtime');
-    }
+    const packageRuntimeAuthBaseUrl = resolvePackageRuntimeAuthBaseUrl(
+      loadedEnv,
+      options.packageRuntimeAuthBaseUrl
+    );
     localNativeRuntimeRelease = await generateLocalTufRepository({
       apiBaseUrl: `http://127.0.0.1:${ports.api}`,
-      authBaseUrl: `${localConvexSiteUrl}/api/auth`,
+      authBaseUrl: packageRuntimeAuthBaseUrl,
       baseEnv: loadedEnv,
       installKeyId: installSigningKeyId,
       installPublicKey: installSigningPublicKey,
