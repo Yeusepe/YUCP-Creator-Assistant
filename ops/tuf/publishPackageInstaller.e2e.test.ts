@@ -86,7 +86,7 @@ async function runExecutable(
 }
 
 describe.serial('package installer TUF production publisher', () => {
-  test('publishes one exact recoverable repository and reuses its idempotent reservation', async () => {
+  test('publishes the broker and renews unchanged targets with retry-safe attempts', async () => {
     const activeHarness = requireHarness();
     const executable = path.join(
       activeHarness.uploadDir,
@@ -97,7 +97,9 @@ describe.serial('package installer TUF production publisher', () => {
       process.platform === 'win32' ? 'yucp-tuf-root.exe' : 'yucp-tuf-root'
     );
     const helper = path.join(activeHarness.uploadDir, 'yucp-transfer-helper.exe');
+    const broker = path.join(activeHarness.uploadDir, 'yucp-package-broker.exe');
     await writeFile(helper, Buffer.from('MZ production publisher integration helper'));
+    await writeFile(broker, Buffer.from('MZ production publisher integration broker'));
     const goExecutable =
       process.env.YUCP_GO_EXECUTABLE ??
       (process.platform === 'win32' ? 'E:\\YUCPTools\\go-1.26.5\\go\\bin\\go.exe' : 'go');
@@ -178,7 +180,9 @@ describe.serial('package installer TUF production publisher', () => {
       METADATA_S3_REGION: metadata.region,
       METADATA_S3_SECRET_ACCESS_KEY: metadata.secretAccessKey,
       NODE_ENV: 'test',
+      PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH: broker,
       PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH: helper,
+      PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID: 'publisher-attempt-1',
       PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE: executable,
       PACKAGE_INSTALLER_TUF_REPOSITORY_ID: 'package-installer',
       PACKAGE_INSTALLER_TUF_ROOT_PATH: productionRoot,
@@ -195,6 +199,10 @@ describe.serial('package installer TUF production publisher', () => {
     const first = await publishPackageInstallerTuf(env);
     const second = await publishPackageInstallerTuf(env);
     expect(second).toEqual(first);
+    env.PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID = 'publisher-attempt-2';
+    const renewed = await publishPackageInstallerTuf(env);
+    expect(renewed.publicationId).not.toBe(first.publicationId);
+    expect(renewed.metadataVersion).toBe(first.metadataVersion + 1);
 
     const database = openCatalogDatabase(activeHarness.postgres.url);
     try {
@@ -213,19 +221,24 @@ describe.serial('package installer TUF production publisher', () => {
             (
               SELECT count(*)::int
               FROM tuf_publication_objects
-              WHERE publication_id = ${first.publicationId}
+              WHERE publication_id = ${renewed.publicationId}
             ) AS object_count
         `;
       expect(rows[0]).toEqual({
-        object_count: 6,
-        publication_count: 1,
+        object_count: 7,
+        publication_count: 2,
       });
       const publishedPaths = await database<{ repository_path: string }[]>`
         SELECT repository_path
         FROM tuf_publication_objects
-        WHERE publication_id = ${first.publicationId}
+        WHERE publication_id = ${renewed.publicationId}
         ORDER BY repository_path
       `;
+      expect(publishedPaths).toContainEqual({
+        repository_path: expect.stringMatching(
+          /^targets\/broker\/windows-amd64\/[0-9a-f]{64}\.yucp-package-broker\.exe$/
+        ),
+      });
       const storage = new ExpiredRetentionStorage({ metadata });
       const reader = new ExactTufRepositoryReader({
         catalog: new TufRepositoryCatalog(database),
@@ -240,7 +253,7 @@ describe.serial('package installer TUF production publisher', () => {
           objectKey: 'v2/metadata/tuf/package-installer/metadata/timestamp.json',
           role: 'metadata',
         })
-      ).toHaveLength(1);
+      ).toHaveLength(2);
 
       const orphanBody = Buffer.from('unreferenced TUF GC control object');
       const orphanDigest = createHash('sha256').update(orphanBody).digest('hex');

@@ -22,6 +22,7 @@ import {
 } from '../storage-core/tufRepositoryPublication';
 
 const HELPER_TARGET = 'helper/windows-amd64/yucp-transfer-helper.exe';
+const BROKER_TARGET = 'broker/windows-amd64/yucp-package-broker.exe';
 const TRUST_TARGET = 'package-install-trust.json';
 const REQUIRED_KEYS = [
   'CATALOG_DATABASE_URL',
@@ -33,7 +34,9 @@ const REQUIRED_KEYS = [
   'PACKAGE_INSTALLER_TUF_REPOSITORY_ID',
   'PACKAGE_INSTALLER_TUF_ROOT_PATH',
   'PACKAGE_INSTALLER_TUF_ROOT_SHA256',
+  'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH',
   'PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH',
+  'PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID',
   'PACKAGE_INSTALLER_TUF_PUBLISHER_EXECUTABLE',
   'PACKAGE_INSTALL_SIGNING_KEY_ID',
   'PACKAGE_INSTALL_SIGNING_PUBLIC_KEY',
@@ -236,9 +239,24 @@ export async function publishPackageInstallerTuf(
     required(env, 'PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH'),
     'PACKAGE_INSTALLER_TUF_HELPER_WINDOWS_AMD64_PATH'
   );
-  const [root, helper] = await Promise.all([readFile(rootPath), readFile(helperPath)]);
+  const brokerPath = requireAbsoluteFile(
+    required(env, 'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH'),
+    'PACKAGE_INSTALLER_TUF_BROKER_WINDOWS_AMD64_PATH'
+  );
+  const publicationAttemptId = required(env, 'PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID');
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(publicationAttemptId)) {
+    throw new Error('PACKAGE_INSTALLER_TUF_PUBLICATION_ATTEMPT_ID is invalid');
+  }
+  const [root, helper, broker] = await Promise.all([
+    readFile(rootPath),
+    readFile(helperPath),
+    readFile(brokerPath),
+  ]);
   if (helper.byteLength < 1 || helper.byteLength > MAX_PACKAGE_INSTALLER_HELPER_BYTES) {
     throw new Error('Package installer helper length is invalid');
+  }
+  if (broker.byteLength < 1 || broker.byteLength > MAX_PACKAGE_INSTALLER_HELPER_BYTES) {
+    throw new Error('Package broker length is invalid');
   }
   verifyPinnedRoot(root, required(env, 'PACKAGE_INSTALLER_TUF_ROOT_SHA256'));
   const rootVersion = parseRootVersion(root);
@@ -268,6 +286,11 @@ export async function publishPackageInstallerTuf(
       name: HELPER_TARGET,
     },
     {
+      body: broker,
+      contentType: 'application/vnd.microsoft.portable-executable',
+      name: BROKER_TARGET,
+    },
+    {
       body: trust,
       contentType: 'application/json',
       name: TRUST_TARGET,
@@ -276,7 +299,9 @@ export async function publishPackageInstallerTuf(
     ...target,
     repositoryPath: consistentTargetPath(target.name, target.body),
   }));
-  const idempotencyKey = `package-installer:${sha256(Buffer.concat([root, helper, trust]))}`;
+  const idempotencyKey =
+    `package-installer:${publicationAttemptId}:` +
+    sha256(Buffer.concat([root, helper, broker, trust]));
   const database = openCatalogDatabase(required(env, 'CATALOG_DATABASE_URL'));
   const scratch = await mkdtemp(path.join(tmpdir(), 'yucp-tuf-publish-'));
   try {
@@ -303,6 +328,7 @@ export async function publishPackageInstallerTuf(
       `${JSON.stringify({
         schemaVersion: 1,
         targets: [
+          { name: BROKER_TARGET, path: brokerPath },
           { name: HELPER_TARGET, path: helperPath },
           { name: TRUST_TARGET, path: trustPath },
         ],
