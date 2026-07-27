@@ -32,18 +32,20 @@ jobs:
 
       - name: Build image
         env:
-          HEROUI_AUTH_TOKEN: ${{ secrets.HEROUI_AUTH_TOKEN }}
           DOCKER_BUILDKIT: "1"
         run: |
           set -euo pipefail
-          printf '%s' "$HEROUI_AUTH_TOKEN" > /tmp/heroui_token
           docker build \
             --file ops/deploy/storage-plane.Dockerfile \
-            --secret id=HEROUI_AUTH_TOKEN,src=/tmp/heroui_token \
             --tag "ghcr.io/yeusepe/yucp-storage-plane:${GITHUB_SHA}" \
             --tag "ghcr.io/yeusepe/yucp-storage-plane:latest" \
             .
-          rm -f /tmp/heroui_token
+          # Guard: the public image must never contain the licensed HeroUI Pro packages.
+          if docker run --rm --entrypoint sh "ghcr.io/yeusepe/yucp-storage-plane:${GITHUB_SHA}" \
+            -c 'test -e /src/node_modules/@heroui-pro'; then
+            echo "HeroUI Pro packages found in image; refusing to push." >&2
+            exit 1
+          fi
 
       - name: Push image
         run: |

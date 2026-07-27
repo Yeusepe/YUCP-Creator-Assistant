@@ -23,8 +23,10 @@ RUN set -eu; \
 WORKDIR /src
 COPY . .
 
-RUN --mount=type=secret,id=HEROUI_AUTH_TOKEN,required=true \
-    HEROUI_AUTH_TOKEN="$(cat /run/secrets/HEROUI_AUTH_TOKEN)" bun install --frozen-lockfile
+# The web workspace is excluded so the paid @heroui-pro packages never enter
+# this image, keeping it safe to publish publicly. Ops services only use
+# @yucp/shared and root dependencies.
+RUN bun install --frozen-lockfile --filter '!@yucp/web'
 
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
