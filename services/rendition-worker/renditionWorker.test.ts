@@ -1,12 +1,6 @@
-import * as ed25519 from '@noble/ed25519';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
-import {
-  createHash,
-  generateKeyPairSync,
-  randomUUID,
-  sign,
-  type KeyObject,
-} from 'node:crypto';
+import { createHash, generateKeyPairSync, type KeyObject, randomUUID, sign } from 'node:crypto';
+import * as ed25519 from '@noble/ed25519';
 import {
   computeOutputTreeRootV2,
   encodeDeliveryGrantV2,
@@ -51,6 +45,7 @@ function proofThumbprint(publicKey: KeyObject): Uint8Array {
 
 function createProof(input: {
   accessToken: string;
+  jti?: string;
   privateKey: KeyObject;
   publicKey: KeyObject;
   url: string;
@@ -61,23 +56,20 @@ function createProof(input: {
     typ: 'dpop+jwt',
   });
   const payload = encodeJson({
-    ath: createHash('sha256')
-      .update(input.accessToken, 'ascii')
-      .digest('base64url'),
+    ath: createHash('sha256').update(input.accessToken, 'ascii').digest('base64url'),
     htm: 'POST',
     htu: input.url,
     iat: Math.floor(Date.now() / 1_000),
-    jti: randomUUID(),
+    jti: input.jti ?? randomUUID(),
   });
-  const signature = sign(
-    'sha256',
-    Buffer.from(`${header}.${payload}`, 'ascii'),
-    { dsaEncoding: 'ieee-p1363', key: input.privateKey }
-  ).toString('base64url');
+  const signature = sign('sha256', Buffer.from(`${header}.${payload}`, 'ascii'), {
+    dsaEncoding: 'ieee-p1363',
+    key: input.privateKey,
+  }).toString('base64url');
   return `${header}.${payload}.${signature}`;
 }
 
-async function credentials(url: string) {
+async function credentials(url: string, proofJti?: string) {
   const proofKey = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const now = Math.floor(Date.now() / 1_000);
   const releaseRoot = new Uint8Array(32).fill(0x11);
@@ -103,10 +95,7 @@ async function credentials(url: string) {
       notBefore: now,
       productId: 'com.yucp.jammr',
       releaseRoot,
-      scopes: [
-        `materialization:${jobId}:read`,
-        'package:version-jammr-123:read',
-      ],
+      scopes: [`materialization:${jobId}:read`, 'package:version-jammr-123:read'],
     }),
     privateKey: installPrivateKey,
     purpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
@@ -161,6 +150,7 @@ async function credentials(url: string) {
       'Content-Type': 'application/json',
       DPoP: createProof({
         accessToken: grantToken,
+        ...(proofJti ? { jti: proofJti } : {}),
         privateKey: proofKey.privateKey,
         publicKey: proofKey.publicKey,
         url,
@@ -236,9 +226,190 @@ describe('personalized rendition Worker', () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(renditionBytes);
     expect(storageReads).toBe(1);
     const origin = new URL(storageUrl);
-    expect(origin.pathname).toBe(
-      '/renditions-test/v2/renditions/aa/rendition.zip'
-    );
+    expect(origin.pathname).toBe('/renditions-test/v2/renditions/aa/rendition.zip');
     expect(origin.searchParams.get('versionId')).toBe('provider-version-1');
+  });
+
+  it('serves only the exact remaining bytes for a verified resume request', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    const resumeOffset = 7;
+    globalThis.fetch = mock(async (input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
+      expect(headers.get('range')).toBe(`bytes=${resumeOffset}-`);
+      return new Response(renditionBytes.slice(resumeOffset), {
+        headers: {
+          'Content-Length': String(renditionBytes.byteLength - resumeOffset),
+          'Content-Range': `bytes ${resumeOffset}-${renditionBytes.byteLength - 1}/${
+            renditionBytes.byteLength
+          }`,
+          'Content-Type': 'application/zip',
+          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
+          'x-amz-version-id': 'provider-version-1',
+        },
+        status: 206,
+      });
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url);
+    const response = await worker.fetch(
+      new Request(url, {
+        ...authorized,
+        headers: {
+          ...authorized.headers,
+          Range: `bytes=${resumeOffset}-`,
+        },
+        method: 'POST',
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get('accept-ranges')).toBe('bytes');
+    expect(response.headers.get('content-range')).toBe(
+      `bytes ${resumeOffset}-${renditionBytes.byteLength - 1}/${renditionBytes.byteLength}`
+    );
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+      renditionBytes.slice(resumeOffset)
+    );
+  });
+
+  it('rejects a malformed client range before any rendition storage read', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    let storageReads = 0;
+    globalThis.fetch = mock(async () => {
+      storageReads += 1;
+      throw new Error('must not read storage');
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url);
+    const response = await worker.fetch(
+      new Request(url, {
+        ...authorized,
+        headers: {
+          ...authorized.headers,
+          Range: 'bytes=1-4,8-',
+        },
+        method: 'POST',
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get('x-rendition-storage-fetches')).toBe('0');
+    expect(storageReads).toBe(0);
+  });
+
+  it('rejects an overlapping origin range without streaming its body', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    const resumeOffset = 7;
+    let storageReads = 0;
+    globalThis.fetch = mock(async () => {
+      storageReads += 1;
+      return new Response(renditionBytes.slice(resumeOffset - 1), {
+        headers: {
+          'Content-Length': String(renditionBytes.byteLength - resumeOffset),
+          'Content-Range': `bytes ${resumeOffset - 1}-${
+            renditionBytes.byteLength - 1
+          }/${renditionBytes.byteLength}`,
+          'Content-Type': 'application/zip',
+          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
+          'x-amz-version-id': 'provider-version-1',
+        },
+        status: 206,
+      });
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url);
+    const response = await worker.fetch(
+      new Request(url, {
+        ...authorized,
+        headers: {
+          ...authorized.headers,
+          Range: `bytes=${resumeOffset}-`,
+        },
+        method: 'POST',
+      }),
+      await testEnv()
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get('x-rendition-storage-fetches')).toBe('1');
+    expect(storageReads).toBe(1);
+    expect(await response.text()).not.toContain('verified rendition');
+  });
+
+  it('rejects a replayed DPoP proof before a second rendition storage read', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    let storageReads = 0;
+    globalThis.fetch = mock(async () => {
+      storageReads += 1;
+      return new Response(renditionBytes, {
+        headers: {
+          'Content-Length': String(renditionBytes.byteLength),
+          'Content-Type': 'application/zip',
+          'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
+          'x-amz-version-id': 'provider-version-1',
+        },
+      });
+    }) as unknown as typeof fetch;
+    const authorized = await credentials(url, 'replayed-rendition-proof');
+
+    const first = await worker.fetch(
+      new Request(url, { ...authorized, method: 'POST' }),
+      await testEnv()
+    );
+    const replay = await worker.fetch(
+      new Request(url, { ...authorized, method: 'POST' }),
+      await testEnv()
+    );
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(403);
+    expect(replay.headers.get('x-rendition-storage-fetches')).toBe('0');
+    expect(storageReads).toBe(1);
+  });
+
+  it('keeps streaming the origin body after its response-header timer elapses', async () => {
+    const url = `https://delivery.example.test/v2/renditions/${jobId}`;
+    const nativeSetTimeout = globalThis.setTimeout;
+    const nativeClearTimeout = globalThis.clearTimeout;
+    globalThis.setTimeout = ((handler: TimerHandler, _timeout?: number, ...args: unknown[]) =>
+      nativeSetTimeout(handler, 5, ...args)) as typeof setTimeout;
+    globalThis.fetch = mock(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              init?.signal?.addEventListener(
+                'abort',
+                () => controller.error(new Error('body signal was aborted')),
+                { once: true }
+              );
+              nativeSetTimeout(() => {
+                controller.enqueue(renditionBytes);
+                controller.close();
+              }, 20);
+            },
+          }),
+          {
+            headers: {
+              'Content-Length': String(renditionBytes.byteLength),
+              'Content-Type': 'application/zip',
+              'x-amz-meta-yucp-sha256': renditionSha256.toString('hex'),
+              'x-amz-version-id': 'provider-version-1',
+            },
+          }
+        )
+    ) as unknown as typeof fetch;
+    try {
+      const authorized = await credentials(url);
+      const response = await worker.fetch(
+        new Request(url, { ...authorized, method: 'POST' }),
+        await testEnv()
+      );
+
+      expect(response.status).toBe(200);
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(renditionBytes);
+    } finally {
+      globalThis.setTimeout = nativeSetTimeout;
+      globalThis.clearTimeout = nativeClearTimeout;
+    }
   });
 });

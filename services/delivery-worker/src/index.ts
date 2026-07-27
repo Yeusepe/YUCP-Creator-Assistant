@@ -5,6 +5,7 @@ import {
   parseDeliveryManifest,
 } from '../../../ops/storage-core/deliveryManifest';
 import { verifyDpopProof } from '../../../ops/storage-core/dpop';
+import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
 import {
   type DeliveryGrantV2,
   packageContractKeyId,
@@ -12,7 +13,6 @@ import {
 } from '../../../ops/storage-core/packageContractsV2';
 import { createLogicalReleasePublicationV4 } from '../../../ops/storage-core/releasePublication';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
-import { BoundedDpopReplayCache } from './dpopReplayCache';
 
 // Cloudflare Workers support response streaming, but origin subrequests stay bounded.
 // Reference: https://developers.cloudflare.com/workers/platform/limits/

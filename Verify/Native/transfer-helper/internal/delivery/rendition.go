@@ -12,11 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yucp/transfer-helper/internal/dpop"
@@ -25,13 +27,14 @@ import (
 )
 
 type ProtectedRenditionConfig struct {
-	DownloadRoot     string
-	Grant            packagecontract.DeliveryGrant
-	GrantSource      GrantSource
-	PollInterval     time.Duration
-	PrivateKey       *ecdsa.PrivateKey
-	ReceiptAuthority trust.Authority
-	Session          packagecontract.InstallSession
+	DownloadIdleTimeout time.Duration
+	DownloadRoot        string
+	Grant               packagecontract.DeliveryGrant
+	GrantSource         GrantSource
+	PollInterval        time.Duration
+	PrivateKey          *ecdsa.PrivateKey
+	ReceiptAuthority    trust.Authority
+	Session             packagecontract.InstallSession
 }
 
 type DownloadedRendition struct {
@@ -49,6 +52,14 @@ type materializationStatus struct {
 	State         string `json:"state"`
 	Status        string `json:"status"`
 }
+
+const (
+	defaultRenditionIdleTimeout  = 30 * time.Second
+	maxRenditionDownloadAttempts = 8
+	maxRenditionIdleTimeout      = 5 * time.Minute
+)
+
+var errRenditionIdleTimeout = errors.New("protected rendition download became idle")
 
 func FetchProtectedRendition(
 	ctx context.Context,
@@ -82,11 +93,21 @@ func FetchProtectedRendition(
 		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
 			fmt.Errorf("materialization poll interval exceeds its limit")
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
 	client := &http.Client{
-		Timeout: 5 * time.Minute,
+		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+	idleTimeout := cfg.DownloadIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultRenditionIdleTimeout
+	}
+	if idleTimeout > maxRenditionIdleTimeout {
+		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
+			fmt.Errorf("rendition idle timeout exceeds its limit")
 	}
 	var encodedReceipt string
 	for {
@@ -185,6 +206,7 @@ func FetchProtectedRendition(
 		cfg.GrantSource,
 		cfg.PrivateKey,
 		receipt,
+		idleTimeout,
 	)
 	if err != nil {
 		return DownloadedRendition{}, packagecontract.MaterializationReceipt{}, err
@@ -289,6 +311,7 @@ func downloadRendition(
 	grantSource GrantSource,
 	privateKey *ecdsa.PrivateKey,
 	receipt packagecontract.MaterializationReceipt,
+	idleTimeout time.Duration,
 ) (DownloadedRendition, error) {
 	grant, err := grantSource.Current(ctx)
 	if err != nil {
@@ -297,56 +320,6 @@ func downloadRendition(
 	body, err := json.Marshal(map[string]string{"receipt": encodedReceipt})
 	if err != nil {
 		return DownloadedRendition{}, fmt.Errorf("encode rendition request: %w", err)
-	}
-	var response *http.Response
-	for attempt := 0; attempt < 2; attempt++ {
-		proof, proofErr := dpop.CreateProof(
-			privateKey,
-			http.MethodPost,
-			endpoint,
-			grant,
-			time.Now(),
-		)
-		if proofErr != nil {
-			return DownloadedRendition{}, fmt.Errorf("create rendition delivery proof: %w", proofErr)
-		}
-		request, requestErr := http.NewRequestWithContext(
-			ctx,
-			http.MethodPost,
-			endpoint,
-			bytes.NewReader(body),
-		)
-		if requestErr != nil {
-			return DownloadedRendition{}, fmt.Errorf("create rendition request: %w", requestErr)
-		}
-		request.Header.Set("Authorization", "DPoP "+grant)
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("DPoP", proof)
-		response, err = client.Do(request)
-		if err != nil {
-			return DownloadedRendition{}, fmt.Errorf("download protected rendition: %w", err)
-		}
-		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
-			break
-		}
-		_ = response.Body.Close()
-		grant, err = grantSource.Renew(ctx, grant)
-		if err != nil {
-			return DownloadedRendition{}, fmt.Errorf("renew rendition authorization: %w", err)
-		}
-	}
-	if response == nil {
-		return DownloadedRendition{}, fmt.Errorf("protected rendition returned no response")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return DownloadedRendition{}, fmt.Errorf(
-			"protected rendition returned HTTP %d",
-			response.StatusCode,
-		)
-	}
-	if response.ContentLength > receipt.Rendition.ObjectBytes {
-		return DownloadedRendition{}, fmt.Errorf("protected rendition exceeded its signed length")
 	}
 	destination := filepath.Join(
 		downloadRoot,
@@ -364,13 +337,70 @@ func downloadRendition(
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	hasher := sha256.New()
-	written, copyErr := io.Copy(
-		io.MultiWriter(temporary, hasher),
-		io.LimitReader(response.Body, receipt.Rendition.ObjectBytes+1),
-	)
-	if copyErr != nil {
-		_ = temporary.Close()
-		return DownloadedRendition{}, fmt.Errorf("read protected rendition: %w", copyErr)
+	var written int64
+	for attempt := 0; attempt < maxRenditionDownloadAttempts &&
+		written < receipt.Rendition.ObjectBytes; attempt++ {
+		offset := written
+		response, nextGrant, requestErr := requestRenditionRange(
+			ctx,
+			client,
+			endpoint,
+			body,
+			grant,
+			grantSource,
+			privateKey,
+			offset,
+			receipt.Rendition.ObjectBytes,
+		)
+		grant = nextGrant
+		if requestErr != nil {
+			_ = temporary.Close()
+			return DownloadedRendition{}, requestErr
+		}
+		idleReader := newIdleBodyReader(response.Body, idleTimeout)
+		copied, copyErr := io.Copy(
+			io.MultiWriter(temporary, hasher),
+			io.LimitReader(
+				idleReader,
+				receipt.Rendition.ObjectBytes-offset+1,
+			),
+		)
+		idleReader.Stop()
+		_ = response.Body.Close()
+		written += copied
+		if written > receipt.Rendition.ObjectBytes {
+			_ = temporary.Close()
+			return DownloadedRendition{}, fmt.Errorf(
+				"protected rendition exceeded its signed length",
+			)
+		}
+		if written == receipt.Rendition.ObjectBytes {
+			break
+		}
+		if ctx.Err() != nil {
+			_ = temporary.Close()
+			return DownloadedRendition{}, fmt.Errorf(
+				"read protected rendition: %w",
+				ctx.Err(),
+			)
+		}
+		if copyErr != nil && !isResumableRenditionReadError(copyErr) {
+			_ = temporary.Close()
+			return DownloadedRendition{}, fmt.Errorf(
+				"read protected rendition: %w",
+				copyErr,
+			)
+		}
+		if copied == 0 {
+			_ = temporary.Close()
+			if copyErr == nil {
+				copyErr = io.ErrUnexpectedEOF
+			}
+			return DownloadedRendition{}, fmt.Errorf(
+				"read protected rendition without progress: %w",
+				copyErr,
+			)
+		}
 	}
 	if written != receipt.Rendition.ObjectBytes ||
 		!bytes.Equal(hasher.Sum(nil), receipt.Rendition.ObjectSHA256[:]) {
@@ -404,6 +434,143 @@ func downloadRendition(
 		SHA256:        hex.EncodeToString(receipt.Rendition.ObjectSHA256[:]),
 		SignedReceipt: encodedReceipt,
 	}, nil
+}
+
+func isResumableRenditionReadError(err error) bool {
+	if errors.Is(err, errRenditionIdleTimeout) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
+}
+
+func requestRenditionRange(
+	ctx context.Context,
+	client *http.Client,
+	endpoint string,
+	body []byte,
+	grant string,
+	grantSource GrantSource,
+	privateKey *ecdsa.PrivateKey,
+	offset int64,
+	total int64,
+) (*http.Response, string, error) {
+	for authorizationAttempt := 0; authorizationAttempt < 2; authorizationAttempt++ {
+		proof, err := dpop.CreateProof(
+			privateKey,
+			http.MethodPost,
+			endpoint,
+			grant,
+			time.Now(),
+		)
+		if err != nil {
+			return nil, grant, fmt.Errorf("create rendition delivery proof: %w", err)
+		}
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			endpoint,
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return nil, grant, fmt.Errorf("create rendition request: %w", err)
+		}
+		request.Header.Set("Authorization", "DPoP "+grant)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("DPoP", proof)
+		if offset > 0 {
+			request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return nil, grant, fmt.Errorf("download protected rendition: %w", err)
+		}
+		if renewableAuthorizationStatus(response.StatusCode) &&
+			authorizationAttempt == 0 {
+			_ = response.Body.Close()
+			grant, err = grantSource.Renew(ctx, grant)
+			if err != nil {
+				return nil, grant, fmt.Errorf("renew rendition authorization: %w", err)
+			}
+			continue
+		}
+		expectedStatus := http.StatusOK
+		expectedLength := total
+		if offset > 0 {
+			expectedStatus = http.StatusPartialContent
+			expectedLength = total - offset
+		}
+		if response.StatusCode != expectedStatus {
+			_ = response.Body.Close()
+			return nil, grant, fmt.Errorf(
+				"protected rendition returned HTTP %d",
+				response.StatusCode,
+			)
+		}
+		if response.ContentLength != expectedLength {
+			_ = response.Body.Close()
+			return nil, grant, fmt.Errorf(
+				"protected rendition range length is invalid",
+			)
+		}
+		if offset > 0 {
+			expectedRange := fmt.Sprintf("bytes %d-%d/%d", offset, total-1, total)
+			if response.Header.Get("Content-Range") != expectedRange {
+				_ = response.Body.Close()
+				return nil, grant, fmt.Errorf(
+					"protected rendition range binding is invalid",
+				)
+			}
+		}
+		return response, grant, nil
+	}
+	return nil, grant, fmt.Errorf("protected rendition authorization retry failed")
+}
+
+type idleBodyReader struct {
+	body     io.ReadCloser
+	duration time.Duration
+	mu       sync.Mutex
+	stopped  bool
+	timedOut bool
+	timer    *time.Timer
+}
+
+func newIdleBodyReader(body io.ReadCloser, duration time.Duration) *idleBodyReader {
+	reader := &idleBodyReader{body: body, duration: duration}
+	reader.timer = time.AfterFunc(duration, func() {
+		reader.mu.Lock()
+		defer reader.mu.Unlock()
+		if reader.stopped {
+			return
+		}
+		reader.timedOut = true
+		_ = reader.body.Close()
+	})
+	return reader
+}
+
+func (reader *idleBodyReader) Read(buffer []byte) (int, error) {
+	count, err := reader.body.Read(buffer)
+	reader.mu.Lock()
+	if count > 0 && !reader.timedOut && !reader.stopped {
+		reader.timer.Reset(reader.duration)
+	}
+	timedOut := reader.timedOut
+	reader.mu.Unlock()
+	if timedOut {
+		return count, errRenditionIdleTimeout
+	}
+	return count, err
+}
+
+func (reader *idleBodyReader) Stop() {
+	reader.mu.Lock()
+	defer reader.mu.Unlock()
+	reader.stopped = true
+	reader.timer.Stop()
 }
 
 func MergeProtectedRendition(

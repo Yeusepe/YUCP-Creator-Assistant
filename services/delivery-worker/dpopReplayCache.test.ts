@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { BoundedDpopReplayCache } from './src/dpopReplayCache';
+import { BoundedDpopReplayCache } from '../../ops/storage-core/dpopReplayCache';
 
 describe('bounded DPoP replay cache', () => {
   it('rejects live proof reuse and evicts the oldest entry at its memory bound', () => {

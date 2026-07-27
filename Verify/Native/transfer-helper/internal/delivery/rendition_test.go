@@ -13,10 +13,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -243,6 +245,133 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	}
 	if !bytes.Equal(merged, protected) || len(files) != 1 {
 		t.Fatalf("merged protected output is invalid")
+	}
+}
+
+func TestDownloadRenditionResumesFromVerifiedOffsetAfterIdleTimeout(t *testing.T) {
+	archive := bytes.Repeat([]byte("protected-rendition-data"), 4_096)
+	archiveDigest := sha256.Sum256(archive)
+	const firstSegmentBytes = 32 * 1024
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		writer.Header().Set("Content-Type", "application/zip")
+		switch request.Header.Get("Range") {
+		case "":
+			writer.Header().Set("Content-Length", fmt.Sprint(len(archive)))
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write(archive[:firstSegmentBytes])
+			if flusher, ok := writer.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			<-request.Context().Done()
+		case fmt.Sprintf("bytes=%d-", firstSegmentBytes):
+			writer.Header().Set(
+				"Content-Range",
+				fmt.Sprintf(
+					"bytes %d-%d/%d",
+					firstSegmentBytes,
+					len(archive)-1,
+					len(archive),
+				),
+			)
+			writer.Header().Set(
+				"Content-Length",
+				fmt.Sprint(len(archive)-firstSegmentBytes),
+			)
+			writer.WriteHeader(http.StatusPartialContent)
+			_, _ = writer.Write(archive[firstSegmentBytes:])
+		default:
+			http.Error(writer, "unexpected range", http.StatusRequestedRangeNotSatisfiable)
+		}
+	}))
+	defer server.Close()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	receipt := packagecontract.MaterializationReceipt{
+		ReceiptID: "receipt-resume",
+		Rendition: packagecontract.ExactRendition{
+			ObjectBytes:  int64(len(archive)),
+			ObjectSHA256: archiveDigest,
+		},
+	}
+
+	downloaded, err := downloadRendition(
+		context.Background(),
+		&http.Client{},
+		server.URL,
+		"job-resume",
+		"receipt-envelope",
+		t.TempDir(),
+		&testGrantSource{current: "grant-resume"},
+		privateKey,
+		receipt,
+		25*time.Millisecond,
+	)
+
+	if err != nil {
+		t.Fatalf("downloadRendition() error = %v", err)
+	}
+	stored, err := os.ReadFile(downloaded.Path)
+	if err != nil {
+		t.Fatalf("read downloaded rendition: %v", err)
+	}
+	if !bytes.Equal(stored, archive) || requests.Load() != 2 {
+		t.Fatalf("resumed rendition mismatch or request count = %d", requests.Load())
+	}
+}
+
+func TestRequestRenditionRangeRejectsOverlappingResponseWithoutRetry(t *testing.T) {
+	const (
+		offset = int64(8)
+		total  = int64(32)
+	)
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		requests.Add(1)
+		writer.Header().Set("Content-Length", fmt.Sprint(total-offset))
+		writer.Header().Set(
+			"Content-Range",
+			fmt.Sprintf("bytes %d-%d/%d", offset-1, total-1, total),
+		)
+		writer.WriteHeader(http.StatusPartialContent)
+		_, _ = writer.Write(make([]byte, total-offset))
+	}))
+	defer server.Close()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+
+	response, _, err := requestRenditionRange(
+		context.Background(),
+		&http.Client{},
+		server.URL,
+		[]byte("{}"),
+		"grant-range",
+		&testGrantSource{current: "grant-range"},
+		privateKey,
+		offset,
+		total,
+	)
+
+	if response != nil {
+		_ = response.Body.Close()
+		t.Fatal("requestRenditionRange() returned an invalid response")
+	}
+	if err == nil || !strings.Contains(err.Error(), "range binding is invalid") {
+		t.Fatalf("requestRenditionRange() error = %v", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("request count = %d, want 1", requests.Load())
 	}
 }
 

@@ -1,11 +1,12 @@
 import { AwsClient } from 'aws4fetch';
 import { verifyDpopProof } from '../../../ops/storage-core/dpop';
+import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
 import {
+  type DeliveryGrantV2,
+  type MaterializationReceiptV2,
   packageContractKeyId,
   verifyDeliveryGrantV2,
   verifyMaterializationReceiptV2,
-  type DeliveryGrantV2,
-  type MaterializationReceiptV2,
 } from '../../../ops/storage-core/packageContractsV2';
 import { buildS3ObjectUrl } from '../../../ops/storage-core/s3ObjectUrl';
 
@@ -25,12 +26,19 @@ const REQUIRED_BINDINGS = [
   'RENDITION_S3_READONLY_SECRET_ACCESS_KEY',
   'RENDITION_S3_REGION',
 ] as const;
-const RENDITION_PATH =
-  /^\/v2\/renditions\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
+const RENDITION_PATH = /^\/v2\/renditions\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})$/;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const MAX_GRANT_BYTES = 256 * 1024;
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
-const ORIGIN_TIMEOUT_MS = 5 * 60 * 1_000;
+const ORIGIN_HEADER_TIMEOUT_MS = 30 * 1_000;
+const MAX_DPOP_REPLAY_ENTRIES = 8_192;
+const DPOP_REPLAY_SWEEP_LIMIT = 128;
+const DPOP_REPLAY_WINDOW_MS = 5 * 60 * 1_000;
+// This bounded module cache is same-isolate abuse detection, not cross-region security truth.
+const dpopReplayCache = new BoundedDpopReplayCache({
+  maxEntries: MAX_DPOP_REPLAY_ENTRIES,
+  sweepLimit: DPOP_REPLAY_SWEEP_LIMIT,
+});
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
 type RenditionEnv = Readonly<Record<BindingName, string>>;
@@ -93,12 +101,7 @@ function parseAuthorization(request: Request): {
   const authorization = request.headers.get('authorization') ?? '';
   const match = /^DPoP ([A-Za-z0-9_-]+)$/.exec(authorization);
   const proof = request.headers.get('dpop') ?? '';
-  if (
-    !match?.[1] ||
-    match[1].length > MAX_GRANT_BYTES ||
-    !proof ||
-    proof.length > 8_192
-  ) {
+  if (!match?.[1] || match[1].length > MAX_GRANT_BYTES || !proof || proof.length > 8_192) {
     throw new HttpError(403, 'Forbidden');
   }
   return { grant: match[1], proof };
@@ -116,41 +119,51 @@ async function authorize(input: {
     proof,
     url: input.request.url,
   });
+  const verifiedGrant = await verifyDeliveryGrantV2({
+    context: {
+      audience: input.config.PACKAGE_DELIVERY_AUDIENCE,
+      deviceKeyThumbprint: verifiedProof.thumbprint,
+      issuer: input.config.PACKAGE_INSTALL_ISSUER,
+      now: Math.floor(Date.now() / 1_000),
+      requiredScope: `materialization:${input.jobId}:read`,
+    },
+    coseSign1: decodeBase64Url(grant, 'Delivery grant'),
+    expectedKeyId: packageContractKeyId(input.config.PACKAGE_INSTALL_SIGNING_KEY_ID),
+    publicKey: decodeBase64Url(
+      input.config.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
+      'Package install public key'
+    ),
+  });
+  const thumbprint = bytesToBase64Url(verifiedProof.thumbprint);
+  if (
+    !dpopReplayCache.reserve({
+      expiresAtMs: Math.min(verifiedGrant.expiresAt * 1_000, Date.now() + DPOP_REPLAY_WINDOW_MS),
+      key: `${thumbprint.length}:${thumbprint}${verifiedProof.jti}`,
+    })
+  ) {
+    throw new HttpError(403, 'Forbidden');
+  }
   return {
-    grant: await verifyDeliveryGrantV2({
-      context: {
-        audience: input.config.PACKAGE_DELIVERY_AUDIENCE,
-        deviceKeyThumbprint: verifiedProof.thumbprint,
-        issuer: input.config.PACKAGE_INSTALL_ISSUER,
-        now: Math.floor(Date.now() / 1_000),
-        requiredScope: `materialization:${input.jobId}:read`,
-      },
-      coseSign1: decodeBase64Url(grant, 'Delivery grant'),
-      expectedKeyId: packageContractKeyId(
-        input.config.PACKAGE_INSTALL_SIGNING_KEY_ID
-      ),
-      publicKey: decodeBase64Url(
-        input.config.PACKAGE_INSTALL_SIGNING_PUBLIC_KEY,
-        'Package install public key'
-      ),
-    }),
+    grant: verifiedGrant,
   };
 }
 
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let value = '';
+  for (const byte of bytes) {
+    value += String.fromCharCode(byte);
+  }
+  return btoa(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
 async function readReceipt(request: Request): Promise<string> {
-  if (
-    !request.headers
-      .get('content-type')
-      ?.toLowerCase()
-      .startsWith('application/json')
-  ) {
+  if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
     throw new HttpError(415, 'Content type is invalid');
   }
   const declaredLength = request.headers.get('content-length');
   if (
     declaredLength &&
-    (!/^\d+$/.test(declaredLength) ||
-      Number(declaredLength) > MAX_REQUEST_BYTES)
+    (!/^\d+$/.test(declaredLength) || Number(declaredLength) > MAX_REQUEST_BYTES)
   ) {
     throw new HttpError(413, 'Request body is too large');
   }
@@ -212,8 +225,7 @@ async function readReceipt(request: Request): Promise<string> {
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return (
-    left.byteLength === right.byteLength &&
-    left.every((value, index) => value === right[index])
+    left.byteLength === right.byteLength && left.every((value, index) => value === right[index])
   );
 }
 
@@ -239,9 +251,7 @@ function validateReceipt(input: {
     rendition.bucketName !== input.config.RENDITION_S3_BUCKET ||
     !rendition.objectKey.startsWith('v2/renditions/') ||
     rendition.objectKey.includes('\\') ||
-    objectSegments.some(
-      (segment) => !segment || segment === '.' || segment === '..'
-    ) ||
+    objectSegments.some((segment) => !segment || segment === '.' || segment === '..') ||
     !rendition.providerVersion ||
     rendition.providerVersion.length > 512
   ) {
@@ -262,7 +272,8 @@ function createStorageClient(config: RenditionEnv): AwsClient {
 async function getExactRendition(
   client: AwsClient,
   config: RenditionEnv,
-  receipt: MaterializationReceiptV2
+  receipt: MaterializationReceiptV2,
+  offset: number
 ): Promise<Response> {
   const objectUrl = new URL(
     buildS3ObjectUrl(
@@ -274,10 +285,35 @@ async function getExactRendition(
     )
   );
   objectUrl.searchParams.set('versionId', receipt.rendition.providerVersion);
-  return client.fetch(objectUrl, {
-    method: 'GET',
-    signal: AbortSignal.timeout(ORIGIN_TIMEOUT_MS),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ORIGIN_HEADER_TIMEOUT_MS);
+  try {
+    // Backblaze B2 S3 GetObject supports exact versionId and single Range requests.
+    // https://www.backblaze.com/apidocs/s3-get-object
+    return await client.fetch(objectUrl, {
+      headers: offset > 0 ? { Range: `bytes=${offset}-` } : undefined,
+      method: 'GET',
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function resumeOffset(request: Request, objectBytes: number): number {
+  const range = request.headers.get('range');
+  if (!range) {
+    return 0;
+  }
+  const match = /^bytes=([1-9]\d*)-$/.exec(range);
+  if (!match?.[1]) {
+    throw new HttpError(416, 'Rendition range is invalid');
+  }
+  const offset = Number(match[1]);
+  if (!Number.isSafeInteger(offset) || offset >= objectBytes) {
+    throw new HttpError(416, 'Rendition range is invalid');
+  }
+  return offset;
 }
 
 function noStoreResponse(
@@ -288,10 +324,7 @@ function noStoreResponse(
 ): Response {
   const responseHeaders = new Headers(headers);
   responseHeaders.set('cache-control', 'private, no-store');
-  responseHeaders.set(
-    'x-rendition-storage-fetches',
-    String(storageFetches)
-  );
+  responseHeaders.set('x-rendition-storage-fetches', String(storageFetches));
   return new Response(body, {
     headers: responseHeaders,
     status,
@@ -330,44 +363,44 @@ export default {
         jobId: pathMatch[1],
         receipt,
       });
-      const origin = await getExactRendition(
-        createStorageClient(config),
-        config,
-        receipt
-      );
+      const offset = resumeOffset(request, receipt.rendition.objectBytes);
+      const origin = await getExactRendition(createStorageClient(config), config, receipt, offset);
       storageFetches = 1;
-      if (!origin.ok || !origin.body) {
+      const expectedStatus = offset > 0 ? 206 : 200;
+      if (origin.status !== expectedStatus || !origin.body) {
         throw new HttpError(502, 'Rendition storage request failed', 1);
       }
       const contentLength = Number(origin.headers.get('content-length'));
+      const expectedLength = receipt.rendition.objectBytes - offset;
+      const expectedContentRange =
+        offset > 0
+          ? `bytes ${offset}-${receipt.rendition.objectBytes - 1}/${receipt.rendition.objectBytes}`
+          : null;
       const metadataDigest = origin.headers.get('x-amz-meta-yucp-sha256');
       const providerVersion = origin.headers.get('x-amz-version-id');
       if (
-        contentLength !== receipt.rendition.objectBytes ||
+        contentLength !== expectedLength ||
+        (offset > 0 && origin.headers.get('content-range') !== expectedContentRange) ||
         metadataDigest !==
           Array.from(receipt.rendition.objectSha256, (byte) =>
             byte.toString(16).padStart(2, '0')
           ).join('') ||
-        (providerVersion &&
-          providerVersion !== receipt.rendition.providerVersion) ||
-        origin.headers
-          .get('content-type')
-          ?.split(';', 1)[0]
-          ?.trim()
-          .toLowerCase() !== 'application/zip'
+        (providerVersion && providerVersion !== receipt.rendition.providerVersion) ||
+        origin.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() !==
+          'application/zip'
       ) {
         throw new HttpError(502, 'Rendition exact-version metadata failed', 1);
       }
-      return noStoreResponse(origin.body, 200, 1, {
-        'content-length': String(receipt.rendition.objectBytes),
+      return noStoreResponse(origin.body, expectedStatus, 1, {
+        'accept-ranges': 'bytes',
+        'content-length': String(expectedLength),
         'content-type': 'application/zip',
+        ...(expectedContentRange ? { 'content-range': expectedContentRange } : {}),
         'x-yucp-receipt-id': receipt.receiptId,
       });
     } catch (error) {
       const httpError =
-        error instanceof HttpError
-          ? error
-          : new HttpError(403, 'Forbidden', storageFetches);
+        error instanceof HttpError ? error : new HttpError(403, 'Forbidden', storageFetches);
       return noStoreResponse(
         httpError.status === 403 ? 'Forbidden' : httpError.message,
         httpError.status,
