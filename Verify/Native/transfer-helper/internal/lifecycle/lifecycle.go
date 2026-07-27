@@ -252,7 +252,7 @@ func Execute(
 			candidateSession.Issuer != session.Issuer ||
 			candidateSession.Audience != session.Audience ||
 			candidateGrant.GrantID != grant.GrantID ||
-			candidateGrant.PackageVersionID() != grant.PackageVersionID() ||
+			candidateGrant.BoundPackageVersionID() != grant.BoundPackageVersionID() ||
 			candidateGrant.MaterializationJobID() != grant.MaterializationJobID() {
 			return fmt.Errorf("renewed package authorization changed immutable bindings")
 		}
@@ -278,6 +278,28 @@ func Execute(
 		authorizationContext,
 	); err != nil {
 		return Result{}, err
+	}
+	if request.Operation == "uninstall" {
+		baseResult := Result{
+			ActiveContentDigest: request.ApprovedActiveContentDigest,
+			ActivePolicyVersion: request.ApprovedPolicyVersion,
+			Files:               []ResultFile{},
+			JournalState:        "authorized",
+			Operation:           request.Operation,
+			RunID:               request.RunID,
+			SchemaVersion:       SchemaVersion,
+			Status:              "succeeded",
+			TargetReleaseRoot:   request.TargetReleaseRoot,
+			TraceID:             request.Traceparent[3:35],
+			VersionID:           grant.UninstallVersionID(),
+		}
+		if err := report(reportProgress, "verifying", 0, 0); err != nil {
+			return Result{}, err
+		}
+		if err := report(reportProgress, "finalizing", 0, 0); err != nil {
+			return Result{}, err
+		}
+		return baseResult, nil
 	}
 	manifest, err := delivery.FetchManifest(
 		ctx,
@@ -334,26 +356,6 @@ func Execute(
 	if request.ApprovedActiveContentDigest != manifest.ActiveContentDigest ||
 		request.ApprovedPolicyVersion != manifest.ActivePolicyVersion {
 		return Result{}, fmt.Errorf("active-content approval is stale or does not match")
-	}
-	if request.Operation == "uninstall" {
-		if err := report(
-			reportProgress,
-			"verifying",
-			totalBytes,
-			totalBytes,
-		); err != nil {
-			return Result{}, err
-		}
-		baseResult.JournalState = "authorized"
-		if err := report(
-			reportProgress,
-			"finalizing",
-			totalBytes,
-			totalBytes,
-		); err != nil {
-			return Result{}, err
-		}
-		return baseResult, nil
 	}
 	stagingTree := filepath.Join(request.StateRoot, "staging", request.RunID)
 	if err := report(
@@ -589,6 +591,10 @@ func validateRequest(request AuthorizedRequest) error {
 			strings.TrimSpace(request.ApprovedPolicyVersion) == "" ||
 			len([]byte(request.ApprovedPolicyVersion)) > 128) {
 		return fmt.Errorf("package lifecycle active-content approval is invalid")
+	}
+	if request.Operation == "uninstall" &&
+		request.ExpectedCurrentReleaseRoot != request.TargetReleaseRoot {
+		return fmt.Errorf("package lifecycle uninstall release binding is invalid")
 	}
 	return nil
 }

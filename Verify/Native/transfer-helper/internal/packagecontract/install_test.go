@@ -122,6 +122,60 @@ func TestValidateInstallAuthorizationRejectsExpiredOrSubstitutedTokens(t *testin
 	}
 }
 
+func TestValidateInstallAuthorizationSeparatesReadAndUninstallScopes(t *testing.T) {
+	session := InstallSession{
+		AliasID:             "alias-1",
+		Audience:            "https://delivery.example.test",
+		BindingRoot:         [32]byte{0x22},
+		BuyerID:             "buyer-1",
+		CreatorID:           "creator-1",
+		DeviceKeyThumbprint: [32]byte{0x33},
+		ExpiresAt:           100,
+		Issuer:              "https://api.example.test",
+		NotBefore:           50,
+		Operation:           "uninstall",
+		ProductID:           "product-1",
+		ReleaseRoot:         [32]byte{0x11},
+		SessionID:           "session-1",
+	}
+	grant := DeliveryGrant{
+		Audience:            session.Audience,
+		BindingRoot:         session.BindingRoot,
+		BuyerID:             session.BuyerID,
+		CreatorID:           session.CreatorID,
+		DeviceKeyThumbprint: session.DeviceKeyThumbprint,
+		ExpiresAt:           100,
+		InstallSessionID:    session.SessionID,
+		Issuer:              session.Issuer,
+		NotBefore:           50,
+		ProductID:           session.ProductID,
+		ReleaseRoot:         session.ReleaseRoot,
+		Scopes:              []string{"package:version-1:uninstall"},
+	}
+	context := InstallAuthorizationContext{
+		AliasID:             session.AliasID,
+		DeviceKeyThumbprint: session.DeviceKeyThumbprint[:],
+		ExpectedReleaseRoot: session.ReleaseRoot[:],
+		Now:                 time.Unix(75, 0),
+		Operation:           "uninstall",
+	}
+
+	if err := ValidateInstallAuthorization(session, grant, context); err != nil {
+		t.Fatalf("ValidateInstallAuthorization(uninstall) error = %v", err)
+	}
+	grant.Scopes = []string{"package:version-1:read"}
+	if err := ValidateInstallAuthorization(session, grant, context); err == nil {
+		t.Fatal("ValidateInstallAuthorization() accepted package read for uninstall")
+	}
+	grant.Scopes = []string{
+		"package:version-1:read",
+		"package:version-1:uninstall",
+	}
+	if err := ValidateInstallAuthorization(session, grant, context); err == nil {
+		t.Fatal("ValidateInstallAuthorization() accepted mixed package scopes")
+	}
+}
+
 func mustInstallCanonical(t *testing.T, value any) []byte {
 	t.Helper()
 	data, err := EncodeCanonical(value)

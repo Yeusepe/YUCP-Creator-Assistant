@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -117,9 +118,11 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 	chunkID := hex.EncodeToString(chunkIDBytes[:])
 	var manifestBytes []byte
 	var chunkReads int
+	var manifestReads int
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v2/delivery/version-1/manifest":
+			manifestReads++
 			if request.Header.Get("Authorization") == "" || request.Header.Get("DPoP") == "" {
 				http.Error(response, "forbidden", http.StatusForbidden)
 				return
@@ -196,23 +199,26 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 		)
 	}
 	session := signSession("preflight")
-	grant := signLifecycleContract(t, privateKey, keyID, packagecontract.DeliveryGrantPurpose, map[any]any{
-		int64(0):  int64(2),
-		int64(1):  "grant-1",
-		int64(2):  server.URL,
-		int64(3):  server.URL,
-		int64(4):  "creator-1",
-		int64(5):  "buyer-1",
-		int64(6):  "product-1",
-		int64(7):  releaseRoot[:],
-		int64(8):  bindingRoot[:],
-		int64(9):  deviceDigest,
-		int64(10): now,
-		int64(11): now,
-		int64(12): now + 300,
-		int64(13): []any{"package:version-1:read"},
-		int64(14): "session-1",
-	})
+	signGrant := func(scope string) []byte {
+		return signLifecycleContract(t, privateKey, keyID, packagecontract.DeliveryGrantPurpose, map[any]any{
+			int64(0):  int64(2),
+			int64(1):  "grant-1",
+			int64(2):  server.URL,
+			int64(3):  server.URL,
+			int64(4):  "creator-1",
+			int64(5):  "buyer-1",
+			int64(6):  "product-1",
+			int64(7):  releaseRoot[:],
+			int64(8):  bindingRoot[:],
+			int64(9):  deviceDigest,
+			int64(10): now,
+			int64(11): now,
+			int64(12): now + 300,
+			int64(13): []any{scope},
+			int64(14): "session-1",
+		})
+	}
+	grant := signGrant("package:version-1:read")
 	authority := trust.Authority{
 		KeyID:     keyID,
 		PublicKey: privateKey.Public().(ed25519.PublicKey),
@@ -378,15 +384,17 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 	uninstallInput.RunID = "run-uninstall"
 	uninstallInput.ApprovedActiveContentDigest = preflight.ActiveContentDigest
 	uninstallInput.ApprovedPolicyVersion = preflight.ActivePolicyVersion
+	uninstallInput.ExpectedCurrentReleaseRoot = uninstallInput.TargetReleaseRoot
 	uninstallRequest, err := NewAuthorizedRequest(
 		uninstallInput,
 		base64.RawURLEncoding.EncodeToString(signSession("uninstall")),
-		base64.RawURLEncoding.EncodeToString(grant),
+		base64.RawURLEncoding.EncodeToString(signGrant("package:version-1:uninstall")),
 	)
 	if err != nil {
 		t.Fatalf("NewAuthorizedRequest(uninstall) error = %v", err)
 	}
 	chunkReadsBeforeUninstall := chunkReads
+	manifestReadsBeforeUninstall := manifestReads
 	uninstalled, err := Execute(
 		context.Background(),
 		uninstallRequest,
@@ -397,16 +405,149 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute(uninstall) error = %v", err)
 	}
-	if chunkReads != chunkReadsBeforeUninstall ||
+	if manifestReads != manifestReadsBeforeUninstall ||
+		chunkReads != chunkReadsBeforeUninstall ||
 		uninstalled.JournalState != "authorized" ||
 		uninstalled.StagingTree != "" ||
 		len(uninstalled.Files) != 0 {
 		t.Fatalf(
-			"Execute(uninstall) = %#v, chunk reads changed from %d to %d",
+			"Execute(uninstall) = %#v, manifest reads changed from %d to %d, chunk reads changed from %d to %d",
 			uninstalled,
+			manifestReadsBeforeUninstall,
+			manifestReads,
 			chunkReadsBeforeUninstall,
 			chunkReads,
 		)
+	}
+}
+
+func TestExecuteUninstallsSupersededReleaseWithoutPayloadRead(t *testing.T) {
+	var payloadReads atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		payloadReads.Add(1)
+		http.Error(response, "payload access is forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+	stateRoot := filepath.Join(t.TempDir(), "state")
+	identity, err := deviceidentity.LoadOrCreate(stateRoot)
+	if err != nil {
+		t.Fatalf("LoadOrCreate() error = %v", err)
+	}
+	deviceDigest, err := hex.DecodeString(identity.Thumbprint)
+	if err != nil {
+		t.Fatalf("decode device thumbprint: %v", err)
+	}
+	releaseRoot := sha256.Sum256([]byte("superseded release"))
+	bindingRoot := sha256.Sum256([]byte("superseded binding"))
+	manifestDigest := sha256.Sum256([]byte("deleted manifest"))
+	seed := sha256.Sum256([]byte("superseded uninstall signing key"))
+	privateKey := ed25519.NewKeyFromSeed(seed[:])
+	keyID := []byte("install-test-key")
+	now := time.Now().Unix()
+	session := signLifecycleContract(
+		t,
+		privateKey,
+		keyID,
+		packagecontract.InstallSessionPurpose,
+		map[any]any{
+			int64(0):  int64(2),
+			int64(1):  packagecontract.InstallSessionTokenType,
+			int64(2):  server.URL,
+			int64(3):  server.URL,
+			int64(4):  string(keyID),
+			int64(5):  "creator-1",
+			int64(6):  "buyer-1",
+			int64(7):  "product-1",
+			int64(8):  "1.0.0",
+			int64(9):  "alias-1",
+			int64(10): releaseRoot[:],
+			int64(11): bindingRoot[:],
+			int64(12): deviceDigest,
+			int64(13): []any{server.URL},
+			int64(14): []any{server.URL},
+			int64(15): []any{map[any]any{
+				int64(0): "logical-tree-manifest-v4",
+				int64(1): server.URL + "/v2/delivery/version-superseded/manifest",
+				int64(2): manifestDigest[:],
+			}},
+			int64(16): now,
+			int64(17): now,
+			int64(18): now + 300,
+			int64(19): "session-superseded",
+			int64(20): int64(300),
+			int64(21): "uninstall",
+		},
+	)
+	grant := signLifecycleContract(
+		t,
+		privateKey,
+		keyID,
+		packagecontract.DeliveryGrantPurpose,
+		map[any]any{
+			int64(0):  int64(2),
+			int64(1):  "grant-superseded",
+			int64(2):  server.URL,
+			int64(3):  server.URL,
+			int64(4):  "creator-1",
+			int64(5):  "buyer-1",
+			int64(6):  "product-1",
+			int64(7):  releaseRoot[:],
+			int64(8):  bindingRoot[:],
+			int64(9):  deviceDigest,
+			int64(10): now,
+			int64(11): now,
+			int64(12): now + 300,
+			int64(13): []any{"package:version-superseded:uninstall"},
+			int64(14): "session-superseded",
+		},
+	)
+	releaseRootHex := hex.EncodeToString(releaseRoot[:])
+	request, err := NewAuthorizedRequest(
+		OperationInput{
+			AliasID:                     "alias-1",
+			ApprovedActiveContentDigest: hex.EncodeToString(make([]byte, 32)),
+			ApprovedPolicyVersion:       "active-content-policy-v1",
+			ExpectedCurrentReleaseRoot:  releaseRootHex,
+			IdempotencyKey:              "uninstall-superseded",
+			Operation:                   "uninstall",
+			ProjectIdentity:             hex.EncodeToString(make([]byte, 32)),
+			ProjectPath:                 t.TempDir(),
+			RunID:                       "run-uninstall-superseded",
+			StateRoot:                   stateRoot,
+			TargetReleaseRoot:           releaseRootHex,
+			Traceparent: "00-0123456789abcdef0123456789abcdef-" +
+				"0123456789abcdef-01",
+		},
+		base64.RawURLEncoding.EncodeToString(session),
+		base64.RawURLEncoding.EncodeToString(grant),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthorizedRequest() error = %v", err)
+	}
+
+	result, err := Execute(
+		context.Background(),
+		request,
+		identity,
+		trust.Document{
+			PackageInstall: trust.Authority{
+				KeyID:     keyID,
+				PublicKey: privateKey.Public().(ed25519.PublicKey),
+			},
+		},
+		nil,
+	)
+
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if payloadReads.Load() != 0 ||
+		result.JournalState != "authorized" ||
+		result.VersionID != "version-superseded" {
+		t.Fatalf("Execute() = %#v, payload reads = %d", result, payloadReads.Load())
 	}
 }
 

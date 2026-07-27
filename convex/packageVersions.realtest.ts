@@ -791,7 +791,7 @@ describe('packageVersions', () => {
     expect(rows.find((row) => row.version === '1.0.0')?.state).toBe('SUPERSEDED');
   });
 
-  it('resolves an exact retained superseded version but rejects a deleted version', async () => {
+  it('keeps deleted installed identity while rejecting deleted downloads', async () => {
     const t = makeTestConvex();
     const packageId = 'com.yucp.rollback';
     const baseVersionId = '00000000-0000-4000-8000-000000000001';
@@ -840,6 +840,18 @@ describe('packageVersions', () => {
       releaseRoot: baseReleaseRoot,
     });
     expect(deleted).toBeNull();
+    const installed = await t.query(api.packageVersions.resolveInstalledVersion, {
+      apiSecret: 'test-secret',
+      actor,
+      editionId: 'standard',
+      packageId,
+      releaseRoot: baseReleaseRoot,
+    });
+    expect(installed).toMatchObject({
+      packageId,
+      state: 'DELETED',
+      versionId: baseVersionId,
+    });
   });
 
   it('deletes a base version without breaking the current update', async () => {

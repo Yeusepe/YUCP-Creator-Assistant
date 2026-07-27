@@ -232,7 +232,7 @@ export async function issuePackageInstallSession(
     releaseRoot,
     scopes: [
       ...(materializationJobId ? [`materialization:${materializationJobId}:read`] : []),
-      `package:${publication.versionId}:read`,
+      `package:${publication.versionId}:${input.operation === 'uninstall' ? 'uninstall' : 'read'}`,
     ].sort((left, right) => left.localeCompare(right)),
   };
 

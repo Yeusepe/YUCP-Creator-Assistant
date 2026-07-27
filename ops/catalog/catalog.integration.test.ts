@@ -1751,6 +1751,13 @@ describe.serial('PostgreSQL catalog integration', () => {
     const database = requireSql();
     const base = await createReadyVersion('managed-package', '1.0.0', 'a');
     const update = await createReadyVersion('managed-package', '1.1.0', 'b');
+    expect(
+      await activeCatalog.resolveInstalledVersion({
+        editionId: base.editionId,
+        packageId: base.packageId,
+        releaseRoot: base.releaseRoot as string,
+      })
+    ).toEqual(base);
 
     const deleted = await activeCatalog.deleteVersion(base.id, {
       editionId: base.editionId,
@@ -1775,6 +1782,20 @@ describe.serial('PostgreSQL catalog integration', () => {
       deleted,
       update,
     ]);
+    expect(
+      await activeCatalog.resolveReadyVersion({
+        editionId: base.editionId,
+        packageId: base.packageId,
+        releaseRoot: base.releaseRoot as string,
+      })
+    ).toBeNull();
+    expect(
+      await activeCatalog.resolveInstalledVersion({
+        editionId: base.editionId,
+        packageId: base.packageId,
+        releaseRoot: base.releaseRoot as string,
+      })
+    ).toEqual(deleted);
 
     const repeated = await activeCatalog.deleteVersion(base.id, {
       editionId: base.editionId,

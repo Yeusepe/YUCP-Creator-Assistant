@@ -802,6 +802,30 @@ export class Catalog {
     return rows[0] ? toPackageVersion(rows[0]) : null;
   }
 
+  async resolveInstalledVersion(input: {
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+  }): Promise<PackageVersion | null> {
+    const rows = await this.sql<PackageVersionRow[]>`
+      SELECT *
+      FROM package_versions
+      WHERE package_id = ${input.packageId}
+        AND edition_id = ${input.editionId}
+        AND release_root = ${input.releaseRoot}
+        AND state IN ('READY', 'DELETED')
+        AND release_schema_version = 4
+      ORDER BY created_at DESC, id DESC
+      LIMIT 2
+    `;
+    if (rows.length > 1) {
+      throw new CatalogInvariantError(
+        'Release root resolves to multiple installed package versions'
+      );
+    }
+    return rows[0] ? toPackageVersion(rows[0]) : null;
+  }
+
   async listVersions(
     packageId: string,
     options: { editionId?: string; includeDeleted?: boolean } = {}

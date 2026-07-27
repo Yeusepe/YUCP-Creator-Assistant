@@ -228,11 +228,11 @@ describe('issuePackageInstallSession', () => {
         deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
         issuer,
         now: now + 1,
-        requiredScope: 'package:version-jammr-123:read',
+        requiredScope: 'package:version-jammr-123:uninstall',
       },
     });
 
     expect(issued).not.toHaveProperty('materializationJobId');
-    expect(grant.scopes).toEqual(['package:version-jammr-123:read']);
+    expect(grant.scopes).toEqual(['package:version-jammr-123:uninstall']);
   });
 });

@@ -295,6 +295,15 @@ func ValidateInstallAuthorization(
 		!bytes.Equal(session.DeviceKeyThumbprint[:], grant.DeviceKeyThumbprint[:]) {
 		return fmt.Errorf("package install authorization binding is invalid")
 	}
+	if session.Operation == "uninstall" {
+		if grant.UninstallVersionID() == "" ||
+			grant.PackageVersionID() != "" ||
+			grant.MaterializationJobID() != "" {
+			return fmt.Errorf("package uninstall authorization scope is invalid")
+		}
+	} else if grant.PackageVersionID() == "" || grant.UninstallVersionID() != "" {
+		return fmt.Errorf("package install authorization scope is invalid")
+	}
 	return nil
 }
 
@@ -310,14 +319,35 @@ func (grant DeliveryGrant) MaterializationJobID() string {
 }
 
 func (grant DeliveryGrant) PackageVersionID() string {
-	const prefix = "package:"
-	const suffix = ":read"
-	for _, scope := range grant.Scopes {
-		if strings.HasPrefix(scope, prefix) && strings.HasSuffix(scope, suffix) {
-			return strings.TrimSuffix(strings.TrimPrefix(scope, prefix), suffix)
+	return scopedIdentifier(grant.Scopes, "package:", ":read")
+}
+
+func (grant DeliveryGrant) UninstallVersionID() string {
+	return scopedIdentifier(grant.Scopes, "package:", ":uninstall")
+}
+
+func (grant DeliveryGrant) BoundPackageVersionID() string {
+	if versionID := grant.PackageVersionID(); versionID != "" {
+		return versionID
+	}
+	return grant.UninstallVersionID()
+}
+
+func scopedIdentifier(scopes []string, prefix string, suffix string) string {
+	var identifier string
+	for _, scope := range scopes {
+		if !strings.HasPrefix(scope, prefix) {
+			continue
+		}
+		if identifier != "" || !strings.HasSuffix(scope, suffix) {
+			return ""
+		}
+		identifier = strings.TrimSuffix(strings.TrimPrefix(scope, prefix), suffix)
+		if identifier == "" {
+			return ""
 		}
 	}
-	return ""
+	return identifier
 }
 
 func validateInstallSession(session InstallSession) error {

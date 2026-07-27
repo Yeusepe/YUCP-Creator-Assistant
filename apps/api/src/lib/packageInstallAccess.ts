@@ -14,14 +14,19 @@ export interface PackageInstallAccessConfig {
 }
 
 export interface PackageInstallPublicationAuthority {
+  resolveInstalledVersion(input: {
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+  }): Promise<AuthoritativePackageVersion | null>;
   resolveReadyVersion(input: {
     editionId: string;
     packageId: string;
     releaseRoot: string;
-  }): Promise<AuthoritativeReadyVersion | null>;
+  }): Promise<AuthoritativePackageVersion | null>;
 }
 
-export interface AuthoritativeReadyVersion {
+export interface AuthoritativePackageVersion {
   activeContentDigest: string | null;
   activePolicyVersion: string | null;
   bindingRoot: string | null;
@@ -106,7 +111,7 @@ function canonicalJson(value: unknown): string {
 
 function publicationMatchesAuthority(
   published: PublishedVersion,
-  authoritative: AuthoritativeReadyVersion
+  authoritative: AuthoritativePackageVersion
 ): boolean {
   return (
     authoritative.activeContentDigest === published.activeContentDigest &&
@@ -123,6 +128,78 @@ function publicationMatchesAuthority(
     authoritative.version === published.version &&
     canonicalJson(authoritative.protectedFiles) === canonicalJson(published.protectedFiles)
   );
+}
+
+function completePublishedVersion(
+  published: PublishedVersion | null
+): published is PublishedVersion &
+  Required<
+    Pick<
+      PublishedVersion,
+      | 'activeContentDigest'
+      | 'activePolicyVersion'
+      | 'bindingRoot'
+      | 'commonRoot'
+      | 'logicalBytes'
+      | 'logicalFiles'
+      | 'manifestSha256'
+      | 'protectedFiles'
+      | 'protectedSourceRoot'
+      | 'protectionPolicyDigest'
+      | 'protectionPolicyId'
+      | 'releaseRoot'
+    >
+  > {
+  return Boolean(
+    published?.activeContentDigest &&
+      published.activePolicyVersion &&
+      published.bindingRoot &&
+      published.commonRoot &&
+      published.manifestSha256 &&
+      published.protectedFiles &&
+      published.protectedSourceRoot &&
+      published.protectionPolicyDigest &&
+      published.protectionPolicyId &&
+      published.releaseRoot &&
+      Number.isSafeInteger(published.logicalBytes) &&
+      (published.logicalBytes ?? -1) >= 0 &&
+      Number.isSafeInteger(published.logicalFiles) &&
+      (published.logicalFiles ?? 0) > 0
+  );
+}
+
+function authorizedPublication(
+  group: PackageInstallProductGroup,
+  published: PublishedVersion | null,
+  authoritative: AuthoritativePackageVersion | null
+) {
+  if (
+    !completePublishedVersion(published) ||
+    !authoritative ||
+    !publicationMatchesAuthority(published, authoritative)
+  ) {
+    return null;
+  }
+  return {
+    aliasId: group.aliasId,
+    activeContentDigest: published.activeContentDigest,
+    activePolicyVersion: published.activePolicyVersion,
+    bindingRoot: published.bindingRoot,
+    commonRoot: published.commonRoot,
+    catalogProductIds: group.catalogProductIds,
+    creatorId: group.creatorId,
+    logicalBytes: published.logicalBytes,
+    logicalFiles: published.logicalFiles,
+    manifestSha256: published.manifestSha256,
+    packageId: published.packageId,
+    protectedFiles: published.protectedFiles,
+    protectedSourceRoot: published.protectedSourceRoot,
+    protectionPolicyDigest: published.protectionPolicyDigest,
+    protectionPolicyId: published.protectionPolicyId,
+    releaseRoot: published.releaseRoot,
+    version: published.version,
+    versionId: authoritative.id,
+  };
 }
 
 export function createConvexPackageInstallAccess(
@@ -176,23 +253,7 @@ export function createConvexPackageInstallAccess(
         packageId: group.packageId,
         ...(targetReleaseRoot ? { releaseRoot: targetReleaseRoot } : {}),
       })) as PublishedVersion | null;
-      if (
-        !published ||
-        !published.activeContentDigest ||
-        !published.activePolicyVersion ||
-        !published.bindingRoot ||
-        !published.commonRoot ||
-        !published.manifestSha256 ||
-        !published.protectedFiles ||
-        !published.protectedSourceRoot ||
-        !published.protectionPolicyDigest ||
-        !published.protectionPolicyId ||
-        !published.releaseRoot ||
-        !Number.isSafeInteger(published.logicalBytes) ||
-        (published.logicalBytes ?? -1) < 0 ||
-        !Number.isSafeInteger(published.logicalFiles) ||
-        (published.logicalFiles ?? 0) <= 0
-      ) {
+      if (!completePublishedVersion(published)) {
         return null;
       }
       const authoritative = await config.publicationAuthority.resolveReadyVersion({
@@ -200,29 +261,27 @@ export function createConvexPackageInstallAccess(
         packageId: group.packageId,
         releaseRoot: published.releaseRoot,
       });
-      if (!authoritative || !publicationMatchesAuthority(published, authoritative)) {
+      return authorizedPublication(group, published, authoritative);
+    },
+
+    async resolveInstalledRelease(group, editionId, releaseRoot) {
+      const { actor, convex } = await serviceClient();
+      const published = (await convex.query(api.packageVersions.resolveInstalledVersion, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        editionId,
+        packageId: group.packageId,
+        releaseRoot,
+      })) as PublishedVersion | null;
+      if (!completePublishedVersion(published) || published.releaseRoot !== releaseRoot) {
         return null;
       }
-      return {
-        aliasId: group.aliasId,
-        activeContentDigest: published.activeContentDigest,
-        activePolicyVersion: published.activePolicyVersion,
-        bindingRoot: published.bindingRoot,
-        commonRoot: published.commonRoot,
-        catalogProductIds: group.catalogProductIds,
-        creatorId: group.creatorId,
-        logicalBytes: published.logicalBytes as number,
-        logicalFiles: published.logicalFiles as number,
-        manifestSha256: published.manifestSha256,
-        packageId: published.packageId,
-        protectedFiles: published.protectedFiles,
-        protectedSourceRoot: published.protectedSourceRoot,
-        protectionPolicyDigest: published.protectionPolicyDigest,
-        protectionPolicyId: published.protectionPolicyId,
-        releaseRoot: published.releaseRoot,
-        version: published.version,
-        versionId: authoritative.id,
-      };
+      const authoritative = await config.publicationAuthority.resolveInstalledVersion({
+        editionId,
+        packageId: group.packageId,
+        releaseRoot,
+      });
+      return authorizedPublication(group, published, authoritative);
     },
   };
 }

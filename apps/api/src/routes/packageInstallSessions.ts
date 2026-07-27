@@ -58,6 +58,11 @@ export interface PackageInstallAccessPort {
     buyerId: string,
     group: PackageInstallProductGroup
   ): Promise<string | null>;
+  resolveInstalledRelease(
+    group: PackageInstallProductGroup,
+    editionId: string,
+    releaseRoot: string
+  ): Promise<PackageInstallPublication | null>;
   resolveProductGroup(aliasId: string): Promise<PackageInstallProductGroup | null>;
   resolvePublication(
     group: PackageInstallProductGroup,
@@ -332,6 +337,16 @@ function normalizeOperationBody(
   if (!expectedCurrentReleaseRoot) {
     throw new RequestBodyError('expectedCurrentReleaseRoot is required', 400);
   }
+  const targetReleaseRoot = optionalDigest(body.targetReleaseRoot, 'targetReleaseRoot');
+  if (
+    body.operation === 'uninstall' &&
+    (!targetReleaseRoot || targetReleaseRoot !== expectedCurrentReleaseRoot)
+  ) {
+    throw new RequestBodyError(
+      'uninstall targetReleaseRoot must match expectedCurrentReleaseRoot',
+      400
+    );
+  }
   if (body.operation === 'preflight') {
     if (approvedActiveContentDigest || approvedPolicyVersion) {
       throw new RequestBodyError('preflight must not include content approval', 400);
@@ -354,9 +369,7 @@ function normalizeOperationBody(
       (() => {
         throw new RequestBodyError('projectIdentity is required', 400);
       })(),
-    ...(optionalDigest(body.targetReleaseRoot, 'targetReleaseRoot')
-      ? { targetReleaseRoot: body.targetReleaseRoot as string }
-      : {}),
+    ...(targetReleaseRoot ? { targetReleaseRoot } : {}),
     traceparent: body.traceparent,
   };
 }
@@ -449,11 +462,21 @@ function deterministicInstallIdentifier(
   return `${prefix}-${digest.digest('hex').slice(0, 48)}`;
 }
 
-function packageVersionScope(grant: ReturnType<typeof decodeDeliveryGrantV2>): string | null {
-  const versions = grant.scopes
-    .filter((scope) => scope.startsWith('package:') && scope.endsWith(':read'))
-    .map((scope) => scope.slice('package:'.length, -':read'.length));
-  return versions.length === 1 && versions[0] ? versions[0] : null;
+function packageVersionScope(
+  grant: ReturnType<typeof decodeDeliveryGrantV2>,
+  operation: InstallSessionOperation
+): string | null {
+  const suffix = operation === 'uninstall' ? ':uninstall' : ':read';
+  const packageScopes = grant.scopes.filter((scope) => scope.startsWith('package:'));
+  if (packageScopes.length !== 1) {
+    return null;
+  }
+  const scope = packageScopes[0];
+  if (!scope?.endsWith(suffix)) {
+    return null;
+  }
+  const versionId = scope.slice('package:'.length, -suffix.length);
+  return versionId || null;
 }
 
 function materializationJobScope(
@@ -506,13 +529,30 @@ async function resolveAuthorizedPublication(input: {
       ),
     };
   }
-  const publication = await input.accessPort.resolvePublication(
-    group,
-    entitledEditionId,
-    input.operation.targetReleaseRoot
-  );
+  const publication =
+    input.operation.operation === 'uninstall'
+      ? await input.accessPort.resolveInstalledRelease(
+          group,
+          entitledEditionId,
+          input.operation.targetReleaseRoot as string
+        )
+      : await input.accessPort.resolvePublication(
+          group,
+          entitledEditionId,
+          input.operation.targetReleaseRoot
+        );
   if (!publication) {
-    return { response: jsonNoStore({ error: 'Product is not yet published' }, 404) };
+    return {
+      response: jsonNoStore(
+        {
+          error:
+            input.operation.operation === 'uninstall'
+              ? 'Installed package release is unavailable'
+              : 'Product is not yet published',
+        },
+        404
+      ),
+    };
   }
   if (
     input.operation.operation !== 'preflight' &&
@@ -811,7 +851,7 @@ export function createPackageInstallSessionRoute(
     if (requiresMaterialization && !options.materializationControl) {
       return jsonNoStore({ error: 'Protected materialization is not configured' }, 503);
     }
-    if (!requiresMaterialization && !options.releasePins) {
+    if (!requiresMaterialization && input.operation !== 'uninstall' && !options.releasePins) {
       return jsonNoStore({ error: 'Package delivery retention is not configured' }, 503);
     }
     const identityFields = [
@@ -906,7 +946,7 @@ export function createPackageInstallSessionRoute(
       return jsonNoStore({ error: 'Persisted package operation outcome is invalid' }, 500);
     }
     let deliveryPinId: string | undefined;
-    if (exchange.status === 'claimed' && options.releasePins) {
+    if (exchange.status === 'claimed' && input.operation !== 'uninstall' && options.releasePins) {
       try {
         const pin = await options.releasePins.acquireReleasePin({
           expiresAt: new Date(
@@ -1053,7 +1093,7 @@ export function createPackageInstallSessionRenewalRoute(
         403
       );
     }
-    const versionId = packageVersionScope(grant);
+    const versionId = packageVersionScope(grant, session.operation);
     if (
       !versionId ||
       session.buyerId !== authentication.buyerId ||
@@ -1110,11 +1150,15 @@ export function createPackageInstallSessionRenewalRoute(
         403
       );
     }
-    const publication = await options.accessPort.resolvePublication(
-      group,
-      entitledEditionId,
-      Buffer.from(session.releaseRoot).toString('hex')
-    );
+    const sessionReleaseRoot = Buffer.from(session.releaseRoot).toString('hex');
+    const publication =
+      session.operation === 'uninstall'
+        ? await options.accessPort.resolveInstalledRelease(
+            group,
+            entitledEditionId,
+            sessionReleaseRoot
+          )
+        : await options.accessPort.resolvePublication(group, entitledEditionId, sessionReleaseRoot);
     if (
       !publication ||
       publication.versionId !== versionId ||
@@ -1230,7 +1274,7 @@ export function createPackageInstallSessionRenewalRoute(
     if (exchange.status === 'ready' && exchange.grantTokenSha256 !== grantTokenSha256) {
       return jsonNoStore({ error: 'Persisted package renewal outcome is invalid' }, 500);
     }
-    if (options.releasePins) {
+    if (session.operation !== 'uninstall' && options.releasePins) {
       try {
         await options.releasePins.acquireReleasePin({
           expiresAt: new Date(

@@ -549,6 +549,46 @@ export const resolveDownloadableVersion = query({
   },
 });
 
+export const resolveInstalledVersion = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    catalogProductId: v.optional(v.id('product_catalog')),
+    packageId: v.optional(v.string()),
+    editionId: v.optional(v.string()),
+    channel: v.optional(v.string()),
+    releaseRoot: v.string(),
+  },
+  handler: async (ctx, args): Promise<Doc<'package_versions_ref'> | null> => {
+    requireApiSecret(args.apiSecret);
+    await requireServiceActor(args.actor, ['downloads:service']);
+
+    const scope = await resolveDownloadScope(ctx, args);
+    if (!scope) {
+      return null;
+    }
+    const channel = args.channel ?? DEFAULT_CHANNEL;
+    const matches = await Promise.all(
+      (['READY', 'SUPERSEDED', 'DELETED'] as const).map(
+        async (state) =>
+          await ctx.db
+            .query('package_versions_ref')
+            .withIndex('by_release_package_edition_channel_state', (q) =>
+              q
+                .eq('releaseRoot', args.releaseRoot)
+                .eq('packageId', scope.packageId)
+                .eq('editionId', scope.editionId)
+                .eq('channel', channel)
+                .eq('state', state)
+            )
+            .take(2)
+      )
+    );
+    const exactMatches = matches.flat();
+    return exactMatches.length === 1 ? (exactMatches[0] ?? null) : null;
+  },
+});
+
 export const resolvePublicBootstrapPresentation = query({
   args: {
     apiSecret: v.string(),

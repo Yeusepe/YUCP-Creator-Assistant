@@ -68,29 +68,31 @@ function productGroup(): PackageInstallProductGroup {
 }
 
 function accessPort(overrides: Partial<PackageInstallAccessPort> = {}): PackageInstallAccessPort {
+  const publication = async () => ({
+    activeContentDigest: '66'.repeat(32),
+    activePolicyVersion: 'active-content-policy-v1',
+    aliasId: 'jammr',
+    bindingRoot: '22'.repeat(32),
+    catalogProductIds: ['catalog-jammr-gumroad', 'catalog-jammr-jinxxy'],
+    commonRoot: '77'.repeat(32),
+    creatorId: 'creator-1',
+    logicalBytes: 42_000,
+    logicalFiles: 12,
+    manifestSha256: '33'.repeat(32),
+    packageId: 'com.yucp.jammr',
+    protectedFiles: [],
+    protectedSourceRoot: '88'.repeat(32),
+    protectionPolicyDigest: '99'.repeat(32),
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+    releaseRoot: '11'.repeat(32),
+    version: '1.2.3',
+    versionId: 'version-jammr-123',
+  });
   return {
     resolveProductGroup: mock(async () => productGroup()),
     resolveEntitledEdition: mock(async () => 'commercial'),
-    resolvePublication: mock(async () => ({
-      activeContentDigest: '66'.repeat(32),
-      activePolicyVersion: 'active-content-policy-v1',
-      aliasId: 'jammr',
-      bindingRoot: '22'.repeat(32),
-      catalogProductIds: ['catalog-jammr-gumroad', 'catalog-jammr-jinxxy'],
-      commonRoot: '77'.repeat(32),
-      creatorId: 'creator-1',
-      logicalBytes: 42_000,
-      logicalFiles: 12,
-      manifestSha256: '33'.repeat(32),
-      packageId: 'com.yucp.jammr',
-      protectedFiles: [],
-      protectedSourceRoot: '88'.repeat(32),
-      protectionPolicyDigest: '99'.repeat(32),
-      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
-      releaseRoot: '11'.repeat(32),
-      version: '1.2.3',
-      versionId: 'version-jammr-123',
-    })),
+    resolveInstalledRelease: mock(publication),
+    resolvePublication: mock(publication),
     ...overrides,
   };
 }
@@ -155,7 +157,9 @@ async function requestBody(
       buyerId: 'buyer-1',
       capabilityId: `operation-${'77'.repeat(24)}`,
       deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
-      expectedCurrentReleaseRoot: Uint8Array.from(Buffer.from(emptyReleaseRoot, 'hex')),
+      expectedCurrentReleaseRoot: Uint8Array.from(
+        Buffer.from(base.expectedCurrentReleaseRoot as string, 'hex')
+      ),
       expiresAt: capabilityOverrides.expiresAt ?? now + 240,
       idempotencyKey: base.idempotencyKey as string,
       issuedAt: capabilityOverrides.issuedAt ?? now,
@@ -279,6 +283,132 @@ describe('package install session route', () => {
       buyerId: 'buyer-1',
       operation: 'install',
     });
+  });
+
+  test('authorizes uninstall from retained installed-release identity', async () => {
+    const retainedPublication = await accessPort().resolvePublication(productGroup(), 'commercial');
+    if (!retainedPublication) {
+      throw new Error('test publication is unavailable');
+    }
+    const resolvePublication = mock(async () => null);
+    const resolveInstalledRelease = mock(async () => retainedPublication);
+    const port = accessPort({ resolvePublication });
+    Object.assign(port, { resolveInstalledRelease });
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const { operationCapability: _unused, ...operation } = await requestBody({
+      expectedCurrentReleaseRoot: retainedPublication.releaseRoot,
+      operation: 'uninstall',
+      targetReleaseRoot: retainedPublication.releaseRoot,
+    });
+
+    const response = await handler(request(operation));
+
+    expect(response.status).toBe(201);
+    expect(resolveInstalledRelease).toHaveBeenCalledWith(
+      productGroup(),
+      'commercial',
+      retainedPublication.releaseRoot
+    );
+    expect(resolvePublication).not.toHaveBeenCalled();
+  });
+
+  test('issues uninstall authorization without package read or release retention', async () => {
+    const retainedPublication = await accessPort().resolvePublication(productGroup(), 'commercial');
+    if (!retainedPublication) {
+      throw new Error('test publication is unavailable');
+    }
+    const resolvePublication = mock(async () => null);
+    const resolveInstalledRelease = mock(async () => retainedPublication);
+    const port = accessPort({ resolvePublication });
+    Object.assign(port, { resolveInstalledRelease });
+    const acquireReleasePin = mock(async () => ({ pinId: 'must-not-pin' }));
+    const handler = createPackageInstallSessionRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      releasePins: {
+        acquireReleasePin,
+        releaseReleasePin: async () => undefined,
+      },
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+
+    const response = await handler(
+      request(
+        await requestBody({
+          expectedCurrentReleaseRoot: retainedPublication.releaseRoot,
+          operation: 'uninstall',
+          targetReleaseRoot: retainedPublication.releaseRoot,
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    const grant = await verifyDeliveryGrantV2({
+      context: {
+        audience,
+        deviceKeyThumbprint: Buffer.from(deviceKeyThumbprint, 'hex'),
+        issuer,
+        now: Math.floor(Date.now() / 1_000),
+        requiredScope: `package:${retainedPublication.versionId}:uninstall`,
+      },
+      coseSign1: Buffer.from(body.deliveryGrant, 'base64url'),
+      expectedKeyId: packageContractKeyId(keyId),
+      publicKey,
+    });
+    expect(grant.scopes).not.toContain(`package:${retainedPublication.versionId}:read`);
+    expect(acquireReleasePin).not.toHaveBeenCalled();
+    expect(resolvePublication).not.toHaveBeenCalled();
+  });
+
+  test('rejects uninstall when the installed and target release roots differ', async () => {
+    const port = accessPort();
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: port,
+      authorizationPort: defaultAuthorizationPort,
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const { operationCapability: _unused, ...operation } = await requestBody({
+      expectedCurrentReleaseRoot: '12'.repeat(32),
+      operation: 'uninstall',
+      targetReleaseRoot: '11'.repeat(32),
+    });
+
+    const response = await handler(request(operation));
+
+    expect(response.status).toBe(400);
+    expect(port.resolveProductGroup).not.toHaveBeenCalled();
   });
 
   test('returns the persisted capability when a completed exchange response was lost', async () => {
@@ -421,6 +551,86 @@ describe('package install session route', () => {
       grantId: 'grant-initial',
       installSessionId: 'session-renewable',
     });
+  });
+
+  test('renews deleted-release uninstall identity without package read scope', async () => {
+    const publication = await accessPort().resolvePublication(productGroup(), 'commercial');
+    if (!publication) {
+      throw new Error('test publication is unavailable');
+    }
+    const initial = await issuePackageInstallSession({
+      audience,
+      buyerId: 'buyer-1',
+      deliveryGrantId: 'grant-uninstall',
+      deviceKeyThumbprint,
+      issuer,
+      keyId,
+      now: Math.floor(Date.now() / 1_000) - 301,
+      operation: 'uninstall',
+      privateKey,
+      publication,
+      sessionId: 'session-uninstall',
+    });
+    const resolvePublication = mock(async () => null);
+    const resolveInstalledRelease = mock(async () => publication);
+    const handler = createPackageInstallSessionRenewalRoute({
+      accessPort: accessPort({ resolveInstalledRelease, resolvePublication }),
+      authorizationPort: {
+        ...defaultAuthorizationPort,
+        beginRenewal: async () => ({
+          capabilityId: `operation-${'77'.repeat(24)}`,
+          generation: 1,
+          grantId: 'grant-uninstall',
+          issuedAt: new Date(),
+          renewableUntil: new Date(Date.now() + 60 * 60 * 1_000),
+          status: 'claimed',
+        }),
+      },
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+
+    const response = await handler(
+      new Request(`${issuer}/api/v2/package-installs/renewals`, {
+        body: JSON.stringify({
+          deliveryGrant: Buffer.from(initial.deliveryGrant).toString('base64url'),
+          installSession: Buffer.from(initial.installSession).toString('base64url'),
+          traceparent,
+        }),
+        headers: {
+          Authorization: 'DPoP valid-oauth-token',
+          'Content-Type': 'application/json',
+          DPoP: 'signed-proof',
+        },
+        method: 'POST',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    const grant = await verifyDeliveryGrantV2({
+      context: {
+        audience,
+        deviceKeyThumbprint: Buffer.from(deviceKeyThumbprint, 'hex'),
+        issuer,
+        now: Math.floor(Date.now() / 1_000),
+        requiredScope: `package:${publication.versionId}:uninstall`,
+      },
+      coseSign1: Buffer.from(body.deliveryGrant, 'base64url'),
+      expectedKeyId: packageContractKeyId(keyId),
+      publicKey,
+    });
+    expect(grant.scopes).not.toContain(`package:${publication.versionId}:read`);
+    expect(resolveInstalledRelease).toHaveBeenCalled();
+    expect(resolvePublication).not.toHaveBeenCalled();
   });
 
   test('rejects a valid DPoP token when the broker proof header is missing', async () => {
