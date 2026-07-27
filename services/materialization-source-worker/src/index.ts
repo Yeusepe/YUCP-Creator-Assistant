@@ -5,6 +5,7 @@ import {
   parseDeliveryManifest,
 } from '../../../ops/storage-core/deliveryManifest';
 import { verifyDpopProof } from '../../../ops/storage-core/dpop';
+import { BoundedDpopReplayCache } from '../../../ops/storage-core/dpopReplayCache';
 import {
   type DeliveryGrantV2,
   packageContractKeyId,
@@ -46,6 +47,14 @@ const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_SOURCE_CHUNKS = 100_000;
 const MAX_CHUNK_BYTES = 1024 * 1024;
 const ORIGIN_TIMEOUT_MS = 30_000;
+const MAX_DPOP_REPLAY_ENTRIES = 8_192;
+const DPOP_REPLAY_SWEEP_LIMIT = 128;
+const DPOP_REPLAY_WINDOW_MS = 5 * 60 * 1_000;
+// This bounded module cache is same-isolate abuse detection, not cross-region security truth.
+const dpopReplayCache = new BoundedDpopReplayCache({
+  maxEntries: MAX_DPOP_REPLAY_ENTRIES,
+  sweepLimit: DPOP_REPLAY_SWEEP_LIMIT,
+});
 
 type BindingName = (typeof REQUIRED_BINDINGS)[number];
 type S3ReadRole = {
@@ -321,7 +330,7 @@ async function authorize(input: {
     proof,
     url: input.request.url,
   });
-  return verifyDeliveryGrantV2({
+  const verifiedGrant = await verifyDeliveryGrantV2({
     context: {
       audience: input.config.materializationSourceAudience,
       deviceKeyThumbprint: verifiedProof.thumbprint,
@@ -333,6 +342,24 @@ async function authorize(input: {
     expectedKeyId: packageContractKeyId(input.config.deliveryGrantKeyId),
     publicKey: decodeBase64Url(input.config.deliveryGrantPublicKey, 'DELIVERY_GRANT_PUBLIC_KEY'),
   });
+  const thumbprint = bytesToBase64Url(verifiedProof.thumbprint);
+  if (
+    !dpopReplayCache.reserve({
+      expiresAtMs: Math.min(verifiedGrant.expiresAt * 1_000, Date.now() + DPOP_REPLAY_WINDOW_MS),
+      key: `${thumbprint.length}:${thumbprint}${verifiedProof.jti}`,
+    })
+  ) {
+    throw new HttpError(403, 'Forbidden');
+  }
+  return verifiedGrant;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let value = '';
+  for (const byte of bytes) {
+    value += String.fromCharCode(byte);
+  }
+  return btoa(value).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 function bytesToHex(bytes: Uint8Array): string {

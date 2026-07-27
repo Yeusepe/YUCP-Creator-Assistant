@@ -47,6 +47,7 @@ function proofThumbprint(publicKey: KeyObject): Uint8Array {
 
 function createProof(input: {
   accessToken: string;
+  jti?: string;
   privateKey: KeyObject;
   publicKey: KeyObject;
   url: string;
@@ -61,7 +62,7 @@ function createProof(input: {
     htm: 'GET',
     htu: input.url,
     iat: Math.floor(Date.now() / 1_000),
-    jti: randomUUID(),
+    jti: input.jti ?? randomUUID(),
   });
   const signature = sign('sha256', Buffer.from(`${header}.${payload}`, 'ascii'), {
     dsaEncoding: 'ieee-p1363',
@@ -133,6 +134,7 @@ function protectedManifest(
 
 async function createAuthorization(input: {
   bindingRoot: string;
+  proofJti?: string;
   releaseRoot: string;
   url: string;
   versionId: string;
@@ -165,6 +167,7 @@ async function createAuthorization(input: {
     Authorization: `DPoP ${grant}`,
     DPoP: createProof({
       accessToken: grant,
+      ...(input.proofJti ? { jti: input.proofJti } : {}),
       privateKey: proofKey.privateKey,
       publicKey: proofKey.publicKey,
       url: input.url,
@@ -299,5 +302,37 @@ describe('materialization source Worker', () => {
     expect(response.status).toBe(403);
     expect(response.headers.get('x-delivery-storage-fetches')).toBe('0');
     expect(storageFetches).toBe(0);
+  });
+
+  it('rejects a replayed DPoP proof before a second source storage read', async () => {
+    const versionId = randomUUID();
+    const chunkBytes = new TextEncoder().encode('replay-protected chunk');
+    const fixture = protectedManifest(versionId, chunkBytes);
+    const url = `https://source.example.test/v2/internal/materialization-sources/${versionId}/manifest`;
+    let storageFetches = 0;
+    globalThis.fetch = mock(async () => {
+      storageFetches += 1;
+      return new Response(fixture.body, {
+        headers: {
+          'Content-Length': String(Buffer.byteLength(fixture.body)),
+          'Content-Type': 'application/json',
+        },
+      });
+    }) as unknown as typeof fetch;
+    const headers = await createAuthorization({
+      bindingRoot: fixture.bindingRoot,
+      proofJti: 'replayed-materialization-source-proof',
+      releaseRoot: fixture.manifest.releaseRoot,
+      url,
+      versionId,
+    });
+
+    const first = await worker.fetch(new Request(url, { headers }), await testEnv());
+    const replay = await worker.fetch(new Request(url, { headers }), await testEnv());
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(403);
+    expect(replay.headers.get('x-delivery-storage-fetches')).toBe('0');
+    expect(storageFetches).toBe(1);
   });
 });
