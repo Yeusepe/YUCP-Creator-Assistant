@@ -1088,7 +1088,12 @@ describe('package install session route', () => {
       productId: 'com.yucp.jammr',
       sourceVersionId: 'version-jammr-123',
     });
-    expect(acquireReleasePin).not.toHaveBeenCalled();
+    expect(acquireReleasePin).toHaveBeenCalledTimes(1);
+    expect(acquireReleasePin.mock.calls[0]?.[0]).toMatchObject({
+      ownerId: expect.stringMatching(/^session-/),
+      packageVersionId: 'version-jammr-123',
+      pinKind: 'delivery-binding',
+    });
     expect(releaseReleasePin).not.toHaveBeenCalled();
     expect(createJob.mock.calls[0]?.[0]).not.toHaveProperty('protectedFiles');
     const signedGrant = await verifyDeliveryGrantV2({
@@ -1182,8 +1187,11 @@ describe('package install session route', () => {
     expect(second.status).toBe(200);
     expect(releaseExchange).toHaveBeenCalledTimes(1);
     expect(completeExchange).toHaveBeenCalledTimes(1);
-    expect(acquireReleasePin).not.toHaveBeenCalled();
-    expect(releaseReleasePin).not.toHaveBeenCalled();
+    expect(acquireReleasePin).toHaveBeenCalledTimes(2);
+    expect(releaseReleasePin).toHaveBeenCalledTimes(1);
+    expect(releaseReleasePin).toHaveBeenCalledWith({
+      pinId: 'pin-materialization-failed',
+    });
   });
 
   test('issues metadata-only preflight without creating a protected materialization job', async () => {

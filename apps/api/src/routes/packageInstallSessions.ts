@@ -906,7 +906,7 @@ export function createPackageInstallSessionRoute(
       return jsonNoStore({ error: 'Persisted package operation outcome is invalid' }, 500);
     }
     let deliveryPinId: string | undefined;
-    if (exchange.status === 'claimed' && !materializationJobId && options.releasePins) {
+    if (exchange.status === 'claimed' && options.releasePins) {
       try {
         const pin = await options.releasePins.acquireReleasePin({
           expiresAt: new Date(
@@ -946,6 +946,9 @@ export function createPackageInstallSessionRoute(
           traceparent: input.traceparent,
         });
       } catch {
+        if (deliveryPinId && options.releasePins) {
+          await options.releasePins.releaseReleasePin({ pinId: deliveryPinId });
+        }
         await options.authorizationPort.releaseExchange({
           capabilityId: capability.capabilityId,
           generation: exchange.generation,
