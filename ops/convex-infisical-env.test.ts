@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { loadMaterializationControlClient } from '../apps/api/src/lib/materializationControlClient';
 import {
   loadPackageInstallerTufRepositoryConfig,
   type PackageInstallerTufRepositoryEnvironment,
@@ -76,5 +77,21 @@ describe('Convex Infisical prod helpers', () => {
       kind: 'exact-storage',
       repositoryId: 'package-installer',
     });
+  });
+
+  it('configures the protected-package materialization control plane for the production API', async () => {
+    const secretsTemplate = await readOpsFile('ops/infisical/secrets.template.yaml');
+    const environment = {
+      MATERIALIZATION_API_SHARED_SECRET: readTemplateValue(
+        secretsTemplate,
+        'MATERIALIZATION_API_SHARED_SECRET'
+      ),
+      MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: readTemplateValue(
+        secretsTemplate,
+        'MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL'
+      ),
+    };
+
+    expect(loadMaterializationControlClient(environment)).not.toBeNull();
   });
 });
