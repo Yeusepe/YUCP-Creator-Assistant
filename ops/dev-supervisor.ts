@@ -251,6 +251,12 @@ const DEFAULT_COMMANDS: readonly DevCommandSpec[] = [
   },
   { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
   {
+    name: 'storage-gc',
+    color: 'yellow',
+    command: 'bun run ops/gc/server.ts',
+    required: true,
+  },
+  {
     name: 'materialization-control',
     color: 'red',
     command: 'bun run --watch ops/materialization/server.ts',
@@ -274,6 +280,12 @@ const INFISICAL_COMMANDS: readonly DevCommandSpec[] = [
     env: { PORT: '3002' },
   },
   { name: 'scheduler', color: 'blue', command: 'bun run ops/scheduler/server.ts' },
+  {
+    name: 'storage-gc',
+    color: 'yellow',
+    command: 'bun run ops/gc/server.ts',
+    required: true,
+  },
   {
     name: 'materialization-control',
     color: 'red',

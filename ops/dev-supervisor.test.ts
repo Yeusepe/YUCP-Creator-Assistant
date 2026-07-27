@@ -530,6 +530,10 @@ describe('DevSupervisor', () => {
     expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
       command: 'bun run ops/scheduler/server.ts',
     });
+    expect(commands.find((command) => command.name === 'storage-gc')).toMatchObject({
+      command: 'bun run ops/gc/server.ts',
+      required: true,
+    });
     expect(commands.find((command) => command.name === 'materialization-control')).toMatchObject({
       command: 'bun run --watch ops/materialization/server.ts',
     });
