@@ -43,9 +43,11 @@ describe('self-hosted Convex CI workflow', () => {
     const main = deployGate.slice(deployGate.indexOf('async function main'));
     const ensureBackend = main.indexOf('await ensureRealBackendUp()');
     const deployLock = main.indexOf('await withSelfHostedConvexEnvFileMovedAside');
+    const deploymentPreflight = main.indexOf('await assertRequiredConvexDeploymentEnv');
 
     expect(ensureBackend).toBeGreaterThan(-1);
     expect(deployLock).toBeGreaterThan(ensureBackend);
+    expect(deploymentPreflight).toBeGreaterThan(deployLock);
   });
 
   it('blocks the real backend suite on a successful deploy', () => {

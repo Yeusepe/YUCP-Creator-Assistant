@@ -21,12 +21,12 @@ async function main(): Promise<void> {
   await ensureRealBackendUp();
   const env = selfHostedConvexEnv(await getRealBackendAdminKey());
   const requiredEnv = requiredConvexDeploymentEnvRequirements();
-  await assertRequiredConvexDeploymentEnv(env, requiredEnv);
-  console.log(
-    `Convex deployment required-env preflight passed (${requiredEnv.map((names) => names.join(' or ')).join(', ')}).`
-  );
-  ensureConvexDependenciesResolvable();
   await withSelfHostedConvexEnvFileMovedAside(async () => {
+    await assertRequiredConvexDeploymentEnv(env, requiredEnv);
+    console.log(
+      `Convex deployment required-env preflight passed (${requiredEnv.map((names) => names.join(' or ')).join(', ')}).`
+    );
+    ensureConvexDependenciesResolvable();
     await deploy(env);
   });
 }
