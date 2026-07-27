@@ -555,7 +555,7 @@ export function createPackageOperationAuthorizationRoute(
     });
     requestedRecord.tokenSha256 = createHash('sha256').update(candidateToken).digest('hex');
     const reservation = await options.authorizationPort.reserve(requestedRecord);
-    if (reservation.status === 'conflict' || reservation.status === 'consumed') {
+    if (reservation.status === 'conflict') {
       return jsonNoStore(
         {
           error: 'Package operation idempotency key is unavailable',

@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   DELIVERY_WORKER_BINDING_KEYS,
   getDeliveryWorkerBindingValues,
@@ -79,5 +81,20 @@ describe('cloudflare-web-config', () => {
         DELIVERY_WORKER_BINDING_KEYS.map((key) => [key, `placeholder-${key.toLowerCase()}`])
       )
     );
+  });
+
+  test('documents every role-specific delivery Worker binding in the Infisical inventory', () => {
+    const template = readFileSync(
+      resolve(import.meta.dir, 'infisical', 'secrets.template.yaml'),
+      'utf8'
+    );
+    const inventory = readFileSync(resolve(import.meta.dir, 'infisical', 'README.md'), 'utf8');
+
+    for (const key of DELIVERY_WORKER_BINDING_KEYS) {
+      expect(template).toContain(`${key}:`);
+      expect(inventory).toContain(key);
+    }
+    expect(inventory).not.toContain('CAS_S3_READONLY_ACCESS_KEY_ID');
+    expect(inventory).not.toContain('CAS_S3_READONLY_SECRET_ACCESS_KEY');
   });
 });

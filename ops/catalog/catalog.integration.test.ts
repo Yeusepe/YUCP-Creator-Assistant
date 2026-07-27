@@ -299,6 +299,48 @@ describe.serial('PostgreSQL catalog integration', () => {
     }
   });
 
+  it('returns the original consumed authorization for an exact operation retry', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const claimed = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    if (claimed.status !== 'claimed') {
+      throw new Error(`expected claimed exchange, received ${claimed.status}`);
+    }
+    expect(
+      await store.completeExchange({
+        capabilityId: record.capabilityId,
+        deliveryGrantId: 'grant-retry-1',
+        generation: claimed.generation,
+        sessionId: 'session-retry-1',
+        versionId: 'version-retry-1',
+      })
+    ).toBe(true);
+
+    const retried = await store.reserve(
+      operationAuthorizationRecord({
+        buyerId: record.buyerId,
+        capabilityId: `operation-${'ab'.repeat(24)}`,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        idempotencyKey: record.idempotencyKey,
+        oneUseNonce: 'bc'.repeat(32),
+        tokenSha256: 'cd'.repeat(32),
+      })
+    );
+
+    expect(retried.status).toBe('consumed');
+    expect(retried.record).toMatchObject({
+      capabilityId: record.capabilityId,
+      consumedAt: expect.any(Date),
+      tokenSha256: record.tokenSha256,
+    });
+  });
+
   it('reclaims released and expired exchange leases without losing authorization', async () => {
     const store = new PackageOperationAuthorizationStore(requireSql());
     const record = operationAuthorizationRecord();

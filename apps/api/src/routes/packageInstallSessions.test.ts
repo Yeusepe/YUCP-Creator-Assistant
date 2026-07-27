@@ -270,6 +270,49 @@ describe('package install session route', () => {
     });
   });
 
+  test('returns the persisted capability when a completed exchange response was lost', async () => {
+    let persistedRecord:
+      | Awaited<ReturnType<PackageOperationAuthorizationPort['reserve']>>['record']
+      | undefined;
+    const reserve = mock(
+      async (record: Parameters<PackageOperationAuthorizationPort['reserve']>[0]) => {
+        if (!persistedRecord) {
+          persistedRecord = record;
+          return { record, status: 'created' as const };
+        }
+        return { record: persistedRecord, status: 'consumed' as const };
+      }
+    );
+    const handler = createPackageOperationAuthorizationRoute({
+      accessPort: accessPort(),
+      authorizationPort: {
+        ...defaultAuthorizationPort,
+        reserve,
+      },
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const { operationCapability: _unused, ...operation } = await requestBody();
+
+    const firstResponse = await handler(request(operation));
+    const firstBody = (await firstResponse.json()) as Record<string, unknown>;
+    const retryResponse = await handler(request(operation));
+    const retryBody = (await retryResponse.json()) as Record<string, unknown>;
+
+    expect(firstResponse.status).toBe(201);
+    expect(retryResponse.status).toBe(200);
+    expect(retryBody).toEqual(firstBody);
+    expect(reserve).toHaveBeenCalledTimes(2);
+  });
+
   test('rejects a valid DPoP token when the broker proof header is missing', async () => {
     const port = accessPort();
     const verifyAccessRequest = mock(async () => ({

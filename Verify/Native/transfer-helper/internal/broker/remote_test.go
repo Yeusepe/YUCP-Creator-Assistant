@@ -124,6 +124,108 @@ func TestRemoteClientKeepsServerCapabilitiesInsideBroker(t *testing.T) {
 	}
 }
 
+func TestRemoteClientRecoversACompletedExchangeAfterTheFirstResponseIsLost(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	operation := OperationRequest{
+		AliasID:                     "jammr",
+		ApprovedActiveContentDigest: strings.Repeat("33", 32),
+		ApprovedPolicyVersion:       "active-content-policy-v1",
+		ExpectedCurrentReleaseRoot:  strings.Repeat("00", 32),
+		IdempotencyKey:              "install-jammr-retry-1",
+		Operation:                   "install",
+		ProjectIdentity:             strings.Repeat("22", 32),
+		ProjectPath:                 `C:\Unity\Project`,
+		RunID:                       "run-jammr-install-retry-1",
+		SchemaVersion:               OperationRequestSchemaVersion,
+		Traceparent:                 "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+	}
+	sessionRequests := 0
+	authorizationRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/api/v2/package-installs/authorizations":
+			authorizationRequests++
+			if authorizationRequests == 1 {
+				writer.WriteHeader(http.StatusCreated)
+			} else {
+				writer.WriteHeader(http.StatusOK)
+			}
+			_, _ = writer.Write([]byte(`{
+				"expiresAt":"2030-01-01T00:00:00Z",
+				"operationCapability":"persisted-operation-capability",
+				"releaseRoot":"` + strings.Repeat("11", 32) + `"
+			}`))
+		case "/api/v2/package-installs/sessions":
+			sessionRequests++
+			if sessionRequests == 1 {
+				writer.Header().Set("Content-Length", "2048")
+				_, _ = writer.Write([]byte(`{"deliveryGrant":"truncated`))
+				return
+			}
+			_, _ = writer.Write([]byte(`{
+				"deliveryGrant":"signed-delivery-grant",
+				"deliveryGrantPurpose":"delivery-grant-v2",
+				"installSession":"signed-install-session",
+				"installSessionPurpose":"install-session-v2",
+				"releaseRoot":"` + strings.Repeat("11", 32) + `",
+				"versionId":"version-jammr-1"
+			}`))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	client := RemoteClient{
+		APIBaseURL: server.URL,
+		HTTPClient: server.Client(),
+		Now:        func() time.Time { return time.Unix(1_000, 0) },
+	}
+	tokens := OAuthTokens{
+		AccessToken:  "access-token",
+		ExpiresAt:    time.Unix(1_300, 0),
+		RefreshToken: "refresh-token",
+		Scope:        "package:operate offline_access",
+		TokenType:    "DPoP",
+	}
+
+	if _, err := client.AuthorizeAndExchange(
+		context.Background(),
+		operation,
+		tokens,
+		privateKey,
+	); err == nil {
+		t.Fatal("AuthorizeAndExchange() first attempt error = nil, want lost response error")
+	}
+	authorized, err := client.AuthorizeAndExchange(
+		context.Background(),
+		operation,
+		tokens,
+		privateKey,
+	)
+	if err != nil {
+		t.Fatalf("AuthorizeAndExchange() retry error = %v", err)
+	}
+	if authorized.DeliveryGrant != "signed-delivery-grant" ||
+		authorized.InstallSession != "signed-install-session" {
+		t.Fatalf("AuthorizeAndExchange() retry = %#v", authorized)
+	}
+	if authorizationRequests != 2 || sessionRequests != 2 {
+		t.Fatalf(
+			"request counts = authorization %d, session %d; want 2 each",
+			authorizationRequests,
+			sessionRequests,
+		)
+	}
+}
+
 func TestRemoteClientReturnsVerificationRequirementWithoutReadingDelivery(t *testing.T) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
