@@ -998,4 +998,334 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       status: 'claimed',
     });
   }, 20_000);
+
+  it('does not revive an expired storage pin after its exact object starts deletion', async () => {
+    const activeSql = requireSql();
+    const broker = createBroker();
+    const objectId = randomUUID();
+    const objectDigest = '71'.repeat(32);
+    await activeSql`
+      INSERT INTO storage_object_versions (
+        id,
+        storage_role,
+        bucket_name,
+        object_key,
+        provider_version,
+        file_identifier,
+        sha256,
+        bytes,
+        content_type,
+        verification_state,
+        verified_at
+      )
+      VALUES (
+        ${objectId},
+        'protected',
+        'protected-test',
+        ${`v2/protected/chunks/${objectDigest}`},
+        ${`provider-${objectId}`},
+        ${`file-${objectId}`},
+        decode(${objectDigest}, 'hex'),
+        32,
+        'application/octet-stream',
+        'VERIFIED',
+        clock_timestamp()
+      )
+    `;
+    await activeSql`
+      INSERT INTO package_release_storage_objects (
+        package_version_id,
+        logical_kind,
+        logical_digest,
+        object_version_id
+      )
+      VALUES (
+        ${sourceVersionId},
+        'chunk',
+        decode(${objectDigest}, 'hex'),
+        ${objectId}
+      )
+    `;
+    await broker.createInstallJob({
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-pin-fence',
+      creatorId: 'creator-pin-fence',
+      grantJti: 'grant-pin-fence',
+      id: 'job-pin-fence',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip',
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-pin-fence',
+    });
+    const claimed = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-pin-fence',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (claimed.status !== 'claimed') {
+      throw new Error('Expected the pin-fence materialization job to be claimed');
+    }
+    const generations = await activeSql<{ id: number | string }[]>`
+      INSERT INTO storage_gc_generations (
+        state,
+        started_at,
+        completed_at
+      )
+      VALUES (
+        'COMPLETED',
+        to_timestamp(${nowSeconds - 2}),
+        to_timestamp(${nowSeconds - 1})
+      )
+      RETURNING id
+    `;
+    const generationId = generations[0]?.id;
+    if (generationId === undefined) {
+      throw new Error('Expected one pin-fence GC generation');
+    }
+    await activeSql`
+      INSERT INTO storage_gc_candidates (
+        object_version_id,
+        first_generation_id,
+        last_generation_id,
+        consecutive_generations,
+        state,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${objectId},
+        ${generationId},
+        ${generationId},
+        2,
+        'DELETING',
+        to_timestamp(${nowSeconds - 2}),
+        to_timestamp(${nowSeconds - 1})
+      )
+    `;
+    await activeSql`
+      UPDATE storage_gc_release_pins pin
+      SET expires_at = to_timestamp(${nowSeconds - 1})
+      FROM materialization_jobs job
+      WHERE job.id = 'job-pin-fence'
+        AND job.storage_gc_pin_id = pin.id
+    `;
+
+    let renewalError: unknown;
+    try {
+      await broker.renewClaimLease({
+        jobId: claimed.jobId,
+        leaseDurationMs: 600_000,
+        leaseGeneration: claimed.leaseGeneration,
+        leaseOwner: 'data-node-pin-fence',
+        now: new Date((nowSeconds + 1) * 1_000),
+      });
+    } catch (error) {
+      renewalError = error;
+    }
+    const renewalFence = await activeSql<
+      {
+        leaseUnchanged: boolean;
+        pinUnchanged: boolean;
+      }[]
+    >`
+      SELECT
+        job.lease_expires_at = to_timestamp(${nowSeconds + 600}) AS "leaseUnchanged",
+        pin.expires_at = to_timestamp(${nowSeconds - 1}) AS "pinUnchanged"
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id = 'job-pin-fence'
+    `;
+
+    await activeSql`DELETE FROM storage_gc_candidates WHERE object_version_id = ${objectId}`;
+    await activeSql`
+      DELETE FROM package_release_storage_objects
+      WHERE object_version_id = ${objectId}
+    `;
+    await activeSql`DELETE FROM storage_object_versions WHERE id = ${objectId}`;
+
+    expect(renewalError).toBeInstanceOf(Error);
+    expect((renewalError as Error).message).toContain(
+      'cannot reference an object that is deleting or deleted'
+    );
+    expect([...renewalFence]).toEqual([{ leaseUnchanged: true, pinUnchanged: true }]);
+  });
+
+  it('does not revive an expired job pin while reclaiming materialization work', async () => {
+    const activeSql = requireSql();
+    const broker = createBroker();
+    const objectId = randomUUID();
+    const objectDigest = '72'.repeat(32);
+    await activeSql`
+      INSERT INTO storage_object_versions (
+        id,
+        storage_role,
+        bucket_name,
+        object_key,
+        provider_version,
+        file_identifier,
+        sha256,
+        bytes,
+        content_type,
+        verification_state,
+        verified_at
+      )
+      VALUES (
+        ${objectId},
+        'protected',
+        'protected-test',
+        ${`v2/protected/chunks/${objectDigest}`},
+        ${`provider-${objectId}`},
+        ${`file-${objectId}`},
+        decode(${objectDigest}, 'hex'),
+        32,
+        'application/octet-stream',
+        'VERIFIED',
+        clock_timestamp()
+      )
+    `;
+    await activeSql`
+      INSERT INTO package_release_storage_objects (
+        package_version_id,
+        logical_kind,
+        logical_digest,
+        object_version_id
+      )
+      VALUES (
+        ${sourceVersionId},
+        'chunk',
+        decode(${objectDigest}, 'hex'),
+        ${objectId}
+      )
+    `;
+    await broker.createInstallJob({
+      bindingRoot: new Uint8Array(32).fill(0x23),
+      buyerId: 'buyer-claim-pin-fence',
+      creatorId: 'creator-claim-pin-fence',
+      grantJti: 'grant-claim-pin-fence',
+      id: 'job-claim-pin-fence',
+      keyEpoch: 7,
+      materializationAlgorithm: 'png-dct-qim-v2',
+      outputFormat: 'zip',
+      pluginVersion: 'png-plugin-2',
+      productId: 'com.yucp.materialization-test',
+      protectedSourceRoot: new Uint8Array(32).fill(0x22),
+      releaseRoot: new Uint8Array(32).fill(0x11),
+      sourceLogicalBytes: 4_096,
+      sourceLogicalFiles: 2,
+      sourceManifestSha256: new Uint8Array(32).fill(0x88),
+      sourceVersionId,
+      traceId: 'trace-claim-pin-fence',
+    });
+    const firstClaim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-claim-pin-fence',
+      now: new Date(nowSeconds * 1_000),
+    });
+    if (firstClaim.status !== 'claimed') {
+      throw new Error('Expected the claim pin-fence job to be claimed');
+    }
+    const generations = await activeSql<{ id: number | string }[]>`
+      INSERT INTO storage_gc_generations (
+        state,
+        started_at,
+        completed_at
+      )
+      VALUES (
+        'COMPLETED',
+        to_timestamp(${nowSeconds + 598}),
+        to_timestamp(${nowSeconds + 599})
+      )
+      RETURNING id
+    `;
+    const generationId = generations[0]?.id;
+    if (generationId === undefined) {
+      throw new Error('Expected one claim pin-fence GC generation');
+    }
+    await activeSql`
+      INSERT INTO storage_gc_candidates (
+        object_version_id,
+        first_generation_id,
+        last_generation_id,
+        consecutive_generations,
+        state,
+        first_observed_at,
+        last_observed_at
+      )
+      VALUES (
+        ${objectId},
+        ${generationId},
+        ${generationId},
+        2,
+        'DELETING',
+        to_timestamp(${nowSeconds + 598}),
+        to_timestamp(${nowSeconds + 599})
+      )
+    `;
+    await activeSql`
+      UPDATE storage_gc_release_pins pin
+      SET expires_at = to_timestamp(${nowSeconds + 599})
+      FROM materialization_jobs job
+      WHERE job.id = 'job-claim-pin-fence'
+        AND job.storage_gc_pin_id = pin.id
+    `;
+
+    let claimError: unknown;
+    try {
+      await broker.claimNextJob({
+        leaseDurationMs: 600_000,
+        leaseOwner: 'data-node-reclaim-pin-fence',
+        now: new Date((nowSeconds + 601) * 1_000),
+      });
+    } catch (error) {
+      claimError = error;
+    }
+    const claimFence = await activeSql<
+      {
+        leaseGeneration: number;
+        leaseOwner: string;
+        leaseUnchanged: boolean;
+        pinUnchanged: boolean;
+        state: string;
+      }[]
+    >`
+      SELECT
+        job.lease_generation AS "leaseGeneration",
+        job.lease_owner AS "leaseOwner",
+        job.lease_expires_at = to_timestamp(${nowSeconds + 600}) AS "leaseUnchanged",
+        pin.expires_at = to_timestamp(${nowSeconds + 599}) AS "pinUnchanged",
+        job.state
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id = 'job-claim-pin-fence'
+    `;
+
+    await activeSql`DELETE FROM storage_gc_candidates WHERE object_version_id = ${objectId}`;
+    await activeSql`
+      DELETE FROM package_release_storage_objects
+      WHERE object_version_id = ${objectId}
+    `;
+    await activeSql`DELETE FROM storage_object_versions WHERE id = ${objectId}`;
+
+    expect(claimError).toBeInstanceOf(Error);
+    expect((claimError as Error).message).toContain(
+      'cannot reference an object that is deleting or deleted'
+    );
+    expect([...claimFence]).toEqual([
+      {
+        leaseGeneration: 1,
+        leaseOwner: 'data-node-claim-pin-fence',
+        leaseUnchanged: true,
+        pinUnchanged: true,
+        state: 'MATERIALIZING',
+      },
+    ]);
+  });
 });

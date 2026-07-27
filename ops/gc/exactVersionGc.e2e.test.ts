@@ -32,6 +32,35 @@ class ExpiredRetentionStorage extends S3ExactStoragePort {
   }
 }
 
+class BlockingDeletionStorage extends ExpiredRetentionStorage {
+  readonly deletionStarted: Promise<void>;
+  private allowDeletion: (() => void) | undefined;
+  private readonly deletionAllowed: Promise<void>;
+  private markDeletionStarted: (() => void) | undefined;
+
+  constructor(config: ConstructorParameters<typeof S3ExactStoragePort>[0]) {
+    super(config);
+    this.deletionStarted = new Promise((resolve) => {
+      this.markDeletionStarted = resolve;
+    });
+    this.deletionAllowed = new Promise((resolve) => {
+      this.allowDeletion = resolve;
+    });
+  }
+
+  releaseDeletion(): void {
+    this.allowDeletion?.();
+  }
+
+  override async deleteExactVersion(
+    input: Parameters<S3ExactStoragePort['deleteExactVersion']>[0]
+  ): Promise<void> {
+    this.markDeletionStarted?.();
+    await this.deletionAllowed;
+    await super.deleteExactVersion(input);
+  }
+}
+
 let harness: DisposableStorageHarness | undefined;
 let sql: CatalogDatabase | undefined;
 
@@ -108,6 +137,90 @@ afterAll(async () => {
 });
 
 describe.serial('exact-version garbage collection', () => {
+  it('holds the object reachability lock through exact-version deletion', async () => {
+    const activeHarness = requireHarness();
+    const activeSql = requireSql();
+    const exactCatalog = new ExactStorageCatalog(activeSql);
+    const gcCatalog = new StorageGcCatalog(activeSql);
+    const storage = new BlockingDeletionStorage({
+      common: activeHarness.buckets.common,
+    });
+    const durableStorage = new DurableExactStorage(exactCatalog, storage);
+    const content = new TextEncoder().encode(`deletion fence ${randomUUID()}`);
+    const digest = createHash('sha256').update(content).digest('hex');
+    const object = await durableStorage.putImmutable({
+      body: content,
+      contentType: 'application/octet-stream',
+      idempotencyKey: `gc-deletion-fence:${randomUUID()}`,
+      objectKey: `v2/common/chunks/${digest.slice(0, 2)}/${digest}`,
+      ownerId: `gc-deletion-fence:${randomUUID()}`,
+      ownerKind: 'maintenance',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    const queuedIntent = await exactCatalog.beginWriteIntent({
+      bucketName: storage.bucketName('common'),
+      contentType: object.contentType,
+      expectedBytes: object.bytes,
+      expectedSha256: object.sha256,
+      idempotencyKey: `gc-deletion-fence-reference:${randomUUID()}`,
+      objectKey: object.objectKey,
+      operation: 'PUT',
+      ownerId: `gc-deletion-fence-reference:${randomUUID()}`,
+      ownerKind: 'maintenance',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+
+    const first = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    expect(first.deletedObjects).toBe(0);
+
+    const secondRun = runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    await storage.deletionStarted;
+    let competingLockSettled = false;
+    const competingReference = activeSql<{ id: string }[]>`
+      SELECT id
+      FROM storage_object_versions
+      WHERE id = ${object.id}
+        AND verification_state = 'VERIFIED'
+      FOR UPDATE
+    `
+      .then((rows) => rows.length === 1)
+      .finally(() => {
+        competingLockSettled = true;
+      });
+    const queuedCommit = exactCatalog
+      .commitVerifiedObject({
+        fileIdentifier: object.fileIdentifier,
+        intentId: queuedIntent.id,
+        providerVersion: object.providerVersion,
+      })
+      .then(
+        () => true,
+        () => false
+      );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const settledBeforePhysicalDeletion = competingLockSettled;
+
+    storage.releaseDeletion();
+    const [second, referenceSawVerifiedObject, queuedCommitSucceeded] = await Promise.all([
+      secondRun,
+      competingReference,
+      queuedCommit,
+    ]);
+
+    expect(settledBeforePhysicalDeletion).toBeFalse();
+    expect(referenceSawVerifiedObject).toBeFalse();
+    expect(queuedCommitSucceeded).toBeFalse();
+    expect(second.deletedObjects).toBe(1);
+  }, 180_000);
+
   it('preserves a candidate exact version while an uncertain write retry is claimed', async () => {
     const activeHarness = requireHarness();
     const activeSql = requireSql();

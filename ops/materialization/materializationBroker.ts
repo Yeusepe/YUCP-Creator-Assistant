@@ -1141,6 +1141,7 @@ export class MaterializationBroker {
       throw new Error('Lease duration is outside the permitted range');
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs);
+    const pinExpiresAt = new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000);
     return this.sql.begin(async (transaction) => {
       await transaction`
         UPDATE materialization_jobs
@@ -1156,17 +1157,31 @@ export class MaterializationBroker {
           AND state IN ('MATERIALIZING', 'VERIFYING')
           AND lease_expires_at <= ${now}
       `;
-      await transaction`
-        UPDATE storage_gc_release_pins pin
-        SET
-          expires_at = ${new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000)},
-          updated_at = ${now}
+      const renewedPins = await transaction<
+        {
+          pinId: string;
+          storageGcPinId: string;
+        }[]
+      >`
+        SELECT
+          storage_gc_acquire_release_pin(
+            job.storage_gc_pin_id,
+            job.source_version_id,
+            'materialization-job',
+            job.id,
+            ${pinExpiresAt}
+          )::text AS "pinId",
+          job.storage_gc_pin_id::text AS "storageGcPinId"
         FROM materialization_jobs job
-        WHERE job.storage_gc_pin_id = pin.id
-          AND job.lane = ${lane}
+        JOIN storage_gc_release_pins pin
+          ON pin.id = job.storage_gc_pin_id
+        WHERE job.lane = ${lane}
           AND job.state IN ('QUEUED', 'MATERIALIZING', 'VERIFYING')
           AND pin.released_at IS NULL
       `;
+      if (renewedPins.some((pin) => pin.pinId !== pin.storageGcPinId)) {
+        throw new Error('Materialization job storage GC pin binding is invalid');
+      }
       const active = await transaction<{ id: string }[]>`
         SELECT id
         FROM materialization_jobs
@@ -1254,48 +1269,57 @@ export class MaterializationBroker {
     }
     const leaseExpiresAt = new Date(now.getTime() + input.leaseDurationMs);
     const pinExpiresAt = new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000);
-    const renewed = await this.sql<
-      {
-        id: string;
-        lease_expires_at: Date;
-        lease_generation: number;
-        storage_gc_pin_id: string;
-      }[]
-    >`
-      UPDATE materialization_jobs
-      SET
-        lease_expires_at = ${leaseExpiresAt},
-        heartbeat_at = ${now},
-        updated_at = ${now}
-      WHERE
-        id = ${jobId}
-        AND lease_owner = ${leaseOwner}
-        AND lease_generation = ${input.leaseGeneration}
-        AND lease_expires_at > ${now}
-        AND state IN ('MATERIALIZING', 'VERIFYING')
-      RETURNING id, lease_expires_at, lease_generation, storage_gc_pin_id
-    `;
-    const row = renewed[0];
-    if (!row) {
-      throw new Error('Materialization lease renewal fence is stale');
-    }
-    const pinned = await this.sql<{ id: string }[]>`
-      UPDATE storage_gc_release_pins
-      SET
-        expires_at = GREATEST(expires_at, ${pinExpiresAt}),
-        updated_at = ${now}
-      WHERE id = ${row.storage_gc_pin_id} AND released_at IS NULL
-      RETURNING id
-    `;
-    if (!pinned[0]) {
-      throw new Error('Materialization lease renewal lost its storage GC pin');
-    }
-    return {
-      jobId: row.id,
-      leaseExpiresAt: new Date(row.lease_expires_at),
-      leaseGeneration: row.lease_generation,
-      status: 'renewed',
-    };
+    return this.sql.begin(async (transaction) => {
+      const renewed = await transaction<
+        {
+          id: string;
+          leaseExpiresAt: Date;
+          leaseGeneration: number;
+          sourceVersionId: string;
+          storageGcPinId: string;
+        }[]
+      >`
+        UPDATE materialization_jobs
+        SET
+          lease_expires_at = ${leaseExpiresAt},
+          heartbeat_at = ${now},
+          updated_at = ${now}
+        WHERE
+          id = ${jobId}
+          AND lease_owner = ${leaseOwner}
+          AND lease_generation = ${input.leaseGeneration}
+          AND lease_expires_at > ${now}
+          AND state IN ('MATERIALIZING', 'VERIFYING')
+        RETURNING
+          id,
+          lease_expires_at AS "leaseExpiresAt",
+          lease_generation AS "leaseGeneration",
+          source_version_id::text AS "sourceVersionId",
+          storage_gc_pin_id::text AS "storageGcPinId"
+      `;
+      const row = renewed[0];
+      if (!row) {
+        throw new Error('Materialization lease renewal fence is stale');
+      }
+      const pinned = await transaction<{ pinId: string }[]>`
+        SELECT storage_gc_acquire_release_pin(
+          ${row.storageGcPinId},
+          ${row.sourceVersionId},
+          'materialization-job',
+          ${row.id},
+          ${pinExpiresAt}
+        )::text AS "pinId"
+      `;
+      if (pinned[0]?.pinId !== row.storageGcPinId) {
+        throw new Error('Materialization lease renewal lost its storage GC pin');
+      }
+      return {
+        jobId: row.id,
+        leaseExpiresAt: new Date(row.leaseExpiresAt),
+        leaseGeneration: row.leaseGeneration,
+        status: 'renewed' as const,
+      };
+    });
   }
 
   async issueCapability(input: {

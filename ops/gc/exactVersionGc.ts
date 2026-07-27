@@ -40,52 +40,45 @@ async function processDeletion(input: {
   storage: ExactStoragePort;
 }): Promise<void> {
   try {
-    if (
-      !(await input.catalog.revalidatePendingDeletion({
-        journalId: input.deletion.journalId,
-        now: input.now,
-        objectVersionId: input.deletion.objectVersionId,
-      }))
-    ) {
+    const fenced = await input.catalog.withPendingDeletionFence({
+      handoff: async () => {
+        if (!(await exactVersionStillExists(input.deletion, input.storage))) {
+          return { state: 'DELETED' as const };
+        }
+        const retention = await input.storage.getRetention({
+          objectKey: input.deletion.objectKey,
+          providerVersion: input.deletion.providerVersion,
+          role: input.deletion.storageRole,
+        });
+        if (retention.retainUntil.getTime() > input.now.getTime()) {
+          return {
+            retainUntil: retention.retainUntil,
+            state: 'RETENTION_BLOCKED' as const,
+          };
+        }
+        await input.storage.deleteExactVersion({
+          objectKey: input.deletion.objectKey,
+          providerVersion: input.deletion.providerVersion,
+          role: input.deletion.storageRole,
+        });
+        if (await exactVersionStillExists(input.deletion, input.storage)) {
+          throw new Error('Exact provider version still exists after deletion');
+        }
+        return { state: 'DELETED' as const };
+      },
+      journalId: input.deletion.journalId,
+      now: input.now,
+      objectVersionId: input.deletion.objectVersionId,
+    });
+    if (!fenced.deletionAllowed) {
       input.result.failedObjects += 1;
       return;
     }
-    if (!(await exactVersionStillExists(input.deletion, input.storage))) {
-      await input.catalog.completeDeletion({
-        journalId: input.deletion.journalId,
-        objectVersionId: input.deletion.objectVersionId,
-      });
-      input.result.deletedBytes += input.deletion.bytes;
-      input.result.deletedObjects += 1;
-      return;
-    }
-    const retention = await input.storage.getRetention({
-      objectKey: input.deletion.objectKey,
-      providerVersion: input.deletion.providerVersion,
-      role: input.deletion.storageRole,
-    });
-    if (retention.retainUntil.getTime() > input.now.getTime()) {
-      await input.catalog.blockDeletionForRetention({
-        journalId: input.deletion.journalId,
-        objectVersionId: input.deletion.objectVersionId,
-        retainUntil: retention.retainUntil,
-      });
+    if (fenced.value.state === 'RETENTION_BLOCKED') {
       input.result.retentionBlockedBytes += input.deletion.bytes;
       input.result.retentionBlockedObjects += 1;
       return;
     }
-    await input.storage.deleteExactVersion({
-      objectKey: input.deletion.objectKey,
-      providerVersion: input.deletion.providerVersion,
-      role: input.deletion.storageRole,
-    });
-    if (await exactVersionStillExists(input.deletion, input.storage)) {
-      throw new Error('Exact provider version still exists after deletion');
-    }
-    await input.catalog.completeDeletion({
-      journalId: input.deletion.journalId,
-      objectVersionId: input.deletion.objectVersionId,
-    });
     input.result.deletedBytes += input.deletion.bytes;
     input.result.deletedObjects += 1;
   } catch (error) {

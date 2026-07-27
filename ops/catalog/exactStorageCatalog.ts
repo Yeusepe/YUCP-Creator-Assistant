@@ -540,12 +540,20 @@ export class ExactStorageCatalog {
         inserted[0] ??
         (
           await transaction<StorageObjectVersionRow[]>`
-            SELECT *
-            FROM storage_object_versions
-            WHERE storage_role = ${intent.storageRole}
-              AND bucket_name = ${intent.bucketName}
-              AND object_key = ${intent.objectKey}
-              AND provider_version = ${providerVersion}
+            SELECT object.*
+            FROM storage_object_versions object
+            LEFT JOIN storage_gc_candidates candidate
+              ON candidate.object_version_id = object.id
+            WHERE object.storage_role = ${intent.storageRole}
+              AND object.bucket_name = ${intent.bucketName}
+              AND object.object_key = ${intent.objectKey}
+              AND object.provider_version = ${providerVersion}
+              AND object.verification_state = 'VERIFIED'
+              AND (
+                candidate.state IS NULL
+                OR candidate.state NOT IN ('DELETING', 'DELETED')
+              )
+            FOR UPDATE OF object
           `
         )[0];
       if (!object) {

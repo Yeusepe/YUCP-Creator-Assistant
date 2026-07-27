@@ -39,6 +39,10 @@ export type StorageGcDeletion = {
   storageRole: Extract<StorageRole, 'common' | 'metadata' | 'protected'>;
 };
 
+export type StorageGcDeletionHandoff =
+  | { state: 'DELETED' }
+  | { retainUntil: Date; state: 'RETENTION_BLOCKED' };
+
 type GenerationRow = {
   completed_at: Date;
   id: number | string;
@@ -368,11 +372,14 @@ export class StorageGcCatalog {
     return rows.map(toDeletion);
   }
 
-  async revalidatePendingDeletion(input: {
+  async withPendingDeletionFence(input: {
+    handoff: () => Promise<StorageGcDeletionHandoff>;
     journalId: string;
     now?: Date;
     objectVersionId: string;
-  }): Promise<boolean> {
+  }): Promise<
+    { deletionAllowed: false } | { deletionAllowed: true; value: StorageGcDeletionHandoff }
+  > {
     const now = input.now ?? new Date();
     const reachabilityError =
       'Storage GC deletion was cancelled because the object became reachable';
@@ -446,7 +453,84 @@ export class StorageGcCatalog {
         throw new Error('Storage GC pending deletion fence is invalid');
       }
       if (deletionAllowed) {
-        return true;
+        const value = await input.handoff();
+        if (value.state === 'DELETED') {
+          const objects = await transaction<{ id: string }[]>`
+            UPDATE storage_object_versions
+            SET
+              verification_state = 'DELETED',
+              deleted_at = clock_timestamp()
+            WHERE id = ${input.objectVersionId}
+              AND verification_state = 'VERIFIED'
+            RETURNING id
+          `;
+          if (objects.length !== 1) {
+            throw new Error('Storage GC exact object did not finalize deletion');
+          }
+          await transaction`
+            DELETE FROM canonical_storage_objects
+            WHERE object_version_id = ${input.objectVersionId}
+          `;
+          const candidates = await transaction<{ object_version_id: string }[]>`
+            UPDATE storage_gc_candidates
+            SET
+              state = 'DELETED',
+              last_error = NULL,
+              retention_until = NULL,
+              deleted_at = clock_timestamp(),
+              updated_at = clock_timestamp()
+            WHERE object_version_id = ${input.objectVersionId}
+              AND state = 'DELETING'
+            RETURNING object_version_id
+          `;
+          const journals = await transaction<{ id: string }[]>`
+            UPDATE storage_gc_deletion_journal
+            SET state = 'DELETED', completed_at = clock_timestamp()
+            WHERE id = ${input.journalId}
+              AND object_version_id = ${input.objectVersionId}
+              AND state = 'STARTED'
+            RETURNING id
+          `;
+          if (candidates.length !== 1 || journals.length !== 1) {
+            throw new Error('Storage GC deletion journal did not finalize');
+          }
+        } else {
+          if (
+            !Number.isFinite(value.retainUntil.getTime()) ||
+            value.retainUntil.getTime() <= now.getTime()
+          ) {
+            throw new Error('Storage GC retention handoff is invalid');
+          }
+          const candidates = await transaction<{ object_version_id: string }[]>`
+            UPDATE storage_gc_candidates
+            SET
+              state = 'RETENTION_BLOCKED',
+              retention_until = ${value.retainUntil},
+              last_error = NULL,
+              updated_at = clock_timestamp()
+            WHERE object_version_id = ${input.objectVersionId}
+              AND state = 'DELETING'
+            RETURNING object_version_id
+          `;
+          const journals = await transaction<{ id: string }[]>`
+            UPDATE storage_gc_deletion_journal
+            SET
+              state = 'RETENTION_BLOCKED',
+              retention_until = ${value.retainUntil},
+              completed_at = clock_timestamp()
+            WHERE id = ${input.journalId}
+              AND object_version_id = ${input.objectVersionId}
+              AND state = 'STARTED'
+            RETURNING id
+          `;
+          if (candidates.length !== 1 || journals.length !== 1) {
+            throw new Error('Storage GC retention result did not finalize');
+          }
+        }
+        return {
+          deletionAllowed: true,
+          value,
+        };
       }
       const candidates = await transaction<{ object_version_id: string }[]>`
         UPDATE storage_gc_candidates
@@ -473,7 +557,7 @@ export class StorageGcCatalog {
       if (candidates.length !== 1 || journals.length !== 1) {
         throw new Error('Storage GC reachability cancellation did not finalize');
       }
-      return false;
+      return { deletionAllowed: false };
     });
   }
 
@@ -610,84 +694,6 @@ export class StorageGcCatalog {
         )
       `;
       return toDeletion({ ...candidate, journal_id: journalId });
-    });
-  }
-
-  async completeDeletion(input: { journalId: string; objectVersionId: string }): Promise<void> {
-    await this.sql.begin(async (transaction) => {
-      const objects = await transaction<{ id: string }[]>`
-        UPDATE storage_object_versions
-        SET
-          verification_state = 'DELETED',
-          deleted_at = clock_timestamp()
-        WHERE id = ${input.objectVersionId}
-          AND verification_state = 'VERIFIED'
-        RETURNING id
-      `;
-      if (objects.length !== 1) {
-        throw new Error('Storage GC exact object did not finalize deletion');
-      }
-      await transaction`
-        DELETE FROM canonical_storage_objects
-        WHERE object_version_id = ${input.objectVersionId}
-      `;
-      const candidates = await transaction<{ object_version_id: string }[]>`
-        UPDATE storage_gc_candidates
-        SET
-          state = 'DELETED',
-          last_error = NULL,
-          retention_until = NULL,
-          deleted_at = clock_timestamp(),
-          updated_at = clock_timestamp()
-        WHERE object_version_id = ${input.objectVersionId}
-          AND state = 'DELETING'
-        RETURNING object_version_id
-      `;
-      const journals = await transaction<{ id: string }[]>`
-        UPDATE storage_gc_deletion_journal
-        SET state = 'DELETED', completed_at = clock_timestamp()
-        WHERE id = ${input.journalId}
-          AND object_version_id = ${input.objectVersionId}
-          AND state = 'STARTED'
-        RETURNING id
-      `;
-      if (candidates.length !== 1 || journals.length !== 1) {
-        throw new Error('Storage GC deletion journal did not finalize');
-      }
-    });
-  }
-
-  async blockDeletionForRetention(input: {
-    journalId: string;
-    objectVersionId: string;
-    retainUntil: Date;
-  }): Promise<void> {
-    await this.sql.begin(async (transaction) => {
-      const candidates = await transaction<{ object_version_id: string }[]>`
-        UPDATE storage_gc_candidates
-        SET
-          state = 'RETENTION_BLOCKED',
-          retention_until = ${input.retainUntil},
-          last_error = NULL,
-          updated_at = clock_timestamp()
-        WHERE object_version_id = ${input.objectVersionId}
-          AND state = 'DELETING'
-        RETURNING object_version_id
-      `;
-      const journals = await transaction<{ id: string }[]>`
-        UPDATE storage_gc_deletion_journal
-        SET
-          state = 'RETENTION_BLOCKED',
-          retention_until = ${input.retainUntil},
-          completed_at = clock_timestamp()
-        WHERE id = ${input.journalId}
-          AND object_version_id = ${input.objectVersionId}
-          AND state = 'STARTED'
-        RETURNING id
-      `;
-      if (candidates.length !== 1 || journals.length !== 1) {
-        throw new Error('Storage GC retention result did not finalize');
-      }
     });
   }
 
