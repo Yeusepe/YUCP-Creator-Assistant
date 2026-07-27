@@ -36,7 +36,7 @@ function PrivacyPolicyPage() {
           </div>
           <p className="text-base sm:text-xl opacity-70 leading-relaxed font-medium">
             <strong>Effective date:</strong> March 6, 2026 &nbsp;|&nbsp;{' '}
-            <strong>Last updated:</strong> March 6, 2026
+            <strong>Last updated:</strong> July 26, 2026
           </p>
         </header>
 
@@ -45,25 +45,43 @@ function PrivacyPolicyPage() {
             <p className="leading-relaxed mb-4">
               This Privacy Policy explains how <strong>Creator Assistant</strong> (&quot;we&quot;,
               &quot;us&quot;, or &quot;our&quot;) collects, uses, discloses, stores, and protects
-              personal data when you use the Creator Assistant Assistant services, including our
-              websites, setup pages, dashboards, APIs, webhook endpoints, Discord® bot, verification
-              flows, Liened Downloads, collaborator sharing flows, Unity® runtime integration, and
-              related features (collectively, the &quot;Service&quot;).
+              personal data when you use the Creator Assistant services, including our websites,
+              setup pages, dashboards, APIs, webhook endpoints, Discord® bot, verification flows,
+              Liened Downloads, collaborator sharing flows, package storage and delivery, device
+              attestation, attribution review, Unity® importer integration, and related features
+              (collectively, the &quot;Service&quot;).
             </p>
             <h4 className="mt-6">Who is responsible for your data</h4>
             <p className="leading-relaxed">
-              <strong>Creator Assistant</strong> is the data controller when we process data for our
-              own purposes-for example, to operate the Service, secure our systems, enforce our
-              Terms, or communicate with you. When a Creator or server operator configures the
-              Service for their community, they may act as an independent controller for decisions
-              about how verification, roles, or downloads are set up. When we process data to
-              provide the Service on behalf of a Creator (e.g., verifying purchases, assigning
-              roles, routing webhooks), we act as a processor for that Creator, and they remain
-              responsible for their own privacy notices and lawful basis toward their end users.
+              <strong>Creator Assistant</strong> acts as a controller for purposes and essential
+              means that we determine. A Creator can act as a controller for product mappings,
+              access rules, and their use of verification results. We can act as a processor when we
+              follow a Creator&apos;s documented instructions. The role depends on the facts of each
+              processing activity.
+            </p>
+            <p className="leading-relaxed mt-4">
+              Legal source:{' '}
+              <a
+                href="https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                EDPB Guidelines 07/2020
+              </a>
+              .
             </p>
             <p className="leading-relaxed mt-4">
               This Privacy Policy should be read together with our Terms of Service. If you do not
               agree with this Privacy Policy, do not use the Service.
+            </p>
+            <p className="leading-relaxed mt-4">
+              Creators can link buyers to our{' '}
+              <a href="/legal/verification-and-attestation">Verification and Attestation Notice</a>{' '}
+              for a shorter explanation of package verification.
+            </p>
+            <p className="leading-relaxed mt-4">
+              That notice explains YUCP processing. It does not replace a Creator&apos;s privacy
+              notice, processing agreement, or legal review.
             </p>
             <p
               className="leading-relaxed mt-4 p-4 rounded-xl"
@@ -290,20 +308,66 @@ function PrivacyPolicyPage() {
             </p>
           </div>
 
-          <div id="section-08" className="legal-card rounded-2xl p-5 sm:p-8">
+          <div id="package-delivery" className="legal-card rounded-2xl p-5 sm:p-8">
             <div className="section-header">
               <span className="section-tag bg-[#ffeb3b]/10 text-[#ffeb3b]">Section 08</span>
-              <h2 className="text-2xl">Manual Licenses and Unity® Integration</h2>
+              <h2 className="text-2xl">Package Delivery, Attestation, and Attribution</h2>
             </div>
             <p>
-              If a Creator enables manual licenses or Unity® runtime assertions, we may process
-              hashed license keys, entitlement records, device or installation-related identifiers,
-              assertion records, and related validation metadata.
+              The package delivery flow checks an entitlement before it grants access. Depending on
+              the selected method, we process the following records:
+            </p>
+            <ul>
+              <li>
+                account, creator, product, edition, provider, order, license, entitlement, release,
+                and installation references
+              </li>
+              <li>
+                short-lived verification and installation sessions, delivery authorization records,
+                security proof records, replay-prevention values, and expiration times
+              </li>
+              <li>
+                cryptographic hashes derived from supported device, operating system, network,
+                payment, license, and linked-account signals
+              </li>
+              <li>
+                device attestation results, security flags, confidence values, correlation
+                identifiers, and review decisions
+              </li>
+              <li>
+                buyer pseudonyms, attribution identifiers, attribution token hashes, signed package
+                preparation records, and protected-file integrity hashes
+              </li>
+              <li>
+                package source uploads, prepared package files, shared file parts, protected source
+                files, signed release records, and short-lived buyer-specific packages
+              </li>
+            </ul>
+            <p>
+              We use these records to verify access, bind a grant to a buyer and device, deliver a
+              release, detect replay, investigate tampering, and support authorized attribution
+              review.
             </p>
             <p>
-              We use this information only to validate access, enforce Creator-defined license
-              rules, issue runtime assertions, and investigate abuse or fraud related to those
-              features.
+              Creators can receive verification status, matched product context, delivery status,
+              and authorized attribution matches. They do not receive YUCP master or derivation
+              keys.
+            </p>
+            <p>
+              We treat a hash as personal data when it can be linked to a person, account, device,
+              or purchase. The GDPR defines personal data and pseudonymisation in Article 4.
+            </p>
+            <p>
+              Legal source:{' '}
+              <a
+                href="https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng"
+                target="_blank"
+                rel="noreferrer"
+              >
+                GDPR Articles 4, 12, 13, and 14
+              </a>
+              . Plain-language product notice:{' '}
+              <a href="/legal/verification-and-attestation">Verification and Attestation Notice</a>.
             </p>
           </div>
 
@@ -362,9 +426,8 @@ function PrivacyPolicyPage() {
                 feature you requested
               </li>
               <li>
-                with service providers that help us operate the Service, including: cloud hosting
-                and database providers (e.g., Convex), authentication providers, infrastructure and
-                CDN providers, and analytics or monitoring tools where we use them
+                with service providers that supply database, authentication, object storage, content
+                delivery, infrastructure, observability, email, and secret-management functions
               </li>
               <li>
                 with a Creator, Admin, or server operator when the Service is being used on their
@@ -381,9 +444,10 @@ function PrivacyPolicyPage() {
               </li>
             </ul>
             <p>
-              We do not sell personal data in exchange for money. For a list of subprocessors, email
-              us at <a href="mailto:contact@yucp.club">contact@yucp.club</a>.
+              The provider list depends on the active deployment and selected feature. Request the
+              current list at <a href="mailto:privacy@yucp.club">privacy@yucp.club</a>.
             </p>
+            <p>We do not sell personal data in exchange for money.</p>
           </div>
 
           <div id="section-11" className="legal-card rounded-2xl p-5 sm:p-8">
@@ -401,6 +465,17 @@ function PrivacyPolicyPage() {
               <li>consent, where a feature or jurisdiction requires it</li>
               <li>compliance with legal obligations</li>
             </ul>
+            <p>
+              Legal source:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/legal-grounds-processing-data_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission legal grounds guide
+              </a>
+              .
+            </p>
           </div>
 
           <div id="section-12" className="legal-card rounded-2xl p-5 sm:p-8">
@@ -420,54 +495,66 @@ function PrivacyPolicyPage() {
               or equivalent authorities, and supplementary measures where necessary. You may request
               details of the safeguards we use for specific transfers by contacting us.
             </p>
+            <p>
+              Legal source:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/international-dimension-data-protection_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission international transfer guide
+              </a>
+              .
+            </p>
           </div>
 
-          <div id="section-13" className="legal-card rounded-2xl p-5 sm:p-8">
+          <div id="retention" className="legal-card rounded-2xl p-5 sm:p-8">
             <div className="section-header">
               <span className="section-tag bg-white/10 text-white">Section 13</span>
               <h2 className="text-2xl">Data Retention</h2>
             </div>
-            <p>
-              We retain data for as long as needed to operate the Service, maintain security,
-              support legitimate business records, comply with law, resolve disputes, enforce our
-              agreements, and preserve backup or audit integrity.
-            </p>
-            <p>
-              Retention varies by data type. The following are indicative ranges; actual periods may
-              differ:
-            </p>
+            <p>We apply criteria for each record type. We do not use one period for all records.</p>
             <ul>
               <li>
-                <strong>Security and operational logs:</strong> Typically 30-90 days, unless needed
-                longer for incident investigation or legal hold
+                <strong>Sessions and access records:</strong> We use their recorded expiry and
+                completion state.
               </li>
               <li>
-                <strong>OAuth tokens, session records, setup tokens:</strong> Until disconnect or
-                expiry; session data is typically cleared within 24 hours of logout or token expiry
+                <strong>Provider credentials:</strong> We use connection status, revocation,
+                replacement, and provider expiry.
               </li>
               <li>
-                <strong>Connection and verification records:</strong> While the related feature is
-                active; after disconnect, we may retain for up to 12 months for dispute resolution
-                and fraud prevention
+                <strong>Package source and release records:</strong> We use upload status, release
+                status, dependency references, recovery needs, and active retention controls.
               </li>
               <li>
-                <strong>Audit and event logs:</strong> Typically 12-24 months for security and
-                compliance
+                <strong>Temporary delivery files:</strong> We use their recorded expiry, access
+                qualification, and cleanup state.
               </li>
               <li>
-                <strong>Hashed license records, entitlement history, moderation records:</strong>{' '}
-                Retained where needed for enforcement or fraud prevention; may persist after account
-                closure
+                <strong>Entitlement and attribution evidence:</strong> We use license status,
+                dispute needs, creator policy, security review, and applicable legal duties.
               </li>
               <li>
-                <strong>Backup copies:</strong> May persist for up to 90 days after deletion before
-                being purged; some backups may be retained longer for disaster recovery
-              </li>
-              <li>
-                <strong>Webhook payloads and processing records:</strong> Typically 30-90 days for
-                troubleshooting and reconciliation
+                <strong>Security and audit records:</strong> We use incident, abuse, fraud, support,
+                accounting, legal-claim, and system-integrity needs.
               </li>
             </ul>
+            <p>
+              We review or delete records when their criteria no longer apply. A legal hold,
+              unresolved dispute, or mandatory duty can delay deletion.
+            </p>
+            <p>
+              Legal source:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/rules-business-and-organisations/principles-gdpr/how-long-can-data-be-kept-and-it-necessary-update-it_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission retention guidance
+              </a>
+              .
+            </p>
           </div>
 
           <div id="section-14" className="legal-card rounded-2xl p-5 sm:p-8">
@@ -511,13 +598,13 @@ function PrivacyPolicyPage() {
             </ul>
             <h4>15.1 How to submit a request</h4>
             <p>
-              Send your request to <a href="mailto:contact@yucp.club">contact@yucp.club</a> with the
+              Send your request to <a href="mailto:privacy@yucp.club">privacy@yucp.club</a> with the
               subject line &quot;Privacy Request.&quot; Include your Discord® user ID, the server or
               tenant involved (if applicable), and a clear description of the right you wish to
               exercise. For access or portability requests, we may ask you to verify your identity
               (e.g., by confirming control of the linked Discord® account or providing additional
-              information we can match to our records). We typically respond within 30 days. If we
-              need more time or cannot fulfill a request, we will explain why.
+              information we can match to our records). We respond within the period required by the
+              law that applies to the request.
             </p>
             <h4>15.2 Directing requests to Creators</h4>
             <p>
@@ -526,7 +613,7 @@ function PrivacyPolicyPage() {
               behalf or when they control access decisions. We will tell you if your request should
               go to a Creator instead.
             </p>
-            <h4>15.3 EEA, UK, and U.S. state rights</h4>
+            <h4>15.3 EEA, UK, California, and Colombia rights</h4>
             <p>
               <strong>EEA and UK:</strong> If you are in the European Economic Area or the United
               Kingdom, you have rights under the GDPR (and UK GDPR), including access,
@@ -535,11 +622,78 @@ function PrivacyPolicyPage() {
               authority.
             </p>
             <p>
-              <strong>U.S. state privacy laws:</strong> If you are a resident of California,
-              Virginia, Colorado, Connecticut, or other U.S. states with comprehensive privacy laws,
-              you may have additional rights, such as the right to know, delete, correct, opt out of
-              certain sales or sharing, and non-discrimination. We do not sell personal data. To
-              exercise these rights, use the process in 15.1 above.
+              Official sources:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/information-individuals_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission rights guide
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://www.gov.uk/data-protection/the-data-protection-act"
+                target="_blank"
+                rel="noreferrer"
+              >
+                GOV.UK data protection guide
+              </a>
+              .
+            </p>
+            <p>
+              United Kingdom primary texts:{' '}
+              <a
+                href="https://www.legislation.gov.uk/eur/2016/679/contents"
+                target="_blank"
+                rel="noreferrer"
+              >
+                UK GDPR
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://www.legislation.gov.uk/ukpga/2018/12/contents"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Data Protection Act 2018
+              </a>
+              .
+            </p>
+            <p>
+              <strong>California:</strong> California residents can have rights to know, delete,
+              correct, limit, opt out, and receive equal treatment. Conditions and exceptions can
+              apply. We do not sell personal data. Use the process in 15.1 to submit a request.
+            </p>
+            <p>
+              California source:{' '}
+              <a href="https://cppa.ca.gov/faq.html" target="_blank" rel="noreferrer">
+                California Privacy Protection Agency FAQ
+              </a>
+              . Primary text:{' '}
+              <a
+                href="https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?article=&chapter=&division=3.&lawCode=CIV&part=4.&title=1.81.5."
+                target="_blank"
+                rel="noreferrer"
+              >
+                California Civil Code
+              </a>
+              .
+            </p>
+            <p>
+              <strong>Colombia:</strong> Law 1581 can provide rights to know, update, correct,
+              request information, complain, revoke authorization, request deletion, and access
+              personal data.
+            </p>
+            <p>
+              Colombia source:{' '}
+              <a
+                href="https://www1.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Colombia Law 1581 of 2012
+              </a>
+              .
             </p>
           </div>
 
@@ -585,28 +739,39 @@ function PrivacyPolicyPage() {
             </p>
           </div>
 
-          <div
-            id="contact"
-            className="legal-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#0ea5e9]"
-          >
+          <div id="contact" className="legal-card rounded-2xl p-5 sm:p-8">
             <div className="section-header">
               <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Contact</span>
               <h2 className="text-2xl">How to Contact Us</h2>
             </div>
             <p>
-              Creator Assistant is the data controller for the Service. For privacy questions,
-              requests, or complaints:
+              Creator Assistant acts as a controller when it determines a processing purpose and its
+              essential means. It can act as a processor for a Creator&apos;s documented
+              instructions.
             </p>
             <p>
               <strong>Creator Assistant</strong>
             </p>
             <p>
-              Email: <a href="mailto:contact@yucp.club">contact@yucp.club</a>
+              Privacy email: <a href="mailto:privacy@yucp.club">privacy@yucp.club</a>
             </p>
-            <p>For a mailing address, please contact us at the email above.</p>
+            <p>
+              General contact: <a href="mailto:contact@yucp.club">contact@yucp.club</a>
+            </p>
             <p>
               If your request relates to a specific Creator, Server, or verification flow, include
               enough detail for us to identify the relevant account, server, or transaction.
+            </p>
+            <p>
+              Role guidance:{' '}
+              <a
+                href="https://www.edpb.europa.eu/documents/guideline/guidelines-072020-on-the-concepts-of-controller-and-processor-in-the-gdpr_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                EDPB Guidelines 07/2020
+              </a>
+              .
             </p>
           </div>
         </div>

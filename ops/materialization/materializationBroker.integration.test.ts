@@ -9,6 +9,7 @@ import {
   verifyDeliveryGrantV2,
   verifyMaterializationReceiptV2,
 } from '../storage-core/packageContractsV2';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import type { MaterializationKeyBrokerPort } from './keyBrokerClient';
 import { MaterializationBroker } from './materializationBroker';
@@ -132,6 +133,27 @@ function requireSql(): CatalogDatabase {
   return sql;
 }
 
+function createBroker(): MaterializationBroker {
+  return new MaterializationBroker({
+    keyBroker,
+    receiptSigning: {
+      keyId: receiptKeyId,
+      lifetimeSeconds: 7 * 24 * 60 * 60,
+      privateKey: receiptPrivateKey,
+    },
+    renditionStorage,
+    sourceGrant: {
+      audience: 'yucp-materialization-source',
+      baseUrl: 'https://delivery.example.test',
+      issuer: 'https://api.example.test',
+      keyId: sourceGrantKeyId,
+      lifetimeSeconds: 300,
+      privateKey: sourceGrantPrivateKey,
+    },
+    sql: requireSql(),
+  });
+}
+
 beforeAll(async () => {
   try {
     await requireDocker(['version']);
@@ -212,7 +234,7 @@ beforeEach(async () => {
       ${'88'.repeat(32)},
       ${'44'.repeat(32)},
       'active-content-v1',
-      'supported-visual-assets-v1',
+      ${ACTIVE_PROTECTION_POLICY_ID},
       ${'55'.repeat(32)},
       4096,
       2,
@@ -220,7 +242,7 @@ beforeEach(async () => {
         {
           materializerType: 'png',
           normalizedPath: 'Assets/Product/a.png',
-          required: true,
+          required: false,
           sourceSha256: '41'.repeat(32),
         },
       ])},
@@ -242,24 +264,7 @@ afterAll(async () => {
 
 describe.serial('PostgreSQL materialization capability broker', () => {
   it('consumes one fenced capability without returning materialization keys', async () => {
-    const broker = new MaterializationBroker({
-      keyBroker,
-      receiptSigning: {
-        keyId: receiptKeyId,
-        lifetimeSeconds: 7 * 24 * 60 * 60,
-        privateKey: receiptPrivateKey,
-      },
-      renditionStorage,
-      sourceGrant: {
-        audience: 'yucp-materialization-source',
-        baseUrl: 'https://delivery.example.test',
-        issuer: 'https://api.example.test',
-        keyId: sourceGrantKeyId,
-        lifetimeSeconds: 300,
-        privateKey: sourceGrantPrivateKey,
-      },
-      sql: requireSql(),
-    });
+    let broker = createBroker();
     const installJob = {
       bindingRoot: new Uint8Array(32).fill(0x23),
       buyerId: 'buyer-1',
@@ -281,6 +286,18 @@ describe.serial('PostgreSQL materialization capability broker', () => {
     };
     await broker.createInstallJob(installJob);
     await broker.createInstallJob(installJob);
+    broker = createBroker();
+    const activePinRows = await requireSql()<Array<{ pinId: string; releasedAt: Date | null }>>`
+      SELECT
+        pin.id::text AS "pinId",
+        pin.released_at AS "releasedAt"
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id = 'job-1'
+    `;
+    const storagePinId = activePinRows[0]?.pinId;
+    expect(storagePinId).toBeString();
+    expect(activePinRows[0]?.releasedAt).toBeNull();
     const attributionRows = await requireSql()<
       {
         buyerSubjectPseudonym: string;
@@ -476,6 +493,12 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       proofJti: 'proof-complete-2',
     });
     expect(completed.success).toBeTrue();
+    const releasedPinRows = await requireSql()<Array<{ releasedAt: Date | null }>>`
+      SELECT released_at AS "releasedAt"
+      FROM storage_gc_release_pins
+      WHERE id = ${storagePinId}
+    `;
+    expect(releasedPinRows[0]?.releasedAt).toBeInstanceOf(Date);
     const receiptPublicKey = await ed25519.getPublicKeyAsync(receiptPrivateKey);
     const receipt = await verifyMaterializationReceiptV2({
       coseSign1: Buffer.from(completed.receipt, 'base64url'),
@@ -611,6 +634,104 @@ describe.serial('PostgreSQL materialization capability broker', () => {
       jobId: 'job-2',
     });
     expect(repeatedAttributionCandidates.truncated).toBe(false);
+
+    await broker.createInstallJob({
+      ...installJob,
+      grantJti: 'grant-failed',
+      id: 'job-failed',
+      traceId: 'trace-failed',
+    });
+    const failedClaim = await broker.claimNextJob({
+      leaseDurationMs: 600_000,
+      leaseOwner: 'data-node-1',
+      now: new Date((nowSeconds + 8) * 1_000),
+    });
+    if (failedClaim.status !== 'claimed') {
+      throw new Error('Expected the failed materialization job to be claimed');
+    }
+    const failedCapability = await broker.issueCapability({
+      jobId: failedClaim.jobId,
+      keyId: capabilityKeyId,
+      leaseGeneration: failedClaim.leaseGeneration,
+      leaseOwner: 'data-node-1',
+      lifetimeSeconds: 300,
+      now: new Date((nowSeconds + 8) * 1_000),
+      privateKey: capabilityPrivateKey,
+      proofKeyThumbprint: new Uint8Array(32).fill(0x44),
+    });
+    await broker.consumeCapability({
+      coseSign1: failedCapability.coseSign1,
+      expectedKeyId: capabilityKeyId,
+      materializerId: 'data-node-1',
+      now: new Date((nowSeconds + 9) * 1_000),
+      publicKey: capabilityPublicKey,
+      proofJti: 'proof-failed-consume',
+      traceId: 'trace-failed',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x44),
+    });
+    await broker.failCapabilityJob({
+      capabilityId: failedCapability.capability.capabilityId,
+      coseSign1: failedCapability.coseSign1,
+      errorCode: 'MATERIALIZATION_OUTPUT_INVALID',
+      jobId: 'job-failed',
+      leaseGeneration: failedClaim.leaseGeneration,
+      materializerId: 'data-node-1',
+      now: new Date((nowSeconds + 10) * 1_000),
+      proofJti: 'proof-failed-terminal',
+      verifiedProofKeyThumbprint: new Uint8Array(32).fill(0x44),
+    });
+    const failedPinRows = await requireSql()<Array<{ releasedAt: Date | null }>>`
+      SELECT pin.released_at AS "releasedAt"
+      FROM materialization_jobs job
+      JOIN storage_gc_release_pins pin ON pin.id = job.storage_gc_pin_id
+      WHERE job.id = 'job-failed'
+    `;
+    expect(failedPinRows[0]?.releasedAt).toBeInstanceOf(Date);
+    let cancellationConstraintError: unknown;
+    try {
+      await requireSql()`
+        UPDATE materialization_jobs
+        SET state = 'CANCELLED'
+        WHERE id = 'job-failed'
+      `;
+    } catch (error) {
+      cancellationConstraintError = error;
+    }
+    expect(cancellationConstraintError).toBeInstanceOf(Error);
+
+    await requireSql()`
+      UPDATE materialization_attribution_records
+      SET
+        attribution_id = CASE
+          WHEN job_id = 'job-1' THEN 'attribution-2'
+          ELSE attribution_id
+        END,
+        created_at = to_timestamp(${nowSeconds + 10})
+      WHERE job_id IN ('job-1', 'job-2')
+    `;
+    const firstAttributionPage = await broker.listAttributionCandidates({
+      candidateLimit: 1,
+      creatorId: 'creator-1',
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(firstAttributionPage).toMatchObject({
+      candidateLimit: 1,
+      candidates: [{ attributionId: 'attribution-1', jobId: 'job-2' }],
+      truncated: true,
+    });
+    expect(firstAttributionPage.nextCursor).toBeString();
+    const secondAttributionPage = await broker.listAttributionCandidates({
+      candidateLimit: 1,
+      creatorId: 'creator-1',
+      cursor: firstAttributionPage.nextCursor,
+      productId: 'com.yucp.materialization-test',
+    });
+    expect(secondAttributionPage).toMatchObject({
+      candidateLimit: 1,
+      candidates: [{ attributionId: 'attribution-2', jobId: 'job-1' }],
+      truncated: false,
+    });
+    expect(secondAttributionPage.nextCursor).toBeUndefined();
 
     let replayError: unknown;
     try {

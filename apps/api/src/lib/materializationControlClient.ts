@@ -37,14 +37,18 @@ export interface MaterializationControlClient extends PackageInstallMaterializat
   createJob(input: CreateJobInput): Promise<void>;
   getStatus(input: { grantJti: string; jobId: string }): Promise<MaterializationStatus>;
   listAttributionCandidates(input: {
+    candidateLimit?: number;
     creatorId: string;
+    cursor?: string;
     productId: string;
+    traceparent?: string;
   }): Promise<MaterializationAttributionCandidatePage>;
 }
 
 export type MaterializationAttributionCandidatePage = {
   candidateLimit: number;
   candidates: MaterializationAttributionCandidate[];
+  nextCursor?: string;
   truncated: boolean;
 };
 
@@ -200,16 +204,24 @@ function validateAttributionCandidates(value: unknown): MaterializationAttributi
   if (
     !Number.isSafeInteger(body.candidateLimit) ||
     (body.candidateLimit as number) < 1 ||
-    (body.candidateLimit as number) > 4_096 ||
+    (body.candidateLimit as number) > 512 ||
     typeof body.truncated !== 'boolean' ||
     !Array.isArray(body.candidates) ||
-    body.candidates.length > (body.candidateLimit as number)
+    body.candidates.length > (body.candidateLimit as number) ||
+    (body.truncated === true &&
+      (body.candidates.length !== body.candidateLimit || typeof body.nextCursor !== 'string')) ||
+    (body.truncated === false && body.nextCursor !== undefined)
   ) {
     throw new Error('Materialization control-plane returned an invalid response');
   }
+  const nextCursor =
+    body.nextCursor === undefined
+      ? undefined
+      : requireText(body.nextCursor, 'attribution cursor', 2_048);
   return {
     candidateLimit: body.candidateLimit as number,
     candidates: body.candidates.map(validateAttributionCandidate),
+    ...(nextCursor ? { nextCursor } : {}),
     truncated: body.truncated,
   };
 }
@@ -287,12 +299,27 @@ export function createMaterializationControlClient(
       );
     },
     async listAttributionCandidates(input) {
+      const { traceparent, ...body } = input;
+      if (
+        body.candidateLimit !== undefined &&
+        (!Number.isSafeInteger(body.candidateLimit) ||
+          body.candidateLimit < 1 ||
+          body.candidateLimit > 512)
+      ) {
+        throw new Error('Materialization attribution candidate limit is invalid');
+      }
+      if (
+        body.cursor !== undefined &&
+        (!body.cursor.trim() || Buffer.byteLength(body.cursor, 'utf8') > 2_048)
+      ) {
+        throw new Error('Materialization attribution cursor is invalid');
+      }
       return validateAttributionCandidates(
         await post(
           ATTRIBUTION_CANDIDATES_PATH,
-          input,
+          body,
           200,
-          undefined,
+          traceparent,
           MAXIMUM_ATTRIBUTION_RESPONSE_BYTES
         )
       );

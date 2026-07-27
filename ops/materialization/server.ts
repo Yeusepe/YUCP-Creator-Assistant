@@ -7,6 +7,7 @@ import { createMaterializationKeyBrokerClient } from './keyBrokerClient';
 import {
   type CompletedRendition,
   type ConsumedMaterializationCapability,
+  DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS,
   MaterializationBroker,
   type PreparedRenditionUpload,
 } from './materializationBroker';
@@ -20,6 +21,7 @@ const CLAIM_JOB_PATH = '/v2/internal/materialization-jobs/claim';
 const STATUS_JOB_PATH = '/v2/internal/materialization-jobs/status';
 const FAIL_JOB_PATH = '/v2/internal/materialization-jobs/fail';
 const ATTRIBUTION_CANDIDATES_PATH = '/v2/internal/materialization-attribution/candidates';
+const ATTRIBUTION_CANDIDATE_PAGE_LIMIT = 512;
 const REQUEST_BODY_LIMIT = 64 * 1_024;
 const CAPABILITY_REQUEST_BODY_LIMIT = 2 * 1_024 * 1_024;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
@@ -454,12 +456,32 @@ export function createMaterializationControlPlaneHandler(
         return noStoreJson(result, 200, traceId);
       }
       if (url.pathname === ATTRIBUTION_CANDIDATES_PATH) {
-        requireExactKeys(body, ['creatorId', 'productId']);
+        requireExactKeys(body, [
+          ...(body.candidateLimit === undefined ? [] : ['candidateLimit']),
+          'creatorId',
+          ...(body.cursor === undefined ? [] : ['cursor']),
+          'productId',
+        ]);
         if (!config.broker.listAttributionCandidates) {
           throw new Error('Materialization attribution lookup is unavailable');
         }
+        const candidateLimit =
+          body.candidateLimit === undefined
+            ? undefined
+            : requireInteger(body.candidateLimit, 'candidate_limit', 1);
+        if (candidateLimit !== undefined && candidateLimit > ATTRIBUTION_CANDIDATE_PAGE_LIMIT) {
+          throw new RequestBoundaryError(
+            400,
+            'candidate_limit_invalid',
+            'candidate_limit is invalid'
+          );
+        }
         const result = await config.broker.listAttributionCandidates({
+          ...(candidateLimit === undefined ? {} : { candidateLimit }),
           creatorId: requireString(body.creatorId, 'creator_id'),
+          ...(body.cursor === undefined
+            ? {}
+            : { cursor: requireString(body.cursor, 'cursor', 2_048) }),
           productId: requireString(body.productId, 'product_id'),
         });
         emit('accepted');
@@ -726,6 +748,11 @@ async function main(): Promise<void> {
       privateKey: envBase64Url('MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY', 32),
     },
     sql,
+    storageGcPinRetentionSeconds: Number.parseInt(
+      process.env.MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS ??
+        String(DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS),
+      10
+    ),
   });
   const handler = createMaterializationControlPlaneHandler({
     apiSharedSecret: requiredEnv('MATERIALIZATION_API_SHARED_SECRET'),

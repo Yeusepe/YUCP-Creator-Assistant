@@ -40,6 +40,7 @@ describe('Route Tree', () => {
     'oauth/callback/itchio.tsx',
     'legal/terms-of-service.tsx',
     'legal/privacy-policy.tsx',
+    'legal/verification-and-attestation.tsx',
     '$.tsx',
     'index.tsx',
     '__root.tsx',

@@ -231,8 +231,9 @@ test('loads Infisical bootstrap credentials from local .env.infisical before run
       if (request.headers.get('authorization') !== `Bearer ${MATERIALIZATION_API_SECRET}`) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
+      const body = (await request.json()) as { candidateLimit?: number };
       return Response.json({
-        candidateLimit: 512,
+        candidateLimit: body.candidateLimit ?? 512,
         candidates: [
           {
             algorithmVersion: 'fbx-coupling-v2',

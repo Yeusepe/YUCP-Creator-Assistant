@@ -1,4 +1,7 @@
-import { resolveComparableYucpAliasIdsFromCatalogProduct } from '@yucp/shared';
+import {
+  catalogTierPackageEditionId,
+  STANDARD_PACKAGE_EDITION_ID,
+} from '@yucp/shared/packageEdition';
 import { apiClient } from '@/api/client';
 
 export interface CreatorCatalogTierSummary {
@@ -25,6 +28,55 @@ export interface CreatorCatalogStorefrontSummary {
   thumbnailUrl?: string;
 }
 
+export interface CreatorPackageVersionSummary {
+  createdAt: string;
+  editionId: string;
+  packageId: string;
+  state: Exclude<CreatorPackageVersionStatus['state'], 'deleted'>;
+  updatedAt: string;
+  version: string;
+  versionId: string;
+}
+
+export interface CreatorPackageVersionListPage {
+  data: CreatorPackageVersionSummary[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+
+export type CreatorPackageVersionStatus = {
+  editionId: string;
+  errorCategory: 'processing' | null;
+  errorCode: 'PACKAGE_VERSION_PROCESSING_FAILED' | null;
+  estimatedStartAt: string | null;
+  packageId: string;
+  queuePosition: number | null;
+  state: 'queued' | 'uploading' | 'preparing' | 'publishing' | 'ready' | 'failed' | 'deleted';
+  updatedAt: string;
+  version: string;
+  versionId: string;
+};
+
+export interface CreatorPackageEditionSummary {
+  catalogProductIds: string[];
+  catalogTierIds: string[];
+  createdAt: number;
+  displayName: string;
+  editionId: string;
+  priority: number;
+  status: 'active' | 'archived';
+  updatedAt: number;
+}
+
+export interface CreatorPackageEditionOption {
+  catalogTierId?: string;
+  displayName: string;
+  editionId: string;
+  provider?: string;
+  source: 'catalog-tier' | 'managed' | 'standard';
+  status: 'active' | 'archived';
+}
+
 export interface CreatorPackageProductSummary {
   _id: string;
   aliasId?: string;
@@ -35,6 +87,9 @@ export interface CreatorPackageProductSummary {
   displayName?: string;
   thumbnailUrl?: string;
   packageId?: string;
+  packageName?: string;
+  packageAssociationUpdatedAt?: number;
+  packageEditions?: CreatorPackageEditionSummary[];
   productId: string;
   provider: string;
   providerProductRef: string;
@@ -59,6 +114,72 @@ export interface CreatorPackageProductListOptions {
   configured?: boolean;
   cursor?: string;
   limit?: number;
+}
+
+export function getCreatorPackageEditionOptions(
+  product: CreatorPackageProductSummary
+): CreatorPackageEditionOption[] {
+  const packageEditions = product.packageEditions ?? [];
+  const mappedCatalogTierIds = new Set(
+    packageEditions.flatMap((edition) => edition.catalogTierIds)
+  );
+  const managedEditions: CreatorPackageEditionOption[] = packageEditions
+    .filter(
+      (edition) => edition.status === 'active' && edition.editionId !== STANDARD_PACKAGE_EDITION_ID
+    )
+    .map((edition) => ({
+      displayName: edition.displayName,
+      editionId: edition.editionId,
+      source: 'managed',
+      status: edition.status,
+    }));
+  const catalogTierEditions: CreatorPackageEditionOption[] = product.catalogTiers
+    .filter(
+      (tier) =>
+        tier.status === 'active' &&
+        Boolean(tier.catalogProductId) &&
+        !mappedCatalogTierIds.has(tier._id)
+    )
+    .map((tier) => ({
+      catalogTierId: tier._id,
+      displayName: tier.displayName,
+      editionId: catalogTierPackageEditionId(tier._id),
+      provider: tier.provider,
+      source: 'catalog-tier',
+      status: 'active',
+    }));
+
+  return [
+    {
+      displayName: 'Standard',
+      editionId: STANDARD_PACKAGE_EDITION_ID,
+      source: 'standard',
+      status: 'active',
+    },
+    ...[...managedEditions, ...catalogTierEditions].sort(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) ||
+        left.editionId.localeCompare(right.editionId)
+    ),
+  ];
+}
+
+export type CreatorPackageVccLink =
+  | {
+      bootstrapDownloadUrl: string;
+      status: 'inactive';
+    }
+  | {
+      addRepoUrl: string;
+      bootstrapDownloadUrl: string;
+      createdAt: number;
+      indexUrl: string;
+      status: 'active';
+    };
+
+export interface CreatorPackagePresentation {
+  packageName: string;
+  published: boolean;
 }
 
 export interface CreatorPackagePickerProduct {
@@ -104,55 +225,10 @@ function compareProviderProducts(
 export function groupCreatorPackagePickerProducts(
   products: ReadonlyArray<CreatorPackageProductSummary>
 ): CreatorPackagePickerProduct[] {
-  const comparableAliasBuckets = new Map<string, CreatorPackageProductSummary[]>();
-  for (const product of products) {
-    const comparableAliasId =
-      resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ?? undefined;
-    if (!comparableAliasId) continue;
-    const bucket = comparableAliasBuckets.get(comparableAliasId) ?? [];
-    bucket.push(product);
-    comparableAliasBuckets.set(comparableAliasId, bucket);
-  }
-
-  const grouped = new Map<string, CreatorPackagePickerProduct>();
-  const assignedProductIds = new Set<string>();
-  for (const [comparableAliasId, bucket] of comparableAliasBuckets) {
-    const providers = new Set(bucket.map((product) => product.provider));
-    const packageIds = new Set(
-      bucket
-        .map((product) => product.packageId?.trim())
-        .filter((packageId): packageId is string => Boolean(packageId))
-    );
-    if (bucket.length < 2 || providers.size !== bucket.length || packageIds.size > 1) {
-      continue;
-    }
-
-    const packageId = packageIds.values().next().value as string | undefined;
-    const identityKey = packageId ? `package:${packageId}` : `alias:${comparableAliasId}`;
-    grouped.set(identityKey, { identityKey, products: [...bucket] });
-    for (const product of bucket) {
-      assignedProductIds.add(product._id);
-    }
-  }
-
-  for (const product of products) {
-    if (assignedProductIds.has(product._id)) continue;
-    const identityKey = product.packageId
-      ? `package:${product.packageId}`
-      : `catalog:${product._id}`;
-    const existing = grouped.get(identityKey);
-    if (existing) {
-      if (!existing.products.some((candidate) => candidate._id === product._id)) {
-        existing.products.push(product);
-      }
-      continue;
-    }
-    grouped.set(identityKey, { identityKey, products: [product] });
-  }
-
-  return Array.from(grouped.values())
-    .map((entry) => ({ ...entry, products: [...entry.products].sort(compareProviderProducts) }))
-    .sort((left, right) => left.identityKey.localeCompare(right.identityKey));
+  return [...products].sort(compareProviderProducts).map((product) => ({
+    identityKey: product.packageId ? `package:${product.packageId}` : `catalog:${product._id}`,
+    products: [product],
+  }));
 }
 
 export async function listCreatorPackagePickerProducts(): Promise<CreatorPackagePickerProduct[]> {
@@ -185,5 +261,146 @@ export async function getCreatorPackageProduct(
 ): Promise<CreatorPackageProductSummary> {
   return await apiClient.get<CreatorPackageProductSummary>(
     `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(catalogProductId)}`
+  );
+}
+
+function creatorPackageEditionVersionsPath(packageId: string, editionId: string): string {
+  return `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(
+    packageId
+  )}/editions/${encodeURIComponent(editionId)}/versions`;
+}
+
+export async function listCreatorPackageVersions(
+  packageId: string,
+  editionId: string,
+  options: { cursor?: string; limit?: number } = {}
+): Promise<CreatorPackageVersionListPage> {
+  const limit = options.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Creator release page limit must be an integer between 1 and 100');
+  }
+  return await apiClient.get<CreatorPackageVersionListPage>(
+    creatorPackageEditionVersionsPath(packageId, editionId),
+    {
+      params: {
+        limit: String(limit),
+        ...(options.cursor ? { cursor: options.cursor } : {}),
+      },
+    }
+  );
+}
+
+export async function deleteCreatorPackageVersion(
+  packageId: string,
+  editionId: string,
+  versionId: string
+): Promise<{ deletedAt: string; state: 'DELETED'; versionId: string }> {
+  return await apiClient.delete(
+    `${creatorPackageEditionVersionsPath(packageId, editionId)}/${encodeURIComponent(versionId)}`
+  );
+}
+
+export async function getCreatorPackageVersionStatus(
+  packageId: string,
+  editionId: string,
+  versionId: string
+): Promise<CreatorPackageVersionStatus> {
+  return await apiClient.get<CreatorPackageVersionStatus>(
+    `${creatorPackageEditionVersionsPath(packageId, editionId)}/${encodeURIComponent(
+      versionId
+    )}/status`
+  );
+}
+
+export async function saveCreatorPackageEdition(
+  catalogProductId: string,
+  input: {
+    catalogProductIds: string[];
+    catalogTierIds: string[];
+    displayName: string;
+    editionId: string;
+    priority: number;
+  }
+): Promise<{ editionId: string; saved: boolean }> {
+  return await apiClient.put(
+    `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(
+      catalogProductId
+    )}/editions/${encodeURIComponent(input.editionId)}`,
+    {
+      catalogProductIds: input.catalogProductIds,
+      catalogTierIds: input.catalogTierIds,
+      displayName: input.displayName,
+      priority: input.priority,
+    }
+  );
+}
+
+export async function archiveCreatorPackageEdition(
+  catalogProductId: string,
+  editionId: string
+): Promise<{ archived: boolean; editionId: string }> {
+  return await apiClient.delete(
+    `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(
+      catalogProductId
+    )}/editions/${encodeURIComponent(editionId)}`
+  );
+}
+
+export async function bindCreatorPackageStorefront(
+  catalogProductId: string,
+  targetCatalogProductId: string
+): Promise<{
+  bound: boolean;
+  catalogProductId: string;
+  packageId: string;
+}> {
+  return await apiClient.put(
+    `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(
+      catalogProductId
+    )}/storefronts/${encodeURIComponent(targetCatalogProductId)}`,
+    {}
+  );
+}
+
+export async function unbindCreatorPackageStorefront(
+  catalogProductId: string,
+  targetCatalogProductId: string
+): Promise<{ unbound: boolean }> {
+  return await apiClient.delete(
+    `${CREATOR_PACKAGES_PATH}/${encodeURIComponent(
+      catalogProductId
+    )}/storefronts/${encodeURIComponent(targetCatalogProductId)}`
+  );
+}
+
+export async function getCreatorPackageVccLink(packageId: string): Promise<CreatorPackageVccLink> {
+  return await apiClient.get(
+    `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/vcc-link`
+  );
+}
+
+export async function createCreatorPackageVccLink(
+  packageId: string
+): Promise<CreatorPackageVccLink> {
+  return await apiClient.post(
+    `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/vcc-link`
+  );
+}
+
+export async function revokeCreatorPackageVccLink(
+  packageId: string
+): Promise<{ revoked: boolean }> {
+  return await apiClient.delete(
+    `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/vcc-link`
+  );
+}
+
+export async function updateCreatorPackagePresentation(
+  packageId: string,
+  packageName: string
+): Promise<CreatorPackagePresentation> {
+  return await apiClient.put(
+    `${CREATOR_PACKAGES_PATH}/by-package/${encodeURIComponent(packageId)}/presentation`,
+    { packageName }
   );
 }

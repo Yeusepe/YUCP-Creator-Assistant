@@ -3,13 +3,14 @@ import {
   signExpiringHmacCapability,
   verifyExpiringHmacCapability,
 } from './expiringHmacCapability';
-import type { ProtectionPolicyId } from './protectionPolicy';
+import type { ProtectionPolicyId } from './protectionPolicyId';
 
 const UPLOAD_CAPABILITY_BINDING = 'tus-artifact-upload-v2';
 
 export const UPLOAD_CAPABILITY_HEADERS = {
   catalogProductId: 'x-yucp-upload-catalog-product-id',
   creatorId: 'x-yucp-upload-creator-id',
+  editionId: 'x-yucp-upload-edition-id',
   exp: 'x-yucp-upload-exp',
   packageId: 'x-yucp-upload-package-id',
   protectionPolicyId: 'x-yucp-upload-protection-policy-id',
@@ -21,15 +22,22 @@ export const UPLOAD_CAPABILITY_HEADERS = {
 export type UploadCapability = ExpiringHmacSignature & {
   catalogProductId?: string;
   creatorId: string;
+  editionId: string;
   packageId: string;
   protectionPolicyId: ProtectionPolicyId;
   version: string;
   versionId: string;
 };
 
+type UploadCapabilityVerificationInput = Omit<UploadCapability, 'protectionPolicyId'> & {
+  now?: Date | number;
+  protectionPolicyId: string;
+};
+
 export async function signUploadCapability(input: {
   catalogProductId?: string;
   creatorId: string;
+  editionId?: string;
   expiresAt: Date | number;
   key: string;
   packageId: string;
@@ -47,6 +55,7 @@ export async function signUploadCapability(input: {
   return {
     ...signature,
     creatorId: input.creatorId,
+    editionId: input.editionId?.trim() || 'standard',
     packageId: input.packageId,
     protectionPolicyId: input.protectionPolicyId,
     version: input.version,
@@ -56,7 +65,7 @@ export async function signUploadCapability(input: {
 }
 
 export async function verifyUploadCapability(
-  capability: UploadCapability & { now?: Date | number },
+  capability: UploadCapabilityVerificationInput,
   key: string
 ): Promise<boolean> {
   try {
@@ -76,12 +85,15 @@ export async function verifyUploadCapability(
 function uploadCapabilityBinding(input: {
   catalogProductId?: string;
   creatorId: string;
+  editionId?: string;
   packageId: string;
-  protectionPolicyId: ProtectionPolicyId;
+  protectionPolicyId: string;
   version: string;
 }): string {
+  const editionId = input.editionId?.trim() || 'standard';
   if (
     !input.creatorId ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId) ||
     !input.packageId ||
     !input.protectionPolicyId ||
     !input.version ||
@@ -92,6 +104,7 @@ function uploadCapabilityBinding(input: {
   return JSON.stringify([
     UPLOAD_CAPABILITY_BINDING,
     input.creatorId,
+    editionId,
     input.packageId,
     input.version,
     input.catalogProductId ?? null,

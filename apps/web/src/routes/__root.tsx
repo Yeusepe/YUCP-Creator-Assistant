@@ -32,7 +32,6 @@ import { logRootRenderError } from '@/lib/webDiagnostics';
 import '@/styles/tokens.css';
 import '@/styles/loading.css';
 import '@/styles/globals.css';
-import '@/styles/toast.css';
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;

@@ -27,8 +27,9 @@ import {
 } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
+import { DIRECT_FILE_CHUNK_LIMIT_BYTES } from '../storage-core/logicalFileCas';
 import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
-import { createS3Bucket, enableS3BucketVersioning, listS3Objects } from '../storage-core/s3Control';
+import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
 import { signUploadCapability } from '../storage-core/uploadSigning';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
@@ -330,7 +331,6 @@ async function uploadCapabilityHeaders(input: {
   catalogProductId?: string;
   creatorId?: string;
   packageId: string;
-  protectionPolicyId?: 'common-only-v1' | 'supported-visual-assets-v1';
   version: string;
   versionId?: string;
 }): Promise<Record<string, string>> {
@@ -340,7 +340,7 @@ async function uploadCapabilityHeaders(input: {
     expiresAt: Date.now() + 10 * 60_000,
     key: uploadHmacKey,
     packageId: input.packageId,
-    protectionPolicyId: input.protectionPolicyId ?? 'common-only-v1',
+    protectionPolicyId: 'supported-visual-assets-v2',
     version: input.version,
     versionId: input.versionId ?? randomUUID(),
   });
@@ -354,6 +354,7 @@ async function uploadCapabilityHeaders(input: {
       : {}),
     [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
     [UPLOAD_CAPABILITY_HEADERS.creatorId]: encodeURIComponent(capability.creatorId),
+    [UPLOAD_CAPABILITY_HEADERS.editionId]: capability.editionId,
     [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
     [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
     [UPLOAD_CAPABILITY_HEADERS.sig]: capability.sig,
@@ -611,7 +612,6 @@ beforeAll(async () => {
     });
     for (const config of [commonConfig, metadataConfig, protectedConfig]) {
       await createS3Bucket(config);
-      await enableS3BucketVersioning(config);
     }
     const durableStorage = new DurableExactStorage(
       new ExactStorageCatalog(requireSql()),
@@ -641,7 +641,6 @@ beforeAll(async () => {
       CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
     });
     await createS3Bucket(quarantineConfig);
-    await enableS3BucketVersioning(quarantineConfig);
     quarantineStorage = createS3QuarantineStorage(quarantineConfig);
 
     scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-e2e-'));
@@ -662,8 +661,10 @@ beforeAll(async () => {
       metadataStore: localCasStore(join(scratchPath, 'metadata-store')),
       protectedStore: localCasStore(join(scratchPath, 'protected-store')),
       quarantineStorage,
+      scratchRoot: join(scratchPath, 'pipeline-scratch'),
       uploadDir: join(scratchPath, 'uploads'),
       uploadHmacKey,
+      catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
     const localListener = await listen(handler);
@@ -676,8 +677,10 @@ beforeAll(async () => {
       metadataStore: requireS3Stores().metadata,
       protectedStore: requireS3Stores().protected,
       quarantineStorage,
+      scratchRoot: join(scratchPath, 'pipeline-scratch'),
       uploadDir: join(scratchPath, 's3-uploads'),
       uploadHmacKey,
+      catalogControlSharedSecret: 'e2e-catalog-control-test-secret-32-bytes',
       maxBytes,
     });
     const s3Listener = await listen(s3Handler);
@@ -890,14 +893,47 @@ describe.serial('tus ingest end to end', () => {
       )
     );
     const chunks = new Set(manifest.files.flatMap((file) => file.chunks.map((chunk) => chunk.id)));
+    const commonChunks = new Set(
+      manifest.files
+        .filter((file) => file.classification === 'common')
+        .flatMap((file) => file.chunks.map((chunk) => chunk.id))
+    );
+    const protectedChunks = new Set(
+      manifest.files
+        .filter((file) => file.classification === 'protected')
+        .flatMap((file) => file.chunks.map((chunk) => chunk.id))
+    );
     expect(chunks.size).toBeGreaterThan(0);
+    expect(commonChunks.size).toBeGreaterThan(0);
+    expect(protectedChunks.size).toBeGreaterThan(0);
+    expect(commonChunks.size + protectedChunks.size).toBe(chunks.size);
+    for (const file of manifest.files) {
+      if (file.bytes < DIRECT_FILE_CHUNK_LIMIT_BYTES) {
+        expect(file.chunks).toEqual([
+          {
+            id: file.chunks[0]?.id,
+            sha256: file.sha256,
+            size: file.bytes,
+          },
+        ]);
+      }
+    }
     const commonObjects = await listS3Objects(stores.common.config);
     const metadataObjects = await listS3Objects(stores.metadata.config);
     const protectedObjects = await listS3Objects(stores.protected.config);
-    const chunkObjects = commonObjects.filter((object) =>
+    const commonChunkObjects = commonObjects.filter((object) =>
       object.key.startsWith(stores.common.config.chunkPrefix)
     );
-    expect(chunkObjects).toHaveLength(chunks.size);
+    const protectedChunkObjects = protectedObjects.filter((object) =>
+      object.key.startsWith(stores.protected.config.chunkPrefix)
+    );
+    expect(commonChunkObjects).toHaveLength(commonChunks.size);
+    expect(protectedChunkObjects).toHaveLength(protectedChunks.size);
+    const metadataObjectKeys = new Set([
+      `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`,
+      ...(manifest.bootstrapMedia ?? []).map((media) => media.objectKey),
+    ]);
+    expect(new Set(metadataObjects.map((object) => object.key))).toEqual(metadataObjectKeys);
     expect(
       metadataObjects.some(
         (object) =>
@@ -905,7 +941,6 @@ describe.serial('tus ingest end to end', () => {
           `${stores.metadata.config.indexPrefix}${assembledRow.id}.logical-tree-assembly-v4.json`
       )
     ).toBeTrue();
-    expect(protectedObjects).toHaveLength(0);
 
     const exactVersions = await requireSql()<
       {
@@ -931,24 +966,30 @@ describe.serial('tus ingest end to end', () => {
       ORDER BY object.storage_role, object.object_key
     `;
     expect(exactVersions.filter((object) => object.storage_role === 'common')).toHaveLength(
-      chunks.size
+      commonChunks.size
     );
-    expect(exactVersions.filter((object) => object.storage_role === 'metadata')).toHaveLength(1);
-    expect(exactVersions.filter((object) => object.storage_role === 'protected')).toHaveLength(0);
+    expect(exactVersions.filter((object) => object.storage_role === 'metadata')).toHaveLength(
+      metadataObjectKeys.size
+    );
+    expect(exactVersions.filter((object) => object.storage_role === 'protected')).toHaveLength(
+      protectedChunks.size
+    );
+    const bucketByStorageRole = {
+      common: stores.common.config.bucket,
+      metadata: stores.metadata.config.bucket,
+      protected: stores.protected.config.bucket,
+    } as const;
     expect(
       exactVersions.every(
         (object) =>
           object.provider_version.length > 0 &&
-          object.bucket_name ===
-            (object.storage_role === 'common'
-              ? stores.common.config.bucket
-              : stores.metadata.config.bucket)
+          object.bucket_name === bucketByStorageRole[object.storage_role]
       )
     ).toBeTrue();
     const releaseClosure = await requireSql()<
       {
         logical_digest: string;
-        logical_kind: 'chunk' | 'manifest';
+        logical_kind: 'bootstrap-media' | 'chunk' | 'manifest';
         object_version_id: string;
       }[]
     >`
@@ -964,6 +1005,9 @@ describe.serial('tus ingest end to end', () => {
       chunks.size
     );
     expect(releaseClosure.filter((object) => object.logical_kind === 'manifest')).toHaveLength(1);
+    expect(
+      releaseClosure.filter((object) => object.logical_kind === 'bootstrap-media')
+    ).toHaveLength(manifest.bootstrapMedia?.length ?? 0);
     expect(
       releaseClosure.every((object) =>
         exactVersions.some((exactObject) => exactObject.id === object.object_version_id)
@@ -989,6 +1033,12 @@ describe.serial('tus ingest end to end', () => {
       WHERE storage_role = 'common'
         AND verification_state = 'VERIFIED'
     `;
+    const protectedVersionsBeforeDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'protected'
+        AND verification_state = 'VERIFIED'
+    `;
     await uploadToCompletion({
       endpoint: `${requireS3ServerOrigin()}${INGEST_TUS_PATH}`,
       filePath: fixture,
@@ -1002,8 +1052,16 @@ describe.serial('tus ingest end to end', () => {
       WHERE storage_role = 'common'
         AND verification_state = 'VERIFIED'
     `;
+    const protectedVersionsAfterDuplicate = await requireSql()<{ count: number }[]>`
+      SELECT count(*)::int AS count
+      FROM storage_object_versions
+      WHERE storage_role = 'protected'
+        AND verification_state = 'VERIFIED'
+    `;
     expect(commonVersionsAfterDuplicate).toEqual(commonVersionsBeforeDuplicate);
+    expect(protectedVersionsAfterDuplicate).toEqual(protectedVersionsBeforeDuplicate);
     expect(await listS3Objects(stores.common.config)).toEqual(commonObjects);
+    expect(await listS3Objects(stores.protected.config)).toEqual(protectedObjects);
     const duplicateClosure = await requireSql()<
       {
         logical_digest: string;

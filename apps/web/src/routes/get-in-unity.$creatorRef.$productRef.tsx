@@ -1,5 +1,5 @@
 import { Card, Skeleton } from '@heroui/react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useState } from 'react';
 import { CloudBackground } from '@/components/three/CloudBackground';
@@ -10,7 +10,6 @@ import {
   buildProductAccessReturnPath,
   clearProductAccessGrantFromUrl,
   createBuyerProductAccessVerificationIntent,
-  mintBuyerVpmRepository,
 } from '@/lib/productAccess';
 import { routeStyleHrefs, routeStylesheetLinks } from '@/lib/routeStyles';
 import { fetchBuyerProductAccess } from '@/lib/server/productAccess';
@@ -35,18 +34,11 @@ export const Route = createFileRoute('/get-in-unity/$creatorRef/$productRef')({
 });
 
 function BuyerUnityAccessPage() {
-  const { accessState, product } = Route.useLoaderData();
+  const { accessState, product, repository } = Route.useLoaderData();
   const search = Route.useSearch();
-  const { authUserId, isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
+  const { isAuthenticated, isPending: isAuthPending, signIn } = usePublicAuth();
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [isCopying, setIsCopying] = useState(false);
-
-  const repositoryQuery = useQuery({
-    queryKey: ['buyer-vpm-repository', authUserId, product.catalogProductId],
-    queryFn: mintBuyerVpmRepository,
-    enabled: Boolean(authUserId) && isAuthenticated && accessState.hasActiveEntitlement,
-    retry: false,
-  });
 
   useEffect(() => {
     if (search.grant || search.intent_id) clearProductAccessGrantFromUrl();
@@ -68,15 +60,18 @@ function BuyerUnityAccessPage() {
   });
 
   async function copyVccLink() {
-    if (!repositoryQuery.data) return;
+    if (!repository) return;
     setIsCopying(true);
-    const copied = await copyToClipboard(repositoryQuery.data.addRepoUrl);
+    const copied = await copyToClipboard(repository.addRepoUrl);
     setIsCopying(false);
     setCopyMessage(copied ? 'VCC setup link copied' : 'Could not copy the VCC setup link');
   }
 
   const hasAccess = accessState.hasActiveEntitlement;
   const returnedVerified = Boolean(search.grant && search.intent_id && hasAccess);
+  const providerSummary = Array.from(
+    new Set(product.storefronts.map((storefront) => storefront.providerLabel))
+  ).join(' + ');
 
   return (
     <div className="min-h-screen bg-transparent dark:bg-transparent">
@@ -91,14 +86,13 @@ function BuyerUnityAccessPage() {
                     <Icon name="shield" className="size-7" aria-hidden="true" />
                   </div>
                   <p className="text-sm font-medium text-slate-600 dark:text-foreground/75">
-                    {returnedVerified ? 'Purchase verified' : 'Private access ready'}
+                    {returnedVerified ? 'Purchase verified' : 'Package access ready'}
                   </p>
                   <h1 className="text-3xl font-semibold text-slate-950 dark:text-foreground">
                     {product.displayName}
                   </h1>
                   <p className="mx-auto max-w-2xl text-sm text-slate-600 dark:text-foreground/70">
-                    Add your private repository to VCC. The importer retrieves protected package
-                    data.
+                    Add this product to VCC. The importer checks access and installs its files.
                   </p>
                 </div>
 
@@ -107,16 +101,14 @@ function BuyerUnityAccessPage() {
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-foreground/45">
                       Store
                     </p>
-                    <p className="text-sm text-slate-950 dark:text-foreground">
-                      {product.providerLabel}
-                    </p>
+                    <p className="text-sm text-slate-950 dark:text-foreground">{providerSummary}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-foreground/45">
                       Access
                     </p>
                     <p className="text-sm text-slate-950 dark:text-foreground">
-                      Private VPM repository and authenticated importer delivery
+                      Verified VCC setup and importer delivery
                     </p>
                   </div>
                 </div>
@@ -124,18 +116,17 @@ function BuyerUnityAccessPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-center">
                   <YucpButton
                     yucp="secondary"
-                    isLoading={repositoryQuery.isPending}
-                    isDisabled={!repositoryQuery.data?.addRepoUrl}
+                    isDisabled={!repository?.addRepoUrl}
                     onPress={() => {
-                      if (repositoryQuery.data?.addRepoUrl) {
-                        window.location.assign(repositoryQuery.data.addRepoUrl);
+                      if (repository?.addRepoUrl) {
+                        window.location.assign(repository.addRepoUrl);
                       }
                     }}
                   >
                     <Icon name="externalLink" className="size-4" aria-hidden="true" />
-                    {repositoryQuery.isPending ? 'Preparing VCC access...' : 'Add to VCC'}
+                    Add to VCC
                   </YucpButton>
-                  {repositoryQuery.data ? (
+                  {repository ? (
                     <YucpButton
                       yucp="ghost"
                       isLoading={isCopying}
@@ -147,33 +138,23 @@ function BuyerUnityAccessPage() {
                   ) : null}
                 </div>
 
-                {repositoryQuery.isError ? (
-                  <div className="space-y-3 rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-danger/30 dark:bg-danger/10 dark:text-danger">
-                    <p>
-                      Your purchase is active, but the VPM repository could not be prepared just
-                      now.
-                    </p>
-                    <YucpButton
-                      yucp="secondary"
-                      isLoading={repositoryQuery.isFetching}
-                      onPress={() => void repositoryQuery.refetch()}
-                    >
-                      Retry VPM access
-                    </YucpButton>
-                  </div>
-                ) : repositoryQuery.data ? (
+                {repository ? (
                   <details className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 text-sm dark:border-white/10 dark:bg-white/5">
                     <summary className="cursor-pointer font-medium text-slate-950 dark:text-foreground">
                       Manual setup and troubleshooting
                     </summary>
                     <div className="mt-3 space-y-2 text-slate-600 dark:text-foreground/70">
-                      <p>Use this repository index if VCC does not open from the main button.</p>
+                      <p>Use this package source URL if VCC does not open from the main button.</p>
                       <p className="break-all rounded-xl border border-slate-200 bg-white/80 px-3 py-2 font-mono text-xs text-slate-800 dark:border-white/10 dark:bg-black/10 dark:text-foreground/80">
-                        {repositoryQuery.data.indexUrl}
+                        {repository.indexUrl}
                       </p>
                     </div>
                   </details>
-                ) : null}
+                ) : (
+                  <div className="rounded-2xl border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-danger/30 dark:bg-danger/10 dark:text-danger">
+                    This creator has not enabled Unity access for this product.
+                  </div>
+                )}
 
                 {copyMessage ? (
                   <p className="text-center text-xs font-medium text-slate-500 dark:text-foreground/55">
@@ -208,12 +189,12 @@ function BuyerUnityAccessPage() {
                     </h1>
                     <p className="max-w-2xl text-sm leading-7 text-slate-600 dark:text-foreground/70">
                       Sign in with the account that bought this product. YUCP verifies the purchase,
-                      then prepares private VCC and download access.
+                      then prepares VCC and download access.
                     </p>
                     <div className="flex flex-wrap gap-2 text-xs text-slate-600 dark:text-foreground/55">
                       <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 dark:border-white/12">
                         <Icon name="shield" className="size-3.5" aria-hidden="true" />
-                        Private and per account
+                        Verified for this account
                       </span>
                       <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 dark:border-white/12">
                         <Icon name="package" className="size-3.5" aria-hidden="true" />
@@ -228,9 +209,7 @@ function BuyerUnityAccessPage() {
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-foreground/45">
                       Store
                     </p>
-                    <p className="text-sm text-slate-950 dark:text-foreground">
-                      {product.providerLabel}
-                    </p>
+                    <p className="text-sm text-slate-950 dark:text-foreground">{providerSummary}</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-foreground/45">

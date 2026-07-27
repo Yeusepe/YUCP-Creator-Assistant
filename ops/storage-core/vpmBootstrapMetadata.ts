@@ -1,12 +1,24 @@
 export const MAX_VPM_BOOTSTRAP_DOCUMENTS = 32;
 const MAX_DEPENDENCIES = 64;
 const MAX_REPOSITORIES = 16;
+const MAX_REPOSITORY_QUERY_BYTES = 256;
+const MAX_REPOSITORY_QUERY_FLAGS = 8;
 export const MAX_VPM_BOOTSTRAP_MANIFEST_BYTES = 256 * 1024;
 const PACKAGE_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,213}$/;
+const REPOSITORY_QUERY_FLAG_PATTERN = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
 
 export type VpmBootstrapMetadata = {
+  packageMetadata?: VpmBootstrapPackageMetadata;
   vpmDependencies: Record<string, string>;
   vpmRepositories: Record<string, string>;
+};
+
+export type VpmBootstrapPackageMetadata = {
+  author: string;
+  description?: string;
+  packageName: string;
+  tagline?: string;
+  version: string;
 };
 
 export type VpmBootstrapMetadataDocument = {
@@ -58,6 +70,55 @@ function requireSafeText(value: unknown, name: string, maximumBytes: number): st
   return normalized;
 }
 
+function parsePackageMetadata(value: unknown): VpmBootstrapPackageMetadata | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new Error('VPM package metadata must be an object');
+  }
+  const packageName = requireSafeText(value.packageName, 'VPM package name', 120);
+  if (
+    packageName === '.' ||
+    packageName === '..' ||
+    packageName.includes('/') ||
+    packageName.includes('\\')
+  ) {
+    throw new Error('VPM package name contains an invalid value');
+  }
+  return {
+    author: requireSafeText(value.author, 'VPM package author', 120),
+    ...(value.description === undefined
+      ? {}
+      : { description: requireSafeText(value.description, 'VPM package description', 500) }),
+    packageName,
+    ...(value.tagline === undefined
+      ? {}
+      : { tagline: requireSafeText(value.tagline, 'VPM package tagline', 160) }),
+    version: requireSafeText(value.version, 'VPM package version', 128),
+  };
+}
+
+function parseDocumentPackageMetadata(
+  value: Record<string, unknown>
+): VpmBootstrapPackageMetadata | undefined {
+  const packageName = value.displayName ?? value.name;
+  const author = isRecord(value.author) ? value.author.name : value.author;
+  if (packageName === undefined && value.version === undefined && author === undefined) {
+    return undefined;
+  }
+  if (packageName === undefined || value.version === undefined || author === undefined) {
+    throw new Error('VPM package presentation metadata is incomplete');
+  }
+  return parsePackageMetadata({
+    author,
+    description: value.description,
+    packageName,
+    tagline: value.tagline,
+    version: value.version,
+  });
+}
+
 function parseDependencies(value: unknown): Record<string, string> {
   if (value === undefined) {
     return {};
@@ -78,6 +139,50 @@ function parseDependencies(value: unknown): Record<string, string> {
     dependencies[name] = requireSafeText(rawRange, `VPM dependency ${name}`, 128);
   }
   return dependencies;
+}
+
+/**
+ * VPM remote repository URL contract:
+ * https://vcc.docs.vrchat.com/vpm/cli/#add-repo
+ *
+ * VPM repository listing schema:
+ * https://vcc.docs.vrchat.com/vpm/repos/#format
+ */
+function normalizeRepositoryQuery(url: URL, repositoryName: string): void {
+  if (!url.search) {
+    return;
+  }
+  const rawQuery = url.search.slice(1);
+  const rawFlags = rawQuery.split('&');
+  if (
+    new TextEncoder().encode(rawQuery).byteLength > MAX_REPOSITORY_QUERY_BYTES ||
+    rawFlags.length > MAX_REPOSITORY_QUERY_FLAGS
+  ) {
+    throw new Error(`VPM repository ${repositoryName} query exceeds the safe limit`);
+  }
+
+  const flags: string[] = [];
+  const seen = new Set<string>();
+  for (const rawFlag of rawFlags) {
+    let flag: string;
+    try {
+      flag = decodeURIComponent(rawFlag);
+    } catch {
+      throw new Error(`VPM repository ${repositoryName} query contains invalid encoding`);
+    }
+    if (
+      !rawFlag ||
+      rawFlag.includes('=') ||
+      !REPOSITORY_QUERY_FLAG_PATTERN.test(flag) ||
+      seen.has(flag)
+    ) {
+      throw new Error(`VPM repository ${repositoryName} query must use unique valueless flags`);
+    }
+    seen.add(flag);
+    flags.push(flag);
+  }
+  flags.sort(compareText);
+  url.search = flags.map((flag) => encodeURIComponent(flag)).join('&');
 }
 
 function parseRepositories(value: unknown): Record<string, string> {
@@ -101,9 +206,10 @@ function parseRepositories(value: unknown): Record<string, string> {
     } catch {
       throw new Error(`VPM repository ${name} must use an absolute HTTPS URL`);
     }
-    if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash) {
       throw new Error(`VPM repository ${name} must use an absolute HTTPS URL`);
     }
+    normalizeRepositoryQuery(url, name);
     repositories[name] = url.toString();
   }
   return repositories;
@@ -124,10 +230,13 @@ function mergeMap(
 }
 
 export function normalizeVpmBootstrapMetadata(value: {
+  packageMetadata?: unknown;
   vpmDependencies?: unknown;
   vpmRepositories?: unknown;
 }): VpmBootstrapMetadata {
+  const packageMetadata = parsePackageMetadata(value.packageMetadata);
   return {
+    ...(packageMetadata ? { packageMetadata } : {}),
     vpmDependencies: parseDependencies(value.vpmDependencies),
     vpmRepositories: parseRepositories(value.vpmRepositories),
   };
@@ -148,6 +257,7 @@ export function extractVpmBootstrapMetadataFromDocuments(
       : documents.filter((document) => isEmbeddedPackageManifest(document.normalizedPath));
   const vpmDependencies: Record<string, string> = {};
   const vpmRepositories: Record<string, string> = {};
+  let packageMetadata: VpmBootstrapPackageMetadata | undefined;
 
   for (const candidate of [...candidates].sort((left, right) =>
     compareText(left.normalizedPath, right.normalizedPath)
@@ -167,9 +277,19 @@ export function extractVpmBootstrapMetadataFromDocuments(
     const parsed = normalizeVpmBootstrapMetadata(value);
     mergeMap(vpmDependencies, parsed.vpmDependencies, 'dependency');
     mergeMap(vpmRepositories, parsed.vpmRepositories, 'repository');
+    const candidateMetadata = parseDocumentPackageMetadata(value);
+    if (
+      packageMetadata &&
+      candidateMetadata &&
+      JSON.stringify(packageMetadata) !== JSON.stringify(candidateMetadata)
+    ) {
+      throw new Error('Package metadata contains conflicting presentation metadata');
+    }
+    packageMetadata ??= candidateMetadata;
   }
 
   return {
+    ...(packageMetadata ? { packageMetadata } : {}),
     vpmDependencies: Object.fromEntries(
       Object.entries(vpmDependencies).sort(([left], [right]) => compareText(left, right))
     ),

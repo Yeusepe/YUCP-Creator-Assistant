@@ -22,12 +22,17 @@ import (
 )
 
 const (
-	SchemaVersion                     = 2
+	SchemaVersion                     = 3
 	UnityWindowsPathLimitErrorCode    = "UNITY_WINDOWS_PATH_LIMIT"
 	unityWindowsMaximumPathCharacters = 260
 )
 
-var safeIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var (
+	safeIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	traceparent    = regexp.MustCompile(
+		`^00-([0-9a-f]{32})-([0-9a-f]{16})-(00|01)$`,
+	)
+)
 
 type stableError struct {
 	code    string
@@ -52,25 +57,42 @@ func ErrorCode(err error) string {
 	return ""
 }
 
-type Request struct {
-	AliasID                     string `json:"aliasId"`
-	ApprovedActiveContentDigest string `json:"approvedActiveContentDigest"`
-	ApprovedPolicyVersion       string `json:"approvedPolicyVersion"`
-	DeliveryGrant               string `json:"deliveryGrant"`
-	ExpectedCurrentReleaseRoot  string `json:"expectedCurrentReleaseRoot"`
-	IdempotencyKey              string `json:"idempotencyKey"`
-	InstallSession              string `json:"installSession"`
-	Operation                   string `json:"operation"`
-	ProjectPath                 string `json:"projectPath"`
-	ResultPath                  string `json:"resultPath"`
-	RunID                       string `json:"runId"`
-	SchemaVersion               int    `json:"schemaVersion"`
-	StateRoot                   string `json:"stateRoot"`
-	TargetReleaseRoot           string `json:"targetReleaseRoot"`
-	TUFMetadataURL              string `json:"tufMetadataUrl"`
-	TUFRootPath                 string `json:"tufRootPath"`
-	TUFTargetsURL               string `json:"tufTargetsUrl"`
-	TUFTrustTarget              string `json:"tufTrustTarget"`
+type OperationInput struct {
+	AliasID                     string
+	ApprovedActiveContentDigest string
+	ApprovedPolicyVersion       string
+	ExpectedCurrentReleaseRoot  string
+	IdempotencyKey              string
+	Operation                   string
+	ProjectIdentity             string
+	ProjectPath                 string
+	RunID                       string
+	StateRoot                   string
+	TargetReleaseRoot           string
+	Traceparent                 string
+}
+
+type AuthorizedRequest struct {
+	OperationInput
+
+	deliveryGrant  string
+	installSession string
+}
+
+func NewAuthorizedRequest(
+	input OperationInput,
+	installSession string,
+	deliveryGrant string,
+) (AuthorizedRequest, error) {
+	request := AuthorizedRequest{
+		OperationInput: input,
+		deliveryGrant:  deliveryGrant,
+		installSession: installSession,
+	}
+	if err := validateRequest(request); err != nil {
+		return AuthorizedRequest{}, err
+	}
+	return request, nil
 }
 
 type ResultFile struct {
@@ -101,18 +123,25 @@ type Result struct {
 	VersionID           string       `json:"versionId"`
 }
 
+type ProgressReporter func(
+	phase string,
+	completedBytes int64,
+	totalBytes int64,
+) error
+
 func Execute(
 	ctx context.Context,
-	request Request,
+	request AuthorizedRequest,
 	identity deviceidentity.Identity,
 	trustDocument trust.Document,
+	reportProgress ProgressReporter,
 ) (Result, error) {
 	if err := validateRequest(request); err != nil {
 		return Result{}, err
 	}
 	targetReleaseRoot, _ := hex.DecodeString(request.TargetReleaseRoot)
 	deviceThumbprint, _ := hex.DecodeString(identity.Thumbprint)
-	sessionEnvelope, err := decodeToken(request.InstallSession, "install session")
+	sessionEnvelope, err := decodeToken(request.installSession, "install session")
 	if err != nil {
 		return Result{}, err
 	}
@@ -132,7 +161,7 @@ func Execute(
 	if session.KeyID != string(trustDocument.PackageInstall.KeyID) {
 		return Result{}, fmt.Errorf("install session key identifier claim is invalid")
 	}
-	grantEnvelope, err := decodeToken(request.DeliveryGrant, "delivery grant")
+	grantEnvelope, err := decodeToken(request.deliveryGrant, "delivery grant")
 	if err != nil {
 		return Result{}, err
 	}
@@ -166,11 +195,18 @@ func Execute(
 		ctx,
 		session,
 		grant,
-		request.DeliveryGrant,
+		request.deliveryGrant,
 		identity.PrivateKey,
 	)
 	if err != nil {
 		return Result{}, err
+	}
+	var totalBytes int64
+	for _, file := range manifest.Files {
+		totalBytes += file.Bytes
+		if totalBytes < 0 {
+			return Result{}, fmt.Errorf("package logical byte count overflow")
+		}
 	}
 	if err := validateUnityProjectPaths(runtime.GOOS, request.ProjectPath, manifest.Files); err != nil {
 		return Result{}, err
@@ -184,11 +220,27 @@ func Execute(
 		SchemaVersion:       SchemaVersion,
 		Status:              "succeeded",
 		TargetReleaseRoot:   request.TargetReleaseRoot,
-		TraceID:             request.RunID,
+		TraceID:             request.Traceparent[3:35],
 		VersionID:           manifest.VersionID,
 	}
 	if request.Operation == "preflight" {
+		if err := report(
+			reportProgress,
+			"verifying",
+			0,
+			totalBytes,
+		); err != nil {
+			return Result{}, err
+		}
 		baseResult.JournalState = "preflight-complete"
+		if err := report(
+			reportProgress,
+			"finalizing",
+			totalBytes,
+			totalBytes,
+		); err != nil {
+			return Result{}, err
+		}
 		return baseResult, nil
 	}
 	if request.ApprovedActiveContentDigest != manifest.ActiveContentDigest ||
@@ -196,13 +248,29 @@ func Execute(
 		return Result{}, fmt.Errorf("active-content approval is stale or does not match")
 	}
 	stagingTree := filepath.Join(request.StateRoot, "staging", request.RunID)
+	if err := report(
+		reportProgress,
+		"downloading",
+		0,
+		totalBytes,
+	); err != nil {
+		return Result{}, err
+	}
 	staged, err := delivery.StageCommonTree(ctx, delivery.StageCommonConfig{
 		CacheRoot:     filepath.Join(request.StateRoot, "chunk-cache"),
-		DeliveryGrant: request.DeliveryGrant,
+		DeliveryGrant: request.deliveryGrant,
 		Destination:   stagingTree,
 		Manifest:      manifest,
 		ManifestURL:   session.Bootstrap.URL,
 		PrivateKey:    identity.PrivateKey,
+		Progress: func(completedBytes int64, _ int64) error {
+			return report(
+				reportProgress,
+				"downloading",
+				completedBytes,
+				totalBytes,
+			)
+		},
 	})
 	if err != nil {
 		return Result{}, err
@@ -218,7 +286,7 @@ func Execute(
 		rendition, receipt, renditionErr := delivery.FetchProtectedRendition(
 			ctx,
 			delivery.ProtectedRenditionConfig{
-				DeliveryGrant:    request.DeliveryGrant,
+				DeliveryGrant:    request.deliveryGrant,
 				DownloadRoot:     request.StateRoot,
 				Grant:            grant,
 				PrivateKey:       identity.PrivateKey,
@@ -250,6 +318,22 @@ func Execute(
 		baseResult.ReceiptPath = receiptPath
 		allFiles = append(allFiles, protectedFiles...)
 	}
+	if err := report(
+		reportProgress,
+		"downloading",
+		totalBytes,
+		totalBytes,
+	); err != nil {
+		return Result{}, err
+	}
+	if err := report(
+		reportProgress,
+		"verifying",
+		totalBytes,
+		totalBytes,
+	); err != nil {
+		return Result{}, err
+	}
 	sort.Slice(allFiles, func(left int, right int) bool {
 		return allFiles[left].NormalizedPath < allFiles[right].NormalizedPath
 	})
@@ -266,7 +350,38 @@ func Execute(
 	baseResult.JournalState = "verified-staging-ready"
 	baseResult.LogicalFiles = len(allFiles)
 	baseResult.StagingTree = stagingTree
+	if err := report(
+		reportProgress,
+		"assembling",
+		totalBytes,
+		totalBytes,
+	); err != nil {
+		return Result{}, err
+	}
+	if err := report(
+		reportProgress,
+		"finalizing",
+		totalBytes,
+		totalBytes,
+	); err != nil {
+		return Result{}, err
+	}
 	return baseResult, nil
+}
+
+func report(
+	reporter ProgressReporter,
+	phase string,
+	completedBytes int64,
+	totalBytes int64,
+) error {
+	if reporter == nil {
+		return nil
+	}
+	if err := reporter(phase, completedBytes, totalBytes); err != nil {
+		return fmt.Errorf("publish package lifecycle progress: %w", err)
+	}
+	return nil
 }
 
 func validateUnityProjectPaths(goos string, projectPath string, files []delivery.File) error {
@@ -333,26 +448,38 @@ func persistReceipt(stateRoot string, receiptID string, encodedReceipt string) (
 	return destination, nil
 }
 
-func validateRequest(request Request) error {
-	if request.SchemaVersion != SchemaVersion ||
-		!safeIdentifier.MatchString(request.RunID) ||
+func validateRequest(request AuthorizedRequest) error {
+	if !safeIdentifier.MatchString(request.RunID) ||
 		!safeIdentifier.MatchString(request.AliasID) ||
+		!safeIdentifier.MatchString(request.IdempotencyKey) ||
 		(request.Operation != "preflight" &&
 			request.Operation != "install" &&
+			request.Operation != "recover" &&
 			request.Operation != "update" &&
 			request.Operation != "repair" &&
-			request.Operation != "rollback") ||
+			request.Operation != "rollback" &&
+			request.Operation != "uninstall") ||
 		!filepath.IsAbs(request.ProjectPath) ||
 		!filepath.IsAbs(request.StateRoot) ||
+		strings.ContainsRune(request.ProjectPath, '\x00') ||
+		strings.ContainsRune(request.StateRoot, '\x00') ||
 		!isDigest(request.ExpectedCurrentReleaseRoot) ||
 		!isDigest(request.TargetReleaseRoot) ||
-		request.InstallSession == "" ||
-		request.DeliveryGrant == "" {
+		!isDigest(request.ProjectIdentity) ||
+		!validTraceparent(request.Traceparent) ||
+		request.installSession == "" ||
+		request.deliveryGrant == "" {
 		return fmt.Errorf("package lifecycle request is invalid")
+	}
+	hasApproval := request.ApprovedActiveContentDigest != "" ||
+		request.ApprovedPolicyVersion != ""
+	if request.Operation == "preflight" && hasApproval {
+		return fmt.Errorf("package lifecycle preflight approval must be absent")
 	}
 	if request.Operation != "preflight" &&
 		(!isDigest(request.ApprovedActiveContentDigest) ||
-			strings.TrimSpace(request.ApprovedPolicyVersion) == "") {
+			strings.TrimSpace(request.ApprovedPolicyVersion) == "" ||
+			len([]byte(request.ApprovedPolicyVersion)) > 128) {
 		return fmt.Errorf("package lifecycle active-content approval is invalid")
 	}
 	return nil
@@ -375,4 +502,11 @@ func isDigest(value string) bool {
 	}
 	_, err := hex.DecodeString(value)
 	return err == nil
+}
+
+func validTraceparent(value string) bool {
+	match := traceparent.FindStringSubmatch(value)
+	return match != nil &&
+		match[1] != "00000000000000000000000000000000" &&
+		match[2] != "0000000000000000"
 }

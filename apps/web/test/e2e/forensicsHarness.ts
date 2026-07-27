@@ -145,7 +145,7 @@ const couplingServer = Bun.serve({
 
 const materializationServer = Bun.serve({
   port: MATERIALIZATION_PORT,
-  fetch(request) {
+  async fetch(request) {
     const url = new URL(request.url);
     if (
       url.pathname !== '/v2/internal/materialization-attribution/candidates' ||
@@ -156,8 +156,9 @@ const materializationServer = Bun.serve({
     if (request.headers.get('authorization') !== `Bearer ${TEST_MATERIALIZATION_SECRET}`) {
       return Response.json({ error: 'Forbidden' }, { status: 403 });
     }
+    const body = (await request.json()) as { candidateLimit?: number };
     return Response.json({
-      candidateLimit: 512,
+      candidateLimit: body.candidateLimit ?? 512,
       candidates: [
         {
           algorithmVersion: 'fbx-coupling-v2',

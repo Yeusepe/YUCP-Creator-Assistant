@@ -2062,6 +2062,49 @@
   padding: 0 2rem;
 }
 
+.vp-unity-handoff {
+  width: min(100% - 3rem, 30rem);
+  margin: 0 auto 2rem;
+  border: 1px solid rgba(112, 226, 255, 0.22);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(112, 226, 255, 0.12), rgba(159, 255, 91, 0.06)),
+    rgba(255, 255, 255, 0.035);
+  padding: 1.15rem 1.25rem;
+  box-shadow: 0 20px 45px -32px rgba(112, 226, 255, 0.65);
+}
+
+.dark .vp-unity-handoff {
+  border-color: rgba(112, 226, 255, 0.26);
+  background:
+    linear-gradient(135deg, rgba(112, 226, 255, 0.14), rgba(159, 255, 91, 0.07)),
+    rgba(255, 255, 255, 0.04);
+  box-shadow: 0 20px 45px -32px rgba(112, 226, 255, 0.72);
+}
+
+.vp-unity-handoff-title {
+  margin: 0;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.dark .vp-unity-handoff-title {
+  color: #fff;
+}
+
+.vp-unity-handoff-copy {
+  margin: 0.25rem 0 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.dark .vp-unity-handoff-copy {
+  color: rgba(255, 255, 255, 0.66);
+}
+
 .vp-primary-btn {
   display: inline-flex;
   align-items: center;

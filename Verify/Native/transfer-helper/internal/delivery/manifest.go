@@ -23,9 +23,12 @@ const (
 	maxChunkBytes                       = 1024 * 1024
 	maxVPMDependencies                  = 64
 	maxVPMRepositories                  = 16
+	maxVPMBootstrapMedia                = 2
+	maxVPMBootstrapMediaBytes           = 2 * 1024 * 1024
 )
 
 var vpmPackageIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,213}$`)
+var vpmBootstrapObjectKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
 
 type Chunk struct {
 	ID     string `json:"id"`
@@ -42,14 +45,35 @@ type File struct {
 	SHA256         string  `json:"sha256"`
 }
 
+type BootstrapMedia struct {
+	BucketName      string `json:"bucketName"`
+	ByteSize        int64  `json:"byteSize"`
+	ContentType     string `json:"contentType"`
+	Kind            string `json:"kind"`
+	LocalPath       string `json:"localPath"`
+	ObjectKey       string `json:"objectKey"`
+	ProviderVersion string `json:"providerVersion"`
+	SHA256          string `json:"sha256"`
+}
+
+type PackageMetadata struct {
+	Author      string  `json:"author"`
+	Description *string `json:"description,omitempty"`
+	PackageName string  `json:"packageName"`
+	Tagline     *string `json:"tagline,omitempty"`
+	Version     string  `json:"version"`
+}
+
 type Manifest struct {
 	ActiveContentDigest        string            `json:"activeContentDigest"`
 	ActivePolicyVersion        string            `json:"activePolicyVersion"`
+	BootstrapMedia             []BootstrapMedia  `json:"bootstrapMedia,omitempty"`
 	ChunkAverageKiB            int               `json:"chunkAvgKib"`
 	CommonRoot                 string            `json:"commonRoot"`
 	Files                      []File            `json:"files"`
 	NormalizationPolicyVersion string            `json:"normalizationPolicyVersion"`
 	PackageID                  string            `json:"packageId"`
+	PackageMetadata            *PackageMetadata  `json:"packageMetadata,omitempty"`
 	ProtectedSourceRoot        string            `json:"protectedSourceRoot"`
 	ProtectionPolicyDigest     string            `json:"protectionPolicyDigest"`
 	ProtectionPolicyID         string            `json:"protectionPolicyId"`
@@ -103,7 +127,7 @@ func ParseManifest(data []byte, binding ManifestBinding) (Manifest, error) {
 		!isDigest(manifest.ProtectionPolicyDigest) ||
 		!isSafeText(manifest.ActivePolicyVersion, 128) ||
 		!isSafeText(manifest.PackageID, 512) ||
-		!isSafeText(manifest.ProtectionPolicyID, 512) ||
+		manifest.ProtectionPolicyID != activeProtectionPolicyID ||
 		!isSafeText(manifest.Version, 512) ||
 		!isSafeText(manifest.VersionID, 128) {
 		return Manifest{}, fmt.Errorf("delivery manifest identity is invalid")
@@ -219,6 +243,48 @@ func validateFile(file File, index int) error {
 }
 
 func validateVPMBootstrapMetadata(manifest Manifest) error {
+	if len(manifest.BootstrapMedia) > maxVPMBootstrapMedia {
+		return fmt.Errorf("delivery manifest bootstrap media count exceeds its limit")
+	}
+	mediaKinds := make(map[string]struct{}, len(manifest.BootstrapMedia))
+	for _, media := range manifest.BootstrapMedia {
+		expectedPath := ""
+		switch media.Kind {
+		case "icon":
+			expectedPath = "Documentation~/YUCP/icon.png"
+		case "banner":
+			expectedPath = "Documentation~/YUCP/banner.png"
+		default:
+			return fmt.Errorf("delivery manifest bootstrap media kind is invalid")
+		}
+		if _, exists := mediaKinds[media.Kind]; exists {
+			return fmt.Errorf("delivery manifest bootstrap media kind is duplicated")
+		}
+		mediaKinds[media.Kind] = struct{}{}
+		if !isVPMSafeText(media.BucketName, 255) ||
+			media.ByteSize < 8 ||
+			media.ByteSize > maxVPMBootstrapMediaBytes ||
+			media.ContentType != "image/png" ||
+			media.LocalPath != expectedPath ||
+			!isSafeObjectKey(media.ObjectKey) ||
+			!isVPMSafeText(media.ProviderVersion, 1_024) ||
+			!isDigest(media.SHA256) {
+			return fmt.Errorf("delivery manifest bootstrap media is invalid")
+		}
+	}
+	if manifest.PackageMetadata != nil {
+		metadata := manifest.PackageMetadata
+		if !isVPMSafeText(metadata.Author, 120) ||
+			!isVPMSafeText(metadata.PackageName, 120) ||
+			metadata.PackageName == "." ||
+			metadata.PackageName == ".." ||
+			strings.ContainsAny(metadata.PackageName, `/\`) ||
+			!isVPMSafeText(metadata.Version, 128) ||
+			!isOptionalVPMSafeText(metadata.Description, 500) ||
+			!isOptionalVPMSafeText(metadata.Tagline, 160) {
+			return fmt.Errorf("delivery manifest package metadata is invalid")
+		}
+	}
 	if len(manifest.VPMDependencies) > maxVPMDependencies {
 		return fmt.Errorf("delivery manifest VPM dependency count exceeds its limit")
 	}
@@ -341,6 +407,25 @@ func isVPMSafeText(value string, max int) bool {
 	}
 	for _, character := range value {
 		if character <= 31 || character == 127 {
+			return false
+		}
+	}
+	return true
+}
+
+func isOptionalVPMSafeText(value *string, max int) bool {
+	return value == nil || isVPMSafeText(*value, max)
+}
+
+func isSafeObjectKey(value string) bool {
+	if len(value) > 1_024 ||
+		!vpmBootstrapObjectKeyPattern.MatchString(value) ||
+		strings.HasPrefix(value, "/") ||
+		strings.Contains(value, "//") {
+		return false
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "." || segment == ".." {
 			return false
 		}
 	}

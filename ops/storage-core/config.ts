@@ -31,22 +31,27 @@ const REQUIRED_STORAGE_ROLE_KEYS = Object.values(STORAGE_ROLE_PREFIXES).flatMap(
 
 const REQUIRED_INGEST_KEYS = [
   'UPLOAD_HMAC_KEY',
+  'PACKAGE_CATALOG_CONTROL_SHARED_SECRET',
   'CATALOG_DATABASE_URL',
   ...REQUIRED_STORAGE_ROLE_KEYS,
+  'INGEST_SCRATCH_DIR',
   'INGEST_UPLOAD_DIR',
   'INGEST_MAX_BYTES',
 ] as const;
 
 const REQUIRED_INGEST_INFISICAL_KEYS = [
   'UPLOAD_HMAC_KEY',
+  'PACKAGE_CATALOG_CONTROL_SHARED_SECRET',
   'CATALOG_DATABASE_URL',
   ...REQUIRED_STORAGE_ROLE_KEYS,
 ] as const;
 
-const DISPOSABLE_STORAGE_OVERRIDE_KEYS = new Set([
+const LOCAL_STORAGE_OVERRIDE_KEYS = new Set([
   'UPLOAD_HMAC_KEY',
+  'PACKAGE_CATALOG_CONTROL_SHARED_SECRET',
   'CATALOG_DATABASE_URL',
   ...REQUIRED_STORAGE_ROLE_KEYS,
+  'INGEST_SCRATCH_DIR',
   'INGEST_UPLOAD_DIR',
   'INGEST_MAX_BYTES',
   'INGEST_ALLOWED_ORIGIN',
@@ -74,7 +79,9 @@ const DEFAULT_S3_REQUEST_TIMEOUT_MS = 30_000;
 
 export type IngestRuntimeEnv = {
   uploadHmacKey: string;
+  catalogControlSharedSecret: string;
   catalogDatabaseUrl: string;
+  ingestScratchDir: string;
   ingestUploadDir: string;
   ingestMaxBytes: number;
   ingestAllowedOrigin?: string;
@@ -158,12 +165,13 @@ export function requireInfisicalBootstrap(env: NodeJS.ProcessEnv): void {
   }
 }
 
-export function isDisposableStorageProfile(env: NodeJS.ProcessEnv): boolean {
-  if (normalizeOptional(env.YUCP_STORAGE_PROFILE) !== 'disposable') {
+export function isLocalStorageProfile(env: NodeJS.ProcessEnv): boolean {
+  const profile = normalizeOptional(env.YUCP_STORAGE_PROFILE);
+  if (profile !== 'disposable' && profile !== 'interactive') {
     return false;
   }
   if (normalizeOptional(env.NODE_ENV) === 'production') {
-    throw new Error('The disposable storage profile cannot run in production');
+    throw new Error('A local storage profile cannot run in production');
   }
   return true;
 }
@@ -192,7 +200,7 @@ export async function hydrateEnvFromInfisical(
 }
 
 /**
- * Keep generated local storage credentials authoritative inside the disposable profile.
+ * Keep generated local storage credentials authoritative inside local development profiles.
  *
  * Non-storage credentials remain owned by Infisical. Production cannot select this profile.
  */
@@ -201,17 +209,17 @@ export async function hydrateStorageServiceEnv(
   requiredKeys: readonly string[],
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<NodeJS.ProcessEnv> {
-  if (!isDisposableStorageProfile(env)) {
+  if (!isLocalStorageProfile(env)) {
     return hydrateEnvFromInfisical(env, requiredKeys, fetchSecrets);
   }
 
-  const localKeys = requiredKeys.filter((key) => DISPOSABLE_STORAGE_OVERRIDE_KEYS.has(key));
+  const localKeys = requiredKeys.filter((key) => LOCAL_STORAGE_OVERRIDE_KEYS.has(key));
   const missingLocal = localKeys.filter((key) => !normalizeOptional(env[key]));
   if (missingLocal.length > 0) {
-    throw new Error(`Missing disposable storage values: ${missingLocal.join(', ')}`);
+    throw new Error(`Missing local storage values: ${missingLocal.join(', ')}`);
   }
 
-  const externalKeys = requiredKeys.filter((key) => !DISPOSABLE_STORAGE_OVERRIDE_KEYS.has(key));
+  const externalKeys = requiredKeys.filter((key) => !LOCAL_STORAGE_OVERRIDE_KEYS.has(key));
   let runtimeEnv: NodeJS.ProcessEnv = { ...env };
   if (externalKeys.length > 0) {
     requireInfisicalBootstrap(env);
@@ -302,7 +310,9 @@ export async function loadIngestRuntimeEnv(
 
   return {
     uploadHmacKey: requireValue(runtimeEnv, 'UPLOAD_HMAC_KEY'),
+    catalogControlSharedSecret: requireValue(runtimeEnv, 'PACKAGE_CATALOG_CONTROL_SHARED_SECRET'),
     catalogDatabaseUrl: requireValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
+    ingestScratchDir: requireValue(runtimeEnv, 'INGEST_SCRATCH_DIR'),
     ingestUploadDir: requireValue(runtimeEnv, 'INGEST_UPLOAD_DIR'),
     ingestMaxBytes,
     ingestAllowedOrigin: normalizeOptional(runtimeEnv.INGEST_ALLOWED_ORIGIN),

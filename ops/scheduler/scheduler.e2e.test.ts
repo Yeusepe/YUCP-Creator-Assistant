@@ -25,10 +25,8 @@ import {
 } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
-import {
-  createS3Bucket,
-  enableS3BucketVersioning,
-} from '../storage-core/s3Control';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
+import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
@@ -127,11 +125,17 @@ function requireStores(): {
   commonStore: S3CasStore;
   metadataStore: S3CasStore;
   protectedStore: S3CasStore;
+  scratchRoot: string;
 } {
   if (!commonStore || !metadataStore || !protectedStore) {
     throw new Error('Scheduler end-to-end role stores were not initialized');
   }
-  return { commonStore, metadataStore, protectedStore };
+  return {
+    commonStore,
+    metadataStore,
+    protectedStore,
+    scratchRoot: requireScratchPath(),
+  };
 }
 
 function requireScratchPath(): string {
@@ -154,6 +158,7 @@ async function buildProductionSchedulerRuntime(): Promise<SchedulerRuntime> {
     INFISICAL_PROJECT_ID: 'scheduler-e2e-project',
     INFISICAL_CLIENT_ID: 'scheduler-e2e-client',
     INFISICAL_CLIENT_SECRET: 'scheduler-e2e-secret',
+    INGEST_SCRATCH_DIR: requireScratchPath(),
     SCHEDULER_BATCH_LIMIT: '1',
     SCHEDULER_INTERVAL_MS: String(intervalMs),
     SCHEDULER_STUCK_THRESHOLD_MS: '60000',
@@ -360,7 +365,6 @@ beforeAll(async () => {
     const protectedConfig = roleConfig('protected');
     for (const config of [commonConfig, metadataConfig, protectedConfig]) {
       await createS3Bucket(config);
-      await enableS3BucketVersioning(config);
     }
     const durableStorage = new DurableExactStorage(
       new ExactStorageCatalog(requireSql()),
@@ -486,7 +490,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath: firstPath,
       packageId: 'scheduler-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.0.0',
     });
     expect(first.state).toBe('ASSEMBLED');
@@ -500,9 +504,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       versionId: first.id,
     });
     for (const [relativePath, expectedSha256] of firstFiles) {
-      expect(await sha256File(join(retrievedPath, relativePath))).toBe(
-        expectedSha256
-      );
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
     }
 
     const second = await ingestVersion({
@@ -511,7 +513,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath: secondPath,
       packageId: 'scheduler-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '2.0.0',
     });
     expect(second.state).toBe('ASSEMBLED');
@@ -525,7 +527,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath: stopPath,
       packageId: 'scheduler-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '3.0.0',
     });
     const dispatchesBeforeRestart = await dispatchCount();
@@ -543,7 +545,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath: afterStopPath,
       packageId: 'scheduler-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '4.0.0',
     });
     await Bun.sleep(intervalMs * 8);
@@ -559,7 +561,8 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       metadataStore: localCasStore(join(scratch, 'bad-metadata-store')),
       packageId: 'scheduler-errors',
       protectedStore: localCasStore(join(scratch, 'bad-protected-store')),
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+      scratchRoot: scratch,
       version: '1.0.0',
     });
     const recoveryVersion = await ingestVersion({
@@ -568,7 +571,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath: recoveryPath,
       packageId: 'scheduler-errors',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '2.0.0',
     });
     const errorScheduler = createIngestScheduler({
@@ -625,7 +628,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       creatorId: 'scheduler-creator',
       inputPath,
       packageId: 'scheduler-automatic-redrive',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.0.0',
     });
     expect(assembled).toMatchObject({
@@ -640,6 +643,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
         commonStore: localCasStore(join(scratch, 'transient-wrong-common-store')),
         metadataStore: localCasStore(join(scratch, 'transient-wrong-metadata-store')),
         protectedStore: localCasStore(join(scratch, 'transient-wrong-protected-store')),
+        scratchRoot: scratch,
         versionId: assembled.id,
       })
     ).rejects.toThrow('CAS object store kind s3 does not match local store');
@@ -670,9 +674,9 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       )
     );
     expect(manifest.versionId).toBe(assembled.id);
-    expect(
-      manifest.files.reduce((total, file) => total + file.chunks.length, 0)
-    ).toBeGreaterThan(0);
+    expect(manifest.files.reduce((total, file) => total + file.chunks.length, 0)).toBeGreaterThan(
+      0
+    );
     const retrievedPath = await retrieveVersion({
       catalog: activeCatalog,
       ...activeStores,
@@ -680,9 +684,7 @@ describe.serial('ingest scheduler against throwaway MinIO and PostgreSQL', () =>
       versionId: assembled.id,
     });
     for (const [relativePath, expectedSha256] of inputFiles) {
-      expect(await sha256File(join(retrievedPath, relativePath))).toBe(
-        expectedSha256
-      );
+      expect(await sha256File(join(retrievedPath, relativePath))).toBe(expectedSha256);
     }
 
     console.log(

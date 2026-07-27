@@ -322,7 +322,7 @@ func (grant DeliveryGrant) PackageVersionID() string {
 
 func validateInstallSession(session InstallSession) error {
 	switch session.Operation {
-	case "install", "preflight", "repair", "rollback", "update":
+	case "install", "preflight", "recover", "repair", "rollback", "uninstall", "update":
 	default:
 		return fmt.Errorf("InstallSessionV2 operation is invalid")
 	}

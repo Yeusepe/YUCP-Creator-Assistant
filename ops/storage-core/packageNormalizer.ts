@@ -23,7 +23,7 @@ import { resolveGnuArchiveTools, runCommand } from './process';
 const GUID_PATTERN = /^[0-9a-f]{32}$/;
 const PACKAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 const OPAQUE_SPP_FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}\.spp$/i;
-const MAX_UNITY_PACKAGE_ICON_BYTES = 8 * 1024 * 1024;
+export const MAX_UNITY_PACKAGE_ICON_BYTES = 2 * 1024 * 1024;
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function compareText(left: string, right: string): number {
@@ -45,7 +45,10 @@ export type NormalizedPackage = {
 };
 
 export type NormalizedPackageEnvelopeMetadata = {
+  body: Uint8Array;
   bytes: number;
+  contentType: 'image/png';
+  kind: 'icon';
   name: '.icon.png';
   sha256: string;
 };
@@ -204,6 +207,7 @@ async function normalizeUnityPackage(
 }> {
   const tools = await resolveGnuArchiveTools();
   await mkdir(recordRoot);
+  const archiveWorkingDirectory = dirname(canonicalPath);
   await runCommand(
     tools.tarCommand,
     [
@@ -211,13 +215,13 @@ async function normalizeUnityPackage(
       '--extract',
       '--gzip',
       '--file',
-      canonicalPath,
+      basename(canonicalPath),
       '--directory',
-      recordRoot,
+      basename(recordRoot),
       '--no-same-owner',
       '--no-same-permissions',
     ],
-    { env: tools.env }
+    { cwd: archiveWorkingDirectory, env: tools.env }
   );
   const records = await readdir(recordRoot, { withFileTypes: true });
   if (records.length === 0 || records.length > MAX_ARCHIVE_ENTRIES) {
@@ -242,7 +246,10 @@ async function normalizeUnityPackage(
         throw new Error('Unity package icon metadata is not a PNG file');
       }
       envelopeMetadata.push({
+        body: icon,
         bytes: details.size,
+        contentType: 'image/png',
+        kind: 'icon',
         name: '.icon.png',
         sha256: createHash('sha256').update(icon).digest('hex'),
       });

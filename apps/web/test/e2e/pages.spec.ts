@@ -34,6 +34,12 @@ test.describe('Page Rendering', () => {
     await expect(page.locator('h1')).toContainText('Privacy Policy');
   });
 
+  test('legal/verification-and-attestation page renders', async ({ page }) => {
+    await page.goto('/legal/verification-and-attestation');
+    await expect(page.locator('h1')).toContainText('How YUCP verifies package access');
+    await expect(page.getByRole('link', { name: 'Send a privacy request' })).toBeVisible();
+  });
+
   test('verify/success page renders', async ({ page }) => {
     await page.goto('/verify/success');
     await expect(page).toHaveTitle(/Creator Assistant/);
@@ -102,6 +108,7 @@ test.describe('No JavaScript Errors', () => {
     '/dashboard/collaboration',
     '/legal/terms-of-service',
     '/legal/privacy-policy',
+    '/legal/verification-and-attestation',
     '/verify/success',
     '/verify/error',
     '/oauth/login',

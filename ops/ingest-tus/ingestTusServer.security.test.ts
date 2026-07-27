@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Catalog, type CatalogState } from '../catalog';
 import { localCasStore } from '../storage-core/desyncCas';
+import { signExpiringHmacCapability } from '../storage-core/expiringHmacCapability';
 import { signUploadCapability } from '../storage-core/uploadSigning';
 import {
   createIngestTusServer,
@@ -15,6 +16,41 @@ import {
 import type { QuarantineExactHead, QuarantineStoragePort } from './quarantine';
 
 const uploadHmacKey = 'security-test-upload-hmac-key-32-bytes';
+const legacyProtectionPolicyId = 'common-only-v1';
+
+async function signRemovedPolicyUploadCapability(input: {
+  creatorId: string;
+  expiresAt: number;
+  packageId: string;
+  version: string;
+  versionId: string;
+}) {
+  const editionId = 'standard';
+  const binding = JSON.stringify([
+    'tus-artifact-upload-v2',
+    input.creatorId,
+    editionId,
+    input.packageId,
+    input.version,
+    null,
+    legacyProtectionPolicyId,
+  ]);
+  const signature = await signExpiringHmacCapability({
+    binding: JSON.stringify([input.versionId, binding]),
+    expiresAt: input.expiresAt,
+    key: uploadHmacKey,
+    purpose: 'tus-artifact-upload-v2',
+  });
+  return {
+    ...signature,
+    creatorId: input.creatorId,
+    editionId,
+    packageId: input.packageId,
+    protectionPolicyId: legacyProtectionPolicyId,
+    version: input.version,
+    versionId: input.versionId,
+  };
+}
 
 interface MemoryCatalogRow {
   active_content_digest: string | null;
@@ -27,6 +63,7 @@ interface MemoryCatalogRow {
   created_at: Date;
   deleted_at: Date | null;
   deletion_reason: string | null;
+  edition_id: string;
   error: string | null;
   id: string;
   logical_bytes: number | null;
@@ -43,6 +80,8 @@ interface MemoryCatalogRow {
   state: CatalogState;
   updated_at: Date;
   version: string;
+  vpm_dependencies: Record<string, string>;
+  vpm_repositories: Record<string, string>;
 }
 
 interface MemoryQuarantineRow {
@@ -126,6 +165,23 @@ function createMemoryCatalog(
       return row ? [row] : [];
     }
     if (statement.includes('INSERT INTO package_versions')) {
+      const duplicate = [...rows.values()].find(
+        (candidate) =>
+          candidate.package_id === String(values[1]) &&
+          candidate.edition_id === String(values[2]) &&
+          candidate.version === String(values[3])
+      );
+      if (duplicate) {
+        throw Object.assign(
+          new Error(
+            'duplicate key value violates unique constraint "package_versions_package_version_unique"'
+          ),
+          {
+            code: '23505',
+            constraint_name: 'package_versions_package_version_unique',
+          }
+        );
+      }
       const now = new Date();
       const row: MemoryCatalogRow = {
         active_content_digest: null,
@@ -133,7 +189,8 @@ function createMemoryCatalog(
         assembly_object_id: null,
         id: String(values[0]),
         package_id: String(values[1]),
-        version: String(values[2]),
+        edition_id: String(values[2]),
+        version: String(values[3]),
         source_format: null,
         release_root: null,
         state: 'CREATED',
@@ -142,7 +199,7 @@ function createMemoryCatalog(
         deletion_reason: null,
         attempts: 0,
         binding_root: null,
-        catalog_product_id: (values[3] as string | null) ?? null,
+        catalog_product_id: (values[4] as string | null) ?? null,
         common_root: null,
         logical_bytes: null,
         logical_files: null,
@@ -154,6 +211,8 @@ function createMemoryCatalog(
         protection_policy_id: null,
         created_at: now,
         updated_at: now,
+        vpm_dependencies: {},
+        vpm_repositories: {},
       };
       rows.set(row.id, row);
       return [row];
@@ -190,10 +249,12 @@ function createMemoryCatalog(
       row.protected_source_root = values[12] as string | null;
       row.protection_policy_digest = values[13] as string | null;
       row.protection_policy_id = values[14] as string | null;
-      row.error = values[15] as string | null;
-      row.deleted_at = values[16] === true ? new Date() : null;
-      row.deletion_reason = values[17] as string | null;
-      row.attempts = Number(values[18]);
+      row.vpm_dependencies = values[15] as Record<string, string>;
+      row.vpm_repositories = values[16] as Record<string, string>;
+      row.error = values[17] as string | null;
+      row.deleted_at = values[18] === true ? new Date() : null;
+      row.deletion_reason = values[19] as string | null;
+      row.attempts = Number(values[20]);
       row.next_attempt_at = null;
       row.updated_at = new Date();
       await options.onTransition?.(row);
@@ -322,6 +383,134 @@ describe('ingest tus PATCH ownership scope', () => {
 });
 
 describe('ingest tus upload capability isolation', () => {
+  it('rejects a signed legacy protection policy before creating an upload', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-policy-'));
+    scratchPaths.add(scratchPath);
+    const { catalog, rows } = createMemoryCatalog();
+    const server = createServer(
+      createIngestTusServer({
+        catalog,
+        commonStore: localCasStore(join(scratchPath, 'common')),
+        metadataStore: localCasStore(join(scratchPath, 'metadata')),
+        protectedStore: localCasStore(join(scratchPath, 'protected')),
+        quarantineStorage: createMemoryQuarantineStorage(),
+        scratchRoot: join(scratchPath, 'pipeline-scratch'),
+        uploadDir: join(scratchPath, 'uploads'),
+        uploadHmacKey,
+        catalogControlSharedSecret: 'security-catalog-control-test-secret-32-bytes',
+      })
+    );
+    openServers.add(server);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${port}${INGEST_TUS_PATH}`;
+    const capability = await signRemovedPolicyUploadCapability({
+      creatorId: 'creator-legacy-policy',
+      expiresAt: Date.now() + 60_000,
+      packageId: 'com.creator.legacy-policy',
+      version: '1.0.0',
+      versionId: crypto.randomUUID(),
+    });
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Tus-Resumable': '1.0.0',
+        'Upload-Length': '1',
+        'Upload-Metadata': uploadMetadata({
+          filename: 'artifact.zip',
+          packageId: capability.packageId,
+          version: capability.version,
+        }),
+        'x-yucp-upload-creator-id': capability.creatorId,
+        'x-yucp-upload-edition-id': capability.editionId,
+        'x-yucp-upload-exp': capability.exp,
+        'x-yucp-upload-package-id': encodeURIComponent(capability.packageId),
+        'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
+        'x-yucp-upload-sig': capability.sig,
+        'x-yucp-upload-version': encodeURIComponent(capability.version),
+        'x-yucp-upload-version-id': capability.versionId,
+      },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe('Invalid upload capability\n');
+    expect(rows.size).toBe(0);
+  });
+
+  it('returns a stable conflict when a direct client creates the same package version twice', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-duplicate-'));
+    scratchPaths.add(scratchPath);
+    const { catalog } = createMemoryCatalog();
+    const server = createServer(
+      createIngestTusServer({
+        catalog,
+        commonStore: localCasStore(join(scratchPath, 'common')),
+        metadataStore: localCasStore(join(scratchPath, 'metadata')),
+        protectedStore: localCasStore(join(scratchPath, 'protected')),
+        quarantineStorage: createMemoryQuarantineStorage(),
+        scratchRoot: join(scratchPath, 'pipeline-scratch'),
+        uploadDir: join(scratchPath, 'uploads'),
+        uploadHmacKey,
+        catalogControlSharedSecret: 'security-catalog-control-test-secret-32-bytes',
+      })
+    );
+    openServers.add(server);
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const { port } = server.address() as AddressInfo;
+    const endpoint = `http://127.0.0.1:${port}${INGEST_TUS_PATH}`;
+    const packageId = 'com.creator.duplicate';
+    const version = '2.1.19';
+
+    const createUpload = async (): Promise<Response> => {
+      const capability = await signUploadCapability({
+        creatorId: 'creator-duplicate',
+        expiresAt: Date.now() + 60_000,
+        key: uploadHmacKey,
+        packageId,
+        protectionPolicyId: 'supported-visual-assets-v2',
+        version,
+        versionId: crypto.randomUUID(),
+      });
+      return await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Tus-Resumable': '1.0.0',
+          'Upload-Length': '1',
+          'Upload-Metadata': uploadMetadata({
+            filename: 'artifact.zip',
+            packageId,
+            version,
+          }),
+          'x-yucp-upload-creator-id': capability.creatorId,
+          'x-yucp-upload-edition-id': capability.editionId,
+          'x-yucp-upload-exp': capability.exp,
+          'x-yucp-upload-package-id': encodeURIComponent(capability.packageId),
+          'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
+          'x-yucp-upload-sig': capability.sig,
+          'x-yucp-upload-version': encodeURIComponent(capability.version),
+          'x-yucp-upload-version-id': capability.versionId,
+        },
+      });
+    };
+
+    const first = await createUpload();
+    const duplicate = await createUpload();
+    const duplicateBody = await duplicate.text();
+
+    expect(first.status).toBe(201);
+    expect(duplicate.status).toBe(409);
+    expect(duplicateBody).toBe('This package version already exists. Use a new version number.\n');
+    expect(duplicateBody).not.toContain('duplicate key');
+    expect(duplicateBody).not.toContain('package_versions_package_version_unique');
+  });
+
   it('rejects cross-package metadata before creating a catalog row', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-security-'));
     scratchPaths.add(scratchPath);
@@ -333,8 +522,10 @@ describe('ingest tus upload capability isolation', () => {
         metadataStore: localCasStore(join(scratchPath, 'metadata')),
         protectedStore: localCasStore(join(scratchPath, 'protected')),
         quarantineStorage: createMemoryQuarantineStorage(),
+        scratchRoot: join(scratchPath, 'pipeline-scratch'),
         uploadDir: join(scratchPath, 'uploads'),
         uploadHmacKey,
+        catalogControlSharedSecret: 'security-catalog-control-test-secret-32-bytes',
       })
     );
     openServers.add(server);
@@ -350,7 +541,7 @@ describe('ingest tus upload capability isolation', () => {
       expiresAt: Date.now() + 60_000,
       key: uploadHmacKey,
       packageId: signedPackageId,
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: 'supported-visual-assets-v2',
       version: '1.0.0',
       versionId: crypto.randomUUID(),
     });
@@ -368,9 +559,10 @@ describe('ingest tus upload capability isolation', () => {
         }),
         'x-yucp-upload-catalog-product-id': encodeURIComponent('catalog-product-a'),
         'x-yucp-upload-creator-id': 'creator-a',
+        'x-yucp-upload-edition-id': capability.editionId,
         'x-yucp-upload-exp': capability.exp,
         'x-yucp-upload-package-id': encodeURIComponent(signedPackageId),
-        'x-yucp-upload-protection-policy-id': 'common-only-v1',
+        'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
         'x-yucp-upload-sig': capability.sig,
         'x-yucp-upload-version': encodeURIComponent('1.0.0'),
         'x-yucp-upload-version-id': capability.versionId,
@@ -393,9 +585,10 @@ describe('ingest tus upload capability isolation', () => {
         }),
         'x-yucp-upload-catalog-product-id': encodeURIComponent('catalog-product-a'),
         'x-yucp-upload-creator-id': 'creator-a',
+        'x-yucp-upload-edition-id': capability.editionId,
         'x-yucp-upload-exp': capability.exp,
         'x-yucp-upload-package-id': encodeURIComponent(signedPackageId),
-        'x-yucp-upload-protection-policy-id': 'common-only-v1',
+        'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
         'x-yucp-upload-sig': capability.sig,
         'x-yucp-upload-version': encodeURIComponent('1.0.0'),
         'x-yucp-upload-version-id': capability.versionId,
@@ -432,9 +625,10 @@ describe('ingest tus upload capability isolation', () => {
           'Tus-Resumable': '1.0.0',
           'x-yucp-upload-catalog-product-id': encodeURIComponent('catalog-product-a'),
           'x-yucp-upload-creator-id': 'creator-a',
+          'x-yucp-upload-edition-id': capability.editionId,
           'x-yucp-upload-exp': capability.exp,
           'x-yucp-upload-package-id': encodeURIComponent(signedPackageId),
-          'x-yucp-upload-protection-policy-id': 'common-only-v1',
+          'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,
           'x-yucp-upload-sig': capability.sig,
           'x-yucp-upload-version': encodeURIComponent('1.0.0'),
           'x-yucp-upload-version-id': capability.versionId,
@@ -464,8 +658,10 @@ describe('ingest tus upload capability isolation', () => {
         metadataStore: localCasStore(join(scratchPath, 'metadata')),
         protectedStore: localCasStore(join(scratchPath, 'protected')),
         quarantineStorage: createMemoryQuarantineStorage(),
+        scratchRoot: join(scratchPath, 'pipeline-scratch'),
         uploadDir,
         uploadHmacKey,
+        catalogControlSharedSecret: 'security-catalog-control-test-secret-32-bytes',
       })
     );
     openServers.add(server);
@@ -481,12 +677,13 @@ describe('ingest tus upload capability isolation', () => {
       expiresAt: Date.now() + 60_000,
       key: uploadHmacKey,
       packageId: 'com.creator.cleanup',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: 'supported-visual-assets-v2',
       version: '1.0.0',
       versionId: crypto.randomUUID(),
     });
     const capabilityHeaders = {
       'x-yucp-upload-creator-id': capability.creatorId,
+      'x-yucp-upload-edition-id': capability.editionId,
       'x-yucp-upload-exp': capability.exp,
       'x-yucp-upload-package-id': encodeURIComponent(capability.packageId),
       'x-yucp-upload-protection-policy-id': capability.protectionPolicyId,

@@ -410,10 +410,13 @@ describe('materialization control-plane HTTP boundary', () => {
           throw new Error('must not run');
         },
         listAttributionCandidates: async (input) => {
-          calls.push(`attribution:${input.creatorId}:${input.productId}`);
+          calls.push(
+            `attribution:${input.creatorId}:${input.productId}:${input.candidateLimit}:${input.cursor}`
+          );
           return {
-            candidateLimit: 512,
+            candidateLimit: input.candidateLimit ?? 512,
             candidates: [],
+            nextCursor: 'next-cursor-1',
             truncated: false,
           };
         },
@@ -530,7 +533,9 @@ describe('materialization control-plane HTTP boundary', () => {
     const attribution = await handler(
       new Request(attributionEndpoint, {
         body: JSON.stringify({
+          candidateLimit: 128,
           creatorId: 'creator-1',
+          cursor: 'cursor-1',
           productId: 'product-1',
         }),
         headers: {
@@ -542,10 +547,26 @@ describe('materialization control-plane HTTP boundary', () => {
     );
     expect(attribution.status).toBe(200);
     expect(await attribution.json()).toEqual({
-      candidateLimit: 512,
+      candidateLimit: 128,
       candidates: [],
+      nextCursor: 'next-cursor-1',
       truncated: false,
     });
+    const oversizedAttributionPage = await handler(
+      new Request(attributionEndpoint, {
+        body: JSON.stringify({
+          candidateLimit: 513,
+          creatorId: 'creator-1',
+          productId: 'product-1',
+        }),
+        headers: {
+          Authorization: `Bearer ${apiSecret}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      })
+    );
+    expect(oversizedAttributionPage.status).toBe(400);
 
     const failed = await handler(
       new Request(failEndpoint, {
@@ -571,7 +592,7 @@ describe('materialization control-plane HTTP boundary', () => {
       'create:buyer-1:png-dct-qim-v2',
       'claim:data-node-1',
       'issue:data-node-1:3',
-      'attribution:creator-1:product-1',
+      'attribution:creator-1:product-1:128:cursor-1',
       'fail:data-node-1:proof-fail-1',
     ]);
   });

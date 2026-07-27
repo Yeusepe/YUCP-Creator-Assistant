@@ -17,14 +17,17 @@ import type { Zippable } from 'fflate';
 import { unzipSync, zipSync } from 'fflate';
 import { buildYucpAliasVpmPackage } from '../../apps/api/src/routes/vpmAliasPackage';
 import { runCommand } from '../storage-core/process';
+import {
+  buildPinnedLocalImporterRepository,
+  readPublicImporterReleaseLedger,
+} from './publicImporterRelease';
 
 const REPOSITORY_ROOT = join(import.meta.dir, '..', '..');
 const DOTNET_SDK_VERSION = '8.0.423';
 const VPM_CLI_VERSION = '0.1.28';
 const UNITY_VERSION = '2022.3.22f1';
 const IMPORTER_PACKAGE_ID = 'com.yucp.importer';
-const CATALOG_PRODUCT_ID = 'catalog_product_local_vpm_fixture';
-const PINNED_TUF_ROOT_SHA256 = 'f4e31f5a47d4f6558fdd51b97e379c34bd42325bcca32d07a9626596bba724af';
+const PACKAGE_ID = 'com.yucp.local-vpm-fixture';
 const PUBLIC_ARCHIVE_EXCLUDED_ROOTS = new Set(['Tests', 'Tests.meta']);
 const ZIP_TIMESTAMP = new Date('1980-01-02T00:00:00.000Z');
 
@@ -199,6 +202,278 @@ async function writeImporterRuntimeTestHarness(
   }
 }
 
+async function writeSmartLifecycleUninstallTest(unityProjectPath: string): Promise<void> {
+  const testDirectory = join(unityProjectPath, 'Assets', 'ImporterRuntimeTests', 'Editor');
+  await writeFile(
+    join(testDirectory, 'VpmSmartLifecycleE2ETests.cs'),
+    `using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Pipes;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Tasks;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+using YUCP.Importer.Editor.PackageManager;
+using YUCP.Importer.Editor.PackageManager.Core;
+
+namespace YUCP.Importer.Editor.Tests
+{
+    public sealed class VpmSmartLifecycleE2ETests
+    {
+        [UnityTest]
+        public IEnumerator UninstallUsesTheInstallRecordAndKeepsTheAliasRegistered()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(UnityEngine.Application.dataPath, ".."));
+            string aliasId = RequireEnvironment(
+                "YUCP_VPM_LIFECYCLE_ALIAS_ID");
+            string aliasPackageId = RequireEnvironment(
+                "YUCP_VPM_LIFECYCLE_ALIAS_PACKAGE_ID");
+            string productDirectory = Path.Combine(
+                projectRoot,
+                "Assets",
+                "YUCP E2E Product");
+            Directory.CreateDirectory(productDirectory);
+            string unchangedPath = Path.Combine(
+                productDirectory,
+                "unchanged.txt");
+            string modifiedPath = Path.Combine(
+                productDirectory,
+                "modified.txt");
+            File.WriteAllText(unchangedPath, "owned");
+            File.WriteAllText(modifiedPath, "owned");
+
+            var state = new PackageDeliveryInstallState
+            {
+                activeContentDigest = new string('b', 64),
+                activePolicyVersion = "active-content-policy-v1",
+                aliasId = aliasId,
+                releaseRoot = new string('a', 64),
+                versionId = "vpm-smart-lifecycle-version",
+                files = new List<NativePackageBrokerFile>
+                {
+                    OwnedFile(
+                        "Assets/YUCP E2E Product/unchanged.txt",
+                        unchangedPath),
+                    OwnedFile(
+                        "Assets/YUCP E2E Product/modified.txt",
+                        modifiedPath),
+                },
+            };
+            string statePath = Path.Combine(
+                projectRoot,
+                PackageLifecycleCoordinator.InstallStatePath(aliasId)
+                    .Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(statePath));
+            File.WriteAllText(
+                statePath,
+                JsonUtility.ToJson(state, true),
+                new UTF8Encoding(false));
+            File.WriteAllText(modifiedPath, "user change");
+
+            var alias = new AliasPackageContract
+            {
+                aliasId = aliasId,
+                importerPackage = "com.yucp.importer",
+                installStrategy = "server-authorized",
+                kind = "alias-v1",
+                packageDisplayName = "YUCP E2E Product",
+                packageName = aliasPackageId,
+                packageVersion = "1.0.0",
+            };
+            PackageLifecycleExecutionResult result;
+            string pipeName =
+                "yucp-package-broker-vpm-" +
+                Guid.NewGuid().ToString("N");
+            using (var server = new NamedPipeServerStream(
+                pipeName,
+                PipeDirection.InOut,
+                1,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous))
+            {
+                NativePackageBrokerClient.SetTransportForTests(
+                    new NamedPipePackageBrokerTransport(pipeName));
+                try
+                {
+                    Task serverTask = RunUninstallBrokerAsync(
+                        server,
+                        state.releaseRoot);
+                    Task<PackageLifecycleExecutionResult> execution =
+                        PackageLifecycleCoordinator.ExecuteAsync(
+                            alias,
+                            "uninstall",
+                            "vpm-smart-uninstall",
+                            "vpm-smart-uninstall",
+                            state.releaseRoot,
+                            string.Empty,
+                            state.activeContentDigest,
+                            state.activePolicyVersion);
+                    while (!execution.IsCompleted ||
+                        !serverTask.IsCompleted)
+                    {
+                        yield return null;
+                    }
+                    result = execution.GetAwaiter().GetResult();
+                    serverTask.GetAwaiter().GetResult();
+                }
+                finally
+                {
+                    NativePackageBrokerClient.SetTransportForTests(null);
+                }
+            }
+
+            Assert.That(result.journalState, Is.EqualTo("committed"));
+            Assert.That(
+                result.currentReleaseRoot,
+                Is.EqualTo(PackageLifecycleCoordinator.EmptyReleaseRoot));
+            Assert.That(File.Exists(unchangedPath), Is.False);
+            Assert.That(
+                File.ReadAllText(modifiedPath),
+                Is.EqualTo("user change"));
+            Assert.That(File.Exists(statePath), Is.False);
+            Assert.That(
+                File.Exists(
+                    Path.Combine(
+                        projectRoot,
+                        "Packages",
+                        aliasPackageId,
+                        "package.json")),
+                Is.True);
+
+            string vpmManifest = File.ReadAllText(
+                Path.Combine(
+                    projectRoot,
+                    "Packages",
+                    "vpm-manifest.json"));
+            StringAssert.Contains("\\"dependencies\\"", vpmManifest);
+            StringAssert.Contains(
+                "\\"" + aliasPackageId + "\\"",
+                vpmManifest);
+        }
+
+        private static NativePackageBrokerFile OwnedFile(
+            string normalizedPath,
+            string path)
+        {
+            return new NativePackageBrokerFile
+            {
+                bytes = new FileInfo(path).Length,
+                normalizedPath = normalizedPath,
+                sha256 = Sha256(path),
+            };
+        }
+
+        private static async Task RunUninstallBrokerAsync(
+            NamedPipeServerStream server,
+            string expectedReleaseRoot)
+        {
+            await server.WaitForConnectionAsync().ConfigureAwait(false);
+            using (var reader = new StreamReader(
+                server,
+                new UTF8Encoding(false, true),
+                true,
+                4096,
+                true))
+            using (var writer = new StreamWriter(
+                server,
+                new UTF8Encoding(false, true),
+                4096,
+                true))
+            {
+                writer.NewLine = "\\n";
+                writer.AutoFlush = true;
+                string beginJson = await reader
+                    .ReadLineAsync()
+                    .ConfigureAwait(false);
+                NativePackageBrokerBeginFrame begin =
+                    JsonUtility.FromJson<NativePackageBrokerBeginFrame>(
+                        beginJson);
+                Assert.That(begin.kind, Is.EqualTo("begin"));
+                await writer.WriteLineAsync(
+                    JsonUtility.ToJson(
+                        new NativePackageBrokerChallengeFrame
+                        {
+                            schemaVersion = 1,
+                            kind = "challenge",
+                            clientNonce = begin.clientNonce,
+                            operationToken = new string('A', 43),
+                            expiresAt = DateTimeOffset.UtcNow
+                                .AddSeconds(30)
+                                .ToString("O"),
+                        }))
+                    .ConfigureAwait(false);
+                string operateJson = await reader
+                    .ReadLineAsync()
+                    .ConfigureAwait(false);
+                NativePackageBrokerOperateFrame operate =
+                    JsonUtility.FromJson<NativePackageBrokerOperateFrame>(
+                        operateJson);
+                Assert.That(
+                    operate.request.operation,
+                    Is.EqualTo("uninstall"));
+                Assert.That(
+                    operate.request.expectedCurrentReleaseRoot,
+                    Is.EqualTo(expectedReleaseRoot));
+                await writer.WriteLineAsync(
+                    JsonUtility.ToJson(
+                        new NativePackageBrokerServerFrame
+                        {
+                            schemaVersion = 1,
+                            kind = "result",
+                            result = new NativePackageBrokerResult
+                            {
+                                schemaVersion = 3,
+                                runId = operate.request.runId,
+                                operation = "uninstall",
+                                status = "succeeded",
+                                exitCode = 0,
+                                traceId = new string('a', 32),
+                                targetReleaseRoot =
+                                    PackageLifecycleCoordinator.EmptyReleaseRoot,
+                                activeContentDigest =
+                                    operate.request.approvedActiveContentDigest,
+                                activePolicyVersion =
+                                    operate.request.approvedPolicyVersion,
+                                versionId = "uninstalled",
+                                logicalBytes = 0,
+                                logicalFiles = 0,
+                                stagingTree = string.Empty,
+                                journalState = "authorized",
+                                files = new List<NativePackageBrokerFile>(),
+                            },
+                        }))
+                    .ConfigureAwait(false);
+            }
+        }
+
+        private static string RequireEnvironment(string name)
+        {
+            string value = Environment.GetEnvironmentVariable(name);
+            Assert.That(value, Is.Not.Null.And.Not.Empty, name);
+            return value;
+        }
+
+        private static string Sha256(string path)
+        {
+            using (SHA256 sha256 = SHA256.Create())
+            using (FileStream stream = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha256.ComputeHash(stream))
+                    .Replace("-", string.Empty)
+                    .ToLowerInvariant();
+            }
+        }
+    }
+}
+`
+  );
+}
+
 async function writeUnityLifecycleStateTest(unityProjectPath: string): Promise<void> {
   const testDirectory = join(unityProjectPath, 'Assets', 'Tests', 'Editor');
   await mkdir(testDirectory, { recursive: true });
@@ -371,11 +646,13 @@ function requireImporterArtifact(
   artifacts: ReadonlyMap<string, Uint8Array>,
   version: string
 ): Uint8Array {
-  const artifact = artifacts.get(`/${IMPORTER_PACKAGE_ID}-${version}.zip`);
-  if (!artifact) {
-    throw new Error(`The disposable VPM repository is missing importer artifact ${version}`);
+  const suffix = `/${IMPORTER_PACKAGE_ID}-${version}.zip`;
+  for (const [path, artifact] of artifacts) {
+    if (path.endsWith(suffix)) {
+      return artifact;
+    }
   }
-  return artifact;
+  throw new Error(`The disposable VPM repository is missing importer artifact ${version}`);
 }
 
 async function runUnityLifecyclePhase(input: {
@@ -442,6 +719,66 @@ async function runUnityLifecyclePhase(input: {
   }
 }
 
+async function runUnitySmartUninstallPhase(input: {
+  aliasId: string;
+  aliasPackageId: string;
+  evidenceDirectory?: string;
+  scratchPath: string;
+  unityExecutable: string;
+  unityProjectPath: string;
+}): Promise<void> {
+  const unityTestResults = join(input.scratchPath, 'vpm-smart-uninstall-results.xml');
+  const unityLog = join(input.scratchPath, 'vpm-smart-uninstall.log');
+  try {
+    await runCommand(
+      input.unityExecutable,
+      [
+        '-batchmode',
+        '-nographics',
+        '-projectPath',
+        input.unityProjectPath,
+        '-runTests',
+        '-testPlatform',
+        'EditMode',
+        '-testFilter',
+        'YUCP.Importer.Editor.Tests.VpmSmartLifecycleE2ETests',
+        '-testResults',
+        unityTestResults,
+        '-logFile',
+        unityLog,
+      ],
+      {
+        env: {
+          ...process.env,
+          YUCP_VPM_LIFECYCLE_ALIAS_ID: input.aliasId,
+          YUCP_VPM_LIFECYCLE_ALIAS_PACKAGE_ID: input.aliasPackageId,
+        },
+        timeoutMs: 180_000,
+      }
+    );
+  } catch (error) {
+    const log = await readFile(unityLog, 'utf8').catch(() => '');
+    const logTail = log.split(/\r?\n/).slice(-200).join('\n');
+    throw new Error(
+      `Unity did not complete the smart VPM uninstall: ${
+        error instanceof Error ? error.message : String(error)
+      }\n${logTail}`
+    );
+  }
+
+  const unityResults = await readFile(unityTestResults, 'utf8');
+  expect(unityResults).toContain('result="Passed"');
+  expect(unityResults).toContain('passed="1"');
+  expect(unityResults).toContain('name="UninstallUsesTheInstallRecordAndKeepsTheAliasRegistered"');
+  if (input.evidenceDirectory) {
+    await copyFile(
+      unityTestResults,
+      join(input.evidenceDirectory, 'vpm-smart-uninstall-results.xml')
+    );
+    await copyFile(unityLog, join(input.evidenceDirectory, 'vpm-smart-uninstall.log'));
+  }
+}
+
 describe.serial('official VPM CLI bootstrap', () => {
   it('installs the public importer and product alias without paid product bytes', async () => {
     const dotnetExecutable = await resolveDotnetExecutable();
@@ -451,9 +788,14 @@ describe.serial('official VPM CLI bootstrap', () => {
       await readFile(join(importerPackagePath, 'package.json'), 'utf8')
     ) as PackageManifest;
     expect(importerPackageJson).toMatchObject({
+      description: 'Installs licensed YUCP products and supports update, repair, and removal.',
       name: IMPORTER_PACKAGE_ID,
-      version: '0.1.31',
     });
+    const importerReleaseLedger = await readPublicImporterReleaseLedger();
+    expect(importerReleaseLedger.releases[importerPackageJson.version]).toBeDefined();
+    expect(String(importerPackageJson.description)).not.toMatch(
+      /\b(?:desync|digest|fbx|signature|signed|watermark)\b/i
+    );
 
     const restored = await runCommand(dotnetExecutable, ['tool', 'restore'], {
       cwd: REPOSITORY_ROOT,
@@ -492,6 +834,7 @@ describe.serial('official VPM CLI bootstrap', () => {
     );
     await writeUnityLifecycleStateTest(unityProjectPath);
     await writeImporterRuntimeTestHarness(unityProjectPath, importerPackagePath);
+    await writeSmartLifecycleUninstallTest(unityProjectPath);
 
     const requests: string[] = [];
     let repositoryState: TestRepositoryState | undefined;
@@ -523,25 +866,77 @@ describe.serial('official VPM CLI bootstrap', () => {
     const importerArtifacts = new Map<string, Uint8Array>();
     const importerManifests = new Map<string, PackageManifest>();
     for (const version of importerVersions) {
-      const bytes = await buildPackageArchive(
-        importerPackagePath,
-        version === importerPackageJson.version ? undefined : version
-      );
-      const path = `/${IMPORTER_PACKAGE_ID}-${version}.zip`;
+      const pinned =
+        version === importerPackageJson.version
+          ? await buildPinnedLocalImporterRepository({
+              baseUrl,
+              importerPath: importerPackagePath,
+            })
+          : undefined;
+      const bytes = pinned?.archive ?? (await buildPackageArchive(importerPackagePath, version));
+      const pinnedManifest = pinned?.index.packages[IMPORTER_PACKAGE_ID].versions[version];
+      if (pinned && !pinnedManifest) {
+        throw new Error(`Pinned importer repository is missing version ${version}`);
+      }
+      if (pinnedManifest) {
+        expect(pinnedManifest.description).toBe(importerPackageJson.description);
+      }
+      const path = pinnedManifest
+        ? new URL(pinnedManifest.url).pathname
+        : `/${IMPORTER_PACKAGE_ID}-${version}.zip`;
       importerArtifacts.set(path, bytes);
       importerManifests.set(version, {
-        ...importerPackageJson,
-        version,
-        url: `${baseUrl}${path}`,
-        zipSHA256: sha256(bytes),
+        ...(pinnedManifest
+          ? pinnedManifest
+          : {
+              ...importerPackageJson,
+              version,
+              url: `${baseUrl}${path}`,
+              zipSHA256: sha256(bytes),
+            }),
       });
     }
+    const currentImporterInventory = inventoryPackageArchive(
+      requireImporterArtifact(importerArtifacts, importerPackageJson.version)
+    );
+    expect(
+      currentImporterInventory['Editor/PackageManager/Core/AliasPackageActivationStateStore.cs']
+    ).toBeDefined();
+    expect(
+      currentImporterInventory['Editor/PackageManager/Core/AliasPackageMediaLoader.cs']
+    ).toBeDefined();
+    expect(
+      currentImporterInventory['Editor/PackageManager/Core/VpmBootstrapPackageCleanup.cs']
+    ).toBeUndefined();
+    expect(
+      currentImporterInventory['Editor/PackageManager/Core/VpmBootstrapPackageCleanup.cs.meta']
+    ).toBeUndefined();
+    const aliasIcon = Uint8Array.from(
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/6m7yWQAAAABJRU5ErkJggg==',
+        'base64'
+      )
+    );
     const alias = buildYucpAliasVpmPackage({
-      aliasId: CATALOG_PRODUCT_ID,
+      aliasId: PACKAGE_ID,
+      artifactUrl: `${baseUrl}/api/vpm/alias-publications/${randomUUID()}/1.20660.12345.zip`,
       bootstrapVersion: '1.20660.12345',
-      catalogProductIds: [CATALOG_PRODUCT_ID],
       vpmDependencies: {},
-      vpmBaseUrl: baseUrl,
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Druffle',
+        description: 'Create and join music sessions in VR.',
+        tagline: 'Music together in VR.',
+      },
+      media: [
+        {
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+          contentType: 'image/png',
+          bytes: aliasIcon,
+          sha256: createHash('sha256').update(aliasIcon).digest('hex'),
+        },
+      ],
     });
     const aliasPath = new URL(alias.manifest.url).pathname;
     const repositoryId = `club.yucp.lifecycle.${randomUUID()}`;
@@ -603,7 +998,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           requireImporterArtifact(importerArtifacts, importerPackageJson.version)
         )
       );
-      const pinnedTufRootPath = join(
+      const legacyTufRootPath = join(
         unityProjectPath,
         'Packages',
         IMPORTER_PACKAGE_ID,
@@ -612,8 +1007,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         'Trust',
         '1.root.json'
       );
-      const pinnedTufRoot = await readFile(pinnedTufRootPath);
-      expect(createHash('sha256').update(pinnedTufRoot).digest('hex')).toBe(PINNED_TUF_ROOT_SHA256);
+      expect(await pathExists(legacyTufRootPath)).toBe(false);
 
       const installedAliasPath = join(
         unityProjectPath,
@@ -624,17 +1018,34 @@ describe.serial('official VPM CLI bootstrap', () => {
       const installedAliasText = await readFile(installedAliasPath, 'utf8');
       const installedAlias = JSON.parse(installedAliasText) as Record<string, unknown>;
       expect(installedAlias).toMatchObject({
+        displayName: 'JAMMR',
+        description: 'Create and join music sessions in VR.',
+        author: {
+          name: 'Druffle',
+        },
         name: alias.packageId,
         version: alias.manifest.version,
         vpmDependencies: {
-          [IMPORTER_PACKAGE_ID]: '>=0.1.31',
+          [IMPORTER_PACKAGE_ID]: '>=0.1.36',
         },
         yucp: {
-          aliasId: CATALOG_PRODUCT_ID,
+          aliasId: PACKAGE_ID,
           installStrategy: 'server-authorized',
           kind: 'alias-v1',
+          packageDisplayName: 'JAMMR',
+          packageMetadata: {
+            packageName: 'JAMMR',
+            author: 'Druffle',
+            description: 'Create and join music sessions in VR.',
+            tagline: 'Music together in VR.',
+          },
         },
       });
+      expect(
+        await readFile(
+          join(unityProjectPath, 'Packages', alias.packageId, 'Documentation~', 'YUCP', 'icon.png')
+        )
+      ).toEqual(Buffer.from(aliasIcon));
       expect(installedAliasText).not.toContain('versionId');
       expect(installedAliasText).not.toContain('delivery');
       expect(installedAliasText).not.toContain('download');
@@ -646,9 +1057,7 @@ describe.serial('official VPM CLI bootstrap', () => {
         dependencies?: Record<string, { version?: string }>;
         locked?: Record<string, { version?: string }>;
       };
-      expect(vpmManifest.dependencies?.[alias.packageId]?.version).toBe(
-        alias.manifest.version
-      );
+      expect(vpmManifest.dependencies?.[alias.packageId]?.version).toBe(alias.manifest.version);
       expect(vpmManifest.locked?.[IMPORTER_PACKAGE_ID]?.version).toBe(importerPackageJson.version);
       expect(requests).toContain('GET /index.json');
 
@@ -680,7 +1089,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           {
             env: {
               ...process.env,
-              YUCP_VPM_ALIAS_TRIGGER_ALIAS_ID: CATALOG_PRODUCT_ID,
+              YUCP_VPM_ALIAS_TRIGGER_ALIAS_ID: PACKAGE_ID,
               YUCP_VPM_ALIAS_TRIGGER_PACKAGE_ID: alias.packageId,
             },
             timeoutMs: 180_000,
@@ -698,11 +1107,9 @@ describe.serial('official VPM CLI bootstrap', () => {
       const unityResults = await readFile(unityTestResults, 'utf8');
       expect(unityResults).toContain('result="Passed"');
       expect(unityResults).toContain('failed="0"');
+      expect(unityResults).toContain('name="OfficialVpmAliasContractEntersTheAuthorizedFlow"');
       expect(unityResults).toContain(
-        'name="OfficialVpmAliasContractEntersTheAuthorizedFlow"'
-      );
-      expect(unityResults).toContain(
-        'name="LifecycleCompletionRemovesOnlyTheVpmAliasBootstrap"'
+        'name="LifecycleCompletionKeepsTheVpmAliasBootstrapRegistered"'
       );
       const evidenceDirectory = process.env.YUCP_PACKAGE_EVIDENCE_DIR?.trim();
       if (evidenceDirectory) {
@@ -711,14 +1118,8 @@ describe.serial('official VPM CLI bootstrap', () => {
         await copyFile(unityLog, join(evidenceDirectory, 'vpm-alias-trigger.log'));
       }
 
-      const transactionTestResults = join(
-        scratchPath,
-        'project-transaction-results.xml'
-      );
-      const transactionTestLog = join(
-        scratchPath,
-        'project-transaction.log'
-      );
+      const transactionTestResults = join(scratchPath, 'project-transaction-results.xml');
+      const transactionTestLog = join(scratchPath, 'project-transaction.log');
       await runCommand(
         unityExecutable,
         [
@@ -741,10 +1142,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           timeoutMs: 180_000,
         }
       );
-      const transactionResults = await readFile(
-        transactionTestResults,
-        'utf8'
-      );
+      const transactionResults = await readFile(transactionTestResults, 'utf8');
       expect(transactionResults).toContain('result="Passed"');
       expect(transactionResults).toContain('passed="10"');
       for (const testName of [
@@ -766,10 +1164,7 @@ describe.serial('official VPM CLI bootstrap', () => {
           transactionTestResults,
           join(evidenceDirectory, 'project-transaction-results.xml')
         );
-        await copyFile(
-          transactionTestLog,
-          join(evidenceDirectory, 'project-transaction.log')
-        );
+        await copyFile(transactionTestLog, join(evidenceDirectory, 'project-transaction.log'));
       }
 
       await runUnityLifecyclePhase({
@@ -818,21 +1213,29 @@ describe.serial('official VPM CLI bootstrap', () => {
         unityProjectPath,
       });
 
-      await writeFile(pinnedTufRootPath, 'corrupt lifecycle fixture\n');
-      expect(
-        createHash('sha256')
-          .update(await readFile(pinnedTufRootPath))
-          .digest('hex')
-      ).not.toBe(PINNED_TUF_ROOT_SHA256);
+      const repairProbeRelativePath =
+        'Editor/PackageManager/Core/AliasPackageActivationStateStore.cs';
+      const expectedRepairProbeHash = inventoryPackageArchive(
+        requireImporterArtifact(importerArtifacts, rollbackVersion)
+      )[repairProbeRelativePath];
+      if (!expectedRepairProbeHash) {
+        throw new Error('The importer repair probe is missing from the rollback archive');
+      }
+      const repairProbePath = join(
+        unityProjectPath,
+        'Packages',
+        IMPORTER_PACKAGE_ID,
+        ...repairProbeRelativePath.split('/')
+      );
+      await writeFile(repairProbePath, 'corrupt lifecycle fixture\n');
+      expect(sha256(new Uint8Array(await readFile(repairProbePath)))).not.toBe(
+        expectedRepairProbeHash
+      );
       const installedImporterPath = join(unityProjectPath, 'Packages', IMPORTER_PACKAGE_ID);
       assertPathInsideProjectPackages(unityProjectPath, installedImporterPath);
       await rm(installedImporterPath, { force: true, recursive: true });
       await runVpm(dotnetExecutable, ['resolve', 'project', unityProjectPath], 180_000);
-      expect(
-        createHash('sha256')
-          .update(await readFile(pinnedTufRootPath))
-          .digest('hex')
-      ).toBe(PINNED_TUF_ROOT_SHA256);
+      expect(sha256(new Uint8Array(await readFile(repairProbePath)))).toBe(expectedRepairProbeHash);
       await runUnityLifecyclePhase({
         aliasPackageId: alias.packageId,
         aliasPresent: true,
@@ -872,23 +1275,41 @@ describe.serial('official VPM CLI bootstrap', () => {
         unityProjectPath,
       });
 
-      await runVpm(
-        dotnetExecutable,
-        ['remove', 'package', alias.packageId, '--project', unityProjectPath],
-        180_000
+      await runUnitySmartUninstallPhase({
+        aliasId: PACKAGE_ID,
+        aliasPackageId: alias.packageId,
+        evidenceDirectory,
+        scratchPath,
+        unityExecutable,
+        unityProjectPath,
+      });
+      expect(
+        await pathExists(join(unityProjectPath, 'Assets', 'YUCP E2E Product', 'unchanged.txt'))
+      ).toBe(false);
+      expect(
+        await readFile(join(unityProjectPath, 'Assets', 'YUCP E2E Product', 'modified.txt'), 'utf8')
+      ).toBe('user change');
+      const installStateDigest = sha256(
+        new TextEncoder().encode(`yucp:package-install-state:v1\n${PACKAGE_ID}`)
       );
-      expect(await pathExists(join(unityProjectPath, 'Packages', alias.packageId))).toBe(false);
+      expect(
+        await pathExists(
+          join(unityProjectPath, '.yucp', 'package-installs', `${installStateDigest}.json`)
+        )
+      ).toBe(false);
+      expect(await pathExists(join(unityProjectPath, 'Packages', alias.packageId))).toBe(true);
       const uninstalledVpmManifest = JSON.parse(
         await readFile(join(unityProjectPath, 'Packages', 'vpm-manifest.json'), 'utf8')
       ) as {
         dependencies?: Record<string, { version?: string }>;
         locked?: Record<string, { version?: string }>;
       };
-      expect(uninstalledVpmManifest.dependencies?.[alias.packageId]).toBeUndefined();
-      expect(uninstalledVpmManifest.locked?.[alias.packageId]).toBeUndefined();
+      expect(uninstalledVpmManifest.dependencies?.[alias.packageId]?.version).toBe(
+        alias.manifest.version
+      );
       await runUnityLifecyclePhase({
         aliasPackageId: alias.packageId,
-        aliasPresent: false,
+        aliasPresent: true,
         evidenceDirectory,
         importerVersion: importerPackageJson.version,
         phase: 'uninstall',

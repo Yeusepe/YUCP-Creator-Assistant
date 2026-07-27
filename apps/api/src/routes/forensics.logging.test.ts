@@ -73,8 +73,8 @@ describe('forensics route safe logging', () => {
       encryptionSecret: 'unit-test-encryption-key',
       frontendBaseUrl: 'http://localhost:3000',
       materializationControl: {
-        listAttributionCandidates: async () => ({
-          candidateLimit: 512,
+        listAttributionCandidates: async (input) => ({
+          candidateLimit: input.candidateLimit ?? 512,
           candidates: [
             {
               algorithmVersion: 'png-dct-qim-v2',

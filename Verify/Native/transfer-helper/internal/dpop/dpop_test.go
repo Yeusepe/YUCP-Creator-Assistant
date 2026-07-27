@@ -93,6 +93,36 @@ func TestCreateProofRejectsRemotePlaintextHTTP(t *testing.T) {
 	}
 }
 
+func TestCreateTokenProofOmitsAccessTokenHashAndBindsTokenEndpoint(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	proof, err := CreateTokenProof(
+		privateKey,
+		"https://auth.example.test/api/auth/oauth2/token",
+		time.Unix(1_000, 0),
+	)
+	if err != nil {
+		t.Fatalf("CreateTokenProof() error = %v", err)
+	}
+	parts := strings.Split(proof, ".")
+	if len(parts) != 3 {
+		t.Fatalf("proof parts = %d, want 3", len(parts))
+	}
+	var payload map[string]any
+	if err := decodePart(parts[1], &payload); err != nil {
+		t.Fatalf("decode proof payload: %v", err)
+	}
+	if _, exists := payload["ath"]; exists {
+		t.Fatalf("token endpoint proof includes ath: %#v", payload)
+	}
+	if payload["htm"] != "POST" ||
+		payload["htu"] != "https://auth.example.test/api/auth/oauth2/token" {
+		t.Fatalf("token endpoint proof claims = %#v", payload)
+	}
+}
+
 func decodePart(encoded string, destination any) error {
 	bytes, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil {

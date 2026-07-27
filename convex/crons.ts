@@ -37,4 +37,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  'cleanup Better Auth reservations',
+  { minutes: 1 },
+  internal.betterAuthReservations.cleanupExpired,
+  {}
+);
+
 export default crons;

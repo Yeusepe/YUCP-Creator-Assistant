@@ -2,9 +2,8 @@
  * Better Auth configuration for YUCP Creator Assistant.
  *
  * Convex owns browser auth, JWT issuance, API keys, and OAuth clients. The web
- * app proxies `/api/auth/*` to Convex, so this configuration intentionally
- * stays on the same-origin model and does not enable cross-domain auth
- * transport.
+ * The web app proxies `/api/auth/*` to Convex.
+ * Convex remains the canonical authorization server for native clients.
  */
 
 import './polyfills';
@@ -26,11 +25,13 @@ import {
 import type { BetterAuthOptions } from 'better-auth';
 import { betterAuth } from 'better-auth';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
+import { oneTimeToken } from 'better-auth/plugins/one-time-token';
 import { components, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import authConfig from './auth.config';
 import { createJwtJwksAdapter } from './betterAuth/jwtAdapter';
 import { OAUTH_PROVIDER_SCOPES } from './betterAuth/oauthProviderScopes';
+import { betterAuthReservationBridge } from './betterAuth/reservationBridge';
 import authSchema from './betterAuth/schema';
 import { BETTER_AUTH_BACKUP_CODE_OPTIONS } from './lib/accountSecurityConfig';
 import { sendEmailOtpEmail } from './lib/accountSecurityEmail';
@@ -42,10 +43,13 @@ import {
   toCertificateBillingProjectionSubscription,
 } from './lib/certificateBillingProjection';
 import { completeRecoveryPasskeyEnrollmentOrThrow } from './lib/recoveryPasskeyCompletion';
-import { buildTrustedBrowserOrigins } from './lib/trustedOrigins';
+import { buildTrustedBrowserOrigins, parseConfiguredTrustedOrigins } from './lib/trustedOrigins';
 import { vrchat } from './plugins/vrchat';
 
 let hasLoggedBetterAuthConfig = false;
+
+const REMEMBERED_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
+const SESSION_REFRESH_AGE_SECONDS = 60 * 60 * 24;
 
 function resolveConvexSiteUrl(): string {
   const explicit = process.env.CONVEX_SITE_URL?.replace(/\/$/, '');
@@ -59,6 +63,51 @@ function resolveConvexSiteUrl(): string {
   }
 
   throw new Error('CONVEX_SITE_URL or CONVEX_URL is required');
+}
+
+/**
+ * Restores a trusted proxy URL before Better Auth validates request-bound proofs.
+ *
+ * Better Auth validates the DPoP `htu` claim against `Request.url`.
+ * RFC 9449 requires that URL to identify the endpoint used by the client.
+ *
+ * References:
+ * https://better-auth.com/docs/guides/1-7-upgrade-guide
+ * https://better-auth.com/docs/guides/dynamic-base-url
+ * https://www.rfc-editor.org/rfc/rfc9449#section-4.3
+ */
+export function canonicalizeBetterAuthProxyRequest(request: Request): Request {
+  const requestUrl = new URL(request.url);
+  const forwardedHost = request.headers.get('x-forwarded-host')?.trim();
+  const forwardedProtocol = request.headers.get('x-forwarded-proto')?.trim();
+  if (!forwardedHost) {
+    return request;
+  }
+  if (
+    forwardedProtocol !== undefined &&
+    forwardedProtocol !== 'http' &&
+    forwardedProtocol !== 'https'
+  ) {
+    throw new Error('Better Auth proxy protocol is invalid');
+  }
+  const publicOrigin = `${forwardedProtocol ?? requestUrl.protocol.replace(/:$/, '')}://${forwardedHost}`;
+  const canonicalUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, publicOrigin);
+  if (canonicalUrl.username || canonicalUrl.password || canonicalUrl.origin !== publicOrigin) {
+    throw new Error('Better Auth proxy host is invalid');
+  }
+  const headers = new Headers(request.headers);
+  headers.set('host', canonicalUrl.host);
+
+  const init: RequestInit & { duplex?: 'half' } = {
+    method: request.method,
+    headers,
+  };
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    init.body = request.body;
+    init.duplex = 'half';
+  }
+
+  return new Request(canonicalUrl, init);
 }
 
 export const authComponent = createClient<DataModel, typeof authSchema>(components.betterAuth, {
@@ -165,6 +214,9 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   const trustedOrigins = buildTrustedBrowserOrigins({
     siteUrl,
     frontendUrl: process.env.FRONTEND_URL ?? siteUrl,
+    additionalOrigins: parseConfiguredTrustedOrigins(
+      process.env.BETTER_AUTH_ADDITIONAL_TRUSTED_ORIGINS_JSON
+    ),
   });
 
   if (!hasLoggedBetterAuthConfig) {
@@ -172,6 +224,22 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
   }
 
   const authBaseUrl = `${convexSiteUrl}/api/auth`;
+  const reservationBridge = betterAuthReservationBridge({
+    reserve: async (input) => {
+      if (!('runMutation' in ctx)) {
+        throw new Error('Better Auth reservations require a mutation-capable context');
+      }
+      return await ctx.runMutation(internal.betterAuthReservations.reserve, input);
+    },
+    find: async (reservationId) => {
+      if (!('runQuery' in ctx)) {
+        throw new Error('Better Auth reservations require a query-capable context');
+      }
+      return await ctx.runQuery(internal.betterAuthReservations.find, {
+        reservationId,
+      });
+    },
+  });
   const cachedTrustedClients = parseCachedTrustedClients(
     process.env.PUBLIC_OAUTH_TRUSTED_CLIENTS_JSON
   );
@@ -269,7 +337,13 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
 
   return {
     secret: betterAuthSecret,
-    baseURL: siteUrl,
+    baseURL: {
+      allowedHosts: [...new Set([new URL(siteUrl).host, new URL(convexSiteUrl).host])],
+      // Better Auth fallback contract:
+      // https://better-auth.com/docs/guides/dynamic-base-url#choosing-a-fallback
+      // Direct Convex calls have no request host, so they use the canonical auth server.
+      fallback: authBaseUrl,
+    },
     trustedOrigins,
     database: authComponent.adapter(ctx),
     user: {
@@ -304,6 +378,7 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
         authConfig,
         jwksRotateOnTokenGenerationError: true,
       }),
+      reservationBridge,
       apiKey({
         defaultPrefix: PUBLIC_API_KEY_PREFIX,
         enableMetadata: true,
@@ -338,6 +413,12 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
           name: user?.name ?? null,
           email: user?.email ?? null,
         }),
+      }),
+      // Better Auth one-time token reference:
+      // https://better-auth.com/docs/plugins/one-time-token
+      oneTimeToken({
+        expiresIn: 1,
+        storeToken: 'hashed',
       }),
       emailOTP({
         expiresIn: 5 * 60,
@@ -435,8 +516,10 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
       vrchat(),
     ],
     session: {
-      expiresIn: 60 * 60 * 24 * 7, // 7 days
-      updateAge: 60 * 60 * 24, // 1 day
+      // Better Auth session renewal contract:
+      // https://better-auth.com/docs/concepts/session-management#session-expiration
+      expiresIn: REMEMBERED_SESSION_TTL_SECONDS,
+      updateAge: SESSION_REFRESH_AGE_SECONDS,
       storeSessionInDatabase: true,
       cookieCache: {
         enabled: true,
@@ -445,14 +528,22 @@ export const createAuthOptions = (ctx: GenericCtx<DataModel>): BetterAuthOptions
     },
     advanced: {
       cookiePrefix: 'yucp',
+      trustedProxyHeaders: true,
     },
   } satisfies BetterAuthOptions;
 };
 
-export const createAuth = (ctx: GenericCtx<DataModel>) => {
-  // Cast needed: better-auth 1.5.5 widened baseURL to BaseURLConfig (string | function),
-  // but @convex-dev/better-auth@0.11.2 registerRoutes expects string. We always pass a string.
-  return betterAuth(createAuthOptions(ctx)) as ReturnType<typeof betterAuth> & {
-    options: { baseURL?: string };
-  };
+export const createAuth = (
+  ctx: GenericCtx<DataModel>
+): ReturnType<typeof betterAuth> => {
+  const options = createAuthOptions(ctx);
+  const auth = betterAuth(options);
+  const handler = (request: Request) =>
+    auth.handler(canonicalizeBetterAuthProxyRequest(request));
+
+  return {
+    ...auth,
+    handler,
+    fetch: handler,
+  } as ReturnType<typeof betterAuth>;
 };

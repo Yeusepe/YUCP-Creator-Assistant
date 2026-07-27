@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getRequestHeadersMock = vi.fn(() => new Headers());
 const deleteCookieMock = vi.fn();
+const responseHeaders = new Headers();
+const getResponseHeadersMock = vi.fn(() => responseHeaders);
 
 vi.mock('@tanstack/react-start/server', () => ({
   getRequestHeaders: getRequestHeadersMock,
+  getResponseHeaders: getResponseHeadersMock,
   deleteCookie: deleteCookieMock,
 }));
 
@@ -15,6 +18,10 @@ describe('auth-server environment resolution', () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     deleteCookieMock.mockReset();
+    getResponseHeadersMock.mockClear();
+    for (const name of Array.from(responseHeaders.keys())) {
+      responseHeaders.delete(name);
+    }
   });
 
   afterEach(() => {
@@ -238,5 +245,60 @@ describe('auth-server environment resolution', () => {
       path: '/',
       secure: true,
     });
+  });
+
+  it('forwards renewed Better Auth cookies from server-side session reads', async () => {
+    vi.stubEnv('CONVEX_URL', 'https://rare-squid-409.convex.cloud');
+    vi.stubEnv('CONVEX_SITE_URL', 'https://rare-squid-409.convex.site');
+    getRequestHeadersMock.mockReturnValue(
+      new Headers({
+        cookie: '__Secure-yucp.session_token=old-session',
+      })
+    );
+
+    const upstreamResponse = new Response(
+      JSON.stringify({
+        session: {
+          id: 'session-id',
+          userId: 'auth-user-id',
+        },
+        user: {
+          id: 'auth-user-id',
+          email: 'creator@example.com',
+          name: 'Creator',
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      }
+    );
+    upstreamResponse.headers.append(
+      'set-cookie',
+      '__Secure-yucp.session_token=renewed-session; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax'
+    );
+    upstreamResponse.headers.append(
+      'set-cookie',
+      '__Secure-yucp.session_data=renewed-cache; Max-Age=300; Path=/; HttpOnly; Secure; SameSite=Lax'
+    );
+    upstreamResponse.headers.append('set-cookie', 'unrelated_cookie=blocked; Path=/');
+
+    const fetchMock = vi.fn().mockResolvedValue(upstreamResponse);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const authServer = await import('@/lib/auth-server');
+
+    await expect(authServer.getSession()).resolves.toMatchObject({
+      isAuthenticated: true,
+      userId: 'auth-user-id',
+    });
+
+    expect(getResponseHeadersMock).toHaveBeenCalledTimes(1);
+    expect(responseHeaders.getSetCookie()).toEqual([
+      '__Secure-yucp.session_token=renewed-session; Max-Age=2592000; Path=/; HttpOnly; Secure; SameSite=Lax',
+      '__Secure-yucp.session_data=renewed-cache; Max-Age=300; Path=/; HttpOnly; Secure; SameSite=Lax',
+    ]);
   });
 });

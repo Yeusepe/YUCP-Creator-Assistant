@@ -88,8 +88,11 @@ async function signedRequest(input: SignedRequestInput): Promise<Response> {
 
 /**
  * CreateBucket reference: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html
+ * PutBucketVersioning reference:
+ * https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutBucketVersioning.html
  *
  * Object Lock must be enabled when older S3-compatible providers cannot enable it later.
+ * Every created bucket enables and verifies versioning before this function returns.
  */
 export async function createS3Bucket(
   config: CasConfig,
@@ -105,6 +108,10 @@ export async function createS3Bucket(
     method: 'PUT',
     operation: 'CreateBucket',
   });
+  await enableS3BucketVersioning(config);
+  if ((await getS3BucketVersioning(config)) !== 'Enabled') {
+    throw new Error('S3 bucket versioning was not enabled after bucket creation');
+  }
 }
 
 /**

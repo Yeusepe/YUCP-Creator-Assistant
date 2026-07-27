@@ -39,10 +39,27 @@ func TestParseManifestRecomputesEverySignedReleaseBinding(t *testing.T) {
 			"normalizedPath": "Assets/Product/file.txt",
 			"sha256":         hex.EncodeToString(fileDigest[:]),
 		}},
-		"packageId":              "product-1",
+		"packageId": "product-1",
+		"bootstrapMedia": []any{map[string]any{
+			"bucketName":      "metadata",
+			"byteSize":        1024,
+			"contentType":     "image/png",
+			"kind":            "icon",
+			"localPath":       "Documentation~/YUCP/icon.png",
+			"objectKey":       "bootstrap-media/product-1/icon.png",
+			"providerVersion": "version-icon-1",
+			"sha256":          hex.EncodeToString(fileDigest[:]),
+		}},
+		"packageMetadata": map[string]any{
+			"author":      "YUCP",
+			"description": "A verified package",
+			"packageName": "Product",
+			"tagline":     "Verified delivery",
+			"version":     "1.0.0",
+		},
 		"protectedSourceRoot":    hex.EncodeToString(protectedRoot[:]),
 		"protectionPolicyDigest": hex.EncodeToString(make([]byte, 32)),
-		"protectionPolicyId":     "policy-1",
+		"protectionPolicyId":     activeProtectionPolicyID,
 		"releaseRoot":            hex.EncodeToString(releaseRoot[:]),
 		"schemaVersion":          4,
 		"storageFormatVersion":   "desync-uncompressed-sha256-v1",
@@ -85,6 +102,10 @@ func TestParseManifestRecomputesEverySignedReleaseBinding(t *testing.T) {
 		manifest.Files[0].NormalizedPath != "Assets/Product/file.txt" ||
 		manifest.ActivePolicyVersion != "active-content-policy-v1" ||
 		manifest.NormalizationPolicyVersion != "package-normalization-policy-v2" ||
+		len(manifest.BootstrapMedia) != 1 ||
+		manifest.BootstrapMedia[0].Kind != "icon" ||
+		manifest.PackageMetadata == nil ||
+		manifest.PackageMetadata.PackageName != "Product" ||
 		manifest.VPMDependencies["com.yucp.components"] != ">=0.3.42" ||
 		manifest.VPMRepositories["YUCP Components Listing"] !=
 			"https://vpm.yucp.club/index.json" {

@@ -402,7 +402,6 @@ async function canonicalizeTarGzip(
   maxDecompressedBytes: number
 ): Promise<void> {
   const sourceTarPath = join(scratchPath, 'source.tar');
-  const canonicalTarPath = join(scratchPath, 'canonical.tar');
   const extractedPath = join(scratchPath, 'entries');
   const archiveTools = await resolveGnuArchiveTools();
   const deterministicEnvironment = canonicalizerChildEnv(archiveTools.env);
@@ -430,14 +429,14 @@ async function canonicalizeTarGzip(
       '--force-local',
       '--extract',
       '--file',
-      sourceTarPath,
+      'source.tar',
       '--directory',
-      extractedPath,
+      'entries',
       '--no-same-owner',
       '--no-same-permissions',
       '--no-overwrite-dir',
     ],
-    { env: deterministicEnvironment }
+    { cwd: scratchPath, env: deterministicEnvironment }
   );
   await validateExtractedTarEntries(extractedPath);
   await runCommand(
@@ -446,7 +445,7 @@ async function canonicalizeTarGzip(
       '--force-local',
       '--create',
       '--file',
-      canonicalTarPath,
+      'canonical.tar',
       '--format=gnu',
       '--sort=name',
       '--mtime=@0',
@@ -455,15 +454,16 @@ async function canonicalizeTarGzip(
       '--numeric-owner',
       '--mode=a-x,a=r,u+w,a+X',
       '--directory',
-      extractedPath,
+      'entries',
       '.',
     ],
-    { env: deterministicEnvironment }
+    { cwd: scratchPath, env: deterministicEnvironment }
   );
   await runCommand(
     archiveTools.gzipCommand,
-    ['-n', '--rsyncable', '--stdout', '--', canonicalTarPath],
+    ['-n', '--rsyncable', '--stdout', '--', 'canonical.tar'],
     {
+      cwd: scratchPath,
       env: deterministicEnvironment,
       stdoutPath: outputPath,
     }

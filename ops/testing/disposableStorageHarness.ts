@@ -3,11 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
-import {
-  createS3Bucket,
-  enableS3BucketVersioning,
-  getS3BucketVersioning,
-} from '../storage-core/s3Control';
+import { createS3Bucket } from '../storage-core/s3Control';
 import { waitForMinioReady } from './minioReadiness';
 import { waitForPostgres } from './postgresReadiness';
 
@@ -26,7 +22,7 @@ export const STORAGE_ROLES = [
 
 export type StorageRole = (typeof STORAGE_ROLES)[number];
 
-const OBJECT_LOCK_ROLES = new Set<StorageRole>(['common', 'protected', 'metadata']);
+export const OBJECT_LOCK_ROLES = new Set<StorageRole>(['common', 'protected', 'metadata']);
 const ROLE_CODES: Record<StorageRole, string> = {
   quarantine: 'q',
   common: 'c',
@@ -35,13 +31,13 @@ const ROLE_CODES: Record<StorageRole, string> = {
   renditions: 'r',
 };
 
-interface DockerCommandResult {
+export interface DockerCommandResult {
   exitCode: number;
   stderr: string;
   stdout: string;
 }
 
-interface RunDockerOptions {
+export interface RunDockerOptions {
   env?: Record<string, string>;
   redact?: readonly string[];
 }
@@ -58,6 +54,7 @@ export interface DisposableStorageHarness {
     url: string;
   };
   runId: string;
+  scratchRoot: string;
   stop: () => Promise<void>;
   uploadDir: string;
 }
@@ -70,7 +67,7 @@ function redact(value: string, sensitiveValues: readonly string[] = []): string 
   );
 }
 
-async function runDocker(
+export async function runStorageDocker(
   args: string[],
   options: RunDockerOptions = {}
 ): Promise<DockerCommandResult> {
@@ -92,12 +89,12 @@ async function runDocker(
   };
 }
 
-async function requireDocker(
+export async function requireStorageDocker(
   operation: string,
   args: string[],
   options?: RunDockerOptions
 ): Promise<string> {
-  const result = await runDocker(args, options);
+  const result = await runStorageDocker(args, options);
   if (result.exitCode !== 0) {
     throw new Error(
       `${operation} failed with exit code ${result.exitCode}\n${result.stderr || result.stdout}`
@@ -106,8 +103,11 @@ async function requireDocker(
   return result.stdout;
 }
 
-async function publishedPort(containerName: string, containerPort: string): Promise<string> {
-  const output = await requireDocker('Docker port inspection', [
+export async function publishedStoragePort(
+  containerName: string,
+  containerPort: string
+): Promise<string> {
+  const output = await requireStorageDocker('Docker port inspection', [
     'port',
     containerName,
     `${containerPort}/tcp`,
@@ -165,7 +165,7 @@ function rolePolicy(bucket: string): object {
   };
 }
 
-function loadRoleConfig(input: {
+export function loadStorageRoleConfig(input: {
   accessKeyId: string;
   bucket: string;
   endpoint: string;
@@ -189,24 +189,31 @@ function loadRoleConfig(input: {
  * Attachment reference:
  * https://docs.min.io/aistor/reference/cli/admin/mc-admin-policy/mc-admin-policy-attach/
  */
-async function createRoleCredential(input: {
+export async function createStorageRoleCredential(input: {
   bucket: string;
   containerName: string;
+  credential?: {
+    accessKeyId: string;
+    secretAccessKey: string;
+  };
   policyFile: string;
+  policyName?: string;
   role: StorageRole;
   runId: string;
 }): Promise<{ accessKeyId: string; secretAccessKey: string }> {
-  const accessKeyId = `yucp-${ROLE_CODES[input.role]}-${randomBytes(6).toString('hex')}`;
-  const secretAccessKey = randomBytes(20).toString('hex');
-  const policyName = `yucp-${input.role}-${input.runId}`;
+  const accessKeyId =
+    input.credential?.accessKeyId ??
+    `yucp-${ROLE_CODES[input.role]}-${randomBytes(6).toString('hex')}`;
+  const secretAccessKey = input.credential?.secretAccessKey ?? randomBytes(20).toString('hex');
+  const policyName = input.policyName ?? `yucp-${input.role}-${input.runId}`;
   const containerPolicyFile = `/tmp/${policyName}.json`;
   await writeFile(input.policyFile, `${JSON.stringify(rolePolicy(input.bucket), null, 2)}\n`);
-  await requireDocker('MinIO policy copy', [
+  await requireStorageDocker('MinIO policy copy', [
     'cp',
     input.policyFile,
     `${input.containerName}:${containerPolicyFile}`,
   ]);
-  await requireDocker('MinIO policy creation', [
+  await requireStorageDocker('MinIO policy creation', [
     'exec',
     input.containerName,
     'mc',
@@ -222,22 +229,36 @@ async function createRoleCredential(input: {
     YUCP_ROLE_SECRET_KEY: secretAccessKey,
   };
   const redactions = [accessKeyId, secretAccessKey];
-  await requireDocker(
-    'MinIO user creation',
+  const existingUser = await runStorageDocker(
     [
       'exec',
       '--env',
       'YUCP_ROLE_ACCESS_KEY',
-      '--env',
-      'YUCP_ROLE_SECRET_KEY',
       input.containerName,
       '/bin/sh',
       '-ceu',
-      'mc admin user add local "$YUCP_ROLE_ACCESS_KEY" "$YUCP_ROLE_SECRET_KEY"',
+      'mc admin user info local "$YUCP_ROLE_ACCESS_KEY"',
     ],
     { env: roleEnvironment, redact: redactions }
   );
-  await requireDocker(
+  if (existingUser.exitCode !== 0) {
+    await requireStorageDocker(
+      'MinIO user creation',
+      [
+        'exec',
+        '--env',
+        'YUCP_ROLE_ACCESS_KEY',
+        '--env',
+        'YUCP_ROLE_SECRET_KEY',
+        input.containerName,
+        '/bin/sh',
+        '-ceu',
+        'mc admin user add local "$YUCP_ROLE_ACCESS_KEY" "$YUCP_ROLE_SECRET_KEY"',
+      ],
+      { env: roleEnvironment, redact: redactions }
+    );
+  }
+  await requireStorageDocker(
     'MinIO policy attachment',
     [
       'exec',
@@ -262,8 +283,9 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
   const rootAccessKey = `yucp-root-${randomBytes(5).toString('hex')}`;
   const rootSecretKey = randomBytes(24).toString('base64url');
   const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-storage-harness-'));
+  const pipelineScratchRoot = join(scratchPath, 'pipeline-scratch');
   const uploadDir = join(scratchPath, 'uploads');
-  await mkdir(uploadDir);
+  await Promise.all([mkdir(pipelineScratchRoot), mkdir(uploadDir)]);
   const startedContainers: string[] = [];
   let stopped = false;
 
@@ -274,7 +296,7 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
     stopped = true;
     const failures: string[] = [];
     for (const containerName of startedContainers.reverse()) {
-      const result = await runDocker(['rm', '--force', containerName]);
+      const result = await runStorageDocker(['rm', '--force', containerName]);
       if (result.exitCode !== 0 && !result.stderr.includes('No such container')) {
         failures.push(`${containerName}: ${result.stderr || result.stdout}`);
       }
@@ -292,8 +314,8 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
   };
 
   try {
-    await requireDocker('Docker availability check', ['version']);
-    await requireDocker(
+    await requireStorageDocker('Docker availability check', ['version']);
+    await requireStorageDocker(
       'PostgreSQL container startup',
       [
         'run',
@@ -318,7 +340,7 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
     );
     startedContainers.push(postgresContainerName);
 
-    await requireDocker(
+    await requireStorageDocker(
       'MinIO container startup',
       [
         'run',
@@ -353,15 +375,15 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
     await waitForPostgres({
       containerName: postgresContainerName,
       databaseName,
-      runDocker,
+      runDocker: runStorageDocker,
     });
     const [postgresPort, minioPort] = await Promise.all([
-      publishedPort(postgresContainerName, '5432'),
-      publishedPort(minioContainerName, '9000'),
+      publishedStoragePort(postgresContainerName, '5432'),
+      publishedStoragePort(minioContainerName, '9000'),
     ]);
     const endpoint = `http://127.0.0.1:${minioPort}`;
     await waitForMinioReady({ endpoint });
-    await requireDocker('MinIO client configuration', [
+    await requireStorageDocker('MinIO client configuration', [
       'exec',
       minioContainerName,
       '/bin/sh',
@@ -372,25 +394,21 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
     const buckets = {} as Record<StorageRole, CasConfig>;
     for (const role of STORAGE_ROLES) {
       const bucket = `yucp-${runId}-${role}`;
-      const rootConfig = loadRoleConfig({
+      const rootConfig = loadStorageRoleConfig({
         accessKeyId: rootAccessKey,
         bucket,
         endpoint,
         secretAccessKey: rootSecretKey,
       });
       await createS3Bucket(rootConfig, { objectLockEnabled: OBJECT_LOCK_ROLES.has(role) });
-      await enableS3BucketVersioning(rootConfig);
-      if ((await getS3BucketVersioning(rootConfig)) !== 'Enabled') {
-        throw new Error(`MinIO did not enable versioning for the ${role} bucket`);
-      }
-      const credential = await createRoleCredential({
+      const credential = await createStorageRoleCredential({
         bucket,
         containerName: minioContainerName,
         policyFile: join(scratchPath, `${role}-policy.json`),
         role,
         runId,
       });
-      buckets[role] = loadRoleConfig({
+      buckets[role] = loadStorageRoleConfig({
         ...credential,
         bucket,
         endpoint,
@@ -409,6 +427,7 @@ export async function startDisposableStorageHarness(): Promise<DisposableStorage
         url: `postgres://postgres:${databasePassword}@127.0.0.1:${postgresPort}/${databaseName}`,
       },
       runId,
+      scratchRoot: pipelineScratchRoot,
       stop,
       uploadDir,
     };

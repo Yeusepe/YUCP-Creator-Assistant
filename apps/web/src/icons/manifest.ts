@@ -5,6 +5,7 @@ export const iconManifest = {
   alert: 'Interface Essential/Alerts/Warning Circle.svg',
   analytics: 'Business/Marketing Strategy/Statistics Report.svg',
   arrowDown: 'Arrows/Single Line Arrow/Line Arrow Down 1.svg',
+  arrowDownLarge: 'Arrows/Big Single Line Arrow/Line Arrow Down Large 1.svg',
   arrowLeft: 'Arrows/Single Line Arrow/Line Arrow Left 1.svg',
   arrowRight: 'Arrows/Single Line Arrow/Line Arrow Right 1.svg',
   arrowUp: 'Arrows/Single Line Arrow/Line Arrow Up 1.svg',

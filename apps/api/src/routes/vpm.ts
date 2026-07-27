@@ -1,17 +1,27 @@
+import { createHash } from 'node:crypto';
+import { parseTraceparent } from '@yucp/shared';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
-import { signVpmRepoToken, verifyVpmRepoToken } from '../../../../ops/storage-core/vpmToken';
 import type { Auth } from '../auth';
-import { createApiServiceActorBinding } from '../lib/apiActor';
+import { createApiServiceActorBinding, createAuthUserActorBinding } from '../lib/apiActor';
 import { getConvexClientFromUrl } from '../lib/convex';
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
+import { RequestBodyError, readJsonObjectBodyWithLimit } from '../lib/requestBody';
+import type {
+  VpmAliasArtifactReference,
+  VpmAliasArtifactStore,
+} from '../lib/vpmAliasArtifactStore';
+import { buildPublicVpmRepositoryAccess } from '../lib/vpmPublicRepository';
 import {
-  buildYucpAliasBootstrapVersion,
   buildYucpAliasVpmPackage,
-  decodeYucpAliasArtifactDescriptor,
+  type YucpAliasPackageMediaInput,
+  type YucpAliasPackageMediaReference,
 } from './vpmAliasPackage';
-import { selectPublicImporterManifest } from './vpmImporterPackage';
+import {
+  assertPublicImporterVersionsImmutable,
+  selectPublicImporterManifest,
+} from './vpmImporterPackage';
 import {
   fetchVpmRepositoryIndex,
   mergeVpmRepositoryPackages,
@@ -19,14 +29,30 @@ import {
   type VpmRepositoryPackages,
 } from './vpmRepository';
 
-const VPM_REPO_TOKEN_TTL_MS = 30 * 24 * 60 * 60_000;
 const IMPORTER_MANIFEST_CACHE_MS = 5 * 60_000;
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+const CREATOR_VPM_LINK_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CREATOR_PRESENTATION_BODY_MAX_BYTES = 16 * 1024;
+const CREATOR_PACKAGE_NAME_MAX_BYTES = 120;
 
 class PublicImporterUnavailableError extends Error {
   constructor(options?: ErrorOptions) {
     super('The public YUCP importer is not available', options);
     this.name = 'PublicImporterUnavailableError';
+  }
+}
+
+class PublicBootstrapMediaUnavailableError extends Error {
+  constructor(options?: ErrorOptions) {
+    super('Public bootstrap media is unavailable', options);
+    this.name = 'PublicBootstrapMediaUnavailableError';
+  }
+}
+
+class PublicAliasPublicationUnavailableError extends Error {
+  constructor(message = 'VPM alias publication storage is unavailable', options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'PublicAliasPublicationUnavailableError';
   }
 }
 
@@ -42,37 +68,90 @@ export interface VpmRouteConfig {
   convexApiSecret: string;
   convexUrl: string;
   publicVpmIndexUrl?: string;
-  trustedVpmRepositoryUrls?: string;
   vpmBaseUrl?: string;
-  vpmTokenKey?: string;
 }
 
 interface CreateVpmRoutesOptions {
+  aliasArtifactStore?: VpmAliasArtifactStore;
   auth: Auth;
+  bootstrapMediaReader?: VpmBootstrapMediaReader;
   config: VpmRouteConfig;
   fetchImpl?: typeof fetch;
 }
 
-type ActiveEntitlement = {
-  catalogProductId?: Id<'product_catalog'> | null;
-  productId?: string | null;
-  sourceProvider?: string | null;
+type PublicBootstrapPresentation = {
+  bootstrapMedia?: YucpAliasPackageMediaReference[];
+  packageMetadata?: {
+    author?: string;
+    description?: string;
+    packageName?: string;
+    tagline?: string;
+  };
 };
 
-type DownloadableVersion = {
+export interface VpmBootstrapMediaReader {
+  readExact(reference: YucpAliasPackageMediaReference): Promise<Uint8Array>;
+}
+
+type CreatorVpmProduct = {
+  _id: Id<'product_catalog'>;
+  aliasId?: string;
+  catalogProductId?: Id<'product_catalog'>;
+  catalogProductIds?: Id<'product_catalog'>[];
+  creatorAuthUserId?: string;
+  displayName?: string;
+  packageId?: string;
+  packageName?: string;
+};
+
+type VpmAliasPresentation = {
+  artifactBaseUrl: string;
+  artifactBucketName?: string;
+  authorName: string;
+  channel: string;
+  description: string;
+  media: YucpAliasPackageMediaReference[];
+  minImporterVersion: string;
+  packageId: string;
+  packageName: string;
+  presentationFingerprintSha256: string;
+  tagline?: string;
+  unityVersion: string;
+};
+
+type VpmAliasPublicationReservation = {
+  bootstrapVersion: string;
+  channel: string;
+  created: boolean;
+  packageId: string;
+  presentationFingerprintSha256: string;
+  publicationId: string;
+  revision: number;
+  status: 'PREPARING' | 'PUBLISHED';
+};
+
+type PublishedVpmAlias = {
+  aliasPackageId: string;
+  artifact: VpmAliasArtifactReference;
+  bootstrapVersion: string;
+  channel: string;
+  contractVersion: 1;
   createdAt: number;
   packageId: string;
-  version: string;
-  versionId: string;
-  vpmDependencies: Record<string, string>;
-  vpmRepositories: Record<string, string>;
+  presentationFingerprintSha256: string;
+  publicationId: string;
+  publishedAt: number;
+  repositoryManifestJson: string;
+  repositoryManifestSha256: string;
+  revision: number;
+  status: 'PUBLISHED';
 };
 
-type VpmCatalogGroup = {
-  aliasId?: string;
-  catalogProductId: Id<'product_catalog'>;
-  catalogProductIds?: Id<'product_catalog'>[];
-  packageId?: string;
+type ActiveCreatorVpmLink = {
+  createdAt: number;
+  linkId: string;
+  packageId: string;
+  status: 'active';
 };
 
 function allowedOrigins(config: VpmRouteConfig): Set<string> {
@@ -82,6 +161,12 @@ function allowedOrigins(config: VpmRouteConfig): Set<string> {
 function jsonNoStore(body: unknown, init?: ResponseInit): Response {
   const headers = new Headers(init?.headers);
   headers.set('Cache-Control', 'private, no-store');
+  return Response.json(body, { ...init, headers });
+}
+
+function jsonNoCache(body: unknown, init?: ResponseInit): Response {
+  const headers = new Headers(init?.headers);
+  headers.set('Cache-Control', 'no-store');
   return Response.json(body, { ...init, headers });
 }
 
@@ -109,14 +194,11 @@ function getConfiguredVpmBaseUrl(config: VpmRouteConfig): string | null {
 
 function getConfiguredVpmRepository(config: VpmRouteConfig): {
   publicVpmIndexUrl: string;
-  trustedRepositoryUrls: Set<string>;
   vpmBaseUrl: string;
-  vpmTokenKey: string;
 } | null {
   const publicVpmIndexUrl = config.publicVpmIndexUrl?.trim();
   const vpmBaseUrl = getConfiguredVpmBaseUrl(config);
-  const vpmTokenKey = config.vpmTokenKey?.trim();
-  if (!publicVpmIndexUrl || !vpmBaseUrl || !vpmTokenKey) {
+  if (!publicVpmIndexUrl || !vpmBaseUrl) {
     return null;
   }
   try {
@@ -132,54 +214,25 @@ function getConfiguredVpmRepository(config: VpmRouteConfig): {
   } catch {
     return null;
   }
-  let trustedRepositoryValues: unknown = [];
-  try {
-    trustedRepositoryValues = config.trustedVpmRepositoryUrls?.trim()
-      ? JSON.parse(config.trustedVpmRepositoryUrls)
-      : [];
-  } catch {
-    return null;
-  }
-  if (
-    !Array.isArray(trustedRepositoryValues) ||
-    trustedRepositoryValues.length > 32 ||
-    !trustedRepositoryValues.every((value) => typeof value === 'string')
-  ) {
-    return null;
-  }
-  const trustedRepositoryUrls = new Set<string>([new URL(publicVpmIndexUrl).toString()]);
-  try {
-    for (const value of trustedRepositoryValues as string[]) {
-      const url = new URL(value);
-      if (!isHttpsOrLoopbackHttp(url) || url.username || url.password || url.search || url.hash) {
-        return null;
-      }
-      trustedRepositoryUrls.add(url.toString());
-    }
-  } catch {
-    return null;
-  }
   return {
     publicVpmIndexUrl,
-    trustedRepositoryUrls,
     vpmBaseUrl,
-    vpmTokenKey,
   };
 }
 
-function buildIndexUrl(vpmBaseUrl: string, token: string): string {
-  return `${vpmBaseUrl}/api/vpm/${encodeURIComponent(token)}/index.json`;
+function createCreatorLinkId(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return Buffer.from(bytes).toString('base64url');
 }
 
-// VCC custom repository handoff shape retained from the removed Backstage VPM route.
-// Repository format: https://vcc.docs.vrchat.com/vpm/repos/
-function buildAddRepoUrl(indexUrl: string): string {
-  const addRepoUrl = new URL('vcc://vpm/addRepo');
-  addRepoUrl.searchParams.set('url', indexUrl);
-  return addRepoUrl.toString();
-}
-
-export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRoutesOptions) {
+export function createVpmRoutes({
+  aliasArtifactStore,
+  auth,
+  bootstrapMediaReader,
+  config,
+  fetchImpl = fetch,
+}: CreateVpmRoutesOptions) {
   const repositoryCache = new Map<
     string,
     {
@@ -187,6 +240,27 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
       index: VpmRepositoryIndex;
     }
   >();
+
+  async function resolveBootstrapMedia(
+    references: readonly YucpAliasPackageMediaReference[] | undefined
+  ): Promise<YucpAliasPackageMediaInput[] | undefined> {
+    if (!references || references.length === 0) {
+      return undefined;
+    }
+    if (!bootstrapMediaReader) {
+      throw new PublicBootstrapMediaUnavailableError();
+    }
+    try {
+      return await Promise.all(
+        references.map(async (reference) => ({
+          ...reference,
+          bytes: await bootstrapMediaReader.readExact(reference),
+        }))
+      );
+    } catch (error) {
+      throw new PublicBootstrapMediaUnavailableError({ cause: error });
+    }
+  }
 
   async function getRepositoryIndex(indexUrl: string): Promise<VpmRepositoryIndex> {
     const cached = repositoryCache.get(indexUrl);
@@ -199,6 +273,12 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
         fetchImpl,
         indexUrl,
       });
+      if (cached) {
+        assertPublicImporterVersionsImmutable(
+          selectPublicImporterManifest(cached.index),
+          selectPublicImporterManifest(index)
+        );
+      }
     } catch (error) {
       throw new PublicImporterUnavailableError({ cause: error });
     }
@@ -209,255 +289,683 @@ export function createVpmRoutes({ auth, config, fetchImpl = fetch }: CreateVpmRo
     return index;
   }
 
-  async function mintRepoToken(request: Request): Promise<Response> {
-    if (request.method !== 'POST') {
-      return Response.json({ error: 'Method not allowed' }, { status: 405 });
+  function buildPublishedAliasPackages(
+    publications: readonly PublishedVpmAlias[]
+  ): VpmRepositoryPackages {
+    const packages: VpmRepositoryPackages = {};
+    let expectedAliasPackageId: string | undefined;
+    for (const publication of publications) {
+      let manifest: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(publication.repositoryManifestJson);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('VPM alias manifest is not an object');
+        }
+        manifest = parsed as Record<string, unknown>;
+      } catch (error) {
+        throw new Error('Published VPM alias manifest is invalid', { cause: error });
+      }
+      if (
+        manifest.name !== publication.aliasPackageId ||
+        manifest.version !== publication.bootstrapVersion ||
+        manifest.zipSHA256 !== publication.artifact.sha256 ||
+        typeof manifest.url !== 'string'
+      ) {
+        throw new Error('Published VPM alias manifest does not match its ledger record');
+      }
+      const manifestSha256 = createHash('sha256')
+        .update(publication.repositoryManifestJson)
+        .digest('hex');
+      if (manifestSha256 !== publication.repositoryManifestSha256) {
+        throw new Error('Published VPM alias manifest failed digest verification');
+      }
+      expectedAliasPackageId ??= publication.aliasPackageId;
+      if (publication.aliasPackageId !== expectedAliasPackageId) {
+        throw new Error('Package-scoped VPM publications contain multiple alias identities');
+      }
+      const packageEntry = packages[publication.aliasPackageId] ?? { versions: {} };
+      if (packageEntry.versions[publication.bootstrapVersion]) {
+        throw new Error('Package-scoped VPM publications contain a duplicate version');
+      }
+      packageEntry.versions[publication.bootstrapVersion] = manifest as never;
+      packages[publication.aliasPackageId] = packageEntry;
     }
-    const csrfBlock = rejectCrossSiteRequest(request, allowedOrigins(config));
-    if (csrfBlock) {
-      return csrfBlock;
+    return packages;
+  }
+
+  async function mergePublicImporter(
+    packages: VpmRepositoryPackages,
+    vpmRepository: NonNullable<ReturnType<typeof getConfiguredVpmRepository>>
+  ): Promise<void> {
+    const publicIndex = await getRepositoryIndex(vpmRepository.publicVpmIndexUrl);
+    try {
+      selectPublicImporterManifest(publicIndex);
+    } catch (error) {
+      throw new PublicImporterUnavailableError({ cause: error });
     }
+    mergeVpmRepositoryPackages(packages, publicIndex.packages);
+  }
+
+  async function getCreatorPackageContext(request: Request, packageId: string) {
     const session = await auth.getSession(request);
     if (!session) {
       return Response.json({ error: 'Authentication required' }, { status: 401 });
     }
-    const vpmRepository = getConfiguredVpmRepository(config);
-    if (!vpmRepository) {
-      return Response.json({ error: 'VPM delivery is not configured' }, { status: 503 });
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      const csrfBlock = rejectCrossSiteRequest(request, allowedOrigins(config));
+      if (csrfBlock) {
+        return csrfBlock;
+      }
+    }
+    const actor = await createAuthUserActorBinding({
+      authUserId: session.user.id,
+      source: 'session',
+    });
+    const convex = getConvexClientFromUrl(config.convexUrl, actor);
+    const product = (await convex.query(api.packageRegistry.getByPackageIdForAuthUser, {
+      apiSecret: config.convexApiSecret,
+      actor,
+      authUserId: session.user.id,
+      packageId,
+    })) as CreatorVpmProduct | null;
+    if (!product?.packageId || product.packageId !== packageId) {
+      return Response.json({ error: 'Package not found' }, { status: 404 });
+    }
+    return {
+      actor,
+      authUserId: session.user.id,
+      convex,
+      product,
+    };
+  }
+
+  async function ensurePackagePublication(input: {
+    authUserId: string;
+    creatorActor: Awaited<ReturnType<typeof createAuthUserActorBinding>>;
+    creatorConvex: ReturnType<typeof getConvexClientFromUrl>;
+    packageNameOverride?: string;
+    product: CreatorVpmProduct;
+    publicationReason?: 'link-activation' | 'presentation-update';
+    traceparent?: string;
+    vpmRepository: NonNullable<ReturnType<typeof getConfiguredVpmRepository>>;
+  }): Promise<void> {
+    if (!aliasArtifactStore || !input.product.packageId) {
+      throw new PublicAliasPublicationUnavailableError();
+    }
+    const packageId = input.product.packageId;
+    const serviceActor = await createApiServiceActorBinding({
+      authUserId: input.authUserId,
+      service: 'vpm-alias-publisher',
+      scopes: ['downloads:service'],
+    });
+    const serviceConvex = getConvexClientFromUrl(config.convexUrl, serviceActor);
+    let presentation = (await serviceConvex.query(
+      api.vpmAliasPublications.getPresentationForService,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: serviceActor,
+        packageId,
+        channel: 'stable',
+      }
+    )) as VpmAliasPresentation | null;
+
+    if (!presentation) {
+      const releasePresentation = (await serviceConvex.query(
+        api.packageVersions.resolvePublicBootstrapPresentation,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: serviceActor,
+          packageId,
+        }
+      )) as PublicBootstrapPresentation | null;
+      if (!releasePresentation) {
+        throw new PublicAliasPublicationUnavailableError(
+          'Package has no public bootstrap presentation'
+        );
+      }
+      const creatorProfile = (await serviceConvex.query(api.creatorProfiles.getCreatorProfile, {
+        apiSecret: config.convexApiSecret,
+        authUserId: input.authUserId,
+      })) as { name?: string } | null;
+      const packageName =
+        input.packageNameOverride ||
+        releasePresentation.packageMetadata?.packageName?.trim() ||
+        input.product.packageName?.trim() ||
+        input.product.displayName?.trim() ||
+        input.product.aliasId?.trim() ||
+        packageId;
+      await input.creatorConvex.mutation(
+        api.vpmAliasPublications.seedPresentationIfMissingForCreator,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: input.creatorActor,
+          authUserId: input.authUserId,
+          packageId,
+          channel: 'stable',
+          artifactBaseUrl: input.vpmRepository.vpmBaseUrl,
+          artifactBucketName: aliasArtifactStore.bucketName,
+          artifactFormat: 'vpm-alias-zip-v1',
+          contractVersion: 1,
+          packageName,
+          authorName:
+            releasePresentation.packageMetadata?.author?.trim() ||
+            creatorProfile?.name?.trim() ||
+            'YUCP Club',
+          description:
+            releasePresentation.packageMetadata?.description?.trim() ||
+            `Adds ${packageName} to this Unity project after purchase verification.`,
+          ...(releasePresentation.packageMetadata?.tagline?.trim()
+            ? { tagline: releasePresentation.packageMetadata.tagline.trim() }
+            : {}),
+          unityVersion: '2022.3',
+          importerPackage: 'com.yucp.importer',
+          minImporterVersion: '0.1.36',
+          media: releasePresentation.bootstrapMedia ?? [],
+        }
+      );
+      presentation = (await serviceConvex.query(
+        api.vpmAliasPublications.getPresentationForService,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: serviceActor,
+          packageId,
+          channel: 'stable',
+        }
+      )) as VpmAliasPresentation | null;
+    } else if (
+      (input.packageNameOverride && presentation.packageName !== input.packageNameOverride) ||
+      presentation.artifactBucketName !== aliasArtifactStore.bucketName
+    ) {
+      await input.creatorConvex.mutation(api.vpmAliasPublications.updatePresentationForCreator, {
+        apiSecret: config.convexApiSecret,
+        actor: input.creatorActor,
+        authUserId: input.authUserId,
+        packageId,
+        channel: presentation.channel,
+        artifactBaseUrl: presentation.artifactBaseUrl,
+        artifactBucketName: aliasArtifactStore.bucketName,
+        artifactFormat: 'vpm-alias-zip-v1',
+        contractVersion: 1,
+        packageName: input.packageNameOverride ?? presentation.packageName,
+        authorName: presentation.authorName,
+        description: presentation.description,
+        ...(presentation.tagline ? { tagline: presentation.tagline } : {}),
+        unityVersion: presentation.unityVersion,
+        importerPackage: 'com.yucp.importer',
+        minImporterVersion: presentation.minImporterVersion,
+        media: presentation.media,
+      });
+      presentation = (await serviceConvex.query(
+        api.vpmAliasPublications.getPresentationForService,
+        {
+          apiSecret: config.convexApiSecret,
+          actor: serviceActor,
+          packageId,
+          channel: 'stable',
+        }
+      )) as VpmAliasPresentation | null;
+    }
+    if (!presentation) {
+      throw new PublicAliasPublicationUnavailableError(
+        'Package public bootstrap presentation was not persisted'
+      );
+    }
+    const reservation = (await serviceConvex.mutation(
+      api.vpmAliasPublications.reservePublicationForService,
+      {
+        apiSecret: config.convexApiSecret,
+        actor: serviceActor,
+        packageId,
+        channel: 'stable',
+        presentationFingerprintSha256: presentation.presentationFingerprintSha256,
+        publicationId: crypto.randomUUID(),
+        publicationReason: input.publicationReason ?? 'link-activation',
+        ...(input.traceparent ? { traceparent: input.traceparent } : {}),
+      }
+    )) as VpmAliasPublicationReservation;
+    if (reservation.status === 'PUBLISHED') {
+      return;
     }
 
     try {
-      const signed = await signVpmRepoToken({
-        authUserId: session.user.id,
-        expiresAt: Date.now() + VPM_REPO_TOKEN_TTL_MS,
-        key: vpmRepository.vpmTokenKey,
+      const artifactUrl = `${input.vpmRepository.vpmBaseUrl}/api/vpm/alias-publications/${encodeURIComponent(
+        reservation.publicationId
+      )}/${encodeURIComponent(reservation.bootstrapVersion)}.zip`;
+      const built = buildYucpAliasVpmPackage({
+        aliasId: packageId,
+        artifactUrl,
+        bootstrapVersion: reservation.bootstrapVersion,
+        vpmDependencies: {},
+        packageMetadata: {
+          packageName: presentation.packageName,
+          author: presentation.authorName,
+          description: presentation.description,
+          ...(presentation.tagline ? { tagline: presentation.tagline } : {}),
+        },
+        ...(presentation.media.length > 0
+          ? { media: await resolveBootstrapMedia(presentation.media) }
+          : {}),
       });
-      const indexUrl = buildIndexUrl(vpmRepository.vpmBaseUrl, signed.token);
-      return jsonNoStore({
-        token: signed.token,
-        expiresAt: signed.expiresAt,
-        indexUrl,
-        addRepoUrl: buildAddRepoUrl(indexUrl),
+      const artifact = await aliasArtifactStore.publish({
+        body: built.bytes,
+        bootstrapVersion: reservation.bootstrapVersion,
+        packageId,
+        publicationId: reservation.publicationId,
+        sha256: built.zipSha256,
+      });
+      const repositoryManifestJson = JSON.stringify(built.manifest);
+      await serviceConvex.mutation(api.vpmAliasPublications.commitPublicationForService, {
+        apiSecret: config.convexApiSecret,
+        actor: serviceActor,
+        publicationId: reservation.publicationId,
+        repositoryManifestJson,
+        repositoryManifestSha256: createHash('sha256').update(repositoryManifestJson).digest('hex'),
+        artifact,
       });
     } catch (error) {
-      logger.error('Failed to mint buyer VPM repository token', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+      try {
+        await serviceConvex.mutation(api.vpmAliasPublications.markPublicationFailedForService, {
+          apiSecret: config.convexApiSecret,
+          actor: serviceActor,
+          publicationId: reservation.publicationId,
+          failureCode: 'ARTIFACT_PUBLICATION_FAILED',
+        });
+      } catch (markError) {
+        throw new AggregateError(
+          [error, markError],
+          'VPM alias publication failed and could not record its failure'
+        );
+      }
+      throw new PublicAliasPublicationUnavailableError('VPM alias artifact publication failed', {
+        cause: error,
       });
-      return Response.json({ error: 'Failed to prepare VPM repository' }, { status: 500 });
     }
   }
 
-  async function serveIndex(request: Request, token: string): Promise<Response> {
-    if (request.method !== 'GET') {
-      return Response.json({ error: 'Method not allowed' }, { status: 405 });
-    }
-    const vpmRepository = getConfiguredVpmRepository(config);
-    if (!vpmRepository) {
-      return Response.json({ error: 'VPM delivery is not configured' }, { status: 503 });
-    }
-    const verified = await verifyVpmRepoToken({
-      key: vpmRepository.vpmTokenKey,
-      token,
-    });
-    if (!verified) {
-      return Response.json({ error: 'Invalid or expired VPM repository token' }, { status: 401 });
-    }
+  function serializeCreatorLink(link: ActiveCreatorVpmLink, packageId: string, vpmBaseUrl: string) {
+    const repository = buildPublicVpmRepositoryAccess(vpmBaseUrl, link.linkId);
+    const bootstrapDownloadUrl = `/api/creator/packages/by-package/${encodeURIComponent(
+      packageId
+    )}/bootstrap`;
+    return {
+      status: 'active' as const,
+      createdAt: link.createdAt,
+      ...repository,
+      bootstrapDownloadUrl,
+    };
+  }
 
-    let buildPhase = 'actor';
+  async function manageCreatorPresentation(request: Request, packageId: string): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'PUT') {
+      return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let phase = 'authentication';
     try {
-      const actor = await createApiServiceActorBinding({
-        authUserId: verified.authUserId,
-        service: 'vpm-repository',
-        scopes: ['downloads:service', 'entitlements:service'],
-      });
-      const convex = getConvexClientFromUrl(config.convexUrl, actor);
-      const entitlements: ActiveEntitlement[] = [];
-      let cursor: string | undefined;
-      buildPhase = 'entitlements';
-      for (;;) {
-        const result = (await convex.query(api.entitlements.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          authUserId: verified.authUserId,
-          scope: 'subject_holder',
-          status: 'active',
-          limit: 100,
-          ...(cursor ? { cursor } : {}),
-        })) as {
-          data?: ActiveEntitlement[];
-          hasMore?: boolean;
-          nextCursor?: string | null;
-        };
-        entitlements.push(...(result.data ?? []));
-        if (!result.hasMore || !result.nextCursor) {
-          break;
-        }
-        cursor = result.nextCursor;
+      const authorized = await getCreatorPackageContext(request, packageId);
+      if (authorized instanceof Response) {
+        return authorized;
       }
-
-      const catalogProductIds = [
-        ...new Set(
-          entitlements.flatMap((entitlement) =>
-            entitlement.catalogProductId ? [String(entitlement.catalogProductId)] : []
-          )
-        ),
-      ];
-      buildPhase = 'catalog-groups';
-      const resolvedGroups = await Promise.all(
-        catalogProductIds.map(
-          async (catalogProductId) =>
-            (await convex.query(api.packageRegistry.getBuyerAccessContextByCatalogProductId, {
-              apiSecret: config.convexApiSecret,
-              actor,
-              catalogProductId: catalogProductId as Id<'product_catalog'>,
-            })) as VpmCatalogGroup | null
-        )
-      );
-      const groups = new Map<string, VpmCatalogGroup>();
-      buildPhase = 'grouping';
-      for (const group of resolvedGroups) {
-        if (!group) continue;
-        const groupCatalogProductIds = [
-          ...new Set((group.catalogProductIds ?? [group.catalogProductId]).map(String)),
-        ].sort((left, right) => left.localeCompare(right));
-        const identity = group.packageId
-          ? `package:${group.packageId}`
-          : `catalog:${groupCatalogProductIds.join('\u0000')}`;
-        if (!groups.has(identity)) {
-          groups.set(identity, {
-            ...group,
-            catalogProductIds: groupCatalogProductIds as Id<'product_catalog'>[],
-          });
-        }
+      const vpmRepository = getConfiguredVpmRepository(config);
+      if (!vpmRepository) {
+        return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
       }
-      buildPhase = 'versions';
-      const downloadableGroups = await Promise.all(
-        Array.from(groups.values()).map(async (group) => ({
-          group,
-          release: (await convex.query(api.packageVersions.resolveDownloadableVersion, {
+      phase = 'presentation';
+      if (request.method === 'GET') {
+        const actor = await createApiServiceActorBinding({
+          authUserId: authorized.authUserId,
+          service: 'creator-bootstrap-presentation',
+          scopes: ['downloads:service'],
+        });
+        const convex = getConvexClientFromUrl(config.convexUrl, actor);
+        const presentation = (await convex.query(
+          api.vpmAliasPublications.getPresentationForService,
+          {
             apiSecret: config.convexApiSecret,
             actor,
-            ...(group.packageId
-              ? { packageId: group.packageId }
-              : { catalogProductId: group.catalogProductId }),
-          })) as DownloadableVersion | null,
-        }))
-      );
-      buildPhase = 'aliases';
-      const aliases = downloadableGroups.flatMap(({ group, release }) =>
-        release
-          ? [
-              buildYucpAliasVpmPackage({
-                aliasId: group.aliasId ?? release.packageId,
-                bootstrapVersion: buildYucpAliasBootstrapVersion(release.createdAt),
-                catalogProductIds: (group.catalogProductIds ?? [group.catalogProductId]).map(
-                  String
-                ),
-                vpmDependencies: release.vpmDependencies,
-                vpmBaseUrl: vpmRepository.vpmBaseUrl,
-              }),
-            ]
-          : []
-      );
-      const packages = aliases.reduce<VpmRepositoryPackages>((repository, alias) => {
-        repository[alias.packageId] = {
-          versions: {
-            [alias.manifest.version]: alias.manifest,
-          },
-        };
-        return repository;
-      }, {});
-      if (aliases.length > 0) {
-        buildPhase = 'importer';
-        const publicIndex = await getRepositoryIndex(vpmRepository.publicVpmIndexUrl);
-        try {
-          selectPublicImporterManifest(publicIndex);
-        } catch (error) {
-          throw new PublicImporterUnavailableError({ cause: error });
-        }
-        mergeVpmRepositoryPackages(packages, publicIndex.packages);
-
-        buildPhase = 'dependency-repositories';
-        const dependencyRepositoryUrls = [
-          ...new Set(
-            downloadableGroups.flatMap(({ release }) =>
-              release ? Object.values(release.vpmRepositories) : []
-            )
-          ),
-        ].sort((left, right) => left.localeCompare(right));
-        for (const repositoryUrl of dependencyRepositoryUrls) {
-          const normalizedUrl = new URL(repositoryUrl).toString();
-          if (!vpmRepository.trustedRepositoryUrls.has(normalizedUrl)) {
-            throw new Error('A package release references an untrusted VPM repository');
+            packageId,
+            channel: 'stable',
           }
-          const dependencyIndex = await getRepositoryIndex(normalizedUrl);
-          mergeVpmRepositoryPackages(packages, dependencyIndex.packages);
+        )) as VpmAliasPresentation | null;
+        return jsonNoStore({
+          packageName:
+            presentation?.packageName ||
+            authorized.product.packageName?.trim() ||
+            authorized.product.displayName?.trim() ||
+            authorized.product.aliasId?.trim() ||
+            packageId,
+          published: presentation !== null,
+        });
+      }
+      if (!aliasArtifactStore) {
+        return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
+      }
+      let body: Record<string, unknown>;
+      try {
+        body = await readJsonObjectBodyWithLimit(request, CREATOR_PRESENTATION_BODY_MAX_BYTES);
+      } catch (error) {
+        if (error instanceof RequestBodyError) {
+          return jsonNoStore({ error: error.message }, { status: error.status });
         }
+        throw error;
+      }
+      const packageName = typeof body.packageName === 'string' ? body.packageName.trim() : '';
+      if (
+        !packageName ||
+        new TextEncoder().encode(packageName).byteLength > CREATOR_PACKAGE_NAME_MAX_BYTES ||
+        Array.from(packageName).some((character) => {
+          const codePoint = character.codePointAt(0) ?? 0;
+          return codePoint <= 31 || codePoint === 127;
+        })
+      ) {
+        return jsonNoStore({ error: 'Package name is invalid' }, { status: 400 });
+      }
+      const candidateTraceparent = request.headers.get('traceparent');
+      const traceparent =
+        candidateTraceparent && parseTraceparent(candidateTraceparent)
+          ? candidateTraceparent
+          : undefined;
+      phase = 'publication';
+      await ensurePackagePublication({
+        authUserId: authorized.authUserId,
+        creatorActor: authorized.actor,
+        creatorConvex: authorized.convex,
+        packageNameOverride: packageName,
+        product: {
+          ...authorized.product,
+          packageName,
+        },
+        publicationReason: 'presentation-update',
+        ...(traceparent ? { traceparent } : {}),
+        vpmRepository,
+      });
+      return jsonNoStore({
+        packageName,
+        published: true,
+      });
+    } catch (error) {
+      if (error instanceof PublicAliasPublicationUnavailableError) {
+        return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
+      logger.error('Creator bootstrap presentation operation failed', {
+        phase,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return jsonNoStore({ error: 'Failed to manage bootstrap presentation' }, { status: 500 });
+    }
+  }
+
+  async function manageCreatorLink(request: Request, packageId: string): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'POST' && request.method !== 'DELETE') {
+      return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let phase = 'authentication';
+    try {
+      const authorized = await getCreatorPackageContext(request, packageId);
+      if (authorized instanceof Response) {
+        return authorized;
+      }
+      const vpmRepository = getConfiguredVpmRepository(config);
+      if (!vpmRepository) {
+        return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
+      }
+      phase = 'link';
+      if (request.method === 'DELETE') {
+        const result = await authorized.convex.mutation(api.creatorVpmLinks.revokeActive, {
+          apiSecret: config.convexApiSecret,
+          actor: authorized.actor,
+          authUserId: authorized.authUserId,
+          packageId: authorized.product.packageId as string,
+        });
+        return jsonNoStore(result);
       }
 
-      buildPhase = 'response';
-      const indexUrl = buildIndexUrl(vpmRepository.vpmBaseUrl, token);
-      return jsonNoStore({
-        name: 'YUCP Buyer Packages',
+      const link =
+        request.method === 'POST'
+          ? ((await authorized.convex.mutation(api.creatorVpmLinks.ensureActive, {
+              apiSecret: config.convexApiSecret,
+              actor: authorized.actor,
+              authUserId: authorized.authUserId,
+              packageId: authorized.product.packageId as string,
+              proposedLinkId: createCreatorLinkId(),
+            })) as ActiveCreatorVpmLink)
+          : ((await authorized.convex.query(api.creatorVpmLinks.getActiveForCreator, {
+              apiSecret: config.convexApiSecret,
+              actor: authorized.actor,
+              authUserId: authorized.authUserId,
+              packageId: authorized.product.packageId as string,
+            })) as ActiveCreatorVpmLink | null);
+      if (!link) {
+        return jsonNoStore({
+          status: 'inactive',
+          bootstrapDownloadUrl: `/api/creator/packages/by-package/${encodeURIComponent(
+            packageId
+          )}/bootstrap`,
+        });
+      }
+      if (request.method === 'POST') {
+        phase = 'publication';
+        const candidateTraceparent = request.headers.get('traceparent');
+        const traceparent =
+          candidateTraceparent && parseTraceparent(candidateTraceparent)
+            ? candidateTraceparent
+            : undefined;
+        await ensurePackagePublication({
+          authUserId: authorized.authUserId,
+          creatorActor: authorized.actor,
+          creatorConvex: authorized.convex,
+          product: authorized.product,
+          ...(traceparent ? { traceparent } : {}),
+          vpmRepository,
+        });
+      }
+      return jsonNoStore(serializeCreatorLink(link, packageId, vpmRepository.vpmBaseUrl));
+    } catch (error) {
+      if (error instanceof PublicAliasPublicationUnavailableError) {
+        return jsonNoStore({ error: 'VPM delivery is temporarily unavailable' }, { status: 503 });
+      }
+      logger.error('Creator VCC link operation failed', {
+        phase,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return jsonNoStore({ error: 'Failed to manage the VCC link' }, { status: 500 });
+    }
+  }
+
+  async function serveCreatorLinkIndex(request: Request, linkId: string): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return jsonNoCache({ error: 'Method not allowed' }, { status: 405 });
+    }
+    if (!CREATOR_VPM_LINK_ID_PATTERN.test(linkId)) {
+      return jsonNoCache({ error: 'VCC link is revoked or unavailable' }, { status: 410 });
+    }
+    const vpmRepository = getConfiguredVpmRepository(config);
+    if (!vpmRepository || !aliasArtifactStore) {
+      return jsonNoCache({ error: 'VPM delivery is not configured' }, { status: 503 });
+    }
+    let phase = 'actor';
+    try {
+      const actor = await createApiServiceActorBinding({
+        service: 'vpm-repository',
+        scopes: ['downloads:service'],
+      });
+      const convex = getConvexClientFromUrl(config.convexUrl, actor);
+      phase = 'link';
+      const link = (await convex.query(api.creatorVpmLinks.getActiveByLinkId, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        linkId,
+      })) as ActiveCreatorVpmLink | null;
+      if (!link) {
+        return jsonNoCache({ error: 'VCC link is revoked or unavailable' }, { status: 410 });
+      }
+      phase = 'publications';
+      const publications = (await convex.query(api.vpmAliasPublications.listPublishedForPackage, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        packageId: link.packageId,
+        channel: 'stable',
+        artifactBucketName: aliasArtifactStore.bucketName,
+      })) as PublishedVpmAlias[];
+      if (publications.length === 0) {
+        return jsonNoCache({ error: 'VCC link is unavailable' }, { status: 410 });
+      }
+      phase = 'aliases';
+      const packages = buildPublishedAliasPackages(publications);
+      if (Object.keys(packages).length !== 1) {
+        return jsonNoCache({ error: 'VCC link is unavailable' }, { status: 410 });
+      }
+      phase = 'importer';
+      await mergePublicImporter(packages, vpmRepository);
+      phase = 'response';
+      const latest = publications.at(-1);
+      const latestManifest = latest
+        ? (JSON.parse(latest.repositoryManifestJson) as { displayName?: string })
+        : undefined;
+      const { indexUrl } = buildPublicVpmRepositoryAccess(vpmRepository.vpmBaseUrl, link.linkId);
+      const response = jsonNoCache({
+        name: latestManifest?.displayName
+          ? `${latestManifest.displayName} by YUCP`
+          : 'YUCP Product Bootstrap',
         author: 'YUCP',
-        id: 'club.yucp.buyer',
+        id: `club.yucp.creator-link.${link.packageId.replace(/[^a-z0-9._-]/g, '-')}`,
         url: indexUrl,
         packages,
       });
+      return request.method === 'HEAD' ? new Response(null, response) : response;
     } catch (error) {
       if (error instanceof PublicImporterUnavailableError) {
-        logger.warn('Public YUCP importer is unavailable for the buyer VPM index', {
-          errorName: error.name,
-        });
-        return Response.json(
-          { error: 'The public YUCP importer is not available' },
-          { status: 503 }
-        );
+        return jsonNoCache({ error: 'The public YUCP importer is not available' }, { status: 503 });
       }
-      logger.error('Failed to build buyer VPM repository index', {
-        phase: buildPhase,
+      logger.error('Failed to build creator VCC repository index', {
+        phase,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
-      return Response.json({ error: 'Failed to build VPM repository' }, { status: 500 });
+      return jsonNoCache({ error: 'Failed to build VCC repository' }, { status: 500 });
     }
   }
 
-  async function serveAliasPackage(
+  async function downloadCreatorBootstrap(request: Request, packageId: string): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return jsonNoStore({ error: 'Method not allowed' }, { status: 405 });
+    }
+    let phase = 'authentication';
+    try {
+      const authorized = await getCreatorPackageContext(request, packageId);
+      if (authorized instanceof Response) {
+        return authorized;
+      }
+      if (!aliasArtifactStore) {
+        return jsonNoStore({ error: 'VPM delivery is not configured' }, { status: 503 });
+      }
+      phase = 'actor';
+      const actor = await createApiServiceActorBinding({
+        authUserId: authorized.authUserId,
+        service: 'creator-bootstrap-download',
+        scopes: ['downloads:service'],
+      });
+      const convex = getConvexClientFromUrl(config.convexUrl, actor);
+      phase = 'publication';
+      const publication = (await convex.query(
+        api.vpmAliasPublications.getLatestPublishedForPackage,
+        {
+          apiSecret: config.convexApiSecret,
+          actor,
+          packageId: authorized.product.packageId as string,
+          channel: 'stable',
+          artifactBucketName: aliasArtifactStore.bucketName,
+        }
+      )) as PublishedVpmAlias | null;
+      if (!publication) {
+        return jsonNoStore({ error: 'Package has no published bootstrap' }, { status: 404 });
+      }
+      phase = 'artifact';
+      const body = await aliasArtifactStore.readExact(publication.artifact);
+      const filenameSeed =
+        authorized.product.aliasId
+          ?.trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9._-]+/g, '-') ||
+        authorized.product.displayName
+          ?.trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9._-]+/g, '-') ||
+        'product';
+      const headers = new Headers({
+        'Cache-Control': 'private, no-store',
+        'Content-Disposition': `attachment; filename="${filenameSeed}-bootstrap-${publication.bootstrapVersion}.zip"`,
+        'Content-Length': String(body.byteLength),
+        'Content-Type': 'application/zip',
+        ETag: `"${publication.artifact.sha256}"`,
+      });
+      return new Response(request.method === 'HEAD' ? null : Uint8Array.from(body).buffer, {
+        status: 200,
+        headers,
+      });
+    } catch (error) {
+      logger.error('Creator bootstrap download failed', {
+        phase,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return jsonNoStore({ error: 'Failed to read the published bootstrap' }, { status: 500 });
+    }
+  }
+
+  async function serveAliasPublication(
     request: Request,
-    artifactDescriptor: string,
+    publicationId: string,
     version: string
   ): Promise<Response> {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return Response.json({ error: 'Method not allowed' }, { status: 405 });
     }
-    const vpmBaseUrl = getConfiguredVpmBaseUrl(config);
-    if (!vpmBaseUrl) {
+    if (!aliasArtifactStore || !getConfiguredVpmBaseUrl(config)) {
       return Response.json({ error: 'VPM delivery is not configured' }, { status: 503 });
     }
     try {
-      const descriptor = decodeYucpAliasArtifactDescriptor(artifactDescriptor);
-      if (version !== descriptor.bootstrapVersion) {
+      const actor = await createApiServiceActorBinding({
+        service: 'vpm-repository',
+        scopes: ['downloads:service'],
+      });
+      const convex = getConvexClientFromUrl(config.convexUrl, actor);
+      const publication = (await convex.query(
+        api.vpmAliasPublications.getPublishedByPublicationId,
+        {
+          apiSecret: config.convexApiSecret,
+          actor,
+          publicationId,
+        }
+      )) as PublishedVpmAlias | null;
+      if (!publication || publication.bootstrapVersion !== version) {
         return Response.json({ error: 'VPM alias package not found' }, { status: 404 });
       }
-      const built = buildYucpAliasVpmPackage({
-        ...descriptor,
-        vpmBaseUrl,
-      });
+      const body = await aliasArtifactStore.readExact(publication.artifact);
       const headers = new Headers({
         'Cache-Control': 'public, max-age=31536000, immutable',
-        'Content-Disposition': `attachment; filename="${built.packageId}-${version}.zip"`,
-        'Content-Length': String(built.bytes.byteLength),
+        'Content-Disposition': `attachment; filename="${publication.aliasPackageId}-${version}.zip"`,
+        'Content-Length': String(body.byteLength),
         'Content-Type': 'application/zip',
-        ETag: `"${built.zipSha256}"`,
+        ETag: `"${publication.artifact.sha256}"`,
       });
-      const responseBody = request.method === 'HEAD' ? null : Uint8Array.from(built.bytes).buffer;
-      return new Response(responseBody, {
+      return new Response(request.method === 'HEAD' ? null : Uint8Array.from(body).buffer, {
         status: 200,
         headers,
       });
-    } catch {
-      return Response.json({ error: 'VPM alias package not found' }, { status: 404 });
+    } catch (error) {
+      logger.error('Published VPM alias artifact read failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      return Response.json(
+        { error: 'VPM alias package is temporarily unavailable' },
+        { status: 503 }
+      );
     }
   }
 
-  return { mintRepoToken, serveAliasPackage, serveIndex };
+  return {
+    downloadCreatorBootstrap,
+    manageCreatorLink,
+    manageCreatorPresentation,
+    serveAliasPublication,
+    serveCreatorLinkIndex,
+  };
 }

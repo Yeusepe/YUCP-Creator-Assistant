@@ -1,7 +1,8 @@
-import { Autocomplete, Button, Chip, ListBox, SearchField, useFilter } from '@heroui/react';
+import { Autocomplete, Button, Chip, Label, ListBox, SearchField, useFilter } from '@heroui/react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { DialogContext, Heading } from 'react-aria-components';
 import { ApiError } from '@/api/client';
 import { DashboardAuthRequiredState } from '@/components/dashboard/AuthRequiredState';
 import { DashboardGridSkeleton } from '@/components/dashboard/DashboardSkeletons';
@@ -283,7 +284,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
     const buyers: Array<{
       buyerMatchId: string;
       createdAt: number;
-      runtimeArtifactVersion?: string | null;
       packFamily?: string | null;
       packVersion?: string | null;
       provider?: string | null;
@@ -304,7 +304,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
           buyers.push({
             buyerMatchId,
             createdAt: match.createdAt,
-            runtimeArtifactVersion: match.runtimeArtifactVersion,
             packFamily: match.packFamily,
             packVersion: match.packVersion,
             provider: match.provider,
@@ -501,7 +500,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                     </span>
                   </div>
                   <Autocomplete
-                    aria-label="Product to scan"
                     className="pm-package-picker w-full max-w-md"
                     placeholder="Choose a product"
                     selectionMode="single"
@@ -516,43 +514,55 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                       setLookupResult(null);
                     }}
                   >
+                    <Label className="sr-only">Product to scan</Label>
                     <Autocomplete.Trigger>
                       <Autocomplete.Value />
                       <Autocomplete.ClearButton />
                       <Autocomplete.Indicator />
                     </Autocomplete.Trigger>
-                    <Autocomplete.Popover className="pm-package-picker-popover">
-                      <Autocomplete.Filter filter={contains}>
-                        <SearchField autoFocus name="forensics-product-search" variant="secondary">
-                          <SearchField.Group>
-                            <SearchField.SearchIcon />
-                            <SearchField.Input
-                              aria-label="Search products"
-                              placeholder="Search products..."
-                            />
-                            <SearchField.ClearButton />
-                          </SearchField.Group>
-                        </SearchField>
-                        <ListBox
-                          renderEmptyState={() => (
-                            <div className="pm-subtle-copy px-3 py-2 text-sm">
-                              No products match that search.
-                            </div>
-                          )}
-                        >
-                          {packageOptions.map((option) => (
-                            <ListBox.Item
-                              key={option.value}
-                              id={option.value}
-                              textValue={option.label}
-                            >
-                              {option.label}
-                              <ListBox.ItemIndicator />
-                            </ListBox.Item>
-                          ))}
-                        </ListBox>
-                      </Autocomplete.Filter>
-                    </Autocomplete.Popover>
+                    <DialogContext.Provider value={{ 'aria-label': 'Choose a product to scan' }}>
+                      <Autocomplete.Popover className="pm-package-picker-popover">
+                        <Heading className="sr-only" slot="title">
+                          Choose a product to scan
+                        </Heading>
+                        <Autocomplete.Filter filter={contains}>
+                          <SearchField
+                            autoFocus
+                            name="forensics-product-search"
+                            variant="secondary"
+                          >
+                            <Label className="sr-only">Search products</Label>
+                            <SearchField.Group>
+                              <SearchField.SearchIcon />
+                              <SearchField.Input
+                                aria-label="Search products"
+                                placeholder="Search products..."
+                              />
+                              <SearchField.ClearButton />
+                            </SearchField.Group>
+                          </SearchField>
+                          <ListBox
+                            aria-label="Products available to scan"
+                            renderEmptyState={() => (
+                              <div className="pm-subtle-copy px-3 py-2 text-sm">
+                                No products match that search.
+                              </div>
+                            )}
+                          >
+                            {packageOptions.map((option) => (
+                              <ListBox.Item
+                                key={option.value}
+                                id={option.value}
+                                textValue={option.label}
+                              >
+                                {option.label}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Autocomplete.Filter>
+                      </Autocomplete.Popover>
+                    </DialogContext.Provider>
                   </Autocomplete>
                 </div>
 
@@ -716,12 +726,6 @@ export function CouplingForensicsPanel({ initialPackageId }: { initialPackageId?
                           {buyer.licenseMasked ? (
                             <MetaField label="License" full mono>
                               {buyer.licenseMasked}
-                            </MetaField>
-                          ) : null}
-
-                          {buyer.runtimeArtifactVersion ? (
-                            <MetaField label="Package version" mono>
-                              {buyer.runtimeArtifactVersion}
                             </MetaField>
                           ) : null}
                         </dl>

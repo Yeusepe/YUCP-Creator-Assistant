@@ -22,12 +22,8 @@ import {
 } from '../storage-core/desyncCas';
 import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
-import {
-  createS3Bucket,
-  deleteS3Objects,
-  enableS3BucketVersioning,
-  listS3Objects,
-} from '../storage-core/s3Control';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
+import { createS3Bucket, deleteS3Objects, listS3Objects } from '../storage-core/s3Control';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
@@ -145,11 +141,17 @@ function requireStores(): {
   commonStore: S3CasStore;
   metadataStore: S3CasStore;
   protectedStore: S3CasStore;
+  scratchRoot: string;
 } {
   if (!commonStore || !metadataStore || !protectedStore) {
     throw new Error('Promotion end-to-end role stores were not initialized');
   }
-  return { commonStore, metadataStore, protectedStore };
+  return {
+    commonStore,
+    metadataStore,
+    protectedStore,
+    scratchRoot: requireScratchPath(),
+  };
 }
 
 function requireScratchPath(): string {
@@ -262,7 +264,6 @@ beforeAll(async () => {
     const protectedConfig = roleConfig('protected');
     for (const config of [commonConfig, metadataConfig, protectedConfig]) {
       await createS3Bucket(config);
-      await enableS3BucketVersioning(config);
     }
     const durableStorage = new DurableExactStorage(
       new ExactStorageCatalog(requireSql()),
@@ -315,7 +316,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       catalog: activeCatalog,
       creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.0.0',
       inputPath: rawV1Path,
@@ -365,7 +366,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       catalog: activeCatalog,
       creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '2.0.0',
       inputPath: rawV2Path,
@@ -389,7 +390,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       catalog: activeCatalog,
       creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '2.5.0',
       inputPath: rawV1Path,
@@ -400,6 +401,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
         commonStore: stores.commonStore,
         metadataStore: wrongLocalStore,
         protectedStore: stores.protectedStore,
+        scratchRoot: scratch,
         versionId: assembledKindMismatch.id,
       })
     ).rejects.toThrow('CAS object store kind s3 does not match local store');
@@ -411,7 +413,7 @@ describe.serial('ingest promotion against throwaway MinIO and PostgreSQL', () =>
       catalog: activeCatalog,
       creatorId: 'creator-pipeline',
       packageId: 'pipeline-package',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '3.0.0',
       inputPath: rawV1Path,

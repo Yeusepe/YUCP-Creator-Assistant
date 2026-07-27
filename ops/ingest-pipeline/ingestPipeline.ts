@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
   Catalog,
@@ -41,6 +40,11 @@ import {
   createLogicalReleasePublicationV4,
   createLogicalReleaseRootV4,
 } from '../storage-core/releasePublication';
+import {
+  normalizeVpmBootstrapMedia,
+  type VpmBootstrapMediaObject,
+} from '../storage-core/vpmBootstrapMedia';
+import { createPipelineScratchDirectory } from './pipelineScratch';
 
 export type PipelineStorage = {
   commonStore: LocalCasStore | S3CasStore;
@@ -59,12 +63,14 @@ export type IngestVersionInput = PipelineStorage &
     creatorId: string;
     packageId: string;
     protectionPolicyId: ProtectionPolicyId;
+    scratchRoot: string;
     version: string;
   };
 
 export interface BeginVersionInput {
   catalog: Catalog;
   catalogProductId?: string;
+  editionId?: string;
   packageId: string;
   version: string;
   versionId?: string;
@@ -75,6 +81,7 @@ export type AssembleVersionInput = PipelineStorage &
     catalog: Catalog;
     creatorId: string;
     protectionPolicyId: ProtectionPolicyId;
+    scratchRoot: string;
     versionId: string;
   };
 
@@ -92,6 +99,7 @@ export interface PromoteVersionInput {
   commonStore: CasStore;
   metadataStore: CasStore;
   protectedStore: CasStore;
+  scratchRoot: string;
   versionId: string;
 }
 
@@ -99,8 +107,7 @@ export function protectedMaterializationFiles(input: {
   files: readonly DeliveryManifest['files'][number][];
   protectionPolicyId: string;
 }) {
-  const materializationPolicy = protectionMaterializationPolicy(input.protectionPolicyId);
-  const required = materializationPolicy.protectedFileRequirement === 'required';
+  protectionMaterializationPolicy(input.protectionPolicyId);
   return input.files
     .filter((file) => file.classification === 'protected')
     .map((file) => {
@@ -110,7 +117,7 @@ export function protectedMaterializationFiles(input: {
       return {
         materializerType: file.materializerType,
         normalizedPath: file.normalizedPath,
-        required,
+        required: false,
         sourceSha256: file.sha256,
       };
     });
@@ -192,6 +199,53 @@ async function writePipelineMetadata(input: {
     store: input.store,
   });
   return sha256;
+}
+
+export async function storeBootstrapMediaObject(input: {
+  body: Uint8Array;
+  contentType: 'image/png';
+  kind: 'icon';
+  ownerId: string;
+  sha256: string;
+  store: CasStore;
+}): Promise<VpmBootstrapMediaObject> {
+  if (
+    input.store.kind !== 's3' ||
+    !input.store.durableStorage ||
+    input.store.storageRole !== 'metadata'
+  ) {
+    throw new Error('Bootstrap media requires exact metadata-role storage');
+  }
+  const objectKey = `${input.store.config.indexPrefix}bootstrap-media/${input.sha256}.png`;
+  const object = await input.store.durableStorage.putImmutable({
+    body: input.body,
+    contentType: input.contentType,
+    idempotencyKey: `package-version:${input.ownerId}:bootstrap-media:${input.sha256}`,
+    objectKey,
+    ownerId: input.ownerId,
+    ownerKind: 'package-version',
+    releaseLink: {
+      logicalDigest: input.sha256,
+      logicalKind: 'bootstrap-media',
+    },
+    storageDomain: 'metadata:global:v2',
+    storageRole: 'metadata',
+  });
+  if (object.sha256 !== input.sha256 || object.bytes !== input.body.byteLength) {
+    throw new Error('Stored bootstrap media does not match normalized metadata');
+  }
+  return normalizeVpmBootstrapMedia([
+    {
+      bucketName: object.bucketName,
+      byteSize: object.bytes,
+      contentType: input.contentType,
+      kind: input.kind,
+      localPath: `Documentation~/YUCP/${input.kind}.png`,
+      objectKey: object.objectKey,
+      providerVersion: object.providerVersion,
+      sha256: object.sha256,
+    },
+  ])[0] as VpmBootstrapMediaObject;
 }
 
 async function readPipelineMetadata(input: {
@@ -294,10 +348,17 @@ async function reconstructManifestTree(input: {
 export async function beginVersion(input: BeginVersionInput): Promise<PackageVersion> {
   const created = await input.catalog.createVersion({
     catalogProductId: input.catalogProductId,
+    editionId: input.editionId,
     id: input.versionId,
     packageId: input.packageId,
     version: input.version,
   });
+  if (created.state === 'UPLOADING') {
+    return created;
+  }
+  if (created.state !== 'CREATED') {
+    throw new Error('Package version is immutable after upload completion');
+  }
 
   try {
     return await input.catalog.transition(created.id, 'UPLOADING', {
@@ -323,7 +384,10 @@ export async function assembleVersion(
       throw new PackageVersionNotFoundError(input.versionId);
     }
     signal?.throwIfAborted();
-    scratchPath = await mkdtemp(join(tmpdir(), 'yucp-ingest-logical-tree-'));
+    scratchPath = await createPipelineScratchDirectory({
+      prefix: 'ingest-',
+      root: input.scratchRoot,
+    });
     const normalized = await normalizePackageArtifact({
       inputPath: input.inputPath,
       outputRoot: join(scratchPath, 'tree'),
@@ -335,6 +399,18 @@ export async function assembleVersion(
       policyId: input.protectionPolicyId,
     });
     const bootstrapMetadata = prepared.bootstrapMetadata;
+    const bootstrapMedia = await Promise.all(
+      normalized.envelopeMetadata.map((media) =>
+        storeBootstrapMediaObject({
+          body: media.body,
+          contentType: media.contentType,
+          kind: media.kind,
+          ownerId: version.id,
+          sha256: media.sha256,
+          store: input.metadataStore,
+        })
+      )
+    );
     const release = createLogicalReleaseRootV4({
       files: classified.files,
       packageId: version.packageId,
@@ -370,6 +446,7 @@ export async function assembleVersion(
       activeContentDigest: active.digest,
       activePolicyVersion: ACTIVE_CONTENT_POLICY_VERSION,
       chunkAvgKib: DESYNC_CHUNK_AVG_KIB,
+      bootstrapMedia,
       commonRoot: release.commonRoot,
       files,
       normalizationPolicyVersion: prepared.normalizationPolicyVersion,
@@ -382,6 +459,9 @@ export async function assembleVersion(
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
       version: version.version,
       versionId: version.id,
+      ...(bootstrapMetadata.packageMetadata
+        ? { packageMetadata: bootstrapMetadata.packageMetadata }
+        : {}),
       vpmDependencies: bootstrapMetadata.vpmDependencies,
       vpmRepositories: bootstrapMetadata.vpmRepositories,
     });
@@ -415,6 +495,10 @@ export async function assembleVersion(
           protectionPolicyId: classified.id,
           protectedFiles: classified.files.filter((file) => file.classification === 'protected')
             .length,
+          bootstrapMedia,
+          ...(bootstrapMetadata.packageMetadata
+            ? { packageMetadata: bootstrapMetadata.packageMetadata }
+            : {}),
           vpmDependencies: bootstrapMetadata.vpmDependencies,
           vpmRepositories: bootstrapMetadata.vpmRepositories,
         },
@@ -488,7 +572,10 @@ async function finishPromotion(
     assertManifestIdentity(manifest, promoting);
 
     signal.throwIfAborted();
-    scratchPath = await mkdtemp(join(tmpdir(), 'yucp-promote-logical-tree-'));
+    scratchPath = await createPipelineScratchDirectory({
+      prefix: 'promote-',
+      root: input.scratchRoot,
+    });
     await reconstructManifestTree({
       manifest,
       outputRoot: join(scratchPath, 'tree'),
@@ -549,6 +636,8 @@ async function finishPromotion(
           logicalFiles: manifest.files.length,
           manifestSha256: publication.manifestSha256,
           protectedFiles,
+          bootstrapMedia: manifest.bootstrapMedia ?? [],
+          ...(manifest.packageMetadata ? { packageMetadata: manifest.packageMetadata } : {}),
           protectedSourceRoot: manifest.protectedSourceRoot,
           protectionPolicyDigest: manifest.protectionPolicyDigest,
           protectionPolicyId: manifest.protectionPolicyId,

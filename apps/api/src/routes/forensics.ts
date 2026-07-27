@@ -17,6 +17,7 @@ import {
 import { rejectCrossSiteRequest } from '../lib/csrf';
 import { logger } from '../lib/logger';
 import type {
+  MaterializationAttributionCandidate,
   MaterializationAttributionCandidatePage,
   MaterializationControlClient,
 } from '../lib/materializationControlClient';
@@ -33,6 +34,10 @@ const MAX_LOOKUP_MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 const MAX_UPLOAD_FILENAME_LENGTH = 128;
 const FORENSICS_LOOKUP_RATE_LIMIT_MAX_REQUESTS = 30;
 const FORENSICS_LOOKUP_RATE_LIMIT_WINDOW_MS = 60_000;
+const FORENSICS_ATTRIBUTION_PAGE_SIZE = 256;
+const FORENSICS_ATTRIBUTION_MAXIMUM_CANDIDATE_WORK = 4_096;
+const FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK = 512 * 512;
+const TRACEPARENT_PATTERN = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
 export type ForensicsConfig = {
   apiBaseUrl: string;
@@ -42,6 +47,8 @@ export type ForensicsConfig = {
   convexApiSecret: string;
   convexUrl: string;
   encryptionSecret: string;
+  maxAttributionCandidateWork?: number;
+  maxAttributionEvaluationWork?: number;
   maxLookupUploadBytes?: number;
   lookupRateLimitMaxRequests?: number;
   lookupRateLimitStore?: PublicApiRateLimitStore;
@@ -265,6 +272,37 @@ type MatchedAttributionCandidate = {
   createdAt: number;
 };
 
+function resolveMaximumAttributionCandidateWork(config: ForensicsConfig): number {
+  const maximum =
+    config.maxAttributionCandidateWork ?? FORENSICS_ATTRIBUTION_MAXIMUM_CANDIDATE_WORK;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 16_384) {
+    throw new Error('Coupling attribution candidate work limit is invalid');
+  }
+  return maximum;
+}
+
+function resolveMaximumAttributionEvaluationWork(config: ForensicsConfig): number {
+  const maximum =
+    config.maxAttributionEvaluationWork ?? FORENSICS_ATTRIBUTION_MAXIMUM_EVALUATION_WORK;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 4 * 1_024 * 1_024) {
+    throw new Error('Coupling attribution evaluation work limit is invalid');
+  }
+  return maximum;
+}
+
+function mergeScoreResult(
+  previous: ForensicsScoreResult | undefined,
+  next: ForensicsScoreResult
+): ForensicsScoreResult {
+  if (!previous || next.preclassification === 'decoded') {
+    return next;
+  }
+  if (previous.preclassification === 'no-signal' && next.preclassification === 'likely-stripped') {
+    return next;
+  }
+  return previous;
+}
+
 function normalizeDeclaredPackageIds(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort(
     (left, right) => left.localeCompare(right)
@@ -400,6 +438,8 @@ function buildLookupBuyerMatchId(
 
 export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
   const convex = getConvexClientFromUrl(config.convexUrl);
+  const maximumAttributionCandidateWork = resolveMaximumAttributionCandidateWork(config);
+  const maximumAttributionEvaluationWork = resolveMaximumAttributionEvaluationWork(config);
 
   async function listPackages(request: Request): Promise<Response> {
     const viewer = await resolveViewer(request, auth, config);
@@ -610,35 +650,132 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           'Materialization attribution control is not configured'
         );
       }
-      const candidateResult: MaterializationAttributionCandidatePage =
-        await config.materializationControl.listAttributionCandidates({
-          creatorId: viewer.authUserId,
-          productId: packageId,
+      const candidatesById = new Map<string, MatchedAttributionCandidate>();
+      const durableCandidatesById = new Map<string, MaterializationAttributionCandidate>();
+      const scoreResultsByPath = new Map<string, ForensicsScoreResult>();
+      let unresolvedAssets = [...extraction.assets];
+      let requestedCandidateCount = 0;
+      let candidateEvaluationCount = 0;
+      let cursor: string | undefined;
+      const candidateTraceparent = request.headers.get('traceparent');
+      const traceparent =
+        candidateTraceparent && TRACEPARENT_PATTERN.test(candidateTraceparent)
+          ? candidateTraceparent
+          : undefined;
+      const buildCandidateWorkLimitResponse = async (): Promise<Response> => {
+        logger.warn('Coupling attribution work limit reached', {
+          candidateEvaluationCount,
+          packageId,
+          requestedCandidateCount,
         });
-
-      if (candidateResult.truncated) {
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
           authUserId: viewer.authUserId,
           packageId,
           source: viewer.source,
           status: 'error',
-          requestedCandidateCount: candidateResult.candidateLimit,
+          requestedCandidateCount,
           matchedAttributionCount: 0,
           uploadSha256,
         });
         return jsonResponse(
           {
-            error:
-              'Attribution candidate limit exceeded. Narrow the package or retry after archival.',
+            error: 'Attribution candidate work limit reached before the scan was complete.',
             code: 'coupling_trace_candidate_limit_exceeded',
-            candidateLimit: candidateResult.candidateLimit,
+            candidateLimit: maximumAttributionCandidateWork,
+            candidateEvaluationCount,
+            candidateEvaluationLimit: maximumAttributionEvaluationWork,
+            requestedCandidateCount,
           },
           409
         );
+      };
+
+      for (;;) {
+        const remainingCandidateWork = maximumAttributionCandidateWork - requestedCandidateCount;
+        const remainingEvaluationWork = maximumAttributionEvaluationWork - candidateEvaluationCount;
+        const requestedPageLimit = Math.min(
+          FORENSICS_ATTRIBUTION_PAGE_SIZE,
+          remainingCandidateWork,
+          Math.floor(remainingEvaluationWork / Math.max(1, unresolvedAssets.length))
+        );
+        if (requestedPageLimit < 1) {
+          return await buildCandidateWorkLimitResponse();
+        }
+        const candidateResult: MaterializationAttributionCandidatePage =
+          await config.materializationControl.listAttributionCandidates({
+            candidateLimit: requestedPageLimit,
+            creatorId: viewer.authUserId,
+            ...(cursor ? { cursor } : {}),
+            productId: packageId,
+            ...(traceparent ? { traceparent } : {}),
+          });
+        if (
+          candidateResult.candidateLimit !== requestedPageLimit ||
+          candidateResult.candidates.length > requestedPageLimit ||
+          (candidateResult.truncated &&
+            (candidateResult.candidates.length !== requestedPageLimit ||
+              !candidateResult.nextCursor))
+        ) {
+          throw new CouplingServiceRequestError(
+            'Materialization control returned an invalid attribution page',
+            502
+          );
+        }
+
+        requestedCandidateCount += candidateResult.candidates.length;
+        candidateEvaluationCount += candidateResult.candidates.length * unresolvedAssets.length;
+        for (const candidate of candidateResult.candidates) {
+          if (durableCandidatesById.has(candidate.attributionId)) {
+            throw new CouplingServiceRequestError(
+              'Materialization control returned duplicate attribution candidates',
+              502
+            );
+          }
+          durableCandidatesById.set(candidate.attributionId, candidate);
+          candidatesById.set(candidate.attributionId, {
+            assetPath: candidate.normalizedPath,
+            attributionId: candidate.attributionId,
+            buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
+            createdAt: candidate.createdAt,
+          });
+        }
+
+        if (candidateResult.candidates.length > 0 && unresolvedAssets.length > 0) {
+          const pageScoreResults = await runCouplingAttribution(
+            unresolvedAssets,
+            candidateResult.candidates.map(({ createdAt: _createdAt, ...candidate }) => candidate),
+            {
+              baseUrl: config.couplingServiceBaseUrl,
+              sharedSecret: config.couplingServiceSharedSecret,
+            }
+          );
+          for (const scoreResult of pageScoreResults) {
+            scoreResultsByPath.set(
+              scoreResult.assetPath,
+              mergeScoreResult(scoreResultsByPath.get(scoreResult.assetPath), scoreResult)
+            );
+          }
+          unresolvedAssets = unresolvedAssets.filter(
+            (asset) => scoreResultsByPath.get(asset.assetPath)?.preclassification !== 'decoded'
+          );
+        }
+
+        if (unresolvedAssets.length === 0 || !candidateResult.truncated) {
+          break;
+        }
+        const canEvaluateAnotherCandidate =
+          maximumAttributionEvaluationWork - candidateEvaluationCount >= unresolvedAssets.length;
+        if (
+          requestedCandidateCount >= maximumAttributionCandidateWork ||
+          !canEvaluateAnotherCandidate
+        ) {
+          return await buildCandidateWorkLimitResponse();
+        }
+        cursor = candidateResult.nextCursor;
       }
 
-      if (candidateResult.candidates.length === 0) {
+      if (durableCandidatesById.size === 0) {
         const lookupStatus: ForensicsLookupStatus = 'no_signal_found';
         await convex.mutation(api.couplingForensics.recordLookupAudit, {
           apiSecret: config.convexApiSecret,
@@ -661,30 +798,14 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         });
       }
 
-      const candidatesById = new Map<string, MatchedAttributionCandidate>(
-        candidateResult.candidates.map((candidate) => [
-          candidate.attributionId,
-          {
-            assetPath: candidate.normalizedPath,
-            attributionId: candidate.attributionId,
-            buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
-            createdAt: candidate.createdAt,
-          },
-        ])
-      );
-      if (candidatesById.size !== candidateResult.candidates.length) {
-        throw new CouplingServiceRequestError(
-          'Materialization control returned duplicate attribution candidates',
-          502
-        );
-      }
-      const scoreResults = await runCouplingAttribution(
-        extraction.assets,
-        candidateResult.candidates.map(({ createdAt: _createdAt, ...candidate }) => candidate),
-        {
-          baseUrl: config.couplingServiceBaseUrl,
-          sharedSecret: config.couplingServiceSharedSecret,
-        }
+      const scoreResults: ForensicsScoreResult[] = extraction.assets.map(
+        (asset) =>
+          scoreResultsByPath.get(asset.assetPath) ?? {
+            assetPath: asset.assetPath,
+            assetType: asset.assetType,
+            decoderKind: asset.assetType,
+            preclassification: 'no-signal',
+          }
       );
 
       const decodedResults = scoreResults.filter(
@@ -720,7 +841,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
           packageId,
           source: viewer.source,
           status: buildAuditStatus(lookupStatus),
-          requestedCandidateCount: candidateResult.candidates.length,
+          requestedCandidateCount,
           matchedAttributionCount: 0,
           uploadSha256,
         });
@@ -760,9 +881,8 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
                   attributionId: candidate.attributionId,
                   buyerSubjectPseudonym: candidate.buyerSubjectPseudonym,
                   createdAt: candidate.createdAt,
-                  runtimeArtifactVersion: candidateResult.candidates.find(
-                    (entry) => entry.attributionId === candidate.attributionId
-                  )?.pluginVersion,
+                  runtimeArtifactVersion: durableCandidatesById.get(candidate.attributionId)
+                    ?.pluginVersion,
                 },
               ]
             : [],
@@ -778,7 +898,7 @@ export function createForensicsRoutes(auth: Auth, config: ForensicsConfig) {
         packageId,
         source: viewer.source,
         status: buildAuditStatus(lookupStatus),
-        requestedCandidateCount: candidateResult.candidates.length,
+        requestedCandidateCount,
         matchedAttributionCount,
         uploadSha256,
       });

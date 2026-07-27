@@ -5,6 +5,7 @@ import {
   verifyDeliveryGrantV2,
   verifyInstallSessionV2,
 } from '../../../../ops/storage-core/packageContractsV2';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../../../../ops/storage-core/protectionPolicyId';
 import {
   issuePackageInstallSession,
   type PackageInstallPublication,
@@ -37,7 +38,7 @@ function publication(
     protectedFiles: [],
     protectedSourceRoot: '88'.repeat(32),
     protectionPolicyDigest: '99'.repeat(32),
-    protectionPolicyId: 'common-only-v1',
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     releaseRoot,
     version: '1.2.3',
     versionId: 'version-jammr-123',
@@ -166,7 +167,7 @@ describe('issuePackageInstallSession', () => {
           {
             materializerType: 'png',
             normalizedPath: 'Assets/Jammr/a.png',
-            required: true,
+            required: false,
             sourceSha256: 'aa'.repeat(32),
           },
         ],

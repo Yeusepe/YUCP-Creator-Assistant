@@ -10,6 +10,32 @@ import { getConvexClientFromUrl } from './convex';
 export interface PackageInstallAccessConfig {
   convexApiSecret: string;
   convexUrl: string;
+  publicationAuthority: PackageInstallPublicationAuthority;
+}
+
+export interface PackageInstallPublicationAuthority {
+  resolveReadyVersion(input: {
+    editionId: string;
+    packageId: string;
+    releaseRoot: string;
+  }): Promise<AuthoritativeReadyVersion | null>;
+}
+
+export interface AuthoritativeReadyVersion {
+  activeContentDigest: string | null;
+  activePolicyVersion: string | null;
+  bindingRoot: string | null;
+  commonRoot: string | null;
+  id: string;
+  logicalBytes: number | null;
+  logicalFiles: number | null;
+  manifestSha256: string | null;
+  protectedFiles: unknown;
+  protectedSourceRoot: string | null;
+  protectionPolicyDigest: string | null;
+  protectionPolicyId: string | null;
+  releaseRoot: string | null;
+  version: string;
 }
 
 type BuyerAccessContext = {
@@ -62,6 +88,43 @@ function normalizeGroup(context: BuyerAccessContext): PackageInstallProductGroup
   };
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map((entry) => JSON.parse(canonicalJson(entry)) as unknown));
+  }
+  if (value && typeof value === 'object') {
+    return JSON.stringify(
+      Object.fromEntries(
+        Object.entries(value)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, entry]) => [key, JSON.parse(canonicalJson(entry)) as unknown])
+      )
+    );
+  }
+  return JSON.stringify(value);
+}
+
+function publicationMatchesAuthority(
+  published: PublishedVersion,
+  authoritative: AuthoritativeReadyVersion
+): boolean {
+  return (
+    authoritative.activeContentDigest === published.activeContentDigest &&
+    authoritative.activePolicyVersion === published.activePolicyVersion &&
+    authoritative.bindingRoot === published.bindingRoot &&
+    authoritative.commonRoot === published.commonRoot &&
+    authoritative.logicalBytes === published.logicalBytes &&
+    authoritative.logicalFiles === published.logicalFiles &&
+    authoritative.manifestSha256 === published.manifestSha256 &&
+    authoritative.protectedSourceRoot === published.protectedSourceRoot &&
+    authoritative.protectionPolicyDigest === published.protectionPolicyDigest &&
+    authoritative.protectionPolicyId === published.protectionPolicyId &&
+    authoritative.releaseRoot === published.releaseRoot &&
+    authoritative.version === published.version &&
+    canonicalJson(authoritative.protectedFiles) === canonicalJson(published.protectedFiles)
+  );
+}
+
 export function createConvexPackageInstallAccess(
   config: PackageInstallAccessConfig
 ): PackageInstallAccessPort {
@@ -78,66 +141,38 @@ export function createConvexPackageInstallAccess(
   }
 
   return {
-    async resolveProductGroup(catalogProductIds) {
-      const firstCatalogProductId = catalogProductIds[0];
-      if (!firstCatalogProductId) {
+    async resolveProductGroup(aliasId) {
+      const packageId = aliasId.trim();
+      if (!packageId) {
         return null;
       }
       const { actor, convex } = await serviceClient();
-      const context = (await convex.query(
-        api.packageRegistry.getBuyerAccessContextByCatalogProductId,
-        {
-          apiSecret: config.convexApiSecret,
-          actor,
-          catalogProductId: firstCatalogProductId,
-        }
-      )) as BuyerAccessContext | null;
+      const context = (await convex.query(api.packageRegistry.getBuyerAccessContextByPackageId, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        packageId,
+      })) as BuyerAccessContext | null;
       return context ? normalizeGroup(context) : null;
     },
 
-    async hasActiveEntitlement(buyerId, group, catalogProductId) {
-      const storefront = group.storefronts.find(
-        (candidate) => candidate.catalogProductId === catalogProductId
-      );
-      if (!storefront) {
-        return false;
-      }
+    async resolveEntitledEdition(buyerId, group) {
       const { actor, convex } = await serviceClient(buyerId);
-      let cursor: string | undefined;
-      do {
-        const result = (await convex.query(api.entitlements.listByAuthUser, {
-          apiSecret: config.convexApiSecret,
-          actor,
-          authUserId: buyerId,
-          scope: 'subject_holder',
-          productId: storefront.productId,
-          status: 'active',
-          limit: 100,
-          ...(cursor ? { cursor } : {}),
-        })) as {
-          data?: Array<{ catalogProductId?: Id<'product_catalog'> | null }>;
-          hasMore?: boolean;
-          nextCursor?: string | null;
-        };
-        if (
-          result.data?.some(
-            (entitlement) =>
-              !entitlement.catalogProductId ||
-              String(entitlement.catalogProductId) === catalogProductId
-          )
-        ) {
-          return true;
-        }
-        cursor = result.hasMore && result.nextCursor ? result.nextCursor : undefined;
-      } while (cursor);
-      return false;
+      const resolved = (await convex.query(api.packageEditions.resolveBuyerEdition, {
+        apiSecret: config.convexApiSecret,
+        actor,
+        buyerAuthUserId: buyerId,
+        catalogProductIds: group.catalogProductIds as Array<Id<'product_catalog'>>,
+        packageId: group.packageId,
+      })) as { editionId?: string } | null;
+      return resolved?.editionId ?? null;
     },
 
-    async resolvePublication(group, targetReleaseRoot) {
+    async resolvePublication(group, editionId, targetReleaseRoot) {
       const { actor, convex } = await serviceClient();
       const published = (await convex.query(api.packageVersions.resolveDownloadableVersion, {
         apiSecret: config.convexApiSecret,
         actor,
+        editionId,
         packageId: group.packageId,
         ...(targetReleaseRoot ? { releaseRoot: targetReleaseRoot } : {}),
       })) as PublishedVersion | null;
@@ -160,6 +195,14 @@ export function createConvexPackageInstallAccess(
       ) {
         return null;
       }
+      const authoritative = await config.publicationAuthority.resolveReadyVersion({
+        editionId,
+        packageId: group.packageId,
+        releaseRoot: published.releaseRoot,
+      });
+      if (!authoritative || !publicationMatchesAuthority(published, authoritative)) {
+        return null;
+      }
       return {
         aliasId: group.aliasId,
         activeContentDigest: published.activeContentDigest,
@@ -178,7 +221,7 @@ export function createConvexPackageInstallAccess(
         protectionPolicyId: published.protectionPolicyId,
         releaseRoot: published.releaseRoot,
         version: published.version,
-        versionId: published.versionId,
+        versionId: authoritative.id,
       };
     },
   };

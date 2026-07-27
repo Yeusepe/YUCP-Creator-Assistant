@@ -3,6 +3,7 @@ export * from './convexPublish';
 export * from './database';
 export * from './exactStorageCatalog';
 export * from './migrate';
+export * from './packageOperationAuthorizations';
 export * from './reconciler';
 export * from './retry-policy';
 export * from './storageGcCatalog';

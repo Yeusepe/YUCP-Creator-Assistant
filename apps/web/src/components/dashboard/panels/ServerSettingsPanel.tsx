@@ -235,9 +235,11 @@ function ToggleSwitch({
         aria-label={label}
         size="sm"
       >
-        <Switch.Control>
-          <Switch.Thumb />
-        </Switch.Control>
+        <Switch.Content>
+          <Switch.Control>
+            <Switch.Thumb />
+          </Switch.Control>
+        </Switch.Content>
       </Switch>
     </div>
   );

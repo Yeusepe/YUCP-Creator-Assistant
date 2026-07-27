@@ -16,6 +16,9 @@ const sharedActual = await import('@yucp/shared');
 const verificationConfigActual = await import('../verification/verificationConfig');
 
 const apiMock = {
+  creatorVpmLinks: {
+    getActiveForPackageAccess: 'creatorVpmLinks.getActiveForPackageAccess',
+  },
   packageRegistry: {
     getBuyerAccessContextByCatalogProductId:
       'packageRegistry.getBuyerAccessContextByCatalogProductId',
@@ -105,7 +108,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
         buyerVerificationMethods: ['account_link', 'license_key'],
         capabilities: ['catalog_sync', 'tier_catalog', 'license_verification'],
         supportsAutoDiscovery: false,
-        supportsBuyerOAuthLink: true,
+        supportsBuyerOAuthLink: false,
       },
       lemonsqueezy: {
         buyerVerificationMethods: ['account_link', 'license_key'],
@@ -128,7 +131,7 @@ mock.module('@yucp/providers/providerMetadata', () => ({
 mock.module('../verification/verificationConfig', () => ({
   ...verificationConfigActual,
   getVerificationConfig: (provider: string) =>
-    provider === 'gumroad' || provider === 'jinxxy'
+    provider === 'gumroad'
       ? { clientId: 'test-client-id' }
       : verificationConfigActual.getVerificationConfig(provider),
 }));
@@ -162,14 +165,18 @@ const testConfig: ConnectConfig = {
   convexApiSecret: 'test-convex-secret',
   convexUrl: 'http://localhost:3210',
   encryptionSecret: 'test-encryption-secret-32chars!!',
+  vpmBaseUrl: 'https://vpm.test',
 };
 
-function createRoutes(configOverrides: Partial<ConnectConfig> = {}) {
+function createRoutes(
+  configOverrides: Partial<ConnectConfig> = {},
+  authUserId = 'buyer-auth-user'
+) {
   return createConnectUserProductAccessRoutes({
     auth: {
       getSession: async () => ({
         user: {
-          id: 'buyer-auth-user',
+          id: authUserId,
         },
       }),
     } as never,
@@ -239,6 +246,7 @@ describe('connect user product access routes', () => {
         return {
           catalogProductId: 'catalog_123',
           creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
           productId: 'product_123',
           provider: 'gumroad',
           providerProductRef: 'gumroad-ref',
@@ -246,6 +254,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
@@ -261,6 +277,21 @@ describe('connect user product access routes', () => {
         return {
           data: [{ id: 'ent_1', catalogProductId: 'catalog_123' }],
           hasMore: false,
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
+        expect(args).toEqual({
+          apiSecret: 'test-convex-secret',
+          actor: 'service-actor-binding',
+          authUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
+        });
+        return {
+          catalogProductId: 'catalog_123',
+          createdAt: 1_700_000_000_000,
+          linkId: 'A'.repeat(43),
+          packageId: 'com.yucp.avatar-bundle',
+          status: 'active',
         };
       }
 
@@ -284,11 +315,89 @@ describe('connect user product access routes', () => {
         provider: 'gumroad',
         providerLabel: 'Gumroad',
         storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+        storefronts: [
+          {
+            catalogProductId: 'catalog_123',
+            provider: 'gumroad',
+            providerLabel: 'Gumroad',
+            storefrontUrl: 'https://store.test/gumroad/gumroad-ref',
+          },
+        ],
       },
       accessState: {
         hasActiveEntitlement: true,
         requiresVerification: false,
       },
+      repository: {
+        addRepoUrl:
+          'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%2Findex.json',
+        indexUrl:
+          'https://vpm.test/api/vpm/access/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/index.json',
+      },
+    });
+  });
+
+  it('returns the same durable repository URL to two entitled buyers', async () => {
+    convexQueryMock.mockImplementation(async (reference: unknown, args: unknown) => {
+      if (reference === apiMock.packageRegistry.getBuyerAccessContextByCatalogProductId) {
+        return {
+          catalogProductId: 'catalog_123',
+          creatorAuthUserId: 'creator-auth-user',
+          packageId: 'com.yucp.avatar-bundle',
+          productId: 'product_123',
+          provider: 'gumroad',
+          providerProductRef: 'gumroad-ref',
+          displayName: 'Avatar Bundle',
+          status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
+        };
+      }
+      if (reference === apiMock.entitlements.listByAuthUser) {
+        const authUserId = (args as { authUserId?: string }).authUserId;
+        expect(['buyer-one', 'buyer-two']).toContain(String(authUserId));
+        return {
+          data: [{ id: `entitlement-${authUserId}`, catalogProductId: 'catalog_123' }],
+          hasMore: false,
+        };
+      }
+      if (reference === apiMock.creatorVpmLinks.getActiveForPackageAccess) {
+        return {
+          catalogProductId: 'catalog_123',
+          createdAt: 1_700_000_000_000,
+          linkId: 'S'.repeat(43),
+          packageId: 'com.yucp.avatar-bundle',
+          status: 'active',
+        };
+      }
+      throw new Error(`Unexpected query reference: ${String(reference)}`);
+    });
+
+    const first = await createRoutes({}, 'buyer-one').getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+    const second = await createRoutes({}, 'buyer-two').getBuyerProductAccess(
+      new Request('http://localhost:3001/api/connect/user/product-access/catalog_123'),
+      'catalog_123'
+    );
+    const firstBody = (await first.json()) as { repository: unknown };
+    const secondBody = (await second.json()) as { repository: unknown };
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(firstBody.repository).toEqual(secondBody.repository);
+    expect(firstBody.repository).toEqual({
+      addRepoUrl:
+        'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
+      indexUrl:
+        'https://vpm.test/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
     });
   });
 
@@ -310,6 +419,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -357,6 +474,14 @@ describe('connect user product access routes', () => {
           displayName: 'Avatar Bundle',
           canonicalSlug: 'avatar-bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'creator-scoped-catalog-product',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -430,6 +555,14 @@ describe('connect user product access routes', () => {
           canonicalSlug: 'avatar-bundle',
           thumbnailUrl: 'https://cdn.test/avatar.png',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
       if (reference === apiMock.entitlements.listByAuthUser) {
@@ -503,6 +636,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -701,6 +842,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'gumroad-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'gumroad',
+              providerProductRef: 'gumroad-ref',
+            },
+          ],
         };
       }
 
@@ -761,6 +910,14 @@ describe('connect user product access routes', () => {
           providerProductRef: 'lemonsqueezy-ref',
           displayName: 'Avatar Bundle',
           status: 'active',
+          storefronts: [
+            {
+              catalogProductId: 'catalog_123',
+              productId: 'product_123',
+              provider: 'lemonsqueezy',
+              providerProductRef: 'lemonsqueezy-ref',
+            },
+          ],
         };
       }
 

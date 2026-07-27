@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createWriteStream } from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
@@ -18,8 +18,22 @@ import {
 } from '../storage-core/canonicalizer';
 import { type CasConfig, loadCasConfig } from '../storage-core/config';
 import { type S3CasStore, s3CasStore, verifyDesyncCli } from '../storage-core/desyncCas';
+import { sha256File } from '../storage-core/desyncPackingTestSupport';
+import { prepareInstallablePackageTree } from '../storage-core/installablePackageTree';
+import { normalizePackageArtifact } from '../storage-core/packageNormalizer';
 import { resolveGnuArchiveTools, runCommand } from '../storage-core/process';
-import { createS3Bucket, listS3Objects } from '../storage-core/s3Control';
+import {
+  ACTIVE_PROTECTION_POLICY_ID,
+  type ClassifiedPackageFile,
+  classifyPackageFiles,
+} from '../storage-core/protectionPolicy';
+import { createLogicalReleaseRootV4 } from '../storage-core/releasePublication';
+import { createS3Bucket, listS3Objects, listS3ObjectVersions } from '../storage-core/s3Control';
+import {
+  createPeakMeasurementLifecycle,
+  type PeakMeasurementLifecycle,
+  runMeasuredResourceLifecycle,
+} from '../testing/measuredResourceLifecycle';
 import { waitForMinioReady } from '../testing/minioReadiness';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { ingestVersion, promoteVersion, retrieveVersion } from './ingestPipeline';
@@ -50,21 +64,39 @@ type CommandResult = {
 };
 
 type TestResources = {
-  casConfig?: CasConfig;
+  casConfigs?: {
+    common: CasConfig;
+    metadata: CasConfig;
+    protected: CasConfig;
+  };
   catalog?: Catalog;
   containers: Set<string>;
   scratchPath?: string;
   sql?: CatalogDatabase;
-  store?: S3CasStore;
+  stores?: {
+    commonStore: S3CasStore;
+    metadataStore: S3CasStore;
+    protectedStore: S3CasStore;
+  };
   volumes: Set<string>;
 };
 
 type AcceptanceMetrics = {
   canonicalBytes: number;
   inputArtifactBytes: number;
+  v1CommonChunkBytes: number;
+  v1CommonChunkVersions: number;
   v1ChunkBytes: number;
+  v1ProtectedChunkBytes: number;
+  v1ProtectedChunkVersions: number;
   v2DeltaBytes: number;
   v2DeltaChunks: number;
+};
+
+type PreparedAcceptanceTree = {
+  commonPaths: readonly string[];
+  files: ReadonlyArray<Omit<ClassifiedPackageFile, 'path'>>;
+  protectedPaths: readonly string[];
 };
 
 function acceptSizeBytes(): number {
@@ -99,7 +131,12 @@ function startRssSampler(): { stop: () => number } {
 
 async function directoryBytes(path: string): Promise<number> {
   let total = 0;
-  const entries = await readdir(path, { withFileTypes: true });
+  const entries = await readdir(path, { withFileTypes: true }).catch((error: unknown) => {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  });
   for (const entry of entries) {
     const entryPath = join(path, entry.name);
     if (entry.isDirectory()) {
@@ -205,8 +242,8 @@ async function cleanup(resources: TestResources): Promise<void> {
   const activeSql = resources.sql;
   resources.sql = undefined;
   resources.catalog = undefined;
-  resources.casConfig = undefined;
-  resources.store = undefined;
+  resources.casConfigs = undefined;
+  resources.stores = undefined;
 
   try {
     await activeSql?.end({ timeout: 1 });
@@ -329,15 +366,27 @@ async function setup(resources: TestResources, sizeBytes: number): Promise<void>
   );
   await runCatalogMigrations(resources.sql);
   resources.catalog = new Catalog(resources.sql);
-  resources.casConfig = loadCasConfig({
-    CAS_S3_ENDPOINT: minioEndpoint,
-    CAS_S3_REGION: 'us-east-1',
-    CAS_S3_BUCKET: `pipeline-accept-5gb-${runId}`,
-    CAS_S3_ACCESS_KEY_ID: accessKeyId,
-    CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
-  });
-  await createS3Bucket(resources.casConfig);
-  resources.store = s3CasStore(resources.casConfig);
+  const createRoleConfig = (role: 'common' | 'metadata' | 'protected') =>
+    loadCasConfig({
+      CAS_S3_ENDPOINT: minioEndpoint,
+      CAS_S3_REGION: 'us-east-1',
+      CAS_S3_BUCKET: `pipeline-accept-5gb-${runId}-${role}`,
+      CAS_S3_ACCESS_KEY_ID: accessKeyId,
+      CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
+    });
+  resources.casConfigs = {
+    common: createRoleConfig('common'),
+    metadata: createRoleConfig('metadata'),
+    protected: createRoleConfig('protected'),
+  };
+  for (const config of Object.values(resources.casConfigs)) {
+    await createS3Bucket(config);
+  }
+  resources.stores = {
+    commonStore: s3CasStore(resources.casConfigs.common),
+    metadataStore: s3CasStore(resources.casConfigs.metadata),
+    protectedStore: s3CasStore(resources.casConfigs.protected),
+  };
 }
 
 function* zeroChunks(byteLength: number): Generator<Buffer> {
@@ -430,12 +479,132 @@ async function createUnityPackage(sourcePath: string, outputPath: string): Promi
   );
 }
 
-async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(filePath)) {
-    hash.update(chunk);
+async function exactChunkInventory(config: CasConfig): Promise<{
+  bytes: number;
+  keys: Set<string>;
+  objects: number;
+  versions: number;
+}> {
+  const [objects, versions] = await Promise.all([
+    listS3Objects(config, config.chunkPrefix),
+    listS3ObjectVersions(config, config.chunkPrefix),
+  ]);
+  const physicalVersions = versions.filter((version) => !version.deleteMarker);
+  expect(objects.length).toBeGreaterThan(0);
+  expect(physicalVersions.length).toBe(objects.length);
+  expect(new Set(physicalVersions.map((version) => version.key)).size).toBe(
+    physicalVersions.length
+  );
+  expect(
+    physicalVersions.every(
+      (version) => version.versionId.trim() && version.versionId.trim() !== 'null'
+    )
+  ).toBeTrue();
+  expect(objects.map((object) => object.key).sort()).toEqual(
+    physicalVersions.map((version) => version.key).sort()
+  );
+  return {
+    bytes: objects.reduce((total, object) => total + object.size, 0),
+    keys: new Set(objects.map((object) => object.key)),
+    objects: objects.length,
+    versions: physicalVersions.length,
+  };
+}
+
+async function prepareExpectedTree(input: {
+  inputPath: string;
+  outputRoot: string;
+  packageId: string;
+}): Promise<PreparedAcceptanceTree> {
+  const normalized = await normalizePackageArtifact(input);
+  const prepared = await prepareInstallablePackageTree(normalized.files);
+  const classified = classifyPackageFiles({
+    files: prepared.files,
+    policyId: ACTIVE_PROTECTION_POLICY_ID,
+  });
+  const files = classified.files.map(
+    ({ bytes, classification, materializerType, normalizedPath, sha256 }) => ({
+      bytes,
+      classification,
+      ...(materializerType ? { materializerType } : {}),
+      normalizedPath,
+      sha256,
+    })
+  );
+  const commonPaths = files
+    .filter((file) => file.classification === 'common')
+    .map((file) => file.normalizedPath);
+  const protectedPaths = files
+    .filter((file) => file.classification === 'protected')
+    .map((file) => file.normalizedPath);
+  const protectedPathSet = new Set(protectedPaths);
+  expect(commonPaths.length).toBeGreaterThan(0);
+  expect(protectedPaths.length).toBeGreaterThan(0);
+  expect(commonPaths.filter((path) => protectedPathSet.has(path))).toEqual([]);
+  return Object.freeze({
+    commonPaths: Object.freeze(commonPaths),
+    files: Object.freeze(files.map((file) => Object.freeze(file))),
+    protectedPaths: Object.freeze(protectedPaths),
+  });
+}
+
+async function releaseScratchResources(input: {
+  measurement: PeakMeasurementLifecycle;
+  paths: readonly string[];
+  scratchRoot: string;
+}): Promise<void> {
+  const scratchRoot = resolve(input.scratchRoot);
+  const paths = input.paths.map((path) => {
+    const resolved = resolve(path);
+    const relativePath = relative(scratchRoot, resolved);
+    if (
+      !relativePath ||
+      relativePath === '..' ||
+      relativePath.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)
+    ) {
+      throw new Error(`Refusing to release a phase resource outside scratch: ${resolved}`);
+    }
+    return resolved;
+  });
+  await input.measurement.releaseResources(async () => {
+    for (const path of paths) {
+      await rm(path, { force: true, recursive: true });
+    }
+  });
+}
+
+async function logicalTreePaths(root: string): Promise<string[]> {
+  const paths: string[] = [];
+  async function visit(path: string): Promise<void> {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      const entryPath = join(path, entry.name);
+      if (entry.isDirectory()) {
+        await visit(entryPath);
+      } else if (entry.isFile()) {
+        paths.push(relative(root, entryPath).replaceAll('\\', '/'));
+      } else {
+        throw new Error(`Reconstructed logical tree contains an unsupported entry: ${entryPath}`);
+      }
+    }
   }
-  return hash.digest('hex');
+  await visit(root);
+  return paths.sort();
+}
+
+async function assertReconstructedTree(
+  root: string,
+  prepared: PreparedAcceptanceTree
+): Promise<number> {
+  const expectedPaths = prepared.files.map((file) => file.normalizedPath).sort();
+  expect(await logicalTreePaths(root)).toEqual(expectedPaths);
+  let bytes = 0;
+  for (const file of prepared.files) {
+    const reconstructedPath = join(root, ...file.normalizedPath.split('/'));
+    expect((await stat(reconstructedPath)).size).toBe(file.bytes);
+    expect(await sha256File(reconstructedPath)).toBe(file.sha256);
+    bytes += file.bytes;
+  }
+  return bytes;
 }
 
 function requireResource<T>(value: T | undefined, name: string): T {
@@ -474,29 +643,43 @@ async function ingestWithoutFalseBomb(
 
 async function runAcceptance(
   resources: TestResources,
-  sizeBytes: number
+  sizeBytes: number,
+  measurement: PeakMeasurementLifecycle
 ): Promise<AcceptanceMetrics> {
   const scratchPath = requireResource(resources.scratchPath, 'scratch path');
   const catalog = requireResource(resources.catalog, 'catalog');
   const sql = requireResource(resources.sql, 'database');
-  const config = requireResource(resources.casConfig, 'CAS config');
-  const store = requireResource(resources.store, 'CAS store');
+  const configs = requireResource(resources.casConfigs, 'CAS configs');
   const stores = {
-    commonStore: store,
-    metadataStore: store,
-    protectedStore: store,
+    ...requireResource(resources.stores, 'CAS stores'),
+    scratchRoot: scratchPath,
   };
-  const fixturePath = join(scratchPath, 'fixture');
+  const fixtureV1Path = join(scratchPath, 'fixture-v1');
+  const fixtureV2Path = join(scratchPath, 'fixture-v2');
   const rawV1Path = join(scratchPath, 'artifact-v1.unitypackage');
   const rawV2Path = join(scratchPath, 'artifact-v2.unitypackage');
+  const expectedV1Path = join(scratchPath, 'expected-v1');
+  const expectedV2Path = join(scratchPath, 'expected-v2');
 
-  await mkdir(fixturePath);
-  const versionedAssetPath = await createFixtureTree(fixturePath, sizeBytes);
-  await createUnityPackage(fixturePath, rawV1Path);
-  await writeFile(versionedAssetPath, 'version=0002\n');
-  await createUnityPackage(fixturePath, rawV2Path);
-  await rm(fixturePath, { force: true, recursive: true });
+  await mkdir(fixtureV1Path);
+  await createFixtureTree(fixtureV1Path, sizeBytes);
+  await createUnityPackage(fixtureV1Path, rawV1Path);
+  await releaseScratchResources({
+    measurement,
+    paths: [fixtureV1Path],
+    scratchRoot: scratchPath,
+  });
   const inputArtifactBytes = (await stat(rawV1Path)).size;
+  const expectedV1 = await prepareExpectedTree({
+    inputPath: rawV1Path,
+    outputRoot: expectedV1Path,
+    packageId: 'pipeline-accept-5gb',
+  });
+  await releaseScratchResources({
+    measurement,
+    paths: [expectedV1Path],
+    scratchRoot: scratchPath,
+  });
 
   const assembledV1 = await ingestWithoutFalseBomb(
     {
@@ -504,29 +687,53 @@ async function runAcceptance(
       creatorId: 'creator-accept-5gb',
       inputPath: rawV1Path,
       packageId: 'pipeline-accept-5gb',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.0.0',
     },
     inputArtifactBytes
   );
-  await rm(rawV1Path, { force: true });
+  await releaseScratchResources({
+    measurement,
+    paths: [rawV1Path],
+    scratchRoot: scratchPath,
+  });
   expect(assembledV1.state).toBe('ASSEMBLED');
   const v1CanonicalSha256 = assembledV1.releaseRoot;
   if (!v1CanonicalSha256) {
     throw new Error('Assembled v1 did not persist its canonical SHA-256');
   }
-  expect(v1CanonicalSha256).toMatch(/^[0-9a-f]{64}$/);
+  const expectedV1Root = createLogicalReleaseRootV4({
+    files: [...expectedV1.files],
+    packageId: assembledV1.packageId,
+    version: assembledV1.version,
+    versionId: assembledV1.id,
+  });
+  expect(expectedV1Root.releaseRoot).toBe(v1CanonicalSha256);
 
-  const afterV1 = await listS3Objects(config, config.chunkPrefix);
-  const v1ChunkBytes = afterV1.reduce((total, object) => total + object.size, 0);
-  expect(afterV1.length).toBeGreaterThan(1);
+  const [afterV1Common, afterV1Protected] = await Promise.all([
+    exactChunkInventory(configs.common),
+    exactChunkInventory(configs.protected),
+  ]);
+  const v1ChunkBytes = afterV1Common.bytes + afterV1Protected.bytes;
+  const v1ChunkObjects = afterV1Common.objects + afterV1Protected.objects;
+  expect(afterV1Common.objects).toBeGreaterThan(0);
+  expect(afterV1Protected.objects).toBeGreaterThan(0);
+  expect(v1ChunkObjects).toBeGreaterThan(1);
+  expect([...afterV1Common.keys].filter((key) => afterV1Protected.keys.has(key))).toEqual([]);
   const readyV1 = await promoteVersion({
     catalog,
     ...stores,
     versionId: assembledV1.id,
   });
   expect(readyV1.state).toBe('READY');
+  expect(readyV1.releaseRoot).toBe(expectedV1Root.releaseRoot);
+  expect(readyV1.commonRoot).toBe(expectedV1Root.commonRoot);
+  expect(readyV1.protectedSourceRoot).toBe(expectedV1Root.protectedSourceRoot);
+  const readyV1LogicalBytes = readyV1.logicalBytes;
+  if (readyV1LogicalBytes === null) {
+    throw new Error('Ready v1 did not persist its logical byte count');
+  }
   expect(await eventTypes(sql, readyV1.id)).toEqual([
     'catalog.version.created',
     'catalog.version.uploading',
@@ -537,13 +744,37 @@ async function runAcceptance(
 
   const retrievedV1Path = await retrieveVersion({
     catalog,
-    outputPath: join(scratchPath, 'retrieved-v1.unitypackage'),
+    outputPath: join(scratchPath, 'retrieved-v1'),
     ...stores,
     versionId: readyV1.id,
   });
-  expect(await sha256File(retrievedV1Path)).toBe(v1CanonicalSha256);
-  const canonicalBytes = (await stat(retrievedV1Path)).size;
-  await rm(retrievedV1Path, { force: true });
+  const canonicalBytes = await assertReconstructedTree(retrievedV1Path, expectedV1);
+  expect(canonicalBytes).toBe(readyV1LogicalBytes);
+  await releaseScratchResources({
+    measurement,
+    paths: [retrievedV1Path],
+    scratchRoot: scratchPath,
+  });
+
+  await mkdir(fixtureV2Path);
+  const versionedAssetPath = await createFixtureTree(fixtureV2Path, sizeBytes);
+  await writeFile(versionedAssetPath, 'version=0002\n');
+  await createUnityPackage(fixtureV2Path, rawV2Path);
+  await releaseScratchResources({
+    measurement,
+    paths: [fixtureV2Path],
+    scratchRoot: scratchPath,
+  });
+  const expectedV2 = await prepareExpectedTree({
+    inputPath: rawV2Path,
+    outputRoot: expectedV2Path,
+    packageId: 'pipeline-accept-5gb',
+  });
+  await releaseScratchResources({
+    measurement,
+    paths: [expectedV2Path],
+    scratchRoot: scratchPath,
+  });
 
   const assembledV2 = await ingestWithoutFalseBomb(
     {
@@ -551,24 +782,40 @@ async function runAcceptance(
       creatorId: 'creator-accept-5gb',
       inputPath: rawV2Path,
       packageId: 'pipeline-accept-5gb',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '2.0.0',
     },
     (await stat(rawV2Path)).size
   );
-  await rm(rawV2Path, { force: true });
+  await releaseScratchResources({
+    measurement,
+    paths: [rawV2Path],
+    scratchRoot: scratchPath,
+  });
   expect(assembledV2.state).toBe('ASSEMBLED');
   const v2CanonicalSha256 = assembledV2.releaseRoot;
   if (!v2CanonicalSha256) {
     throw new Error('Assembled v2 did not persist its canonical SHA-256');
   }
-  expect(v2CanonicalSha256).not.toBe(v1CanonicalSha256);
+  const expectedV2Root = createLogicalReleaseRootV4({
+    files: [...expectedV2.files],
+    packageId: assembledV2.packageId,
+    version: assembledV2.version,
+    versionId: assembledV2.id,
+  });
+  expect(expectedV2Root.releaseRoot).toBe(v2CanonicalSha256);
+  expect(expectedV2Root.releaseRoot).not.toBe(expectedV1Root.releaseRoot);
 
-  const afterV2 = await listS3Objects(config, config.chunkPrefix);
-  const v2ChunkBytes = afterV2.reduce((total, object) => total + object.size, 0);
+  const [afterV2Common, afterV2Protected] = await Promise.all([
+    exactChunkInventory(configs.common),
+    exactChunkInventory(configs.protected),
+  ]);
+  const v2ChunkBytes = afterV2Common.bytes + afterV2Protected.bytes;
+  const v2ChunkObjects = afterV2Common.objects + afterV2Protected.objects;
+  expect([...afterV2Common.keys].filter((key) => afterV2Protected.keys.has(key))).toEqual([]);
   const v2DeltaBytes = v2ChunkBytes - v1ChunkBytes;
-  const v2DeltaChunks = afterV2.length - afterV1.length;
+  const v2DeltaChunks = v2ChunkObjects - v1ChunkObjects;
   expect(v2DeltaBytes).toBeGreaterThan(0);
   expect(v2DeltaBytes).toBeLessThan(v1ChunkBytes / 10);
   expect(v2DeltaChunks).toBeGreaterThan(0);
@@ -579,6 +826,13 @@ async function runAcceptance(
     versionId: assembledV2.id,
   });
   expect(readyV2.state).toBe('READY');
+  expect(readyV2.releaseRoot).toBe(expectedV2Root.releaseRoot);
+  expect(readyV2.commonRoot).toBe(expectedV2Root.commonRoot);
+  expect(readyV2.protectedSourceRoot).toBe(expectedV2Root.protectedSourceRoot);
+  const readyV2LogicalBytes = readyV2.logicalBytes;
+  if (readyV2LogicalBytes === null) {
+    throw new Error('Ready v2 did not persist its logical byte count');
+  }
   expect(await eventTypes(sql, readyV2.id)).toEqual([
     'catalog.version.created',
     'catalog.version.uploading',
@@ -588,14 +842,28 @@ async function runAcceptance(
   ]);
   const retrievedV2Path = await retrieveVersion({
     catalog,
-    outputPath: join(scratchPath, 'retrieved-v2.unitypackage'),
+    outputPath: join(scratchPath, 'retrieved-v2'),
     ...stores,
     versionId: readyV2.id,
   });
-  expect(await sha256File(retrievedV2Path)).toBe(v2CanonicalSha256);
-  await rm(retrievedV2Path, { force: true });
+  expect(await assertReconstructedTree(retrievedV2Path, expectedV2)).toBe(readyV2LogicalBytes);
+  await releaseScratchResources({
+    measurement,
+    paths: [retrievedV2Path],
+    scratchRoot: scratchPath,
+  });
 
-  return { canonicalBytes, inputArtifactBytes, v1ChunkBytes, v2DeltaBytes, v2DeltaChunks };
+  return {
+    canonicalBytes,
+    inputArtifactBytes,
+    v1ChunkBytes,
+    v1CommonChunkBytes: afterV1Common.bytes,
+    v1CommonChunkVersions: afterV1Common.versions,
+    v1ProtectedChunkBytes: afterV1Protected.bytes,
+    v1ProtectedChunkVersions: afterV1Protected.versions,
+    v2DeltaBytes,
+    v2DeltaChunks,
+  };
 }
 
 describe.serial('5 GiB bounded-memory ingest and delivery acceptance', () => {
@@ -604,56 +872,49 @@ describe.serial('5 GiB bounded-memory ingest and delivery acceptance', () => {
     const resources: TestResources = { containers: new Set(), volumes: new Set() };
     const rssSampler = startRssSampler();
     const startedAt = performance.now();
-    let metrics: AcceptanceMetrics | undefined;
-    let peakScratchBytes = 0;
-    let scratchSampler: ReturnType<typeof startScratchSampler> | undefined;
-    let runError: unknown;
-    let cleanupError: unknown;
+    let scratchMeasurement: PeakMeasurementLifecycle | undefined;
+    let lifecycle:
+      | {
+          measurement: number;
+          result: AcceptanceMetrics;
+        }
+      | undefined;
+    let lifecycleError: unknown;
 
     try {
-      await setup(resources, sizeBytes);
-      scratchSampler = startScratchSampler(requireResource(resources.scratchPath, 'scratch path'));
-      metrics = await runAcceptance(resources, sizeBytes);
+      lifecycle = await runMeasuredResourceLifecycle({
+        cleanup: () => cleanup(resources),
+        run: async () => {
+          await setup(resources, sizeBytes);
+          const scratchPath = requireResource(resources.scratchPath, 'scratch path');
+          scratchMeasurement = createPeakMeasurementLifecycle(() =>
+            startScratchSampler(scratchPath)
+          );
+          return runAcceptance(resources, sizeBytes, scratchMeasurement);
+        },
+        stopMeasurement: async () => (await scratchMeasurement?.stop()) ?? 0,
+      });
     } catch (error) {
-      runError = error;
-    }
-
-    try {
-      peakScratchBytes = (await scratchSampler?.stop()) ?? 0;
-    } catch (error) {
-      runError =
-        runError === undefined
-          ? error
-          : new AggregateError([runError, error], 'Acceptance run and measurement both failed');
-    }
-
-    try {
-      await cleanup(resources);
-    } catch (error) {
-      cleanupError = error;
+      lifecycleError = error;
     }
 
     const peakRssBytes = rssSampler.stop();
     const wallTimeSeconds = (performance.now() - startedAt) / 1000;
-    if (runError !== undefined && cleanupError !== undefined) {
-      throw new AggregateError([runError, cleanupError], 'Acceptance run and cleanup both failed');
+    if (lifecycleError !== undefined) {
+      throw lifecycleError;
     }
-    if (runError !== undefined) {
-      throw runError;
-    }
-    if (cleanupError !== undefined) {
-      throw cleanupError;
-    }
-    if (!metrics) {
+    if (!lifecycle) {
       throw new Error('Acceptance run completed without metrics');
     }
+    const metrics = lifecycle.result;
+    const peakScratchBytes = lifecycle.measurement;
 
     expect(peakRssBytes).toBeLessThan(MAX_ORCHESTRATOR_RSS_BYTES);
     expect(peakScratchBytes).toBeGreaterThanOrEqual(metrics.inputArtifactBytes);
     expect(peakScratchBytes).toBeLessThan(MAX_JOB_SCRATCH_BYTES);
     const processUsage = process.resourceUsage();
     console.log(
-      `ACCEPT_5GB_RESULT requestedBytes=${sizeBytes} inputArtifactBytes=${metrics.inputArtifactBytes} canonicalBytes=${metrics.canonicalBytes} byte-exact=true peakRssBytes=${peakRssBytes} peakRssMiB=${(peakRssBytes / MIB).toFixed(1)} memoryBoundBytes=${MAX_ORCHESTRATOR_RSS_BYTES} peakScratchBytes=${peakScratchBytes} peakScratchGiB=${formatGib(peakScratchBytes)} scratchBoundBytes=${MAX_JOB_SCRATCH_BYTES} userCpuMicros=${processUsage.userCPUTime} systemCpuMicros=${processUsage.systemCPUTime} decompression-budget-ok=true decompressionBudgetBytes=${DEFAULT_MAX_DECOMPRESSED_BYTES} v1ChunkBytes=${metrics.v1ChunkBytes} v2DeltaChunks=${metrics.v2DeltaChunks} v2DedupDeltaBytes=${metrics.v2DeltaBytes} wallTimeSeconds=${wallTimeSeconds.toFixed(1)} cleanup=complete`
+      `ACCEPT_5GB_RESULT requestedBytes=${sizeBytes} inputArtifactBytes=${metrics.inputArtifactBytes} canonicalBytes=${metrics.canonicalBytes} byte-exact=true protectionPolicy=${ACTIVE_PROTECTION_POLICY_ID} peakRssBytes=${peakRssBytes} peakRssMiB=${(peakRssBytes / MIB).toFixed(1)} memoryBoundBytes=${MAX_ORCHESTRATOR_RSS_BYTES} peakScratchBytes=${peakScratchBytes} peakScratchGiB=${formatGib(peakScratchBytes)} scratchBoundBytes=${MAX_JOB_SCRATCH_BYTES} userCpuMicros=${processUsage.userCPUTime} systemCpuMicros=${processUsage.systemCPUTime} decompression-budget-ok=true decompressionBudgetBytes=${DEFAULT_MAX_DECOMPRESSED_BYTES} v1ChunkBytes=${metrics.v1ChunkBytes} v1CommonChunkBytes=${metrics.v1CommonChunkBytes} v1CommonChunkVersions=${metrics.v1CommonChunkVersions} v1ProtectedChunkBytes=${metrics.v1ProtectedChunkBytes} v1ProtectedChunkVersions=${metrics.v1ProtectedChunkVersions} v2DeltaChunks=${metrics.v2DeltaChunks} v2DedupDeltaBytes=${metrics.v2DeltaBytes} wallTimeSeconds=${wallTimeSeconds.toFixed(1)} cleanup=complete`
     );
   });
 });

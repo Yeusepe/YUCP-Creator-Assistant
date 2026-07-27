@@ -36,7 +36,7 @@ function TermsOfServicePage() {
           </div>
           <p className="text-base sm:text-xl opacity-70 leading-relaxed font-medium">
             <strong>Effective date:</strong> March 4, 2026 &nbsp;|&nbsp;{' '}
-            <strong>Last updated:</strong> March 6, 2026
+            <strong>Last updated:</strong> July 26, 2026
           </p>
         </header>
 
@@ -46,14 +46,18 @@ function TermsOfServicePage() {
               These Terms of Service (the &quot;Terms&quot;) govern access to and use of the Creator
               Assistant services, including our websites, setup pages, dashboards, APIs, webhook
               endpoints, Discord® bot (slash commands, verification flows, Liened Downloads,
-              collaborator sharing), Unity® runtime integration, and any related software, features,
-              and content that link to these Terms (collectively, the &quot;Service&quot;). The
-              Service is operated by <strong>Creator Assistant</strong> (&quot;we&quot;,
-              &quot;us&quot;, or &quot;our&quot;).
+              collaborator sharing), package storage and delivery, device attestation, attribution
+              review, Unity® importer integration, and related software. These features form the
+              &quot;Service&quot;. <strong>Creator Assistant</strong> operates the Service.
             </p>
             <p className="leading-relaxed">
               By accessing, installing, connecting, configuring, or using the Service, you agree to
               these Terms. If you do not agree, you must not use the Service.
+            </p>
+            <p className="leading-relaxed mt-4">
+              Our public{' '}
+              <a href="/legal/verification-and-attestation">Verification and Attestation Notice</a>{' '}
+              explains the buyer-facing package flow.
             </p>
             <p
               className="leading-relaxed mt-4 p-4 rounded-xl"
@@ -153,6 +157,23 @@ function TermsOfServicePage() {
               <li>
                 <strong>&quot;Event Logs&quot;</strong> means operational, audit, security, sync,
                 and troubleshooting records generated in connection with the Service.
+              </li>
+              <li>
+                <strong>&quot;Attestation Evidence&quot;</strong> means hashed device, operating
+                system, network, payment, license, or linked-account signals used for a supported
+                security check.
+              </li>
+              <li>
+                <strong>&quot;Attribution Record&quot;</strong> means a pseudonymous record that
+                links an authorized buyer, product, release, and protected output.
+              </li>
+              <li>
+                <strong>&quot;Package Release&quot;</strong> means the signed logical file tree,
+                metadata, and storage references published for a Creator&apos;s package version.
+              </li>
+              <li>
+                <strong>&quot;Protected Output&quot;</strong> means a supported file that the
+                Service prepares for an authorized buyer with verifiable attribution.
               </li>
               <li>
                 <strong>&quot;Provider Credentials&quot;</strong> means access tokens, refresh
@@ -641,6 +662,10 @@ function TermsOfServicePage() {
               <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Section 10</span>
               <h2 className="text-2xl">Creator and Admin Responsibilities</h2>
             </div>
+            <p>
+              Creator responsibilities are YUCP contract requirements. Applicable law can impose
+              different or additional duties.
+            </p>
             <p>If you are a Creator or Admin, you are solely responsible for:</p>
             <ul>
               <li>deciding whether to use the Service in a Server or product community</li>
@@ -676,6 +701,25 @@ function TermsOfServicePage() {
                 and in compliance with your community rules
               </li>
             </ul>
+            <p>
+              Legal sources:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/legal-grounds-processing-data_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission legal grounds guide
+              </a>{' '}
+              and{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/principles-gdpr/what-information-must-be-given-individuals-whose-data-collected_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission notice guide
+              </a>
+              .
+            </p>
             <p>
               You understand that a misconfiguration by a Creator or Admin can lead to mistaken role
               grants, missed role grants, revoked access, duplicate verification outcomes, or
@@ -1203,11 +1247,93 @@ function TermsOfServicePage() {
             </ul>
           </div>
 
+          <div id="creator-package-terms" className="legal-card rounded-2xl p-5 sm:p-8">
+            <div className="section-header">
+              <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Package Terms</span>
+              <h2 className="text-2xl">Package Delivery and Attribution</h2>
+            </div>
+            <h4>Creator instructions and content rights</h4>
+            <p>
+              A Creator instructs the Service to receive, inspect, normalize, store, protect, and
+              deliver submitted package content.
+            </p>
+            <p>
+              The Creator grants us a limited license to perform those actions for Service
+              operation. This license ends when our continuing storage grounds end.
+            </p>
+            <p>
+              These are YUCP contract requirements. They are product rules, not a summary of all
+              duties under applicable law.
+            </p>
+            <ul>
+              <li>
+                The Creator must have the rights needed to submit every package file and metadata
+                item.
+              </li>
+              <li>
+                The Creator must map each release, edition, tier, and provider product accurately.
+              </li>
+              <li>
+                The Creator must review executable content notices and package policy results.
+              </li>
+              <li>
+                The Creator must not use verification or attribution data for an unrelated purpose.
+              </li>
+            </ul>
+
+            <h4>Buyer verification and protected output</h4>
+            <p>
+              A buyer instructs the Service to check the selected purchase or license evidence. A
+              supported client can also submit Attestation Evidence.
+            </p>
+            <p>
+              The Service can bind package access to the buyer, product, release, device proof, and
+              installation session. Protected Outputs can contain verifiable buyer attribution.
+            </p>
+            <p>
+              A buyer must not bypass access controls, substitute another device proof, remove
+              attribution, reuse an expired authorization, or modify a protected delivery record.
+            </p>
+
+            <h4>Release changes and deletion</h4>
+            <p>
+              A Creator can publish, replace, withdraw, or delete a Package Release. Deletion can
+              wait for active references, retention controls, recovery checks, or legal duties.
+            </p>
+            <p>
+              Shared content can remain while another Package Release still references it.
+              Unreferenced content can become eligible for permanent cleanup.
+            </p>
+
+            <h4>Buyer notice</h4>
+            <p>
+              Creators can link the public{' '}
+              <a href="/legal/verification-and-attestation">Verification and Attestation Notice</a>{' '}
+              from a storefront or product page.
+            </p>
+            <p>
+              That notice covers the YUCP flow. It does not replace a Creator&apos;s privacy notice
+              or a required controller-processor agreement.
+            </p>
+            <p>
+              A Creator must add each disclosure required for the Creator&apos;s separate processing
+              choices.
+            </p>
+            <p>
+              Transparency source:{' '}
+              <a
+                href="https://commission.europa.eu/law/law-topic/data-protection/information-business-and-organisations/principles-gdpr/what-information-must-be-given-individuals-whose-data-collected_en"
+                target="_blank"
+                rel="noreferrer"
+              >
+                European Commission notice guidance
+              </a>
+              . Data details: <a href="/legal/privacy-policy#package-delivery">Privacy Policy</a>.
+            </p>
+          </div>
+
           {/* Appendix A */}
-          <div
-            id="appendix-a"
-            className="legal-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#0ea5e9]"
-          >
+          <div id="appendix-a" className="legal-card rounded-2xl p-5 sm:p-8">
             <div className="section-header">
               <span className="section-tag bg-[#0ea5e9]/10 text-[#0ea5e9]">Appendix A</span>
               <h2 className="text-2xl">Creator Specific Terms</h2>
@@ -1270,10 +1396,7 @@ function TermsOfServicePage() {
           </div>
 
           {/* Appendix B */}
-          <div
-            id="appendix-b"
-            className="legal-card rounded-2xl p-5 sm:p-8 border-l-4 border-[#00e676]"
-          >
+          <div id="appendix-b" className="legal-card rounded-2xl p-5 sm:p-8">
             <div className="section-header">
               <span className="section-tag bg-[#00e676]/10 text-[#00e676]">Appendix B</span>
               <h2 className="text-2xl">End User Verification Terms</h2>

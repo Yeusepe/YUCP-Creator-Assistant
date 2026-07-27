@@ -16,16 +16,16 @@ describe('public API rate-limit wiring', () => {
       "if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes)"
     );
     const vpmLimiterIndex = source.indexOf("if (pathname.startsWith('/api/vpm/'))");
-    const vpmDispatchIndex = source.indexOf(
-      "if (pathname === '/api/vpm/repo-token' && vpmRoutes)"
-    );
+    const vpmDispatchIndex = source.indexOf('const creatorVpmIndexMatch =');
 
     expect(uploadLimiterIndex).toBeGreaterThan(-1);
     expect(uploadDispatchIndex).toBeGreaterThan(uploadLimiterIndex);
-    expect(source).toContain("isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)");
+    expect(source).toContain(
+      'isRateLimited(`creator-upload-authorize:${clientAddress}`, 30, 60_000)'
+    );
     expect(vpmLimiterIndex).toBeGreaterThan(-1);
     expect(vpmDispatchIndex).toBeGreaterThan(vpmLimiterIndex);
-    expect(source).toContain("isRateLimited(`vpm:${clientAddress}`, 120, 60_000)");
+    expect(source).toContain('isRateLimited(`vpm:${clientAddress}`, 120, 60_000)');
     expect(source).not.toContain("pathname.startsWith('/api/access/')");
   });
 

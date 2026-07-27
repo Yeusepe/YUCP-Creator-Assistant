@@ -11,6 +11,7 @@ import { waitForPostgres } from '../testing/postgresReadiness';
 import { buildIngestTusRuntime, INGEST_TUS_INFISICAL_KEYS } from './server';
 
 const FETCHED_UPLOAD_HMAC_KEY = 'placeholder-fetched-upload-hmac-key';
+const FETCHED_CATALOG_CONTROL_SECRET = 'placeholder-fetched-catalog-control-secret-32-bytes';
 const RAW_UPLOAD_HMAC_KEY = 'placeholder-raw-upload-hmac-key-32';
 const FETCHED_ALLOWED_ORIGIN = 'https://fetched-app.example.test';
 const RAW_ALLOWED_ORIGIN = 'https://raw-app.example.test';
@@ -20,7 +21,7 @@ const databaseName = 'ingest_tus_runtime_test';
 const schedulerDatabaseName = 'scheduler_runtime_test';
 const databasePassword = 'ingest-tus-runtime-test-password';
 const containerName = `yucp-ingest-tus-runtime-${randomUUID()}`;
-const storageRolePrefixes = ['COMMON', 'METADATA', 'PROTECTED'] as const;
+const storageRolePrefixes = ['COMMON', 'METADATA', 'PROTECTED', 'QUARANTINE'] as const;
 
 function storageRoleSecrets(): Record<string, string> {
   return Object.fromEntries(
@@ -166,11 +167,14 @@ afterAll(async () => {
 describe('ingest-tus production runtime', () => {
   it('constructs the ingest runtime from Infisical storage configuration', async () => {
     const uploadDir = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-runtime-test-'));
+    const scratchDir = await mkdtemp(join(tmpdir(), 'yucp-ingest-tus-scratch-test-'));
     scratchPaths.add(uploadDir);
+    scratchPaths.add(scratchDir);
     const sourceEnv = {
       INFISICAL_PROJECT_ID: 'placeholder-project-id',
       INFISICAL_CLIENT_ID: 'placeholder-client-id',
       INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
+      INGEST_SCRATCH_DIR: scratchDir,
       INGEST_UPLOAD_DIR: uploadDir,
       INGEST_MAX_BYTES: '1048576',
       INGEST_ALLOWED_ORIGIN: RAW_ALLOWED_ORIGIN,
@@ -178,6 +182,7 @@ describe('ingest-tus production runtime', () => {
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
       UPLOAD_HMAC_KEY: FETCHED_UPLOAD_HMAC_KEY,
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: FETCHED_CATALOG_CONTROL_SECRET,
       CATALOG_DATABASE_URL: requireCatalogDatabaseUrl(),
       ...storageRoleSecrets(),
       INGEST_ALLOWED_ORIGIN: FETCHED_ALLOWED_ORIGIN,
@@ -185,6 +190,7 @@ describe('ingest-tus production runtime', () => {
 
     expect(INGEST_TUS_INFISICAL_KEYS).toEqual([
       'UPLOAD_HMAC_KEY',
+      'PACKAGE_CATALOG_CONTROL_SHARED_SECRET',
       'CATALOG_DATABASE_URL',
       ...storageRolePrefixes.flatMap((prefix) => [
         `${prefix}_S3_ENDPOINT`,
@@ -246,7 +252,7 @@ describe('ingest-tus production runtime', () => {
         expiresAt: Date.now() + 60_000,
         key,
         packageId: 'com.yucp.runtime-test',
-        protectionPolicyId: 'common-only-v1',
+        protectionPolicyId: 'supported-visual-assets-v2',
         version: '1.0.0',
         versionId,
       });
@@ -254,6 +260,7 @@ describe('ingest-tus production runtime', () => {
         method: 'POST',
         headers: {
           [UPLOAD_CAPABILITY_HEADERS.creatorId]: capability.creatorId,
+          [UPLOAD_CAPABILITY_HEADERS.editionId]: capability.editionId,
           [UPLOAD_CAPABILITY_HEADERS.exp]: capability.exp,
           [UPLOAD_CAPABILITY_HEADERS.packageId]: encodeURIComponent(capability.packageId),
           [UPLOAD_CAPABILITY_HEADERS.protectionPolicyId]: capability.protectionPolicyId,
@@ -278,6 +285,7 @@ describe('ingest-tus production runtime', () => {
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
       CATALOG_DATABASE_URL: 'postgresql://placeholder.invalid/catalog',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: FETCHED_CATALOG_CONTROL_SECRET,
       ...storageRoleSecrets(),
     }));
 
@@ -287,10 +295,13 @@ describe('ingest-tus production runtime', () => {
   });
 
   it('migrates a fresh catalog before constructing the scheduler runtime', async () => {
+    const scratchDir = await mkdtemp(join(tmpdir(), 'yucp-scheduler-scratch-test-'));
+    scratchPaths.add(scratchDir);
     const sourceEnv = {
       INFISICAL_PROJECT_ID: 'placeholder-project-id',
       INFISICAL_CLIENT_ID: 'placeholder-client-id',
       INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
+      INGEST_SCRATCH_DIR: scratchDir,
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => ({
       CONVEX_API_SECRET: 'placeholder-convex-api-secret',

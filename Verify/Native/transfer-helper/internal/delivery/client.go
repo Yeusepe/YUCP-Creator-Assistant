@@ -30,6 +30,7 @@ type StageCommonConfig struct {
 	Manifest      Manifest
 	ManifestURL   string
 	PrivateKey    *ecdsa.PrivateKey
+	Progress      func(completedBytes int64, totalBytes int64) error
 }
 
 type StagedFile struct {
@@ -169,7 +170,13 @@ func StageCommonTree(ctx context.Context, cfg StageCommonConfig) (StageCommonRes
 	}); err != nil {
 		return StageCommonResult{}, err
 	}
-	return reconstructCommonTree(ctx, cacheRoot, destination, commonFiles)
+	return reconstructCommonTree(
+		ctx,
+		cacheRoot,
+		destination,
+		commonFiles,
+		cfg.Progress,
+	)
 }
 
 type chunkDownloadConfig struct {
@@ -304,6 +311,7 @@ func reconstructCommonTree(
 	cacheRoot string,
 	destination string,
 	files []File,
+	reportProgress func(completedBytes int64, totalBytes int64) error,
 ) (StageCommonResult, error) {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o700); err != nil {
@@ -327,6 +335,14 @@ func reconstructCommonTree(
 		Files:        make([]StagedFile, 0, len(files)),
 		LogicalFiles: len(files),
 	}
+	var totalBytes int64
+	for _, file := range files {
+		totalBytes += file.Bytes
+		if totalBytes < 0 {
+			_ = stageRoot.Close()
+			return StageCommonResult{}, fmt.Errorf("common logical byte count overflow")
+		}
+	}
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
 			_ = stageRoot.Close()
@@ -342,6 +358,15 @@ func reconstructCommonTree(
 			NormalizedPath: file.NormalizedPath,
 			SHA256:         file.SHA256,
 		})
+		if reportProgress != nil {
+			if err := reportProgress(result.LogicalBytes, totalBytes); err != nil {
+				_ = stageRoot.Close()
+				return StageCommonResult{}, fmt.Errorf(
+					"report common staging progress: %w",
+					err,
+				)
+			}
+		}
 	}
 	if err := stageRoot.Close(); err != nil {
 		return StageCommonResult{}, fmt.Errorf("close staging tree: %w", err)

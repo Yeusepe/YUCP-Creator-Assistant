@@ -8,6 +8,7 @@ export type StorageWriteIntentState = 'ABORTED' | 'COMMITTED' | 'ISSUED' | 'UNCE
 
 export type StorageWriteOperation = 'COPY' | 'MULTIPART_PUT' | 'PUT';
 export type PackageReleaseStorageLogicalKind =
+  | 'bootstrap-media'
   | 'chunk'
   | 'delivery-binding'
   | 'file-table'
@@ -41,7 +42,7 @@ export type StorageWriteIntent = {
   objectVersionId: string | null;
   operation: StorageWriteOperation;
   ownerId: string;
-  ownerKind: 'maintenance' | 'materialization-job' | 'package-version';
+  ownerKind: 'maintenance' | 'materialization-job' | 'package-version' | 'vpm-alias-publication';
   state: StorageWriteIntentState;
   storageDomain: string | null;
   storageRole: StorageRole;

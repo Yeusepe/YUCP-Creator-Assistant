@@ -2618,16 +2618,191 @@ const package_registry = defineTable({
   .index('by_publisher_id', ['publisherId']);
 
 /**
+ * Explicit creator-confirmed links between one package and its storefront catalog entries.
+ */
+const package_catalog_bindings = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  catalogProductId: v.id('product_catalog'),
+  status: v.union(v.literal('active'), v.literal('removed')),
+  createdAt: v.number(),
+  removedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_catalog_product_status', ['catalogProductId', 'status'])
+  .index('by_creator_catalog_status', ['creatorAuthUserId', 'catalogProductId', 'status'])
+  .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+
+/**
+ * Creator-managed public VPM repository links.
+ *
+ * The link ID is a public, unguessable identifier. It is not an authorization credential.
+ * The linked repository contains only the public importer and product bootstrap package.
+ */
+const creator_vpm_links = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  linkId: v.string(),
+  status: v.union(v.literal('active'), v.literal('revoked')),
+  createdAt: v.number(),
+  revokedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_link_id', ['linkId'])
+  .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+
+/**
+ * Mutable public presentation for one package-scoped VPM alias.
+ *
+ * Paid release versions and storefront bindings are intentionally absent.
+ */
+const package_vpm_presentations = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  channel: v.string(),
+  artifactBaseUrl: v.string(),
+  artifactBucketName: v.optional(v.string()),
+  artifactFormat: v.literal('vpm-alias-zip-v1'),
+  contractVersion: v.literal(1),
+  packageName: v.string(),
+  authorName: v.string(),
+  description: v.string(),
+  tagline: v.optional(v.string()),
+  unityVersion: v.string(),
+  importerPackage: v.literal('com.yucp.importer'),
+  minImporterVersion: v.string(),
+  media: v.array(
+    v.object({
+      bucketName: v.string(),
+      byteSize: v.number(),
+      contentType: v.literal('image/png'),
+      kind: v.union(v.literal('icon'), v.literal('banner')),
+      localPath: v.string(),
+      objectKey: v.string(),
+      providerVersion: v.string(),
+      sha256: v.string(),
+    })
+  ),
+  presentationFingerprintSha256: v.string(),
+  fingerprintInputJson: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_creator_package_channel', ['creatorAuthUserId', 'packageId', 'channel'])
+  .index('by_package_channel', ['packageId', 'channel']);
+
+/**
+ * Immutable history for published package-scoped VPM alias artifacts.
+ *
+ * PREPARING and FAILED records support retry and reconciliation.
+ * PUBLISHED records are append-only.
+ */
+const vpm_alias_publications = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  channel: v.string(),
+  publicationId: v.string(),
+  revision: v.number(),
+  bootstrapVersion: v.string(),
+  status: v.union(v.literal('PREPARING'), v.literal('PUBLISHED'), v.literal('FAILED')),
+  contractVersion: v.literal(1),
+  artifactFormat: v.literal('vpm-alias-zip-v1'),
+  fingerprintSchemaVersion: v.union(v.literal(1), v.literal(2)),
+  presentationFingerprintSha256: v.string(),
+  fingerprintInputJson: v.string(),
+  aliasPackageId: v.optional(v.string()),
+  repositoryManifestJson: v.optional(v.string()),
+  repositoryManifestSha256: v.optional(v.string()),
+  artifact: v.optional(
+    v.object({
+      bucketName: v.string(),
+      byteSize: v.number(),
+      contentType: v.literal('application/zip'),
+      objectKey: v.string(),
+      providerVersion: v.string(),
+      sha256: v.string(),
+    })
+  ),
+  publicationReason: v.union(
+    v.literal('link-activation'),
+    v.literal('presentation-update'),
+    v.literal('migration')
+  ),
+  traceparent: v.optional(v.string()),
+  failureCode: v.optional(v.string()),
+  createdAt: v.number(),
+  publishedAt: v.optional(v.number()),
+  updatedAt: v.number(),
+})
+  .index('by_publication_id', ['publicationId'])
+  .index('by_package_channel_fingerprint', [
+    'packageId',
+    'channel',
+    'presentationFingerprintSha256',
+  ])
+  .index('by_package_channel_revision', ['packageId', 'channel', 'revision'])
+  .index('by_package_channel_status_revision', ['packageId', 'channel', 'status', 'revision'])
+  .index('by_creator_package_channel_revision', [
+    'creatorAuthUserId',
+    'packageId',
+    'channel',
+    'revision',
+  ])
+  .index('by_status_updated_at', ['status', 'updatedAt']);
+
+/**
+ * Creator-managed delivery editions. Tier identifiers stay provider-neutral after catalog sync.
+ */
+const package_editions = defineTable({
+  creatorAuthUserId: v.string(),
+  packageId: v.string(),
+  editionId: v.string(),
+  displayName: v.string(),
+  catalogProductIds: v.array(v.id('product_catalog')),
+  catalogTierIds: v.array(v.id('catalog_tiers')),
+  priority: v.number(),
+  status: v.union(v.literal('active'), v.literal('archived')),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_creator_package', ['creatorAuthUserId', 'packageId'])
+  .index('by_creator_package_edition', ['creatorAuthUserId', 'packageId', 'editionId']);
+
+/**
  * Thin Convex pointer from a package release to the READY Postgres catalog version.
  * Delivery manifests remain derived from versionId and are not duplicated here.
  */
 const package_versions_ref = defineTable({
   packageId: v.string(),
+  packageMetadata: v.optional(
+    v.object({
+      author: v.string(),
+      description: v.optional(v.string()),
+      packageName: v.string(),
+      tagline: v.optional(v.string()),
+      version: v.string(),
+    })
+  ),
+  editionId: v.optional(v.string()),
   version: v.string(),
   versionId: v.string(),
   activeContentDigest: v.string(),
   activePolicyVersion: v.string(),
   bindingRoot: v.string(),
+  bootstrapMedia: v.optional(
+    v.array(
+      v.object({
+        bucketName: v.string(),
+        byteSize: v.number(),
+        contentType: v.literal('image/png'),
+        kind: v.union(v.literal('icon'), v.literal('banner')),
+        localPath: v.string(),
+        objectKey: v.string(),
+        providerVersion: v.string(),
+        sha256: v.string(),
+      })
+    )
+  ),
   commonRoot: v.string(),
   logicalBytes: v.number(),
   logicalFiles: v.number(),
@@ -2653,8 +2828,24 @@ const package_versions_ref = defineTable({
   createdAt: v.number(),
 })
   .index('by_package_channel', ['packageId', 'channel', 'state'])
+  .index('by_package_edition_channel', ['packageId', 'editionId', 'channel', 'state'])
+  .index('by_package_edition_channel_created', [
+    'packageId',
+    'editionId',
+    'channel',
+    'state',
+    'createdAt',
+  ])
+  .index('by_package_edition_version', ['packageId', 'editionId', 'version'])
   .index('by_version_id', ['versionId'])
   .index('by_release_root', ['releaseRoot'])
+  .index('by_release_package_edition_channel_state', [
+    'releaseRoot',
+    'packageId',
+    'editionId',
+    'channel',
+    'state',
+  ])
   .index('by_catalog_product', ['catalogProductId', 'state']);
 
 /**
@@ -2725,6 +2916,20 @@ const used_nonces = defineTable({
   /** When the nonce was consumed (Unix ms) */
   usedAt: v.number(),
 }).index('by_nonce', ['nonce']);
+
+/**
+ * Better Auth verification reservations provide atomic replay protection.
+ */
+const better_auth_reservations = defineTable({
+  reservationId: v.string(),
+  identifier: v.string(),
+  value: v.string(),
+  expiresAt: v.number(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+})
+  .index('by_reservation_id', ['reservationId'])
+  .index('by_expires_at', ['expiresAt']);
 
 // ============================================================================
 // PUBLIC API V2 TABLES
@@ -2847,6 +3052,7 @@ export default defineSchema({
   account_recovery_sessions,
   collaborator_invites,
   collaborator_connections,
+  better_auth_reservations,
 
   // Public API v2 tables
   creator_events,
@@ -2882,6 +3088,11 @@ export default defineSchema({
   yucp_manifests,
   yucp_certificates,
   package_registry,
+  package_catalog_bindings,
+  creator_vpm_links,
+  package_vpm_presentations,
+  vpm_alias_publications,
+  package_editions,
   package_versions_ref,
   signing_log,
   cert_issuance_log,

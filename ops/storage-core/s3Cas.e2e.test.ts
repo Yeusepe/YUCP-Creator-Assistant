@@ -15,13 +15,7 @@ import {
   verifyDesyncCli,
 } from './desyncCas';
 import { runCommand } from './process';
-import {
-  createS3Bucket,
-  deleteS3Objects,
-  enableS3BucketVersioning,
-  getS3Object,
-  listS3Objects,
-} from './s3Control';
+import { createS3Bucket, deleteS3Objects, getS3Object, listS3Objects } from './s3Control';
 
 const MINIO_IMAGE =
   'minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e'; // minio/minio:RELEASE.2025-09-07T16-13-09Z
@@ -121,7 +115,6 @@ describe('desync S3 CAS against throwaway MinIO', () => {
       CAS_S3_SECRET_ACCESS_KEY: secretAccessKey,
     });
     await createS3Bucket(config);
-    await enableS3BucketVersioning(config);
     await runCommand('docker', [
       'exec',
       containerId,

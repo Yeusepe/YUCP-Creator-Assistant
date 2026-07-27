@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { ACTIVE_PROTECTION_POLICY_ID } from './protectionPolicyId';
 import { signUploadCapability, verifyUploadCapability } from './uploadSigning';
 
 describe('upload capability signing', () => {
@@ -10,10 +11,11 @@ describe('upload capability signing', () => {
     const capability = await signUploadCapability({
       catalogProductId: 'catalog-product-123',
       creatorId: 'creator-1',
+      editionId: 'commercial',
       expiresAt,
       key,
       packageId: 'com.yucp.avatar-tools',
-      protectionPolicyId: 'supported-visual-assets-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       version: '1.2.3',
       versionId: 'd7eb9f28-b970-4a3c-b55e-c100fb9f81ed',
     });
@@ -24,6 +26,9 @@ describe('upload capability signing', () => {
         { ...capability, now, versionId: 'd3038fd9-152b-46eb-98a1-12956d9eeed9' },
         key
       )
+    ).resolves.toBe(false);
+    await expect(
+      verifyUploadCapability({ ...capability, now, editionId: 'personal' }, key)
     ).resolves.toBe(false);
     await expect(
       verifyUploadCapability({ ...capability, now, packageId: 'com.attacker.package' }, key)

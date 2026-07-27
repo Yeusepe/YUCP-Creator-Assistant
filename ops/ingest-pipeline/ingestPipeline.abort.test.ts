@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Catalog, CatalogOwnershipLostError } from '../catalog';
 import { localCasStore } from '../storage-core/desyncCas';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { assembleVersion } from './ingestPipeline';
 
 describe('ingest pipeline ownership loss', () => {
@@ -42,7 +43,8 @@ describe('ingest pipeline ownership loss', () => {
           inputPath: join(scratchPath, 'artifact.zip'),
           metadataStore: localCasStore(join(scratchPath, 'metadata')),
           protectedStore: localCasStore(join(scratchPath, 'protected')),
-          protectionPolicyId: 'common-only-v1',
+          protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
+          scratchRoot: scratchPath,
           versionId: 'version-aborted',
         },
         controller.signal

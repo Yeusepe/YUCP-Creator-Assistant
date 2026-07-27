@@ -38,6 +38,37 @@ describe('local WSL materializer orchestration', () => {
     ]);
   });
 
+  test('uses the reserved lifecycle ports for every WSL bridge', () => {
+    expect(
+      buildLocalMaterializerBridgeRoutes({
+        controlPort: 41_012,
+        healthPort: 41_008,
+        sourcePort: 41_005,
+        windowsHostIp: '172.24.0.1',
+        wslIp: '172.24.8.9',
+      })
+    ).toEqual([
+      {
+        listenHost: '172.24.0.1',
+        listenPort: 41_005,
+        targetHost: '127.0.0.1',
+        targetPort: 41_005,
+      },
+      {
+        listenHost: '172.24.0.1',
+        listenPort: 41_012,
+        targetHost: '127.0.0.1',
+        targetPort: 41_012,
+      },
+      {
+        listenHost: '127.0.0.1',
+        listenPort: 41_008,
+        targetHost: '172.24.8.9',
+        targetPort: 41_008,
+      },
+    ]);
+  });
+
   test('passes no master epoch key through the process environment', () => {
     const env = buildWslEnvironment({
       baseEnv: {
@@ -54,6 +85,31 @@ describe('local WSL materializer orchestration', () => {
     expect(env.YUCP_MINIO_PORT).toBeUndefined();
     expect(env.WSLENV).not.toContain('YUCP_MINIO_PORT');
     expect(env.WSLENV).toContain('MATERIALIZATION_DPOP_PRIVATE_KEY_PKCS8');
+  });
+
+  test('isolates each disposable worker and forwards its dynamic source endpoint', () => {
+    const env = buildWslEnvironment({
+      baseEnv: {
+        MATERIALIZATION_CONTROL_PLANE_BASE_URL: 'http://127.0.0.1:49120',
+        MATERIALIZATION_KEY_BROKER_SHARED_SECRET: 'k'.repeat(32),
+        MATERIALIZATION_MATERIALIZER_SHARED_SECRET: 'm'.repeat(32),
+        MATERIALIZATION_SOURCE_BASE_URL: 'http://127.0.0.1:49121',
+        YUCP_COUPLING_SERVICE_SHARED_SECRET: 'c'.repeat(32),
+        YUCP_DISPOSABLE_RUN_ID: '0123456789ab',
+      },
+      dpopPrivateKey: 'private-dpop',
+      windowsHostIp: '172.30.16.1',
+    });
+
+    expect(env.MATERIALIZATION_SERVICE_ID).toBe('local-materializer-large-0123456789ab');
+    expect(env.MATERIALIZATION_WORK_ROOT).toBe(
+      '/home/yucp/.local/share/yucp-materializer/0123456789ab'
+    );
+    expect(env.MATERIALIZATION_SOURCE_BASE_URL).toBe('http://127.0.0.1:49121');
+    expect(env.MATERIALIZATION_SOURCE_PROXY_PORT).toBe('49121');
+    expect(env.MATERIALIZATION_CONTROL_PLANE_PROXY_PORT).toBe('49120');
+    expect(env.WSLENV).toContain('MATERIALIZATION_SOURCE_BASE_URL');
+    expect(env.WSLENV).toContain('MATERIALIZATION_SOURCE_PROXY_PORT');
   });
 
   test('accepts only loopback HTTP storage endpoints', () => {

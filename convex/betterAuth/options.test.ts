@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { createAuthOptions } from '../auth';
+import { canonicalizeBetterAuthProxyRequest, createAuthOptions } from '../auth';
 import {
   PUBLIC_API_AUDIENCE,
 } from '@yucp/shared';
@@ -7,9 +7,19 @@ import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 import { createSchemaAuthOptions } from './options';
 import { tables } from './schema';
 
+function restoreEnvironment(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = value;
+}
+
 describe('createSchemaAuthOptions', () => {
   const originalBetterAuthSecret = process.env.BETTER_AUTH_SECRET;
   const originalConvexSiteUrl = process.env.CONVEX_SITE_URL;
+  const originalFrontendUrl = process.env.FRONTEND_URL;
+  const originalSiteUrl = process.env.SITE_URL;
   const originalPolarAccessToken = process.env.POLAR_ACCESS_TOKEN;
   const originalPolarWebhookSecret = process.env.POLAR_WEBHOOK_SECRET;
   const originalFetch = globalThis.fetch;
@@ -20,10 +30,12 @@ describe('createSchemaAuthOptions', () => {
   });
 
   afterEach(() => {
-    process.env.BETTER_AUTH_SECRET = originalBetterAuthSecret;
-    process.env.CONVEX_SITE_URL = originalConvexSiteUrl;
-    process.env.POLAR_ACCESS_TOKEN = originalPolarAccessToken;
-    process.env.POLAR_WEBHOOK_SECRET = originalPolarWebhookSecret;
+    restoreEnvironment('BETTER_AUTH_SECRET', originalBetterAuthSecret);
+    restoreEnvironment('CONVEX_SITE_URL', originalConvexSiteUrl);
+    restoreEnvironment('FRONTEND_URL', originalFrontendUrl);
+    restoreEnvironment('SITE_URL', originalSiteUrl);
+    restoreEnvironment('POLAR_ACCESS_TOKEN', originalPolarAccessToken);
+    restoreEnvironment('POLAR_WEBHOOK_SECRET', originalPolarWebhookSecret);
     globalThis.fetch = originalFetch;
   });
 
@@ -68,6 +80,65 @@ describe('createSchemaAuthOptions', () => {
     expect(jwtPlugin?.options?.jwt?.issuer).toBe('https://example.convex.site/api/auth');
     expect(jwtPlugin?.options?.jwt?.audience).toBe(PUBLIC_API_AUDIENCE);
     expect(convexPlugin).toBeDefined();
+  });
+
+  it('allows the browser proxy and native auth server hosts', () => {
+    process.env.FRONTEND_URL = 'http://localhost:3000';
+
+    const options = createAuthOptions({} as never);
+    const oauthPlugin = options.plugins?.find(
+      (plugin) => plugin.id === 'oauth-provider'
+    ) as
+      | {
+          options?: {
+            consentPage?: string;
+            loginPage?: string;
+          };
+        }
+      | undefined;
+
+    expect(options.baseURL).toEqual({
+      allowedHosts: ['localhost:3000', 'example.convex.site'],
+      fallback: 'https://example.convex.site/api/auth',
+    });
+    expect(options.advanced?.trustedProxyHeaders).toBeTrue();
+    expect(oauthPlugin?.options?.loginPage).toBe('http://localhost:3000/oauth/login');
+    expect(oauthPlugin?.options?.consentPage).toBe('http://localhost:3000/oauth/consent');
+  });
+
+  it('keeps remembered browser sessions on a sliding 30-day window', () => {
+    const options = createAuthOptions({} as never);
+
+    expect(options.session?.expiresIn).toBe(60 * 60 * 24 * 30);
+    expect(options.session?.updateAge).toBe(60 * 60 * 24);
+    expect(options.session?.disableSessionRefresh).not.toBe(true);
+    expect(options.session?.storeSessionInDatabase).toBe(true);
+  });
+
+  it('restores the forwarded browser URL before request-bound proof validation', () => {
+    const proxied = canonicalizeBetterAuthProxyRequest(
+      new Request('https://example.convex.site/api/auth/oauth2/token', {
+        method: 'POST',
+        headers: {
+          host: 'example.convex.site',
+          'x-forwarded-host': 'localhost:3000',
+          'x-forwarded-proto': 'http',
+        },
+        body: 'grant_type=authorization_code',
+      })
+    );
+    const direct = canonicalizeBetterAuthProxyRequest(
+      new Request('https://example.convex.site/api/auth/oauth2/token', {
+        method: 'POST',
+        headers: {
+          host: 'example.convex.site',
+        },
+        body: 'grant_type=authorization_code',
+      })
+    );
+
+    expect(proxied.url).toBe('http://localhost:3000/api/auth/oauth2/token');
+    expect(direct.url).toBe('https://example.convex.site/api/auth/oauth2/token');
   });
 
   it('enforces the persisted RFC 8707 public API resource', () => {

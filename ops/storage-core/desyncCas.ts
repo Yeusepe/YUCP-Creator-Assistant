@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { LOGICAL_FILE_CHUNK_MAX_BYTES, mapBoundedOrdered } from './boundedOrderedBatch';
 import type { CasConfig } from './config';
 import type { DeliveryManifestChunk } from './deliveryManifest';
 import type { DurableExactStorage } from './durableExactStorage';
@@ -236,21 +237,20 @@ export async function produceFileChunks(input: {
       indexId: indexPath,
       store: localCasStore(scratchPath),
     });
-    const chunks: DeliveryManifestChunk[] = [];
-    for (const chunk of inspected) {
+    return await mapBoundedOrdered(inspected, async (chunk) => {
+      if (chunk.size > LOGICAL_FILE_CHUNK_MAX_BYTES) {
+        throw new Error('desync chunk exceeds the configured maximum size');
+      }
       const bytes = new Uint8Array(await readFile(join(storePath, chunk.id.slice(0, 4), chunk.id)));
       if (bytes.byteLength !== chunk.size) {
         throw new Error('desync chunk length changed after inspection');
       }
-      chunks.push(
-        await input.onChunk({
-          bytes,
-          sha256: chunk.id,
-          size: chunk.size,
-        })
-      );
-    }
-    return chunks;
+      return input.onChunk({
+        bytes,
+        sha256: chunk.id,
+        size: chunk.size,
+      });
+    });
   } finally {
     await rm(scratchPath, { force: true, recursive: true });
   }

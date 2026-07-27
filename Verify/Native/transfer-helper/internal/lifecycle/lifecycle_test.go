@@ -57,6 +57,59 @@ func TestValidateUnityProjectPathsRejectsTheWindowsLimit(t *testing.T) {
 	}
 }
 
+func TestNewAuthorizedRequestRejectsMissingInternalBindings(t *testing.T) {
+	valid := OperationInput{
+		AliasID:                    "alias-1",
+		ExpectedCurrentReleaseRoot: strings.Repeat("00", 32),
+		IdempotencyKey:             "preflight-alias-1",
+		Operation:                  "preflight",
+		ProjectIdentity:            strings.Repeat("22", 32),
+		ProjectPath:                t.TempDir(),
+		RunID:                      "run-preflight-alias-1",
+		StateRoot:                  t.TempDir(),
+		TargetReleaseRoot:          strings.Repeat("11", 32),
+		Traceparent:                "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
+	}
+	tests := []struct {
+		name   string
+		mutate func(*OperationInput)
+	}{
+		{
+			name: "idempotency key",
+			mutate: func(input *OperationInput) {
+				input.IdempotencyKey = ""
+			},
+		},
+		{
+			name: "trace context",
+			mutate: func(input *OperationInput) {
+				input.Traceparent =
+					"00-00000000000000000000000000000000-0123456789abcdef-01"
+			},
+		},
+		{
+			name: "preflight approval",
+			mutate: func(input *OperationInput) {
+				input.ApprovedActiveContentDigest = strings.Repeat("33", 32)
+				input.ApprovedPolicyVersion = "policy-v1"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := valid
+			test.mutate(&input)
+			if _, err := NewAuthorizedRequest(
+				input,
+				"signed-install-session",
+				"signed-delivery-grant",
+			); err == nil {
+				t.Fatal("NewAuthorizedRequest() accepted an invalid internal binding")
+			}
+		})
+	}
+}
+
 func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 	content := []byte("complete lifecycle\n")
 	fileDigest := sha256.Sum256(content)
@@ -171,39 +224,81 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 		},
 		PackageInstall: authority,
 	}
-	baseRequest := Request{
+	baseInput := OperationInput{
 		AliasID:                    "alias-1",
-		DeliveryGrant:              base64.RawURLEncoding.EncodeToString(grant),
 		ExpectedCurrentReleaseRoot: hex.EncodeToString(make([]byte, 32)),
-		InstallSession:             base64.RawURLEncoding.EncodeToString(session),
+		IdempotencyKey:             "lifecycle-alias-1",
+		ProjectIdentity:            hex.EncodeToString(make([]byte, 32)),
 		ProjectPath:                t.TempDir(),
-		SchemaVersion:              2,
 		StateRoot:                  stateRoot,
 		TargetReleaseRoot:          hex.EncodeToString(releaseRoot[:]),
+		Traceparent:                "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01",
 	}
-	preflightRequest := baseRequest
-	preflightRequest.Operation = "preflight"
-	preflightRequest.RunID = "run-preflight"
-	preflight, err := Execute(context.Background(), preflightRequest, identity, trustDocument)
+	preflightInput := baseInput
+	preflightInput.Operation = "preflight"
+	preflightInput.RunID = "run-preflight"
+	preflightRequest, err := NewAuthorizedRequest(
+		preflightInput,
+		base64.RawURLEncoding.EncodeToString(session),
+		base64.RawURLEncoding.EncodeToString(grant),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthorizedRequest(preflight) error = %v", err)
+	}
+	preflight, err := Execute(
+		context.Background(),
+		preflightRequest,
+		identity,
+		trustDocument,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("Execute(preflight) error = %v", err)
 	}
 	if preflight.ActiveContentDigest != hex.EncodeToString(make([]byte, 32)) ||
 		preflight.ActivePolicyVersion != "active-content-policy-v1" ||
+		preflight.TraceID != baseInput.Traceparent[3:35] ||
 		preflight.StagingTree != "" ||
 		chunkReads != 0 {
 		t.Fatalf("Execute(preflight) = %#v, chunk reads = %d", preflight, chunkReads)
 	}
 
-	installRequest := baseRequest
-	installRequest.InstallSession = base64.RawURLEncoding.EncodeToString(
-		signSession("install"),
+	installInput := baseInput
+	installInput.Operation = "install"
+	installInput.RunID = "run-install"
+	installInput.ApprovedActiveContentDigest = preflight.ActiveContentDigest
+	installInput.ApprovedPolicyVersion = preflight.ActivePolicyVersion
+	installRequest, err := NewAuthorizedRequest(
+		installInput,
+		base64.RawURLEncoding.EncodeToString(signSession("install")),
+		base64.RawURLEncoding.EncodeToString(grant),
 	)
-	installRequest.Operation = "install"
-	installRequest.RunID = "run-install"
-	installRequest.ApprovedActiveContentDigest = preflight.ActiveContentDigest
-	installRequest.ApprovedPolicyVersion = preflight.ActivePolicyVersion
-	installed, err := Execute(context.Background(), installRequest, identity, trustDocument)
+	if err != nil {
+		t.Fatalf("NewAuthorizedRequest(install) error = %v", err)
+	}
+	var progressEvents []struct {
+		phase     string
+		completed int64
+		total     int64
+	}
+	installed, err := Execute(
+		context.Background(),
+		installRequest,
+		identity,
+		trustDocument,
+		func(phase string, completedBytes int64, totalBytes int64) error {
+			progressEvents = append(progressEvents, struct {
+				phase     string
+				completed int64
+				total     int64
+			}{
+				phase:     phase,
+				completed: completedBytes,
+				total:     totalBytes,
+			})
+			return nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("Execute(install) error = %v", err)
 	}
@@ -221,21 +316,52 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 			installed,
 		)
 	}
+	var sawLiveBytes bool
+	phaseRank := map[string]int{
+		"preparing":   0,
+		"downloading": 1,
+		"verifying":   2,
+		"assembling":  3,
+		"finalizing":  4,
+	}
+	previousRank := -1
+	for _, event := range progressEvents {
+		rank, known := phaseRank[event.phase]
+		if !known || rank < previousRank {
+			t.Fatalf("progress phases are not monotonic: %#v", progressEvents)
+		}
+		previousRank = rank
+		if event.phase == "downloading" &&
+			event.completed == int64(len(content)) &&
+			event.total == int64(len(content)) {
+			sawLiveBytes = true
+		}
+	}
+	if !sawLiveBytes ||
+		progressEvents[len(progressEvents)-1].phase != "finalizing" {
+		t.Fatalf("progress events = %#v", progressEvents)
+	}
 
 	for _, operation := range []string{"update", "repair", "rollback"} {
-		request := baseRequest
-		request.InstallSession = base64.RawURLEncoding.EncodeToString(
-			signSession(operation),
+		input := baseInput
+		input.Operation = operation
+		input.RunID = "run-" + operation
+		input.ApprovedActiveContentDigest = preflight.ActiveContentDigest
+		input.ApprovedPolicyVersion = preflight.ActivePolicyVersion
+		request, requestErr := NewAuthorizedRequest(
+			input,
+			base64.RawURLEncoding.EncodeToString(signSession(operation)),
+			base64.RawURLEncoding.EncodeToString(grant),
 		)
-		request.Operation = operation
-		request.RunID = "run-" + operation
-		request.ApprovedActiveContentDigest = preflight.ActiveContentDigest
-		request.ApprovedPolicyVersion = preflight.ActivePolicyVersion
+		if requestErr != nil {
+			t.Fatalf("NewAuthorizedRequest(%s) error = %v", operation, requestErr)
+		}
 		result, executeErr := Execute(
 			context.Background(),
 			request,
 			identity,
 			trustDocument,
+			nil,
 		)
 		if executeErr != nil {
 			t.Fatalf("Execute(%s) error = %v", operation, executeErr)
@@ -312,7 +438,7 @@ func lifecycleManifest(
 		"packageId":              "product-1",
 		"protectedSourceRoot":    hex.EncodeToString(protectedRoot[:]),
 		"protectionPolicyDigest": hex.EncodeToString(make([]byte, 32)),
-		"protectionPolicyId":     "policy-1",
+		"protectionPolicyId":     "supported-visual-assets-v2",
 		"releaseRoot":            hex.EncodeToString(releaseRoot[:]),
 		"schemaVersion":          4,
 		"storageFormatVersion":   "desync-uncompressed-sha256-v1",

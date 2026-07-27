@@ -13,6 +13,18 @@ export type VpmImporterManifest = Record<string, unknown> & {
   zipSHA256: string;
 };
 
+export function assertPublicImporterVersionsImmutable(
+  published: VpmImporterManifest,
+  candidate: VpmImporterManifest
+): void {
+  if (published.version === candidate.version && published.zipSHA256 !== candidate.zipSHA256) {
+    throw new Error(
+      `The public importer changed published version ${candidate.version}. ` +
+        'Changed importer bytes must publish a new semantic version'
+    );
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

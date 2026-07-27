@@ -12,6 +12,7 @@ import {
   packageContractKeyId,
   signPackageContract,
 } from '../../ops/storage-core/packageContractsV2';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../../ops/storage-core/protectionPolicyId';
 import {
   createLogicalReleasePublicationV4,
   createLogicalReleaseRootV4,
@@ -110,7 +111,7 @@ function protectedManifest(
     packageId: 'com.yucp.example',
     protectedSourceRoot: identity.protectedSourceRoot,
     protectionPolicyDigest: '55'.repeat(32),
-    protectionPolicyId: 'supported-visual-assets-v1',
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     releaseRoot: identity.releaseRoot,
     schemaVersion: 4,
     storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,

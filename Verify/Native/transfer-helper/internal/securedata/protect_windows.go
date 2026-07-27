@@ -1,9 +1,10 @@
 //go:build windows
 
-package deviceidentity
+package securedata
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -11,16 +12,18 @@ import (
 
 const cryptProtectUIForbidden = 0x1
 
-var deviceKeyEntropy = []byte("YUCP transfer helper device identity v1")
-
-func protect(plaintext []byte) ([]byte, error) {
+func Protect(plaintext []byte, purpose string) ([]byte, error) {
+	entropy, err := purposeEntropy(purpose)
+	if err != nil {
+		return nil, err
+	}
 	input := dataBlob(plaintext)
-	entropy := dataBlob(deviceKeyEntropy)
+	entropyBlob := dataBlob(entropy)
 	var output windows.DataBlob
 	if err := windows.CryptProtectData(
 		&input,
 		nil,
-		&entropy,
+		&entropyBlob,
 		0,
 		nil,
 		cryptProtectUIForbidden,
@@ -32,14 +35,18 @@ func protect(plaintext []byte) ([]byte, error) {
 	return append([]byte(nil), unsafe.Slice(output.Data, output.Size)...), nil
 }
 
-func unprotect(ciphertext []byte) ([]byte, error) {
+func Unprotect(ciphertext []byte, purpose string) ([]byte, error) {
+	entropy, err := purposeEntropy(purpose)
+	if err != nil {
+		return nil, err
+	}
 	input := dataBlob(ciphertext)
-	entropy := dataBlob(deviceKeyEntropy)
+	entropyBlob := dataBlob(entropy)
 	var output windows.DataBlob
 	if err := windows.CryptUnprotectData(
 		&input,
 		nil,
-		&entropy,
+		&entropyBlob,
 		0,
 		nil,
 		cryptProtectUIForbidden,
@@ -49,6 +56,14 @@ func unprotect(ciphertext []byte) ([]byte, error) {
 	}
 	defer windows.LocalFree(windows.Handle(unsafe.Pointer(output.Data)))
 	return append([]byte(nil), unsafe.Slice(output.Data, output.Size)...), nil
+}
+
+func purposeEntropy(purpose string) ([]byte, error) {
+	purpose = strings.TrimSpace(purpose)
+	if len(purpose) < 8 || len(purpose) > 128 || strings.ContainsAny(purpose, "\x00\r\n") {
+		return nil, fmt.Errorf("secure-data purpose is invalid")
+	}
+	return []byte("YUCP secure data\x00" + purpose), nil
 }
 
 func dataBlob(data []byte) windows.DataBlob {

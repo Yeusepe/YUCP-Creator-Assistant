@@ -80,13 +80,15 @@ const auth = {
 
 function lookupRequest(
   packageId = 'com.yucp.jammr',
-  fileBytes = Uint8Array.from([1, 2, 3])
+  fileBytes = Uint8Array.from([1, 2, 3]),
+  traceparent?: string
 ): Request {
   const formData = new FormData();
   formData.set('packageId', packageId);
   formData.set('file', new File([fileBytes], 'jammr.zip', { type: 'application/zip' }));
   return new Request('http://localhost:3001/api/forensics/lookup', {
     body: formData,
+    headers: traceparent ? { traceparent } : undefined,
     method: 'POST',
   });
 }
@@ -95,8 +97,10 @@ function createRoutes(input?: {
   candidatePage?: {
     candidateLimit: number;
     candidates: (typeof candidate)[];
+    nextCursor?: string;
     truncated: boolean;
   };
+  maxAttributionCandidateWork?: number;
   maxLookupUploadBytes?: number;
   rateLimit?: number;
   withMaterializationControl?: boolean;
@@ -106,7 +110,10 @@ function createRoutes(input?: {
     candidates: [candidate],
     truncated: false,
   };
-  const listAttributionCandidates = mock(async () => candidatePage);
+  const listAttributionCandidates = mock(async (request: { candidateLimit?: number }) => ({
+    ...candidatePage,
+    candidateLimit: request.candidateLimit ?? candidatePage.candidateLimit,
+  }));
   const routes = createForensicsRoutes(auth, {
     apiBaseUrl: 'http://localhost:3001',
     couplingServiceBaseUrl: 'https://coupling.internal',
@@ -115,6 +122,9 @@ function createRoutes(input?: {
     convexUrl: 'http://convex.invalid',
     encryptionSecret: TEST_ENCRYPTION_KEY,
     frontendBaseUrl: 'http://localhost:3000',
+    ...(input?.maxAttributionCandidateWork
+      ? { maxAttributionCandidateWork: input.maxAttributionCandidateWork }
+      : {}),
     ...(input?.maxLookupUploadBytes ? { maxLookupUploadBytes: input.maxLookupUploadBytes } : {}),
     ...(input?.rateLimit
       ? {
@@ -203,7 +213,10 @@ describe('forensics routes', () => {
       });
     }) as unknown as typeof fetch;
 
-    const response = await routes.lookup(lookupRequest());
+    const traceparent = '00-11111111111111111111111111111111-2222222222222222-01';
+    const response = await routes.lookup(
+      lookupRequest('com.yucp.jammr', Uint8Array.from([1, 2, 3]), traceparent)
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -229,8 +242,10 @@ describe('forensics routes', () => {
       ],
     });
     expect(listAttributionCandidates).toHaveBeenCalledWith({
+      candidateLimit: 256,
       creatorId: 'creator-user',
       productId: 'com.yucp.jammr',
+      traceparent,
     });
     expect(mutationMock).toHaveBeenCalledWith(
       apiMock.couplingForensics.recordLookupAudit,
@@ -343,24 +358,231 @@ describe('forensics routes', () => {
     expect(second.listAttributionCandidates).not.toHaveBeenCalled();
   });
 
-  test('fails closed on missing control configuration and candidate truncation', async () => {
+  test('fails closed on missing control configuration', async () => {
     installAuthorization();
     const unconfigured = createRoutes({ withMaterializationControl: false });
     expect((await unconfigured.routes.lookup(lookupRequest())).status).toBe(503);
+  });
 
+  test('scans attribution pages until every asset is decoded', async () => {
     installAuthorization();
-    const truncated = createRoutes({
-      candidatePage: {
-        candidateLimit: 512,
-        candidates: [candidate],
+    const laterCandidate = {
+      ...candidate,
+      attributionId: 'attribution-2',
+      jobId: 'job-2',
+      normalizedPath: 'Assets/Jammr/body-v2.png',
+    };
+    const firstPageCandidates = Array.from({ length: 256 }, (_, index) => ({
+      ...candidate,
+      attributionId: `attribution-page-1-${index}`,
+      jobId: `job-page-1-${index}`,
+    }));
+    const listAttributionCandidates = mock(async (input: { cursor?: string }) => {
+      if (!input.cursor) {
+        return {
+          candidateLimit: 256,
+          candidates: firstPageCandidates,
+          nextCursor: 'cursor-1',
+          truncated: true,
+        };
+      }
+      expect(input.cursor).toBe('cursor-1');
+      return {
+        candidateLimit: 256,
+        candidates: Array.from({ length: 256 }, (_, index) =>
+          index === 0
+            ? laterCandidate
+            : {
+                ...candidate,
+                attributionId: `attribution-page-2-${index}`,
+                jobId: `job-page-2-${index}`,
+              }
+        ),
+        nextCursor: 'cursor-2',
         truncated: true,
-      },
+      };
     });
-    const response = await truncated.routes.lookup(lookupRequest());
+    const routes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      frontendBaseUrl: 'http://localhost:3000',
+      materializationControl: { listAttributionCandidates },
+    });
+    globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        candidates: Array<{ attributionId: string }>;
+      };
+      const matched = body.candidates.some(
+        (entry) => entry.attributionId === laterCandidate.attributionId
+      );
+      return Response.json({
+        results: [
+          matched
+            ? {
+                assetPath: 'Assets/Jammr/body.png',
+                assetType: 'png',
+                attributionId: laterCandidate.attributionId,
+                buyerSubjectPseudonym,
+                matched: true,
+              }
+            : {
+                assetPath: 'Assets/Jammr/body.png',
+                assetType: 'png',
+                matched: false,
+              },
+        ],
+        schemaVersion: 2,
+      });
+    }) as unknown as typeof fetch;
+
+    const response = await routes.lookup(lookupRequest());
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      decodedAssetCount: 1,
+      lookupStatus: 'attributed',
+      results: [
+        {
+          matched: true,
+          matches: [{ attributionId: laterCandidate.attributionId }],
+        },
+      ],
+    });
+    expect(listAttributionCandidates).toHaveBeenNthCalledWith(1, {
+      candidateLimit: 256,
+      creatorId: 'creator-user',
+      productId: 'com.yucp.jammr',
+    });
+    expect(listAttributionCandidates).toHaveBeenNthCalledWith(2, {
+      candidateLimit: 256,
+      creatorId: 'creator-user',
+      cursor: 'cursor-1',
+      productId: 'com.yucp.jammr',
+    });
+    expect(listAttributionCandidates).toHaveBeenCalledTimes(2);
+    expect(mutationMock).toHaveBeenCalledWith(
+      apiMock.couplingForensics.recordLookupAudit,
+      expect.objectContaining({
+        requestedCandidateCount: 512,
+        status: 'attributed',
+      })
+    );
+  });
+
+  test('returns no partial result when attribution work reaches its strict limit', async () => {
+    installAuthorization();
+    const listAttributionCandidates = mock(async () => ({
+      candidateLimit: 1,
+      candidates: [candidate],
+      nextCursor: 'cursor-1',
+      truncated: true,
+    }));
+    const routes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      frontendBaseUrl: 'http://localhost:3000',
+      materializationControl: { listAttributionCandidates },
+      maxAttributionCandidateWork: 1,
+    });
+    globalThis.fetch = mock(async () =>
+      Response.json({
+        results: [
+          {
+            assetPath: 'Assets/Jammr/body.png',
+            assetType: 'png',
+            matched: false,
+          },
+        ],
+        schemaVersion: 2,
+      })
+    ) as unknown as typeof fetch;
+
+    const response = await routes.lookup(lookupRequest());
+
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({
-      candidateLimit: 512,
+      candidateLimit: 1,
       code: 'coupling_trace_candidate_limit_exceeded',
+      requestedCandidateCount: 1,
+    });
+    expect(listAttributionCandidates).toHaveBeenCalledTimes(1);
+    expect(mutationMock).toHaveBeenCalledWith(
+      apiMock.couplingForensics.recordLookupAudit,
+      expect.objectContaining({
+        requestedCandidateCount: 1,
+        status: 'error',
+      })
+    );
+  });
+
+  test('bounds total candidate and asset evaluation work', async () => {
+    installAuthorization();
+    extractCouplingForensicsArchiveMock.mockResolvedValue({
+      assets: [
+        {
+          assetPath: 'Assets/Jammr/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+        {
+          assetPath: 'Assets/Jammr/detail.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      declaredPackageIds: ['com.yucp.jammr'],
+    });
+    const listAttributionCandidates = mock(async (input: { candidateLimit?: number }) => ({
+      candidateLimit: input.candidateLimit ?? 512,
+      candidates: [candidate],
+      nextCursor: 'cursor-1',
+      truncated: true,
+    }));
+    const routes = createForensicsRoutes(auth, {
+      apiBaseUrl: 'http://localhost:3001',
+      couplingServiceBaseUrl: 'https://coupling.internal',
+      couplingServiceSharedSecret: TEST_COUPLING_BEARER,
+      convexApiSecret: TEST_CONVEX_API_TOKEN,
+      convexUrl: 'http://convex.invalid',
+      encryptionSecret: TEST_ENCRYPTION_KEY,
+      frontendBaseUrl: 'http://localhost:3000',
+      materializationControl: { listAttributionCandidates },
+      maxAttributionEvaluationWork: 2,
+    });
+    globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+      };
+      return Response.json({
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          matched: false,
+        })),
+        schemaVersion: 2,
+      });
+    }) as unknown as typeof fetch;
+
+    const response = await routes.lookup(lookupRequest());
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      candidateEvaluationCount: 2,
+      code: 'coupling_trace_candidate_limit_exceeded',
+      requestedCandidateCount: 1,
+    });
+    expect(listAttributionCandidates).toHaveBeenCalledWith({
+      candidateLimit: 1,
+      creatorId: 'creator-user',
+      productId: 'com.yucp.jammr',
     });
   });
 

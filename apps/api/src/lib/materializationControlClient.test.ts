@@ -113,11 +113,93 @@ describe('materialization control client', () => {
       fetchImplementation: mock(async (request: Request) => {
         requests.push(request);
         return Response.json({
-          candidateLimit: 512,
+          candidateLimit: 1,
           candidates: [candidate],
-          truncated: false,
+          nextCursor: 'next-cursor-1',
+          truncated: true,
         });
       }),
+      sharedSecret,
+    });
+
+    await expect(
+      client.listAttributionCandidates({
+        candidateLimit: 1,
+        creatorId: 'creator-1',
+        cursor: 'cursor-0',
+        productId: 'com.yucp.jammr',
+        traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
+      })
+    ).resolves.toEqual({
+      candidateLimit: 1,
+      candidates: [candidate],
+      nextCursor: 'next-cursor-1',
+      truncated: true,
+    });
+    expect(new URL(requests[0]?.url ?? '').pathname).toBe(
+      '/v2/internal/materialization-attribution/candidates'
+    );
+    expect(requests[0]?.headers.get('traceparent')).toBe(
+      '00-11111111111111111111111111111111-2222222222222222-01'
+    );
+    expect(await requests[0]?.clone().json()).toEqual({
+      candidateLimit: 1,
+      creatorId: 'creator-1',
+      cursor: 'cursor-0',
+      productId: 'com.yucp.jammr',
+    });
+  });
+
+  test('rejects a truncated attribution page without a continuation cursor', async () => {
+    const client = createMaterializationControlClient({
+      baseUrl,
+      fetchImplementation: mock(async () =>
+        Response.json({
+          candidateLimit: 1,
+          candidates: [],
+          truncated: true,
+        })
+      ),
+      sharedSecret,
+    });
+
+    await expect(
+      client.listAttributionCandidates({
+        candidateLimit: 1,
+        creatorId: 'creator-1',
+        productId: 'com.yucp.jammr',
+      })
+    ).rejects.toThrow('invalid response');
+  });
+
+  test('rejects attribution page requests above the durable broker bound', async () => {
+    const fetchImplementation = mock(async () => Response.json({}));
+    const client = createMaterializationControlClient({
+      baseUrl,
+      fetchImplementation,
+      sharedSecret,
+    });
+
+    await expect(
+      client.listAttributionCandidates({
+        candidateLimit: 513,
+        creatorId: 'creator-1',
+        productId: 'com.yucp.jammr',
+      })
+    ).rejects.toThrow('candidate limit');
+    expect(fetchImplementation).not.toHaveBeenCalled();
+  });
+
+  test('rejects attribution pages above the durable broker bound', async () => {
+    const client = createMaterializationControlClient({
+      baseUrl,
+      fetchImplementation: mock(async () =>
+        Response.json({
+          candidateLimit: 513,
+          candidates: [],
+          truncated: false,
+        })
+      ),
       sharedSecret,
     });
 
@@ -126,18 +208,7 @@ describe('materialization control client', () => {
         creatorId: 'creator-1',
         productId: 'com.yucp.jammr',
       })
-    ).resolves.toEqual({
-      candidateLimit: 512,
-      candidates: [candidate],
-      truncated: false,
-    });
-    expect(new URL(requests[0]?.url ?? '').pathname).toBe(
-      '/v2/internal/materialization-attribution/candidates'
-    );
-    expect(await requests[0]?.clone().json()).toEqual({
-      creatorId: 'creator-1',
-      productId: 'com.yucp.jammr',
-    });
+    ).rejects.toThrow('invalid response');
   });
 
   test('fails closed on an invalid response or non-loopback HTTP origin', async () => {

@@ -15,7 +15,7 @@ import {
   type CasConfig,
   type FetchInfisicalSecrets,
   hydrateStorageServiceEnv,
-  isDisposableStorageProfile,
+  isLocalStorageProfile,
   loadStorageRoleConfig,
   requireInfisicalBootstrap,
   STORAGE_ROLE_PREFIXES,
@@ -56,6 +56,7 @@ export interface SchedulerRuntimeEnv {
   protected: CasConfig;
   catalogDatabaseUrl: string;
   publish: ConvexCatalogPublishConfig;
+  scratchRoot: string;
 }
 
 export interface SchedulerRuntime {
@@ -63,7 +64,10 @@ export interface SchedulerRuntime {
   scheduler: IngestScheduler;
 }
 
-function requiredValue(env: NodeJS.ProcessEnv, key: 'CATALOG_DATABASE_URL'): string {
+function requiredValue(
+  env: NodeJS.ProcessEnv,
+  key: 'CATALOG_DATABASE_URL' | 'INGEST_SCRATCH_DIR'
+): string {
   const value = env[key]?.trim();
   if (!value) {
     throw new Error(`Missing required scheduler environment variable: ${key}`);
@@ -83,7 +87,7 @@ export async function loadSchedulerRuntimeEnv(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<SchedulerRuntimeEnv> {
-  if (!isDisposableStorageProfile(env)) {
+  if (!isLocalStorageProfile(env)) {
     requireInfisicalBootstrap(env);
   }
   const runtimeEnv = await hydrateStorageServiceEnv(env, SCHEDULER_INFISICAL_KEYS, fetchSecrets);
@@ -94,6 +98,7 @@ export async function loadSchedulerRuntimeEnv(
     protected: loadStorageRoleConfig(runtimeEnv, STORAGE_ROLE_PREFIXES.protected),
     catalogDatabaseUrl: requiredValue(runtimeEnv, 'CATALOG_DATABASE_URL'),
     publish: loadConvexCatalogPublishConfig(runtimeEnv),
+    scratchRoot: requiredValue(runtimeEnv, 'INGEST_SCRATCH_DIR'),
   };
 }
 
@@ -180,10 +185,12 @@ export async function buildSchedulerRuntime(
           commonStore,
           metadataStore,
           protectedStore,
+          scratchRoot: runtimeEnv.scratchRoot,
           versionId: version.id,
         });
       },
       protectedStore,
+      scratchRoot: runtimeEnv.scratchRoot,
       stuckThresholdMs: positiveInteger(
         env,
         'SCHEDULER_STUCK_THRESHOLD_MS',

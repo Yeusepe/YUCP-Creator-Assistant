@@ -9,6 +9,7 @@ const COMPLETE_RAW_ENV = {
   CONVEX_URL: 'https://raw-convex.invalid',
   INTERNAL_SERVICE_AUTH_SECRET: 'placeholder-raw-internal-auth-secret',
   CATALOG_DATABASE_URL: 'postgresql://raw.invalid/catalog',
+  INGEST_SCRATCH_DIR: 'C:/tmp/yucp-scheduler-scratch',
   COMMON_S3_ENDPOINT: 'https://raw-common.invalid',
   COMMON_S3_REGION: 'raw-region',
   COMMON_S3_BUCKET: 'raw-common',
@@ -86,9 +87,7 @@ describe('scheduler production runtime environment', () => {
       publishTimeoutMs: 15_000,
     });
     expect(runtime.common.endpoint).toBe(FETCHED_SCHEDULER_SECRETS.COMMON_S3_ENDPOINT);
-    expect(runtime.common.accessKeyId).toBe(
-      FETCHED_SCHEDULER_SECRETS.COMMON_S3_ACCESS_KEY_ID
-    );
+    expect(runtime.common.accessKeyId).toBe(FETCHED_SCHEDULER_SECRETS.COMMON_S3_ACCESS_KEY_ID);
     expect(runtime.metadata.bucket).toBe(FETCHED_SCHEDULER_SECRETS.METADATA_S3_BUCKET);
     expect(runtime.protected.bucket).toBe(FETCHED_SCHEDULER_SECRETS.PROTECTED_S3_BUCKET);
   });
@@ -131,6 +130,30 @@ describe('scheduler production runtime environment', () => {
     expect(runtime.catalogDatabaseUrl).toBe(COMPLETE_RAW_ENV.CATALOG_DATABASE_URL);
     expect(runtime.common.endpoint).toBe(COMPLETE_RAW_ENV.COMMON_S3_ENDPOINT);
     expect(runtime.common.accessKeyId).toBe(COMPLETE_RAW_ENV.COMMON_S3_ACCESS_KEY_ID);
+    expect(runtime.metadata.endpoint).toBe(COMPLETE_RAW_ENV.METADATA_S3_ENDPOINT);
+    expect(runtime.protected.endpoint).toBe(COMPLETE_RAW_ENV.PROTECTED_S3_ENDPOINT);
+    expect(runtime.publish).toEqual({
+      convexApiSecret: FETCHED_SCHEDULER_SECRETS.CONVEX_API_SECRET,
+      convexUrl: FETCHED_SCHEDULER_SECRETS.CONVEX_URL,
+      internalServiceAuthSecret: FETCHED_SCHEDULER_SECRETS.INTERNAL_SERVICE_AUTH_SECRET,
+      publishTimeoutMs: 15_000,
+    });
+  });
+
+  it('uses local storage with fetched publisher credentials in the interactive profile', async () => {
+    const fetchSecrets = mock(async (_env: NodeJS.ProcessEnv) => FETCHED_SCHEDULER_SECRETS);
+    const localEnv = {
+      ...COMPLETE_RAW_ENV,
+      NODE_ENV: 'development',
+      YUCP_STORAGE_PROFILE: 'interactive',
+    } satisfies NodeJS.ProcessEnv;
+
+    const runtime = await loadSchedulerRuntimeEnv(localEnv, fetchSecrets);
+
+    expect(fetchSecrets).toHaveBeenCalledTimes(1);
+    expect(runtime.catalogDatabaseUrl).toBe(COMPLETE_RAW_ENV.CATALOG_DATABASE_URL);
+    expect(runtime.scratchRoot).toBe(COMPLETE_RAW_ENV.INGEST_SCRATCH_DIR);
+    expect(runtime.common.endpoint).toBe(COMPLETE_RAW_ENV.COMMON_S3_ENDPOINT);
     expect(runtime.metadata.endpoint).toBe(COMPLETE_RAW_ENV.METADATA_S3_ENDPOINT);
     expect(runtime.protected.endpoint).toBe(COMPLETE_RAW_ENV.PROTECTED_S3_ENDPOINT);
     expect(runtime.publish).toEqual({

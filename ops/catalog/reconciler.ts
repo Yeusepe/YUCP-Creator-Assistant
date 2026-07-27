@@ -20,6 +20,7 @@ const OUTBOX_PUBLISH_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 interface ReconcileVersionRow {
   catalog_product_id: string | null;
+  edition_id: string;
   id: string;
   package_id: string;
   version: string;
@@ -101,6 +102,7 @@ function toPackageVersion(row: ReconcileVersionRow): PackageVersion {
     error: row.error,
     deletedAt: null,
     deletionReason: null,
+    editionId: row.edition_id,
     attempts: row.attempts,
     nextAttemptAt: toCatalogDate(row.next_attempt_at),
     createdAt: row.created_at,

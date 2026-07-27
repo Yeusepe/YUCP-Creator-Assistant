@@ -27,6 +27,46 @@ export function normalizeOrigin(value: string | null | undefined): string | null
   }
 }
 
+export function parseConfiguredTrustedOrigins(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(value);
+  } catch {
+    throw new Error('The configured trusted origins must be valid JSON');
+  }
+  if (!Array.isArray(decoded) || decoded.length > 16) {
+    throw new Error('The configured trusted origins must be one bounded array');
+  }
+  const origins = decoded.map((entry) => {
+    if (typeof entry !== 'string' || entry.length === 0 || entry.length > 2048) {
+      throw new Error('The configured trusted origins contain an invalid value');
+    }
+    const normalized = normalizeOrigin(entry);
+    if (!normalized || normalized !== entry) {
+      throw new Error('The configured trusted origins must contain canonical HTTP origins');
+    }
+    const parsed = new URL(normalized);
+    if (
+      !['http:', 'https:'].includes(parsed.protocol) ||
+      parsed.username ||
+      parsed.password ||
+      parsed.pathname !== '/' ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error('The configured trusted origins must contain canonical HTTP origins');
+    }
+    return normalized;
+  });
+  if (new Set(origins).size !== origins.length) {
+    throw new Error('The configured trusted origins must be unique');
+  }
+  return origins;
+}
+
 export function buildTrustedBrowserOrigins({
   siteUrl,
   frontendUrl,
@@ -46,6 +86,8 @@ export function buildTrustedBrowserOrigins({
       return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]';
     });
 
-  const origins = hasLoopbackOrigin ? [...configured, ...LOCAL_TRUSTED_BROWSER_ORIGINS] : configured;
+  const origins = hasLoopbackOrigin
+    ? [...configured, ...LOCAL_TRUSTED_BROWSER_ORIGINS]
+    : configured;
   return Array.from(new Set(origins));
 }

@@ -4,6 +4,7 @@ import {
   DESYNC_STORAGE_FORMAT_VERSION,
   parseDeliveryManifest,
 } from './deliveryManifest';
+import { ACTIVE_PROTECTION_POLICY_ID } from './protectionPolicyId';
 
 describe('logical tree delivery manifest', () => {
   test('binds sorted file recipes and active-content policy', () => {
@@ -25,7 +26,7 @@ describe('logical tree delivery manifest', () => {
       packageId: 'com.yucp.example',
       protectedSourceRoot: '66'.repeat(32),
       protectionPolicyDigest: '77'.repeat(32),
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       releaseRoot: '33'.repeat(32),
       schemaVersion: 4,
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
@@ -38,6 +39,7 @@ describe('logical tree delivery manifest', () => {
         'Example Repository': 'https://packages.example.test/index.json',
       },
     });
+    expect(manifest.bootstrapMedia).toEqual([]);
 
     expect(manifest.files[0]?.sha256).toBe('11'.repeat(32));
     expect(manifest.activeContentDigest).toBe('44'.repeat(32));
@@ -76,7 +78,7 @@ describe('logical tree delivery manifest', () => {
         packageId: 'com.yucp.example',
         protectedSourceRoot: '66'.repeat(32),
         protectionPolicyDigest: '77'.repeat(32),
-        protectionPolicyId: 'common-only-v1',
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         releaseRoot: '33'.repeat(32),
         schemaVersion: 4,
         storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
@@ -106,7 +108,7 @@ describe('logical tree delivery manifest', () => {
         packageId: 'com.yucp.example',
         protectedSourceRoot: '66'.repeat(32),
         protectionPolicyDigest: '77'.repeat(32),
-        protectionPolicyId: 'common-only-v1',
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         releaseRoot: '33'.repeat(32),
         schemaVersion: 4,
         storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
@@ -138,7 +140,7 @@ describe('logical tree delivery manifest', () => {
       packageId: 'com.yucp.example',
       protectedSourceRoot: '66'.repeat(32),
       protectionPolicyDigest: '77'.repeat(32),
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       releaseRoot: '33'.repeat(32),
       schemaVersion: 4,
       storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
@@ -149,5 +151,37 @@ describe('logical tree delivery manifest', () => {
     });
 
     expect(manifest.files[0]?.chunks).toHaveLength(1);
+  });
+
+  test('rejects a removed protection policy', () => {
+    expect(() =>
+      parseDeliveryManifest({
+        activeContentDigest: '44'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        chunkAvgKib: 256,
+        commonRoot: '55'.repeat(32),
+        files: [
+          {
+            bytes: 1,
+            chunks: [{ id: '22'.repeat(32), sha256: '11'.repeat(32), size: 1 }],
+            classification: 'common',
+            normalizedPath: 'Assets/a.txt',
+            sha256: '11'.repeat(32),
+          },
+        ],
+        normalizationPolicyVersion: 'package-normalization-policy-v2',
+        packageId: 'com.yucp.example',
+        protectedSourceRoot: '66'.repeat(32),
+        protectionPolicyDigest: '77'.repeat(32),
+        protectionPolicyId: 'common-only-v1',
+        releaseRoot: '33'.repeat(32),
+        schemaVersion: 4,
+        storageFormatVersion: DESYNC_STORAGE_FORMAT_VERSION,
+        version: '1.2.3',
+        versionId: 'version-1',
+        vpmDependencies: {},
+        vpmRepositories: {},
+      })
+    ).toThrow('unsupported protectionPolicyId');
   });
 });

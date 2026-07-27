@@ -243,6 +243,43 @@ async function clearRecoverableAuthCookies(cookieHeader: string | null): Promise
   }
 }
 
+function getRenewedAuthCookies(headers: Headers): string[] {
+  const getSetCookie = (
+    headers as Headers & {
+      getSetCookie?: () => string[];
+    }
+  ).getSetCookie;
+  const cookies =
+    typeof getSetCookie === 'function'
+      ? getSetCookie.call(headers)
+      : [headers.get('set-cookie')].filter((value): value is string => Boolean(value));
+
+  return cookies.filter((cookie) => {
+    const separatorIndex = cookie.indexOf('=');
+    if (separatorIndex < 1) {
+      return false;
+    }
+
+    const cookieName = cookie.slice(0, separatorIndex).trim();
+    return AUTH_COOKIE_NAME_PREFIXES.some((prefix) => cookieName.startsWith(prefix));
+  });
+}
+
+async function forwardRenewedAuthCookies(headers: Headers): Promise<void> {
+  const cookies = getRenewedAuthCookies(headers);
+  if (cookies.length === 0) {
+    return;
+  }
+
+  // Better Auth renews the durable session cookie through get-session:
+  // https://better-auth.com/docs/concepts/session-management#session-expiration
+  const { getResponseHeaders } = await import('@tanstack/react-start/server');
+  const responseHeaders = getResponseHeaders();
+  for (const cookie of cookies) {
+    responseHeaders.append('set-cookie', cookie);
+  }
+}
+
 function summarizeRequestHeaders(headers: Headers): Record<string, unknown> {
   const cookieHeader = headers.get('cookie');
 
@@ -377,6 +414,8 @@ export async function getSession(): Promise<AuthSessionState> {
     if (!response.ok) {
       throw new Error(`Better Auth session fetch failed with status ${response.status}`);
     }
+
+    await forwardRenewedAuthCookies(response.headers);
 
     const payload = (await response.json()) as BetterAuthSessionResponse | null;
     const user = payload?.user;

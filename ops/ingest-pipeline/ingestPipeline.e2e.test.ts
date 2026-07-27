@@ -20,6 +20,7 @@ import {
   readCasIndexObject,
   verifyDesyncCli,
 } from '../storage-core/desyncCas';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import { createUnityPackageRecordFixture } from '../testing/unityPackageFixture';
 import { ingestVersion, promoteVersion, retrieveVersion } from './ingestPipeline';
@@ -133,6 +134,7 @@ function localPipelineStores(root: string) {
     commonStore: localCasStore(join(root, 'common')),
     metadataStore: localCasStore(join(root, 'metadata')),
     protectedStore: localCasStore(join(root, 'protected')),
+    scratchRoot: root,
   };
 }
 
@@ -247,7 +249,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       creatorId: 'creator-jammr',
       inputPath: requireFixturePath(rawV1Path, 'v1'),
       packageId: 'com.yucp.jammr',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.0.0',
     });
@@ -264,7 +266,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       creatorId: 'creator-jammr',
       inputPath: requireFixturePath(rawV2Path, 'v2'),
       packageId: 'com.yucp.jammr',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.1.0',
     });
@@ -312,7 +314,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       creatorId: 'creator-corrupt',
       inputPath: requireFixturePath(rawV1Path, 'v1'),
       packageId: 'com.yucp.corrupt',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.0.0',
     });
@@ -357,7 +359,7 @@ describe.serial('logical-tree ingest pipeline end to end', () => {
       creatorId: 'creator-lossless',
       inputPath: requireFixturePath(rawV1Path, 'v1'),
       packageId: 'com.yucp.lossless',
-      protectionPolicyId: 'common-only-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       ...stores,
       version: '1.0.0',
     });

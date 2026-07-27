@@ -7,7 +7,10 @@ describe('VPM bootstrap metadata extraction', () => {
       {
         body: JSON.stringify({
           name: 'jammr',
+          displayName: 'JAMMR',
           version: '2.1.7',
+          description: 'Cover to start a Spotify jam.',
+          author: { name: 'YUCP Studio' },
           vpmDependencies: {
             'com.vrcfury.vrcfury': '>=0.0.0',
             'com.yucp.components': '>=0.0.0',
@@ -23,6 +26,12 @@ describe('VPM bootstrap metadata extraction', () => {
     ]);
 
     expect(metadata).toEqual({
+      packageMetadata: {
+        author: 'YUCP Studio',
+        description: 'Cover to start a Spotify jam.',
+        packageName: 'JAMMR',
+        version: '2.1.7',
+      },
       vpmDependencies: {
         'com.vrcfury.vrcfury': '>=0.0.0',
         'com.yucp.components': '>=0.0.0',
@@ -39,7 +48,10 @@ describe('VPM bootstrap metadata extraction', () => {
       {
         body: JSON.stringify({
           name: 'com.example.tool',
+          displayName: 'Example Tool',
           version: '1.0.0',
+          description: 'Example tool package.',
+          author: { name: 'Example Studio' },
           vpmDependencies: {
             'com.example.runtime': '2.x',
           },
@@ -52,6 +64,12 @@ describe('VPM bootstrap metadata extraction', () => {
       'com.example.runtime': '2.x',
     });
     expect(metadata.vpmRepositories).toEqual({});
+    expect(metadata.packageMetadata).toEqual({
+      author: 'Example Studio',
+      description: 'Example tool package.',
+      packageName: 'Example Tool',
+      version: '1.0.0',
+    });
   });
 
   test('rejects conflicting dependency declarations', () => {
@@ -91,5 +109,100 @@ describe('VPM bootstrap metadata extraction', () => {
         },
       ])
     ).toThrow('HTTPS');
+  });
+
+  test('normalizes official VCC repository URLs with query flags', () => {
+    const metadata = extractVpmBootstrapMetadataFromDocuments([
+      {
+        body: JSON.stringify({
+          vpmRepositories: {
+            'VRChat Curated': ' HTTPS://PACKAGES.VRCHAT.COM:443/curated?zeta&download ',
+            'VRChat Official': 'https://packages.vrchat.com/official?download',
+          },
+        }),
+        normalizedPath: 'Assets/YUCP_TempInstall_vrchat.json',
+      },
+    ]);
+
+    expect(metadata.vpmRepositories).toEqual({
+      'VRChat Curated': 'https://packages.vrchat.com/curated?download&zeta',
+      'VRChat Official': 'https://packages.vrchat.com/official?download',
+    });
+  });
+
+  test('rejects repository query values, duplicates, unsafe names, and excessive flags', () => {
+    for (const url of [
+      'https://packages.example.test/index.json?token=secret',
+      'https://packages.example.test/index.json?download=',
+      'https://packages.example.test/index.json?download&download',
+      'https://packages.example.test/index.json?down%2Fload',
+      'https://packages.example.test/index.json?1download',
+      `https://packages.example.test/index.json?${'x'.repeat(65)}`,
+      'https://packages.example.test/index.json?a&b&c&d&e&f&g&h&i',
+    ]) {
+      expect(() =>
+        extractVpmBootstrapMetadataFromDocuments([
+          {
+            body: JSON.stringify({
+              vpmRepositories: {
+                unsafe: url,
+              },
+            }),
+            normalizedPath: 'Assets/YUCP_TempInstall_unsafe-query.json',
+          },
+        ])
+      ).toThrow('query');
+    }
+  });
+
+  test('rejects unsafe repository schemes, credentials, and fragments', () => {
+    for (const url of [
+      'file:///etc/passwd',
+      'ftp://packages.example.test/index.json',
+      'https://user:password@packages.example.test/index.json',
+      'https://packages.example.test/index.json#override',
+    ]) {
+      expect(() =>
+        extractVpmBootstrapMetadataFromDocuments([
+          {
+            body: JSON.stringify({
+              vpmRepositories: {
+                unsafe: url,
+              },
+            }),
+            normalizedPath: 'Assets/YUCP_TempInstall_unsafe.json',
+          },
+        ])
+      ).toThrow('HTTPS');
+    }
+  });
+
+  test('rejects unsafe and oversized presentation metadata', () => {
+    expect(() =>
+      extractVpmBootstrapMetadataFromDocuments([
+        {
+          body: JSON.stringify({
+            displayName: '../Unsafe',
+            version: '1.0.0',
+            author: { name: 'Example Studio' },
+          }),
+          normalizedPath: 'Packages/com.example.tool/package.json',
+        },
+      ])
+    ).toThrow('package name');
+
+    expect(() =>
+      extractVpmBootstrapMetadataFromDocuments([
+        {
+          body: JSON.stringify({
+            displayName: 'Example Tool',
+            version: '1.0.0',
+            description: 'x'.repeat(501),
+            author: { name: 'Example Studio' },
+          }),
+          normalizedPath: 'Packages/com.example.tool/package.json',
+        },
+      ])
+    ).toThrow('description');
   });
 });

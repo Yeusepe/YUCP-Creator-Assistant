@@ -352,6 +352,9 @@ func MergeProtectedRendition(
 	renditionPath string,
 	receipt packagecontract.MaterializationReceipt,
 ) ([]StagedFile, error) {
+	if manifest.ProtectionPolicyID != activeProtectionPolicyID {
+		return nil, fmt.Errorf("unsupported protection policy %s", manifest.ProtectionPolicyID)
+	}
 	stagingTree, err := requireAbsolutePath(stagingTree, "staging tree")
 	if err != nil {
 		return nil, err
@@ -364,10 +367,6 @@ func MergeProtectedRendition(
 		if file.Classification == "protected" {
 			protectedFiles[file.NormalizedPath] = file
 		}
-	}
-	bestEffort := manifest.ProtectionPolicyID == "supported-visual-assets-v2"
-	if !bestEffort && len(protectedFiles) != len(receipt.OutputFiles) {
-		return nil, fmt.Errorf("protected rendition output count does not match the manifest")
 	}
 	if len(receipt.OutputFiles) > len(protectedFiles) {
 		return nil, fmt.Errorf("protected rendition output count exceeds the manifest")
@@ -385,9 +384,6 @@ func MergeProtectedRendition(
 	for path, file := range protectedFiles {
 		if _, coupled := expected[path]; coupled {
 			continue
-		}
-		if !bestEffort {
-			return nil, fmt.Errorf("protected rendition is missing a required output path")
 		}
 		digest, decodeErr := hex.DecodeString(file.SHA256)
 		if decodeErr != nil || len(digest) != sha256.Size {

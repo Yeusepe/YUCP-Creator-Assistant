@@ -109,8 +109,10 @@ describe('loadIngestRuntimeEnv', () => {
     const sourceEnv = {
       ...COMPLETE_STORAGE_ROLE_ENV,
       CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+      INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
       INGEST_MAX_BYTES: '1048576',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
       UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
     } satisfies NodeJS.ProcessEnv;
     const originalEnv = { ...sourceEnv };
@@ -118,6 +120,8 @@ describe('loadIngestRuntimeEnv', () => {
 
     expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
     expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
+    expect(runtime.catalogControlSharedSecret).toBe('placeholder-local-catalog-control-secret');
+    expect(runtime.ingestScratchDir).toBe('C:/tmp/yucp-ingest-scratch-test');
     expect(runtime.ingestUploadDir).toBe('C:/tmp/yucp-ingest-test');
     expect(runtime.ingestMaxBytes).toBe(1_048_576);
     expect(runtime.common.chunkPrefix).toBe('chunks/');
@@ -134,15 +138,18 @@ describe('loadIngestRuntimeEnv', () => {
       INFISICAL_CLIENT_ID: 'placeholder-client-id',
       INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
       INFISICAL_PROJECT_ID: 'placeholder-project-id',
+      INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
       INGEST_MAX_BYTES: '1048576',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
       NODE_ENV: 'development',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
       UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
       YUCP_STORAGE_PROFILE: 'disposable',
     } satisfies NodeJS.ProcessEnv;
     const fetchSecrets = mock(async () => ({
       ...COMPLETE_STORAGE_ROLE_ENV,
       CATALOG_DATABASE_URL: 'postgresql://remote.invalid/catalog',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-remote-catalog-control-secret',
       UPLOAD_HMAC_KEY: 'placeholder-remote-upload-hmac-key',
     }));
 
@@ -157,17 +164,66 @@ describe('loadIngestRuntimeEnv', () => {
     expect(runtime.quarantine.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.QUARANTINE_S3_ENDPOINT);
   });
 
-  it('rejects the disposable storage profile in production', async () => {
+  it('keeps interactive storage values local when Infisical bootstrap values exist', async () => {
+    const sourceEnv = {
+      ...COMPLETE_STORAGE_ROLE_ENV,
+      CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+      INFISICAL_CLIENT_ID: 'placeholder-client-id',
+      INFISICAL_CLIENT_SECRET: 'placeholder-client-secret',
+      INFISICAL_PROJECT_ID: 'placeholder-project-id',
+      INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
+      INGEST_MAX_BYTES: '1048576',
+      INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
+      NODE_ENV: 'development',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
+      UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
+      YUCP_STORAGE_PROFILE: 'interactive',
+    } satisfies NodeJS.ProcessEnv;
+    const fetchSecrets = mock(async () => ({
+      ...COMPLETE_STORAGE_ROLE_ENV,
+      CATALOG_DATABASE_URL: 'postgresql://remote.invalid/catalog',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-remote-catalog-control-secret',
+      UPLOAD_HMAC_KEY: 'placeholder-remote-upload-hmac-key',
+    }));
+
+    const runtime = await loadIngestRuntimeEnv(sourceEnv, fetchSecrets);
+
+    expect(fetchSecrets).not.toHaveBeenCalled();
+    expect(runtime.catalogDatabaseUrl).toBe('postgresql://local-test.invalid/catalog');
+    expect(runtime.uploadHmacKey).toBe('placeholder-local-upload-hmac-key');
+    expect(runtime.common.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.COMMON_S3_ENDPOINT);
+    expect(runtime.metadata.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.METADATA_S3_ENDPOINT);
+    expect(runtime.protected.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.PROTECTED_S3_ENDPOINT);
+    expect(runtime.quarantine.endpoint).toBe(COMPLETE_STORAGE_ROLE_ENV.QUARANTINE_S3_ENDPOINT);
+  });
+
+  it('rejects local storage profiles in production', async () => {
     await expect(
       loadIngestRuntimeEnv({
         ...COMPLETE_STORAGE_ROLE_ENV,
         CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+        INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
         INGEST_MAX_BYTES: '1048576',
         INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
         NODE_ENV: 'production',
+        PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
         UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
         YUCP_STORAGE_PROFILE: 'disposable',
       })
-    ).rejects.toThrow('The disposable storage profile cannot run in production');
+    ).rejects.toThrow('A local storage profile cannot run in production');
+
+    await expect(
+      loadIngestRuntimeEnv({
+        ...COMPLETE_STORAGE_ROLE_ENV,
+        CATALOG_DATABASE_URL: 'postgresql://local-test.invalid/catalog',
+        INGEST_SCRATCH_DIR: 'C:/tmp/yucp-ingest-scratch-test',
+        INGEST_MAX_BYTES: '1048576',
+        INGEST_UPLOAD_DIR: 'C:/tmp/yucp-ingest-test',
+        NODE_ENV: 'production',
+        PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'placeholder-local-catalog-control-secret',
+        UPLOAD_HMAC_KEY: 'placeholder-local-upload-hmac-key',
+        YUCP_STORAGE_PROFILE: 'interactive',
+      })
+    ).rejects.toThrow('A local storage profile cannot run in production');
   });
 });

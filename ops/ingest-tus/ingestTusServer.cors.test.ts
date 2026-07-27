@@ -22,8 +22,10 @@ beforeAll(async () => {
       metadataStore: localCasStore(join(scratchPath, 'metadata')),
       protectedStore: localCasStore(join(scratchPath, 'protected')),
       quarantineStorage: null as never,
+      scratchRoot: join(scratchPath, 'pipeline-scratch'),
       uploadDir: join(scratchPath, 'uploads'),
       uploadHmacKey: 'cors-contract-test-hmac-key',
+      catalogControlSharedSecret: 'cors-catalog-control-test-secret-32-bytes',
     })
   );
   await new Promise<void>((resolve, reject) => {

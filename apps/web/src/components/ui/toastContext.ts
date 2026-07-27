@@ -37,8 +37,8 @@ const hotData = import.meta.hot?.data as ToastHotData | undefined;
  */
 export const ToastContext = hotData?.toastContext ?? createContext<ToastContextValue | null>(null);
 
-if (import.meta.hot) {
-  import.meta.hot.data.toastContext = ToastContext;
+if (hotData) {
+  hotData.toastContext = ToastContext;
 }
 
 export function useToast(): ToastContextValue {

@@ -61,11 +61,27 @@ const productAccess = {
     provider: 'gumroad',
     providerLabel: 'Gumroad',
     storefrontUrl: 'https://gumroad.test/avatar-bundle',
+    storefronts: [
+      {
+        catalogProductId: 'catalog/product',
+        provider: 'gumroad',
+        providerLabel: 'Gumroad',
+        storefrontUrl: 'https://gumroad.test/avatar-bundle',
+      },
+    ],
   },
   accessState: {
     hasActiveEntitlement: false,
     requiresVerification: true,
   },
+  repository: null,
+};
+
+const stableRepository = {
+  indexUrl:
+    'https://vpm.test/api/vpm/access/SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS/index.json',
+  addRepoUrl:
+    'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Faccess%2FSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS%2Findex.json',
 };
 
 function createWrapper() {
@@ -116,7 +132,7 @@ describe('get in unity route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(screen.getByRole('heading', { name: 'Avatar Bundle' })).toBeInTheDocument();
-    expect(screen.getByText('Private and per account')).toBeInTheDocument();
+    expect(screen.getByText('Verified for this account')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to continue' }));
     await waitFor(() => expect(signInMock).toHaveBeenCalledOnce());
   });
@@ -145,10 +161,11 @@ describe('get in unity route', () => {
     expect(screen.getByRole('button', { name: 'Starting verification...' })).toBeDisabled();
   });
 
-  it('loads the current VPM token contract for an entitled buyer', async () => {
+  it('uses the durable creator-managed repository for an entitled buyer', async () => {
     loaderDataMock.mockReturnValue({
       ...productAccess,
       accessState: { hasActiveEntitlement: true, requiresVerification: false },
+      repository: stableRepository,
     });
     vi.mocked(usePublicAuth).mockReturnValue({
       authUserId: 'buyer_1',
@@ -156,13 +173,6 @@ describe('get in unity route', () => {
       isPending: false,
       signIn: signInMock,
       signOut: vi.fn(),
-    });
-    apiPostMock.mockResolvedValue({
-      token: 'buyer-token',
-      indexUrl: 'https://vpm.test/api/vpm/buyer-token/index.json',
-      addRepoUrl:
-        'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Fapi%2Fvpm%2Fbuyer-token%2Findex.json',
-      expiresAt: Date.now() + 60_000,
     });
     const Component = GetInUnityRoute.options.component;
     if (!Component) throw new Error('Get in Unity component is missing');
@@ -170,16 +180,24 @@ describe('get in unity route', () => {
     render(<Component />, { wrapper: createWrapper() });
 
     expect(await screen.findByRole('button', { name: 'Add to VCC' })).toBeEnabled();
-    expect(apiPostMock).toHaveBeenCalledWith('/api/vpm/repo-token');
+    expect(apiPostMock).not.toHaveBeenCalledWith('/api/vpm/repo-token');
+    expect(screen.getByText(stableRepository.indexUrl)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Download' })).not.toBeInTheDocument();
     expect(document.querySelector('a[href^="/api/access/"]')).not.toBeInTheDocument();
     expect(screen.getByText(/manual setup and troubleshooting/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Add this product to VCC. The importer checks access and installs its files.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/protected files/i)).not.toBeInTheDocument();
   });
 
-  it('mints a fresh repository handoff after the authenticated buyer changes', async () => {
+  it('keeps the same repository handoff after the authenticated buyer changes', async () => {
     loaderDataMock.mockReturnValue({
       ...productAccess,
       accessState: { hasActiveEntitlement: true, requiresVerification: false },
+      repository: stableRepository,
     });
     vi.mocked(usePublicAuth).mockReturnValue({
       authUserId: 'buyer_1',
@@ -188,17 +206,12 @@ describe('get in unity route', () => {
       signIn: signInMock,
       signOut: vi.fn(),
     });
-    apiPostMock.mockResolvedValue({
-      token: 'buyer-token',
-      indexUrl: 'https://vpm.test/api/vpm/buyer-token/index.json',
-      addRepoUrl: 'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Findex.json',
-      expiresAt: Date.now() + 60_000,
-    });
     const Component = GetInUnityRoute.options.component;
     if (!Component) throw new Error('Get in Unity component is missing');
     const Wrapper = createWrapper();
     const rendered = render(<Component />, { wrapper: Wrapper });
-    await waitFor(() => expect(apiPostMock).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(stableRepository.indexUrl)).toBeInTheDocument();
+    expect(apiPostMock).not.toHaveBeenCalled();
 
     vi.mocked(usePublicAuth).mockReturnValue({
       authUserId: 'buyer_2',
@@ -209,13 +222,15 @@ describe('get in unity route', () => {
     });
     rendered.rerender(<Component />);
 
-    await waitFor(() => expect(apiPostMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(stableRepository.indexUrl)).toBeInTheDocument();
+    expect(apiPostMock).not.toHaveBeenCalled();
   });
 
   it('removes verification grants from the browser URL while preserving safe state', async () => {
     loaderDataMock.mockReturnValue({
       ...productAccess,
       accessState: { hasActiveEntitlement: true, requiresVerification: false },
+      repository: stableRepository,
     });
     routeSearchMock.mockReturnValue({ grant: 'sensitive-grant', intent_id: 'intent-123' });
     vi.mocked(usePublicAuth).mockReturnValue({
@@ -224,12 +239,6 @@ describe('get in unity route', () => {
       isPending: false,
       signIn: signInMock,
       signOut: vi.fn(),
-    });
-    apiPostMock.mockResolvedValue({
-      token: 'buyer-token',
-      indexUrl: 'https://vpm.test/api/vpm/buyer-token/index.json',
-      addRepoUrl: 'vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.test%2Findex.json',
-      expiresAt: Date.now() + 60_000,
     });
     window.history.replaceState(
       {},

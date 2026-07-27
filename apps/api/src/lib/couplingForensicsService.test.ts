@@ -255,16 +255,13 @@ describe('runCouplingAttribution', () => {
       attributionId: 'attribution-detail',
       normalizedPath: 'Assets/Character/detail.png',
     };
+    const candidateOrders: string[][] = [];
     const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body)) as {
         assets: Array<{ assetPath: string; assetType: string }>;
         candidates: CouplingAttributionCandidate[];
       };
-      expect(body.candidates.map((candidate) => candidate.attributionId)).toEqual([
-        primaryCandidate.attributionId,
-        detailCandidate.attributionId,
-        decoyCandidate.attributionId,
-      ]);
+      candidateOrders.push(body.candidates.map((candidate) => candidate.attributionId));
       return Response.json({
         schemaVersion: 2,
         results: body.assets.map((asset) => ({
@@ -292,6 +289,10 @@ describe('runCouplingAttribution', () => {
       [decoyCandidate, primaryCandidate, detailCandidate],
       config
     );
+    expect(candidateOrders).toEqual([
+      [primaryCandidate.attributionId, decoyCandidate.attributionId, detailCandidate.attributionId],
+      [detailCandidate.attributionId, decoyCandidate.attributionId, primaryCandidate.attributionId],
+    ]);
   });
 
   it('uses bounded attribution batches and checks relocated assets against compatible candidates', async () => {
@@ -378,6 +379,71 @@ describe('runCouplingAttribution', () => {
         assetType: 'png',
         decoderKind: 'png',
         preclassification: 'no-signal',
+      },
+    ]);
+  });
+
+  it('bounds candidate evaluation work in each Linux attribution request', async () => {
+    const manyCandidates = Array.from({ length: 130 }, (_, index) => ({
+      ...primaryCandidate,
+      attributionId: `attribution-${index.toString().padStart(3, '0')}`,
+      jobId: `job-${index.toString().padStart(3, '0')}`,
+    }));
+    const targetCandidate = manyCandidates.at(-1);
+    if (!targetCandidate) {
+      throw new Error('Expected an attribution target candidate');
+    }
+    const requestCandidateCounts: number[] = [];
+    const fetchMock = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        assets: Array<{ assetPath: string; assetType: string }>;
+        candidates: CouplingAttributionCandidate[];
+      };
+      requestCandidateCounts.push(body.assets.length * body.candidates.length);
+      if (body.assets.length * body.candidates.length > 64) {
+        throw new Error('Linux attribution request exceeded its bounded work');
+      }
+      const matched = body.candidates.some(
+        (candidate) => candidate.attributionId === targetCandidate.attributionId
+      );
+      return Response.json({
+        results: body.assets.map((asset) => ({
+          assetPath: asset.assetPath,
+          assetType: asset.assetType,
+          ...(matched
+            ? {
+                attributionId: targetCandidate.attributionId,
+                buyerSubjectPseudonym: targetCandidate.buyerSubjectPseudonym,
+              }
+            : {}),
+          matched,
+        })),
+        schemaVersion: 2,
+      });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await runCouplingAttribution(
+      [
+        {
+          assetPath: 'Assets/Character/body.png',
+          assetType: 'png',
+          filePath: assetFixturePath,
+        },
+      ],
+      manyCandidates,
+      config
+    );
+
+    expect(requestCandidateCounts).toEqual([64, 64, 2]);
+    expect(result).toEqual([
+      {
+        assetPath: 'Assets/Character/body.png',
+        assetType: 'png',
+        decoderKind: 'png',
+        matchedAttributionId: targetCandidate.attributionId,
+        matchedBuyerSubjectPseudonym: targetCandidate.buyerSubjectPseudonym,
+        preclassification: 'decoded',
       },
     ]);
   });

@@ -1,10 +1,18 @@
 import type { WorkId } from '@convex-dev/workpool';
-import type { GenericActionCtx, GenericMutationCtx } from 'convex/server';
+import {
+  defineSchema,
+  defineTable,
+  type GenericActionCtx,
+  type GenericMutationCtx,
+} from 'convex/server';
+import { v } from 'convex/values';
+import { convexTest } from 'convex-test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, internal } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import betterAuthSchema from './betterAuth/schema';
 import { roleSyncPool } from './roleSyncWorkpool';
+import schema from './schema';
 import { makeTestConvex } from './testHelpers';
 
 type ComponentMutationCtx = GenericMutationCtx<DataModel> &
@@ -22,6 +30,10 @@ type ComponentAwareTestConvex = ReturnType<typeof makeTestConvex> & {
     schema: unknown,
     functions: Record<string, () => Promise<unknown>>
   ) => void;
+};
+
+type TestImportMeta = ImportMeta & {
+  glob: (pattern: string) => Record<string, () => Promise<unknown>>;
 };
 
 describe('provider license intent entitlement remediation', () => {
@@ -217,10 +229,9 @@ describe('provider license intent entitlement remediation', () => {
       return { incompleteIntentId, preservedIntentId, expiredIntentId };
     });
 
-    const result = await t.mutation(
-      internal.migrations.resetIncompleteProviderLicenseIntents,
-      { limit: 10 }
-    );
+    const result = await t.mutation(internal.migrations.resetIncompleteProviderLicenseIntents, {
+      limit: 10,
+    });
     const stored = await t.run(async (ctx) => ({
       incomplete: await ctx.db.get(fixture.incompleteIntentId),
       preserved: await ctx.db.get(fixture.preservedIntentId),
@@ -515,10 +526,13 @@ describe('entitlement evidence tier remediation', () => {
     });
 
     expect(tierIds).toEqual([catalogTierId]);
-    const licenseRefTierIds = await t.query(api.catalogTiers.getActiveCatalogTierIdsForEntitlement, {
-      apiSecret: 'test-secret',
-      entitlementId: licenseRefEntitlementId,
-    });
+    const licenseRefTierIds = await t.query(
+      api.catalogTiers.getActiveCatalogTierIdsForEntitlement,
+      {
+        apiSecret: 'test-secret',
+        entitlementId: licenseRefEntitlementId,
+      }
+    );
 
     expect(licenseRefTierIds).toEqual([catalogTierId]);
   });
@@ -631,9 +645,7 @@ describe('entitlement evidence tier remediation', () => {
         .withIndex('by_source_reference', (q) =>
           q.eq('providerKey', 'jinxxy').eq('sourceReference', 'shared-remediation-order')
         )
-        .filter((q) =>
-          q.eq(q.field('authUserId'), 'creator-remediate-shared-order-tier-evidence')
-        )
+        .filter((q) => q.eq(q.field('authUserId'), 'creator-remediate-shared-order-tier-evidence'))
         .collect();
       return rows.map((row) => ({
         productId: row.productId,
@@ -2150,5 +2162,849 @@ describe('role sync redrive migration', () => {
       if (original === undefined) delete process.env.ROLE_SYNC_VIA_WORKPOOL;
       else process.env.ROLE_SYNC_VIA_WORKPOOL = original;
     }
+  });
+});
+
+describe('creator VPM link catalog field migration', () => {
+  it('creates the explicit package binding before removing the retired catalog field', async () => {
+    const legacyCreatorVpmLinks = defineTable(
+      schema.tables.creator_vpm_links.validator.extend({
+        catalogProductId: v.optional(v.id('product_catalog')),
+      })
+    )
+      .index('by_link_id', ['linkId'])
+      .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+    const legacySchema = defineSchema({
+      ...schema.tables,
+      creator_vpm_links: legacyCreatorVpmLinks,
+    });
+    const t = convexTest(legacySchema, (import.meta as TestImportMeta).glob('./**/*.ts'));
+    const now = Date.now();
+    const linkId = 'stable-link-id-for-migration';
+    const rowId = await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'creator-vpm-link-migration',
+        productId: 'product-vpm-link-migration',
+        provider: 'manual',
+        providerProductRef: 'manual-product-vpm-link-migration',
+        displayName: 'VPM link migration product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId: 'com.yucp.migration-product',
+        packageName: 'VPM link migration product',
+        publisherId: 'creator:creator-vpm-link-migration',
+        yucpUserId: 'creator-vpm-link-migration',
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+      return ctx.db.insert('creator_vpm_links', {
+        creatorAuthUserId: 'creator-vpm-link-migration',
+        packageId: 'com.yucp.migration-product',
+        catalogProductId,
+        linkId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+    });
+
+    const result = await t.mutation(internal.migrations.purgeCreatorVpmLinkCatalogProductIds, {
+      limit: 100,
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(rowId));
+    const binding = await t.run(async (ctx) =>
+      ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_creator_package_status', (q) =>
+          q
+            .eq('creatorAuthUserId', 'creator-vpm-link-migration')
+            .eq('packageId', 'com.yucp.migration-product')
+            .eq('status', 'active')
+        )
+        .unique()
+    );
+
+    expect(result).toEqual({
+      continueCursor: expect.any(String),
+      isDone: true,
+      scanned: 1,
+      unresolved: 0,
+      updated: 1,
+    });
+    expect(stored?.linkId).toBe(linkId);
+    expect('catalogProductId' in (stored as unknown as Record<string, unknown>)).toBe(false);
+    expect(binding).toMatchObject({
+      catalogProductId: expect.any(String),
+      creatorAuthUserId: 'creator-vpm-link-migration',
+      packageId: 'com.yucp.migration-product',
+      status: 'active',
+    });
+  });
+
+  it('reports an unresolved retired field instead of presenting a clean migration pass', async () => {
+    const legacyCreatorVpmLinks = defineTable(
+      schema.tables.creator_vpm_links.validator.extend({
+        catalogProductId: v.optional(v.id('product_catalog')),
+      })
+    )
+      .index('by_link_id', ['linkId'])
+      .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+    const legacySchema = defineSchema({
+      ...schema.tables,
+      creator_vpm_links: legacyCreatorVpmLinks,
+    });
+    const t = convexTest(legacySchema, (import.meta as TestImportMeta).glob('./**/*.ts'));
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const foreignProductId = await ctx.db.insert('product_catalog', {
+        authUserId: 'different-creator',
+        productId: 'foreign-vpm-link-product',
+        provider: 'manual',
+        providerProductRef: 'foreign-vpm-link-product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId: 'com.yucp.unresolved-vpm-link',
+        publisherId: 'creator:creator-unresolved-vpm-link',
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: 'creator-unresolved-vpm-link',
+      });
+      await ctx.db.insert('creator_vpm_links', {
+        catalogProductId: foreignProductId,
+        createdAt: now,
+        creatorAuthUserId: 'creator-unresolved-vpm-link',
+        linkId: 'L'.repeat(43),
+        packageId: 'com.yucp.unresolved-vpm-link',
+        status: 'active',
+        updatedAt: now,
+      } as never);
+    });
+
+    const result = await t.mutation(internal.migrations.purgeCreatorVpmLinkCatalogProductIds, {
+      limit: 100,
+    });
+
+    expect(result).toMatchObject({
+      isDone: true,
+      scanned: 1,
+      unresolved: 1,
+      updated: 0,
+    });
+  });
+
+  it('uses an explicit cursor to bound retired-field migration writes', async () => {
+    const legacyCreatorVpmLinks = defineTable(
+      schema.tables.creator_vpm_links.validator.extend({
+        catalogProductId: v.optional(v.id('product_catalog')),
+      })
+    )
+      .index('by_link_id', ['linkId'])
+      .index('by_creator_package_status', ['creatorAuthUserId', 'packageId', 'status']);
+    const legacySchema = defineSchema({
+      ...schema.tables,
+      creator_vpm_links: legacyCreatorVpmLinks,
+    });
+    const t = convexTest(legacySchema, (import.meta as TestImportMeta).glob('./**/*.ts'));
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const creatorAuthUserId = 'creator-bounded-vpm-link-migration';
+      const packageId = 'com.yucp.bounded-vpm-link-migration';
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'bounded-vpm-link-product',
+        provider: 'manual',
+        providerProductRef: 'bounded-vpm-link-product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId: `creator:${creatorAuthUserId}`,
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: creatorAuthUserId,
+      });
+      await ctx.db.insert('package_catalog_bindings', {
+        catalogProductId,
+        createdAt: now,
+        creatorAuthUserId,
+        packageId,
+        status: 'active',
+        updatedAt: now,
+      });
+      for (let index = 0; index < 8; index++) {
+        await ctx.db.insert('creator_vpm_links', {
+          catalogProductId,
+          createdAt: now + index,
+          creatorAuthUserId,
+          linkId: `${index}`.repeat(43),
+          packageId,
+          status: 'active',
+          updatedAt: now + index,
+        } as never);
+      }
+    });
+
+    const first = await t.mutation(internal.migrations.purgeCreatorVpmLinkCatalogProductIds, {
+      limit: 500,
+    });
+    const second = await t.mutation(internal.migrations.purgeCreatorVpmLinkCatalogProductIds, {
+      cursor: first.continueCursor,
+      limit: 500,
+    });
+
+    expect(first).toMatchObject({
+      isDone: false,
+      scanned: 5,
+      unresolved: 0,
+      updated: 5,
+    });
+    expect(second).toMatchObject({
+      isDone: true,
+      scanned: 3,
+      unresolved: 0,
+      updated: 3,
+    });
+  });
+
+  it('repairs an already-purged link from one active creator-owned release pointer', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-vpm-link-repair';
+    const packageId = 'com.yucp.repair-product';
+    const linkId = 'R'.repeat(43);
+    await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'product-vpm-link-repair',
+        provider: 'manual',
+        providerProductRef: 'manual-product-vpm-link-repair',
+        displayName: 'VPM link repair product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'VPM link repair product',
+        publisherId: `creator:${creatorAuthUserId}`,
+        yucpUserId: creatorAuthUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_versions_ref', {
+        packageId,
+        version: '1.0.0',
+        versionId: crypto.randomUUID(),
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        commonRoot: '33'.repeat(32),
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: 'protected-file-classification-v1',
+        releaseRoot: '77'.repeat(32),
+        vpmDependencies: {},
+        vpmRepositories: {},
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId,
+        createdAt: now,
+      });
+      await ctx.db.insert('creator_vpm_links', {
+        creatorAuthUserId,
+        packageId,
+        linkId,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const first = await t.mutation(internal.migrations.repairCreatorVpmLinkPackageBindings, {
+      limit: 100,
+    });
+    const second = await t.mutation(internal.migrations.repairCreatorVpmLinkPackageBindings, {
+      limit: 100,
+    });
+    const storedLink = await t.run(async (ctx) =>
+      ctx.db
+        .query('creator_vpm_links')
+        .withIndex('by_link_id', (q) => q.eq('linkId', linkId))
+        .unique()
+    );
+    const bindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_creator_package_status', (q) =>
+          q.eq('creatorAuthUserId', creatorAuthUserId).eq('packageId', packageId)
+        )
+        .collect()
+    );
+
+    expect(first).toMatchObject({ isDone: true, repaired: 1, unresolved: 0 });
+    expect(second).toMatchObject({ isDone: true, repaired: 0, unresolved: 0 });
+    expect(storedLink?.linkId).toBe(linkId);
+    expect(storedLink?.status).toBe('active');
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({
+      creatorAuthUserId,
+      packageId,
+      status: 'active',
+    });
+  });
+
+  it('fails closed when an already-purged link has ambiguous release pointers', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-vpm-link-ambiguous';
+    const packageId = 'com.yucp.ambiguous-product';
+    await t.run(async (ctx) => {
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'Ambiguous VPM link product',
+        publisherId: `creator:${creatorAuthUserId}`,
+        yucpUserId: creatorAuthUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+      for (const index of [1, 2]) {
+        const catalogProductId = await ctx.db.insert('product_catalog', {
+          authUserId: creatorAuthUserId,
+          productId: `product-vpm-link-ambiguous-${index}`,
+          provider: 'manual',
+          providerProductRef: `manual-product-vpm-link-ambiguous-${index}`,
+          displayName: `Ambiguous VPM link product ${index}`,
+          status: 'active',
+          supportsAutoDiscovery: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ctx.db.insert('package_versions_ref', {
+          packageId,
+          version: `1.0.${index}`,
+          versionId: crypto.randomUUID(),
+          activeContentDigest: `${index}1`.repeat(32),
+          activePolicyVersion: 'active-content-policy-v1',
+          bindingRoot: `${index}2`.repeat(32),
+          commonRoot: `${index}3`.repeat(32),
+          logicalBytes: 1,
+          logicalFiles: 1,
+          manifestSha256: `${index}4`.repeat(32),
+          protectedFiles: [],
+          protectedSourceRoot: `${index}5`.repeat(32),
+          protectionPolicyDigest: `${index}6`.repeat(32),
+          protectionPolicyId: 'protected-file-classification-v1',
+          releaseRoot: `${index}7`.repeat(32),
+          vpmDependencies: {},
+          vpmRepositories: {},
+          channel: 'stable',
+          state: index === 1 ? 'SUPERSEDED' : 'READY',
+          catalogProductId,
+          createdAt: now + index,
+        });
+      }
+      await ctx.db.insert('creator_vpm_links', {
+        creatorAuthUserId,
+        packageId,
+        linkId: 'U'.repeat(43),
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairCreatorVpmLinkPackageBindings, {
+      limit: 100,
+    });
+    const bindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_creator_package_status', (q) =>
+          q.eq('creatorAuthUserId', creatorAuthUserId).eq('packageId', packageId)
+        )
+        .collect()
+    );
+
+    expect(result).toMatchObject({ isDone: true, repaired: 0, unresolved: 1 });
+    expect(bindings).toEqual([]);
+  });
+
+  it('fails closed when link repair needs an unbounded package-version scan', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-vpm-link-bounded-repair';
+    const packageId = 'com.yucp.vpm-link-bounded-repair';
+    await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'vpm-link-bounded-repair',
+        provider: 'manual',
+        providerProductRef: 'vpm-link-bounded-repair',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId: `creator:${creatorAuthUserId}`,
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: creatorAuthUserId,
+      });
+      for (let index = 0; index < 65; index++) {
+        await ctx.db.insert('package_versions_ref', {
+          activeContentDigest: '11'.repeat(32),
+          activePolicyVersion: 'active-content-policy-v1',
+          bindingRoot: '22'.repeat(32),
+          catalogProductId,
+          channel: 'stable',
+          commonRoot: '33'.repeat(32),
+          createdAt: now + index,
+          editionId: 'standard',
+          logicalBytes: 1,
+          logicalFiles: 1,
+          manifestSha256: '44'.repeat(32),
+          packageId,
+          protectedFiles: [],
+          protectedSourceRoot: '55'.repeat(32),
+          protectionPolicyDigest: '66'.repeat(32),
+          protectionPolicyId: 'protected-file-classification-v1',
+          releaseRoot: `${index.toString(16).padStart(2, '0')}`.repeat(32),
+          state: index === 64 ? 'READY' : 'SUPERSEDED',
+          version: `1.0.${index}`,
+          versionId: crypto.randomUUID(),
+          vpmDependencies: {},
+          vpmRepositories: {},
+        });
+      }
+      await ctx.db.insert('creator_vpm_links', {
+        createdAt: now,
+        creatorAuthUserId,
+        linkId: 'Q'.repeat(43),
+        packageId,
+        status: 'active',
+        updatedAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairCreatorVpmLinkPackageBindings, {
+      limit: 100,
+    });
+    const bindings = await t.run(async (ctx) =>
+      ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_creator_package_status', (q) =>
+          q.eq('creatorAuthUserId', creatorAuthUserId).eq('packageId', packageId)
+        )
+        .collect()
+    );
+
+    expect(result).toMatchObject({ isDone: true, repaired: 0, unresolved: 1 });
+    expect(bindings).toEqual([]);
+  });
+});
+
+describe('package version edition identity migration', () => {
+  it('clamps requested batches to five package-scoped rows', async () => {
+    const t = makeTestConvex();
+    const packageId = 'com.yucp.edition-batch-bound';
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 8; index++) {
+        await ctx.db.insert('package_versions_ref', {
+          packageId,
+          version: `1.0.${index}`,
+          versionId: crypto.randomUUID(),
+          editionId: 'standard',
+          activeContentDigest: '11'.repeat(32),
+          activePolicyVersion: 'active-content-policy-v1',
+          bindingRoot: '22'.repeat(32),
+          commonRoot: '33'.repeat(32),
+          logicalBytes: 1,
+          logicalFiles: 1,
+          manifestSha256: '44'.repeat(32),
+          protectedFiles: [],
+          protectedSourceRoot: '55'.repeat(32),
+          protectionPolicyDigest: '66'.repeat(32),
+          protectionPolicyId: 'protected-file-classification-v1',
+          releaseRoot: '77'.repeat(32),
+          vpmDependencies: {},
+          vpmRepositories: {},
+          channel: 'stable',
+          state: 'SUPERSEDED',
+          createdAt: index,
+        });
+      }
+    });
+
+    const result = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 500,
+      packageId,
+    });
+
+    expect(result).toMatchObject({
+      isDone: false,
+      repaired: 0,
+      scanned: 5,
+      unresolved: 0,
+    });
+  });
+
+  it('repairs one unambiguous active edition without changing the version identity', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-edition-repair';
+    const packageId = 'com.yucp.edition-repair';
+    const versionId = crypto.randomUUID();
+    const versionRowId = await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'edition-repair-product',
+        provider: 'manual',
+        providerProductRef: 'edition-repair-product',
+        displayName: 'Edition repair product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'Edition repair product',
+        publisherId: `creator:${creatorAuthUserId}`,
+        yucpUserId: creatorAuthUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_editions', {
+        catalogProductIds: [catalogProductId],
+        catalogTierIds: [],
+        createdAt: now,
+        creatorAuthUserId,
+        displayName: 'Commercial',
+        editionId: 'commercial',
+        packageId,
+        priority: 0,
+        status: 'active',
+        updatedAt: now,
+      });
+      return await ctx.db.insert('package_versions_ref', {
+        packageId,
+        version: '1.0.0',
+        versionId,
+        editionId: 'standard',
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        commonRoot: '33'.repeat(32),
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: 'protected-file-classification-v1',
+        releaseRoot: '77'.repeat(32),
+        vpmDependencies: {},
+        vpmRepositories: {},
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId,
+        createdAt: now,
+      });
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 256; index++) {
+        await ctx.db.insert('package_versions_ref', {
+          packageId: `com.yucp.unrelated-${index}`,
+          version: '1.0.0',
+          versionId: crypto.randomUUID(),
+          editionId: 'standard',
+          activeContentDigest: '11'.repeat(32),
+          activePolicyVersion: 'active-content-policy-v1',
+          bindingRoot: '22'.repeat(32),
+          commonRoot: '33'.repeat(32),
+          logicalBytes: 1,
+          logicalFiles: 1,
+          manifestSha256: '44'.repeat(32),
+          protectedFiles: [],
+          protectedSourceRoot: '55'.repeat(32),
+          protectionPolicyDigest: '66'.repeat(32),
+          protectionPolicyId: 'protected-file-classification-v1',
+          releaseRoot: '77'.repeat(32),
+          vpmDependencies: {},
+          vpmRepositories: {},
+          channel: 'stable',
+          state: 'READY',
+          createdAt: now,
+        });
+      }
+    });
+
+    const first = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 100,
+      packageId,
+    });
+    const second = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 100,
+      packageId,
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(versionRowId));
+
+    expect(first).toMatchObject({ isDone: true, repaired: 1, scanned: 1, unresolved: 0 });
+    expect(second).toMatchObject({ isDone: true, repaired: 0, scanned: 1, unresolved: 0 });
+    expect(stored).toMatchObject({
+      editionId: 'commercial',
+      releaseRoot: '77'.repeat(32),
+      state: 'READY',
+      versionId,
+    });
+  });
+
+  it('fails closed when two active editions contain the release catalog product', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-edition-ambiguous';
+    const packageId = 'com.yucp.edition-ambiguous';
+    const versionRowId = await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'edition-ambiguous-product',
+        provider: 'manual',
+        providerProductRef: 'edition-ambiguous-product',
+        displayName: 'Edition ambiguous product',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        packageName: 'Edition ambiguous product',
+        publisherId: `creator:${creatorAuthUserId}`,
+        yucpUserId: creatorAuthUserId,
+        status: 'active',
+        registeredAt: now,
+        updatedAt: now,
+      });
+      for (const [priority, editionId] of ['personal', 'commercial'].entries()) {
+        await ctx.db.insert('package_editions', {
+          catalogProductIds: [catalogProductId],
+          catalogTierIds: [],
+          createdAt: now,
+          creatorAuthUserId,
+          displayName: editionId,
+          editionId,
+          packageId,
+          priority,
+          status: 'active',
+          updatedAt: now,
+        });
+      }
+      return await ctx.db.insert('package_versions_ref', {
+        packageId,
+        version: '1.0.0',
+        versionId: crypto.randomUUID(),
+        editionId: 'standard',
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        commonRoot: '33'.repeat(32),
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: 'protected-file-classification-v1',
+        releaseRoot: '77'.repeat(32),
+        vpmDependencies: {},
+        vpmRepositories: {},
+        channel: 'stable',
+        state: 'READY',
+        catalogProductId,
+        createdAt: now,
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 100,
+      packageId,
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(versionRowId));
+
+    expect(result).toMatchObject({ isDone: true, repaired: 0, unresolved: 1 });
+    expect(stored?.editionId).toBe('standard');
+  });
+
+  it('keeps an edition migration unresolved when the current edition is one ambiguous match', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-edition-current-ambiguous';
+    const packageId = 'com.yucp.edition-current-ambiguous';
+    const rowId = await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'edition-current-ambiguous',
+        provider: 'manual',
+        providerProductRef: 'edition-current-ambiguous',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId: `creator:${creatorAuthUserId}`,
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: creatorAuthUserId,
+      });
+      for (const [priority, editionId] of ['standard', 'commercial'].entries()) {
+        await ctx.db.insert('package_editions', {
+          catalogProductIds: [catalogProductId],
+          catalogTierIds: [],
+          createdAt: now,
+          creatorAuthUserId,
+          displayName: editionId,
+          editionId,
+          packageId,
+          priority,
+          status: 'active',
+          updatedAt: now,
+        });
+      }
+      return await ctx.db.insert('package_versions_ref', {
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        catalogProductId,
+        channel: 'stable',
+        commonRoot: '33'.repeat(32),
+        createdAt: now,
+        editionId: 'standard',
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        packageId,
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: 'protected-file-classification-v1',
+        releaseRoot: '77'.repeat(32),
+        state: 'READY',
+        version: '1.0.0',
+        versionId: crypto.randomUUID(),
+        vpmDependencies: {},
+        vpmRepositories: {},
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 100,
+      packageId,
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(rowId));
+
+    expect(result).toMatchObject({ isDone: true, repaired: 0, unresolved: 1 });
+    expect(stored?.editionId).toBe('standard');
+  });
+
+  it('fails closed when edition ownership exceeds the bounded migration scan', async () => {
+    const t = makeTestConvex();
+    const now = Date.now();
+    const creatorAuthUserId = 'creator-edition-bounded-scan';
+    const packageId = 'com.yucp.edition-bounded-scan';
+    const rowId = await t.run(async (ctx) => {
+      const catalogProductId = await ctx.db.insert('product_catalog', {
+        authUserId: creatorAuthUserId,
+        productId: 'edition-bounded-scan',
+        provider: 'manual',
+        providerProductRef: 'edition-bounded-scan',
+        status: 'active',
+        supportsAutoDiscovery: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert('package_registry', {
+        packageId,
+        publisherId: `creator:${creatorAuthUserId}`,
+        registeredAt: now,
+        status: 'active',
+        updatedAt: now,
+        yucpUserId: creatorAuthUserId,
+      });
+      for (let index = 0; index < 65; index++) {
+        await ctx.db.insert('package_editions', {
+          catalogProductIds: index === 0 ? [catalogProductId] : [],
+          catalogTierIds: [],
+          createdAt: now,
+          creatorAuthUserId,
+          displayName: `Edition ${index}`,
+          editionId: index === 0 ? 'standard' : `other-${index}`,
+          packageId,
+          priority: index,
+          status: 'active',
+          updatedAt: now,
+        });
+      }
+      return await ctx.db.insert('package_versions_ref', {
+        activeContentDigest: '11'.repeat(32),
+        activePolicyVersion: 'active-content-policy-v1',
+        bindingRoot: '22'.repeat(32),
+        catalogProductId,
+        channel: 'stable',
+        commonRoot: '33'.repeat(32),
+        createdAt: now,
+        editionId: 'legacy',
+        logicalBytes: 1,
+        logicalFiles: 1,
+        manifestSha256: '44'.repeat(32),
+        packageId,
+        protectedFiles: [],
+        protectedSourceRoot: '55'.repeat(32),
+        protectionPolicyDigest: '66'.repeat(32),
+        protectionPolicyId: 'protected-file-classification-v1',
+        releaseRoot: '77'.repeat(32),
+        state: 'READY',
+        version: '1.0.0',
+        versionId: crypto.randomUUID(),
+        vpmDependencies: {},
+        vpmRepositories: {},
+      });
+    });
+
+    const result = await t.mutation(internal.migrations.repairPackageVersionEditionIds, {
+      limit: 100,
+      packageId,
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(rowId));
+
+    expect(result).toMatchObject({ isDone: true, repaired: 0, unresolved: 1 });
+    expect(stored?.editionId).toBe('legacy');
   });
 });

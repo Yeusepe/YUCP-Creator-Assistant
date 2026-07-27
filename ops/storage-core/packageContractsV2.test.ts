@@ -11,12 +11,14 @@ import {
   encodeInstallSessionV2,
   encodeMaterializationCapabilityV2,
   encodeMaterializationReceiptV2,
+  encodePackageOperationCapabilityV2,
   hashPackageContractFields,
   INSTALL_SESSION_TOKEN_TYPE,
   type InstallSessionV2,
   type MaterializationJobCapabilityV2,
   type MaterializationReceiptV2,
   PACKAGE_CONTRACT_PURPOSES,
+  type PackageOperationCapabilityV2,
   packageContractKeyId,
   signPackageContract,
   verifyDeliveryGrantV2,
@@ -24,6 +26,7 @@ import {
   verifyMaterializationCapabilityV2,
   verifyMaterializationReceiptV2,
   verifyPackageContract,
+  verifyPackageOperationCapabilityV2,
 } from './packageContractsV2';
 
 const PRIVATE_KEY = Uint8Array.from({ length: 32 }, (_, index) => index);
@@ -101,6 +104,32 @@ function deliveryGrant(overrides: Partial<DeliveryGrantV2> = {}): DeliveryGrantV
     productId: 'product-1',
     releaseRoot: DIGEST_A,
     scopes: ['materialization-source:version-1'],
+    ...overrides,
+  };
+}
+
+function packageOperationCapability(
+  overrides: Partial<PackageOperationCapabilityV2> = {}
+): PackageOperationCapabilityV2 {
+  return {
+    aliasId: 'creator.avatar-tools',
+    approvedActiveContentDigest: DIGEST_A,
+    approvedPolicyVersion: 'active-content-policy-v1',
+    audience: 'https://api.example.test',
+    buyerId: 'buyer-1',
+    capabilityId: 'operation-capability-1',
+    deviceKeyThumbprint: DEVICE_KEY,
+    expectedCurrentReleaseRoot: DIGEST_B,
+    expiresAt: 1_240,
+    idempotencyKey: 'install-operation-1',
+    issuedAt: 1_000,
+    issuer: 'https://api.example.test',
+    notBefore: 1_000,
+    oneUseNonce: new Uint8Array(32).fill(0x55),
+    operation: 'install',
+    projectIdentity: new Uint8Array(32).fill(0x44),
+    releaseRoot: DIGEST_A,
+    traceparent: '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
     ...overrides,
   };
 }
@@ -186,6 +215,51 @@ function materializationReceipt(): MaterializationReceiptV2 {
 }
 
 describe('package contracts v2', () => {
+  test('purpose-separates and binds one package operation capability', async () => {
+    const capability = packageOperationCapability();
+    const signed = await signPackageContract({
+      keyId: KEY_ID,
+      payload: encodePackageOperationCapabilityV2(capability),
+      privateKey: PRIVATE_KEY,
+      purpose: PACKAGE_CONTRACT_PURPOSES.packageOperationCapability,
+    });
+    const publicKey = await ed25519.getPublicKeyAsync(PRIVATE_KEY);
+
+    await expect(
+      verifyPackageOperationCapabilityV2({
+        context: {
+          aliasId: capability.aliasId,
+          approvedActiveContentDigest: capability.approvedActiveContentDigest,
+          approvedPolicyVersion: capability.approvedPolicyVersion,
+          audience: capability.audience,
+          deviceKeyThumbprint: capability.deviceKeyThumbprint,
+          expectedCurrentReleaseRoot: capability.expectedCurrentReleaseRoot,
+          idempotencyKey: capability.idempotencyKey,
+          issuer: capability.issuer,
+          now: 1_100,
+          operation: capability.operation,
+          projectIdentity: capability.projectIdentity,
+          releaseRoot: capability.releaseRoot,
+          traceparent: capability.traceparent,
+        },
+        coseSign1: signed.coseSign1,
+        expectedKeyId: KEY_ID,
+        publicKey,
+      })
+    ).resolves.toMatchObject({
+      capabilityId: capability.capabilityId,
+      idempotencyKey: capability.idempotencyKey,
+    });
+
+    await expect(
+      verifyPackageContract({
+        coseSign1: signed.coseSign1,
+        expectedKeyId: KEY_ID,
+        expectedPurpose: PACKAGE_CONTRACT_PURPOSES.installSession,
+        publicKey,
+      })
+    ).rejects.toThrow('purpose');
+  });
   test('uses the frozen length-prefixed package hash framing', () => {
     expect(
       Buffer.from(

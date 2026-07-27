@@ -14,9 +14,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/yucp/transfer-helper/internal/securedata"
 )
 
 const deviceKeyFileName = "device-key-v1.protected"
+const deviceKeyProtectionPurpose = "package-broker-device-key-v1"
 
 type Identity struct {
 	PrivateKey *ecdsa.PrivateKey
@@ -48,7 +51,7 @@ func LoadOrCreate(stateRoot string) (Identity, error) {
 	if err != nil {
 		return Identity{}, fmt.Errorf("encode device key: %w", err)
 	}
-	protected, err = protect(encoded)
+	protected, err = securedata.Protect(encoded, deviceKeyProtectionPurpose)
 	if err != nil {
 		return Identity{}, fmt.Errorf("protect device key: %w", err)
 	}
@@ -66,7 +69,7 @@ func LoadOrCreate(stateRoot string) (Identity, error) {
 }
 
 func decodeIdentity(protected []byte) (Identity, error) {
-	encoded, err := unprotect(protected)
+	encoded, err := securedata.Unprotect(protected, deviceKeyProtectionPurpose)
 	if err != nil {
 		return Identity{}, fmt.Errorf("unprotect device key: %w", err)
 	}

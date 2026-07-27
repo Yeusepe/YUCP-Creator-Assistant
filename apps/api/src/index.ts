@@ -4,8 +4,15 @@
 
 import path from 'node:path';
 import { getInternalRpcSharedSecret } from '@yucp/shared';
+import {
+  Catalog,
+  type CatalogDatabase,
+  openCatalogDatabase,
+  PackageOperationAuthorizationStore,
+} from '../../../ops/catalog';
 import { type Auth, createAuth } from './auth';
 import { createInternalRpcRouter, INTERNAL_RPC_PATH } from './internalRpc/router';
+import { loadCatalogControlClient } from './lib/catalogControlClient';
 import { getClientAddress } from './lib/clientAddress';
 import { getConfiguredConvexSiteUrlForProxy } from './lib/convexSiteProxy';
 import { buildApiAllowedCorsOrigins, buildApiCorsHeaders } from './lib/cors';
@@ -26,6 +33,7 @@ import {
   initApiObservability,
   withApiRequestSpan,
 } from './lib/observability';
+import { verifyPackageBrokerAccessRequest } from './lib/packageBrokerAccessToken';
 import { createConvexPackageInstallAccess } from './lib/packageInstallAccess';
 import {
   buildPackageInstallerTufRepository,
@@ -33,13 +41,14 @@ import {
   type PackageInstallerTufRepositoryRuntime,
 } from './lib/packageInstallerTufRepository';
 import { loadPackageInstallSessionConfig } from './lib/packageInstallSessionConfig';
-import { verifyPublicApiAccessToken } from './lib/publicApiAccessToken';
 import {
   buildPublicApiRateLimitKey,
   checkPublicApiRateLimit,
   getPublicApiRateLimitStore,
 } from './lib/publicApiRateLimit';
 import { detectTunnelUrl } from './lib/tunnel';
+import { createConfiguredVpmAliasArtifactStore } from './lib/vpmAliasArtifactStore';
+import { loadVpmBootstrapMediaReader } from './lib/vpmBootstrapMediaReader';
 import { buildYucpKeysResponse } from './lib/yucpKeys';
 import {
   createAccountSecurityRoutes,
@@ -61,6 +70,7 @@ import { createPackageInstallerTufRoute } from './routes/packageInstallerTuf';
 import {
   createPackageInstallSessionRoute,
   createPackageMaterializationStatusRoute,
+  createPackageOperationAuthorizationRoute,
 } from './routes/packageInstallSessions';
 import { createPublicRoutes } from './routes/public';
 import { createPublicV2Routes } from './routes/publicV2';
@@ -88,6 +98,9 @@ let publicV2Routes: ReturnType<typeof createPublicV2Routes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
 let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let packageInstallSessionRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageOperationAuthorizationRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageOperationAuthorizationDatabase: CatalogDatabase | null = null;
+let vpmAliasPublicationDatabase: CatalogDatabase | null = null;
 let packageMaterializationStatusRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageInstallerTufRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageInstallerTufRuntime: PackageInstallerTufRepositoryRuntime | null = null;
@@ -336,11 +349,14 @@ function initializeAuth(webhookBaseUrl?: string) {
     patreonClientId: env.PATREON_CLIENT_ID,
     patreonClientSecret: env.PATREON_CLIENT_SECRET,
     encryptionSecret,
+    vpmBaseUrl: env.VPM_BASE_URL,
   } satisfies Parameters<typeof createConnectRoutes>[1];
   connectRoutes = createConnectRoutes(auth, connectConfig);
 
+  const catalogControl = loadCatalogControlClient(env);
   creatorPackageRoutes = createCreatorPackageRoutes({
     auth,
+    catalogControl,
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
@@ -361,8 +377,17 @@ function initializeAuth(webhookBaseUrl?: string) {
     },
   });
 
+  vpmAliasPublicationDatabase?.end({ timeout: 1 }).catch(() => undefined);
+  vpmAliasPublicationDatabase = env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL
+    ? openCatalogDatabase(env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL)
+    : null;
+  const vpmAliasArtifactStore = vpmAliasPublicationDatabase
+    ? createConfiguredVpmAliasArtifactStore(env as NodeJS.ProcessEnv, vpmAliasPublicationDatabase)
+    : undefined;
   vpmRoutes = createVpmRoutes({
     auth,
+    ...(vpmAliasArtifactStore ? { aliasArtifactStore: vpmAliasArtifactStore } : {}),
+    bootstrapMediaReader: loadVpmBootstrapMediaReader(env as NodeJS.ProcessEnv),
     config: {
       apiBaseUrl: publicBaseUrl,
       frontendBaseUrl: frontendUrl,
@@ -370,39 +395,64 @@ function initializeAuth(webhookBaseUrl?: string) {
       convexUrl,
       publicVpmIndexUrl: env.VPM_PUBLIC_INDEX_URL,
       vpmBaseUrl: env.VPM_BASE_URL,
-      vpmTokenKey: env.VPM_TOKEN_KEY,
-      trustedVpmRepositoryUrls: env.VPM_TRUSTED_REPOSITORY_URLS,
     },
   });
 
   const packageInstallConfig = loadPackageInstallSessionConfig(env);
   const materializationControl = loadMaterializationControlClient(env);
-  packageInstallSessionRoute = packageInstallConfig
-    ? createPackageInstallSessionRoute({
-        accessPort: createConvexPackageInstallAccess({
-          convexApiSecret: env.CONVEX_API_SECRET ?? '',
-          convexUrl,
-        }),
-        audience: packageInstallConfig.audience,
-        issuer: packageInstallConfig.issuer,
-        keyId: packageInstallConfig.keyId,
-        ...(materializationControl ? { materializationControl } : {}),
-        privateKey: packageInstallConfig.privateKey,
-        async verifyAccessToken(token) {
-          const result = await verifyPublicApiAccessToken(token, {
-            convexSiteUrl,
-            logger,
-            logContext: 'Package install token verification failed',
-            requiredScopes: ['products:read'],
-          });
-          return result.ok
-            ? { buyerId: result.token.sub, ok: true }
-            : {
-                ok: false,
-                status: result.reason === 'insufficient_scope' ? 403 : 401,
-              };
-        },
-      })
+  packageOperationAuthorizationDatabase?.end({ timeout: 1 }).catch(() => undefined);
+  packageOperationAuthorizationDatabase = env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL
+    ? openCatalogDatabase(env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL)
+    : null;
+  const operationAuthorizationStore = packageOperationAuthorizationDatabase
+    ? new PackageOperationAuthorizationStore(packageOperationAuthorizationDatabase)
+    : null;
+  const packagePublicationAuthority = packageOperationAuthorizationDatabase
+    ? new Catalog(packageOperationAuthorizationDatabase)
+    : null;
+  const packageInstallRouteOptions =
+    packageInstallConfig && operationAuthorizationStore && packagePublicationAuthority
+      ? {
+          accessPort: createConvexPackageInstallAccess({
+            convexApiSecret: env.CONVEX_API_SECRET ?? '',
+            convexUrl,
+            publicationAuthority: packagePublicationAuthority,
+          }),
+          authorizationPort: operationAuthorizationStore,
+          audience: packageInstallConfig.audience,
+          issuer: packageInstallConfig.issuer,
+          keyId: packageInstallConfig.keyId,
+          verificationBaseUrl: frontendUrl,
+          ...(materializationControl ? { materializationControl } : {}),
+          ...(catalogControl ? { releasePins: catalogControl } : {}),
+          privateKey: packageInstallConfig.privateKey,
+          async verifyAccessRequest(request: Request) {
+            const result = await verifyPackageBrokerAccessRequest(request, {
+              convexSiteUrl,
+              dpopReplayStore: operationAuthorizationStore.dpopReplayStore(),
+              logger,
+              logContext: 'Package install DPoP verification failed',
+              requiredAuthorizedParty: 'yucp-package-broker',
+              requiredScopes: ['package:operate'],
+            });
+            return result.ok
+              ? {
+                  buyerId: result.token.sub,
+                  deviceKeyThumbprint: result.token.deviceKeyThumbprint,
+                  ok: true as const,
+                }
+              : {
+                  ok: false as const,
+                  status: result.reason === 'insufficient_scope' ? (403 as const) : (401 as const),
+                };
+          },
+        }
+      : null;
+  packageOperationAuthorizationRoute = packageInstallRouteOptions
+    ? createPackageOperationAuthorizationRoute(packageInstallRouteOptions)
+    : null;
+  packageInstallSessionRoute = packageInstallRouteOptions
+    ? createPackageInstallSessionRoute(packageInstallRouteOptions)
     : null;
   packageMaterializationStatusRoute =
     packageInstallConfig && materializationControl
@@ -912,6 +962,17 @@ async function routeRequest(request: Request): Promise<Response> {
   if (pathname === '/api/creator/packages' && creatorPackageRoutes) {
     return creatorPackageRoutes.listPackages(request);
   }
+  const creatorPackageVersionPageMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions$/
+  );
+  if (creatorPackageVersionPageMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionPageMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionPageMatch[2] ?? '');
+    if (packageId === null || editionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.listVersions(request, packageId, editionId);
+  }
   const creatorPackageMatch = pathname.match(/^\/api\/creator\/packages\/([^/]+)$/);
   if (creatorPackageMatch && creatorPackageRoutes) {
     const catalogProductId = safeDecodeURIComponent(creatorPackageMatch[1] ?? '');
@@ -920,11 +981,88 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return creatorPackageRoutes.getPackage(request, catalogProductId);
   }
+  const creatorPackageVersionMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)$/
+  );
+  if (creatorPackageVersionMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionMatch[2] ?? '');
+    const versionId = safeDecodeURIComponent(creatorPackageVersionMatch[3] ?? '');
+    if (packageId === null || editionId === null || versionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.deleteVersion(request, packageId, editionId, versionId);
+  }
+  const creatorPackageVersionStatusMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/editions\/([^/]+)\/versions\/([^/]+)\/status$/
+  );
+  if (creatorPackageVersionStatusMatch && creatorPackageRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[2] ?? '');
+    const versionId = safeDecodeURIComponent(creatorPackageVersionStatusMatch[3] ?? '');
+    if (packageId === null || editionId === null || versionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.getVersionStatus(request, packageId, editionId, versionId);
+  }
+  const creatorPackageEditionMatch = pathname.match(
+    /^\/api\/creator\/packages\/([^/]+)\/editions\/([^/]+)$/
+  );
+  if (creatorPackageEditionMatch && creatorPackageRoutes) {
+    const catalogProductId = safeDecodeURIComponent(creatorPackageEditionMatch[1] ?? '');
+    const editionId = safeDecodeURIComponent(creatorPackageEditionMatch[2] ?? '');
+    if (catalogProductId === null || editionId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.manageEdition(request, catalogProductId, editionId);
+  }
+  const creatorPackageStorefrontMatch = pathname.match(
+    /^\/api\/creator\/packages\/([^/]+)\/storefronts\/([^/]+)$/
+  );
+  if (creatorPackageStorefrontMatch && creatorPackageRoutes) {
+    const catalogProductId = safeDecodeURIComponent(creatorPackageStorefrontMatch[1] ?? '');
+    const targetCatalogProductId = safeDecodeURIComponent(creatorPackageStorefrontMatch[2] ?? '');
+    if (catalogProductId === null || targetCatalogProductId === null) {
+      return badPathEncodingResponse();
+    }
+    return creatorPackageRoutes.manageStorefrontBinding(
+      request,
+      catalogProductId,
+      targetCatalogProductId
+    );
+  }
+  const creatorPackagePresentationMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/presentation$/
+  );
+  if (creatorPackagePresentationMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackagePresentationMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.manageCreatorPresentation(request, packageId);
+  }
+  const creatorPackageVccLinkMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/vcc-link$/
+  );
+  if (creatorPackageVccLinkMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageVccLinkMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.manageCreatorLink(request, packageId);
+  }
+  const creatorPackageBootstrapMatch = pathname.match(
+    /^\/api\/creator\/packages\/by-package\/([^/]+)\/bootstrap$/
+  );
+  if (creatorPackageBootstrapMatch && vpmRoutes) {
+    const packageId = safeDecodeURIComponent(creatorPackageBootstrapMatch[1] ?? '');
+    if (packageId === null) {
+      return badPathEncodingResponse();
+    }
+    return vpmRoutes.downloadCreatorBootstrap(request, packageId);
+  }
   if (pathname === '/api/creator/uploads/authorize' && creatorUploadRoutes) {
     return creatorUploadRoutes.authorizeUpload(request);
-  }
-  if (pathname === '/api/vpm/repo-token' && vpmRoutes) {
-    return vpmRoutes.mintRepoToken(request);
   }
   if (pathname === '/api/v2/package-installs/sessions') {
     if (!packageInstallSessionRoute) {
@@ -934,6 +1072,15 @@ async function routeRequest(request: Request): Promise<Response> {
       );
     }
     return packageInstallSessionRoute(request);
+  }
+  if (pathname === '/api/v2/package-installs/authorizations') {
+    if (!packageOperationAuthorizationRoute) {
+      return Response.json(
+        { error: 'Package operation authorizations are not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageOperationAuthorizationRoute(request);
   }
   if (pathname === '/api/v2/package-installs/materialization-status') {
     if (!packageMaterializationStatusRoute) {
@@ -953,22 +1100,24 @@ async function routeRequest(request: Request): Promise<Response> {
     }
     return packageInstallerTufRoute(request);
   }
-  const vpmAliasPackageMatch = pathname.match(/^\/api\/vpm\/aliases\/([^/]+)\/([^/]+)\.zip$/);
-  if (vpmAliasPackageMatch && vpmRoutes) {
-    const catalogProductId = safeDecodeURIComponent(vpmAliasPackageMatch[1] ?? '');
-    const version = safeDecodeURIComponent(vpmAliasPackageMatch[2] ?? '');
-    if (catalogProductId === null || version === null) {
+  const vpmAliasPublicationMatch = pathname.match(
+    /^\/api\/vpm\/alias-publications\/([^/]+)\/([^/]+)\.zip$/
+  );
+  if (vpmAliasPublicationMatch && vpmRoutes) {
+    const publicationId = safeDecodeURIComponent(vpmAliasPublicationMatch[1] ?? '');
+    const version = safeDecodeURIComponent(vpmAliasPublicationMatch[2] ?? '');
+    if (publicationId === null || version === null) {
       return badPathEncodingResponse();
     }
-    return vpmRoutes.serveAliasPackage(request, catalogProductId, version);
+    return vpmRoutes.serveAliasPublication(request, publicationId, version);
   }
-  const vpmIndexMatch = pathname.match(/^\/api\/vpm\/([^/]+)\/index\.json$/);
-  if (vpmIndexMatch && vpmRoutes) {
-    const token = safeDecodeURIComponent(vpmIndexMatch[1] ?? '');
-    if (token === null) {
+  const creatorVpmIndexMatch = pathname.match(/^\/api\/vpm\/access\/([^/]+)\/index\.json$/);
+  if (creatorVpmIndexMatch && vpmRoutes) {
+    const linkId = safeDecodeURIComponent(creatorVpmIndexMatch[1] ?? '');
+    if (linkId === null) {
       return badPathEncodingResponse();
     }
-    return vpmRoutes.serveIndex(request, token);
+    return vpmRoutes.serveCreatorLinkIndex(request, linkId);
   }
   if (pathname === '/api/connect/bootstrap' && connectRoutes) {
     return connectRoutes.exchangeConnectBootstrap(request);
@@ -1444,6 +1593,8 @@ async function main() {
     stopping = true;
     await server.stop(false);
     await packageInstallerTufRuntime?.close?.();
+    await packageOperationAuthorizationDatabase?.end({ timeout: 1 });
+    await vpmAliasPublicationDatabase?.end({ timeout: 1 });
     process.exit(signal === 'SIGINT' ? 130 : 143);
   };
   process.once('SIGINT', () => {

@@ -84,6 +84,7 @@ import { Route as InstallErrorRoute } from '@/routes/install/error.lazy';
 import { Route as InstallSuccessRoute } from '@/routes/install/success.lazy';
 import { Route as PrivacyPolicyRoute } from '@/routes/legal/privacy-policy';
 import { Route as TermsOfServiceRoute } from '@/routes/legal/terms-of-service';
+import { Route as VerificationNoticeRoute } from '@/routes/legal/verification-and-attestation';
 import { Route as OAuthConsentRoute } from '@/routes/oauth/consent.lazy';
 import { Route as OAuthErrorRoute } from '@/routes/oauth/error';
 import { Route as DiscordRoleSetupRoute } from '@/routes/setup/discord-role';
@@ -169,6 +170,7 @@ describe('public route backgrounds', () => {
   it.each([
     ['privacy policy', PrivacyPolicyRoute as TestRoute],
     ['terms of service', TermsOfServiceRoute as TestRoute],
+    ['verification and attestation notice', VerificationNoticeRoute as TestRoute],
     ['oauth consent', OAuthConsentRoute as TestRoute],
     ['oauth error', OAuthErrorRoute as TestRoute],
     ['install success', InstallSuccessRoute as TestRoute],
@@ -188,5 +190,28 @@ describe('public route backgrounds', () => {
     render(<Component />);
 
     expect(screen.getByTestId('background-canvas-root')).toHaveAttribute('data-position', 'fixed');
+  });
+
+  it('renders the verification notice with accessible legal navigation and sources', () => {
+    const Component = (VerificationNoticeRoute as TestRoute).options.component;
+    if (!Component) {
+      throw new Error('Verification notice route component is not defined');
+    }
+
+    render(<Component />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'How YUCP verifies package access' })
+    ).toBeVisible();
+    expect(screen.getByRole('navigation', { name: 'Legal pages' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'For buyers' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 2, name: 'For creators' })).toBeVisible();
+
+    const officialSources = screen.getAllByRole('link', { name: /opens in a new tab/i });
+    expect(officialSources.length).toBeGreaterThanOrEqual(7);
+    for (const source of officialSources) {
+      expect(source).toHaveAttribute('target', '_blank');
+      expect(source).toHaveAttribute('rel', 'noreferrer');
+    }
   });
 });

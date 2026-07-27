@@ -1,31 +1,66 @@
 import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
-import { buildYucpAliasVpmPackage, decodeYucpAliasArtifactDescriptor } from './vpmAliasPackage';
+import { buildYucpAliasVpmPackage } from './vpmAliasPackage';
 
-const catalogProductId = 'catalog_product_public_alias_123';
-const secondCatalogProductId = 'catalog_product_public_alias_456';
 const aliasId = 'jammr';
+const PUBLICATION_ID = '00000000-0000-4000-8000-000000000401';
+
+function immutableArtifactUrl(version: string): string {
+  return `https://vpm.example.test/api/vpm/alias-publications/${PUBLICATION_ID}/${version}.zip`;
+}
 
 describe('YUCP public VPM alias package', () => {
+  it('builds a public alias from only the stable package identity', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId: 'com.yucp.jammr',
+      bootstrapVersion: '1.20660.12345',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
+    } as Parameters<typeof buildYucpAliasVpmPackage>[0]);
+
+    expect(built.manifest.yucp).toMatchObject({
+      aliasId: 'com.yucp.jammr',
+      kind: 'alias-v1',
+    });
+    expect(built.manifest.yucp).not.toHaveProperty('catalogProductIds');
+  });
+
+  it('keeps the installed alias package ID stable across immutable bootstrap revisions', () => {
+    const first = buildYucpAliasVpmPackage({
+      aliasId: 'com.yucp.jammr',
+      bootstrapVersion: '1.20660.12345',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
+    });
+    const linkedStorefront = buildYucpAliasVpmPackage({
+      aliasId: 'com.yucp.jammr',
+      bootstrapVersion: '1.20660.12346',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12346'),
+    });
+
+    expect(linkedStorefront.packageId).toBe(first.packageId);
+    expect(linkedStorefront.manifest.version).not.toBe(first.manifest.version);
+    expect(linkedStorefront.manifest.url).not.toBe(first.manifest.url);
+  });
+
   it('builds one deterministic package.json-only archive', () => {
     const first = buildYucpAliasVpmPackage({
       aliasId,
       bootstrapVersion: '1.20660.12345',
-      catalogProductIds: [catalogProductId, secondCatalogProductId],
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
       },
-      vpmBaseUrl: 'https://vpm.example.test/',
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
     });
     const second = buildYucpAliasVpmPackage({
       aliasId,
       bootstrapVersion: '1.20660.12345',
-      catalogProductIds: [secondCatalogProductId, catalogProductId],
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
       },
-      vpmBaseUrl: 'https://vpm.example.test/',
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
     });
 
     expect(first.bytes).toEqual(second.bytes);
@@ -39,11 +74,10 @@ describe('YUCP public VPM alias package', () => {
     const built = buildYucpAliasVpmPackage({
       aliasId,
       bootstrapVersion: '1.20660.12345',
-      catalogProductIds: [catalogProductId, secondCatalogProductId],
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
       },
-      vpmBaseUrl: 'https://vpm.example.test/',
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
     });
     const entries = unzipSync(built.bytes);
     const packageJson = JSON.parse(
@@ -52,34 +86,31 @@ describe('YUCP public VPM alias package', () => {
     const artifactUrl = built.manifest.url;
 
     expect(built.manifest).toMatchObject({
+      displayName: 'YUCP Licensed Product',
       name: built.packageId,
       version: '1.20660.12345',
       url: artifactUrl,
       zipSHA256: built.zipSha256,
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.31',
+        'com.yucp.importer': '>=0.1.36',
       },
       yucp: {
         kind: 'alias-v1',
         aliasId,
-        catalogProductIds: [catalogProductId, secondCatalogProductId],
         channel: 'stable',
         installStrategy: 'server-authorized',
         importerPackage: 'com.yucp.importer',
-        minImporterVersion: '0.1.31',
+        minImporterVersion: '0.1.36',
       },
     });
-    expect(artifactUrl).toMatch(
-      /^https:\/\/vpm\.example\.test\/api\/vpm\/aliases\/[A-Za-z0-9_-]+\/1\.20660\.12345\.zip$/
-    );
+    expect(artifactUrl).toBe(immutableArtifactUrl('1.20660.12345'));
     expect(packageJson).toEqual({
       name: built.packageId,
-      displayName: built.manifest.displayName,
+      displayName: 'YUCP Licensed Product',
       version: '1.20660.12345',
       unity: '2022.3',
-      description:
-        'Public YUCP bootstrap. Sign in through the importer to resolve licensed product content.',
+      description: 'Adds this licensed product to your Unity project with YUCP.',
       author: {
         name: 'YUCP Club',
         email: 'contact@yucp.club',
@@ -87,7 +118,7 @@ describe('YUCP public VPM alias package', () => {
       },
       vpmDependencies: {
         'com.example.runtime': '>=2.0.0',
-        'com.yucp.importer': '>=0.1.31',
+        'com.yucp.importer': '>=0.1.36',
       },
       yucp: built.manifest.yucp,
     });
@@ -98,38 +129,159 @@ describe('YUCP public VPM alias package', () => {
     expect(serialized).not.toContain('download');
     expect(serialized).not.toContain('token');
     expect(serialized).not.toContain('sig');
-
-    const descriptor = artifactUrl.split('/').at(-2);
-    expect(descriptor).toBeDefined();
-    expect(decodeYucpAliasArtifactDescriptor(descriptor ?? '')).toEqual({
-      aliasId,
-      bootstrapVersion: '1.20660.12345',
-      catalogProductIds: [catalogProductId, secondCatalogProductId],
-      vpmDependencies: {
-        'com.example.runtime': '>=2.0.0',
-      },
-    });
   });
 
-  it('rejects unsafe origins and unbounded catalog product identifiers', () => {
+  it('publishes friendly package metadata without paid delivery data', () => {
+    const built = buildYucpAliasVpmPackage({
+      aliasId,
+      bootstrapVersion: '1.20660.12345',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Mapache',
+        description: 'Adds the JAMMR product to this project.',
+        tagline: 'Ready for your next avatar.',
+      },
+    });
+    const entries = unzipSync(built.bytes);
+    const packageJson = JSON.parse(Buffer.from(entries['package.json'] ?? []).toString('utf8')) as {
+      displayName: string;
+      description: string;
+      author: { name: string };
+      yucp: {
+        packageDisplayName: string;
+        packageMetadata: {
+          packageName: string;
+          author: string;
+          description: string;
+          tagline: string;
+        };
+      };
+    };
+
+    expect(packageJson.displayName).toBe('JAMMR');
+    expect(packageJson.description).toBe('Adds the JAMMR product to this project.');
+    expect(packageJson.author.name).toBe('Mapache');
+    expect(packageJson.yucp.packageDisplayName).toBe('JAMMR');
+    expect(packageJson.yucp.packageMetadata).toEqual({
+      packageName: 'JAMMR',
+      author: 'Mapache',
+      description: 'Adds the JAMMR product to this project.',
+      tagline: 'Ready for your next avatar.',
+    });
+    expect(Object.keys(entries)).toEqual(['package.json']);
+    expect(JSON.stringify(packageJson)).not.toContain('/d/');
+    expect(JSON.stringify(packageJson)).not.toContain('grant');
+  });
+
+  it('includes verified media without placing its bytes in the artifact URL', () => {
+    const icon = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    const banner = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+    const bannerSha256 = createHash('sha256').update(banner).digest('hex');
+    const iconSha256 = createHash('sha256').update(icon).digest('hex');
+    const built = buildYucpAliasVpmPackage({
+      aliasId,
+      bootstrapVersion: '1.20660.12345',
+      vpmDependencies: {},
+      artifactUrl: immutableArtifactUrl('1.20660.12345'),
+      packageMetadata: {
+        packageName: 'JAMMR',
+        author: 'Mapache',
+      },
+      media: [
+        {
+          kind: 'banner',
+          localPath: 'Documentation~/YUCP/banner.png',
+          contentType: 'image/png',
+          bytes: banner,
+          sha256: bannerSha256,
+        },
+        {
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+          contentType: 'image/png',
+          bytes: icon,
+          sha256: iconSha256,
+        },
+      ],
+    });
+
+    const entries = unzipSync(built.bytes);
+    expect(entries['Documentation~/YUCP/banner.png']).toEqual(banner);
+    expect(entries['Documentation~/YUCP/icon.png']).toEqual(icon);
+    expect(built.manifest.yucp).toMatchObject({
+      media: [
+        {
+          kind: 'banner',
+          byteSize: banner.byteLength,
+          contentType: 'image/png',
+          localPath: 'Documentation~/YUCP/banner.png',
+          sha256: bannerSha256,
+        },
+        {
+          kind: 'icon',
+          byteSize: icon.byteLength,
+          contentType: 'image/png',
+          localPath: 'Documentation~/YUCP/icon.png',
+          sha256: iconSha256,
+        },
+      ],
+    });
+    expect(built.manifest.url).not.toContain(Buffer.from(icon).toString('base64url'));
+  });
+
+  it('rejects unsafe, oversized, unsupported, and digest-mismatched media', () => {
+    const icon = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    const media = {
+      kind: 'icon' as const,
+      localPath: 'Documentation~/YUCP/icon.png',
+      contentType: 'image/png' as const,
+      bytes: icon,
+      sha256: createHash('sha256').update(icon).digest('hex'),
+    };
+    const build = (candidate: typeof media) =>
+      buildYucpAliasVpmPackage({
+        aliasId,
+        bootstrapVersion: '1.20660.12345',
+        vpmDependencies: {},
+        artifactUrl: immutableArtifactUrl('1.20660.12345'),
+        media: [candidate],
+      });
+
+    expect(() => build({ ...media, localPath: '../icon.png' })).toThrow('local path');
+    expect(() => build({ ...media, contentType: 'image/jpeg' as 'image/png' })).toThrow(
+      'content type'
+    );
+    expect(() => build({ ...media, sha256: '00'.repeat(32) })).toThrow('digest');
+    expect(() =>
+      build({
+        ...media,
+        bytes: new Uint8Array(2 * 1024 * 1024 + 1).fill(1),
+        sha256: createHash('sha256')
+          .update(new Uint8Array(2 * 1024 * 1024 + 1).fill(1))
+          .digest('hex'),
+      })
+    ).toThrow('byte limit');
+  });
+
+  it('rejects unsafe origins and unbounded package identities', () => {
     expect(() =>
       buildYucpAliasVpmPackage({
         aliasId,
         bootstrapVersion: '1.20660.12345',
-        catalogProductIds: [catalogProductId],
         vpmDependencies: {},
-        vpmBaseUrl: 'http://vpm.example.test/',
+        artifactUrl: `http://vpm.example.test/api/vpm/alias-publications/${PUBLICATION_ID}/1.20660.12345.zip`,
       })
-    ).toThrow('VPM base URL');
+    ).toThrow('artifact URL');
     expect(() =>
       buildYucpAliasVpmPackage({
-        aliasId,
+        aliasId: 'x'.repeat(513),
         bootstrapVersion: '1.20660.12345',
-        catalogProductIds: ['x'.repeat(513)],
         vpmDependencies: {},
-        vpmBaseUrl: 'https://vpm.example.test/',
+        artifactUrl: immutableArtifactUrl('1.20660.12345'),
       })
-    ).toThrow('catalog product ID');
+    ).toThrow('alias ID');
   });
 
   it('builds deterministic archives west of UTC at the ZIP epoch boundary', () => {
@@ -140,9 +292,8 @@ describe('YUCP public VPM alias package', () => {
         buildYucpAliasVpmPackage({
           aliasId,
           bootstrapVersion: '1.20660.12345',
-          catalogProductIds: [catalogProductId],
           vpmDependencies: {},
-          vpmBaseUrl: 'https://vpm.example.test/',
+          artifactUrl: immutableArtifactUrl('1.20660.12345'),
         })
       ).not.toThrow();
     } finally {
@@ -152,12 +303,5 @@ describe('YUCP public VPM alias package', () => {
         process.env.TZ = originalTimezone;
       }
     }
-  });
-
-  it('derives strictly ordered bootstrap versions from publication time', async () => {
-    const { buildYucpAliasBootstrapVersion } = await import('./vpmAliasPackage');
-
-    expect(buildYucpAliasBootstrapVersion(1_700_000_000_123)).toBe('1.19675.80000123');
-    expect(buildYucpAliasBootstrapVersion(1_700_000_000_124)).toBe('1.19675.80000124');
   });
 });

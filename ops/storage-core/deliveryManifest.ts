@@ -1,3 +1,10 @@
+import { isProtectionPolicyId } from './protectionPolicyId';
+import { normalizeVpmBootstrapMedia, type VpmBootstrapMediaObject } from './vpmBootstrapMedia';
+import {
+  normalizeVpmBootstrapMetadata,
+  type VpmBootstrapPackageMetadata,
+} from './vpmBootstrapMetadata';
+
 export const DESYNC_STORAGE_FORMAT_VERSION = 'desync-uncompressed-sha256-v1';
 export const DESYNC_CHUNK_AVG_KIB = 256;
 export const LOGICAL_TREE_MANIFEST_SCHEMA_VERSION = 4;
@@ -33,6 +40,8 @@ export type DeliveryManifest = {
   storageFormatVersion: string;
   version: string;
   versionId: string;
+  bootstrapMedia?: VpmBootstrapMediaObject[];
+  packageMetadata?: VpmBootstrapPackageMetadata;
   vpmDependencies: Record<string, string>;
   vpmRepositories: Record<string, string>;
 };
@@ -222,8 +231,12 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
     'normalizationPolicyVersion'
   );
   const protectionPolicyId = parseIdentity(value.protectionPolicyId, 'protectionPolicyId');
+  if (!isProtectionPolicyId(protectionPolicyId)) {
+    throw new Error('Delivery manifest has an unsupported protectionPolicyId');
+  }
   const version = parseIdentity(value.version, 'version');
   const bootstrapMetadata = normalizeVpmBootstrapMetadata({
+    packageMetadata: value.packageMetadata,
     vpmDependencies: value.vpmDependencies,
     vpmRepositories: value.vpmRepositories,
   });
@@ -245,6 +258,7 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
   return {
     activeContentDigest: value.activeContentDigest,
     activePolicyVersion: value.activePolicyVersion,
+    bootstrapMedia: normalizeVpmBootstrapMedia(value.bootstrapMedia),
     chunkAvgKib: value.chunkAvgKib,
     commonRoot: value.commonRoot,
     files,
@@ -258,6 +272,9 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
     storageFormatVersion: value.storageFormatVersion,
     version,
     versionId: value.versionId,
+    ...(bootstrapMetadata.packageMetadata
+      ? { packageMetadata: bootstrapMetadata.packageMetadata }
+      : {}),
     vpmDependencies: bootstrapMetadata.vpmDependencies,
     vpmRepositories: bootstrapMetadata.vpmRepositories,
   };
@@ -266,5 +283,3 @@ export function parseDeliveryManifest(value: unknown): DeliveryManifest {
 export function createDeliveryManifest(input: DeliveryManifest): DeliveryManifest {
   return parseDeliveryManifest(input);
 }
-
-import { normalizeVpmBootstrapMetadata } from './vpmBootstrapMetadata';

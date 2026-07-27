@@ -7,6 +7,42 @@ import { normalizePackageArtifact } from './packageNormalizer';
 import { resolveGnuArchiveTools, runCommand } from './process';
 
 describe('package normalizer', () => {
+  test('normalizes a unitypackage inside a long pipeline scratch path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yucp-normalizer-long-path-'));
+    try {
+      const records = join(root, 'records');
+      const guid = 'd'.repeat(32);
+      await mkdir(join(records, guid), { recursive: true });
+      await writeFile(join(records, guid, 'asset'), 'shader bytes');
+      await writeFile(join(records, guid, 'pathname'), 'Assets/Jammr/shader.shader');
+      const archive = join(root, 'jammr.unitypackage');
+      const tools = await resolveGnuArchiveTools();
+      await runCommand(
+        tools.tarCommand,
+        ['--force-local', '--create', '--gzip', '--file', archive, '--directory', records, '.'],
+        { env: tools.env }
+      );
+      const pipelinePath = join(
+        root,
+        'reserved-package-pipeline-scratch',
+        'ingest-job-with-a-durable-identifier',
+        'normalized-package-artifact'
+      );
+
+      const normalized = await normalizePackageArtifact({
+        inputPath: archive,
+        outputRoot: join(pipelinePath, 'tree'),
+        packageId: 'com.yucp.jammr',
+      });
+
+      expect(normalized.files.map((file) => file.normalizedPath)).toEqual([
+        'Assets/Jammr/shader.shader',
+      ]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   test('normalizes a unitypackage into its byte-exact logical tree', async () => {
     const root = await mkdtemp(join(tmpdir(), 'yucp-normalizer-unity-'));
     try {
@@ -71,11 +107,43 @@ describe('package normalizer', () => {
       ]);
       expect(normalized.envelopeMetadata).toEqual([
         {
+          body: icon,
           bytes: icon.byteLength,
+          contentType: 'image/png',
+          kind: 'icon',
           name: '.icon.png',
           sha256: '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9',
         },
       ]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test('rejects unsupported Unity package icon media', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'yucp-normalizer-invalid-icon-'));
+    try {
+      const records = join(root, 'records');
+      const guid = 'c'.repeat(32);
+      await mkdir(join(records, guid), { recursive: true });
+      await writeFile(join(records, '.icon.png'), 'not a png');
+      await writeFile(join(records, guid, 'asset'), 'material bytes');
+      await writeFile(join(records, guid, 'pathname'), 'Assets/Jammr/material.mat');
+      const archive = join(root, 'invalid-icon.unitypackage');
+      const tools = await resolveGnuArchiveTools();
+      await runCommand(
+        tools.tarCommand,
+        ['--force-local', '--create', '--gzip', '--file', archive, '--directory', records, '.'],
+        { env: tools.env }
+      );
+
+      await expect(
+        normalizePackageArtifact({
+          inputPath: archive,
+          outputRoot: join(root, 'tree'),
+          packageId: 'com.yucp.jammr',
+        })
+      ).rejects.toThrow('not a PNG');
     } finally {
       await rm(root, { force: true, recursive: true });
     }

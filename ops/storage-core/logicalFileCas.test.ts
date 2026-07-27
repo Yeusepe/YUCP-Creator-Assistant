@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { localCasStore, verifyDesyncCli } from './desyncCas';
+import { LOGICAL_FILE_CHUNK_IO_CONCURRENCY } from './boundedOrderedBatch';
+import { localCasStore, produceFileChunks, verifyDesyncCli } from './desyncCas';
 import { reconstructLogicalFile, storeLogicalFile } from './logicalFileCas';
 
 const scratchPaths: string[] = [];
@@ -22,6 +23,10 @@ afterEach(async () => {
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 describe('logical file CAS', () => {
@@ -103,5 +108,85 @@ describe('logical file CAS', () => {
 
     await reconstructLogicalFile({ outputPath, recipe, store });
     expect(sha256(await readFile(outputPath))).toBe(digest);
+  }, 30_000);
+
+  test('preserves the prior output and removes temporary output after a chunk fails', async () => {
+    await verifyDesyncCli();
+    const root = await createScratch();
+    const sourcePath = join(root, 'large.asset');
+    const outputPath = join(root, 'large.reconstructed.asset');
+    const priorOutput = Buffer.from('prior verified output');
+    const bytes = new Uint8Array(2 * 1024 * 1024);
+    for (let index = 0; index < bytes.byteLength; index += 1) {
+      bytes[index] = (index * 43 + Math.floor(index / 8192)) % 251;
+    }
+    await writeFile(sourcePath, bytes);
+    await writeFile(outputPath, priorOutput);
+    const store = localCasStore(join(root, 'chunks'));
+    const recipe = await storeLogicalFile({
+      bytes: bytes.byteLength,
+      domain: 'common:global:v2',
+      path: sourcePath,
+      sha256: sha256(bytes),
+      store,
+    });
+    expect(recipe.chunks.length).toBeGreaterThan(1);
+    const corruptChunk = recipe.chunks[1];
+    if (!corruptChunk) {
+      throw new Error('Test fixture did not create a second chunk');
+    }
+    await writeFile(
+      join(store.storePath, corruptChunk.id.slice(0, 4), corruptChunk.id),
+      Buffer.alloc(corruptChunk.size, 0x7f)
+    );
+
+    await expect(reconstructLogicalFile({ outputPath, recipe, store })).rejects.toThrow(
+      `CAS chunk failed verification: ${corruptChunk.id}`
+    );
+
+    expect(await readFile(outputPath)).toEqual(priorOutput);
+    expect((await readdir(root)).filter((name) => name.includes('.tmp'))).toEqual([]);
+  }, 30_000);
+
+  test('aborts chunk publication after one bounded batch fails and settles every write', async () => {
+    await verifyDesyncCli();
+    const root = await createScratch();
+    const sourcePath = join(root, 'publication.asset');
+    const bytes = new Uint8Array(4 * 1024 * 1024);
+    for (let index = 0; index < bytes.byteLength; index += 1) {
+      bytes[index] = (index * 47 + Math.floor(index / 4096)) % 251;
+    }
+    await writeFile(sourcePath, bytes);
+    let active = 0;
+    let maximumActive = 0;
+    let started = 0;
+    let settled = 0;
+
+    await expect(
+      produceFileChunks({
+        artifactPath: sourcePath,
+        onChunk: async ({ sha256: chunkSha256, size }) => {
+          const operationIndex = started;
+          started += 1;
+          active += 1;
+          maximumActive = Math.max(maximumActive, active);
+          try {
+            await delay(operationIndex === 1 ? 2 : 20);
+            if (operationIndex === 1) {
+              throw new Error(`rejected chunk ${chunkSha256}`);
+            }
+            return { id: chunkSha256, sha256: chunkSha256, size };
+          } finally {
+            active -= 1;
+            settled += 1;
+          }
+        },
+      })
+    ).rejects.toThrow('rejected chunk');
+
+    expect(started).toBe(LOGICAL_FILE_CHUNK_IO_CONCURRENCY);
+    expect(maximumActive).toBe(LOGICAL_FILE_CHUNK_IO_CONCURRENCY);
+    expect(settled).toBe(started);
+    expect(active).toBe(0);
   }, 30_000);
 });

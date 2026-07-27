@@ -34,6 +34,23 @@ export const Route = createLazyFileRoute('/_authenticated/account/verify')({
   component: AccountVerifyPage,
 });
 
+function formatVerificationStatus(status: UserVerificationIntent['status']): string {
+  switch (status) {
+    case 'pending':
+      return 'Waiting for verification';
+    case 'verified':
+      return 'Verified';
+    case 'expired':
+      return 'Expired';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'failed':
+      return 'Needs attention';
+    default:
+      return 'Status unavailable';
+  }
+}
+
 function getSafeReturnTo(value: string | null | undefined): string | null {
   if (!value || typeof window === 'undefined') return null;
   try {
@@ -82,8 +99,7 @@ function MethodCard({
   const returnUrl = `/account/verify?intent=${encodeURIComponent(intentId)}`;
   const activeLink = linkedAccounts.find((link) => link.status === 'active') ?? null;
   const expiredLink = linkedAccounts.find((link) => link.status === 'expired') ?? null;
-  const activeLinkLabel =
-    activeLink?.providerUsername ?? activeLink?.providerUserId ?? activeLink?.label ?? null;
+  const activeLinkLabel = activeLink?.providerUsername?.trim() || activeLink?.label?.trim() || null;
 
   const entitlementMut = useMutation({
     mutationFn: () => verifyUserVerificationEntitlement(intentId, method.methodKey),
@@ -162,17 +178,23 @@ function MethodCard({
         <p className="account-list-row-name">{method.title}</p>
         <p className="account-list-row-meta">
           <ProviderChip name={method.providerLabel} />
-          <ProviderChip name={capability.methodKind} />
           {isVerifiedMethod ? <StatusChip status="verified" /> : null}
         </p>
         {method.description ? <p className="account-feature-copy">{method.description}</p> : null}
         {method.kind === 'buyer_provider_link' ? (
           <p className="account-feature-copy">
-            {activeLinkLabel
-              ? `Linked as ${activeLinkLabel}. Use this connected account to verify access for the current package.`
-              : expiredLink
-                ? `Your linked ${method.providerLabel} account has expired. Reconnect it here, then continue verification without leaving this flow.`
-                : `No ${method.providerLabel} account is linked yet. Connect it here so this verification intent can continue with the right store account.`}
+            {activeLinkLabel ? (
+              `Linked as ${activeLinkLabel}. Use this connected account to verify access for the current package.`
+            ) : activeLink ? (
+              <>
+                <span>Connected store account</span>. Use this account to verify access for the
+                current package.
+              </>
+            ) : expiredLink ? (
+              `Your linked ${method.providerLabel} account has expired. Reconnect it here, then continue verification without leaving this flow.`
+            ) : (
+              `No ${method.providerLabel} account is linked yet. Connect it here so this verification intent can continue with the right store account.`
+            )}
           </p>
         ) : null}
       </div>
@@ -360,7 +382,7 @@ function AccountVerifyPage() {
         title={
           verificationIntent?.packageName || verificationIntent?.packageId || 'Verify your purchase'
         }
-        description="All proof collection happens here in the browser. Unity will only resume after the server has a redeemable verification grant ready."
+        description="Complete the purchase check here. Unity will resume when your package access is ready."
       >
         {intentQuery.isLoading ? <DashboardListSkeleton rows={4} /> : null}
         {intentQuery.isError ? (
@@ -371,7 +393,9 @@ function AccountVerifyPage() {
             <div className="account-kv-list">
               <div className="account-kv-row">
                 <span className="account-kv-label">Status</span>
-                <span className="account-kv-value">{verificationIntent.status}</span>
+                <span className="account-kv-value">
+                  {formatVerificationStatus(verificationIntent.status)}
+                </span>
               </div>
               <div className="account-kv-row">
                 <span className="account-kv-label">Package</span>
@@ -430,11 +454,11 @@ function AccountVerifyPage() {
       >
         <div className="account-note-stack">
           <p className="account-feature-copy">
-            This flow only issues a short-lived completion grant after the server verifies access.
+            YUCP prepares short-lived package access only after the server verifies your purchase.
           </p>
           <p className="account-feature-copy">
-            Unity can only redeem that grant for the machine-bound token after proving it owns the
-            original verification code challenge.
+            Unity receives only the access needed to finish this installation on the device that
+            started it.
           </p>
         </div>
       </AccountSectionCard>

@@ -28,14 +28,37 @@ type proofHeader struct {
 }
 
 type proofPayload struct {
-	AccessTokenHash string `json:"ath"`
+	AccessTokenHash string `json:"ath,omitempty"`
 	Method          string `json:"htm"`
 	URL             string `json:"htu"`
 	IssuedAt        int64  `json:"iat"`
 	Identifier      string `json:"jti"`
 }
 
+// CreateProof creates an RFC 9449 resource request proof.
+// See https://www.rfc-editor.org/rfc/rfc9449.
 func CreateProof(
+	privateKey *ecdsa.PrivateKey,
+	method string,
+	targetURL string,
+	accessToken string,
+	now time.Time,
+) (string, error) {
+	if accessToken == "" {
+		return "", fmt.Errorf("DPoP access token is required")
+	}
+	return createProof(privateKey, method, targetURL, accessToken, now)
+}
+
+func CreateTokenProof(
+	privateKey *ecdsa.PrivateKey,
+	targetURL string,
+	now time.Time,
+) (string, error) {
+	return createProof(privateKey, "POST", targetURL, "", now)
+}
+
+func createProof(
 	privateKey *ecdsa.PrivateKey,
 	method string,
 	targetURL string,
@@ -54,9 +77,6 @@ func CreateProof(
 	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" || strings.ContainsAny(method, " \t\r\n") {
 		return "", fmt.Errorf("DPoP HTTP method is invalid")
-	}
-	if accessToken == "" {
-		return "", fmt.Errorf("DPoP access token is required")
 	}
 	x := base64.RawURLEncoding.EncodeToString(
 		privateKey.PublicKey.X.FillBytes(make([]byte, 32)),
@@ -77,18 +97,21 @@ func CreateProof(
 	if err != nil {
 		return "", fmt.Errorf("encode DPoP protected header: %w", err)
 	}
-	tokenDigest := sha256.Sum256([]byte(accessToken))
 	jti := make([]byte, 16)
 	if _, err := rand.Read(jti); err != nil {
 		return "", fmt.Errorf("create DPoP proof identifier: %w", err)
 	}
-	payload, err := json.Marshal(proofPayload{
-		AccessTokenHash: base64.RawURLEncoding.EncodeToString(tokenDigest[:]),
-		Method:          method,
-		URL:             canonicalURL,
-		IssuedAt:        now.Unix(),
-		Identifier:      base64.RawURLEncoding.EncodeToString(jti),
-	})
+	payloadClaims := proofPayload{
+		Method:     method,
+		URL:        canonicalURL,
+		IssuedAt:   now.Unix(),
+		Identifier: base64.RawURLEncoding.EncodeToString(jti),
+	}
+	if accessToken != "" {
+		tokenDigest := sha256.Sum256([]byte(accessToken))
+		payloadClaims.AccessTokenHash = base64.RawURLEncoding.EncodeToString(tokenDigest[:])
+	}
+	payload, err := json.Marshal(payloadClaims)
 	if err != nil {
 		return "", fmt.Errorf("encode DPoP claims: %w", err)
 	}

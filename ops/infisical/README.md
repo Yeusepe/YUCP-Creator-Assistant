@@ -95,7 +95,7 @@ names consumed by apps/api, ingest-tus, the scheduler, and the delivery Worker.
 | `/storage/cas/write/` | `CAS_S3_ACCESS_KEY_ID`, `CAS_S3_SECRET_ACCESS_KEY` | ingest-tus and scheduler only |
 | `/storage/cas/read/` | `CAS_S3_READONLY_ACCESS_KEY_ID`, `CAS_S3_READONLY_SECRET_ACCESS_KEY` | delivery Worker only |
 | `/storage/delivery/shared/` | `DELIVERY_HMAC_KEY` | apps/api, VPM, and curated delivery Worker sync |
-| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_TOKEN_KEY` | apps/api and VPM only |
+| `/storage/delivery/api/` | `DELIVERY_BASE_URL`, `VPM_BASE_URL`, `VPM_PUBLIC_INDEX_URL` | apps/api and VPM only |
 | `/infra/convex/` | `CONVEX_URL`, `CONVEX_API_SECRET` | apps/api, Convex, bot, and scheduler |
 | `/infra/signing/service-auth/` | `INTERNAL_SERVICE_AUTH_SECRET` | apps/api, Convex, bot, and scheduler |
 

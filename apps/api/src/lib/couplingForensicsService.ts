@@ -3,6 +3,7 @@ import { isIP } from 'node:net';
 import type { ExtractedForensicsAsset } from './couplingForensicsArchives';
 
 export type CouplingForensicsServiceConfig = {
+  attributionMaxCandidateEvaluationsPerRequest?: number;
   baseUrl: string;
   sharedSecret: string;
   requestTimeoutMs?: number;
@@ -24,6 +25,7 @@ export type ForensicsScoreResult = {
 
 const ATTRIBUTION_REQUEST_TIMEOUT_MS = 15_000;
 const ATTRIBUTION_REQUEST_MAX_BYTES = 24 * 1024 * 1024;
+const ATTRIBUTION_MAX_CANDIDATE_EVALUATIONS_PER_REQUEST = 64;
 const COUPLING_SERVICE_RESPONSE_MAX_BYTES = 1024 * 1024;
 const METADATA_SERVICE_HOSTS = new Set([
   '169.254.169.254',
@@ -360,12 +362,6 @@ type SerializedAttributionAsset = {
   contentBase64: string;
 };
 
-type AttributionBatch = {
-  assets: ExtractedForensicsAsset[];
-  candidates: CouplingAttributionCandidate[];
-  serializedAssets: SerializedAttributionAsset[];
-};
-
 function buildAttributeRequestBody(
   serializedAssets: SerializedAttributionAsset[],
   candidates: CouplingAttributionCandidate[]
@@ -403,16 +399,6 @@ function buildCandidatePoolsByAssetType(
   return candidatesByAssetType;
 }
 
-function mergeAttributionCandidates(
-  ...groups: CouplingAttributionCandidate[][]
-): CouplingAttributionCandidate[] {
-  const merged = new Map<string, CouplingAttributionCandidate>();
-  for (const candidate of groups.flat()) {
-    merged.set(candidate.attributionId, candidate);
-  }
-  return [...merged.values()];
-}
-
 function attributionBasename(value: string): string {
   const normalized = value.replaceAll('\\', '/').replace(/\/+$/, '');
   return (normalized.slice(normalized.lastIndexOf('/') + 1) || normalized).toLowerCase();
@@ -432,6 +418,33 @@ function prioritizeCandidatesForAssets(
     target.push(candidate);
   }
   return [...preferred, ...remaining];
+}
+
+function resolveAttributionMaximumCandidateEvaluations(
+  config: CouplingForensicsServiceConfig
+): number {
+  const maximum =
+    config.attributionMaxCandidateEvaluationsPerRequest ??
+    ATTRIBUTION_MAX_CANDIDATE_EVALUATIONS_PER_REQUEST;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 512) {
+    throw new CouplingServiceConfigurationError(
+      'Coupling attribution request work limit is invalid'
+    );
+  }
+  return maximum;
+}
+
+function mergeAttributionScore(
+  previous: ForensicsScoreResult | undefined,
+  next: ForensicsScoreResult
+): ForensicsScoreResult {
+  if (!previous || next.preclassification === 'decoded') {
+    return next;
+  }
+  if (previous.preclassification === 'no-signal' && next.preclassification === 'likely-stripped') {
+    return next;
+  }
+  return previous;
 }
 
 function validateAttributionResult(
@@ -543,19 +556,15 @@ export async function runCouplingAttribution(
   }
 
   const requestMaxBytes = resolveCouplingRequestMaxBytes(config);
+  const maximumCandidateEvaluations = resolveAttributionMaximumCandidateEvaluations(config);
   const resultsByPath = new Map<string, ForensicsScoreResult>();
-  let batch: AttributionBatch = {
-    assets: [],
-    candidates: [],
-    serializedAssets: [],
-  };
 
-  const runBatch = async (current: AttributionBatch): Promise<void> => {
-    if (current.assets.length === 0) {
-      return;
-    }
-    const prioritizedCandidates = prioritizeCandidatesForAssets(current.assets, current.candidates);
-    const requestBody = buildAttributeRequestBody(current.serializedAssets, prioritizedCandidates);
+  const runBatch = async (input: {
+    asset: ExtractedForensicsAsset;
+    candidates: CouplingAttributionCandidate[];
+    serializedAsset: SerializedAttributionAsset;
+  }): Promise<ForensicsScoreResult> => {
+    const requestBody = buildAttributeRequestBody([input.serializedAsset], input.candidates);
     if (Buffer.byteLength(requestBody) > requestMaxBytes) {
       throw new CouplingServiceRequestError(
         'Coupling attribution asset exceeds the request size limit',
@@ -610,13 +619,15 @@ export async function runCouplingAttribution(
       );
     }
 
-    for (const result of validateAttributionResult(
-      current.assets,
-      prioritizedCandidates,
-      payload
-    )) {
-      resultsByPath.set(result.assetPath, result);
+    const results = validateAttributionResult([input.asset], input.candidates, payload);
+    const result = results[0];
+    if (!result) {
+      throw new CouplingServiceRequestError(
+        'Coupling service returned an invalid attribution result',
+        502
+      );
     }
+    return result;
   };
 
   for (const asset of assets) {
@@ -629,30 +640,41 @@ export async function runCouplingAttribution(
       assetType: asset.assetType,
       contentBase64: Buffer.from(await readFile(asset.filePath)).toString('base64'),
     };
-    const nextBatch: AttributionBatch = {
-      assets: [...batch.assets, asset],
-      candidates: mergeAttributionCandidates(batch.candidates, compatibleCandidates),
-      serializedAssets: [...batch.serializedAssets, serializedAsset],
-    };
-
-    if (
-      batch.assets.length > 0 &&
-      Buffer.byteLength(
-        buildAttributeRequestBody(nextBatch.serializedAssets, nextBatch.candidates)
-      ) > requestMaxBytes
-    ) {
-      await runBatch(batch);
-      batch = {
-        assets: [asset],
-        candidates: [...compatibleCandidates],
-        serializedAssets: [serializedAsset],
-      };
-      continue;
+    const prioritizedCandidates = prioritizeCandidatesForAssets([asset], compatibleCandidates);
+    let offset = 0;
+    while (offset < prioritizedCandidates.length) {
+      const candidateBatch = prioritizedCandidates.slice(
+        offset,
+        offset + maximumCandidateEvaluations
+      );
+      while (
+        candidateBatch.length > 0 &&
+        Buffer.byteLength(buildAttributeRequestBody([serializedAsset], candidateBatch)) >
+          requestMaxBytes
+      ) {
+        candidateBatch.pop();
+      }
+      if (candidateBatch.length === 0) {
+        throw new CouplingServiceRequestError(
+          'Coupling attribution asset exceeds the request size limit',
+          502
+        );
+      }
+      offset += candidateBatch.length;
+      const result = await runBatch({
+        asset,
+        candidates: candidateBatch,
+        serializedAsset,
+      });
+      resultsByPath.set(
+        asset.assetPath,
+        mergeAttributionScore(resultsByPath.get(asset.assetPath), result)
+      );
+      if (result.preclassification === 'decoded') {
+        break;
+      }
     }
-
-    batch = nextBatch;
   }
-  await runBatch(batch);
 
   return assets.map(
     (asset) =>

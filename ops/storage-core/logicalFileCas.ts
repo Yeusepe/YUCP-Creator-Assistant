@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { link, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { forEachBoundedOrdered, LOGICAL_FILE_CHUNK_MAX_BYTES } from './boundedOrderedBatch';
 import type { DeliveryManifestChunk, DeliveryManifestFile } from './deliveryManifest';
 import { type CasStore, produceFileChunks } from './desyncCas';
 import { getS3Object, putS3ObjectImmutable } from './s3Control';
@@ -45,7 +46,8 @@ function assertRecipe(input: {
         !SHA256_PATTERN.test(chunk.id) ||
         !SHA256_PATTERN.test(chunk.sha256) ||
         !Number.isSafeInteger(chunk.size) ||
-        chunk.size < 0
+        chunk.size < 0 ||
+        chunk.size > LOGICAL_FILE_CHUNK_MAX_BYTES
     ) ||
     input.chunks.reduce((total, chunk) => total + chunk.size, 0) !== input.bytes
   ) {
@@ -244,21 +246,32 @@ export async function reconstructLogicalFile(input: {
   const hash = createHash('sha256');
   let bytesWritten = 0;
   try {
-    for (const chunk of input.recipe.chunks) {
-      const bytes = await readVerifiedCasChunk({
-        chunk,
-        packageVersionId: input.packageVersionId,
-        store: input.store,
-      });
-      await handle.write(bytes);
-      hash.update(bytes);
-      bytesWritten += bytes.byteLength;
+    try {
+      await forEachBoundedOrdered(
+        input.recipe.chunks,
+        async (chunk) =>
+          readVerifiedCasChunk({
+            chunk,
+            packageVersionId: input.packageVersionId,
+            store: input.store,
+          }),
+        async (bytes) => {
+          let offset = 0;
+          while (offset < bytes.byteLength) {
+            const result = await handle.write(bytes, offset, bytes.byteLength - offset);
+            if (result.bytesWritten <= 0) {
+              throw new Error('Reconstructed logical file write made no progress');
+            }
+            offset += result.bytesWritten;
+          }
+          hash.update(bytes);
+          bytesWritten += bytes.byteLength;
+        }
+      );
+      await handle.sync();
+    } finally {
+      await handle.close();
     }
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
     if (bytesWritten !== input.recipe.bytes || hash.digest('hex') !== input.recipe.sha256) {
       throw new Error('Reconstructed logical file failed verification');
     }

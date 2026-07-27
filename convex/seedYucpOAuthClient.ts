@@ -1,8 +1,8 @@
 /**
- * Ensure the first-party YUCP Unity OAuth2 public clients exist with the expected config.
+ * Ensure the first-party YUCP package broker OAuth2 public client exists.
  *
  * Manual repair:
- *   npx convex run seedYucpOAuthClient:seedUnityOAuthClient
+ *   npx convex run seedYucpOAuthClient:seedPackageBrokerOAuthClient
  *
  * This is safe to run again. Run it after each Convex deployment.
  *
@@ -13,89 +13,120 @@
  *     https://datatracker.ietf.org/doc/html/rfc8252
  */
 
+import { PACKAGE_BROKER_AUDIENCE } from '@yucp/shared';
 import { components } from './_generated/api';
 import { internalMutation } from './_generated/server';
 import {
   OAUTH_REFRESH_TOKEN_SCOPE,
-  OAUTH_PROVIDER_SCOPES,
   type OAuthProviderScope,
+  PACKAGE_BROKER_OPERATION_SCOPE,
 } from './betterAuth/oauthProviderScopes';
-import { PUBLIC_API_AUDIENCE } from '@yucp/shared';
 import { type BetterAuthPageResult, getBetterAuthPage } from './lib/betterAuthAdapter';
 
-type UnityOAuthClientDescriptor = {
+type PackageBrokerOAuthClientDescriptor = {
   clientId: string;
   name: string;
   scopes: OAuthProviderScope[];
   authDomain: 'user' | 'creator';
 };
 
-const UNITY_NATIVE_OAUTH_CLIENTS: readonly UnityOAuthClientDescriptor[] = [
+const PACKAGE_BROKER_OAUTH_CLIENTS: readonly PackageBrokerOAuthClientDescriptor[] = [
   {
-    clientId: 'yucp-unity-user',
-    name: 'YUCP Unity User',
-    scopes: ['verification:read', 'products:read', OAUTH_REFRESH_TOKEN_SCOPE],
+    clientId: 'yucp-package-broker',
+    name: 'YUCP Package Broker',
+    scopes: [PACKAGE_BROKER_OPERATION_SCOPE, OAUTH_REFRESH_TOKEN_SCOPE],
     authDomain: 'user',
   },
-  {
-    clientId: 'yucp-unity-creator',
-    name: 'YUCP Unity Creator',
-    scopes: ['cert:issue', 'profile:read', 'products:read', OAUTH_REFRESH_TOKEN_SCOPE],
-    authDomain: 'creator',
-  },
 ] as const;
+const SUPERSEDED_PACKAGE_OAUTH_CLIENT_IDS = ['yucp-unity-user', 'yucp-unity-creator'] as const;
 
-export function getUnityOAuthClientDescriptors(): readonly UnityOAuthClientDescriptor[] {
-  return UNITY_NATIVE_OAUTH_CLIENTS;
+export function getPackageBrokerOAuthClientDescriptors(): readonly PackageBrokerOAuthClientDescriptor[] {
+  return PACKAGE_BROKER_OAUTH_CLIENTS;
 }
 
-export function buildUnityOAuthClientMetadata(descriptor: UnityOAuthClientDescriptor): string {
+export function getSupersededPackageOAuthClientIds(): readonly string[] {
+  return SUPERSEDED_PACKAGE_OAUTH_CLIENT_IDS;
+}
+
+export function buildPackageBrokerOAuthClientMetadata(
+  descriptor: PackageBrokerOAuthClientDescriptor
+): string {
   return JSON.stringify({
     firstParty: true,
-    platform: 'unity',
+    credentialOwner: 'native-package-broker',
+    platform: 'native',
     authDomain: descriptor.authDomain,
   });
 }
 
-export function buildPublicApiOAuthResourceRecord() {
+export function buildPackageBrokerOAuthResourceRecord() {
   return {
-    identifier: PUBLIC_API_AUDIENCE,
-    name: 'YUCP public API',
-    allowedScopes: [...OAUTH_PROVIDER_SCOPES],
+    identifier: PACKAGE_BROKER_AUDIENCE,
+    name: 'YUCP package operations',
+    allowedScopes: [PACKAGE_BROKER_OPERATION_SCOPE, OAUTH_REFRESH_TOKEN_SCOPE],
+    accessTokenTtl: 300,
+    refreshTokenTtl: 30 * 24 * 60 * 60,
+    dpopBoundAccessTokensRequired: true,
     disabled: false,
     policyVersion: 1,
   };
 }
 
-export function buildUnityOAuthClientResourceLink(
-  descriptor: UnityOAuthClientDescriptor
+export function buildPackageBrokerOAuthClientResourceLink(
+  descriptor: PackageBrokerOAuthClientDescriptor
 ) {
   return {
     clientId: descriptor.clientId,
-    resourceId: PUBLIC_API_AUDIENCE,
+    resourceId: PACKAGE_BROKER_AUDIENCE,
   };
 }
 
-async function upsertPublicApiOAuthResource(ctx: any) {
-  const desiredResource = {
-    ...buildPublicApiOAuthResourceRecord(),
+export function buildPackageBrokerOAuthClientRecord(
+  descriptor: PackageBrokerOAuthClientDescriptor,
+  callbackUrl: string
+) {
+  /**
+   * Better Auth supports DPoP-bound public clients through this client property.
+   * https://better-auth.com/docs/plugins/oauth-provider#dynamic-registration-endpoint
+   *
+   * RFC 9449 requires the token endpoint proof key to bind public-client refresh tokens.
+   * https://www.rfc-editor.org/rfc/rfc9449#section-8
+   */
+  return {
+    clientSecret: null,
+    name: descriptor.name,
+    redirectUris: [callbackUrl],
+    scopes: descriptor.scopes,
+    grantTypes: ['authorization_code', 'refresh_token'],
+    responseTypes: ['code'],
+    tokenEndpointAuthMethod: 'none',
+    public: true,
+    type: 'public',
+    skipConsent: false,
+    disabled: false,
+    dpopBoundAccessTokens: true,
+    metadata: buildPackageBrokerOAuthClientMetadata(descriptor),
     updatedAt: Date.now(),
   };
-  const existingResult = (await ctx.runQuery(
-    components.betterAuth.adapter.findMany,
-    {
-      model: 'oauthResource',
-      where: [
-        {
-          field: 'identifier',
-          value: PUBLIC_API_AUDIENCE,
-          operator: 'eq',
-        },
-      ],
-      limit: 1,
-      paginationOpts: { cursor: null, numItems: 1 },
-    }
-  )) as BetterAuthPageResult<{ identifier: string }>;
+}
+
+async function upsertPackageBrokerOAuthResource(ctx: any) {
+  const desiredResource = {
+    ...buildPackageBrokerOAuthResourceRecord(),
+    updatedAt: Date.now(),
+  };
+  const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    model: 'oauthResource',
+    where: [
+      {
+        field: 'identifier',
+        value: PACKAGE_BROKER_AUDIENCE,
+        operator: 'eq',
+      },
+    ],
+    limit: 1,
+    paginationOpts: { cursor: null, numItems: 1 },
+  })) as BetterAuthPageResult<{ identifier: string }>;
   const existing = getBetterAuthPage(existingResult);
 
   if (existing.length > 0) {
@@ -105,7 +136,7 @@ async function upsertPublicApiOAuthResource(ctx: any) {
         where: [
           {
             field: 'identifier',
-            value: PUBLIC_API_AUDIENCE,
+            value: PACKAGE_BROKER_AUDIENCE,
             operator: 'eq',
           },
         ],
@@ -127,32 +158,25 @@ async function upsertPublicApiOAuthResource(ctx: any) {
   return { created: true, updated: false };
 }
 
-async function ensureUnityOAuthClientResourceLink(
+async function ensurePackageBrokerOAuthClientResourceLink(
   ctx: any,
-  descriptor: UnityOAuthClientDescriptor
+  descriptor: PackageBrokerOAuthClientDescriptor
 ) {
-  const desiredLink = buildUnityOAuthClientResourceLink(descriptor);
-  const existingResult = (await ctx.runQuery(
-    components.betterAuth.adapter.findMany,
-    {
-      model: 'oauthClientResource',
-      where: [
-        {
-          field: 'clientId',
-          value: desiredLink.clientId,
-          operator: 'eq',
-        },
-      ],
-      paginationOpts: { cursor: null, numItems: 100 },
-    }
-  )) as BetterAuthPageResult<{ clientId: string; resourceId: string }>;
+  const desiredLink = buildPackageBrokerOAuthClientResourceLink(descriptor);
+  const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    model: 'oauthClientResource',
+    where: [
+      {
+        field: 'clientId',
+        value: desiredLink.clientId,
+        operator: 'eq',
+      },
+    ],
+    paginationOpts: { cursor: null, numItems: 100 },
+  })) as BetterAuthPageResult<{ clientId: string; resourceId: string }>;
   const existing = getBetterAuthPage(existingResult);
 
-  if (
-    existing.some(
-      (link) => link.resourceId === desiredLink.resourceId
-    )
-  ) {
+  if (existing.some((link) => link.resourceId === desiredLink.resourceId)) {
     return { created: false };
   }
 
@@ -168,26 +192,12 @@ async function ensureUnityOAuthClientResourceLink(
   return { created: true };
 }
 
-async function upsertUnityOAuthClient(
+async function upsertPackageBrokerOAuthClient(
   ctx: any,
-  descriptor: UnityOAuthClientDescriptor,
+  descriptor: PackageBrokerOAuthClientDescriptor,
   callbackUrl: string
 ) {
-  const desiredClient = {
-    clientSecret: null,
-    name: descriptor.name,
-    redirectUris: [callbackUrl],
-    scopes: descriptor.scopes,
-    grantTypes: ['authorization_code', 'refresh_token'],
-    responseTypes: ['code'],
-    tokenEndpointAuthMethod: 'none',
-    public: true,
-    type: 'public',
-    skipConsent: false,
-    disabled: false,
-    metadata: buildUnityOAuthClientMetadata(descriptor),
-    updatedAt: Date.now(),
-  };
+  const desiredClient = buildPackageBrokerOAuthClientRecord(descriptor, callbackUrl);
 
   const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
     model: 'oauthClient',
@@ -206,7 +216,7 @@ async function upsertUnityOAuthClient(
       },
     });
 
-    console.log(`Updated ${descriptor.clientId} Unity OAuth client:`, result);
+    console.log(`Updated ${descriptor.clientId} package broker OAuth client:`, result);
     return { clientId: descriptor.clientId, created: false, updated: true, result };
   }
 
@@ -222,31 +232,48 @@ async function upsertUnityOAuthClient(
     },
   });
 
-  console.log(`Created ${descriptor.clientId} Unity OAuth client:`, result);
+  console.log(`Created ${descriptor.clientId} package broker OAuth client:`, result);
   return { clientId: descriptor.clientId, created: true, updated: false, result };
 }
 
-export const seedUnityOAuthClient = internalMutation({
+async function retireOAuthClient(ctx: any, clientId: string) {
+  const existingResult = (await ctx.runQuery(components.betterAuth.adapter.findMany, {
+    model: 'oauthClient',
+    where: [{ field: 'clientId', value: clientId, operator: 'eq' }],
+    limit: 1,
+    paginationOpts: { cursor: null, numItems: 1 },
+  })) as BetterAuthPageResult<{ clientId: string }>;
+  if (getBetterAuthPage(existingResult).length === 0) {
+    return { clientId, retired: false };
+  }
+  await ctx.runMutation(components.betterAuth.adapter.updateOne as any, {
+    input: {
+      model: 'oauthClient',
+      where: [{ field: 'clientId', value: clientId, operator: 'eq' }],
+      update: { disabled: true, updatedAt: Date.now() },
+    },
+  });
+  return { clientId, retired: true };
+}
+
+export const seedPackageBrokerOAuthClient = internalMutation({
   args: {},
   handler: async (ctx) => {
     // Better Auth applies the RFC 8252 loopback-port exception when the
     // requested URI has this exact scheme, host, path, and query.
     const callbackUrl = 'http://127.0.0.1/callback';
-    const resource = await upsertPublicApiOAuthResource(ctx);
+    const resource = await upsertPackageBrokerOAuthResource(ctx);
     const results = [];
-    for (const descriptor of UNITY_NATIVE_OAUTH_CLIENTS) {
-      const client = await upsertUnityOAuthClient(
-        ctx,
-        descriptor,
-        callbackUrl
-      );
-      const resourceLink = await ensureUnityOAuthClientResourceLink(
-        ctx,
-        descriptor
-      );
+    for (const descriptor of PACKAGE_BROKER_OAUTH_CLIENTS) {
+      const client = await upsertPackageBrokerOAuthClient(ctx, descriptor, callbackUrl);
+      const resourceLink = await ensurePackageBrokerOAuthClientResourceLink(ctx, descriptor);
       results.push({ client, resourceLink });
     }
-    return { resource, ensured: results };
+    const retired = [];
+    for (const clientId of SUPERSEDED_PACKAGE_OAUTH_CLIENT_IDS) {
+      retired.push(await retireOAuthClient(ctx, clientId));
+    }
+    return { resource, ensured: results, retired };
   },
 });
 

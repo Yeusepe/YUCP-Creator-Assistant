@@ -20,6 +20,7 @@ export type CreateIngestSchedulerOptions = Omit<
   commonStore: CasStore;
   metadataStore: CasStore;
   protectedStore: CasStore;
+  scratchRoot: string;
 };
 
 export interface IngestScheduler {
@@ -52,6 +53,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
     onError,
     publish = createConvexCatalogPublish(loadConvexCatalogPublishConfig()),
     protectedStore,
+    scratchRoot,
     ...reconcileOptions
   } = options;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -94,6 +96,7 @@ export function createIngestScheduler(options: CreateIngestSchedulerOptions): In
           commonStore,
           metadataStore,
           protectedStore,
+          scratchRoot,
           versionId: candidate.id,
         });
       } catch (error) {

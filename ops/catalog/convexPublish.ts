@@ -5,6 +5,7 @@ import {
 } from '@yucp/shared/apiActor';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../../convex/_generated/api';
+import { normalizeVpmBootstrapMedia } from '../storage-core/vpmBootstrapMedia';
 import { normalizeVpmBootstrapMetadata } from '../storage-core/vpmBootstrapMetadata';
 import type { CatalogOutboxEvent } from './reconciler';
 
@@ -114,6 +115,7 @@ function requiredVpmBootstrapMetadata(payload: Record<string, unknown>) {
     throw new Error('READY catalog event payload requires VPM bootstrap metadata');
   }
   return normalizeVpmBootstrapMetadata({
+    packageMetadata: payload.packageMetadata,
     vpmDependencies: payload.vpmDependencies,
     vpmRepositories: payload.vpmRepositories,
   });
@@ -180,6 +182,7 @@ export function createConvexCatalogPublish(
 
     const catalogProductId = optionalCatalogProductId(event.payload);
     const bootstrapMetadata = requiredVpmBootstrapMetadata(event.payload);
+    const bootstrapMedia = normalizeVpmBootstrapMedia(event.payload.bootstrapMedia);
     await withTimeout(
       client.mutation(api.packageVersions.upsertReadyVersion, {
         apiSecret: config.convexApiSecret,
@@ -187,7 +190,9 @@ export function createConvexCatalogPublish(
         activeContentDigest: requiredSha256(event.payload, 'activeContentDigest'),
         activePolicyVersion: requiredPayloadString(event.payload, 'activePolicyVersion'),
         bindingRoot: requiredSha256(event.payload, 'bindingRoot'),
+        bootstrapMedia,
         commonRoot: requiredSha256(event.payload, 'commonRoot'),
+        editionId: requiredPayloadString(event.payload, 'editionId'),
         logicalBytes: requiredNonNegativeInteger(event.payload, 'logicalBytes'),
         logicalFiles: requiredNonNegativeInteger(event.payload, 'logicalFiles'),
         packageId: requiredPayloadString(event.payload, 'packageId'),
@@ -199,6 +204,9 @@ export function createConvexCatalogPublish(
         releaseRoot: requiredSha256(event.payload, 'releaseRoot'),
         version: requiredPayloadString(event.payload, 'version'),
         versionId: requiredPayloadString(event.payload, 'versionId'),
+        ...(bootstrapMetadata.packageMetadata
+          ? { packageMetadata: bootstrapMetadata.packageMetadata }
+          : {}),
         vpmDependencies: bootstrapMetadata.vpmDependencies,
         vpmRepositories: bootstrapMetadata.vpmRepositories,
         ...(catalogProductId ? { catalogProductId } : {}),

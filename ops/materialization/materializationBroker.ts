@@ -22,6 +22,9 @@ import { type DeclaredMaterializedFile, verifyRenditionReadback } from './rendit
 const SHA256_BYTES = 32;
 const MAX_LEASE_DURATION_MS = 60 * 60 * 1_000;
 const MIN_LEASE_DURATION_MS = 1_000;
+export const DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const MIN_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 60 * 60;
+const MAX_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS = 30 * 24 * 60 * 60;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type CreateMaterializationJobInput = {
@@ -208,10 +211,66 @@ export type MaterializationAttributionCandidate = {
 export type MaterializationAttributionCandidatePage = {
   candidateLimit: number;
   candidates: MaterializationAttributionCandidate[];
+  nextCursor?: string;
   truncated: boolean;
 };
 
 const MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT = 512;
+const MATERIALIZATION_ATTRIBUTION_CURSOR_MAX_BYTES = 2_048;
+
+type MaterializationAttributionCursor = {
+  attributionId: string;
+  createdAt: number;
+  creatorId: string;
+  productId: string;
+  schemaVersion: 1;
+};
+
+function encodeAttributionCursor(cursor: MaterializationAttributionCursor): string {
+  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+}
+
+function decodeAttributionCursor(
+  value: string,
+  creatorId: string,
+  productId: string
+): MaterializationAttributionCursor {
+  const encoded = requireText(value, 'cursor', MATERIALIZATION_ATTRIBUTION_CURSOR_MAX_BYTES);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('cursor is invalid');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('cursor is invalid');
+  }
+  const cursor = parsed as Record<string, unknown>;
+  if (
+    Object.keys(cursor).sort().join(',') !==
+      'attributionId,createdAt,creatorId,productId,schemaVersion' ||
+    cursor.schemaVersion !== 1 ||
+    cursor.creatorId !== creatorId ||
+    cursor.productId !== productId ||
+    typeof cursor.attributionId !== 'string' ||
+    !Number.isSafeInteger(cursor.createdAt) ||
+    (cursor.createdAt as number) < 0
+  ) {
+    throw new Error('cursor is invalid');
+  }
+  const attributionId = requireText(cursor.attributionId, 'cursor attributionId', 512);
+  const canonical: MaterializationAttributionCursor = {
+    attributionId,
+    createdAt: cursor.createdAt as number,
+    creatorId,
+    productId,
+    schemaVersion: 1,
+  };
+  if (encodeAttributionCursor(canonical) !== encoded) {
+    throw new Error('cursor is invalid');
+  }
+  return canonical;
+}
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return (
@@ -380,6 +439,7 @@ export class MaterializationBroker {
   private readonly renditionStorage: RenditionStoragePort;
   private readonly sourceGrant: MaterializationSourceGrantConfig;
   private readonly sql: CatalogDatabase;
+  private readonly storageGcPinRetentionSeconds: number;
 
   constructor(input: {
     keyBroker: MaterializationKeyBrokerPort;
@@ -387,6 +447,7 @@ export class MaterializationBroker {
     renditionStorage: RenditionStoragePort;
     sourceGrant: MaterializationSourceGrantConfig;
     sql: CatalogDatabase;
+    storageGcPinRetentionSeconds?: number;
   }) {
     this.keyBroker = input.keyBroker;
     if (
@@ -454,6 +515,17 @@ export class MaterializationBroker {
       keyId: Uint8Array.from(input.sourceGrant.keyId),
       privateKey: Uint8Array.from(input.sourceGrant.privateKey),
     };
+    const storageGcPinRetentionSeconds =
+      input.storageGcPinRetentionSeconds ??
+      DEFAULT_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS;
+    if (
+      !Number.isSafeInteger(storageGcPinRetentionSeconds) ||
+      storageGcPinRetentionSeconds < MIN_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS ||
+      storageGcPinRetentionSeconds > MAX_MATERIALIZATION_STORAGE_GC_PIN_RETENTION_SECONDS
+    ) {
+      throw new Error('Materialization storage GC pin retention is invalid');
+    }
+    this.storageGcPinRetentionSeconds = storageGcPinRetentionSeconds;
     this.sql = input.sql;
   }
 
@@ -492,130 +564,216 @@ export class MaterializationBroker {
     ) {
       throw new Error('Encrypted attribution subject mapping is invalid');
     }
-    const inserted = await this.sql<{ id: string }[]>`
-      INSERT INTO materialization_jobs (
-        id,
-        creator_id,
-        product_id,
-        buyer_subject_pseudonym,
-        encrypted_subject_mapping,
-        pseudonym_method,
-        release_root,
-        delivery_binding_root,
-        protected_source_root,
-        source_version_id,
-        source_manifest_sha256,
-        source_logical_bytes,
-        source_logical_files,
-        materialization_algorithm,
-        plugin_version,
-        output_format,
-        key_epoch,
-        grant_jti,
-        protected_files,
-        lane,
-        trace_id
-      )
-      VALUES (
-        ${input.id},
-        ${input.creatorId},
-        ${input.productId},
-        ${input.buyerSubjectPseudonym},
-        ${input.encryptedSubjectMapping},
-        ${input.pseudonymMethod},
-        ${requireBytes(input.releaseRoot, 'releaseRoot')},
-        ${requireBytes(input.bindingRoot, 'bindingRoot')},
-        ${requireBytes(input.protectedSourceRoot, 'protectedSourceRoot')},
-        ${input.sourceVersionId},
-        ${requireBytes(input.sourceManifestSha256, 'sourceManifestSha256')},
-        ${input.sourceLogicalBytes},
-        ${input.sourceLogicalFiles},
-        ${input.materializationAlgorithm},
-        ${input.pluginVersion},
-        ${input.outputFormat},
-        ${input.keyEpoch},
-        ${input.grantJti},
-        ${this.sql.json(protectedFiles)},
-        ${lane},
-        ${input.traceId}
-      )
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-    if (inserted[0]) {
-      return;
-    }
-    const existing = await this.sql<
-      {
-        bindingRoot: Buffer;
-        buyerSubjectPseudonym: string;
-        creatorId: string;
-        grantJti: string;
-        keyEpoch: number;
-        lane: 'large' | 'maintenance';
-        materializationAlgorithm: string;
-        outputFormat: 'overlay' | 'zip';
-        pluginVersion: string;
-        productId: string;
-        protectedFiles: StoredProtectedFile[];
-        protectedSourceRoot: Buffer;
-        pseudonymMethod: string;
-        releaseRoot: Buffer;
-        sourceLogicalBytes: number;
-        sourceLogicalFiles: number;
-        sourceManifestSha256: Buffer;
-        sourceVersionId: string;
-        traceId: string;
-      }[]
-    >`
-      SELECT
-        delivery_binding_root AS "bindingRoot",
-        buyer_subject_pseudonym AS "buyerSubjectPseudonym",
-        creator_id AS "creatorId",
-        grant_jti AS "grantJti",
-        key_epoch AS "keyEpoch",
-        lane,
-        materialization_algorithm AS "materializationAlgorithm",
-        output_format AS "outputFormat",
-        plugin_version AS "pluginVersion",
-        product_id AS "productId",
-        protected_files AS "protectedFiles",
-        protected_source_root AS "protectedSourceRoot",
-        pseudonym_method AS "pseudonymMethod",
-        release_root AS "releaseRoot",
-        source_logical_bytes::float8 AS "sourceLogicalBytes",
-        source_logical_files AS "sourceLogicalFiles",
-        source_manifest_sha256 AS "sourceManifestSha256",
-        source_version_id::text AS "sourceVersionId",
-        trace_id AS "traceId"
-      FROM materialization_jobs
-      WHERE id = ${input.id}
-    `;
-    const job = existing[0];
-    if (
-      !job ||
-      job.buyerSubjectPseudonym !== input.buyerSubjectPseudonym ||
-      job.creatorId !== input.creatorId ||
-      job.grantJti !== input.grantJti ||
-      job.keyEpoch !== input.keyEpoch ||
-      job.lane !== lane ||
-      job.materializationAlgorithm !== input.materializationAlgorithm ||
-      job.outputFormat !== input.outputFormat ||
-      job.pluginVersion !== input.pluginVersion ||
-      job.productId !== input.productId ||
-      !protectedFilesEqual(job.protectedFiles, protectedFiles) ||
-      job.pseudonymMethod !== input.pseudonymMethod ||
-      job.sourceLogicalBytes !== input.sourceLogicalBytes ||
-      job.sourceLogicalFiles !== input.sourceLogicalFiles ||
-      job.sourceVersionId !== input.sourceVersionId ||
-      job.traceId !== input.traceId ||
-      !bytesEqual(job.bindingRoot, input.bindingRoot) ||
-      !bytesEqual(job.protectedSourceRoot, input.protectedSourceRoot) ||
-      !bytesEqual(job.releaseRoot, input.releaseRoot) ||
-      !bytesEqual(job.sourceManifestSha256, input.sourceManifestSha256)
-    ) {
-      throw new Error('Materialization job identifier conflicts with different immutable input');
-    }
+    type ExistingJob = {
+      bindingRoot: Buffer;
+      buyerSubjectPseudonym: string;
+      creatorId: string;
+      grantJti: string;
+      keyEpoch: number;
+      lane: 'large' | 'maintenance';
+      materializationAlgorithm: string;
+      outputFormat: 'overlay' | 'zip';
+      pluginVersion: string;
+      productId: string;
+      protectedFiles: StoredProtectedFile[];
+      protectedSourceRoot: Buffer;
+      pseudonymMethod: string;
+      releaseRoot: Buffer;
+      sourceLogicalBytes: number;
+      sourceLogicalFiles: number;
+      sourceManifestSha256: Buffer;
+      sourceVersionId: string;
+      state: string;
+      storageGcPinId: string;
+      traceId: string;
+    };
+    const jobMatches = (job: ExistingJob): boolean =>
+      job.buyerSubjectPseudonym === input.buyerSubjectPseudonym &&
+      job.creatorId === input.creatorId &&
+      job.grantJti === input.grantJti &&
+      job.keyEpoch === input.keyEpoch &&
+      job.lane === lane &&
+      job.materializationAlgorithm === input.materializationAlgorithm &&
+      job.outputFormat === input.outputFormat &&
+      job.pluginVersion === input.pluginVersion &&
+      job.productId === input.productId &&
+      protectedFilesEqual(job.protectedFiles, protectedFiles) &&
+      job.pseudonymMethod === input.pseudonymMethod &&
+      job.sourceLogicalBytes === input.sourceLogicalBytes &&
+      job.sourceLogicalFiles === input.sourceLogicalFiles &&
+      job.sourceVersionId === input.sourceVersionId &&
+      job.traceId === input.traceId &&
+      bytesEqual(job.bindingRoot, input.bindingRoot) &&
+      bytesEqual(job.protectedSourceRoot, input.protectedSourceRoot) &&
+      bytesEqual(job.releaseRoot, input.releaseRoot) &&
+      bytesEqual(job.sourceManifestSha256, input.sourceManifestSha256);
+    const pinExpiresAt = new Date(Date.now() + this.storageGcPinRetentionSeconds * 1_000);
+    await this.sql.begin(async (transaction) => {
+      const existing = await transaction<ExistingJob[]>`
+        SELECT
+          delivery_binding_root AS "bindingRoot",
+          buyer_subject_pseudonym AS "buyerSubjectPseudonym",
+          creator_id AS "creatorId",
+          grant_jti AS "grantJti",
+          key_epoch AS "keyEpoch",
+          lane,
+          materialization_algorithm AS "materializationAlgorithm",
+          output_format AS "outputFormat",
+          plugin_version AS "pluginVersion",
+          product_id AS "productId",
+          protected_files AS "protectedFiles",
+          protected_source_root AS "protectedSourceRoot",
+          pseudonym_method AS "pseudonymMethod",
+          release_root AS "releaseRoot",
+          source_logical_bytes::float8 AS "sourceLogicalBytes",
+          source_logical_files AS "sourceLogicalFiles",
+          source_manifest_sha256 AS "sourceManifestSha256",
+          source_version_id::text AS "sourceVersionId",
+          state,
+          storage_gc_pin_id::text AS "storageGcPinId",
+          trace_id AS "traceId"
+        FROM materialization_jobs
+        WHERE id = ${input.id}
+        FOR UPDATE
+      `;
+      const job = existing[0];
+      if (job) {
+        if (!jobMatches(job)) {
+          throw new Error(
+            'Materialization job identifier conflicts with different immutable input'
+          );
+        }
+        if (job.state === 'SUCCEEDED' || job.state === 'FAILED') {
+          return;
+        }
+        const reacquired = await transaction<{ pin_id: string }[]>`
+          SELECT storage_gc_acquire_release_pin(
+            ${randomUUID()},
+            ${input.sourceVersionId},
+            'materialization-job',
+            ${input.id},
+            ${pinExpiresAt}
+          ) AS pin_id
+        `;
+        if (reacquired[0]?.pin_id !== job.storageGcPinId) {
+          throw new Error('Materialization job storage GC pin binding is invalid');
+        }
+        return;
+      }
+
+      const sources = await transaction<
+        {
+          bindingRoot: string | null;
+          logicalBytes: number;
+          logicalFiles: number;
+          manifestSha256: string | null;
+          packageId: string;
+          protectedFiles: StoredProtectedFile[] | null;
+          protectedSourceRoot: string | null;
+          releaseRoot: string | null;
+        }[]
+      >`
+        SELECT
+          binding_root AS "bindingRoot",
+          logical_bytes::float8 AS "logicalBytes",
+          logical_files AS "logicalFiles",
+          manifest_sha256 AS "manifestSha256",
+          package_id AS "packageId",
+          protected_files AS "protectedFiles",
+          protected_source_root AS "protectedSourceRoot",
+          release_root AS "releaseRoot"
+        FROM package_versions
+        WHERE
+          id = ${input.sourceVersionId}
+          AND state = 'READY'
+          AND deleted_at IS NULL
+        FOR UPDATE
+      `;
+      const source = sources[0];
+      if (
+        !source ||
+        source.packageId !== input.productId ||
+        source.logicalBytes !== input.sourceLogicalBytes ||
+        source.logicalFiles !== input.sourceLogicalFiles ||
+        source.bindingRoot !== Buffer.from(input.bindingRoot).toString('hex') ||
+        source.protectedSourceRoot !== Buffer.from(input.protectedSourceRoot).toString('hex') ||
+        source.releaseRoot !== Buffer.from(input.releaseRoot).toString('hex') ||
+        source.manifestSha256 !== Buffer.from(input.sourceManifestSha256).toString('hex') ||
+        !source.protectedFiles ||
+        !protectedFilesEqual(source.protectedFiles, protectedFiles)
+      ) {
+        throw new Error(
+          'Materialization source does not match the ready canonical package version'
+        );
+      }
+      const acquired = await transaction<{ pin_id: string }[]>`
+        SELECT storage_gc_acquire_release_pin(
+          ${randomUUID()},
+          ${input.sourceVersionId},
+          'materialization-job',
+          ${input.id},
+          ${pinExpiresAt}
+        ) AS pin_id
+      `;
+      const storageGcPinId = acquired[0]?.pin_id;
+      if (!storageGcPinId) {
+        throw new Error('Materialization job storage GC pin was not acquired');
+      }
+      const inserted = await transaction<{ id: string }[]>`
+        INSERT INTO materialization_jobs (
+          id,
+          creator_id,
+          product_id,
+          buyer_subject_pseudonym,
+          encrypted_subject_mapping,
+          pseudonym_method,
+          release_root,
+          delivery_binding_root,
+          protected_source_root,
+          source_version_id,
+          source_manifest_sha256,
+          source_logical_bytes,
+          source_logical_files,
+          materialization_algorithm,
+          plugin_version,
+          output_format,
+          key_epoch,
+          grant_jti,
+          protected_files,
+          lane,
+          trace_id,
+          storage_gc_pin_id
+        )
+        VALUES (
+          ${input.id},
+          ${input.creatorId},
+          ${input.productId},
+          ${input.buyerSubjectPseudonym},
+          ${input.encryptedSubjectMapping},
+          ${input.pseudonymMethod},
+          ${requireBytes(input.releaseRoot, 'releaseRoot')},
+          ${requireBytes(input.bindingRoot, 'bindingRoot')},
+          ${requireBytes(input.protectedSourceRoot, 'protectedSourceRoot')},
+          ${input.sourceVersionId},
+          ${requireBytes(input.sourceManifestSha256, 'sourceManifestSha256')},
+          ${input.sourceLogicalBytes},
+          ${input.sourceLogicalFiles},
+          ${input.materializationAlgorithm},
+          ${input.pluginVersion},
+          ${input.outputFormat},
+          ${input.keyEpoch},
+          ${input.grantJti},
+          ${transaction.json(protectedFiles)},
+          ${lane},
+          ${input.traceId},
+          ${storageGcPinId}
+        )
+        RETURNING id
+      `;
+      if (!inserted[0]) {
+        throw new Error('Materialization job was not created');
+      }
+    });
   }
 
   async createInstallJob(input: CreateInstallMaterializationJobInput): Promise<void> {
@@ -717,7 +875,7 @@ export class MaterializationBroker {
         status: 'succeeded',
       };
     }
-    if (job.state === 'FAILED' || job.state === 'CANCELLED') {
+    if (job.state === 'FAILED') {
       return {
         errorCode: job.lastErrorCode ?? 'MATERIALIZATION_FAILED',
         status: 'failed',
@@ -746,11 +904,26 @@ export class MaterializationBroker {
   }
 
   async listAttributionCandidates(input: {
+    candidateLimit?: number;
     creatorId: string;
+    cursor?: string;
     productId: string;
   }): Promise<MaterializationAttributionCandidatePage> {
     const creatorId = requireText(input.creatorId, 'creatorId', 512);
     const productId = requireText(input.productId, 'productId', 512);
+    const candidateLimit = input.candidateLimit ?? MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT;
+    if (
+      !Number.isSafeInteger(candidateLimit) ||
+      candidateLimit < 1 ||
+      candidateLimit > MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT
+    ) {
+      throw new Error('candidateLimit is invalid');
+    }
+    const cursor = input.cursor
+      ? decodeAttributionCursor(input.cursor, creatorId, productId)
+      : undefined;
+    const cursorCreatedAt = cursor?.createdAt ?? null;
+    const cursorAttributionId = cursor?.attributionId ?? null;
     const rows = await this.sql<
       Array<{
         algorithmVersion: string;
@@ -779,7 +952,7 @@ export class MaterializationBroker {
           encode(a.attribution_token_hash, 'hex') AS "attributionTokenHash",
           j.buyer_subject_pseudonym AS "buyerSubjectPseudonym",
           a.capability_id AS "capabilityId",
-          extract(epoch FROM a.created_at) * 1000 AS "createdAt",
+          floor(extract(epoch FROM a.created_at) * 1000)::bigint AS "createdAt",
           j.creator_id AS "creatorId",
           j.id AS "jobId",
           a.key_epoch AS "keyEpoch",
@@ -825,13 +998,22 @@ export class MaterializationBroker {
         "releaseRoot",
         "sourceSha256"
       FROM ranked_candidates
-      WHERE canonical_rank = 1
+      WHERE
+        canonical_rank = 1
+        AND (
+          ${cursorCreatedAt}::bigint IS NULL
+          OR "createdAt" < ${cursorCreatedAt}
+          OR (
+            "createdAt" = ${cursorCreatedAt}
+            AND "attributionId" > ${cursorAttributionId}
+          )
+        )
       ORDER BY "createdAt" DESC, "attributionId"
-      LIMIT ${MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT + 1}
+      LIMIT ${candidateLimit + 1}
     `;
-    const truncated = rows.length > MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT;
+    const truncated = rows.length > candidateLimit;
     const candidates = rows
-      .slice(0, MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT)
+      .slice(0, candidateLimit)
       .map((row): MaterializationAttributionCandidate => {
         const createdAt = Math.floor(Number(row.createdAt));
         if (
@@ -851,9 +1033,21 @@ export class MaterializationBroker {
           outputFormat: row.outputFormat,
         };
       });
+    const lastCandidate = candidates.at(-1);
     return {
-      candidateLimit: MATERIALIZATION_ATTRIBUTION_CANDIDATE_LIMIT,
+      candidateLimit,
       candidates,
+      ...(truncated && lastCandidate
+        ? {
+            nextCursor: encodeAttributionCursor({
+              attributionId: lastCandidate.attributionId,
+              createdAt: lastCandidate.createdAt,
+              creatorId,
+              productId,
+              schemaVersion: 1,
+            }),
+          }
+        : {}),
       truncated,
     };
   }
@@ -867,25 +1061,39 @@ export class MaterializationBroker {
     if (!Number.isSafeInteger(input.leaseGeneration) || input.leaseGeneration < 1) {
       throw new Error('leaseGeneration is invalid');
     }
-    const rows = await this.sql<{ id: string }[]>`
-      UPDATE materialization_jobs
-      SET
-        state = 'FAILED',
-        last_error_code = ${requireText(input.errorCode, 'errorCode', 128)},
-        lease_owner = NULL,
-        lease_expires_at = NULL,
-        heartbeat_at = NULL,
-        updated_at = clock_timestamp()
-      WHERE
-        id = ${requireText(input.jobId, 'jobId', 128)}
-        AND lease_owner = ${requireText(input.leaseOwner, 'leaseOwner', 512)}
-        AND lease_generation = ${input.leaseGeneration}
-        AND state IN ('MATERIALIZING', 'VERIFYING')
-      RETURNING id
-    `;
-    if (!rows[0]) {
-      throw new Error('Materialization failure fence is stale');
-    }
+    await this.sql.begin(async (transaction) => {
+      const rows = await transaction<{ id: string; storageGcPinId: string }[]>`
+        UPDATE materialization_jobs
+        SET
+          state = 'FAILED',
+          last_error_code = ${requireText(input.errorCode, 'errorCode', 128)},
+          lease_owner = NULL,
+          lease_expires_at = NULL,
+          heartbeat_at = NULL,
+          updated_at = clock_timestamp()
+        WHERE
+          id = ${requireText(input.jobId, 'jobId', 128)}
+          AND lease_owner = ${requireText(input.leaseOwner, 'leaseOwner', 512)}
+          AND lease_generation = ${input.leaseGeneration}
+          AND state IN ('MATERIALIZING', 'VERIFYING')
+        RETURNING id, storage_gc_pin_id::text AS "storageGcPinId"
+      `;
+      const failed = rows[0];
+      if (!failed) {
+        throw new Error('Materialization failure fence is stale');
+      }
+      const released = await transaction<{ id: string }[]>`
+        UPDATE storage_gc_release_pins
+        SET
+          released_at = COALESCE(released_at, clock_timestamp()),
+          updated_at = clock_timestamp()
+        WHERE id = ${failed.storageGcPinId}
+        RETURNING id
+      `;
+      if (!released[0]) {
+        throw new Error('Materialization failure lost its storage GC pin');
+      }
+    });
   }
 
   async failCapabilityJob(input: {
@@ -947,6 +1155,17 @@ export class MaterializationBroker {
           lane = ${lane}
           AND state = 'MATERIALIZING'
           AND lease_expires_at <= ${now}
+      `;
+      await transaction`
+        UPDATE storage_gc_release_pins pin
+        SET
+          expires_at = ${new Date(now.getTime() + this.storageGcPinRetentionSeconds * 1_000)},
+          updated_at = ${now}
+        FROM materialization_jobs job
+        WHERE job.storage_gc_pin_id = pin.id
+          AND job.lane = ${lane}
+          AND job.state IN ('QUEUED', 'MATERIALIZING', 'VERIFYING')
+          AND pin.released_at IS NULL
       `;
       const active = await transaction<{ id: string }[]>`
         SELECT id
@@ -1959,7 +2178,7 @@ export class MaterializationBroker {
           )
         `;
       }
-      const completed = await transaction<{ id: string }[]>`
+      const completed = await transaction<{ id: string; storageGcPinId: string }[]>`
         UPDATE materialization_jobs
         SET
           state = 'SUCCEEDED',
@@ -1972,10 +2191,20 @@ export class MaterializationBroker {
           AND state = 'VERIFYING'
           AND lease_owner = ${materializerId}
           AND lease_generation = ${input.leaseGeneration}
+        RETURNING id, storage_gc_pin_id::text AS "storageGcPinId"
+      `;
+      const completedJob = completed[0];
+      if (!completedJob) {
+        throw new Error('Rendition completion lost its final job fence');
+      }
+      const released = await transaction<{ id: string }[]>`
+        UPDATE storage_gc_release_pins
+        SET released_at = COALESCE(released_at, ${now}), updated_at = ${now}
+        WHERE id = ${completedJob.storageGcPinId}
         RETURNING id
       `;
-      if (!completed[0]) {
-        throw new Error('Rendition completion lost its final job fence');
+      if (!released[0]) {
+        throw new Error('Rendition completion lost its storage GC pin');
       }
     });
     return {

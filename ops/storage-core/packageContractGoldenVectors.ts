@@ -8,6 +8,7 @@ import {
   encodeInstallSessionV2,
   encodeMaterializationCapabilityV2,
   encodeMaterializationReceiptV2,
+  encodePackageOperationCapabilityV2,
   INSTALL_SESSION_TOKEN_TYPE,
   type InstallSessionV2,
   type MaterializationJobCapabilityV2,
@@ -15,6 +16,7 @@ import {
   PACKAGE_CONTRACT_PURPOSES,
   type PackageContractCborValue,
   type PackageContractPurpose,
+  type PackageOperationCapabilityV2,
   packageContractKeyId,
   signPackageContract,
 } from './packageContractsV2';
@@ -169,6 +171,29 @@ function sampleMaterializationCapability(): MaterializationJobCapabilityV2 {
   };
 }
 
+function samplePackageOperationCapability(): PackageOperationCapabilityV2 {
+  return {
+    aliasId: 'creator.avatar-tools',
+    approvedActiveContentDigest: digest(0x44),
+    approvedPolicyVersion: 'active-content-policy-v1',
+    audience: 'https://api.example.test',
+    buyerId: 'buyer-1',
+    capabilityId: 'operation-111111111111111111111111111111111111111111111111',
+    deviceKeyThumbprint: digest(0x33),
+    expectedCurrentReleaseRoot: digest(0x22),
+    expiresAt: 1_300,
+    idempotencyKey: 'install-operation-1',
+    issuedAt: 1_000,
+    issuer: 'https://api.example.test',
+    notBefore: 1_000,
+    oneUseNonce: digest(0x55),
+    operation: 'install',
+    projectIdentity: digest(0x66),
+    releaseRoot: digest(0x11),
+    traceparent: '00-11111111111111111111111111111111-2222222222222222-01',
+  };
+}
+
 function samplePayload(purpose: PackageContractPurpose): Map<number, PackageContractCborValue> {
   const chunkRecipe = [
     new Map<number, PackageContractCborValue>([
@@ -275,6 +300,8 @@ function samplePayload(purpose: PackageContractPurpose): Map<number, PackageCont
       throw new Error('DeliveryGrantV2 uses its typed golden payload');
     case PACKAGE_CONTRACT_PURPOSES.materializationCapability:
       throw new Error('MaterializationJobCapabilityV2 uses its typed golden payload');
+    case PACKAGE_CONTRACT_PURPOSES.packageOperationCapability:
+      throw new Error('PackageOperationCapabilityV2 uses its typed golden payload');
     case PACKAGE_CONTRACT_PURPOSES.activeContentInventory:
       return cborMap([
         [0, 2],
@@ -310,9 +337,11 @@ export async function buildPackageContractGoldenVectors() {
           ? encodeDeliveryGrantV2(sampleDeliveryGrant())
           : purpose === PACKAGE_CONTRACT_PURPOSES.materializationCapability
             ? encodeMaterializationCapabilityV2(sampleMaterializationCapability())
-            : purpose === PACKAGE_CONTRACT_PURPOSES.materializationReceipt
-              ? encodeMaterializationReceiptV2(sampleMaterializationReceipt())
-              : encodeCanonicalPackageCbor(samplePayload(purpose));
+            : purpose === PACKAGE_CONTRACT_PURPOSES.packageOperationCapability
+              ? encodePackageOperationCapabilityV2(samplePackageOperationCapability())
+              : purpose === PACKAGE_CONTRACT_PURPOSES.materializationReceipt
+                ? encodeMaterializationReceiptV2(sampleMaterializationReceipt())
+                : encodeCanonicalPackageCbor(samplePayload(purpose));
     const signed = await signPackageContract({
       keyId: KEY_ID,
       payload,

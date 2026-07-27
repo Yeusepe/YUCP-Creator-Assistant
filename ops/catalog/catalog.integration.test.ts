@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { copyFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { waitForPostgres } from '../testing/postgresReadiness';
 import {
   Catalog,
@@ -12,6 +13,9 @@ import {
   ExactStorageCatalog,
   IllegalCatalogTransitionError,
   openCatalogDatabase,
+  type PackageOperationAuthorizationRecord,
+  PackageOperationAuthorizationStore,
+  PackageVersionNotFoundError,
   reconcileCatalog,
   runCatalogMigrations,
   type StorageObjectVersion,
@@ -27,6 +31,32 @@ const containerName = `yucp-catalog-integration-${randomUUID()}`;
 let sql: CatalogDatabase | undefined;
 let catalog: Catalog | undefined;
 let containerStarted = false;
+let databaseUrl: string | undefined;
+
+function operationAuthorizationRecord(
+  overrides: Partial<PackageOperationAuthorizationRecord> = {}
+): PackageOperationAuthorizationRecord {
+  const issuedAt = new Date();
+  return {
+    aliasId: 'jammr',
+    approvedActiveContentDigest: '66'.repeat(32),
+    approvedPolicyVersion: 'active-content-policy-v1',
+    buyerId: 'buyer-1',
+    capabilityId: `operation-${randomBytes(24).toString('hex')}`,
+    deviceKeyThumbprint: '44'.repeat(32),
+    expectedCurrentReleaseRoot: '00'.repeat(32),
+    expiresAt: new Date(issuedAt.getTime() + 4 * 60 * 1_000),
+    idempotencyKey: `operation-${randomUUID()}`,
+    issuedAt,
+    oneUseNonce: randomBytes(32).toString('hex'),
+    operation: 'install',
+    projectIdentity: '55'.repeat(32),
+    releaseRoot: '11'.repeat(32),
+    tokenSha256: '77'.repeat(32),
+    traceparent: '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
+    ...overrides,
+  };
+}
 
 interface CommandResult {
   exitCode: number;
@@ -97,7 +127,7 @@ function publicationFields(digestCharacter: string) {
     protectedFiles: [],
     protectedSourceRoot: '5'.repeat(64),
     protectionPolicyDigest: '6'.repeat(64),
-    protectionPolicyId: 'common-only-v1',
+    protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
     releaseRoot: digestCharacter.repeat(64),
     vpmDependencies: {
       'com.example.runtime': '>=2.0.0',
@@ -171,9 +201,8 @@ beforeAll(async () => {
       throw new Error(`Could not determine PostgreSQL test port from: ${portOutput}`);
     }
 
-    sql = openCatalogDatabase(
-      `postgres://postgres:${databasePassword}@127.0.0.1:${portMatch[1]}/${databaseName}`
-    );
+    databaseUrl = `postgres://postgres:${databasePassword}@127.0.0.1:${portMatch[1]}/${databaseName}`;
+    sql = openCatalogDatabase(databaseUrl);
     await runCatalogMigrations(sql);
     catalog = new Catalog(sql);
   } catch (error) {
@@ -192,6 +221,8 @@ beforeEach(async () => {
   await requireSql()`
     TRUNCATE TABLE
       catalog_outbox,
+      package_install_dpop_replays,
+      package_operation_authorizations,
       package_versions,
       tuf_repositories
     CASCADE
@@ -210,6 +241,450 @@ afterAll(async () => {
 });
 
 describe.serial('PostgreSQL catalog integration', () => {
+  it('persists one exchange outcome and returns it after database client restart', async () => {
+    if (!databaseUrl) {
+      throw new Error('catalog integration database URL is unavailable');
+    }
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const claims = await Promise.all([
+      store.beginExchange({
+        buyerId: record.buyerId,
+        capabilityId: record.capabilityId,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        tokenSha256: record.tokenSha256,
+      }),
+      store.beginExchange({
+        buyerId: record.buyerId,
+        capabilityId: record.capabilityId,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        tokenSha256: record.tokenSha256,
+      }),
+    ]);
+    const claimed = claims.find(
+      (claim): claim is { generation: number; status: 'claimed' } => claim.status === 'claimed'
+    );
+    expect(claimed).toBeDefined();
+    expect(claims.filter((claim) => claim.status === 'in_progress')).toHaveLength(1);
+    expect(
+      await store.completeExchange({
+        capabilityId: record.capabilityId,
+        deliveryGrantId: 'grant-outcome-1',
+        generation: claimed?.generation ?? 0,
+        materializationJobId: 'job-outcome-1',
+        sessionId: 'session-outcome-1',
+        versionId: 'version-outcome-1',
+      })
+    ).toBe(true);
+
+    const restartedDatabase = openCatalogDatabase(databaseUrl);
+    try {
+      await expect(
+        new PackageOperationAuthorizationStore(restartedDatabase).beginExchange({
+          buyerId: record.buyerId,
+          capabilityId: record.capabilityId,
+          deviceKeyThumbprint: record.deviceKeyThumbprint,
+          tokenSha256: record.tokenSha256,
+        })
+      ).resolves.toEqual({
+        deliveryGrantId: 'grant-outcome-1',
+        materializationJobId: 'job-outcome-1',
+        sessionId: 'session-outcome-1',
+        status: 'ready',
+        versionId: 'version-outcome-1',
+      });
+    } finally {
+      await restartedDatabase.end({ timeout: 1 });
+    }
+  });
+
+  it('reclaims released and expired exchange leases without losing authorization', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const first = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    if (first.status !== 'claimed') {
+      throw new Error(`expected claimed exchange, received ${first.status}`);
+    }
+    expect(
+      await store.releaseExchange({
+        capabilityId: record.capabilityId,
+        generation: first.generation,
+      })
+    ).toBe(true);
+    const second = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    expect(second).toMatchObject({ generation: 2, status: 'claimed' });
+    await requireSql()`
+      UPDATE package_operation_authorizations
+      SET exchange_lease_until = clock_timestamp() - interval '1 second'
+      WHERE capability_id = ${record.capabilityId}
+    `;
+    await expect(
+      store.beginExchange({
+        buyerId: record.buyerId,
+        capabilityId: record.capabilityId,
+        deviceKeyThumbprint: record.deviceKeyThumbprint,
+        tokenSha256: record.tokenSha256,
+      })
+    ).resolves.toMatchObject({ generation: 3, status: 'claimed' });
+  });
+
+  it('treats traceparent as exact idempotency context', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    expect((await store.reserve(record)).status).toBe('created');
+    expect(
+      (
+        await store.reserve({
+          ...operationAuthorizationRecord({
+            buyerId: record.buyerId,
+            deviceKeyThumbprint: record.deviceKeyThumbprint,
+            idempotencyKey: record.idempotencyKey,
+          }),
+          traceparent: '00-1123456789abcdef0123456789abcdef-0123456789abcdef-01',
+        })
+      ).status
+    ).toBe('conflict');
+  });
+
+  it('bounds expired operation authorization cleanup to one fixed batch', async () => {
+    await requireSql()`
+      INSERT INTO package_operation_authorizations (
+        capability_id,
+        token_sha256,
+        buyer_id,
+        alias_id,
+        device_key_thumbprint,
+        release_root,
+        expected_current_release_root,
+        operation,
+        project_identity,
+        approved_active_content_digest,
+        approved_policy_version,
+        idempotency_key,
+        traceparent,
+        one_use_nonce,
+        issued_at,
+        expires_at
+      )
+      SELECT
+        'operation-' || lpad(to_hex(generate_series), 48, '0'),
+        repeat(md5('token-' || generate_series::text), 2),
+        'buyer-cleanup',
+        'jammr',
+        repeat('44', 32),
+        repeat('11', 32),
+        repeat('00', 32),
+        'install',
+        repeat('55', 32),
+        repeat('66', 32),
+        'active-content-policy-v1',
+        'cleanup-' || generate_series::text,
+        '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01',
+        repeat(md5('nonce-' || generate_series::text), 2),
+        clock_timestamp() - interval '2 minutes',
+        clock_timestamp() - interval '1 minute'
+      FROM generate_series(1, 105)
+    `;
+
+    await new PackageOperationAuthorizationStore(requireSql()).reserve(
+      operationAuthorizationRecord()
+    );
+
+    const expiredRows = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM package_operation_authorizations
+      WHERE expires_at <= clock_timestamp()
+    `;
+    expect(expiredRows[0]?.count).toBe(5);
+  });
+
+  it('rejects expired and incorrectly bound operation authorization exchanges', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const active = operationAuthorizationRecord();
+    await store.reserve(active);
+    expect(
+      await store.beginExchange({
+        buyerId: active.buyerId,
+        capabilityId: active.capabilityId,
+        deviceKeyThumbprint: '45'.repeat(32),
+        tokenSha256: active.tokenSha256,
+      })
+    ).toEqual({ status: 'invalid' });
+
+    const issuedAt = new Date(Date.now() - 2 * 60 * 1_000);
+    const expired = operationAuthorizationRecord({
+      expiresAt: new Date(Date.now() - 60 * 1_000),
+      issuedAt,
+    });
+    await store.reserve(expired);
+    expect(
+      await store.beginExchange({
+        buyerId: expired.buyerId,
+        capabilityId: expired.capabilityId,
+        deviceKeyThumbprint: expired.deviceKeyThumbprint,
+        tokenSha256: expired.tokenSha256,
+      })
+    ).toEqual({ status: 'invalid' });
+  });
+
+  it('rolls back an operation authorization reserved inside a failed transaction', async () => {
+    const record = operationAuthorizationRecord();
+
+    await expect(
+      requireSql().begin(async (transaction) => {
+        await new PackageOperationAuthorizationStore(
+          transaction as unknown as CatalogDatabase
+        ).reserve(record);
+        throw new Error('force rollback');
+      })
+    ).rejects.toThrow('force rollback');
+
+    const rows = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM package_operation_authorizations
+      WHERE capability_id = ${record.capabilityId}
+    `;
+    expect(rows[0]?.count).toBe(0);
+  });
+
+  it('persists DPoP replay state and bounds expired-row cleanup', async () => {
+    if (!databaseUrl) {
+      throw new Error('catalog integration database URL is unavailable');
+    }
+    const store = new PackageOperationAuthorizationStore(requireSql()).dpopReplayStore();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 4 * 60 * 1_000);
+    const reservations = await Promise.all([
+      store.reserve({ expiresAt, key: 'proof-1', now }),
+      store.reserve({ expiresAt, key: 'proof-1', now }),
+    ]);
+    expect(reservations.sort()).toEqual([false, true]);
+
+    const restartedDatabase = openCatalogDatabase(databaseUrl);
+    try {
+      const restartedStore = new PackageOperationAuthorizationStore(
+        restartedDatabase
+      ).dpopReplayStore();
+      expect(await restartedStore.reserve({ expiresAt, key: 'proof-1', now })).toBe(false);
+    } finally {
+      await restartedDatabase.end({ timeout: 1 });
+    }
+
+    await requireSql()`
+      INSERT INTO package_install_dpop_replays (
+        replay_key,
+        created_at,
+        expires_at
+      )
+      SELECT
+        lpad(generate_series::text, 64, '0'),
+        clock_timestamp() - interval '2 minutes',
+        clock_timestamp() - interval '1 minute'
+      FROM generate_series(1, 105)
+    `;
+    const cleanupNow = new Date();
+    expect(
+      await store.reserve({
+        expiresAt: new Date(cleanupNow.getTime() + 4 * 60 * 1_000),
+        key: 'proof-cleanup',
+        now: cleanupNow,
+      })
+    ).toBe(true);
+    const expiredRows = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM package_install_dpop_replays
+      WHERE expires_at <= ${cleanupNow}
+    `;
+    expect(expiredRows[0]?.count).toBe(5);
+    expect(
+      await store.reserve({
+        expiresAt: new Date(cleanupNow.getTime() + 5 * 60 * 1_000 + 1),
+        key: 'proof-too-long',
+        now: cleanupNow,
+      })
+    ).toBe(false);
+  });
+
+  it('returns bigint logical byte counts as safe numbers', async () => {
+    const ready = await createReadyVersion('typed-logical-bytes', '1.0.0', '9');
+
+    expect(ready.logicalBytes).toBe(1_024);
+    expect(typeof ready.logicalBytes).toBe('number');
+    expect((await requireCatalog().getVersion(ready.id))?.logicalBytes).toBe(1_024);
+  });
+
+  it('reuses an exact package version reservation without adding a second outbox event', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = randomUUID();
+    const first = await activeCatalog.createVersion({
+      catalogProductId: 'catalog-product-1',
+      id: versionId,
+      packageId: 'com.yucp.retry-safe',
+      version: '1.0.0',
+    });
+    const second = await activeCatalog.createVersion({
+      catalogProductId: 'catalog-product-1',
+      id: versionId,
+      packageId: 'com.yucp.retry-safe',
+      version: '1.0.0',
+    });
+
+    expect(second).toEqual(first);
+    const events = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM catalog_outbox
+      WHERE aggregate_id = ${versionId}
+        AND event_type = 'catalog.version.created'
+    `;
+    expect(events[0]?.count).toBe(1);
+  });
+
+  it('serializes concurrent retries for one exact package version reservation', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = randomUUID();
+    const reservations = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        activeCatalog.createVersion({
+          catalogProductId: 'catalog-product-concurrent',
+          id: versionId,
+          packageId: 'com.yucp.concurrent-retry-safe',
+          version: '1.0.0',
+        })
+      )
+    );
+
+    expect(new Set(reservations.map((reservation) => reservation.id))).toEqual(
+      new Set([versionId])
+    );
+    expect(new Set(reservations.map((reservation) => reservation.state))).toEqual(
+      new Set(['CREATED'])
+    );
+    const events = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM catalog_outbox
+      WHERE aggregate_id = ${versionId}
+        AND event_type = 'catalog.version.created'
+    `;
+    expect(events[0]?.count).toBe(1);
+  });
+
+  it('reuses one logical version reservation across equivalent store products', async () => {
+    const activeCatalog = requireCatalog();
+    const versionId = randomUUID();
+    const first = await activeCatalog.createVersion({
+      catalogProductId: 'catalog-product-jinxxy',
+      id: versionId,
+      packageId: 'com.yucp.multi-store',
+      version: '1.0.0',
+    });
+    const second = await activeCatalog.createVersion({
+      catalogProductId: 'catalog-product-gumroad',
+      id: versionId,
+      packageId: 'com.yucp.multi-store',
+      version: '1.0.0',
+    });
+
+    expect(second).toEqual(first);
+    const events = await requireSql()<Array<{ count: number }>>`
+      SELECT count(*)::int AS count
+      FROM catalog_outbox
+      WHERE aggregate_id = ${versionId}
+        AND event_type = 'catalog.version.created'
+    `;
+    expect(events[0]?.count).toBe(1);
+  });
+
+  it('stores the same release version independently for each package edition', async () => {
+    const activeCatalog = requireCatalog();
+    const personal = await activeCatalog.createVersion({
+      editionId: 'personal',
+      packageId: 'com.yucp.editions',
+      version: '1.0.0',
+    });
+    const commercial = await activeCatalog.createVersion({
+      editionId: 'commercial',
+      packageId: 'com.yucp.editions',
+      version: '1.0.0',
+    });
+
+    expect(personal.id).not.toBe(commercial.id);
+    expect(personal.editionId).toBe('personal');
+    expect(commercial.editionId).toBe('commercial');
+    expect(
+      await activeCatalog.listVersions('com.yucp.editions', { editionId: 'commercial' })
+    ).toEqual([commercial]);
+  });
+
+  it('pages every retained version in one package edition without assuming version labels', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    const created = [];
+    for (const version of ['release-amber', 'release-cobalt', 'release-fuchsia', 'release-gold']) {
+      created.push(
+        await activeCatalog.createVersion({
+          editionId: 'commercial',
+          packageId: 'com.yucp.version-pages',
+          version,
+        })
+      );
+    }
+    const deleted = await activeCatalog.createVersion({
+      editionId: 'commercial',
+      packageId: 'com.yucp.version-pages',
+      version: 'release-deleted',
+    });
+    await activeCatalog.deleteVersion(deleted.id, {
+      editionId: deleted.editionId,
+      packageId: deleted.packageId,
+      reason: 'creator-request',
+    });
+    await activeCatalog.createVersion({
+      editionId: 'personal',
+      packageId: 'com.yucp.version-pages',
+      version: 'release-other-edition',
+    });
+    for (const [index, version] of created.entries()) {
+      const createdAt = new Date(Date.UTC(2026, 6, 26, 12, index, 0));
+      await database`
+        UPDATE package_versions
+        SET created_at = ${createdAt}, updated_at = ${createdAt}
+        WHERE id = ${version.id}
+      `;
+    }
+
+    const first = await activeCatalog.listVersionsPage('com.yucp.version-pages', {
+      editionId: 'commercial',
+      limit: 2,
+    });
+    expect(first.data.map(({ version }) => version)).toEqual(['release-gold', 'release-fuchsia']);
+    expect(first.hasMore).toBeTrue();
+    expect(first.nextCursor).toEqual({
+      createdAt: new Date('2026-07-26T12:02:00.000Z'),
+      versionId: created[2]?.id,
+    });
+
+    const second = await activeCatalog.listVersionsPage('com.yucp.version-pages', {
+      cursor: first.nextCursor ?? undefined,
+      editionId: 'commercial',
+      limit: 2,
+    });
+    expect(second.data.map(({ version }) => version)).toEqual(['release-cobalt', 'release-amber']);
+    expect(second.hasMore).toBeFalse();
+    expect(second.nextCursor).toBeNull();
+  });
+
   it('allocates durable TUF versions and exposes only a complete publication', async () => {
     const database = requireSql();
     const tuf = new TufRepositoryCatalog(database);
@@ -417,6 +892,12 @@ describe.serial('PostgreSQL catalog integration', () => {
     });
     await storage.linkPackageReleaseObject({
       logicalDigest: 'a'.repeat(64),
+      logicalKind: 'bootstrap-media',
+      objectVersionId: exact.id,
+      packageVersionId: ownerId,
+    });
+    await storage.linkPackageReleaseObject({
+      logicalDigest: 'a'.repeat(64),
       logicalKind: 'chunk',
       objectVersionId: exact.id,
       packageVersionId: ownerId,
@@ -436,8 +917,15 @@ describe.serial('PostgreSQL catalog integration', () => {
           package_version_id
         FROM package_release_storage_objects
         WHERE package_version_id = ${ownerId}
+        ORDER BY logical_kind
       `;
     expect([...releaseObjects]).toEqual([
+      {
+        logical_digest: 'a'.repeat(64),
+        logical_kind: 'bootstrap-media',
+        object_version_id: exact.id,
+        package_version_id: ownerId,
+      },
       {
         logical_digest: 'a'.repeat(64),
         logical_kind: 'chunk',
@@ -445,6 +933,34 @@ describe.serial('PostgreSQL catalog integration', () => {
         package_version_id: ownerId,
       },
     ]);
+  });
+
+  it('provides reverse indexes for bounded exact-version GC lookups', async () => {
+    const indexes = await requireSql()<
+      {
+        indexdef: string;
+        indexname: string;
+      }[]
+    >`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname IN (
+          'package_release_storage_objects_object_idx',
+          'storage_write_intents_candidate_object_idx',
+          'storage_write_intents_object_state_idx'
+        )
+      ORDER BY indexname
+    `;
+
+    expect(Object.fromEntries(indexes.map((index) => [index.indexname, index.indexdef]))).toEqual({
+      package_release_storage_objects_object_idx:
+        'CREATE INDEX package_release_storage_objects_object_idx ON public.package_release_storage_objects USING btree (object_version_id, package_version_id)',
+      storage_write_intents_candidate_object_idx:
+        'CREATE INDEX storage_write_intents_candidate_object_idx ON public.storage_write_intents USING btree (candidate_object_version_id, state) WHERE (candidate_object_version_id IS NOT NULL)',
+      storage_write_intents_object_state_idx:
+        'CREATE INDEX storage_write_intents_object_state_idx ON public.storage_write_intents USING btree (object_version_id, state) WHERE (object_version_id IS NOT NULL)',
+    });
   });
 
   it('records one exact quarantine version before package assembly', async () => {
@@ -728,6 +1244,8 @@ describe.serial('PostgreSQL catalog integration', () => {
     const update = await createReadyVersion('managed-package', '1.1.0', 'b');
 
     const deleted = await activeCatalog.deleteVersion(base.id, {
+      editionId: base.editionId,
+      packageId: base.packageId,
       reason: 'creator-request',
     });
 
@@ -749,6 +1267,13 @@ describe.serial('PostgreSQL catalog integration', () => {
       update,
     ]);
 
+    const repeated = await activeCatalog.deleteVersion(base.id, {
+      editionId: base.editionId,
+      packageId: base.packageId,
+      reason: 'creator-request',
+    });
+    expect(repeated).toEqual(deleted);
+
     const events = await database<
       { event_type: string; payload: { reason: string; previousState: string; state: string } }[]
     >`
@@ -766,6 +1291,41 @@ describe.serial('PostgreSQL catalog integration', () => {
         }),
       },
     ]);
+  });
+
+  it('version-deletion-scope: rejects mismatched package and edition identities atomically', async () => {
+    const activeCatalog = requireCatalog();
+    const database = requireSql();
+    for (const [suffix, packageId, editionId] of [
+      ['package', 'another-package', 'standard'],
+      ['edition', 'managed-scope-edition', 'commercial'],
+    ] as const) {
+      const version = await createReadyVersion(
+        `managed-scope-${suffix}`,
+        `release-${suffix}`,
+        suffix === 'package' ? '8' : '9'
+      );
+
+      const deletion = activeCatalog.deleteVersion(version.id, {
+        editionId,
+        packageId,
+        reason: 'creator-request',
+      });
+
+      await expect(deletion).rejects.toBeInstanceOf(PackageVersionNotFoundError);
+      expect(await activeCatalog.getVersion(version.id)).toMatchObject({
+        editionId: 'standard',
+        packageId: `managed-scope-${suffix}`,
+        state: 'READY',
+      });
+      const events = await database<Array<{ count: number }>>`
+        SELECT count(*)::int AS count
+        FROM catalog_outbox
+        WHERE aggregate_id = ${version.id}
+          AND event_type = 'catalog.version.deleted'
+      `;
+      expect(events[0]?.count).toBe(0);
+    }
   });
 
   it('package-deletion: tombstones only the selected package and keeps unrelated versions', async () => {

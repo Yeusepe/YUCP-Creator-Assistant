@@ -1,20 +1,45 @@
 import { describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  applyDisposableStorageProfile,
+  allocateDevPortSet,
   applyInfisicalDevSecrets,
   applyLocalDevDefaults,
+  applyLocalStorageProfile,
   buildDevCommands,
+  buildDevReadinessEndpoints,
+  DEFAULT_DEV_PORTS,
   DevSupervisor,
   isProcessAlive,
   killProcessTree,
+  resolveDevCliOptions,
+  rethrowAfterOwnedCleanup,
+  startDisposableDevRuntime,
+  waitForDevHttpReadiness,
 } from './dev-supervisor';
 import { buildHyperdxDockerArgs, isDockerUnavailable } from './hyperdx-dev';
-import type { DisposableStorageHarness } from './testing/disposableStorageHarness';
+import { createLocalBetterAuthBootstrap } from './package-lifecycle/localBetterAuthBootstrap';
+import { resolveResetEpoch } from './reset-interactive-storage';
+import {
+  type DisposableStorageHarness,
+  POSTGRES_17_IMAGE,
+} from './testing/disposableStorageHarness';
+
+function runDocker(args: string[]): { exitCode: number; stderr: string; stdout: string } {
+  const result = Bun.spawnSync(['docker', ...args], {
+    stderr: 'pipe',
+    stdout: 'pipe',
+  });
+  return {
+    exitCode: result.exitCode,
+    stderr: result.stderr.toString('utf8'),
+    stdout: result.stdout.toString('utf8'),
+  };
+}
 
 async function waitFor<T>(
   load: () => Promise<T>,
@@ -60,12 +85,149 @@ function storageRoleFixture(role: string) {
 }
 
 describe('DevSupervisor', () => {
-  test('the executable entry point awaits asynchronous startup', async () => {
-    const source = await readFile(
-      path.join(process.cwd(), 'ops', 'dev-supervisor.ts'),
-      'utf8'
+  test('bun dev infisical selects the Infisical runtime', () => {
+    expect(resolveDevCliOptions(['infisical'])).toEqual({
+      infisical: true,
+    });
+    expect(() => resolveDevCliOptions(['--infisical'])).toThrow('Usage: bun dev [infisical]');
+  });
+
+  test('the interactive storage reset requires an exact epoch confirmation', () => {
+    expect(resolveResetEpoch(['--epoch', '123456789abc'])).toBe('123456789abc');
+    expect(() => resolveResetEpoch([])).toThrow('Usage: bun run dev:storage:reset');
+    expect(() => resolveResetEpoch(['--epoch', 'current'])).toThrow(
+      'Usage: bun run dev:storage:reset'
     );
+  });
+
+  test('the disposable runtime owns exact storage and idempotent cleanup', async () => {
+    const runtime = await startDisposableDevRuntime({
+      commands: [],
+      infisical: false,
+      prefixOutput: false,
+    });
+    const storageRoot = path.dirname(runtime.storage.uploadDir);
+    const postgresContainer = runtime.storage.postgres.containerName;
+    const minioContainer = runtime.storage.minio.containerName;
+
+    expect(runtime.env.PACKAGE_CATALOG_DATABASE_URL).toBe(runtime.storage.postgres.url);
+    expect(runtime.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL).toBe(
+      runtime.storage.postgres.url
+    );
+    expect(runtime.env.COMMON_S3_BUCKET).toBe(runtime.storage.buckets.common.bucket);
+    expect(runtime.env.METADATA_S3_BUCKET).toBe(runtime.storage.buckets.metadata.bucket);
+    expect(runtime.env.PROTECTED_S3_BUCKET).toBe(runtime.storage.buckets.protected.bucket);
+    expect(runtime.env.QUARANTINE_S3_BUCKET).toBe(runtime.storage.buckets.quarantine.bucket);
+    expect(runtime.env.RENDITION_S3_BUCKET).toBe(runtime.storage.buckets.renditions.bucket);
+
+    await runtime.stop();
+    await runtime.stop();
+
+    expect(existsSync(storageRoot)).toBeFalse();
+    for (const containerName of [postgresContainer, minioContainer]) {
+      const inspect = Bun.spawnSync(['docker', 'inspect', containerName]);
+      expect(inspect.exitCode).not.toBe(0);
+    }
+  }, 180_000);
+
+  test('the disposable runtime removes only its exact HyperDX resources', async () => {
+    const runtime = await startDisposableDevRuntime({
+      commands: [],
+      infisical: false,
+      prefixOutput: false,
+    });
+    const containerName = runtime.env.HYPERDX_DEV_CONTAINER_NAME;
+    if (!containerName) {
+      await runtime.stop();
+      throw new Error('The disposable runtime did not expose its HyperDX container name');
+    }
+    const ownedVolumes = [
+      `${containerName}-db`,
+      `${containerName}-ch-data`,
+      `${containerName}-ch-logs`,
+    ];
+    const unrelatedVolume = `${containerName}-unrelated`;
+    try {
+      for (const volume of [...ownedVolumes, unrelatedVolume]) {
+        expect(runDocker(['volume', 'create', volume]).exitCode).toBe(0);
+      }
+      expect(runDocker(['create', '--name', containerName, POSTGRES_17_IMAGE]).exitCode).toBe(0);
+
+      await runtime.stop();
+
+      expect(runDocker(['inspect', containerName]).exitCode).not.toBe(0);
+      for (const volume of ownedVolumes) {
+        expect(runDocker(['volume', 'inspect', volume]).exitCode).not.toBe(0);
+      }
+      expect(runDocker(['volume', 'inspect', unrelatedVolume]).exitCode).toBe(0);
+    } finally {
+      await runtime.stop().catch(() => undefined);
+      runDocker(['rm', '--force', containerName]);
+      for (const volume of [...ownedVolumes, unrelatedVolume]) {
+        runDocker(['volume', 'rm', '--force', volume]);
+      }
+    }
+  }, 180_000);
+
+  test('a failed owned dependency startup is cleaned before the error escapes', async () => {
+    const startupError = new Error('startup failed');
+    let cleanupCount = 0;
+
+    await expect(
+      rethrowAfterOwnedCleanup(startupError, true, async () => {
+        cleanupCount += 1;
+      })
+    ).rejects.toBe(startupError);
+    expect(cleanupCount).toBe(1);
+
+    await expect(
+      rethrowAfterOwnedCleanup(startupError, false, async () => {
+        cleanupCount += 1;
+      })
+    ).rejects.toBe(startupError);
+    expect(cleanupCount).toBe(1);
+  });
+
+  test('the self-hosted runtime exposes real Better Auth component access', async () => {
+    const ports = await allocateDevPortSet();
+    const runtime = await startDisposableDevRuntime({
+      commands: [],
+      convexProfile: 'self-hosted',
+      infisical: false,
+      ports,
+      prefixOutput: false,
+    });
+    try {
+      const adminKey = runtime.convex?.adminKey;
+      const backendUrl = runtime.convex?.backendUrl;
+      const betterAuthSecret = runtime.env.BETTER_AUTH_SECRET;
+      if (!adminKey || !backendUrl || !betterAuthSecret) {
+        throw new Error('Self-hosted Convex runtime did not expose Better Auth access');
+      }
+      const bootstrap = createLocalBetterAuthBootstrap({
+        adminKey,
+        backendUrl,
+        betterAuthSecret,
+      });
+      try {
+        const enrollment = await bootstrap.createEnrollment('Lifecycle Creator');
+        expect(enrollment.authUserId).toBeTruthy();
+        expect(enrollment.sessionToken).toContain('.');
+      } finally {
+        await bootstrap.cleanup();
+      }
+    } finally {
+      await runtime.stop();
+    }
+  }, 300_000);
+
+  test('the executable entry point awaits asynchronous startup', async () => {
+    const source = await readFile(path.join(process.cwd(), 'ops', 'dev-supervisor.ts'), 'utf8');
     expect(source).toContain('await main();');
+    expect(source).toContain('startInteractiveDevRuntime({');
+    expect(source).not.toContain(
+      'const runtime = await startDisposableDevRuntime({\n    infisical: cliOptions.infisical'
+    );
   });
 
   test('Infisical development keeps the local browser origin', () => {
@@ -74,20 +236,17 @@ describe('DevSupervisor', () => {
         {
           FRONTEND_URL: 'http://bootstrap.invalid',
           INFISICAL_PROJECT_ID: 'project-1',
-          MATERIALIZATION_KEY_BROKER_BASE_URL:
-            'https://stale-broker.invalid',
+          MATERIALIZATION_KEY_BROKER_BASE_URL: 'https://stale-broker.invalid',
         },
         {
           FRONTEND_URL: 'https://app.example.test',
-          MATERIALIZATION_KEY_BROKER_BASE_URL:
-            'https://coupling.example.test',
+          MATERIALIZATION_KEY_BROKER_BASE_URL: 'https://coupling.example.test',
         }
       )
     ).toMatchObject({
       FRONTEND_URL: 'http://localhost:3000',
       INFISICAL_PROJECT_ID: 'project-1',
-      MATERIALIZATION_KEY_BROKER_BASE_URL:
-        'https://coupling.example.test',
+      MATERIALIZATION_KEY_BROKER_BASE_URL: 'https://coupling.example.test',
     });
   });
 
@@ -259,6 +418,79 @@ describe('DevSupervisor', () => {
     });
   });
 
+  test('buildDevCommands propagates a reserved lifecycle port set', () => {
+    const commands = buildDevCommands({}, false, {
+      api: 41001,
+      coupling: 41008,
+      convexBackend: 42010,
+      convexDashboard: 42091,
+      convexSite: 42011,
+      delivery: 41003,
+      hyperdxApp: 41080,
+      hyperdxOtlpGrpc: 41017,
+      hyperdxOtlpHttp: 41018,
+      ingest: 41002,
+      materializationControl: 41012,
+      materializationSource: 41005,
+      publicVpm: 41004,
+      web: 41000,
+    });
+
+    expect(commands.find((command) => command.name === 'api')?.env).toMatchObject({
+      FRONTEND_URL: 'http://localhost:41000',
+      PORT: '41001',
+    });
+    expect(commands.find((command) => command.name === 'web')?.env).toMatchObject({
+      API_BASE_URL: 'http://127.0.0.1:41001',
+      WEB_DEV_PORT: '41000',
+    });
+    expect(commands.find((command) => command.name === 'ingest-tus')?.env).toMatchObject({
+      PORT: '41002',
+    });
+    expect(commands.find((command) => command.name === 'materializer-linux')?.env).toMatchObject({
+      MATERIALIZATION_CONTROL_PLANE_BASE_URL: 'http://127.0.0.1:41012',
+      MATERIALIZATION_HEALTH_PORT: '41008',
+      MATERIALIZATION_SOURCE_BASE_URL: 'http://127.0.0.1:41005',
+    });
+  });
+
+  test('development readiness uses the Vite static client instead of an application route', () => {
+    const ports = {
+      ...(DEFAULT_DEV_PORTS as typeof DEFAULT_DEV_PORTS),
+      web: 49_999,
+    };
+
+    expect(buildDevReadinessEndpoints(ports)).toContain('http://localhost:49999/@vite/client');
+    expect(buildDevReadinessEndpoints(ports)).not.toContain('http://localhost:49999/');
+  });
+
+  test('development readiness uses the versioned Linux materializer health contract', () => {
+    const endpoints = buildDevReadinessEndpoints(DEFAULT_DEV_PORTS);
+
+    expect(endpoints).toContain('http://127.0.0.1:8788/v2/health');
+    expect(endpoints).not.toContain('http://127.0.0.1:8788/health');
+  });
+
+  test('allocateDevPortSet returns unique loopback ports', async () => {
+    const ports = await allocateDevPortSet();
+    const values = Object.values(ports);
+    expect(new Set(values).size).toBe(values.length);
+    expect(values.every((port) => Number.isSafeInteger(port) && port > 0)).toBeTrue();
+  });
+
+  test('waitForDevHttpReadiness accepts a real listening endpoint', async () => {
+    const server = Bun.serve({
+      fetch: () => new Response('ready'),
+      hostname: '127.0.0.1',
+      port: 0,
+    });
+    try {
+      await waitForDevHttpReadiness([`http://127.0.0.1:${server.port}/health`]);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test('buildDevCommands starts every real package storage and delivery process', () => {
     const commands = buildDevCommands(
       {
@@ -289,27 +521,18 @@ describe('DevSupervisor', () => {
     expect(commands.find((command) => command.name === 'scheduler')).toMatchObject({
       command: 'bun run ops/scheduler/server.ts',
     });
-    expect(
-      commands.find((command) => command.name === 'materialization-control')
-    ).toMatchObject({
+    expect(commands.find((command) => command.name === 'materialization-control')).toMatchObject({
       command: 'bun run --watch ops/materialization/server.ts',
     });
-    expect(
-      commands.find((command) => command.name === 'materializer-linux')
-    ).toMatchObject({
+    expect(commands.find((command) => command.name === 'materializer-linux')).toMatchObject({
       command: 'bun run ops/materialization/localWslMaterializer.ts',
     });
-    expect(
-      commands.find((command) => command.name === 'materialization-source')
-    ).toMatchObject({
-      command:
-        'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
+    expect(commands.find((command) => command.name === 'materialization-source')).toMatchObject({
+      command: 'bun x tsx watch services/materialization-source-worker/testDevServer.ts',
     });
     expect(commands.find((command) => command.name === 'coupling')).toBeUndefined();
     expect(
-      commands.some((command) =>
-        command.cwd?.replaceAll('\\', '/').endsWith('/ca-coupling')
-      )
+      commands.some((command) => command.cwd?.replaceAll('\\', '/').endsWith('/ca-coupling'))
     ).toBeFalse();
     expect(commands.find((command) => command.name === 'delivery')).toMatchObject({
       command: 'bun x tsx watch services/delivery-worker/testDevServer.ts',
@@ -341,7 +564,7 @@ describe('DevSupervisor', () => {
     });
   });
 
-  test('applyDisposableStorageProfile shares local upload authority without changing Infisical', () => {
+  test('applyLocalStorageProfile shares local upload authority without changing Infisical', () => {
     const storage = {
       buckets: {
         common: storageRoleFixture('common'),
@@ -353,38 +576,37 @@ describe('DevSupervisor', () => {
       postgres: {
         url: 'postgres://postgres:local-password@127.0.0.1:49153/local',
       },
+      runId: 'fixture',
+      scratchRoot: 'C:/tmp/yucp-pipeline-scratch',
       uploadDir: 'C:/tmp/yucp-upload',
     } as DisposableStorageHarness;
+    const profileSecrets = {
+      couplingServiceSharedSecret: 'local-coupling-service-secret',
+      installSigningKeyId: 'local-install-key',
+      installSigningPrivateKey: 'local-install-private-key',
+      installSigningPublicKey: 'local-install-public-key',
+      materializationApiSharedSecret: 'local-materialization-api-secret',
+      materializationCapabilityKeyId: 'local-capability-key',
+      materializationCapabilityPrivateKey: 'local-capability-private-key',
+      materializationCapabilityPublicKey: 'local-capability-public-key',
+      materializationKeyBrokerSharedSecret: 'local-key-broker-shared-secret',
+      materializationMaterializerSharedSecret: 'local-materializer-shared-secret',
+      materializationReceiptKeyId: 'local-receipt-key',
+      materializationReceiptPrivateKey: 'local-receipt-private-key',
+      materializationReceiptPublicKey: 'local-receipt-public-key',
+      materializationSourceGrantKeyId: 'local-source-grant-key',
+      materializationSourceGrantPrivateKey: 'local-source-grant-private-key',
+      materializationSourceGrantPublicKey: 'local-source-grant-public-key',
+      packageCatalogControlSharedSecret: 'local-package-catalog-control-secret',
+      uploadHmacKey: 'local-upload-hmac-key',
+    };
 
-    const env = applyDisposableStorageProfile(
+    const env = applyLocalStorageProfile(
       {
         INFISICAL_PROJECT_ID: 'keep-project-id',
       },
       storage,
-      {
-        couplingServiceSharedSecret: 'local-coupling-service-secret',
-        installSigningKeyId: 'local-install-key',
-        installSigningPrivateKey: 'local-install-private-key',
-        installSigningPublicKey: 'local-install-public-key',
-        materializationApiSharedSecret: 'local-materialization-api-secret',
-        materializationCapabilityKeyId: 'local-capability-key',
-        materializationCapabilityPrivateKey: 'local-capability-private-key',
-        materializationCapabilityPublicKey: 'local-capability-public-key',
-        materializationKeyBrokerSharedSecret:
-          'local-key-broker-shared-secret',
-        materializationMaterializerSharedSecret:
-          'local-materializer-shared-secret',
-        materializationReceiptKeyId: 'local-receipt-key',
-        materializationReceiptPrivateKey: 'local-receipt-private-key',
-        materializationReceiptPublicKey: 'local-receipt-public-key',
-        materializationSourceGrantKeyId: 'local-source-grant-key',
-        materializationSourceGrantPrivateKey:
-          'local-source-grant-private-key',
-        materializationSourceGrantPublicKey:
-          'local-source-grant-public-key',
-        uploadHmacKey: 'local-upload-hmac-key',
-        vpmTokenKey: 'local-vpm-token-key',
-      }
+      profileSecrets
     );
 
     expect(env).toMatchObject({
@@ -404,36 +626,28 @@ describe('DevSupervisor', () => {
       RENDITION_S3_BUCKET: 'local-renditions',
       RENDITION_S3_ENDPOINT: 'http://127.0.0.1:49152',
       CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
-      PACKAGE_CATALOG_DATABASE_URL:
+      PACKAGE_CATALOG_DATABASE_URL: 'postgres://postgres:local-password@127.0.0.1:49153/local',
+      VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL:
         'postgres://postgres:local-password@127.0.0.1:49153/local',
-      MATERIALIZATION_API_SHARED_SECRET:
-        'local-materialization-api-secret',
+      PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL: 'http://localhost:3002',
+      PACKAGE_CATALOG_CONTROL_SHARED_SECRET: 'local-package-catalog-control-secret',
+      MATERIALIZATION_API_SHARED_SECRET: 'local-materialization-api-secret',
       MATERIALIZATION_CAPABILITY_KEY_ID: 'local-capability-key',
-      MATERIALIZATION_CAPABILITY_PRIVATE_KEY:
-        'local-capability-private-key',
-      MATERIALIZATION_CAPABILITY_PUBLIC_KEY:
-        'local-capability-public-key',
-      MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
-        'http://127.0.0.1:3012',
-      MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL:
-        'http://127.0.0.1:3012',
+      MATERIALIZATION_CAPABILITY_PRIVATE_KEY: 'local-capability-private-key',
+      MATERIALIZATION_CAPABILITY_PUBLIC_KEY: 'local-capability-public-key',
+      MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL: 'http://127.0.0.1:3012',
+      MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL: 'http://127.0.0.1:3012',
       MATERIALIZATION_KEY_BROKER_BASE_URL: 'http://127.0.0.1:8788',
-      MATERIALIZATION_KEY_BROKER_SHARED_SECRET:
-        'local-key-broker-shared-secret',
-      MATERIALIZATION_MATERIALIZER_SHARED_SECRET:
-        'local-materializer-shared-secret',
+      MATERIALIZATION_KEY_BROKER_SHARED_SECRET: 'local-key-broker-shared-secret',
+      MATERIALIZATION_MATERIALIZER_SHARED_SECRET: 'local-materializer-shared-secret',
       YUCP_COUPLING_SERVICE_BASE_URL: 'http://127.0.0.1:8788',
-      YUCP_COUPLING_SERVICE_SHARED_SECRET:
-        'local-coupling-service-secret',
+      YUCP_COUPLING_SERVICE_SHARED_SECRET: 'local-coupling-service-secret',
       MATERIALIZATION_RECEIPT_KEY_ID: 'local-receipt-key',
       MATERIALIZATION_RECEIPT_PRIVATE_KEY: 'local-receipt-private-key',
-      MATERIALIZATION_SOURCE_DELIVERY_BASE_URL:
-        'http://127.0.0.1:3005',
+      MATERIALIZATION_SOURCE_DELIVERY_BASE_URL: 'http://127.0.0.1:3005',
       MATERIALIZATION_SOURCE_GRANT_KEY_ID: 'local-source-grant-key',
-      MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY:
-        'local-source-grant-private-key',
-      MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY:
-        'local-source-grant-public-key',
+      MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY: 'local-source-grant-private-key',
+      MATERIALIZATION_SOURCE_GRANT_PUBLIC_KEY: 'local-source-grant-public-key',
       PACKAGE_DELIVERY_AUDIENCE: 'http://127.0.0.1:3003',
       PACKAGE_INSTALL_ISSUER: 'http://127.0.0.1:3001',
       PACKAGE_INSTALL_SIGNING_KEY_ID: 'local-install-key',
@@ -442,14 +656,27 @@ describe('DevSupervisor', () => {
       INFISICAL_PROJECT_ID: 'keep-project-id',
       INGEST_ALLOWED_ORIGIN: 'http://localhost:3000',
       INGEST_MAX_BYTES: String(5 * 1024 * 1024 * 1024),
+      INGEST_SCRATCH_DIR: 'C:/tmp/yucp-pipeline-scratch',
       INGEST_TUS_URL: 'http://localhost:3002',
       INGEST_UPLOAD_DIR: 'C:/tmp/yucp-upload',
       UPLOAD_HMAC_KEY: 'local-upload-hmac-key',
       VPM_BASE_URL: 'http://127.0.0.1:3001',
       VPM_PUBLIC_INDEX_URL: 'http://127.0.0.1:3004/index.json',
-      VPM_TOKEN_KEY: 'local-vpm-token-key',
       YUCP_STORAGE_PROFILE: 'disposable',
     });
+    expect(env).not.toHaveProperty('VPM_TOKEN_KEY');
+    const interactiveEnv = applyLocalStorageProfile(
+      {},
+      storage,
+      profileSecrets,
+      DEFAULT_DEV_PORTS,
+      'interactive'
+    );
+    expect(interactiveEnv).toMatchObject({
+      YUCP_STORAGE_EPOCH: 'fixture',
+      YUCP_STORAGE_PROFILE: 'interactive',
+    });
+    expect(interactiveEnv).not.toHaveProperty('YUCP_DISPOSABLE_RUN_ID');
   });
 
   test('waitForExit keeps required commands running when an optional helper exits early', async () => {

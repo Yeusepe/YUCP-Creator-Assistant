@@ -3,7 +3,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as ed25519 from '@noble/ed25519';
-import { openCatalogDatabase, TufRepositoryCatalog } from '../catalog';
+import {
+  ExactStorageCatalog,
+  openCatalogDatabase,
+  StorageGcCatalog,
+  TufRepositoryCatalog,
+} from '../catalog';
+import { runExactVersionGarbageCollection } from '../gc/exactVersionGc';
+import { DurableExactStorage } from '../storage-core/durableExactStorage';
 import { S3ExactStoragePort } from '../storage-core/exactStorage';
 import { ExactTufRepositoryReader } from '../storage-core/tufRepositoryReader';
 import {
@@ -15,6 +22,18 @@ import { publishPackageInstallerTuf } from './publishPackageInstaller';
 const helperRoot = path.resolve('Verify', 'Native', 'transfer-helper');
 
 let harness: DisposableStorageHarness | undefined;
+
+class ExpiredRetentionStorage extends S3ExactStoragePort {
+  override async getRetention(): Promise<{
+    mode: 'GOVERNANCE';
+    retainUntil: Date;
+  }> {
+    return {
+      mode: 'GOVERNANCE',
+      retainUntil: new Date('2000-01-01T00:00:00.000Z'),
+    };
+  }
+}
 
 beforeAll(async () => {
   harness = await startDisposableStorageHarness();
@@ -201,7 +220,13 @@ describe.serial('package installer TUF production publisher', () => {
         object_count: 6,
         publication_count: 1,
       });
-      const storage = new S3ExactStoragePort({ metadata });
+      const publishedPaths = await database<{ repository_path: string }[]>`
+        SELECT repository_path
+        FROM tuf_publication_objects
+        WHERE publication_id = ${first.publicationId}
+        ORDER BY repository_path
+      `;
+      const storage = new ExpiredRetentionStorage({ metadata });
       const reader = new ExactTufRepositoryReader({
         catalog: new TufRepositoryCatalog(database),
         repositoryId: 'package-installer',
@@ -216,6 +241,47 @@ describe.serial('package installer TUF production publisher', () => {
           role: 'metadata',
         })
       ).toHaveLength(1);
+
+      const orphanBody = Buffer.from('unreferenced TUF GC control object');
+      const orphanDigest = createHash('sha256').update(orphanBody).digest('hex');
+      const orphan = await new DurableExactStorage(
+        new ExactStorageCatalog(database),
+        storage
+      ).putImmutable({
+        body: orphanBody,
+        contentType: 'application/octet-stream',
+        idempotencyKey: `tuf-gc-control:${first.publicationId}`,
+        objectKey: `v2/metadata/tuf-gc-control/${orphanDigest}`,
+        ownerId: `tuf-gc-control:${first.publicationId}`,
+        ownerKind: 'maintenance',
+        storageRole: 'metadata',
+      });
+      const gcCatalog = new StorageGcCatalog(database);
+      const firstGeneration = await runExactVersionGarbageCollection({
+        catalog: gcCatalog,
+        storage,
+      });
+      const secondGeneration = await runExactVersionGarbageCollection({
+        catalog: gcCatalog,
+        storage,
+      });
+      expect(firstGeneration.deletedObjects).toBe(0);
+      expect(secondGeneration.deletedObjects).toBe(1);
+      expect(
+        await storage.listExactVersions({
+          objectKey: orphan.objectKey,
+          role: 'metadata',
+        })
+      ).toEqual([]);
+
+      for (const { repository_path: repositoryPath } of publishedPaths) {
+        const [kind, ...nameParts] = repositoryPath.split('/');
+        const repositoryObject = await reader.read(
+          kind as 'metadata' | 'targets',
+          nameParts.join('/')
+        );
+        expect(repositoryObject?.body.byteLength).toBeGreaterThan(0);
+      }
     } finally {
       await database.end({ timeout: 5 });
     }

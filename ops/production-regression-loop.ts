@@ -62,9 +62,9 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'identity',
     label: 'Identity and ownership boundaries',
     invariant:
-      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Unity OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy.',
+      'Buyer and creator identities must stay explicit at every helper, route, and persistence boundary so one actor can never materialize or mutate another actor’s state. Public API-key verification must authenticate only managed public-api records whose stored Better Auth owner matches the metadata auth user, so key metadata can never impersonate another tenant. Better Auth and its Convex adapter must use a mutually supported database contract so social sign-in never sends fields that the persisted account validator rejects. The versioned compatibility bridge must stay narrow, atomic, and replaceable through official adapter interfaces. Package broker OAuth must use the provider RFC 8252 loopback implementation without an application-owned redirect proxy.',
     primaryRegressionHomes: [
-      'ops/better-auth-unity-loopback.contract.test.ts',
+      'ops/better-auth-package-broker-loopback.contract.test.ts',
       'apps/api/src/lib/subjectIdentity.test.ts',
       'apps/api/src/routes/providerPlatform.test.ts',
       'convex/identitySync.realtest.ts',
@@ -85,13 +85,14 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
     id: 'verification',
     label: 'Verification flows',
     invariant:
-      "Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and attach the canonical catalog product before marking a provider license intent verified. A provider response that identifies a different product must never unlock the requested product. The VPM repository must consume only these canonical catalog identities. Verification must expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution, scope human-friendly buyer access URLs to the creator profile before resolving product aliases so another creator's slug or duplicated product reference cannot be substituted, rate-limit public buyer access lookups before database work, keep repository-token caches scoped to the authenticated buyer, remove verification grants from browser URLs immediately after reading return state, omit public creator and product references from telemetry, keep the main package list limited to products with ready package history while the upload picker exposes products before their first package upload and collapses equivalent cross-provider entries without discarding their provider records, and retain catalog rows whenever package or entitlement history still references them.",
+      "Verification must resolve the buyer subject, keep creator-scoped session context separate from buyer auth ownership, write entitlements and account-link records for the canonical buyer auth user, and attach the canonical catalog product before marking a provider license intent verified. A provider response that identifies a different product must never unlock the requested product. The VPM repository must consume only these canonical catalog identities. Verification must expose entitlements through stable read DTOs instead of raw persisted rows, preserve degraded or failure signals all the way to the public surface, advertise provider-owned manual license proof through actual hosted product requirements so a manual buyer can reach the entitlement funnel, report an OAuth-JWT Suite subject as verified only when it has at least one active entitlement, commit manual-license revocation before a bounded, idempotent entitlement-and-role-removal cascade runs so high-redemption reusable licenses remain revokable, charge each Workpool role-removal dispatch its full durable write cost when sizing that cascade, reject direct service revocation through status updates so the dedicated revoke flow always schedules cleanup, keep provider source idempotency scoped to the granted product so multi-product orders can assign every role, complete role-sync jobs only after every configured product role is satisfied, surface role-sync failures even when product-driven jobs discover the guild during processing, keep actor-protected Convex helper contracts aligned with the API service actor envelope, route API-originated verification state changes through public validated Convex actions instead of calling internal functions over the client boundary, grant buyer product access from active entitlements across every active linked subject while preserving product-level grants that predate catalog product attribution, scope human-friendly buyer access URLs to the creator profile before resolving product aliases so another creator's slug or duplicated product reference cannot be substituted, rate-limit public buyer access lookups before database work, return one persistent creator-managed VPM source to every entitled buyer until its owner revokes it, remove verification grants from browser URLs immediately after reading return state, omit public creator and product references from telemetry, keep the main package list limited to products with ready package history while the upload picker exposes products before their first package upload and collapses equivalent cross-provider entries without discarding their provider records, and retain catalog rows whenever package or entitlement history still references them. Signed-in package installation must return a trusted product verification URL when entitlement is absent. Creator VCC links must remain stable until an authenticated owner revokes them.",
     primaryRegressionHomes: [
       'convex/entitlements.realtest.ts',
       'convex/entitlements.buyer-holder.realtest.ts',
       'convex/manualLicenses.realtest.ts',
       'convex/outboxJobs.realtest.ts',
       'convex/packageRegistry.realtest.ts',
+      'convex/creatorVpmLinks.realtest.ts',
       'convex/roleRules.realtest.ts',
       'convex/verificationIntents.realtest.ts',
       'apps/bot/test/lib/roleSync.test.ts',
@@ -152,9 +153,9 @@ export const PRODUCTION_REGRESSION_SURFACES: ProductionRegressionSurface[] = [
 export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
   {
     id: 'unity-oauth-loopback-contract',
-    description: 'Unity OAuth provider ownership regression',
+    description: 'Package broker OAuth provider ownership regression',
     cwdRelativeToRepoRoot: '.',
-    args: ['test', './ops/better-auth-unity-loopback.contract.test.ts'],
+    args: ['test', './ops/better-auth-package-broker-loopback.contract.test.ts'],
     covers: ['identity'],
   },
   {
@@ -189,6 +190,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './convex/manualLicenses.realtest.ts',
       './convex/outboxJobs.realtest.ts',
       './convex/packageRegistry.realtest.ts',
+      './convex/creatorVpmLinks.realtest.ts',
       './convex/roleRules.realtest.ts',
       './convex/verificationIntents.realtest.ts',
     ],
@@ -238,6 +240,7 @@ export const EXTERNAL_INTEGRATION_GATE_STEPS: ExternalIntegrationGateStep[] = [
       './src/routes/suite.test.ts',
       './src/routes/publicV2/auth.test.ts',
       './src/routes/vpm.test.ts',
+      './src/routes/packageInstallSessions.test.ts',
     ],
     covers: ['identity', 'verification', 'account', 'backfill'],
   },

@@ -242,6 +242,7 @@ vi.mock('@heroui/react', () => {
     Button,
     Card,
     Chip,
+    Label: Div,
     ListBox,
     SearchField,
     Skeleton,
@@ -743,6 +744,8 @@ describe('dashboard forensics route', () => {
     expect(screen.getByText('Buyer One')).toBeInTheDocument();
     expect(screen.getByText('BuyerAccount')).toBeInTheDocument();
     expect(screen.getByText('jinxxy:abcd1234')).toBeInTheDocument();
+    expect(screen.queryByText('sha256-b8c6ba93829b')).not.toBeInTheDocument();
+    expect(screen.queryByText('Package version')).not.toBeInTheDocument();
     expect(screen.queryByText('customer-123')).not.toBeInTheDocument();
     expect(screen.queryByText('test-placeholder-forensics-license-key')).not.toBeInTheDocument();
   });

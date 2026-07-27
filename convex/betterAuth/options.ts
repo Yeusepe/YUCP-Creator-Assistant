@@ -9,6 +9,7 @@ import {
 } from '@yucp/shared';
 import type { BetterAuthOptions } from 'better-auth/minimal';
 import { emailOTP, jwt, twoFactor } from 'better-auth/plugins';
+import { oneTimeToken } from 'better-auth/plugins/one-time-token';
 import { createJwtJwksAdapter } from './jwtAdapter';
 import { OAUTH_PROVIDER_SCOPES } from './oauthProviderScopes';
 
@@ -65,6 +66,10 @@ export const createSchemaAuthOptions = (): BetterAuthOptions =>
         silenceWarnings: {
           oauthAuthServerConfig: true,
         },
+      }),
+      oneTimeToken({
+        expiresIn: 1,
+        storeToken: 'hashed',
       }),
       emailOTP({
         sendVerificationOTP: async () => {},

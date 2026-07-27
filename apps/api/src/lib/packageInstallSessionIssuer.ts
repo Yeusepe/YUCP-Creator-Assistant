@@ -10,7 +10,7 @@ import {
   signPackageContract,
 } from '../../../../ops/storage-core/packageContractsV2';
 
-const INSTALL_SESSION_LIFETIME_SECONDS = 5 * 60;
+export const INSTALL_SESSION_LIFETIME_SECONDS = 5 * 60;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);

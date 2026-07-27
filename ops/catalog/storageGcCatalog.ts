@@ -144,74 +144,53 @@ export class StorageGcCatalog {
     ) {
       throw new Error('Storage GC pin expiry must be in the future');
     }
-    return this.sql.begin(async (transaction) => {
-      const versions = await transaction<{ id: string }[]>`
-        SELECT id
-        FROM package_versions
-        WHERE id = ${input.packageVersionId}
-        FOR UPDATE
-      `;
-      if (versions.length !== 1) {
-        throw new Error('Storage GC pin package version was not found');
-      }
-      const blocked = await transaction<{ id: string }[]>`
-        SELECT object.id
-        FROM package_release_storage_objects release_object
-        JOIN storage_object_versions object
-          ON object.id = release_object.object_version_id
-        LEFT JOIN storage_gc_candidates candidate
-          ON candidate.object_version_id = object.id
-        WHERE release_object.package_version_id = ${input.packageVersionId}
-          AND (
-            object.verification_state <> 'VERIFIED'
-            OR candidate.state IN ('DELETING', 'DELETED')
-          )
-        ORDER BY object.id
-        FOR UPDATE OF object
-      `;
-      if (blocked.length > 0) {
-        throw new Error('Storage GC pin cannot reference an object that is deleting or deleted');
-      }
-      const rows = await transaction<PinRow[]>`
-        INSERT INTO storage_gc_release_pins (
-          id,
-          package_version_id,
-          pin_kind,
-          owner_id,
-          expires_at
-        )
-        VALUES (
-          ${randomUUID()},
-          ${input.packageVersionId},
-          ${input.pinKind},
-          ${ownerId},
-          ${input.expiresAt ?? null}
-        )
-        ON CONFLICT (package_version_id, pin_kind, owner_id)
-        DO UPDATE SET
-          expires_at = EXCLUDED.expires_at,
-          released_at = NULL,
-          updated_at = clock_timestamp()
-        RETURNING *
-      `;
-      const pin = rows[0];
-      if (!pin) {
-        throw new Error('PostgreSQL did not return the storage GC pin');
-      }
-      return toPin(pin);
-    });
+    const requestedPinId = randomUUID();
+    const acquiredRows = await this.sql<{ pin_id: string }[]>`
+      SELECT storage_gc_acquire_release_pin(
+        ${requestedPinId},
+        ${input.packageVersionId},
+        ${input.pinKind},
+        ${ownerId},
+        ${input.expiresAt ?? null}
+      ) AS pin_id
+    `;
+    const pinId = acquiredRows[0]?.pin_id;
+    if (!pinId) {
+      throw new Error('PostgreSQL did not return the storage GC pin');
+    }
+    const rows = await this.sql<PinRow[]>`
+      SELECT *
+      FROM storage_gc_release_pins
+      WHERE id = ${pinId}
+    `;
+    const pin = rows[0];
+    if (!pin) {
+      throw new Error('PostgreSQL did not return the storage GC pin');
+    }
+    return toPin(pin);
   }
 
   async releaseReleasePin(pinId: string): Promise<void> {
-    const rows = await this.sql<{ id: string }[]>`
-      UPDATE storage_gc_release_pins
-      SET released_at = clock_timestamp(), updated_at = clock_timestamp()
-      WHERE id = ${pinId} AND released_at IS NULL
-      RETURNING id
-    `;
-    if (rows.length !== 1) {
-      throw new Error('Storage GC release pin was not active');
-    }
+    await this.sql.begin(async (transaction) => {
+      const rows = await transaction<{ id: string; released_at: Date | null }[]>`
+        SELECT id, released_at
+        FROM storage_gc_release_pins
+        WHERE id = ${pinId}
+        FOR UPDATE
+      `;
+      const pin = rows[0];
+      if (!pin) {
+        throw new Error('Storage GC release pin was not found');
+      }
+      if (pin.released_at) {
+        return;
+      }
+      await transaction`
+        UPDATE storage_gc_release_pins
+        SET released_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE id = ${pinId}
+      `;
+    });
   }
 
   async observeGeneration(now: Date = new Date()): Promise<{
@@ -304,10 +283,23 @@ export class StorageGcCatalog {
                 intent.state IN ('ISSUED', 'UNCERTAIN')
                 OR (
                   intent.state = 'COMMITTED'
-                  AND intent.owner_kind = 'package-version'
-                  AND owner_version.state <> 'DELETED'
+                  AND (
+                    intent.owner_kind = 'vpm-alias-publication'
+                    OR (
+                      intent.owner_kind = 'package-version'
+                      AND owner_version.state <> 'DELETED'
+                    )
+                  )
                 )
               )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM tuf_publication_objects publication_object
+            JOIN tuf_publications publication
+              ON publication.id = publication_object.publication_id
+            WHERE publication_object.object_version_id = object.id
+              AND publication.state IN ('RESERVED', 'PUBLISHING', 'PUBLISHED')
           )
         ON CONFLICT (object_version_id)
         DO UPDATE SET
@@ -392,10 +384,69 @@ export class StorageGcCatalog {
           object.provider_version,
           object.bytes
         FROM storage_gc_candidates candidate
-        JOIN storage_object_versions object
-          ON object.id = candidate.object_version_id
         JOIN storage_gc_generations generation
           ON generation.id = candidate.last_generation_id
+        JOIN LATERAL (
+          SELECT
+            object.storage_role,
+            object.bucket_name,
+            object.object_key,
+            object.provider_version,
+            object.bytes
+          FROM storage_object_versions object
+          WHERE object.id = candidate.object_version_id
+            AND object.verification_state = 'VERIFIED'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM package_release_storage_objects release_object
+              JOIN package_versions package_version
+                ON package_version.id = release_object.package_version_id
+              WHERE release_object.object_version_id = object.id
+                AND (
+                  package_version.state <> 'DELETED'
+                  OR EXISTS (
+                    SELECT 1
+                    FROM storage_gc_release_pins pin
+                    WHERE pin.package_version_id = package_version.id
+                      AND pin.released_at IS NULL
+                      AND (pin.expires_at IS NULL OR pin.expires_at > ${now})
+                  )
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM storage_write_intents intent
+              LEFT JOIN package_versions owner_version
+                ON intent.owner_kind = 'package-version'
+                AND owner_version.id::text = intent.owner_id
+              WHERE (
+                  intent.object_version_id = object.id
+                  OR intent.candidate_object_version_id = object.id
+                )
+                AND (
+                  intent.state IN ('ISSUED', 'UNCERTAIN')
+                  OR (
+                    intent.state = 'COMMITTED'
+                    AND (
+                      intent.owner_kind = 'vpm-alias-publication'
+                      OR (
+                        intent.owner_kind = 'package-version'
+                        AND owner_version.state <> 'DELETED'
+                      )
+                    )
+                  )
+                )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM tuf_publication_objects publication_object
+              JOIN tuf_publications publication
+                ON publication.id = publication_object.publication_id
+              WHERE publication_object.object_version_id = object.id
+                AND publication.state IN ('RESERVED', 'PUBLISHING', 'PUBLISHED')
+            )
+          FOR UPDATE OF object SKIP LOCKED
+        ) object ON true
         WHERE candidate.last_generation_id = ${input.generationId}
           AND candidate.consecutive_generations >= 2
           AND candidate.state IN ('FAILED', 'OBSERVED', 'RETENTION_BLOCKED')
@@ -404,45 +455,8 @@ export class StorageGcCatalog {
             OR candidate.retention_until <= ${now}
           )
           AND generation.state = 'COMPLETED'
-          AND object.verification_state = 'VERIFIED'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM package_release_storage_objects release_object
-            JOIN package_versions package_version
-              ON package_version.id = release_object.package_version_id
-            WHERE release_object.object_version_id = object.id
-              AND (
-                package_version.state <> 'DELETED'
-                OR EXISTS (
-                  SELECT 1
-                  FROM storage_gc_release_pins pin
-                  WHERE pin.package_version_id = package_version.id
-                    AND pin.released_at IS NULL
-                    AND (pin.expires_at IS NULL OR pin.expires_at > ${now})
-                )
-              )
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM storage_write_intents intent
-            LEFT JOIN package_versions owner_version
-              ON intent.owner_kind = 'package-version'
-              AND owner_version.id::text = intent.owner_id
-            WHERE (
-                intent.object_version_id = object.id
-                OR intent.candidate_object_version_id = object.id
-              )
-              AND (
-                intent.state IN ('ISSUED', 'UNCERTAIN')
-                OR (
-                  intent.state = 'COMMITTED'
-                  AND intent.owner_kind = 'package-version'
-                  AND owner_version.state <> 'DELETED'
-                )
-              )
-          )
         ORDER BY candidate.last_observed_at, candidate.object_version_id
-        FOR UPDATE OF candidate, object SKIP LOCKED
+        FOR UPDATE OF candidate SKIP LOCKED
         LIMIT 1
       `;
       const candidate = rows[0];

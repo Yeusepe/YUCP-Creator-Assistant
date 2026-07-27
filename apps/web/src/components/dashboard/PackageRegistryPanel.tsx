@@ -3,17 +3,25 @@ import {
   Button,
   Card,
   Chip,
+  Label,
   ListBox,
   SearchField,
+  Select,
   Skeleton,
-  Switch,
   useFilter,
 } from '@heroui/react';
 import { DropZone } from '@heroui-pro/react/drop-zone';
 import { EmptyState } from '@heroui-pro/react/empty-state';
 import { Sheet } from '@heroui-pro/react/sheet';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  type InfiniteData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { DialogContext, Heading } from 'react-aria-components';
 import { AccountInlineError } from '@/components/account/AccountPage';
 import { PackageRegistryWorkspaceSkeleton } from '@/components/dashboard/DashboardSkeletons';
 import { Icon } from '@/components/ui/Icon';
@@ -23,34 +31,97 @@ import { YucpInput } from '@/components/ui/YucpInput';
 import { isDashboardAuthError, useDashboardSession } from '@/hooks/useDashboardSession';
 import { getAccountProviderIconPath } from '@/lib/account';
 import {
+  archiveCreatorPackageEdition,
+  bindCreatorPackageStorefront,
+  type CreatorPackageEditionSummary,
   type CreatorPackagePickerProduct,
   type CreatorPackageProductSummary,
+  type CreatorPackageVersionListPage,
+  type CreatorPackageVersionStatus,
+  createCreatorPackageVccLink,
+  deleteCreatorPackageVersion,
+  getCreatorPackageEditionOptions,
   getCreatorPackageProduct,
+  getCreatorPackageVccLink,
+  getCreatorPackageVersionStatus,
   listCreatorPackagePickerProducts,
   listCreatorPackageProducts,
+  listCreatorPackageVersions,
+  revokeCreatorPackageVccLink,
+  saveCreatorPackageEdition,
+  unbindCreatorPackageStorefront,
+  updateCreatorPackagePresentation,
 } from '@/lib/packages';
 import { buildBuyerProductAccessPath } from '@/lib/productAccess';
 import { uploadPackageFile } from '@/lib/upload';
 import { copyToClipboard } from '@/lib/utils';
 
 interface PackageRegistryPanelProps {
-  canProtectAssets?: boolean;
   className?: string;
-  description?: string;
-  title?: string;
 }
 
 type SelectedUpload = {
-  file: File;
+  file?: File;
+  fileName: string;
+  fileSize: number;
   progress: number;
-  status: 'ready' | 'uploading' | 'complete' | 'failed';
+  status: 'ready' | 'uploading' | 'queued' | 'preparing' | 'publishing' | 'complete' | 'failed';
+  catalogProductId?: string;
+  editionId?: string;
   errorMessage?: string;
+  packageId?: string;
+  versionId?: string;
 };
 
 const creatorProductsQueryKey = ['creator-package-products'] as const;
 const creatorProductPickerQueryKey = ['creator-package-product-picker'] as const;
+const ACCEPTED_UPLOAD_LANE_STORAGE_KEY = 'yucp.package-upload.accepted-lane.v1';
 const PACKAGE_FILE_EXTENSIONS = ['.unitypackage', '.zip', '.spp'] as const;
 const PACKAGE_FILE_ACCEPT = `${PACKAGE_FILE_EXTENSIONS.join(',')},application/octet-stream,application/zip`;
+
+type PersistedAcceptedUploadLane = {
+  catalogProductId: string;
+  editionId: string;
+  fileName: string;
+  fileSize: number;
+  packageId: string;
+  progress: number;
+  status: Extract<
+    SelectedUpload['status'],
+    'uploading' | 'queued' | 'preparing' | 'publishing' | 'complete' | 'failed'
+  >;
+  version: string;
+  versionId: string;
+};
+
+function readAcceptedUploadLane(): PersistedAcceptedUploadLane | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY) ?? 'null'
+    ) as Partial<PersistedAcceptedUploadLane> | null;
+    if (
+      !parsed ||
+      typeof parsed.catalogProductId !== 'string' ||
+      typeof parsed.editionId !== 'string' ||
+      typeof parsed.fileName !== 'string' ||
+      typeof parsed.fileSize !== 'number' ||
+      typeof parsed.packageId !== 'string' ||
+      typeof parsed.progress !== 'number' ||
+      !['uploading', 'queued', 'preparing', 'publishing', 'complete', 'failed'].includes(
+        parsed.status ?? ''
+      ) ||
+      typeof parsed.version !== 'string' ||
+      typeof parsed.versionId !== 'string'
+    ) {
+      return null;
+    }
+    return parsed as PersistedAcceptedUploadLane;
+  } catch {
+    window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+    return null;
+  }
+}
 
 function isSupportedPackageFileName(fileName: string): boolean {
   const normalizedName = fileName.toLowerCase();
@@ -66,6 +137,17 @@ function getPackageFilePresentation(fileName: string) {
 
 function formatProviderLabel(provider: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function compareProviderProducts(
+  left: CreatorPackageProductSummary,
+  right: CreatorPackageProductSummary
+): number {
+  return (
+    left.provider.localeCompare(right.provider) ||
+    left.providerProductRef.localeCompare(right.providerProductRef) ||
+    left._id.localeCompare(right._id)
+  );
 }
 
 function formatFileSize(bytes: number): string {
@@ -109,6 +191,30 @@ function getProductStorefronts(product: CreatorPackageProductSummary) {
       ];
 }
 
+function getProductReadinessSummary(product: CreatorPackageProductSummary): string {
+  if (product.status === 'archived') return 'Uploads paused';
+  return product.packageId ? 'Ready for updates' : 'Ready for first upload';
+}
+
+function getReleaseStateLabel(state: CreatorPackageVersionStatus['state']): string {
+  switch (state) {
+    case 'queued':
+      return 'Queued';
+    case 'uploading':
+      return 'Uploading';
+    case 'preparing':
+      return 'Preparing';
+    case 'publishing':
+      return 'Publishing';
+    case 'ready':
+      return 'Ready';
+    case 'failed':
+      return 'Failed';
+    case 'deleted':
+      return 'Deleted';
+  }
+}
+
 function getPickerProduct(
   entry: CreatorPackagePickerProduct | undefined,
   preferredId?: string
@@ -121,8 +227,30 @@ function getPickerProduct(
   );
 }
 
+function getPickerCatalogProductIds(
+  entry: CreatorPackagePickerProduct | undefined,
+  fallbackProduct: CreatorPackageProductSummary
+): string[] {
+  const catalogProductIds = entry
+    ? entry.products.flatMap((product) =>
+        product.packageId && product.catalogProductIds?.length
+          ? product.catalogProductIds
+          : [product._id]
+      )
+    : fallbackProduct.packageId && fallbackProduct.catalogProductIds?.length
+      ? fallbackProduct.catalogProductIds
+      : [fallbackProduct._id];
+  return [...new Set(catalogProductIds)];
+}
+
 function getPickerProviderLabel(entry: CreatorPackagePickerProduct): string {
-  return Array.from(new Set(entry.products.map((product) => formatProviderLabel(product.provider))))
+  return Array.from(
+    new Set(
+      entry.products.flatMap((product) =>
+        getProductStorefronts(product).map((storefront) => formatProviderLabel(storefront.provider))
+      )
+    )
+  )
     .sort((left, right) => left.localeCompare(right))
     .join(' + ');
 }
@@ -132,23 +260,50 @@ function getBuyerAccessUrl(catalogProductId: string): string {
   return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
 }
 
+function getBuyerPrivacyNoticeUrl(): string {
+  const path = '/legal/verification-and-attestation';
+  return typeof window === 'undefined' ? path : `${window.location.origin}${path}`;
+}
+
+function toEditionId(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function getFriendlyUploadError(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Package upload failed.';
+  if (message.startsWith('tus:')) {
+    return 'The upload could not start. Check your connection and try again.';
+  }
+  return message;
+}
+
 function uploadPackageAndWait(input: {
+  catalogTierId?: string;
+  editionId: string;
   file: File;
   packageId: string;
   version: string;
-  catalogProductId: string;
+  catalogProductIds: string[];
   onProgress: (progress: number) => void;
-  protectionPolicyId:
-    | 'common-only-v1'
-    | 'supported-visual-assets-v1'
-    | 'supported-visual-assets-v2';
-}): Promise<void> {
+  onAccepted: (versionId: string) => void;
+}): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let versionId = '';
     const resolveOnce = () => {
       if (settled) return;
+      if (!versionId) {
+        rejectOnce(new Error('Upload authorization did not return a version identifier.'));
+        return;
+      }
       settled = true;
-      resolve();
+      input.onAccepted(versionId);
+      resolve(versionId);
     };
     const rejectOnce = (error: Error) => {
       if (settled) return;
@@ -158,12 +313,141 @@ function uploadPackageAndWait(input: {
 
     void uploadPackageFile({
       ...input,
+      onAuthorized: (authorization) => {
+        versionId = authorization.versionId;
+        input.onAccepted(versionId);
+      },
       onSuccess: resolveOnce,
       onError: rejectOnce,
     }).catch((error: unknown) => {
       rejectOnce(error instanceof Error ? error : new Error('Package upload failed'));
     });
   });
+}
+
+const PACKAGE_READY_POLL_INTERVAL_MS = 500;
+const PACKAGE_READY_POLL_LIMIT = 240;
+
+class PackageVersionTerminalError extends Error {}
+
+class PackageVersionStatusCheckError extends Error {
+  constructor(
+    message: string,
+    public readonly cause: unknown
+  ) {
+    super(message);
+  }
+}
+
+async function waitForPackageVersionReady(
+  catalogProductId: string,
+  packageId: string,
+  editionId: string,
+  versionId: string,
+  onStatus: (status: 'queued' | 'uploading' | 'preparing' | 'publishing') => void,
+  signal?: AbortSignal
+): Promise<CreatorPackageProductSummary | null> {
+  for (let attempt = 0; attempt < PACKAGE_READY_POLL_LIMIT; attempt += 1) {
+    if (signal?.aborted) return null;
+    let status: CreatorPackageVersionStatus;
+    try {
+      status = await getCreatorPackageVersionStatus(packageId, editionId, versionId);
+    } catch (error) {
+      if (signal?.aborted) return null;
+      throw new PackageVersionStatusCheckError(
+        'We could not check preparation status. The package remains safe on the server.',
+        error
+      );
+    }
+    if (signal?.aborted) return null;
+    if (status.state === 'ready') {
+      try {
+        return await getCreatorPackageProduct(catalogProductId);
+      } catch (error) {
+        if (signal?.aborted) return null;
+        throw new PackageVersionStatusCheckError(
+          'The package is ready, but we could not refresh its details. The package remains safe on the server.',
+          error
+        );
+      }
+    }
+    if (status.state === 'failed') {
+      throw new PackageVersionTerminalError(
+        'We could not prepare this version. Review the package file, then upload a new version or retry this draft.'
+      );
+    }
+    if (status.state === 'deleted') {
+      throw new PackageVersionTerminalError(
+        'The uploaded version was removed before it became available.'
+      );
+    }
+    onStatus(status.state);
+    if (attempt + 1 < PACKAGE_READY_POLL_LIMIT) {
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          signal?.removeEventListener('abort', finish);
+          resolve();
+        };
+        const timer = setTimeout(finish, PACKAGE_READY_POLL_INTERVAL_MS);
+        signal?.addEventListener('abort', finish, { once: true });
+      });
+    }
+  }
+  return null;
+}
+
+function isServerProcessingStatus(
+  status: SelectedUpload['status']
+): status is 'uploading' | 'queued' | 'preparing' | 'publishing' {
+  return (
+    status === 'uploading' ||
+    status === 'queued' ||
+    status === 'preparing' ||
+    status === 'publishing'
+  );
+}
+
+function getUploadHeadline(upload: SelectedUpload): string {
+  switch (upload.status) {
+    case 'uploading':
+      return upload.progress >= 100
+        ? `Confirming ${upload.fileName}`
+        : `Uploading ${upload.fileName}: ${upload.progress}%`;
+    case 'queued':
+      return `Waiting to prepare ${upload.fileName}`;
+    case 'preparing':
+      return `Preparing ${upload.fileName}`;
+    case 'publishing':
+      return `Publishing ${upload.fileName}`;
+    case 'complete':
+      return 'Upload complete';
+    case 'failed':
+      return `${upload.fileName} needs attention`;
+    default:
+      return upload.fileName;
+  }
+}
+
+function getUploadSupportingCopy(upload: SelectedUpload): string {
+  switch (upload.status) {
+    case 'uploading':
+      return upload.progress >= 100
+        ? 'The package is safe on the server while preparation begins.'
+        : 'You can keep working while the upload continues.';
+    case 'queued':
+      return 'The upload is waiting for an available preparation slot.';
+    case 'preparing':
+      return 'We are checking and preparing this version.';
+    case 'publishing':
+      return 'Preparation finished. We are making this version available to buyers.';
+    case 'complete':
+      return '';
+    case 'failed':
+      return 'Open the upload to review safe retry guidance.';
+    default:
+      return '';
+  }
 }
 
 function ProductRow({
@@ -231,11 +515,8 @@ function ProductRow({
                 </Chip>
               ) : null}
             </div>
-            <p className="pm-subtle-copy break-all text-sm leading-6">
-              {getProductStorefronts(product)
-                .map((storefront) => storefront.providerProductRef)
-                .join(' · ')}{' '}
-              · Ready for package uploads
+            <p className="pm-subtle-copy break-words text-sm leading-6">
+              {getProductReadinessSummary(product)}
             </p>
           </div>
         </button>
@@ -268,11 +549,369 @@ function ProductDetailsSheet({
   onUpload: (product: CreatorPackageProductSummary) => void;
 }) {
   const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [editionEditor, setEditionEditor] = useState<{
+    catalogTierIds: string[];
+    displayName: string;
+    editionId: string;
+    isNew: boolean;
+    priority: number;
+  } | null>(null);
+  const [confirmArchiveEditionId, setConfirmArchiveEditionId] = useState<string | null>(null);
+  const [confirmDeleteVersionId, setConfirmDeleteVersionId] = useState<string | null>(null);
+  const [selectedHistoryEditionId, setSelectedHistoryEditionId] = useState('standard');
+  const [confirmUnlinkStorefrontId, setConfirmUnlinkStorefrontId] = useState<string | null>(null);
+  const [isConfirmingLinkRevoke, setIsConfirmingLinkRevoke] = useState(false);
+  const [copyingUnityLink, setCopyingUnityLink] = useState<'add' | 'source' | null>(null);
+  const [isCopyingPrivacyNotice, setIsCopyingPrivacyNotice] = useState(false);
+  const [storefrontSearch, setStorefrontSearch] = useState('');
+  const [bootstrapPackageName, setBootstrapPackageName] = useState('');
   const detailQuery = useQuery({
     queryKey: ['creator-package-product', catalogProductId],
     queryFn: () => getCreatorPackageProduct(catalogProductId ?? ''),
     enabled: canRunPanelQueries && isOpen && Boolean(catalogProductId),
     retry: false,
+  });
+  const packageId = detailQuery.data?.packageId;
+  const versionHistoryQueryKey = [
+    'creator-package-versions',
+    packageId,
+    selectedHistoryEditionId,
+  ] as const;
+  const versionHistoryQuery = useInfiniteQuery({
+    queryKey: versionHistoryQueryKey,
+    queryFn: ({ pageParam }) =>
+      listCreatorPackageVersions(packageId ?? '', selectedHistoryEditionId, {
+        ...(pageParam ? { cursor: pageParam } : {}),
+        limit: 50,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
+    enabled: canRunPanelQueries && isOpen && Boolean(packageId),
+    retry: false,
+  });
+  const packageVersions = versionHistoryQuery.data?.pages.flatMap((page) => page.data) ?? [];
+  const availableEditions = useMemo(
+    () => (detailQuery.data ? getCreatorPackageEditionOptions(detailQuery.data) : []),
+    [detailQuery.data]
+  );
+  const historyEditions = useMemo(
+    () => [
+      {
+        displayName: 'Standard',
+        editionId: 'standard',
+        status: 'active' as const,
+      },
+      ...(detailQuery.data?.packageEditions
+        ?.filter((edition) => edition.editionId !== 'standard')
+        .map((edition) => ({
+          displayName: edition.displayName,
+          editionId: edition.editionId,
+          status: edition.status,
+        })) ?? []),
+    ],
+    [detailQuery.data?.packageEditions]
+  );
+  const vccLinkQuery = useQuery({
+    queryKey: ['creator-package-vcc-link', packageId],
+    queryFn: () => getCreatorPackageVccLink(packageId ?? ''),
+    enabled: canRunPanelQueries && isOpen && Boolean(catalogProductId) && Boolean(packageId),
+    retry: false,
+  });
+  const storefrontCandidatesQuery = useQuery({
+    queryKey: creatorProductPickerQueryKey,
+    queryFn: listCreatorPackagePickerProducts,
+    enabled:
+      canRunPanelQueries &&
+      isOpen &&
+      Boolean(catalogProductId) &&
+      Boolean(detailQuery.data?.packageId),
+    retry: false,
+  });
+  const createVccLinkMutation = useMutation({
+    mutationFn: () => {
+      if (!packageId) {
+        throw new Error('Upload a package before creating Unity access.');
+      }
+      return createCreatorPackageVccLink(packageId);
+    },
+    onSuccess: (link) => {
+      queryClient.setQueryData(['creator-package-vcc-link', packageId], link);
+      toast.success('Unity access is ready', {
+        description: 'This link remains the same until you revoke it.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not create Unity access', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const revokeVccLinkMutation = useMutation({
+    mutationFn: () => {
+      if (!packageId) {
+        throw new Error('Upload a package before revoking Unity access.');
+      }
+      return revokeCreatorPackageVccLink(packageId);
+    },
+    onSuccess: () => {
+      const currentLink = queryClient.getQueryData(['creator-package-vcc-link', packageId]);
+      const bootstrapDownloadUrl =
+        currentLink &&
+        typeof currentLink === 'object' &&
+        'bootstrapDownloadUrl' in currentLink &&
+        typeof currentLink.bootstrapDownloadUrl === 'string'
+          ? currentLink.bootstrapDownloadUrl
+          : '';
+      queryClient.setQueryData(['creator-package-vcc-link', packageId], {
+        status: 'inactive',
+        bootstrapDownloadUrl,
+      });
+      setIsConfirmingLinkRevoke(false);
+      toast.success('Unity access revoked', {
+        description: 'Create a new link when you are ready to share access again.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not revoke Unity access', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const saveBootstrapPresentationMutation = useMutation({
+    mutationFn: () => {
+      if (!packageId) {
+        throw new Error('Upload a package before changing its Unity name.');
+      }
+      const packageName = bootstrapPackageName.trim();
+      if (!packageName) {
+        throw new Error('Enter the package name that customers see in Unity.');
+      }
+      if (new TextEncoder().encode(packageName).byteLength > 120) {
+        throw new Error('The Unity package name must use 120 bytes or fewer.');
+      }
+      return updateCreatorPackagePresentation(packageId, packageName);
+    },
+    onSuccess: async (presentation) => {
+      setBootstrapPackageName(presentation.packageName);
+      queryClient.setQueryData<CreatorPackageProductSummary>(
+        ['creator-package-product', catalogProductId],
+        (current) =>
+          current
+            ? {
+                ...current,
+                packageName: presentation.packageName,
+              }
+            : current
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      toast.success('Unity package name published', {
+        description: 'New bootstrap installs now use this name.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not publish the Unity package name', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const deleteVersionMutation = useMutation({
+    mutationFn: (input: { editionId: string; versionId: string }) => {
+      if (!packageId) {
+        throw new Error('Open a package before deleting a release.');
+      }
+      return deleteCreatorPackageVersion(packageId, input.editionId, input.versionId);
+    },
+    onSuccess: async (_result, { editionId, versionId }) => {
+      if (!packageId) return;
+      const deletedPageQueryKey = ['creator-package-versions', packageId, editionId] as const;
+      queryClient.setQueryData<InfiniteData<CreatorPackageVersionListPage, string | undefined>>(
+        deletedPageQueryKey,
+        (current) =>
+          current
+            ? {
+                ...current,
+                pages: current.pages.map((page) => ({
+                  ...page,
+                  data: page.data.filter((version) => version.versionId !== versionId),
+                })),
+              }
+            : current
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({
+          exact: true,
+          queryKey: deletedPageQueryKey,
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+      ]);
+      setConfirmDeleteVersionId(null);
+      toast.success('Release deleted', {
+        description: 'Files that another release needs remain available.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not delete release', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const saveEditionMutation = useMutation({
+    mutationFn: () => {
+      if (!catalogProductId || !detailQuery.data || !editionEditor) {
+        throw new Error('Open an edition before saving it.');
+      }
+      const editionId = editionEditor.editionId.trim();
+      const displayName = editionEditor.displayName.trim();
+      if (!displayName) {
+        throw new Error('Enter an edition name.');
+      }
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(editionId)) {
+        throw new Error('Use lowercase letters, numbers, and hyphens for the short name.');
+      }
+      return saveCreatorPackageEdition(catalogProductId, {
+        catalogProductIds: detailQuery.data.catalogProductIds?.length
+          ? detailQuery.data.catalogProductIds
+          : [detailQuery.data._id],
+        catalogTierIds: editionEditor.catalogTierIds,
+        displayName,
+        editionId,
+        priority: editionEditor.priority,
+      });
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['creator-package-product', catalogProductId],
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      setEditionEditor(null);
+      toast.success('Package edition saved', {
+        description: 'New uploads can now target this edition.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not save package edition', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const archiveEditionMutation = useMutation({
+    mutationFn: (editionId: string) => {
+      if (!catalogProductId) {
+        throw new Error('Open a package before archiving an edition.');
+      }
+      return archiveCreatorPackageEdition(catalogProductId, editionId);
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['creator-package-product', catalogProductId],
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      setConfirmArchiveEditionId(null);
+      toast.success('Package edition archived', {
+        description: 'Buyers stop receiving this edition. Its release records remain intact.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not archive package edition', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const bindStorefrontMutation = useMutation({
+    mutationFn: (targetCatalogProductId: string) => {
+      if (!catalogProductId) {
+        throw new Error('Open a package before linking a storefront.');
+      }
+      return bindCreatorPackageStorefront(catalogProductId, targetCatalogProductId);
+    },
+    onSuccess: async () => {
+      setStorefrontSearch('');
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['creator-package-product', catalogProductId],
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      toast.success('Storefront linked', {
+        description: 'Buyers can verify this product through the same Unity package.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not link storefront', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
+  });
+  const unbindStorefrontMutation = useMutation({
+    mutationFn: (targetCatalogProductId: string) => {
+      if (!catalogProductId) {
+        throw new Error('Open a package before unlinking a storefront.');
+      }
+      return unbindCreatorPackageStorefront(catalogProductId, targetCatalogProductId);
+    },
+    onSuccess: async () => {
+      setConfirmUnlinkStorefrontId(null);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['creator-package-product', catalogProductId],
+        }),
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      toast.success('Storefront unlinked', {
+        description: 'This listing no longer grants access to the package.',
+      });
+    },
+    onError: (error) => {
+      if (isDashboardAuthError(error)) {
+        markSessionExpired();
+        return;
+      }
+      toast.error('Could not unlink storefront', {
+        description: error instanceof Error ? error.message : 'Try again.',
+      });
+    },
   });
 
   useEffect(() => {
@@ -281,11 +920,129 @@ function ProductDetailsSheet({
     }
   }, [detailQuery.error, markSessionExpired]);
 
+  useEffect(() => {
+    if (isDashboardAuthError(vccLinkQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, vccLinkQuery.error]);
+
+  useEffect(() => {
+    if (isDashboardAuthError(versionHistoryQuery.error)) {
+      markSessionExpired();
+    }
+  }, [markSessionExpired, versionHistoryQuery.error]);
+
+  useEffect(() => {
+    if (!detailQuery.data) {
+      return;
+    }
+    setBootstrapPackageName(
+      detailQuery.data.packageName?.trim() || getProductTitle(detailQuery.data)
+    );
+  }, [detailQuery.data]);
+
+  async function copyUnityLink(kind: 'add' | 'source', value: string): Promise<void> {
+    setCopyingUnityLink(kind);
+    const copied = await copyToClipboard(value);
+    setCopyingUnityLink(null);
+    if (copied) {
+      toast.success(kind === 'add' ? 'VCC link copied' : 'Package source URL copied');
+      return;
+    }
+    toast.error('Could not copy to clipboard');
+  }
+
+  function copyCurrentUnityLink(kind: 'add' | 'source'): void {
+    const link = vccLinkQuery.data;
+    if (!link || link.status !== 'active') return;
+    void copyUnityLink(kind, kind === 'add' ? link.addRepoUrl : link.indexUrl);
+  }
+
+  async function copyBuyerPrivacyNotice(): Promise<void> {
+    setIsCopyingPrivacyNotice(true);
+    const copied = await copyToClipboard(getBuyerPrivacyNoticeUrl());
+    setIsCopyingPrivacyNotice(false);
+    if (copied) {
+      toast.success('Buyer privacy notice copied');
+      return;
+    }
+    toast.error('Could not copy to clipboard');
+  }
+
+  function handleOpenChange(nextIsOpen: boolean): void {
+    if (!nextIsOpen) {
+      setConfirmArchiveEditionId(null);
+      setConfirmDeleteVersionId(null);
+      setSelectedHistoryEditionId('standard');
+      setConfirmUnlinkStorefrontId(null);
+      setEditionEditor(null);
+      setIsConfirmingLinkRevoke(false);
+      setCopyingUnityLink(null);
+      setIsCopyingPrivacyNotice(false);
+      setStorefrontSearch('');
+      setBootstrapPackageName('');
+    }
+    onOpenChange(nextIsOpen);
+  }
+
+  function openNewEdition(): void {
+    setConfirmArchiveEditionId(null);
+    setEditionEditor({
+      catalogTierIds: [],
+      displayName: '',
+      editionId: '',
+      isNew: true,
+      priority: 0,
+    });
+  }
+
+  function openEditionEditor(edition: CreatorPackageEditionSummary): void {
+    setConfirmArchiveEditionId(null);
+    setEditionEditor({
+      catalogTierIds: edition.catalogTierIds,
+      displayName: edition.displayName,
+      editionId: edition.editionId,
+      isNew: false,
+      priority: edition.priority,
+    });
+  }
+
+  function toggleEditionTier(tierId: string): void {
+    setEditionEditor((current) => {
+      if (!current) return current;
+      const catalogTierIds = current.catalogTierIds.includes(tierId)
+        ? current.catalogTierIds.filter((candidate) => candidate !== tierId)
+        : [...current.catalogTierIds, tierId];
+      return { ...current, catalogTierIds };
+    });
+  }
+
+  const linkedStorefronts = detailQuery.data ? getProductStorefronts(detailQuery.data) : [];
+  const linkedCatalogProductIds = new Set(
+    linkedStorefronts.map((storefront) => storefront.catalogProductId)
+  );
+  const normalizedStorefrontSearch = storefrontSearch.trim().toLocaleLowerCase();
+  const availableStorefronts = (storefrontCandidatesQuery.data ?? [])
+    .flatMap((entry) => entry.products)
+    .filter(
+      (product, index, products) =>
+        product.status === 'active' &&
+        !product.packageId &&
+        !linkedCatalogProductIds.has(product._id) &&
+        products.findIndex((candidate) => candidate._id === product._id) === index &&
+        (!normalizedStorefrontSearch ||
+          getProductSearchText(product).includes(normalizedStorefrontSearch))
+    )
+    .sort(compareProviderProducts);
+
   return (
-    <Sheet isOpen={isOpen} onOpenChange={onOpenChange}>
+    <Sheet isOpen={isOpen} onOpenChange={handleOpenChange}>
       <Sheet.Backdrop variant="blur">
-        <Sheet.Content className="pm-sheet-content mx-auto max-h-[94vh] max-w-[760px]">
-          <Sheet.Dialog className="pm-sheet-dialog">
+        <Sheet.Content
+          className="pm-sheet-content mx-auto max-h-[94vh] max-w-[760px]"
+          aria-label="Product details"
+        >
+          <Sheet.Dialog className="pm-sheet-dialog" aria-label="Product details">
             <Sheet.Handle />
             <Sheet.CloseTrigger />
             <Sheet.Header>
@@ -321,9 +1078,14 @@ function ProductDetailsSheet({
                           <p className="text-foreground text-base font-semibold">
                             {getProductTitle(detailQuery.data)}
                           </p>
-                          <p className="pm-subtle-copy break-all text-sm">
-                            {formatProviderLabel(detailQuery.data.provider)} ·{' '}
-                            {detailQuery.data.providerProductRef}
+                          <p className="pm-subtle-copy break-words text-sm">
+                            {Array.from(
+                              new Set(
+                                getProductStorefronts(detailQuery.data).map((storefront) =>
+                                  formatProviderLabel(storefront.provider)
+                                )
+                              )
+                            ).join(' · ')}
                           </p>
                         </div>
                         {detailQuery.data.status === 'active' ? (
@@ -347,31 +1109,827 @@ function ProductDetailsSheet({
                           {getBuyerAccessUrl(detailQuery.data._id)}
                         </p>
                       </div>
+                      <div className="pm-inline-note flex flex-col gap-3 rounded-[18px] p-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="text-foreground text-sm font-semibold">
+                            Buyer privacy notice
+                          </p>
+                          <p className="pm-subtle-copy mt-1 text-sm leading-6">
+                            Add this sourced notice to your product listing.
+                          </p>
+                        </div>
+                        <YucpButton
+                          yucp="ghost"
+                          size="sm"
+                          isLoading={isCopyingPrivacyNotice}
+                          isDisabled={isCopyingPrivacyNotice}
+                          onPress={() => void copyBuyerPrivacyNotice()}
+                        >
+                          <Icon name="copy" className="size-4" />
+                          {isCopyingPrivacyNotice ? 'Copying...' : 'Copy buyer privacy notice'}
+                        </YucpButton>
+                      </div>
+                    </Card.Content>
+                  </Card>
+
+                  {detailQuery.data.packageId ? (
+                    <Card className="pm-card rounded-2xl shadow-none">
+                      <Card.Header className="p-4 pb-2">
+                        <div className="space-y-1">
+                          <p className="text-foreground text-sm font-semibold">
+                            Linked storefronts
+                          </p>
+                          <p className="pm-subtle-copy text-xs leading-5">
+                            Link listings that sell this same package. Names alone never link
+                            products.
+                          </p>
+                        </div>
+                      </Card.Header>
+                      <Card.Content className="space-y-3 p-4 pt-0">
+                        <div className="space-y-2">
+                          {linkedStorefronts.map((storefront) => {
+                            const providerLabel = formatProviderLabel(storefront.provider);
+                            const isConfirming =
+                              confirmUnlinkStorefrontId === storefront.catalogProductId;
+                            const isUnlinking =
+                              unbindStorefrontMutation.isPending &&
+                              unbindStorefrontMutation.variables === storefront.catalogProductId;
+                            return (
+                              <div
+                                key={storefront.catalogProductId}
+                                className="pm-muted-panel space-y-3 rounded-xl p-3"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-foreground text-sm font-medium">
+                                      {providerLabel}
+                                    </p>
+                                    <p className="pm-subtle-copy mt-1 text-xs">
+                                      {storefront.displayName || storefront.productId}
+                                    </p>
+                                  </div>
+                                  {linkedStorefronts.length > 1 && !isConfirming ? (
+                                    <YucpButton
+                                      yucp="ghost"
+                                      size="sm"
+                                      isDisabled={
+                                        bindStorefrontMutation.isPending ||
+                                        unbindStorefrontMutation.isPending
+                                      }
+                                      aria-label={`Unlink ${providerLabel} storefront`}
+                                      onPress={() =>
+                                        setConfirmUnlinkStorefrontId(storefront.catalogProductId)
+                                      }
+                                    >
+                                      Unlink
+                                    </YucpButton>
+                                  ) : null}
+                                </div>
+                                {isConfirming ? (
+                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
+                                    <div>
+                                      <p className="text-foreground text-sm font-semibold">
+                                        Unlink {providerLabel}?
+                                      </p>
+                                      <p className="pm-subtle-copy mt-1 text-sm leading-6">
+                                        Buyers from this listing stop receiving package access.
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        isDisabled={isUnlinking}
+                                        onPress={() => setConfirmUnlinkStorefrontId(null)}
+                                      >
+                                        Keep linked
+                                      </Button>
+                                      <YucpButton
+                                        size="sm"
+                                        isLoading={isUnlinking}
+                                        aria-label={`Confirm unlink ${providerLabel}`}
+                                        onPress={() =>
+                                          unbindStorefrontMutation.mutate(
+                                            storefront.catalogProductId
+                                          )
+                                        }
+                                      >
+                                        {isUnlinking ? 'Unlinking...' : 'Unlink storefront'}
+                                      </YucpButton>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="pm-field-stack">
+                          <Label className="pm-field-label" htmlFor="storefront-link-search">
+                            Add another storefront
+                          </Label>
+                          <YucpInput
+                            id="storefront-link-search"
+                            aria-label="Search storefronts to link"
+                            placeholder="Search your synced products"
+                            value={storefrontSearch}
+                            onValueChange={setStorefrontSearch}
+                          />
+                        </div>
+                        {storefrontCandidatesQuery.isPending ? (
+                          <output
+                            className="pm-muted-panel block space-y-2 rounded-xl p-3"
+                            aria-label="Loading storefronts"
+                          >
+                            <Skeleton className="h-4 w-2/5 rounded" />
+                            <Skeleton className="h-9 w-full rounded-xl" />
+                          </output>
+                        ) : availableStorefronts.length > 0 ? (
+                          <div className="space-y-2">
+                            {availableStorefronts.slice(0, 8).map((product) => {
+                              const providerLabel = formatProviderLabel(product.provider);
+                              const isLinking =
+                                bindStorefrontMutation.isPending &&
+                                bindStorefrontMutation.variables === product._id;
+                              return (
+                                <div
+                                  key={product._id}
+                                  className="pm-muted-panel flex flex-wrap items-center justify-between gap-3 rounded-xl p-3"
+                                >
+                                  <div>
+                                    <p className="text-foreground text-sm font-medium">
+                                      {getProductTitle(product)}
+                                    </p>
+                                    <p className="pm-subtle-copy mt-1 text-xs">{providerLabel}</p>
+                                  </div>
+                                  <YucpButton
+                                    yucp="secondary"
+                                    size="sm"
+                                    isLoading={isLinking}
+                                    isDisabled={
+                                      bindStorefrontMutation.isPending ||
+                                      unbindStorefrontMutation.isPending
+                                    }
+                                    aria-label={
+                                      isLinking
+                                        ? `Linking ${providerLabel}...`
+                                        : `Link ${providerLabel} storefront`
+                                    }
+                                    onPress={() => bindStorefrontMutation.mutate(product._id)}
+                                  >
+                                    {isLinking ? 'Linking...' : 'Link storefront'}
+                                  </YucpButton>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : storefrontSearch.trim() ? (
+                          <p className="pm-subtle-copy text-sm">
+                            No unlinked storefronts match this search.
+                          </p>
+                        ) : null}
+                      </Card.Content>
+                    </Card>
+                  ) : null}
+
+                  {detailQuery.data.packageId ? (
+                    <Card className="pm-card rounded-2xl shadow-none">
+                      <Card.Header className="flex flex-row items-start justify-between gap-3 p-4 pb-2">
+                        <div className="space-y-1">
+                          <p className="text-foreground text-sm font-semibold">Unity access</p>
+                          <p className="pm-subtle-copy max-w-[58ch] text-xs leading-5">
+                            Create one reusable link for customers who install through VCC.
+                          </p>
+                        </div>
+                        {vccLinkQuery.data?.status === 'active' ? (
+                          <Chip size="sm" variant="soft">
+                            Ready to share
+                          </Chip>
+                        ) : null}
+                      </Card.Header>
+                      <Card.Content className="space-y-3 p-4 pt-0">
+                        <div className="pm-muted-panel space-y-3 rounded-xl p-3">
+                          <div className="space-y-1">
+                            <Label
+                              className="text-foreground text-sm font-medium"
+                              htmlFor="bootstrap-package-name"
+                            >
+                              Package name in Unity
+                            </Label>
+                            <p className="pm-subtle-copy text-xs leading-5">
+                              Customers see this name in VCC and the Unity importer.
+                            </p>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                            <YucpInput
+                              id="bootstrap-package-name"
+                              aria-label="Bootstrap package name"
+                              value={bootstrapPackageName}
+                              onValueChange={setBootstrapPackageName}
+                              isDisabled={saveBootstrapPresentationMutation.isPending}
+                            />
+                            <YucpButton
+                              yucp="secondary"
+                              size="sm"
+                              aria-label="Save bootstrap name"
+                              isLoading={saveBootstrapPresentationMutation.isPending}
+                              isDisabled={
+                                saveBootstrapPresentationMutation.isPending ||
+                                !bootstrapPackageName.trim() ||
+                                bootstrapPackageName.trim() ===
+                                  (detailQuery.data.packageName?.trim() ||
+                                    getProductTitle(detailQuery.data))
+                              }
+                              onPress={() => saveBootstrapPresentationMutation.mutate()}
+                            >
+                              {saveBootstrapPresentationMutation.isPending
+                                ? 'Publishing...'
+                                : 'Save name'}
+                            </YucpButton>
+                          </div>
+                        </div>
+                        {vccLinkQuery.isPending ? (
+                          <output
+                            className="pm-muted-panel grid gap-3 rounded-xl p-3"
+                            aria-label="Loading Unity access"
+                          >
+                            <Skeleton className="h-4 w-2/5 rounded" />
+                            <Skeleton className="h-10 w-full rounded-xl" />
+                          </output>
+                        ) : vccLinkQuery.isError || !vccLinkQuery.data ? (
+                          <div className="space-y-3">
+                            <AccountInlineError message="Could not load Unity access. Try again." />
+                            <YucpButton
+                              yucp="secondary"
+                              isLoading={vccLinkQuery.isFetching}
+                              onPress={() => void vccLinkQuery.refetch()}
+                            >
+                              Retry Unity access
+                            </YucpButton>
+                          </div>
+                        ) : (
+                          <>
+                            {vccLinkQuery.data.status === 'active' ? (
+                              <div className="space-y-3">
+                                <div className="pm-muted-panel grid gap-3 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                                  <div className="min-w-0">
+                                    <p className="text-foreground text-sm font-medium">
+                                      Customer VCC link
+                                    </p>
+                                    <p className="pm-subtle-copy mt-1 truncate text-xs">
+                                      {vccLinkQuery.data.addRepoUrl}
+                                    </p>
+                                  </div>
+                                  <YucpButton
+                                    yucp="secondary"
+                                    size="sm"
+                                    isLoading={copyingUnityLink === 'add'}
+                                    isDisabled={copyingUnityLink !== null}
+                                    onPress={() => copyCurrentUnityLink('add')}
+                                  >
+                                    <Icon name="copy" className="size-4" />
+                                    {copyingUnityLink === 'add' ? 'Copying...' : 'Copy VCC link'}
+                                  </YucpButton>
+                                </div>
+                                <details className="pm-management-details rounded-xl p-3">
+                                  <summary className="text-foreground cursor-pointer text-sm font-medium">
+                                    Manual setup
+                                  </summary>
+                                  <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                                    <p className="pm-subtle-copy min-w-0 break-all text-xs leading-5">
+                                      {vccLinkQuery.data.indexUrl}
+                                    </p>
+                                    <YucpButton
+                                      yucp="ghost"
+                                      size="sm"
+                                      isLoading={copyingUnityLink === 'source'}
+                                      isDisabled={copyingUnityLink !== null}
+                                      onPress={() => copyCurrentUnityLink('source')}
+                                    >
+                                      <Icon name="copy" className="size-4" />
+                                      {copyingUnityLink === 'source'
+                                        ? 'Copying...'
+                                        : 'Copy source URL'}
+                                    </YucpButton>
+                                  </div>
+                                </details>
+                              </div>
+                            ) : (
+                              <div className="pm-muted-panel flex flex-col gap-3 rounded-xl p-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="pm-subtle-copy max-w-[48ch] text-sm leading-6">
+                                  Create the link once. It stays valid until you revoke it.
+                                </p>
+                                <YucpButton
+                                  size="sm"
+                                  isLoading={createVccLinkMutation.isPending}
+                                  onPress={() => createVccLinkMutation.mutate()}
+                                >
+                                  <Icon name="link" className="size-4" />
+                                  {createVccLinkMutation.isPending
+                                    ? 'Creating access...'
+                                    : 'Create Unity access'}
+                                </YucpButton>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                              <a
+                                className="button button--sm button--secondary btn-ghost inline-flex min-h-9 items-center justify-center gap-2 rounded-[10px] px-3"
+                                href={vccLinkQuery.data.bootstrapDownloadUrl}
+                                download
+                              >
+                                <Icon name="download" className="size-4" />
+                                Download bootstrap package
+                              </a>
+                              {vccLinkQuery.data.status === 'active' && !isConfirmingLinkRevoke ? (
+                                <YucpButton
+                                  yucp="ghost"
+                                  size="sm"
+                                  isDisabled={
+                                    createVccLinkMutation.isPending ||
+                                    revokeVccLinkMutation.isPending
+                                  }
+                                  onPress={() => setIsConfirmingLinkRevoke(true)}
+                                >
+                                  Revoke Unity access
+                                </YucpButton>
+                              ) : null}
+                            </div>
+
+                            {vccLinkQuery.data.status === 'active' && isConfirmingLinkRevoke ? (
+                              <div className="pm-inline-note space-y-3 rounded-xl p-3">
+                                <div className="space-y-1">
+                                  <p className="text-foreground text-sm font-semibold">
+                                    Revoke this link?
+                                  </p>
+                                  <p className="pm-subtle-copy text-sm leading-6">
+                                    People who added this link cannot use it again. Installed
+                                    packages stay in their projects.
+                                  </p>
+                                </div>
+                                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    isDisabled={revokeVccLinkMutation.isPending}
+                                    onPress={() => setIsConfirmingLinkRevoke(false)}
+                                  >
+                                    Keep link
+                                  </Button>
+                                  <YucpButton
+                                    yucp="danger"
+                                    size="sm"
+                                    isLoading={revokeVccLinkMutation.isPending}
+                                    onPress={() => revokeVccLinkMutation.mutate()}
+                                  >
+                                    {revokeVccLinkMutation.isPending
+                                      ? 'Revoking...'
+                                      : 'Revoke link'}
+                                  </YucpButton>
+                                </div>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
+                      </Card.Content>
+                    </Card>
+                  ) : null}
+
+                  <Card className="pm-card rounded-2xl shadow-none">
+                    <Card.Header className="flex flex-row items-start justify-between gap-3 p-4 pb-2">
+                      <Card.Title>Package editions</Card.Title>
+                      {!editionEditor ? (
+                        <Button size="sm" variant="outline" onPress={openNewEdition}>
+                          Add edition
+                        </Button>
+                      ) : null}
+                    </Card.Header>
+                    <Card.Content className="space-y-3 p-4 pt-0">
+                      {editionEditor ? (
+                        <div className="pm-inline-note space-y-4 rounded-xl p-3">
+                          <div className="pm-form-grid">
+                            <div className="pm-field-stack">
+                              <p className="pm-field-label">Edition name</p>
+                              <YucpInput
+                                aria-label="Edition name"
+                                placeholder="Commercial"
+                                value={editionEditor.displayName}
+                                onValueChange={(displayName) =>
+                                  setEditionEditor((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          displayName,
+                                          editionId:
+                                            current.isNew && !current.editionId
+                                              ? toEditionId(displayName)
+                                              : current.editionId,
+                                        }
+                                      : current
+                                  )
+                                }
+                              />
+                            </div>
+                            <div className="pm-field-stack">
+                              <p className="pm-field-label">Short name</p>
+                              <YucpInput
+                                aria-label="Edition ID"
+                                placeholder="commercial"
+                                isDisabled={!editionEditor.isNew}
+                                value={editionEditor.editionId}
+                                onValueChange={(editionId) =>
+                                  setEditionEditor((current) =>
+                                    current
+                                      ? { ...current, editionId: toEditionId(editionId) }
+                                      : current
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <p className="text-foreground text-sm font-semibold">Buyer access</p>
+                              <p className="pm-subtle-copy text-xs leading-5">
+                                Select one or more tiers. Leave all tiers clear to include every
+                                buyer of this product.
+                              </p>
+                            </div>
+                            {detailQuery.data.catalogTiers.filter(
+                              (tier) => tier.status === 'active'
+                            ).length > 0 ? (
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {detailQuery.data.catalogTiers
+                                  .filter((tier) => tier.status === 'active')
+                                  .map((tier) => (
+                                    <label
+                                      key={tier._id}
+                                      className="pm-muted-panel flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        className="size-4 shrink-0"
+                                        aria-label={tier.displayName}
+                                        checked={editionEditor.catalogTierIds.includes(tier._id)}
+                                        disabled={saveEditionMutation.isPending}
+                                        onChange={() => toggleEditionTier(tier._id)}
+                                      />
+                                      <span className="min-w-0">
+                                        <span className="text-foreground block truncate text-sm font-medium">
+                                          {tier.displayName}
+                                        </span>
+                                        <span className="pm-subtle-copy block truncate text-xs">
+                                          {formatProviderLabel(tier.provider)}
+                                        </span>
+                                      </span>
+                                    </label>
+                                  ))}
+                              </div>
+                            ) : (
+                              <p className="pm-subtle-copy text-sm">
+                                This product grants access without separate tiers.
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              isDisabled={saveEditionMutation.isPending}
+                              onPress={() => setEditionEditor(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <YucpButton
+                              size="sm"
+                              isLoading={saveEditionMutation.isPending}
+                              isDisabled={
+                                !editionEditor.displayName.trim() || !editionEditor.editionId.trim()
+                              }
+                              onPress={() => saveEditionMutation.mutate()}
+                            >
+                              {saveEditionMutation.isPending
+                                ? editionEditor.isNew
+                                  ? 'Creating edition...'
+                                  : 'Saving edition...'
+                                : editionEditor.isNew
+                                  ? 'Create edition'
+                                  : 'Save edition'}
+                            </YucpButton>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-2">
+                        <div className="pm-muted-panel flex flex-col gap-3 rounded-xl p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-foreground text-sm font-medium">Standard</p>
+                              <Chip size="sm" variant="soft">
+                                Default
+                              </Chip>
+                            </div>
+                          </div>
+                        </div>
+                        {detailQuery.data.packageEditions
+                          ?.filter((edition) => edition.editionId !== 'standard')
+                          .map((edition) => {
+                            const tierNames = edition.catalogTierIds
+                              .map(
+                                (tierId) =>
+                                  detailQuery.data.catalogTiers.find((tier) => tier._id === tierId)
+                                    ?.displayName
+                              )
+                              .filter((name): name is string => Boolean(name));
+                            const isArchiving =
+                              archiveEditionMutation.isPending &&
+                              archiveEditionMutation.variables === edition.editionId;
+                            const isConfirmingArchive =
+                              confirmArchiveEditionId === edition.editionId;
+                            return (
+                              <div
+                                key={edition.editionId}
+                                className="pm-muted-panel space-y-3 rounded-xl p-3"
+                              >
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="text-foreground text-sm font-medium">
+                                        {edition.displayName}
+                                      </p>
+                                      {edition.status === 'archived' ? (
+                                        <Chip size="sm" variant="soft">
+                                          Archived
+                                        </Chip>
+                                      ) : null}
+                                    </div>
+                                    <p className="pm-subtle-copy mt-1 text-xs">
+                                      {tierNames.length > 0
+                                        ? tierNames.join(', ')
+                                        : 'All buyers of this product'}
+                                    </p>
+                                  </div>
+                                  {!isConfirmingArchive ? (
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        isDisabled={
+                                          saveEditionMutation.isPending ||
+                                          archiveEditionMutation.isPending
+                                        }
+                                        aria-label={`Edit edition ${edition.displayName}`}
+                                        onPress={() => openEditionEditor(edition)}
+                                      >
+                                        Edit
+                                      </Button>
+                                      {edition.status === 'active' ? (
+                                        <YucpButton
+                                          yucp="ghost"
+                                          size="sm"
+                                          isDisabled={
+                                            saveEditionMutation.isPending ||
+                                            archiveEditionMutation.isPending
+                                          }
+                                          aria-label={`Archive edition ${edition.displayName}`}
+                                          onPress={() =>
+                                            setConfirmArchiveEditionId(edition.editionId)
+                                          }
+                                        >
+                                          Archive
+                                        </YucpButton>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {isConfirmingArchive ? (
+                                  <div className="pm-inline-note space-y-3 rounded-xl p-3">
+                                    <div className="space-y-1">
+                                      <p className="text-foreground text-sm font-semibold">
+                                        Archive {edition.displayName}?
+                                      </p>
+                                      <p className="pm-subtle-copy text-sm leading-6">
+                                        Buyers stop receiving this edition. Its release records
+                                        remain intact.
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                      <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        isDisabled={isArchiving}
+                                        onPress={() => setConfirmArchiveEditionId(null)}
+                                      >
+                                        Keep edition
+                                      </Button>
+                                      <YucpButton
+                                        size="sm"
+                                        isLoading={isArchiving}
+                                        onPress={() =>
+                                          archiveEditionMutation.mutate(edition.editionId)
+                                        }
+                                      >
+                                        {isArchiving ? 'Archiving edition...' : 'Archive edition'}
+                                      </YucpButton>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        {availableEditions
+                          .filter((edition) => edition.source === 'catalog-tier')
+                          .map((edition) => (
+                            <div
+                              key={edition.editionId}
+                              className="pm-muted-panel flex flex-col gap-3 rounded-xl p-3 sm:flex-row sm:items-center sm:justify-between"
+                            >
+                              <p className="text-foreground text-sm font-medium">
+                                {edition.displayName}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {edition.provider ? (
+                                  <Chip size="sm" variant="soft">
+                                    {formatProviderLabel(edition.provider)}
+                                  </Chip>
+                                ) : null}
+                                <Chip size="sm" variant="soft">
+                                  Synced
+                                </Chip>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
                     </Card.Content>
                   </Card>
 
                   <Card className="pm-card rounded-2xl shadow-none">
-                    <Card.Header className="p-4 pb-2">
-                      <p className="text-foreground text-sm font-semibold">Synced access tiers</p>
+                    <Card.Header className="flex flex-col gap-3 p-4 pb-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div className="space-y-1">
+                        <Card.Title>Release history</Card.Title>
+                        <Card.Description className="max-w-[52ch]">
+                          Review or remove releases for one edition. Shared files remain available
+                          while another release needs them.
+                        </Card.Description>
+                      </div>
+                      <Select
+                        className="min-w-48"
+                        aria-label="Release history edition"
+                        value={selectedHistoryEditionId}
+                        variant="secondary"
+                        onChange={(key) => {
+                          const nextEditionId = String(key ?? '');
+                          if (nextEditionId) {
+                            setConfirmDeleteVersionId(null);
+                            setSelectedHistoryEditionId(nextEditionId);
+                          }
+                        }}
+                      >
+                        <Label>Edition</Label>
+                        <Select.Trigger>
+                          <Select.Value />
+                          <Select.Indicator />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox aria-label="Release history editions">
+                            {historyEditions.map((edition) => (
+                              <ListBox.Item
+                                key={edition.editionId}
+                                id={edition.editionId}
+                                textValue={`${edition.displayName}${
+                                  edition.status === 'archived' ? ' archived' : ''
+                                }`}
+                              >
+                                {edition.displayName}
+                                {edition.status === 'archived' ? ' (archived)' : ''}
+                                <ListBox.ItemIndicator />
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
+                      </Select>
                     </Card.Header>
                     <Card.Content className="space-y-2 p-4 pt-0">
-                      {detailQuery.data.catalogTiers.length > 0 ? (
-                        detailQuery.data.catalogTiers.map((tier) => (
-                          <div key={tier._id} className="pm-muted-panel rounded-xl p-3">
-                            <p className="text-foreground text-sm font-medium">
-                              {tier.displayName}
-                            </p>
-                            <p className="pm-subtle-copy mt-1 text-xs">
-                              {tier.status === 'active' ? 'Active' : 'Archived'} ·{' '}
-                              {tier.providerTierRef}
-                            </p>
-                          </div>
-                        ))
+                      {versionHistoryQuery.isPending ? (
+                        <output aria-label="Loading release history" className="block space-y-2">
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                          <Skeleton className="h-16 w-full rounded-xl" />
+                        </output>
+                      ) : versionHistoryQuery.isError ? (
+                        <div className="space-y-2">
+                          <AccountInlineError message="Could not load release history." />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onPress={() => {
+                              void versionHistoryQuery.refetch();
+                            }}
+                          >
+                            Retry release history
+                          </Button>
+                        </div>
+                      ) : packageVersions.length ? (
+                        packageVersions.map((packageVersion) => {
+                          const isConfirming = confirmDeleteVersionId === packageVersion.versionId;
+                          const isDeleting =
+                            deleteVersionMutation.isPending &&
+                            deleteVersionMutation.variables?.editionId ===
+                              selectedHistoryEditionId &&
+                            deleteVersionMutation.variables?.versionId === packageVersion.versionId;
+                          return (
+                            <div
+                              key={packageVersion.versionId}
+                              className="pm-muted-panel space-y-3 rounded-xl p-3"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-foreground text-sm font-medium">
+                                      {packageVersion.version}
+                                    </p>
+                                    <Chip size="sm" variant="soft">
+                                      {getReleaseStateLabel(packageVersion.state)}
+                                    </Chip>
+                                  </div>
+                                  <p className="pm-subtle-copy mt-1 text-xs">
+                                    Added{' '}
+                                    {new Intl.DateTimeFormat(undefined, {
+                                      dateStyle: 'medium',
+                                    }).format(new Date(packageVersion.createdAt))}
+                                  </p>
+                                </div>
+                                {!isConfirming ? (
+                                  <YucpButton
+                                    yucp="ghost"
+                                    size="sm"
+                                    isDisabled={deleteVersionMutation.isPending}
+                                    onPress={() =>
+                                      setConfirmDeleteVersionId(packageVersion.versionId)
+                                    }
+                                    aria-label={`Delete release ${packageVersion.version}`}
+                                  >
+                                    <Icon name="trash" className="size-4" />
+                                    Delete
+                                  </YucpButton>
+                                ) : null}
+                              </div>
+                              {isConfirming ? (
+                                <div className="pm-inline-note space-y-3 rounded-xl p-3">
+                                  <p className="text-foreground text-sm font-semibold">
+                                    Delete release {packageVersion.version}?
+                                  </p>
+                                  <p className="pm-subtle-copy text-sm leading-6">
+                                    Buyers cannot install this release after deletion. Other
+                                    releases keep every file they still need.
+                                  </p>
+                                  <div className="flex flex-wrap justify-end gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      isDisabled={isDeleting}
+                                      onPress={() => setConfirmDeleteVersionId(null)}
+                                    >
+                                      Keep release
+                                    </Button>
+                                    <YucpButton
+                                      yucp="danger"
+                                      size="sm"
+                                      isLoading={isDeleting}
+                                      onPress={() =>
+                                        deleteVersionMutation.mutate({
+                                          editionId: selectedHistoryEditionId,
+                                          versionId: packageVersion.versionId,
+                                        })
+                                      }
+                                    >
+                                      {isDeleting ? 'Deleting release...' : 'Delete release'}
+                                    </YucpButton>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
                       ) : (
                         <p className="pm-subtle-copy text-sm">
-                          This product grants access at the product level.
+                          No releases are available for this edition.
                         </p>
                       )}
+                      {versionHistoryQuery.hasNextPage ? (
+                        <div className="flex justify-center pt-2">
+                          <YucpButton
+                            yucp="ghost"
+                            size="sm"
+                            isLoading={versionHistoryQuery.isFetchingNextPage}
+                            onPress={() => {
+                              void versionHistoryQuery.fetchNextPage();
+                            }}
+                          >
+                            {versionHistoryQuery.isFetchingNextPage
+                              ? 'Loading more releases...'
+                              : 'Load more releases'}
+                          </YucpButton>
+                        </div>
+                      ) : null}
                     </Card.Content>
                   </Card>
                 </>
@@ -384,27 +1942,43 @@ function ProductDetailsSheet({
   );
 }
 
-export function PackageRegistryPanel({
-  canProtectAssets = false,
-  className = 'bento-col-12',
-  description = 'Pick a product and upload the file.',
-  title = 'Packages',
-}: PackageRegistryPanelProps) {
+export function PackageRegistryPanel({ className = 'bento-col-12' }: PackageRegistryPanelProps) {
   const { contains } = useFilter({ sensitivity: 'base' });
   const queryClient = useQueryClient();
   const toast = useToast();
-  const { canRunPanelQueries, markSessionExpired } = useDashboardSession();
+  const {
+    canRunPanelQueries,
+    markSessionExpired,
+    status: dashboardSessionStatus,
+  } = useDashboardSession();
+  const [initialAcceptedUploadLane] = useState(readAcceptedUploadLane);
+  const preparationAbortControllerRef = useRef<AbortController | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState(
+    initialAcceptedUploadLane?.catalogProductId ?? ''
+  );
   const [detailsProductId, setDetailsProductId] = useState<string | null>(null);
-  const [packageId, setPackageId] = useState('');
-  const [version, setVersion] = useState('');
-  const [selectedUpload, setSelectedUpload] = useState<SelectedUpload | null>(null);
+  const [editionId, setEditionId] = useState(initialAcceptedUploadLane?.editionId ?? 'standard');
+  const [packageId, setPackageId] = useState(initialAcceptedUploadLane?.packageId ?? '');
+  const [version, setVersion] = useState(initialAcceptedUploadLane?.version ?? '');
+  const [selectedUpload, setSelectedUpload] = useState<SelectedUpload | null>(
+    initialAcceptedUploadLane
+      ? {
+          catalogProductId: initialAcceptedUploadLane.catalogProductId,
+          editionId: initialAcceptedUploadLane.editionId,
+          fileName: initialAcceptedUploadLane.fileName,
+          fileSize: initialAcceptedUploadLane.fileSize,
+          packageId: initialAcceptedUploadLane.packageId,
+          progress: initialAcceptedUploadLane.progress,
+          status: initialAcceptedUploadLane.status,
+          versionId: initialAcceptedUploadLane.versionId,
+        }
+      : null
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [copyingProductId, setCopyingProductId] = useState<string | null>(null);
-  const [protectSupportedAssets, setProtectSupportedAssets] = useState(canProtectAssets);
 
   const productsQuery = useInfiniteQuery({
     queryKey: creatorProductsQueryKey,
@@ -435,6 +2009,46 @@ export function PackageRegistryPanel({
     }
   }, [markSessionExpired, pickerQuery.error]);
 
+  useEffect(() => {
+    return () => {
+      preparationAbortControllerRef.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (dashboardSessionStatus === 'signed_out' && typeof window !== 'undefined') {
+      window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+    }
+  }, [dashboardSessionStatus]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (
+      selectedUpload?.versionId &&
+      selectedUpload.catalogProductId &&
+      selectedUpload.editionId &&
+      selectedUpload.packageId &&
+      selectedUpload.status !== 'ready' &&
+      selectedUpload.status !== 'complete' &&
+      (selectedUpload.status !== 'uploading' || Boolean(selectedUpload.versionId))
+    ) {
+      const persisted: PersistedAcceptedUploadLane = {
+        catalogProductId: selectedUpload.catalogProductId,
+        editionId: selectedUpload.editionId,
+        fileName: selectedUpload.fileName,
+        fileSize: selectedUpload.fileSize,
+        packageId: selectedUpload.packageId,
+        progress: selectedUpload.progress,
+        status: selectedUpload.status,
+        version,
+        versionId: selectedUpload.versionId,
+      };
+      window.sessionStorage.setItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY, JSON.stringify(persisted));
+      return;
+    }
+    window.sessionStorage.removeItem(ACCEPTED_UPLOAD_LANE_STORAGE_KEY);
+  }, [selectedUpload, version]);
+
   const products = useMemo(
     () =>
       [...(productsQuery.data?.pages.flatMap((page) => page.data) ?? [])].sort((left, right) =>
@@ -460,13 +2074,21 @@ export function PackageRegistryPanel({
     getPickerProduct(selectedPickerEntry, selectedProductId) ??
     products.find((product) => product._id === selectedProductId) ??
     null;
+  const uploadEditionOptions = useMemo(
+    () => (selectedProduct ? getCreatorPackageEditionOptions(selectedProduct) : []),
+    [selectedProduct]
+  );
+  const selectedUploadEdition = uploadEditionOptions.find(
+    (candidate) => candidate.editionId === editionId
+  );
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
       const normalizedPackageId = packageId.trim();
       const normalizedVersion = version.trim();
+      const selectedEditionId = editionId;
       if (!selectedProduct) {
-        throw new Error('Choose the catalog product this package belongs to.');
+        throw new Error('Choose the product this package belongs to.');
       }
       if (!/^[a-z0-9\-_./:]{1,128}$/.test(normalizedPackageId)) {
         throw new Error(
@@ -474,63 +2096,241 @@ export function PackageRegistryPanel({
         );
       }
       if (!normalizedVersion) {
-        throw new Error('Enter the package version.');
+        throw new Error('Enter a release label.');
       }
       if (!selectedUpload?.file) {
         throw new Error('Choose a package file.');
       }
 
+      setFormError(null);
       setSelectedUpload((current) =>
         current
-          ? { ...current, status: 'uploading', progress: 0, errorMessage: undefined }
+          ? {
+              ...current,
+              editionId: selectedEditionId,
+              status: 'uploading',
+              progress: 0,
+              errorMessage: undefined,
+            }
           : current
       );
-      await uploadPackageAndWait({
+      const readyProduct = await uploadPackageAndWait({
+        ...(selectedUploadEdition?.catalogTierId
+          ? { catalogTierId: selectedUploadEdition.catalogTierId }
+          : {}),
+        editionId: selectedEditionId,
         file: selectedUpload.file,
         packageId: normalizedPackageId,
         version: normalizedVersion,
-        catalogProductId: selectedProduct._id,
+        catalogProductIds: getPickerCatalogProductIds(selectedPickerEntry, selectedProduct),
         onProgress: (progress) =>
+          setSelectedUpload((current) => {
+            const roundedProgress = Math.round(progress);
+            return current
+              ? {
+                  ...current,
+                  progress: roundedProgress,
+                  status: roundedProgress >= 100 ? 'preparing' : 'uploading',
+                }
+              : current;
+          }),
+        onAccepted: (versionId) =>
           setSelectedUpload((current) =>
-            current ? { ...current, progress: Math.round(progress) } : current
+            current
+              ? {
+                  ...current,
+                  catalogProductId: selectedProduct._id,
+                  editionId: selectedEditionId,
+                  packageId: normalizedPackageId,
+                  progress: 100,
+                  status: 'queued',
+                  versionId,
+                }
+              : current
           ),
-        protectionPolicyId: protectSupportedAssets
-          ? 'supported-visual-assets-v2'
-          : 'common-only-v1',
+      }).then((versionId) => {
+        preparationAbortControllerRef.current?.abort();
+        const controller = new AbortController();
+        preparationAbortControllerRef.current = controller;
+        return waitForPackageVersionReady(
+          selectedProduct._id,
+          normalizedPackageId,
+          selectedEditionId,
+          versionId,
+          (status) =>
+            setSelectedUpload((current) =>
+              current ? { ...current, status, errorMessage: undefined } : current
+            ),
+          controller.signal
+        ).finally(() => {
+          if (preparationAbortControllerRef.current === controller) {
+            preparationAbortControllerRef.current = null;
+          }
+        });
       });
+      if (readyProduct) {
+        setSelectedUpload((current) =>
+          current
+            ? { ...current, status: 'complete', progress: 100, errorMessage: undefined }
+            : current
+        );
+      }
+      return readyProduct;
     },
-    onSuccess: async () => {
-      setSelectedUpload((current) =>
-        current ? { ...current, status: 'complete', progress: 100 } : current
-      );
+    onSuccess: async (readyProduct) => {
       setFormError(null);
+      if (!readyProduct) {
+        toast.info('Package received', {
+          description: 'Preparation is still in progress. You can check its status at any time.',
+        });
+        return;
+      }
+      queryClient.setQueryData(['creator-package-product', readyProduct._id], readyProduct);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
         queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
       ]);
-      toast.success('Package uploaded', {
-        description: 'The desync pipeline is preparing the new version for delivery.',
-      });
+      toast.success('Package uploaded');
     },
     onError: (error) => {
-      const message = error instanceof Error ? error.message : 'Package upload failed.';
+      if (error instanceof PackageVersionStatusCheckError) {
+        const message = error.message;
+        if (isDashboardAuthError(error.cause)) {
+          markSessionExpired();
+        }
+        setFormError(message);
+        setSelectedUpload((current) =>
+          current?.versionId ? { ...current, errorMessage: message } : current
+        );
+        toast.warning('Status check interrupted', { description: message });
+        return;
+      }
+      const message = getFriendlyUploadError(error);
+      setFormError(message);
+      setSelectedUpload((current) =>
+        current
+          ? current.versionId
+            ? { ...current, status: 'uploading', errorMessage: message }
+            : { ...current, status: 'failed', errorMessage: message }
+          : current
+      );
+      toast.error('Upload interrupted', { description: message });
+    },
+  });
+
+  const preparationStatusMutation = useMutation({
+    onMutate: () => {
+      setFormError(null);
+      setSelectedUpload((current) =>
+        current?.versionId ? { ...current, errorMessage: undefined } : current
+      );
+    },
+    mutationFn: async () => {
+      const upload = selectedUpload;
+      if (
+        !upload?.catalogProductId ||
+        !upload.editionId ||
+        !upload.packageId ||
+        !upload.versionId ||
+        !isServerProcessingStatus(upload.status)
+      ) {
+        throw new Error('This package has no preparation status to check.');
+      }
+      preparationAbortControllerRef.current?.abort();
+      const controller = new AbortController();
+      preparationAbortControllerRef.current = controller;
+      return await waitForPackageVersionReady(
+        upload.catalogProductId,
+        upload.packageId,
+        upload.editionId,
+        upload.versionId,
+        (status) =>
+          setSelectedUpload((current) =>
+            current && current.versionId === upload.versionId
+              ? { ...current, status, errorMessage: undefined }
+              : current
+          ),
+        controller.signal
+      ).finally(() => {
+        if (preparationAbortControllerRef.current === controller) {
+          preparationAbortControllerRef.current = null;
+        }
+      });
+    },
+    onSuccess: async (readyProduct) => {
+      setFormError(null);
+      if (!readyProduct) {
+        toast.info('Preparation continues', {
+          description: 'The package is safe on the server. Check again later.',
+        });
+        return;
+      }
+      setSelectedUpload((current) =>
+        current
+          ? { ...current, status: 'complete', progress: 100, errorMessage: undefined }
+          : current
+      );
+      queryClient.setQueryData(['creator-package-product', readyProduct._id], readyProduct);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: creatorProductsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: creatorProductPickerQueryKey }),
+      ]);
+      toast.success('Package ready');
+    },
+    onError: (error) => {
+      if (error instanceof PackageVersionStatusCheckError) {
+        const message = error.message;
+        if (isDashboardAuthError(error.cause)) {
+          markSessionExpired();
+        }
+        setFormError(message);
+        setSelectedUpload((current) =>
+          current?.versionId ? { ...current, errorMessage: message } : current
+        );
+        toast.warning('Status check interrupted', { description: message });
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : 'We could not check this package version.';
       setFormError(message);
       setSelectedUpload((current) =>
         current ? { ...current, status: 'failed', errorMessage: message } : current
       );
-      toast.error('Could not upload package', { description: message });
+      toast.error('Could not prepare package', { description: message });
     },
   });
 
   function openUpload(product?: CreatorPackageProductSummary) {
+    const hasDraft = Boolean(
+      selectedProductId ||
+        editionId !== 'standard' ||
+        packageId.trim() ||
+        version.trim() ||
+        selectedUpload ||
+        formError
+    );
+    if (uploadMutation.isPending || (hasDraft && (!product || product._id === selectedProductId))) {
+      setIsUploadOpen(true);
+      return;
+    }
     setSelectedProductId(product?._id ?? '');
+    setEditionId('standard');
     setPackageId(product?.packageId ?? '');
     setVersion('');
     setSelectedUpload(null);
     setFormError(null);
-    setProtectSupportedAssets(canProtectAssets);
     setIsDetailsOpen(false);
     setIsUploadOpen(true);
+  }
+
+  function resetUploadDraft(): void {
+    if (uploadMutation.isPending) return;
+    setSelectedProductId('');
+    setEditionId('standard');
+    setPackageId('');
+    setVersion('');
+    setSelectedUpload(null);
+    setFormError(null);
   }
 
   function selectUploadFile(file: File | null) {
@@ -545,7 +2345,13 @@ export function PackageRegistryPanel({
       return;
     }
     setFormError(null);
-    setSelectedUpload({ file, progress: 0, status: 'ready' });
+    setSelectedUpload({
+      file,
+      fileName: file.name,
+      fileSize: file.size,
+      progress: 0,
+      status: 'ready',
+    });
   }
 
   async function handleDrop(event: {
@@ -573,14 +2379,10 @@ export function PackageRegistryPanel({
   return (
     <section className={className}>
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="max-w-[64ch] space-y-1.5">
-            <h2 className="text-foreground text-[2rem] font-semibold leading-tight">{title}</h2>
-            <p className="pm-copy text-sm leading-6">{description}</p>
-          </div>
+        <div className="flex justify-end">
           <Button
             variant="outline"
-            className="pm-upload-button self-start rounded-full px-4 md:self-auto"
+            className="pm-upload-button rounded-full px-4"
             onPress={() => openUpload()}
           >
             <Icon name="upload" className="size-4" />
@@ -590,7 +2392,7 @@ export function PackageRegistryPanel({
 
         {productsQuery.isError ? (
           <div className="space-y-3">
-            <AccountInlineError message="Failed to load the creator catalog from the current registry API." />
+            <AccountInlineError message="Could not load your products." />
             <YucpButton
               yucp="secondary"
               isLoading={productsQuery.isFetching}
@@ -601,6 +2403,33 @@ export function PackageRegistryPanel({
           </div>
         ) : null}
 
+        {!isUploadOpen &&
+        selectedUpload &&
+        (selectedUpload.status === 'uploading' ||
+          isServerProcessingStatus(selectedUpload.status) ||
+          selectedUpload.status === 'failed') ? (
+          <Card className="pm-card rounded-2xl shadow-none" aria-live="polite">
+            <Card.Content className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-foreground truncate text-sm font-semibold">
+                  {getUploadHeadline(selectedUpload)}
+                </p>
+                <p className="pm-subtle-copy mt-1 text-sm">
+                  {getUploadSupportingCopy(selectedUpload)}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onPress={() => setIsUploadOpen(true)}
+              >
+                View upload
+              </Button>
+            </Card.Content>
+          </Card>
+        ) : null}
+
         {productsQuery.isPending ? (
           <PackageRegistryWorkspaceSkeleton
             showHeader={false}
@@ -609,29 +2438,10 @@ export function PackageRegistryPanel({
           />
         ) : !productsQuery.isError ? (
           <Card className="pm-card pm-primary-panel rounded-2xl shadow-none">
-            <Card.Header className="flex flex-col gap-3 p-4 pb-2">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Icon name="link" className="text-primary size-6" />
-                  <p className="text-foreground text-lg font-semibold">
-                    Products ready for an update
-                  </p>
-                </div>
-                <p className="pm-copy max-w-[52ch] text-sm leading-6">
-                  Choose a synced product, upload its new package file, and share the matching YUCP
-                  access page with buyers.
-                </p>
-              </div>
+            <Card.Header className="p-4 pb-2">
+              <Card.Title>Products</Card.Title>
             </Card.Header>
             <Card.Content className="space-y-4 p-4 pt-0">
-              <div className="pm-inline-note rounded-[18px] p-3">
-                <p className="text-foreground text-sm font-semibold">Customer setup steps</p>
-                <p className="pm-subtle-copy mt-1 text-sm leading-6">
-                  Share the YUCP access page in your store delivery notes. Buyers sign in, verify
-                  their purchase, then add their private repository to VCC.
-                </p>
-              </div>
-
               {products.length > 0 ? (
                 <div className="space-y-3">
                   <div className="relative max-w-md">
@@ -640,7 +2450,7 @@ export function PackageRegistryPanel({
                       className="pm-subtle-copy pointer-events-none absolute top-1/2 left-3 z-10 size-4 -translate-y-1/2"
                     />
                     <YucpInput
-                      aria-label="Search catalog products"
+                      aria-label="Search uploaded products"
                       className="w-full pl-9"
                       placeholder="Find a product"
                       value={searchQuery}
@@ -662,7 +2472,7 @@ export function PackageRegistryPanel({
                   ))}
                   {filteredProducts.length === 0 ? (
                     <p className="pm-muted-panel pm-subtle-copy rounded-2xl p-4 text-sm">
-                      No catalog products match that search.
+                      No products match that search.
                     </p>
                   ) : null}
                 </div>
@@ -705,29 +2515,20 @@ export function PackageRegistryPanel({
 
       <Sheet isDetached isOpen={isUploadOpen} onOpenChange={setIsUploadOpen}>
         <Sheet.Backdrop variant="blur">
-          <Sheet.Content className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]">
-            <Sheet.Dialog className="pm-sheet-dialog">
+          <Sheet.Content
+            className="pm-sheet-content pm-publish-sheet-content mx-auto max-h-[calc(100svh-48px)] max-w-[680px]"
+            aria-label="Upload a package"
+          >
+            <Sheet.Dialog className="pm-sheet-dialog" aria-label="Upload a package">
               <Sheet.Handle />
               <Sheet.CloseTrigger />
               <Sheet.Header className="pm-sheet-header">
                 <Sheet.Heading>Upload a package</Sheet.Heading>
-                <p className="pm-copy text-sm leading-6">
-                  Pick the product, add the file, and send it through resumable storage.
-                </p>
               </Sheet.Header>
               <Sheet.Body className="pm-publish-sheet-body space-y-5">
                 <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
-                  <div className="space-y-1">
-                    <p className="text-foreground text-sm font-semibold">Product</p>
-                    <p className="pm-subtle-copy text-sm">
-                      The resulting version will be bound to this catalog product for buyer access.
-                    </p>
-                  </div>
                   {pickerQuery.isPending ? (
-                    <Skeleton
-                      aria-label="Loading catalog products"
-                      className="h-11 w-full rounded-xl"
-                    />
+                    <Skeleton aria-label="Loading products" className="h-11 w-full rounded-xl" />
                   ) : pickerQuery.isError ? (
                     <div className="space-y-3">
                       <AccountInlineError message="Failed to load products available for upload." />
@@ -741,11 +2542,10 @@ export function PackageRegistryPanel({
                     </div>
                   ) : pickerProducts.length === 0 ? (
                     <p className="pm-muted-panel pm-subtle-copy rounded-xl p-3 text-sm">
-                      No active catalog products are available for upload.
+                      No active products are available for upload.
                     </p>
                   ) : (
                     <Autocomplete
-                      aria-label="Catalog product"
                       className="pm-package-picker w-full"
                       placeholder="Choose a product"
                       selectionMode="single"
@@ -756,94 +2556,113 @@ export function PackageRegistryPanel({
                         );
                         const product = getPickerProduct(entry);
                         setSelectedProductId(product?._id ?? '');
+                        setEditionId('standard');
                         setPackageId(product?.packageId ?? '');
                       }}
                       onClear={() => {
                         setSelectedProductId('');
+                        setEditionId('standard');
                         setPackageId('');
                       }}
                     >
+                      <Label className="sr-only">Product</Label>
                       <Autocomplete.Trigger>
                         <Autocomplete.Value />
                         <Autocomplete.ClearButton />
                         <Autocomplete.Indicator />
                       </Autocomplete.Trigger>
-                      <Autocomplete.Popover className="pm-package-picker-popover">
-                        <Autocomplete.Filter filter={contains}>
-                          <SearchField autoFocus name="package-product-search" variant="secondary">
-                            <SearchField.Group>
-                              <SearchField.SearchIcon />
-                              <SearchField.Input
-                                aria-label="Search products"
-                                placeholder="Search products..."
-                              />
-                              <SearchField.ClearButton />
-                            </SearchField.Group>
-                          </SearchField>
-                          <ListBox
-                            renderEmptyState={() => (
-                              <div className="pm-subtle-copy px-3 py-2 text-sm">
-                                No products match that search.
-                              </div>
-                            )}
-                          >
-                            {pickerProducts.map((entry) => {
-                              const product = getPickerProduct(entry);
-                              if (!product) return null;
-                              return (
-                                <ListBox.Item
-                                  key={entry.identityKey}
-                                  id={entry.identityKey}
-                                  textValue={entry.products.map(getProductSearchText).join(' ')}
-                                >
-                                  <div className="flex flex-col">
-                                    <span>{getProductTitle(product)}</span>
-                                    <span className="pm-subtle-copy text-xs">
-                                      {getPickerProviderLabel(entry)}
-                                    </span>
-                                  </div>
-                                  <ListBox.ItemIndicator />
-                                </ListBox.Item>
-                              );
-                            })}
-                          </ListBox>
-                        </Autocomplete.Filter>
-                      </Autocomplete.Popover>
+                      <DialogContext.Provider value={{ 'aria-label': 'Choose a product' }}>
+                        <Autocomplete.Popover className="pm-package-picker-popover">
+                          <Heading className="sr-only" slot="title">
+                            Choose a product
+                          </Heading>
+                          <Autocomplete.Filter filter={contains}>
+                            <SearchField
+                              autoFocus
+                              name="package-product-search"
+                              variant="secondary"
+                            >
+                              <Label className="sr-only">Search products</Label>
+                              <SearchField.Group>
+                                <SearchField.SearchIcon />
+                                <SearchField.Input
+                                  aria-label="Search products"
+                                  placeholder="Search products..."
+                                />
+                                <SearchField.ClearButton />
+                              </SearchField.Group>
+                            </SearchField>
+                            <ListBox
+                              aria-label="Products available for upload"
+                              renderEmptyState={() => (
+                                <div className="pm-subtle-copy px-3 py-2 text-sm">
+                                  No products match that search.
+                                </div>
+                              )}
+                            >
+                              {pickerProducts.map((entry) => {
+                                const product = getPickerProduct(entry);
+                                if (!product) return null;
+                                return (
+                                  <ListBox.Item
+                                    key={entry.identityKey}
+                                    id={entry.identityKey}
+                                    textValue={entry.products.map(getProductSearchText).join(' ')}
+                                  >
+                                    <div className="flex flex-col">
+                                      <span>{getProductTitle(product)}</span>
+                                      <span className="pm-subtle-copy text-xs">
+                                        {getPickerProviderLabel(entry)}
+                                      </span>
+                                    </div>
+                                    <ListBox.ItemIndicator />
+                                  </ListBox.Item>
+                                );
+                              })}
+                            </ListBox>
+                          </Autocomplete.Filter>
+                        </Autocomplete.Popover>
+                      </DialogContext.Provider>
                     </Autocomplete>
                   )}
                 </div>
 
-                <div className="pm-sheet-section space-y-3 rounded-[20px] p-4">
-                  <div className="space-y-1">
-                    <p className="text-foreground text-sm font-semibold">Server protection</p>
-                    <p className="pm-subtle-copy text-sm leading-6">
-                      The Linux materializer protects supported PNG and FBX files, including copies
-                      inside ZIP archives. Other files remain byte-exact.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Switch
-                      aria-label="Protect supported visual assets"
-                      isDisabled={!canProtectAssets || uploadMutation.isPending}
-                      isSelected={canProtectAssets && protectSupportedAssets}
-                      onChange={() => setProtectSupportedAssets((current) => !current)}
-                    >
-                      <Switch.Control>
-                        <Switch.Thumb />
-                      </Switch.Control>
-                    </Switch>
-                    <span className="text-foreground text-sm font-medium">
-                      Protect supported visual assets
-                    </span>
-                  </div>
-                  {!canProtectAssets ? (
-                    <p className="pm-subtle-copy text-xs">
-                      Your current plan does not include protected exports.
-                    </p>
-                  ) : null}
-                </div>
-
                 <div className="pm-sheet-section space-y-4 rounded-[20px] p-4">
+                  <Select
+                    className="w-full"
+                    aria-label="Package edition"
+                    isDisabled={uploadMutation.isPending || !selectedProduct}
+                    value={editionId}
+                    onChange={(key) => setEditionId(String(key ?? 'standard'))}
+                    variant="secondary"
+                  >
+                    <Label>Package edition</Label>
+                    <Select.Trigger>
+                      <Select.Value />
+                      <Select.Indicator />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox aria-label="Package editions">
+                        {uploadEditionOptions.map((edition) => (
+                          <ListBox.Item
+                            key={edition.editionId}
+                            id={edition.editionId}
+                            textValue={`${edition.displayName} ${edition.provider ?? ''}`}
+                          >
+                            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                              <span className="truncate">{edition.displayName}</span>
+                              {edition.provider ? (
+                                <span className="text-muted text-xs">
+                                  {formatProviderLabel(edition.provider)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <ListBox.ItemIndicator />
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
+                  </Select>
                   <div className="pm-form-grid">
                     <div className="pm-field-stack">
                       <p className="pm-field-label">Registered install ID</p>
@@ -855,21 +2674,14 @@ export function PackageRegistryPanel({
                       />
                     </div>
                     <div className="pm-field-stack">
-                      <p className="pm-field-label">Version</p>
+                      <p className="pm-field-label">Release label</p>
                       <YucpInput
-                        aria-label="Version"
-                        placeholder="1.0.0"
+                        aria-label="Release label"
+                        placeholder="Summer launch"
                         value={version}
                         onValueChange={setVersion}
                       />
                     </div>
-                  </div>
-                  <div className="pm-inline-note rounded-[18px] p-3">
-                    <p className="text-foreground text-sm font-semibold">Ownership check</p>
-                    <p className="pm-subtle-copy mt-1 text-sm leading-6">
-                      Upload authorization verifies this install ID against the package registry and
-                      confirms that the selected product belongs to your Creator Identity.
-                    </p>
                   </div>
                 </div>
 
@@ -903,38 +2715,68 @@ export function PackageRegistryPanel({
                         <DropZone.FileList>
                           <DropZone.FileItem
                             status={
-                              selectedUpload.status === 'ready' ? 'complete' : selectedUpload.status
+                              selectedUpload.status === 'ready'
+                                ? 'complete'
+                                : isServerProcessingStatus(selectedUpload.status)
+                                  ? 'uploading'
+                                  : selectedUpload.status
                             }
                           >
                             <DropZone.FileFormatIcon
-                              color={getPackageFilePresentation(selectedUpload.file.name).color}
-                              format={getPackageFilePresentation(selectedUpload.file.name).format}
+                              color={getPackageFilePresentation(selectedUpload.fileName).color}
+                              format={getPackageFilePresentation(selectedUpload.fileName).format}
                             />
                             <DropZone.FileInfo>
-                              <DropZone.FileName>{selectedUpload.file.name}</DropZone.FileName>
+                              <DropZone.FileName>{selectedUpload.fileName}</DropZone.FileName>
                               <DropZone.FileMeta>
-                                {formatFileSize(selectedUpload.file.size)} ·{' '}
+                                {formatFileSize(selectedUpload.fileSize)} ·{' '}
                                 {selectedUpload.status === 'ready'
                                   ? 'Ready to upload'
                                   : selectedUpload.status === 'uploading'
-                                    ? `Uploading ${selectedUpload.progress}%`
-                                    : selectedUpload.status === 'complete'
-                                      ? 'Upload complete'
-                                      : 'Upload failed'}
+                                    ? selectedUpload.progress >= 100
+                                      ? 'Confirming package'
+                                      : `Uploading ${selectedUpload.progress}%`
+                                    : selectedUpload.status === 'queued'
+                                      ? 'Waiting for preparation'
+                                      : selectedUpload.status === 'preparing'
+                                        ? 'Preparing version'
+                                        : selectedUpload.status === 'publishing'
+                                          ? 'Publishing version'
+                                          : selectedUpload.status === 'complete'
+                                            ? 'Version ready'
+                                            : 'Upload failed'}
                               </DropZone.FileMeta>
-                              {selectedUpload.status === 'uploading' ? (
+                              {selectedUpload.status === 'uploading' &&
+                              !selectedUpload.versionId ? (
                                 <DropZone.FileProgress value={selectedUpload.progress}>
                                   <DropZone.FileProgressTrack>
                                     <DropZone.FileProgressFill />
                                   </DropZone.FileProgressTrack>
                                 </DropZone.FileProgress>
                               ) : null}
+                              {isServerProcessingStatus(selectedUpload.status) ? (
+                                <output className="pm-subtle-copy mt-2 flex items-center gap-2 text-xs">
+                                  <span className="btn-loading-spinner" aria-hidden="true" />
+                                  {selectedUpload.status === 'uploading'
+                                    ? selectedUpload.progress >= 100
+                                      ? 'Confirming package...'
+                                      : `Uploading package: ${selectedUpload.progress}%`
+                                    : selectedUpload.status === 'queued'
+                                      ? 'Waiting for preparation...'
+                                      : selectedUpload.status === 'preparing'
+                                        ? 'Preparing version...'
+                                        : 'Publishing version...'}
+                                </output>
+                              ) : null}
                               {selectedUpload.errorMessage ? (
                                 <DropZone.FileMeta>{selectedUpload.errorMessage}</DropZone.FileMeta>
                               ) : null}
                             </DropZone.FileInfo>
                             <DropZone.FileRemoveTrigger
-                              aria-label={`Remove ${selectedUpload.file.name}`}
+                              aria-label={`Remove ${selectedUpload.fileName}`}
+                              isDisabled={
+                                uploadMutation.isPending || Boolean(selectedUpload.versionId)
+                              }
                               onPress={() => setSelectedUpload(null)}
                             />
                           </DropZone.FileItem>
@@ -948,22 +2790,68 @@ export function PackageRegistryPanel({
               </Sheet.Body>
               <Sheet.Footer className="pm-sheet-footer">
                 <Sheet.Close>
-                  <Button variant="secondary">Cancel</Button>
+                  <Button variant="secondary">
+                    {uploadMutation.isPending ? 'Close' : 'Cancel'}
+                  </Button>
                 </Sheet.Close>
-                <YucpButton
-                  isLoading={uploadMutation.isPending}
-                  isDisabled={
-                    uploadMutation.isPending ||
-                    !selectedProduct ||
-                    !packageId.trim() ||
-                    !version.trim() ||
-                    !selectedUpload?.file
-                  }
-                  onPress={() => uploadMutation.mutate()}
-                >
-                  <Icon name="upload" className="size-4" />
-                  {uploadMutation.isPending ? 'Uploading package...' : 'Upload package'}
-                </YucpButton>
+                {selectedUpload?.status === 'complete' ? (
+                  <Button variant="outline" onPress={resetUploadDraft}>
+                    Upload another version
+                  </Button>
+                ) : selectedUpload?.versionId &&
+                  isServerProcessingStatus(selectedUpload.status) &&
+                  !uploadMutation.isPending ? (
+                  <>
+                    {selectedUpload.file ? (
+                      <YucpButton
+                        isLoading={uploadMutation.isPending}
+                        isDisabled={preparationStatusMutation.isPending}
+                        onPress={() => uploadMutation.mutate()}
+                      >
+                        <Icon name="upload" className="size-4" />
+                        Retry upload
+                      </YucpButton>
+                    ) : null}
+                    <YucpButton
+                      yucp={selectedUpload.file ? 'secondary' : 'primary'}
+                      isLoading={preparationStatusMutation.isPending}
+                      isDisabled={preparationStatusMutation.isPending}
+                      onPress={() => preparationStatusMutation.mutate()}
+                    >
+                      <Icon name="refresh" className="size-4" />
+                      {preparationStatusMutation.isPending
+                        ? 'Checking package status...'
+                        : 'Check package status'}
+                    </YucpButton>
+                  </>
+                ) : selectedUpload?.versionId && selectedUpload.status === 'failed' ? (
+                  <Button variant="outline" isDisabled>
+                    Preparation failed
+                  </Button>
+                ) : (
+                  <YucpButton
+                    isLoading={uploadMutation.isPending}
+                    isDisabled={
+                      uploadMutation.isPending ||
+                      !selectedProduct ||
+                      !packageId.trim() ||
+                      !version.trim() ||
+                      !selectedUpload?.file
+                    }
+                    onPress={() => uploadMutation.mutate()}
+                  >
+                    <Icon name="upload" className="size-4" />
+                    {uploadMutation.isPending
+                      ? selectedUpload?.status === 'uploading'
+                        ? 'Uploading package...'
+                        : 'Preparing package...'
+                      : selectedUpload?.versionId && isServerProcessingStatus(selectedUpload.status)
+                        ? 'Finishing package...'
+                        : selectedUpload?.status === 'failed'
+                          ? 'Retry upload'
+                          : 'Upload package'}
+                  </YucpButton>
+                )}
               </Sheet.Footer>
             </Sheet.Dialog>
           </Sheet.Content>

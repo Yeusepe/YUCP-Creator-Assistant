@@ -189,6 +189,39 @@ describe('verify purchase route', () => {
     expect(await screen.findByText(/gumroad-alt/i)).toBeInTheDocument();
   });
 
+  it('does not expose raw provider account identifiers or delivery grant terms', async () => {
+    vi.mocked(dashboardApi.listUserAccounts).mockResolvedValue([
+      {
+        id: 'gumroad-link-raw',
+        provider: 'gumroad',
+        label: '',
+        connectionType: 'verification',
+        status: 'active',
+        webhookConfigured: false,
+        hasApiKey: false,
+        hasAccessToken: false,
+        providerUserId: 'raw-provider-user-1738',
+        providerUsername: null,
+        verificationMethod: 'account_link',
+        linkedAt: 10,
+        lastValidatedAt: 12,
+        expiresAt: null,
+        createdAt: 10,
+        updatedAt: 12,
+      },
+    ]);
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Connected store account')).toBeInTheDocument();
+    expect(screen.queryByText('raw-provider-user-1738')).not.toBeInTheDocument();
+    expect(screen.queryByText(/verification grant/i)).not.toBeInTheDocument();
+  });
+
   it('shows a loading button while linked accounts are still loading', async () => {
     const deferredAccounts =
       createDeferred<Awaited<ReturnType<typeof dashboardApi.listUserAccounts>>>();
@@ -611,6 +644,43 @@ describe('verify purchase route', () => {
     fireEvent.click(screen.getByRole('button', { name: /cancel auto-return/i }));
     expect(screen.queryByText(/returning to unity in/i)).not.toBeInTheDocument();
     vi.advanceTimersByTime(5_000);
+  });
+
+  it('shows a polished Unity handoff when a verified intent has no callback', async () => {
+    mockUseSearch.mockReturnValue({
+      intent: 'intent_verified_without_callback',
+      connected: undefined,
+    });
+
+    vi.mocked(accountApi.getUserVerificationIntent).mockResolvedValue({
+      object: 'verification_intent',
+      id: 'intent_verified_without_callback',
+      packageId: 'pkg-verified-without-callback',
+      packageName: 'Verified Package',
+      status: 'verified',
+      verificationUrl: '/verify/purchase?intent=intent_verified_without_callback',
+      returnUrl: null,
+      requirements: [],
+      verifiedMethodKey: 'gumroad-oauth',
+      errorCode: null,
+      errorMessage: null,
+      grantToken: null,
+      grantAvailable: false,
+      expiresAt: Date.now() + 60_000,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const Component = VerifyPurchaseRoute.options.component;
+    if (!Component) {
+      throw new Error('Verify purchase route component is not defined');
+    }
+
+    render(<Component />, { wrapper: createWrapper() });
+
+    expect(await screen.findByText('Continue in Unity')).toBeVisible();
+    expect(screen.getByText('Installation is ready to continue.')).toBeVisible();
+    expect(screen.queryByText(/close this (page|window)/i)).not.toBeInTheDocument();
   });
 
   it('does not auto-return to external HTTPS callbacks', async () => {

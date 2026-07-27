@@ -1,5 +1,6 @@
 import * as ed25519 from '@noble/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { parseTraceparent } from '@yucp/shared/traceparent';
 import { decode, encode, rfc8949EncodeOptions } from 'cborg';
 
 /**
@@ -15,6 +16,7 @@ export const INSTALL_SESSION_TOKEN_TYPE = 'YUCP-InstallSession';
 export const INSTALL_SESSION_MAX_LIFETIME_SECONDS = 15 * 60;
 export const DELIVERY_GRANT_MAX_LIFETIME_SECONDS = 15 * 60;
 export const MATERIALIZATION_CAPABILITY_MAX_LIFETIME_SECONDS = 15 * 60;
+export const PACKAGE_OPERATION_CAPABILITY_MAX_LIFETIME_SECONDS = 5 * 60;
 
 export const PACKAGE_CONTRACT_PURPOSES = {
   activeContentInventory: 'active-content-inventory-v2',
@@ -27,6 +29,7 @@ export const PACKAGE_CONTRACT_PURPOSES = {
   materializationReceipt: 'materialization-receipt-v2',
   membershipIndex: 'membership-index-v2',
   membershipShard: 'membership-shard-v2',
+  packageOperationCapability: 'package-operation-capability-v2',
   releaseDescriptor: 'release-descriptor-v2',
 } as const;
 
@@ -48,7 +51,14 @@ export type InstallSessionBootstrapV2 = {
   url: string;
 };
 
-export type InstallSessionOperation = 'install' | 'preflight' | 'repair' | 'rollback' | 'update';
+export type InstallSessionOperation =
+  | 'install'
+  | 'preflight'
+  | 'recover'
+  | 'repair'
+  | 'rollback'
+  | 'uninstall'
+  | 'update';
 
 export type InstallSessionV2 = {
   aliasId: string;
@@ -85,6 +95,43 @@ export type InstallSessionValidationContext = {
   now: number;
   operation: InstallSessionOperation;
   releaseRoot: Uint8Array;
+};
+
+export type PackageOperationCapabilityV2 = {
+  aliasId: string;
+  approvedActiveContentDigest?: Uint8Array;
+  approvedPolicyVersion?: string;
+  audience: string;
+  buyerId: string;
+  capabilityId: string;
+  deviceKeyThumbprint: Uint8Array;
+  expectedCurrentReleaseRoot: Uint8Array;
+  expiresAt: number;
+  idempotencyKey: string;
+  issuedAt: number;
+  issuer: string;
+  notBefore: number;
+  oneUseNonce: Uint8Array;
+  operation: InstallSessionOperation;
+  projectIdentity: Uint8Array;
+  releaseRoot: Uint8Array;
+  traceparent: string;
+};
+
+export type PackageOperationCapabilityValidationContext = {
+  aliasId: string;
+  approvedActiveContentDigest?: Uint8Array;
+  approvedPolicyVersion?: string;
+  audience: string;
+  deviceKeyThumbprint: Uint8Array;
+  expectedCurrentReleaseRoot: Uint8Array;
+  idempotencyKey: string;
+  issuer: string;
+  now: number;
+  operation: InstallSessionOperation;
+  projectIdentity: Uint8Array;
+  releaseRoot: Uint8Array;
+  traceparent: string;
 };
 
 export type DeliveryGrantV2 = {
@@ -218,6 +265,10 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
     difference |= left[index] ^ right[index];
   }
   return difference === 0;
+}
+
+function optionalBytesEqual(left: Uint8Array | undefined, right: Uint8Array | undefined): boolean {
+  return left === undefined || right === undefined ? left === right : bytesEqual(left, right);
 }
 
 export function hashPackageContractFields(
@@ -1004,6 +1055,232 @@ export function decodeMaterializationReceiptV2(payload: Uint8Array): Materializa
   return receipt;
 }
 
+function packageOperationCapabilityMap(capability: PackageOperationCapabilityV2) {
+  return new Map<number, PackageContractCborValue>([
+    [0, PACKAGE_CONTRACT_VERSION],
+    [1, capability.capabilityId],
+    [2, capability.issuer],
+    [3, capability.audience],
+    [4, capability.buyerId],
+    [5, capability.aliasId],
+    [6, capability.releaseRoot],
+    [7, capability.expectedCurrentReleaseRoot],
+    [8, capability.operation],
+    [9, capability.projectIdentity],
+    [10, capability.approvedActiveContentDigest ?? null],
+    [11, capability.approvedPolicyVersion ?? null],
+    [12, capability.idempotencyKey],
+    [13, capability.deviceKeyThumbprint],
+    [14, capability.oneUseNonce],
+    [15, capability.issuedAt],
+    [16, capability.notBefore],
+    [17, capability.expiresAt],
+    [18, capability.traceparent],
+  ]);
+}
+
+export function validatePackageOperationCapabilityV2(
+  capability: PackageOperationCapabilityV2,
+  context?: PackageOperationCapabilityValidationContext
+): void {
+  for (const [name, value] of Object.entries({
+    aliasId: capability.aliasId,
+    audience: capability.audience,
+    buyerId: capability.buyerId,
+    capabilityId: capability.capabilityId,
+    idempotencyKey: capability.idempotencyKey,
+    issuer: capability.issuer,
+  })) {
+    requireBoundedText(value, `PackageOperationCapabilityV2.${name}`, 512);
+  }
+  const issuer = normalizeOrigin(capability.issuer, 'PackageOperationCapabilityV2.issuer');
+  const audience = normalizeOrigin(capability.audience, 'PackageOperationCapabilityV2.audience');
+  if (
+    !['install', 'preflight', 'recover', 'repair', 'rollback', 'uninstall', 'update'].includes(
+      capability.operation
+    )
+  ) {
+    throw new Error('PackageOperationCapabilityV2 operation is invalid');
+  }
+  requireBytes(
+    capability.deviceKeyThumbprint,
+    'PackageOperationCapabilityV2.deviceKeyThumbprint',
+    SHA256_BYTES
+  );
+  requireBytes(capability.oneUseNonce, 'PackageOperationCapabilityV2.oneUseNonce', SHA256_BYTES);
+  requireBytes(
+    capability.projectIdentity,
+    'PackageOperationCapabilityV2.projectIdentity',
+    SHA256_BYTES
+  );
+  requireBytes(capability.releaseRoot, 'PackageOperationCapabilityV2.releaseRoot', SHA256_BYTES);
+  requireBytes(
+    capability.expectedCurrentReleaseRoot,
+    'PackageOperationCapabilityV2.expectedCurrentReleaseRoot',
+    SHA256_BYTES
+  );
+  const hasApproval =
+    capability.approvedActiveContentDigest !== undefined ||
+    capability.approvedPolicyVersion !== undefined;
+  if (capability.operation === 'preflight') {
+    if (hasApproval) {
+      throw new Error('PackageOperationCapabilityV2 preflight must not carry content approval');
+    }
+  } else {
+    requireBytes(
+      capability.approvedActiveContentDigest,
+      'PackageOperationCapabilityV2.approvedActiveContentDigest',
+      SHA256_BYTES
+    );
+    requireBoundedText(
+      capability.approvedPolicyVersion,
+      'PackageOperationCapabilityV2.approvedPolicyVersion',
+      512
+    );
+  }
+  if (!parseTraceparent(capability.traceparent)) {
+    throw new Error('PackageOperationCapabilityV2 traceparent is invalid');
+  }
+  if (
+    !Number.isSafeInteger(capability.issuedAt) ||
+    !Number.isSafeInteger(capability.notBefore) ||
+    !Number.isSafeInteger(capability.expiresAt) ||
+    capability.issuedAt < 0 ||
+    capability.notBefore < capability.issuedAt ||
+    capability.expiresAt <= capability.notBefore ||
+    capability.expiresAt - capability.issuedAt > PACKAGE_OPERATION_CAPABILITY_MAX_LIFETIME_SECONDS
+  ) {
+    throw new Error('PackageOperationCapabilityV2 time claims are invalid');
+  }
+  if (!context) {
+    return;
+  }
+  if (context.now < capability.notBefore || context.now >= capability.expiresAt) {
+    throw new Error('PackageOperationCapabilityV2 is not active');
+  }
+  if (
+    capability.aliasId !== context.aliasId ||
+    capability.approvedPolicyVersion !== context.approvedPolicyVersion ||
+    capability.idempotencyKey !== context.idempotencyKey ||
+    capability.operation !== context.operation ||
+    capability.traceparent !== context.traceparent ||
+    issuer !== normalizeOrigin(context.issuer, 'Expected package operation issuer') ||
+    audience !== normalizeOrigin(context.audience, 'Expected package operation audience') ||
+    !bytesEqual(capability.deviceKeyThumbprint, context.deviceKeyThumbprint) ||
+    !bytesEqual(capability.projectIdentity, context.projectIdentity) ||
+    !bytesEqual(capability.releaseRoot, context.releaseRoot) ||
+    !optionalBytesEqual(
+      capability.approvedActiveContentDigest,
+      context.approvedActiveContentDigest
+    ) ||
+    !bytesEqual(capability.expectedCurrentReleaseRoot, context.expectedCurrentReleaseRoot)
+  ) {
+    throw new Error('PackageOperationCapabilityV2 is not bound to the requested operation');
+  }
+}
+
+export function encodePackageOperationCapabilityV2(
+  capability: PackageOperationCapabilityV2
+): Uint8Array {
+  validatePackageOperationCapabilityV2(capability);
+  return encodeCanonicalPackageCbor(packageOperationCapabilityMap(capability));
+}
+
+export function decodePackageOperationCapabilityV2(
+  payload: Uint8Array
+): PackageOperationCapabilityV2 {
+  const map = requireMap(decodeCanonicalPackageCbor(payload), 'PackageOperationCapabilityV2');
+  requireExactLabels(
+    map,
+    Array.from({ length: 19 }, (_, index) => index),
+    'PackageOperationCapabilityV2'
+  );
+  if (requireInteger(map.get(0), 'PackageOperationCapabilityV2.schemaVersion') !== 2) {
+    throw new Error('PackageOperationCapabilityV2 schema version is invalid');
+  }
+  const approvedActiveContentDigest = map.get(10);
+  const approvedPolicyVersion = map.get(11);
+  const capability: PackageOperationCapabilityV2 = {
+    aliasId: requireBoundedText(map.get(5), 'PackageOperationCapabilityV2.aliasId', 512),
+    audience: requireBoundedText(map.get(3), 'PackageOperationCapabilityV2.audience', 2_048),
+    buyerId: requireBoundedText(map.get(4), 'PackageOperationCapabilityV2.buyerId', 512),
+    capabilityId: requireBoundedText(map.get(1), 'PackageOperationCapabilityV2.capabilityId', 512),
+    deviceKeyThumbprint: requireBytes(
+      map.get(13),
+      'PackageOperationCapabilityV2.deviceKeyThumbprint',
+      SHA256_BYTES
+    ),
+    expiresAt: requireInteger(map.get(17), 'PackageOperationCapabilityV2.expiresAt'),
+    expectedCurrentReleaseRoot: requireBytes(
+      map.get(7),
+      'PackageOperationCapabilityV2.expectedCurrentReleaseRoot',
+      SHA256_BYTES
+    ),
+    idempotencyKey: requireBoundedText(
+      map.get(12),
+      'PackageOperationCapabilityV2.idempotencyKey',
+      512
+    ),
+    issuedAt: requireInteger(map.get(15), 'PackageOperationCapabilityV2.issuedAt'),
+    issuer: requireBoundedText(map.get(2), 'PackageOperationCapabilityV2.issuer', 2_048),
+    notBefore: requireInteger(map.get(16), 'PackageOperationCapabilityV2.notBefore'),
+    oneUseNonce: requireBytes(
+      map.get(14),
+      'PackageOperationCapabilityV2.oneUseNonce',
+      SHA256_BYTES
+    ),
+    operation: requireBoundedText(
+      map.get(8),
+      'PackageOperationCapabilityV2.operation',
+      32
+    ) as InstallSessionOperation,
+    projectIdentity: requireBytes(
+      map.get(9),
+      'PackageOperationCapabilityV2.projectIdentity',
+      SHA256_BYTES
+    ),
+    releaseRoot: requireBytes(map.get(6), 'PackageOperationCapabilityV2.releaseRoot', SHA256_BYTES),
+    traceparent: requireBoundedText(map.get(18), 'PackageOperationCapabilityV2.traceparent', 55),
+    ...(approvedActiveContentDigest === null
+      ? {}
+      : {
+          approvedActiveContentDigest: requireBytes(
+            approvedActiveContentDigest,
+            'PackageOperationCapabilityV2.approvedActiveContentDigest',
+            SHA256_BYTES
+          ),
+        }),
+    ...(approvedPolicyVersion === null
+      ? {}
+      : {
+          approvedPolicyVersion: requireBoundedText(
+            approvedPolicyVersion,
+            'PackageOperationCapabilityV2.approvedPolicyVersion',
+            512
+          ),
+        }),
+  };
+  validatePackageOperationCapabilityV2(capability);
+  return capability;
+}
+
+export async function verifyPackageOperationCapabilityV2(input: {
+  context: PackageOperationCapabilityValidationContext;
+  coseSign1: Uint8Array;
+  expectedKeyId: Uint8Array;
+  publicKey: Uint8Array;
+}): Promise<PackageOperationCapabilityV2> {
+  const payload = await verifyPackageContract({
+    coseSign1: input.coseSign1,
+    expectedKeyId: input.expectedKeyId,
+    expectedPurpose: PACKAGE_CONTRACT_PURPOSES.packageOperationCapability,
+    publicKey: input.publicKey,
+  });
+  const capability = decodePackageOperationCapabilityV2(payload);
+  validatePackageOperationCapabilityV2(capability, input.context);
+  return capability;
+}
+
 function deliveryGrantMap(grant: DeliveryGrantV2) {
   return new Map<number, PackageContractCborValue>([
     [0, PACKAGE_CONTRACT_VERSION],
@@ -1227,7 +1504,11 @@ export function validateInstallSessionV2(
   if (session.tokenType !== INSTALL_SESSION_TOKEN_TYPE) {
     throw new Error('InstallSessionV2 token type is invalid');
   }
-  if (!['install', 'preflight', 'repair', 'rollback', 'update'].includes(session.operation)) {
+  if (
+    !['install', 'preflight', 'recover', 'repair', 'rollback', 'uninstall', 'update'].includes(
+      session.operation
+    )
+  ) {
     throw new Error('InstallSessionV2 operation is invalid');
   }
   for (const [name, value] of Object.entries({

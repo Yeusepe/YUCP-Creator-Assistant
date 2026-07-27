@@ -27,6 +27,7 @@ type WslEnvironmentInput = {
 const WSL_ENVIRONMENT_NAMES = [
   'DOCKER_HOST',
   'MATERIALIZATION_CONTROL_PLANE_BASE_URL',
+  'MATERIALIZATION_CONTROL_PLANE_PROXY_PORT',
   'MATERIALIZATION_DPOP_PRIVATE_KEY_PKCS8',
   'MATERIALIZATION_HEALTH_HOST',
   'MATERIALIZATION_HEALTH_PORT',
@@ -38,6 +39,8 @@ const WSL_ENVIRONMENT_NAMES = [
   'MATERIALIZATION_POLL_INTERVAL_MS',
   'MATERIALIZATION_RUNTIME_LIBRARY_PATH',
   'MATERIALIZATION_SERVICE_ID',
+  'MATERIALIZATION_SOURCE_BASE_URL',
+  'MATERIALIZATION_SOURCE_PROXY_PORT',
   'MATERIALIZATION_WORK_ROOT',
   'NODE_ENV',
   'XDG_RUNTIME_DIR',
@@ -92,41 +95,59 @@ export function requireLoopbackEndpointPort(value: string): number {
 }
 
 export function buildLocalMaterializerBridgeRoutes(input: {
+  controlPort?: number;
+  healthPort?: number;
+  sourcePort?: number;
   windowsHostIp: string;
   wslIp: string;
 }): LocalTcpBridgeRoute[] {
   const windowsHostIp = requireIpv4(input.windowsHostIp, 'Windows WSL host address');
   const wslIp = requireIpv4(input.wslIp, 'WSL materializer address');
+  const sourcePort = input.sourcePort ?? 3_005;
+  const controlPort = input.controlPort ?? 3_012;
+  const healthPort = input.healthPort ?? 8_788;
   return [
     {
       listenHost: windowsHostIp,
-      listenPort: 3_005,
+      listenPort: sourcePort,
       targetHost: '127.0.0.1',
-      targetPort: 3_005,
+      targetPort: sourcePort,
     },
     {
       listenHost: windowsHostIp,
-      listenPort: 3_012,
+      listenPort: controlPort,
       targetHost: '127.0.0.1',
-      targetPort: 3_012,
+      targetPort: controlPort,
     },
     {
       listenHost: '127.0.0.1',
-      listenPort: 8_788,
+      listenPort: healthPort,
       targetHost: wslIp,
-      targetPort: 8_788,
+      targetPort: healthPort,
     },
   ];
 }
 
 export function buildWslEnvironment(input: WslEnvironmentInput): NodeJS.ProcessEnv {
+  const controlEndpoint =
+    input.baseEnv.MATERIALIZATION_CONTROL_PLANE_BASE_URL ?? 'http://127.0.0.1:3012';
+  const sourceEndpoint = input.baseEnv.MATERIALIZATION_SOURCE_BASE_URL ?? 'http://127.0.0.1:3005';
+  const disposableRunId = input.baseEnv.YUCP_DISPOSABLE_RUN_ID?.trim();
+  if (disposableRunId && !/^[0-9a-f]{12}$/.test(disposableRunId)) {
+    throw new Error('The disposable materializer run identifier is invalid');
+  }
+  const serviceSuffix = disposableRunId ?? '01';
+  const workRoot =
+    input.baseEnv.MATERIALIZATION_WORK_ROOT ??
+    `/home/yucp/.local/share/yucp-materializer${disposableRunId ? `/${disposableRunId}` : ''}`;
   return {
     ...input.baseEnv,
     DOCKER_HOST: 'unix:///run/user/1001/docker.sock',
-    MATERIALIZATION_CONTROL_PLANE_BASE_URL: 'http://127.0.0.1:3012',
+    MATERIALIZATION_CONTROL_PLANE_BASE_URL: controlEndpoint,
+    MATERIALIZATION_CONTROL_PLANE_PROXY_PORT: String(requireLoopbackEndpointPort(controlEndpoint)),
     MATERIALIZATION_DPOP_PRIVATE_KEY_PKCS8: input.dpopPrivateKey,
     MATERIALIZATION_HEALTH_HOST: '0.0.0.0',
-    MATERIALIZATION_HEALTH_PORT: '8788',
+    MATERIALIZATION_HEALTH_PORT: input.baseEnv.MATERIALIZATION_HEALTH_PORT ?? '8788',
     MATERIALIZATION_KEY_BROKER_SHARED_SECRET: requireEnvironment(
       input.baseEnv,
       'MATERIALIZATION_KEY_BROKER_SHARED_SECRET',
@@ -142,8 +163,11 @@ export function buildWslEnvironment(input: WslEnvironmentInput): NodeJS.ProcessE
     ),
     MATERIALIZATION_POLL_INTERVAL_MS: '1000',
     MATERIALIZATION_RUNTIME_LIBRARY_PATH: `${LINUX_SERVICE_ROOT}/yucp_coupling/out/linux-x64/Release/yucp_coupling.so`,
-    MATERIALIZATION_SERVICE_ID: 'local-materializer-large-01',
-    MATERIALIZATION_WORK_ROOT: '/home/yucp/.local/share/yucp-materializer',
+    MATERIALIZATION_SERVICE_ID:
+      input.baseEnv.MATERIALIZATION_SERVICE_ID ?? `local-materializer-large-${serviceSuffix}`,
+    MATERIALIZATION_SOURCE_BASE_URL: sourceEndpoint,
+    MATERIALIZATION_SOURCE_PROXY_PORT: String(requireLoopbackEndpointPort(sourceEndpoint)),
+    MATERIALIZATION_WORK_ROOT: workRoot,
     NODE_ENV: 'development',
     WSLENV: appendWslEnvironmentNames(input.baseEnv.WSLENV, WSL_ENVIRONMENT_NAMES),
     XDG_RUNTIME_DIR: '/run/user/1001',
@@ -197,6 +221,7 @@ export function parseWslNetworkProbe(value: string): LocalMaterializerNetwork {
 
 export async function waitForLocalMaterializerDependencies(
   options: {
+    endpoints?: readonly string[];
     fetchImplementation?: (input: string, init?: RequestInit) => Promise<Response>;
     retryIntervalMs?: number;
     timeoutMs?: number;
@@ -215,7 +240,9 @@ export async function waitForLocalMaterializerDependencies(
   ) {
     throw new Error('Local materializer dependency wait configuration is invalid');
   }
-  const pending = new Set(['http://127.0.0.1:3005/', 'http://127.0.0.1:3012/']);
+  const pending = new Set(
+    options.endpoints ?? ['http://127.0.0.1:3005/', 'http://127.0.0.1:3012/']
+  );
   const deadline = Date.now() + timeoutMs;
   while (pending.size > 0 && Date.now() < deadline) {
     for (const endpoint of pending) {
@@ -281,12 +308,25 @@ export async function startLocalWslMaterializer(
   }
   const renditionEndpoint = requireEnvironment(baseEnv, 'RENDITION_S3_ENDPOINT');
   requireLoopbackEndpointPort(renditionEndpoint);
+  const sourceEndpoint = baseEnv.MATERIALIZATION_SOURCE_BASE_URL ?? 'http://127.0.0.1:3005';
+  const controlEndpoint = baseEnv.MATERIALIZATION_CONTROL_PLANE_BASE_URL ?? 'http://127.0.0.1:3012';
+  const sourcePort = requireLoopbackEndpointPort(sourceEndpoint);
+  const controlPort = requireLoopbackEndpointPort(controlEndpoint);
+  const healthPort = Number(baseEnv.MATERIALIZATION_HEALTH_PORT ?? '8788');
+  if (!Number.isSafeInteger(healthPort) || healthPort < 1 || healthPort > 65_535) {
+    throw new Error('The materialization health port is invalid');
+  }
   const linuxSourceRoot = windowsPathToWslPath(sourceRoot);
   const network = await resolveWslNetwork(distribution);
   await runPreparation(distribution, linuxSourceRoot);
-  await waitForLocalMaterializerDependencies();
+  await waitForLocalMaterializerDependencies({
+    endpoints: [`${sourceEndpoint}/`, `${controlEndpoint}/`],
+  });
   const bridge = new LocalTcpBridge(
     buildLocalMaterializerBridgeRoutes({
+      controlPort,
+      healthPort,
+      sourcePort,
       ...network,
     })
   );

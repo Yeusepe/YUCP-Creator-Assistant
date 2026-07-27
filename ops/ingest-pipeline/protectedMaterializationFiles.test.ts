@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { DeliveryManifestFile } from '../storage-core/deliveryManifest';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { protectedMaterializationFiles } from './ingestPipeline';
 
 const protectedFile: DeliveryManifestFile = {
@@ -12,27 +13,11 @@ const protectedFile: DeliveryManifestFile = {
 };
 
 describe('protected materialization publication', () => {
-  it('keeps strict v1 protected files required', () => {
+  it('publishes active-policy protected files as best-effort', () => {
     expect(
       protectedMaterializationFiles({
         files: [protectedFile],
-        protectionPolicyId: 'supported-visual-assets-v1',
-      })
-    ).toEqual([
-      {
-        materializerType: 'png',
-        normalizedPath: 'Assets/Textures/tiny.png',
-        required: true,
-        sourceSha256: '22'.repeat(32),
-      },
-    ]);
-  });
-
-  it('publishes v2 protected files as best-effort', () => {
-    expect(
-      protectedMaterializationFiles({
-        files: [protectedFile],
-        protectionPolicyId: 'supported-visual-assets-v2',
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       })
     ).toEqual([
       {
@@ -42,5 +27,14 @@ describe('protected materialization publication', () => {
         sourceSha256: '22'.repeat(32),
       },
     ]);
+  });
+
+  it('rejects removed protection policies', () => {
+    expect(() =>
+      protectedMaterializationFiles({
+        files: [protectedFile],
+        protectionPolicyId: 'supported-visual-assets-v1',
+      })
+    ).toThrow('Unknown protection policy: supported-visual-assets-v1');
   });
 });

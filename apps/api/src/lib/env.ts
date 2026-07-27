@@ -35,6 +35,12 @@ export interface LocalEnv {
   UPLOAD_HMAC_KEY?: string;
   /** Optional tus ingest origin. The upload route returns 503 when unavailable. */
   INGEST_TUS_URL?: string;
+  /** Internal catalog control origin owned by the ingest service. */
+  PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL?: string;
+  /** Purpose-separated credential for package catalog control commands. */
+  PACKAGE_CATALOG_CONTROL_SHARED_SECRET?: string;
+  /** Internal package catalog control timeout in milliseconds. */
+  PACKAGE_CATALOG_CONTROL_TIMEOUT_MS?: string;
   /** Delivery Worker origin bound into v2 package grants. */
   PACKAGE_DELIVERY_AUDIENCE?: string;
   /** Canonical public API origin bound into v2 package grants. */
@@ -43,6 +49,10 @@ export interface LocalEnv {
   PACKAGE_INSTALL_SIGNING_KEY_ID?: string;
   /** Base64url Ed25519 seed for package install contract signing. */
   PACKAGE_INSTALL_SIGNING_PRIVATE_KEY?: string;
+  /** PostgreSQL workflow store for one-time package operation authorizations and DPoP replay state. */
+  PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL?: string;
+  /** PostgreSQL workflow store for immutable public VPM alias artifacts. */
+  VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL?: string;
   /** Internal materialization control-plane origin. */
   MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL?: string;
   /** API-only credential for durable materialization job control. */
@@ -62,14 +72,19 @@ export interface LocalEnv {
   PACKAGE_INSTALLER_TUF_S3_REGION?: string;
   PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS?: string;
   PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY?: string;
+  /** Read-only metadata storage used to serve exact bootstrap media versions. */
+  METADATA_S3_ACCESS_KEY_ID?: string;
+  METADATA_S3_BUCKET?: string;
+  METADATA_S3_ENDPOINT?: string;
+  METADATA_S3_REGION?: string;
+  METADATA_S3_REQUEST_TIMEOUT_MS?: string;
+  METADATA_S3_SECRET_ACCESS_KEY?: string;
+  METADATA_INDEX_PREFIX?: string;
   /** Optional public API origin used for buyer VPM index URLs. VPM routes return 503 when unavailable. */
   VPM_BASE_URL?: string;
   /** Public first-party VPM index that supplies the generic importer package. */
   VPM_PUBLIC_INDEX_URL?: string;
-  /** Purpose-separated HMAC key for stateless VPM repository tokens. */
-  VPM_TOKEN_KEY?: string;
   /** JSON array of public VPM repository URLs that package releases can reference. */
-  VPM_TRUSTED_REPOSITORY_URLS?: string;
   VRCHAT_PENDING_STATE_SECRET?: string;
   VRCHAT_PROVIDER_SESSION_SECRET?: string;
   // Discord
@@ -201,10 +216,18 @@ function loadFromEnv(): LocalEnv {
     INTERNAL_SERVICE_TOKEN: process.env.INTERNAL_SERVICE_TOKEN,
     UPLOAD_HMAC_KEY: process.env.UPLOAD_HMAC_KEY,
     INGEST_TUS_URL: process.env.INGEST_TUS_URL,
+    PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL:
+      process.env.PACKAGE_CATALOG_CONTROL_INTERNAL_BASE_URL,
+    PACKAGE_CATALOG_CONTROL_SHARED_SECRET: process.env.PACKAGE_CATALOG_CONTROL_SHARED_SECRET,
+    PACKAGE_CATALOG_CONTROL_TIMEOUT_MS: process.env.PACKAGE_CATALOG_CONTROL_TIMEOUT_MS,
     PACKAGE_DELIVERY_AUDIENCE: process.env.PACKAGE_DELIVERY_AUDIENCE,
     PACKAGE_INSTALL_ISSUER: process.env.PACKAGE_INSTALL_ISSUER,
     PACKAGE_INSTALL_SIGNING_KEY_ID: process.env.PACKAGE_INSTALL_SIGNING_KEY_ID,
     PACKAGE_INSTALL_SIGNING_PRIVATE_KEY: process.env.PACKAGE_INSTALL_SIGNING_PRIVATE_KEY,
+    PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL:
+      process.env.PACKAGE_OPERATION_AUTHORIZATION_DATABASE_URL,
+    VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL:
+      process.env.VPM_ALIAS_PUBLICATION_CATALOG_DATABASE_URL,
     MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL:
       process.env.MATERIALIZATION_CONTROL_PLANE_INTERNAL_BASE_URL,
     MATERIALIZATION_API_SHARED_SECRET: process.env.MATERIALIZATION_API_SHARED_SECRET,
@@ -221,10 +244,15 @@ function loadFromEnv(): LocalEnv {
       process.env.PACKAGE_INSTALLER_TUF_S3_REQUEST_TIMEOUT_MS,
     PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY:
       process.env.PACKAGE_INSTALLER_TUF_S3_SECRET_ACCESS_KEY,
+    METADATA_S3_ACCESS_KEY_ID: process.env.METADATA_S3_ACCESS_KEY_ID,
+    METADATA_S3_BUCKET: process.env.METADATA_S3_BUCKET,
+    METADATA_S3_ENDPOINT: process.env.METADATA_S3_ENDPOINT,
+    METADATA_S3_REGION: process.env.METADATA_S3_REGION,
+    METADATA_S3_REQUEST_TIMEOUT_MS: process.env.METADATA_S3_REQUEST_TIMEOUT_MS,
+    METADATA_S3_SECRET_ACCESS_KEY: process.env.METADATA_S3_SECRET_ACCESS_KEY,
+    METADATA_INDEX_PREFIX: process.env.METADATA_INDEX_PREFIX,
     VPM_BASE_URL: process.env.VPM_BASE_URL,
     VPM_PUBLIC_INDEX_URL: process.env.VPM_PUBLIC_INDEX_URL,
-    VPM_TOKEN_KEY: process.env.VPM_TOKEN_KEY,
-    VPM_TRUSTED_REPOSITORY_URLS: process.env.VPM_TRUSTED_REPOSITORY_URLS,
     VRCHAT_PENDING_STATE_SECRET: process.env.VRCHAT_PENDING_STATE_SECRET,
     VRCHAT_PROVIDER_SESSION_SECRET: process.env.VRCHAT_PROVIDER_SESSION_SECRET,
     DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,

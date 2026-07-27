@@ -294,6 +294,7 @@
 
 .pm-sheet-footer {
   border-top: 1px solid color-mix(in oklch, var(--foreground) 8%, transparent);
+  padding-bottom: max(20px, calc(12px + env(safe-area-inset-bottom)));
   padding-top: 16px;
 }
 

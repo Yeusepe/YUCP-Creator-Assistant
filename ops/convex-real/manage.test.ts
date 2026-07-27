@@ -2,11 +2,26 @@ import { describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { withSelfHostedConvexEnvFileMovedAside } from './manage';
+import {
+  selfHostedConvexEnv,
+  withSelfHostedConvexEnvFileMovedAside,
+  writeRealBackendEnvFile,
+} from './manage';
 
 const harness = readFileSync(resolve(import.meta.dir, 'harness.ts'), 'utf8');
 
 describe('self-hosted Convex environment isolation', () => {
+  it('targets an isolated reserved-port profile', () => {
+    const environment = selfHostedConvexEnv('admin-key', {
+      backendPort: 42_010,
+      dashboardPort: 42_091,
+      projectName: 'yucp-lifecycle-run',
+      sitePort: 42_011,
+    });
+    expect(environment.CONVEX_SELF_HOSTED_ADMIN_KEY).toBe('admin-key');
+    expect(environment.CONVEX_SELF_HOSTED_URL).toBe('http://127.0.0.1:42010');
+  });
+
   it('moves and restores every Bun-loaded env file after a self-hosted command fails', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
     const envFile = join(directory, '.env');
@@ -73,9 +88,50 @@ describe('self-hosted Convex environment isolation', () => {
     }
   });
 
+  it('serializes concurrent environment isolation without losing the original file', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'yucp-convex-real-env-'));
+    const envFile = join(directory, '.env.local');
+    const original = 'CONVEX_DEPLOYMENT=local-cloud-target\n';
+    writeFileSync(envFile, original);
+    let activeOperations = 0;
+    let maximumActiveOperations = 0;
+
+    try {
+      await Promise.all(
+        Array.from({ length: 2 }, () =>
+          withSelfHostedConvexEnvFileMovedAside(async () => {
+            activeOperations += 1;
+            maximumActiveOperations = Math.max(maximumActiveOperations, activeOperations);
+            await Bun.sleep(25);
+            activeOperations -= 1;
+          }, directory)
+        )
+      );
+
+      expect(maximumActiveOperations).toBe(1);
+      expect(readFileSync(envFile, 'utf8')).toBe(original);
+      expect(readdirSync(directory)).toEqual(['.env.local']);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("uses the deploy path's sanitized CLI runner for harness environment calls", () => {
     expect(harness).toContain(
       "runSelfHostedConvexCli(['env', ...args], env, { timeoutMs: 60_000 })"
     );
+  });
+
+  it('writes the exact lifecycle guest origin into the disposable auth environment', () => {
+    const path = writeRealBackendEnvFile(undefined, {
+      betterAuthAdditionalTrustedOrigins: ['http://192.0.2.10:3000'],
+    });
+    try {
+      expect(readFileSync(path, 'utf8')).toContain(
+        'BETTER_AUTH_ADDITIONAL_TRUSTED_ORIGINS_JSON=["http://192.0.2.10:3000"]'
+      );
+    } finally {
+      rmSync(path, { force: true });
+    }
   });
 });

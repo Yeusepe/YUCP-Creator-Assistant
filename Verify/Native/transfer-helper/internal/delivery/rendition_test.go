@@ -164,13 +164,16 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	}
 	files, err := MergeProtectedRendition(
 		stagingTree,
-		Manifest{Files: []File{{
-			Bytes:          100,
-			Classification: "protected",
-			Materializer:   "png",
-			NormalizedPath: "Assets/Product/protected.png",
-			SHA256:         hex.EncodeToString(bytes.Repeat([]byte{0x99}, 32)),
-		}}},
+		Manifest{
+			ProtectionPolicyID: activeProtectionPolicyID,
+			Files: []File{{
+				Bytes:          100,
+				Classification: "protected",
+				Materializer:   "png",
+				NormalizedPath: "Assets/Product/protected.png",
+				SHA256:         hex.EncodeToString(bytes.Repeat([]byte{0x99}, 32)),
+			}},
+		},
 		rendition.Path,
 		receipt,
 	)
@@ -213,7 +216,7 @@ func TestMergeProtectedRenditionPreservesVerifiedBestEffortFiles(t *testing.T) {
 	files, err := MergeProtectedRendition(
 		stagingTree,
 		Manifest{
-			ProtectionPolicyID: "supported-visual-assets-v2",
+			ProtectionPolicyID: activeProtectionPolicyID,
 			Files: []File{
 				{
 					Bytes:          int64(len(coupled)),
@@ -255,6 +258,18 @@ func TestMergeProtectedRenditionPreservesVerifiedBestEffortFiles(t *testing.T) {
 	}
 	if !bytes.Equal(stagedUncarryable, uncarryable) {
 		t.Fatalf("byte-exact protected file changed")
+	}
+}
+
+func TestMergeProtectedRenditionRejectsRemovedProtectionPolicy(t *testing.T) {
+	_, err := MergeProtectedRendition(
+		t.TempDir(),
+		Manifest{ProtectionPolicyID: "supported-visual-assets-v1"},
+		filepath.Join(t.TempDir(), "missing.zip"),
+		packagecontract.MaterializationReceipt{},
+	)
+	if err == nil || err.Error() != "unsupported protection policy supported-visual-assets-v1" {
+		t.Fatalf("MergeProtectedRendition() error = %v", err)
 	}
 }
 

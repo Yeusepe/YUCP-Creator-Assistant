@@ -1,7 +1,5 @@
-import {
-  buildLocalImporterRepository,
-  resolveLocalImporterPackagePath,
-} from './localVpmRepository';
+import { resolveLocalImporterPackagePath } from './localVpmRepository';
+import { buildPinnedLocalImporterRepository } from './publicImporterRelease';
 
 const DEFAULT_PORT = 3004;
 
@@ -18,7 +16,7 @@ async function main(): Promise<void> {
   const hostname = '127.0.0.1';
   const baseUrl = `http://${hostname}:${port}`;
   const importerPath = await resolveLocalImporterPackagePath();
-  const repository = await buildLocalImporterRepository({
+  const repository = await buildPinnedLocalImporterRepository({
     baseUrl,
     importerPath,
   });

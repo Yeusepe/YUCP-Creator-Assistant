@@ -6,45 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/yucp/transfer-helper/internal/lifecycle"
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 	"github.com/yucp/transfer-helper/internal/reconstructor"
 )
-
-func TestFailedLifecycleExecutionPreservesTerminalEnvelope(t *testing.T) {
-	failure := lifecycle.Result{
-		ErrorCode:     lifecycleErrorCode,
-		ExitCode:      1,
-		JournalState:  "failed-before-project-mutation",
-		Operation:     "preflight",
-		RunID:         "run-1",
-		SchemaVersion: lifecycle.SchemaVersion,
-		Status:        "failed",
-		TraceID:       "run-1",
-	}
-
-	result := mergeLifecycleExecutionResult(
-		failure,
-		lifecycle.Result{},
-		errors.New("delivery manifest timed out"),
-	)
-
-	if result.Status != "failed" ||
-		result.ExitCode != 1 ||
-		result.SchemaVersion != lifecycle.SchemaVersion ||
-		result.RunID != "run-1" ||
-		result.Operation != "preflight" ||
-		result.ErrorCode != lifecycleErrorCode ||
-		result.ErrorMessage != "delivery manifest timed out" {
-		t.Fatalf("failed lifecycle result = %#v", result)
-	}
-}
 
 func TestDeviceInfoCommandReturnsStableProtectedIdentity(t *testing.T) {
 	stateRoot := filepath.Join(t.TempDir(), "state")

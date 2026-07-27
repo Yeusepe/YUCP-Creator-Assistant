@@ -16,11 +16,11 @@ export function PackageRegistryAccessGate({
   onRetry,
 }: PackageRegistryAccessGateProps) {
   const title =
-    mode === 'error' ? 'Could not verify custom VPM repo access' : 'Custom VPM repo required';
+    mode === 'error' ? 'Could not verify Unity package access' : 'Unity package access required';
   const description =
     mode === 'error'
       ? 'Refresh your billing state and try again.'
-      : 'Manage install IDs and VCC links through Polar. Upgrade billing to unlock the custom VPM repo.';
+      : 'Manage install links through Polar. Upgrade billing to unlock private Unity packages.';
 
   return (
     <section className={className}>

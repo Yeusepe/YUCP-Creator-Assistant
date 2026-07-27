@@ -54,6 +54,7 @@ mock.module('../lib/convex', () => ({
 }));
 
 mock.module('../lib/apiActor', () => ({
+  createApiServiceActorBinding: async () => 'service-actor-binding',
   createAuthUserActorBinding: async ({
     authUserId,
     source,

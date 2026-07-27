@@ -5,6 +5,7 @@ const {
   convexClientMock,
   emailOtpClientMock,
   oauthProviderClientMock,
+  oneTimeTokenClientMock,
   passkeyClientMock,
   polarClientMock,
   twoFactorClientMock,
@@ -20,6 +21,9 @@ const {
   })),
   oauthProviderClientMock: vi.fn(() => ({
     id: 'oauth-provider-client',
+  })),
+  oneTimeTokenClientMock: vi.fn(() => ({
+    id: 'one-time-token-client',
   })),
   polarClientMock: vi.fn(() => ({
     id: 'polar-client',
@@ -54,6 +58,7 @@ vi.mock('@better-auth/passkey/client', () => ({
 
 vi.mock('better-auth/client/plugins', () => ({
   emailOTPClient: emailOtpClientMock,
+  oneTimeTokenClient: oneTimeTokenClientMock,
   twoFactorClient: twoFactorClientMock,
 }));
 
@@ -68,6 +73,7 @@ describe('auth client', () => {
           { id: 'oauth-provider-client' },
           { id: 'polar-client' },
           { id: 'email-otp-client' },
+          { id: 'one-time-token-client' },
           { id: 'two-factor-client' },
           { id: 'passkey-client' },
         ],
@@ -77,6 +83,7 @@ describe('auth client', () => {
     expect(oauthProviderClientMock).toHaveBeenCalledTimes(1);
     expect(polarClientMock).toHaveBeenCalledTimes(1);
     expect(emailOtpClientMock).toHaveBeenCalledTimes(1);
+    expect(oneTimeTokenClientMock).toHaveBeenCalledTimes(1);
     expect(twoFactorClientMock).toHaveBeenCalledTimes(1);
     expect(passkeyClientMock).toHaveBeenCalledTimes(1);
   });

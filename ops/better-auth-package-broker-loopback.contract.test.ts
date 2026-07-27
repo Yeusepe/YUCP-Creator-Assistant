@@ -8,7 +8,7 @@ function readRepositoryFile(relativePath: string): string {
   return readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
 }
 
-describe('Better Auth Unity loopback contract', () => {
+describe('Better Auth package broker loopback contract', () => {
   test('uses the provider RFC 8252 implementation without an application proxy', () => {
     const providerPackage = JSON.parse(
       readRepositoryFile('node_modules/@better-auth/oauth-provider/package.json')
@@ -26,15 +26,9 @@ describe('Better Auth Unity loopback contract', () => {
       scripts?: Record<string, string>;
     };
     expect(providerPackage.version).toBe('1.7.0-rc.2');
-    expect(providerSource).toContain(
-      'Honors RFC 8252'
-    );
-    expect(providerSource).toContain(
-      'isLoopbackIP(reg.hostname)'
-    );
-    expect(providerSource).toContain(
-      'reg.pathname === req.pathname'
-    );
+    expect(providerSource).toContain('Honors RFC 8252');
+    expect(providerSource).toContain('isLoopbackIP(reg.hostname)');
+    expect(providerSource).toContain('reg.pathname === req.pathname');
 
     expect(existsSync(path.join(repositoryRoot, 'convex', 'oauthLoopback.ts'))).toBeFalse();
     expect(convexHttp).not.toContain('/api/yucp/oauth/authorize');
@@ -43,19 +37,13 @@ describe('Better Auth Unity loopback contract', () => {
     expect(apiProxy).not.toContain('redirect_uri_rewritten');
     expect(apiProxy).not.toContain('/api/yucp/oauth/callback');
     expect(apiProxy).toContain('bindPublicApiOAuthResource(requestParams)');
-    expect(clientSeed).toContain(
-      "const callbackUrl = 'http://127.0.0.1/callback';"
-    );
+    expect(clientSeed).toContain("const callbackUrl = 'http://127.0.0.1/callback';");
     expect(devSupervisor).toContain(
-      'bunx convex dev --run seedYucpOAuthClient:seedUnityOAuthClient'
+      'bunx convex dev --run seedYucpOAuthClient:seedPackageBrokerOAuthClient'
     );
-    expect(packageManifest.scripts?.['convex:deploy']).toBe(
-      'bun run ops/convex-deploy.ts'
-    );
+    expect(packageManifest.scripts?.['convex:deploy']).toBe('bun run ops/convex-deploy.ts');
     expect(deployOperator.indexOf("['x', 'convex', 'deploy'")).toBeLessThan(
-      deployOperator.indexOf(
-        "['x', 'convex', 'run', UNITY_CLIENT_SEED"
-      )
+      deployOperator.indexOf("['x', 'convex', 'run', PACKAGE_BROKER_CLIENT_SEED")
     );
   });
 });

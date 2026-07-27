@@ -24,9 +24,9 @@ vi.mock('@/lib/auth-client', () => ({
 import { Route } from '@/routes/oauth/login';
 
 const CREATOR_LOGIN_QUERY =
-  '/oauth/login?response_type=code&client_id=yucp-unity-creator&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=cert%3Aissue%20profile%3Aread&state=test-state&code_challenge=test-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
+  '/oauth/login?response_type=code&client_id=yucp-unity-creator&redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback&scope=cert%3Aissue%20profile%3Aread&state=test-state&code_challenge=test-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
 const USER_LOGIN_QUERY =
-  '/oauth/login?response_type=code&client_id=yucp-unity-user&redirect_uri=https%3A%2F%2Frare-squid-409.convex.site%2Fapi%2Fyucp%2Foauth%2Fcallback&scope=verification%3Aread&state=user-state&code_challenge=user-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
+  '/oauth/login?response_type=code&client_id=yucp-unity-user&redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback&scope=verification%3Aread&state=user-state&code_challenge=user-challenge&code_challenge_method=S256&exp=1774135005&sig=test';
 
 describe('oauth login route', () => {
   beforeEach(() => {

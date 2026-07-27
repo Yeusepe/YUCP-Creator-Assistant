@@ -14,10 +14,6 @@
  *   Sigstore policy engine         https://docs.sigstore.dev/policy-controller/overview/
  */
 
-import {
-  resolveComparableYucpAliasIdsFromCatalogProduct,
-  resolveSharedYucpAliasIdFromCatalogProducts,
-} from '@yucp/shared';
 import { ConvexError, v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Doc } from './_generated/dataModel';
@@ -67,6 +63,7 @@ function normalizePackageName(packageName: string | undefined): string | undefin
 
 type LogicalCatalogProductGroup = {
   aliasId: string;
+  associationUpdatedAt: number;
   packageId?: string;
   products: Doc<'product_catalog'>[];
 };
@@ -79,20 +76,59 @@ async function buildCreatorPackageProductSummary(
   const dependencies = await inspectCatalogProductDeletionDependencies(ctx.db, product._id);
   const deleteBlockedReason = getCatalogProductDeleteBlockedReason(dependencies);
   const status = getCatalogProductWorkspaceStatus(product);
-  const directPackageIds = Array.from(
-    new Set(dependencies.packageVersions.map((version) => version.packageId))
-  );
   const logicalGroup = resolvedLogicalGroup ?? {
-    aliasId: resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ?? String(product._id),
-    ...(directPackageIds.length === 1 ? { packageId: directPackageIds[0] } : {}),
+    aliasId: String(product._id),
+    associationUpdatedAt: product.updatedAt,
     products: [product],
   };
+  const registration = logicalGroup.packageId
+    ? await ctx.db
+        .query('package_registry')
+        .withIndex('by_package_id', (q) => q.eq('packageId', logicalGroup.packageId as string))
+        .unique()
+    : null;
+  const packageEditions = logicalGroup.packageId
+    ? (
+        await ctx.db
+          .query('package_editions')
+          .withIndex('by_creator_package', (q) =>
+            q
+              .eq('creatorAuthUserId', product.authUserId)
+              .eq('packageId', logicalGroup.packageId as string)
+          )
+          .collect()
+      )
+        .sort(
+          (left, right) =>
+            right.priority - left.priority || left.displayName.localeCompare(right.displayName)
+        )
+        .map((edition) => ({
+          catalogProductIds: edition.catalogProductIds,
+          catalogTierIds: edition.catalogTierIds,
+          createdAt: edition.createdAt,
+          displayName: edition.displayName,
+          editionId: edition.editionId,
+          priority: edition.priority,
+          status: edition.status,
+          updatedAt: edition.updatedAt,
+        }))
+    : [];
+  const logicalCatalogTiers = (
+    await Promise.all(
+      logicalGroup.products.map(async (candidate) => {
+        return await ctx.db
+          .query('catalog_tiers')
+          .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', candidate._id))
+          .collect();
+      })
+    )
+  ).flat();
 
   return {
     _id: product._id,
     aliases: product.aliases,
     canonicalSlug: product.canonicalSlug,
-    catalogTiers: dependencies.catalogTiers
+    catalogTiers: logicalCatalogTiers
       .map((tier) => ({
         _id: tier._id,
         catalogProductId: tier.catalogProductId,
@@ -110,9 +146,13 @@ async function buildCreatorPackageProductSummary(
     displayName: product.displayName,
     thumbnailUrl: product.thumbnailUrl,
     aliasId: logicalGroup.aliasId,
+    packageAssociationUpdatedAt: logicalGroup.associationUpdatedAt,
     catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
     storefronts: logicalGroup.products.map(buildCatalogStorefront),
     packageId: logicalGroup.packageId,
+    packageName:
+      registration?.yucpUserId === product.authUserId ? registration.packageName : undefined,
+    packageEditions,
     productId: product.productId,
     provider: product.provider,
     providerProductRef: product.providerProductRef,
@@ -162,6 +202,7 @@ async function resolveLogicalCatalogProductGroup(
   return (
     groupsByProductId.get(String(product._id)) ?? {
       aliasId: String(product._id),
+      associationUpdatedAt: product.updatedAt,
       products: [product],
     }
   );
@@ -171,72 +212,64 @@ async function resolveLogicalCatalogProductGroups(
   ctx: QueryCtx,
   creatorProducts: ReadonlyArray<Doc<'product_catalog'>>
 ): Promise<Map<string, LogicalCatalogProductGroup>> {
-  const activeProducts = creatorProducts
+  const ownedProducts = [...creatorProducts].sort(compareCatalogProducts);
+  const activeProducts = ownedProducts
     .filter((product) => getCatalogProductWorkspaceStatus(product) === 'active')
     .sort(compareCatalogProducts);
-  const aliasBuckets = new Map<string, Doc<'product_catalog'>[]>();
-  for (const product of activeProducts) {
-    const aliasId = resolveComparableYucpAliasIdsFromCatalogProduct(product)[0];
-    if (!aliasId) continue;
-    const bucket = aliasBuckets.get(aliasId) ?? [];
-    bucket.push(product);
-    aliasBuckets.set(aliasId, bucket);
-  }
 
-  const proposedGroupsByProductId = new Map<string, Doc<'product_catalog'>[]>();
+  const packageIdByProductId = new Map<string, string>();
+  const associationUpdatedAtByPackageId = new Map<string, number>();
+  await Promise.all(
+    ownedProducts.map(async (product) => {
+      const bindings = await ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_catalog_product_status', (q) =>
+          q.eq('catalogProductId', product._id).eq('status', 'active')
+        )
+        .take(2);
+      if (bindings.length === 1) {
+        packageIdByProductId.set(String(product._id), bindings[0]?.packageId as string);
+      }
+    })
+  );
+
+  const productsByPackageId = new Map<string, Doc<'product_catalog'>[]>();
   for (const product of activeProducts) {
-    proposedGroupsByProductId.set(String(product._id), [product]);
-  }
-  for (const bucket of aliasBuckets.values()) {
-    const providerCounts = new Map<string, number>();
-    for (const product of bucket) {
-      providerCounts.set(product.provider, (providerCounts.get(product.provider) ?? 0) + 1);
-    }
-    if (bucket.length < 2 || !Array.from(providerCounts.values()).every((count) => count === 1)) {
+    const packageId = packageIdByProductId.get(String(product._id));
+    if (!packageId) {
       continue;
     }
-    for (const product of bucket) {
-      proposedGroupsByProductId.set(String(product._id), bucket);
-    }
+    const products = productsByPackageId.get(packageId) ?? [];
+    products.push(product);
+    productsByPackageId.set(packageId, products);
   }
-
-  const packageIdsByProductId = new Map<string, string[]>();
   await Promise.all(
-    activeProducts.map(async (product) => {
-      const versions = await ctx.db
-        .query('package_versions_ref')
-        .withIndex('by_catalog_product', (q) =>
-          q.eq('catalogProductId', product._id).eq('state', 'READY')
+    Array.from(productsByPackageId.keys()).map(async (packageId) => {
+      const bindings = await ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_creator_package_status', (q) =>
+          q
+            .eq('creatorAuthUserId', ownedProducts[0]?.authUserId as string)
+            .eq('packageId', packageId)
         )
         .collect();
-      packageIdsByProductId.set(
-        String(product._id),
-        Array.from(new Set(versions.map((version) => version.packageId)))
+      associationUpdatedAtByPackageId.set(
+        packageId,
+        Math.max(0, ...bindings.map((binding) => binding.updatedAt))
       );
     })
   );
 
   const resolvedGroupsByProductId = new Map<string, LogicalCatalogProductGroup>();
   for (const product of activeProducts) {
-    const proposedGroup = proposedGroupsByProductId.get(String(product._id)) ?? [product];
-    const proposedPackageIds = Array.from(
-      new Set(
-        proposedGroup.flatMap((candidate) => packageIdsByProductId.get(String(candidate._id)) ?? [])
-      )
-    );
-    const products = proposedPackageIds.length > 1 ? [product] : proposedGroup;
-    const packageIds = Array.from(
-      new Set(
-        products.flatMap((candidate) => packageIdsByProductId.get(String(candidate._id)) ?? [])
-      )
-    );
-    const aliasId =
-      resolveSharedYucpAliasIdFromCatalogProducts(products) ??
-      resolveComparableYucpAliasIdsFromCatalogProduct(product)[0] ??
-      String(product._id);
+    const packageId = packageIdByProductId.get(String(product._id));
+    const products = packageId ? (productsByPackageId.get(packageId) ?? [product]) : [product];
     resolvedGroupsByProductId.set(String(product._id), {
-      aliasId,
-      ...(packageIds.length === 1 ? { packageId: packageIds[0] } : {}),
+      aliasId: packageId ?? String(product._id),
+      associationUpdatedAt: packageId
+        ? (associationUpdatedAtByPackageId.get(packageId) ?? product.updatedAt)
+        : product.updatedAt,
+      ...(packageId ? { packageId } : {}),
       products,
     });
   }
@@ -356,6 +389,179 @@ async function registerPackageForIdentity(
   return { registered: true, conflict: false, archived: false };
 }
 
+async function requireOwnedActivePackageAndProduct(
+  ctx: MutationCtx,
+  input: {
+    authUserId: string;
+    catalogProductId: Doc<'product_catalog'>['_id'];
+    packageId: string;
+  }
+): Promise<Doc<'product_catalog'>> {
+  const packageId = input.packageId.trim();
+  if (!PACKAGE_ID_RE.test(packageId)) {
+    throw new ConvexError(`Invalid packageId format: ${input.packageId}`);
+  }
+  const registration = await ctx.db
+    .query('package_registry')
+    .withIndex('by_package_id', (q) => q.eq('packageId', packageId))
+    .unique();
+  if (
+    !registration ||
+    registration.yucpUserId !== input.authUserId ||
+    isArchivedRegistration(registration)
+  ) {
+    throw new ConvexError('Active package ownership required');
+  }
+  const product = await ctx.db.get(input.catalogProductId);
+  if (
+    !product ||
+    product.authUserId !== input.authUserId ||
+    getCatalogProductWorkspaceStatus(product) !== 'active'
+  ) {
+    throw new ConvexError('Catalog product ownership required');
+  }
+  return product;
+}
+
+async function bindOwnedCatalogProduct(
+  ctx: MutationCtx,
+  input: {
+    authUserId: string;
+    catalogProductId: Doc<'product_catalog'>['_id'];
+    packageId: string;
+  }
+) {
+  await requireOwnedActivePackageAndProduct(ctx, input);
+  const activeBindings = await ctx.db
+    .query('package_catalog_bindings')
+    .withIndex('by_catalog_product_status', (q) =>
+      q.eq('catalogProductId', input.catalogProductId).eq('status', 'active')
+    )
+    .take(2);
+  if (activeBindings.length > 1) {
+    throw new ConvexError('Catalog product has conflicting package links');
+  }
+  const existing = activeBindings[0];
+  if (existing) {
+    if (existing.creatorAuthUserId !== input.authUserId || existing.packageId !== input.packageId) {
+      throw new ConvexError('Catalog product is already linked to another package');
+    }
+    return {
+      bound: true as const,
+      catalogProductId: input.catalogProductId,
+      created: false,
+      packageId: input.packageId,
+    };
+  }
+  const now = Date.now();
+  await ctx.db.insert('package_catalog_bindings', {
+    catalogProductId: input.catalogProductId,
+    creatorAuthUserId: input.authUserId,
+    packageId: input.packageId,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  });
+  return {
+    bound: true as const,
+    catalogProductId: input.catalogProductId,
+    created: true,
+    packageId: input.packageId,
+  };
+}
+
+export const bindCatalogProductForCreator = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+    packageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    return await bindOwnedCatalogProduct(ctx, args);
+  },
+});
+
+export const unbindCatalogProductForCreator = mutation({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    catalogProductId: v.id('product_catalog'),
+    packageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    await requireOwnedActivePackageAndProduct(ctx, args);
+    const bindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_catalog_product_status', (q) =>
+        q.eq('catalogProductId', args.catalogProductId).eq('status', 'active')
+      )
+      .take(2);
+    if (
+      bindings.length !== 1 ||
+      bindings[0]?.creatorAuthUserId !== args.authUserId ||
+      bindings[0]?.packageId !== args.packageId
+    ) {
+      throw new ConvexError('Catalog product is not linked to this package');
+    }
+    const packageBindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', args.authUserId)
+          .eq('packageId', args.packageId)
+          .eq('status', 'active')
+      )
+      .take(2);
+    if (packageBindings.length < 2) {
+      throw new ConvexError('Package must keep at least one linked storefront');
+    }
+    const now = Date.now();
+    const targetTiers = await ctx.db
+      .query('catalog_tiers')
+      .withIndex('by_catalog_product', (q) => q.eq('catalogProductId', args.catalogProductId))
+      .collect();
+    const targetTierIds = new Set(targetTiers.map((tier) => String(tier._id)));
+    const editions = await ctx.db
+      .query('package_editions')
+      .withIndex('by_creator_package', (q) =>
+        q.eq('creatorAuthUserId', args.authUserId).eq('packageId', args.packageId)
+      )
+      .collect();
+    for (const edition of editions) {
+      const catalogProductIds = edition.catalogProductIds.filter(
+        (catalogProductId) => catalogProductId !== args.catalogProductId
+      );
+      const catalogTierIds = edition.catalogTierIds.filter(
+        (catalogTierId) => !targetTierIds.has(String(catalogTierId))
+      );
+      const losesEveryTierConstraint =
+        edition.catalogTierIds.length > 0 && catalogTierIds.length === 0;
+      await ctx.db.patch(edition._id, {
+        catalogProductIds,
+        catalogTierIds,
+        ...(edition.status === 'active' &&
+        (catalogProductIds.length === 0 || losesEveryTierConstraint)
+          ? { status: 'archived' as const }
+          : {}),
+        updatedAt: now,
+      });
+    }
+    await ctx.db.patch(bindings[0]._id, {
+      removedAt: now,
+      status: 'removed',
+      updatedAt: now,
+    });
+    return { unbound: true as const };
+  },
+});
+
 export const registerPackage = internalMutation({
   args: {
     packageId: v.string(),
@@ -383,18 +589,27 @@ export const claimPackageForCreatorUpload = mutation({
     apiSecret: v.string(),
     actor: ApiActorBindingV,
     authUserId: v.string(),
-    catalogProductId: v.id('product_catalog'),
+    catalogProductIds: v.array(v.id('product_catalog')),
     packageId: v.string(),
   },
   handler: async (ctx, args): Promise<CreatorUploadRegistrationResult> => {
     requireApiSecret(args.apiSecret);
     await requireDelegatedAuthUserActor(args.actor, args.authUserId);
 
-    const product = await ctx.db.get(args.catalogProductId);
+    const catalogProductIds = [
+      ...new Map(args.catalogProductIds.map((id) => [String(id), id])).values(),
+    ];
+    if (catalogProductIds.length === 0 || catalogProductIds.length > 32) {
+      throw new ConvexError('Creator upload requires from 1 to 32 catalog products');
+    }
+    const products = await Promise.all(catalogProductIds.map(async (id) => await ctx.db.get(id)));
     if (
-      !product ||
-      product.authUserId !== args.authUserId ||
-      getCatalogProductWorkspaceStatus(product) !== 'active'
+      products.some(
+        (product) =>
+          !product ||
+          product.authUserId !== args.authUserId ||
+          getCatalogProductWorkspaceStatus(product) !== 'active'
+      )
     ) {
       return {
         registered: false,
@@ -404,27 +619,49 @@ export const claimPackageForCreatorUpload = mutation({
       };
     }
 
-    const readyVersions = await ctx.db
-      .query('package_versions_ref')
-      .withIndex('by_catalog_product', (q) =>
-        q.eq('catalogProductId', args.catalogProductId).eq('state', 'READY')
-      )
-      .collect();
-    if (readyVersions.some((version) => version.packageId !== args.packageId)) {
-      return {
-        registered: false,
-        conflict: false,
-        archived: false,
-        catalogProductRejected: true,
-      };
+    for (const catalogProductId of catalogProductIds) {
+      const existingBindings = await ctx.db
+        .query('package_catalog_bindings')
+        .withIndex('by_catalog_product_status', (q) =>
+          q.eq('catalogProductId', catalogProductId).eq('status', 'active')
+        )
+        .take(2);
+      if (
+        existingBindings.length > 1 ||
+        (existingBindings[0] &&
+          (existingBindings[0].creatorAuthUserId !== args.authUserId ||
+            existingBindings[0].packageId !== args.packageId))
+      ) {
+        return {
+          registered: false,
+          conflict: false,
+          archived: false,
+          catalogProductRejected: true,
+        };
+      }
     }
 
-    return await registerPackageForIdentity(ctx, {
+    const primaryProduct = products[0];
+    if (!primaryProduct) {
+      throw new ConvexError('Creator upload catalog product resolution failed');
+    }
+    const registration = await registerPackageForIdentity(ctx, {
       packageId: args.packageId,
-      packageName: product.displayName,
+      packageName: primaryProduct.displayName,
       publisherId: `creator:${args.authUserId}`,
       yucpUserId: args.authUserId,
     });
+    if (!registration.registered) {
+      return registration;
+    }
+    for (const catalogProductId of catalogProductIds) {
+      await bindOwnedCatalogProduct(ctx, {
+        authUserId: args.authUserId,
+        catalogProductId,
+        packageId: args.packageId,
+      });
+    }
+    return registration;
   },
 });
 
@@ -450,24 +687,6 @@ export const listByAuthUser = query({
       args.limit && Number.isSafeInteger(args.limit) && args.limit > 0 ? args.limit : 50,
       100
     );
-    const requiresFilteredPagination = Boolean(args.configuredOnly || args.provider || args.status);
-
-    if (!requiresFilteredPagination) {
-      const page = await ctx.db
-        .query('product_catalog')
-        .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
-        .paginate({ cursor: args.cursor ?? null, numItems: limit });
-      const data = await Promise.all(
-        page.page.map((product) => buildCreatorPackageProductSummary(ctx, product))
-      );
-
-      return {
-        data,
-        hasMore: !page.isDone,
-        nextCursor: page.isDone ? null : page.continueCursor,
-      };
-    }
-
     let products = await ctx.db
       .query('product_catalog')
       .withIndex('by_auth_user', (q) => q.eq('authUserId', args.authUserId))
@@ -547,6 +766,59 @@ export const getByIdForAuthUser = query({
       ctx,
       doc,
       await resolveLogicalCatalogProductGroup(ctx, doc)
+    );
+  },
+});
+
+/** Get one creator-owned package aggregate by its provider-neutral package ID. */
+export const getByPackageIdForAuthUser = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    authUserId: v.string(),
+    packageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireDelegatedAuthUserActor(args.actor, args.authUserId);
+    const registration = await ctx.db
+      .query('package_registry')
+      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+      .unique();
+    if (
+      !registration ||
+      registration.yucpUserId !== args.authUserId ||
+      isArchivedRegistration(registration)
+    ) {
+      return null;
+    }
+    const bindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', args.authUserId)
+          .eq('packageId', args.packageId)
+          .eq('status', 'active')
+      )
+      .collect();
+    const products = (
+      await Promise.all(bindings.map(async (binding) => await ctx.db.get(binding.catalogProductId)))
+    )
+      .filter(
+        (product): product is Doc<'product_catalog'> =>
+          product !== null &&
+          product.authUserId === args.authUserId &&
+          getCatalogProductWorkspaceStatus(product) === 'active'
+      )
+      .sort(compareCatalogProducts);
+    const product = products[0];
+    if (!product) {
+      return null;
+    }
+    return await buildCreatorPackageProductSummary(
+      ctx,
+      product,
+      await resolveLogicalCatalogProductGroup(ctx, product)
     );
   },
 });
@@ -635,6 +907,7 @@ async function buildBuyerAccessContext(ctx: QueryCtx, product: Doc<'product_cata
     catalogProductIds: logicalGroup.products.map((candidate) => candidate._id),
     creatorAuthUserId: product.authUserId,
     aliasId: logicalGroup.aliasId,
+    packageAssociationUpdatedAt: logicalGroup.associationUpdatedAt,
     ...(logicalGroup.packageId ? { packageId: logicalGroup.packageId } : {}),
     storefronts: logicalGroup.products.map(buildCatalogStorefront),
     productId: product.productId,
@@ -662,6 +935,45 @@ export const getBuyerAccessContextByCatalogProductId = query({
       return null;
     }
 
+    return await buildBuyerAccessContext(ctx, product);
+  },
+});
+
+export const getBuyerAccessContextByPackageId = query({
+  args: {
+    apiSecret: v.string(),
+    actor: ApiActorBindingV,
+    packageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireApiSecret(args.apiSecret);
+    await requireApiActor(args.actor);
+    const registration = await ctx.db
+      .query('package_registry')
+      .withIndex('by_package_id', (q) => q.eq('packageId', args.packageId))
+      .unique();
+    if (!registration || isArchivedRegistration(registration)) {
+      return null;
+    }
+    const bindings = await ctx.db
+      .query('package_catalog_bindings')
+      .withIndex('by_creator_package_status', (q) =>
+        q
+          .eq('creatorAuthUserId', registration.yucpUserId)
+          .eq('packageId', args.packageId)
+          .eq('status', 'active')
+      )
+      .collect();
+    const products = await Promise.all(
+      bindings.map(async (binding) => await ctx.db.get(binding.catalogProductId))
+    );
+    const product = products.find(
+      (candidate): candidate is Doc<'product_catalog'> =>
+        candidate !== null && getCatalogProductWorkspaceStatus(candidate) === 'active'
+    );
+    if (!product) {
+      return null;
+    }
     return await buildBuyerAccessContext(ctx, product);
   },
 });

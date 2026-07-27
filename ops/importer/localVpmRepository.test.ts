@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { unzipSync } from 'fflate';
 import { buildLocalImporterRepository } from './localVpmRepository';
+import { assertPinnedImporterRelease } from './publicImporterRelease';
 
 function firstCentralDirectoryTimestamp(archive: Uint8Array): number {
   const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
@@ -17,6 +18,45 @@ function firstCentralDirectoryTimestamp(archive: Uint8Array): number {
 }
 
 describe('local public importer repository', () => {
+  test('rejects changed package bytes under a pinned release version', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-local-vpm-immutable-'));
+    const importerPath = join(scratchPath, 'com.yucp.importer');
+    try {
+      await mkdir(join(importerPath, 'Editor'), { recursive: true });
+      await writeFile(
+        join(importerPath, 'package.json'),
+        '{"name":"com.yucp.importer","displayName":"Importer","version":"0.1.32"}\n'
+      );
+      await writeFile(join(importerPath, 'Editor', 'Importer.cs'), 'namespace YUCP {}\n');
+      const published = await buildLocalImporterRepository({
+        baseUrl: 'http://127.0.0.1:3004',
+        importerPath,
+      });
+      const publishedSha256 = createHash('sha256').update(published.archive).digest('hex');
+      const ledger = {
+        schemaVersion: 1 as const,
+        releases: {
+          '0.1.32': {
+            sha256: publishedSha256,
+          },
+        },
+      };
+      assertPinnedImporterRelease(published, ledger);
+
+      await writeFile(join(importerPath, 'Editor', 'Importer.cs'), 'namespace Changed {}\n');
+      const changed = await buildLocalImporterRepository({
+        baseUrl: 'http://127.0.0.1:3004',
+        importerPath,
+      });
+
+      expect(() => assertPinnedImporterRelease(changed, ledger)).toThrow(
+        'must publish a new semantic version'
+      );
+    } finally {
+      await rm(scratchPath, { force: true, recursive: true });
+    }
+  });
+
   test('packages the configured real importer tree into a valid VPM index', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-local-vpm-'));
     const importerPath = join(scratchPath, 'com.yucp.importer');

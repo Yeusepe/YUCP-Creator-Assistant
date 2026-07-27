@@ -5,11 +5,13 @@ import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http
 import { extname, resolve } from 'node:path';
 import { FileStore } from '@tus/file-store';
 import { Server, type Upload } from '@tus/server';
-import { type Catalog, withCatalogHeartbeat } from '../catalog';
+import { type Catalog, CatalogInvariantError, withCatalogHeartbeat } from '../catalog';
+import type { StorageGcCatalog } from '../catalog/storageGcCatalog';
 import { assembleVersion, beginVersion } from '../ingest-pipeline';
 import type { CasStore } from '../storage-core/desyncCas';
-import { isProtectionPolicyId, type ProtectionPolicyId } from '../storage-core/protectionPolicy';
+import { isProtectionPolicyId, type ProtectionPolicyId } from '../storage-core/protectionPolicyId';
 import { UPLOAD_CAPABILITY_HEADERS, verifyUploadCapability } from '../storage-core/uploadSigning';
+import { createCatalogControlHandler, isCatalogControlRequest } from './catalogControl';
 import { persistCompletedUpload, type QuarantineStoragePort } from './quarantine';
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 5 * 1024 * 1024 * 1024;
@@ -62,9 +64,12 @@ export interface CreateIngestTusServerInput {
   metadataStore: CasStore;
   protectedStore: CasStore;
   quarantineStorage: QuarantineStoragePort;
+  scratchRoot: string;
   uploadDir: string;
   maxBytes?: number;
   uploadHmacKey: string;
+  catalogControlSharedSecret: string;
+  releasePins?: Pick<StorageGcCatalog, 'createReleasePin' | 'releaseReleasePin'>;
 }
 
 function tusError(status_code: number, body: string): TusHookError {
@@ -75,6 +80,14 @@ function requiredMetadata(metadata: Upload['metadata'], key: string, label = key
   const value = metadata?.[key]?.trim();
   if (!value) {
     throw tusError(400, `Upload metadata must include ${label}.`);
+  }
+  return value;
+}
+
+function requiredProtectionPolicyId(metadata: Upload['metadata']): ProtectionPolicyId {
+  const value = requiredMetadata(metadata, PROTECTION_POLICY_METADATA_KEY, 'protection policy');
+  if (!isProtectionPolicyId(value)) {
+    throw tusError(403, 'Upload protection policy is not supported.');
   }
   return value;
 }
@@ -239,6 +252,7 @@ async function authorizeUploadRequest(
   | {
       catalogProductId?: string;
       creatorId: string;
+      editionId: string;
       packageId: string;
       protectionPolicyId: ProtectionPolicyId;
       version: string;
@@ -250,6 +264,7 @@ async function authorizeUploadRequest(
   const versionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.versionId);
   const encodedPackageId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.packageId);
   const encodedCreatorId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.creatorId);
+  const editionId = singleRequestHeader(request, UPLOAD_CAPABILITY_HEADERS.editionId);
   const protectionPolicyId = singleRequestHeader(
     request,
     UPLOAD_CAPABILITY_HEADERS.protectionPolicyId
@@ -260,10 +275,10 @@ async function authorizeUploadRequest(
     !sig ||
     !versionId ||
     !encodedCreatorId ||
+    !editionId ||
     !encodedPackageId ||
     !encodedVersion ||
-    !protectionPolicyId ||
-    !isProtectionPolicyId(protectionPolicyId)
+    !protectionPolicyId
   ) {
     return { status: 401 };
   }
@@ -290,6 +305,7 @@ async function authorizeUploadRequest(
       {
         catalogProductId,
         creatorId,
+        editionId,
         exp,
         packageId,
         protectionPolicyId,
@@ -302,9 +318,13 @@ async function authorizeUploadRequest(
   ) {
     return { status: 403 };
   }
+  if (!isProtectionPolicyId(protectionPolicyId)) {
+    return { status: 403 };
+  }
   return {
     catalogProductId,
     creatorId,
+    editionId,
     packageId,
     protectionPolicyId,
     version,
@@ -418,6 +438,11 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
   mkdirSync(uploadDir, { recursive: true });
   const fileStore = new FileStore({ directory: uploadDir });
   const heartbeatSignals = new AsyncLocalStorage<AbortSignal>();
+  const catalogControlHandler = createCatalogControlHandler({
+    catalog: input.catalog,
+    ...(input.releasePins ? { releasePins: input.releasePins } : {}),
+    sharedSecret: input.catalogControlSharedSecret,
+  });
   const tusServer = new Server({
     path: INGEST_TUS_PATH,
     datastore: fileStore,
@@ -429,8 +454,17 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
     allowedHeaders: Object.values(UPLOAD_CAPABILITY_HEADERS),
     allowedOrigins: allowedOrigin ? [allowedOrigin] : undefined,
     exposedHeaders: ['Location', 'Upload-Offset', 'Upload-Length'],
-    namingFunction(_request, metadata) {
-      return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
+    namingFunction(request, metadata) {
+      const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
+      if (
+        !versionId ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          versionId
+        )
+      ) {
+        return `${randomBytes(16).toString('hex')}${uploadExtension(metadata)}`;
+      }
+      return `${versionId.replaceAll('-', '').toLowerCase()}${uploadExtension(metadata)}`;
     },
     async onUploadCreate(request, upload) {
       if (upload.size === undefined) {
@@ -444,6 +478,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       const versionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.versionId)?.trim();
       const encodedPackageId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.packageId)?.trim();
       const encodedCreatorId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.creatorId)?.trim();
+      const editionId = request.headers.get(UPLOAD_CAPABILITY_HEADERS.editionId)?.trim();
       const protectionPolicyId = request.headers
         .get(UPLOAD_CAPABILITY_HEADERS.protectionPolicyId)
         ?.trim();
@@ -468,6 +503,7 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       if (
         !versionId ||
         !signedCreatorId ||
+        !editionId ||
         !protectionPolicyId ||
         !isProtectionPolicyId(protectionPolicyId) ||
         metadata.packageId !== signedPackageId ||
@@ -476,13 +512,25 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
       ) {
         throw tusError(403, 'Upload metadata does not match the signed capability.');
       }
-      const uploading = await beginVersion({
-        catalog: input.catalog,
-        catalogProductId: metadata.catalogProductId,
-        packageId: metadata.packageId,
-        version: metadata.version,
-        versionId,
-      });
+      let uploading: Awaited<ReturnType<typeof beginVersion>>;
+      try {
+        uploading = await beginVersion({
+          catalog: input.catalog,
+          catalogProductId: metadata.catalogProductId,
+          editionId,
+          packageId: metadata.packageId,
+          version: metadata.version,
+          versionId,
+        });
+      } catch (error) {
+        if (
+          error instanceof CatalogInvariantError ||
+          (error instanceof Error && error.message.includes('immutable after upload completion'))
+        ) {
+          throw tusError(409, 'This package version already exists. Use a new version number.');
+        }
+        throw error;
+      }
       console.info(
         JSON.stringify({
           event: 'ingest_tus.upload_created',
@@ -548,11 +596,8 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
             ),
             metadataStore: input.metadataStore,
             protectedStore: input.protectedStore,
-            protectionPolicyId: requiredMetadata(
-              storedUpload.metadata,
-              PROTECTION_POLICY_METADATA_KEY,
-              'protection policy'
-            ) as ProtectionPolicyId,
+            protectionPolicyId: requiredProtectionPolicyId(storedUpload.metadata),
+            scratchRoot: input.scratchRoot,
             versionId,
             inputPath: storedUpload.storage.path,
           },
@@ -587,6 +632,10 @@ export function createIngestTusServer(input: CreateIngestTusServerInput): Reques
 
   return (request, response) => {
     const startedAt = performance.now();
+    if (isCatalogControlRequest(request)) {
+      catalogControlHandler(request, response);
+      return;
+    }
     if (isHealthRequest(request)) {
       sendHealth(response);
       return;

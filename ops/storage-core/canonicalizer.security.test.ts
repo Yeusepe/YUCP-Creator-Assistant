@@ -169,6 +169,31 @@ describe('canonicalizer decompression budget', () => {
 });
 
 describe('canonicalizer tar compatibility', () => {
+  it('canonicalizes tar.gz inside a long pipeline scratch path', async () => {
+    const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-long-path-'));
+    scratchPaths.push(scratchPath);
+    const pipelinePath = join(
+      scratchPath,
+      'reserved-package-pipeline-scratch',
+      'ingest-job-with-a-durable-identifier',
+      'normalized-package-artifact'
+    );
+    const tarPath = join(scratchPath, 'source.tar');
+    const inputPath = join(scratchPath, 'source.tar.gz');
+    const outputPath = join(pipelinePath, 'canonical.tar.gz');
+    await mkdir(pipelinePath, { recursive: true });
+    await writeFile(
+      tarPath,
+      createTar([{ name: 'package.json', type: '0', body: Buffer.from('{"name":"example"}') }])
+    );
+    await createGzipFixture(tarPath, inputPath);
+
+    await canonicalizeArtifact({ inputPath, outputPath });
+
+    expect((await stat(outputPath)).isFile()).toBeTrue();
+    await expectNoCanonicalizerScratch(pipelinePath);
+  });
+
   it('canonicalizes legacy OldFile regular entries with their contents intact', async () => {
     const scratchPath = await mkdtemp(join(tmpdir(), 'yucp-canonicalizer-targz-oldfile-'));
     scratchPaths.push(scratchPath);

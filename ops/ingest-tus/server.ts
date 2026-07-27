@@ -6,11 +6,12 @@ import {
   ExactStorageCatalog,
   openCatalogDatabase,
   runCatalogMigrations,
+  StorageGcCatalog,
 } from '../catalog';
 import {
   type FetchInfisicalSecrets,
   INGEST_INFISICAL_KEYS,
-  isDisposableStorageProfile,
+  isLocalStorageProfile,
   loadIngestRuntimeEnv,
   requireInfisicalBootstrap,
 } from '../storage-core/config';
@@ -46,7 +47,7 @@ export async function buildIngestTusRuntime(
   env: NodeJS.ProcessEnv = process.env,
   fetchSecrets: FetchInfisicalSecrets = fetchInfisicalSecrets
 ): Promise<IngestTusRuntime> {
-  if (!isDisposableStorageProfile(env)) {
+  if (!isLocalStorageProfile(env)) {
     requireInfisicalBootstrap(env);
   }
   const runtimeEnv = await loadIngestRuntimeEnv(env, fetchSecrets);
@@ -67,6 +68,7 @@ export async function buildIngestTusRuntime(
       handler: createIngestTusServer({
         allowedOrigin: runtimeEnv.ingestAllowedOrigin,
         catalog,
+        releasePins: new StorageGcCatalog(database),
         commonStore: s3CasStore(runtimeEnv.common, {
           durableStorage,
           storageRole: 'common',
@@ -81,8 +83,10 @@ export async function buildIngestTusRuntime(
           storageRole: 'protected',
         }),
         quarantineStorage: createS3QuarantineStorage(runtimeEnv.quarantine),
+        scratchRoot: runtimeEnv.ingestScratchDir,
         uploadDir: runtimeEnv.ingestUploadDir,
         uploadHmacKey: runtimeEnv.uploadHmacKey,
+        catalogControlSharedSecret: runtimeEnv.catalogControlSharedSecret,
       }),
     };
   } catch (error) {

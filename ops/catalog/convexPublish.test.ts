@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { verifyApiActorBinding } from '@yucp/shared/apiActor';
 import { getFunctionName } from 'convex/server';
 import { api } from '../../convex/_generated/api';
+import { ACTIVE_PROTECTION_POLICY_ID } from '../storage-core/protectionPolicyId';
 import { createConvexCatalogPublish, loadConvexCatalogPublishConfig } from './convexPublish';
 import type { CatalogOutboxEvent } from './reconciler';
 
@@ -44,25 +45,43 @@ describe('createConvexCatalogPublish', () => {
         versionId: 'version-123',
         packageId: 'com.yucp.avatar-tools',
         catalogProductId: 'catalog-product-123',
+        editionId: 'commercial',
         version: '1.2.3',
         activeContentDigest: '55'.repeat(32),
         activePolicyVersion: 'active-content-policy-v1',
         bindingRoot: '22'.repeat(32),
+        bootstrapMedia: [
+          {
+            bucketName: 'metadata',
+            byteSize: 9,
+            contentType: 'image/png',
+            kind: 'icon',
+            localPath: 'Documentation~/YUCP/icon.png',
+            objectKey: 'indexes/bootstrap-media/aa.png',
+            providerVersion: 'exact-version-1',
+            sha256: 'aa'.repeat(32),
+          },
+        ],
         commonRoot: '66'.repeat(32),
         logicalBytes: 1_048_576,
         logicalFiles: 42,
         manifestSha256: '33'.repeat(32),
+        packageMetadata: {
+          author: 'YUCP Studio',
+          packageName: 'Avatar Tools',
+          version: '1.2.3',
+        },
         protectedFiles: [
           {
             materializerType: 'png',
             normalizedPath: 'Assets/Textures/body.png',
-            required: true,
+            required: false,
             sourceSha256: '77'.repeat(32),
           },
         ],
         protectedSourceRoot: '88'.repeat(32),
         protectionPolicyDigest: '99'.repeat(32),
-        protectionPolicyId: 'supported-visual-assets-v1',
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         previousState: 'PROMOTING',
         releaseRoot: '44'.repeat(32),
         state: 'READY',
@@ -89,26 +108,44 @@ describe('createConvexCatalogPublish', () => {
       apiSecret: config.convexApiSecret,
       packageId: 'com.yucp.avatar-tools',
       catalogProductId: 'catalog-product-123',
+      editionId: 'commercial',
       version: '1.2.3',
       versionId: 'version-123',
       activeContentDigest: '55'.repeat(32),
       activePolicyVersion: 'active-content-policy-v1',
       bindingRoot: '22'.repeat(32),
+      bootstrapMedia: [
+        {
+          bucketName: 'metadata',
+          byteSize: 9,
+          contentType: 'image/png',
+          kind: 'icon',
+          localPath: 'Documentation~/YUCP/icon.png',
+          objectKey: 'indexes/bootstrap-media/aa.png',
+          providerVersion: 'exact-version-1',
+          sha256: 'aa'.repeat(32),
+        },
+      ],
       commonRoot: '66'.repeat(32),
       logicalBytes: 1_048_576,
       logicalFiles: 42,
       manifestSha256: '33'.repeat(32),
+      packageMetadata: {
+        author: 'YUCP Studio',
+        packageName: 'Avatar Tools',
+        version: '1.2.3',
+      },
       protectedFiles: [
         {
           materializerType: 'png',
           normalizedPath: 'Assets/Textures/body.png',
-          required: true,
+          required: false,
           sourceSha256: '77'.repeat(32),
         },
       ],
       protectedSourceRoot: '88'.repeat(32),
       protectionPolicyDigest: '99'.repeat(32),
-      protectionPolicyId: 'supported-visual-assets-v1',
+      protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
       releaseRoot: '44'.repeat(32),
       createdAt: createdAt.getTime(),
       vpmDependencies: {
@@ -143,6 +180,7 @@ describe('createConvexCatalogPublish', () => {
       payload: {
         versionId: 'version-best-effort',
         packageId: 'com.yucp.best-effort',
+        editionId: 'standard',
         version: '2.0.0',
         activeContentDigest: '11'.repeat(32),
         activePolicyVersion: 'active-content-policy-v1',
@@ -249,6 +287,7 @@ describe('createConvexCatalogPublish', () => {
       payload: {
         versionId: 'version-hung',
         packageId: 'com.yucp.hung',
+        editionId: 'standard',
         version: '1.0.0',
         activeContentDigest: '55'.repeat(32),
         activePolicyVersion: 'active-content-policy-v1',
@@ -260,7 +299,7 @@ describe('createConvexCatalogPublish', () => {
         protectedFiles: [],
         protectedSourceRoot: '77'.repeat(32),
         protectionPolicyDigest: '88'.repeat(32),
-        protectionPolicyId: 'common-only-v1',
+        protectionPolicyId: ACTIVE_PROTECTION_POLICY_ID,
         releaseRoot: '44'.repeat(32),
         vpmDependencies: {},
         vpmRepositories: {},
