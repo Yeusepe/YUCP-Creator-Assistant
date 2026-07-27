@@ -8,6 +8,8 @@
  * - npx convex run migrations:migrateLegacyLicenseSubjectLinks
  * - npx convex run migrations:repairEntitlementCatalogProductIds
  * - npx convex run migrations:resetIncompleteProviderLicenseIntents
+ * - npx convex run migrations:listPackageVersionReleaseBackfillCandidates
+ * - npx convex run migrations:backfillPackageVersionReleasePublication
  * - npx convex run migrations:backfillPackageVersionVpmMetadata
  * - npx convex run migrations:purgeCreatorVpmLinkCatalogProductIds
  * - npx convex run migrations:repairCreatorVpmLinkPackageBindings
@@ -104,6 +106,173 @@ const MAX_PACKAGE_EDITION_MIGRATION_READS = 64;
 const MAX_PACKAGE_VERSION_MIGRATION_READS = 64;
 const MAX_STORAGE_MIGRATION_BATCH = 5;
 const REPORTABLE_BINDING_STATUSES = new Set<Doc<'bindings'>['status']>(['active', 'pending']);
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const PACKAGE_VERSION_RELEASE_FIELDS = [
+  'activeContentDigest',
+  'activePolicyVersion',
+  'bindingRoot',
+  'commonRoot',
+  'logicalBytes',
+  'logicalFiles',
+  'manifestSha256',
+  'protectedFiles',
+  'protectedSourceRoot',
+  'protectionPolicyDigest',
+  'protectionPolicyId',
+  'releaseRoot',
+  'vpmDependencies',
+  'vpmRepositories',
+] as const;
+
+const ProtectedPackageFileV = v.object({
+  materializerType: v.string(),
+  normalizedPath: v.string(),
+  required: v.boolean(),
+  sourceSha256: v.string(),
+});
+
+function packageVersionReleaseNeedsBackfill(version: LegacyMigrationDoc): boolean {
+  return (
+    PACKAGE_VERSION_RELEASE_FIELDS.some((field) => !Object.hasOwn(version, field)) ||
+    Object.hasOwn(version, 'contentType') ||
+    Object.hasOwn(version, 'totalSize')
+  );
+}
+
+export const listPackageVersionReleaseBackfillCandidates = internalQuery({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        packageId: v.string(),
+        version: v.string(),
+        versionId: v.string(),
+      })
+    ),
+    continueCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+    scanned: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.max(
+      1,
+      Math.min(args.limit ?? MAX_STORAGE_MIGRATION_BATCH, MAX_STORAGE_MIGRATION_BATCH)
+    );
+    const page = await ctx.db
+      .query('package_versions_ref')
+      .paginate({ cursor: args.cursor ?? null, numItems: limit });
+    return {
+      candidates: page.page
+        .filter((version) =>
+          packageVersionReleaseNeedsBackfill(version as unknown as LegacyMigrationDoc)
+        )
+        .map((version) => ({
+          packageId: version.packageId,
+          version: version.version,
+          versionId: version.versionId,
+        })),
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+      scanned: page.page.length,
+    };
+  },
+});
+
+export const backfillPackageVersionReleasePublication = internalMutation({
+  args: {
+    activeContentDigest: v.string(),
+    activePolicyVersion: v.string(),
+    bindingRoot: v.string(),
+    commonRoot: v.string(),
+    logicalBytes: v.number(),
+    logicalFiles: v.number(),
+    manifestSha256: v.string(),
+    protectedFiles: v.array(ProtectedPackageFileV),
+    protectedSourceRoot: v.string(),
+    protectionPolicyDigest: v.string(),
+    protectionPolicyId: v.string(),
+    releaseRoot: v.string(),
+    versionId: v.string(),
+    vpmDependencies: v.record(v.string(), v.string()),
+    vpmRepositories: v.record(v.string(), v.string()),
+  },
+  returns: v.object({
+    status: v.union(v.literal('already_complete'), v.literal('not_found'), v.literal('updated')),
+  }),
+  handler: async (ctx, args) => {
+    const versions = await ctx.db
+      .query('package_versions_ref')
+      .withIndex('by_version_id', (q) => q.eq('versionId', args.versionId))
+      .take(2);
+    if (versions.length === 0) {
+      return { status: 'not_found' as const };
+    }
+    if (versions.length !== 1 || !versions[0]) {
+      throw new Error('Package version durable identity is not unique');
+    }
+    for (const digest of [
+      args.activeContentDigest,
+      args.bindingRoot,
+      args.commonRoot,
+      args.manifestSha256,
+      args.protectedSourceRoot,
+      args.protectionPolicyDigest,
+      args.releaseRoot,
+      ...args.protectedFiles.map((file) => file.sourceSha256),
+    ]) {
+      if (!SHA256_PATTERN.test(digest)) {
+        throw new Error('Package version release publication contains an invalid SHA-256 digest');
+      }
+    }
+    if (
+      !Number.isSafeInteger(args.logicalBytes) ||
+      args.logicalBytes < 0 ||
+      !Number.isSafeInteger(args.logicalFiles) ||
+      args.logicalFiles < 1
+    ) {
+      throw new Error('Package version release publication contains invalid logical counts');
+    }
+
+    const version = versions[0];
+    const legacy = version as unknown as LegacyMigrationDoc;
+    const publication = {
+      activeContentDigest: args.activeContentDigest,
+      activePolicyVersion: args.activePolicyVersion,
+      bindingRoot: args.bindingRoot,
+      commonRoot: args.commonRoot,
+      logicalBytes: args.logicalBytes,
+      logicalFiles: args.logicalFiles,
+      manifestSha256: args.manifestSha256,
+      protectedFiles: args.protectedFiles,
+      protectedSourceRoot: args.protectedSourceRoot,
+      protectionPolicyDigest: args.protectionPolicyDigest,
+      protectionPolicyId: args.protectionPolicyId,
+      releaseRoot: args.releaseRoot,
+      vpmDependencies: args.vpmDependencies,
+      vpmRepositories: args.vpmRepositories,
+    };
+    for (const field of PACKAGE_VERSION_RELEASE_FIELDS) {
+      if (
+        Object.hasOwn(legacy, field) &&
+        JSON.stringify(legacy[field]) !== JSON.stringify(publication[field])
+      ) {
+        throw new Error(`Package version release publication conflicts at ${field}`);
+      }
+    }
+    if (!packageVersionReleaseNeedsBackfill(legacy)) {
+      return { status: 'already_complete' as const };
+    }
+    await ctx.db.patch(version._id, {
+      ...publication,
+      contentType: undefined,
+      totalSize: undefined,
+    });
+    return { status: 'updated' as const };
+  },
+});
 
 export const backfillPackageVersionVpmMetadata = internalMutation({
   args: {

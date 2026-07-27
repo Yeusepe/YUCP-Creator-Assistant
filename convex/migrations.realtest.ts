@@ -2627,6 +2627,67 @@ describe('creator VPM link catalog field migration', () => {
   });
 });
 
+describe('package version release publication migration', () => {
+  it('backfills the complete authoritative release publication before removing legacy fields', async () => {
+    const t = makeTestConvex();
+    const versionId = crypto.randomUUID();
+    const rowId = await t.run(async (ctx) =>
+      ctx.db.insert('package_versions_ref', {
+        channel: 'stable',
+        contentType: 'application/zip',
+        createdAt: Date.now(),
+        packageId: 'com.yucp.legacy-release',
+        state: 'READY',
+        totalSize: 1024,
+        version: '1.0.0',
+        versionId,
+      } as never)
+    );
+
+    const before = await t.query(internal.migrations.listPackageVersionReleaseBackfillCandidates, {
+      limit: 5,
+    });
+    const result = await t.mutation(internal.migrations.backfillPackageVersionReleasePublication, {
+      activeContentDigest: '11'.repeat(32),
+      activePolicyVersion: 'active-content-policy-v1',
+      bindingRoot: '22'.repeat(32),
+      commonRoot: '33'.repeat(32),
+      logicalBytes: 1024,
+      logicalFiles: 1,
+      manifestSha256: '44'.repeat(32),
+      protectedFiles: [],
+      protectedSourceRoot: '55'.repeat(32),
+      protectionPolicyDigest: '66'.repeat(32),
+      protectionPolicyId: 'protected-file-classification-v1',
+      releaseRoot: '77'.repeat(32),
+      versionId,
+      vpmDependencies: {},
+      vpmRepositories: {},
+    });
+    const stored = await t.run(async (ctx) => ctx.db.get(rowId));
+    const after = await t.query(internal.migrations.listPackageVersionReleaseBackfillCandidates, {
+      limit: 5,
+    });
+
+    expect(before).toMatchObject({
+      candidates: [{ packageId: 'com.yucp.legacy-release', version: '1.0.0', versionId }],
+      isDone: true,
+      scanned: 1,
+    });
+    expect(result).toEqual({ status: 'updated' });
+    expect(stored).toMatchObject({
+      activeContentDigest: '11'.repeat(32),
+      logicalBytes: 1024,
+      releaseRoot: '77'.repeat(32),
+      vpmDependencies: {},
+      vpmRepositories: {},
+    });
+    expect(stored).not.toHaveProperty('contentType');
+    expect(stored).not.toHaveProperty('totalSize');
+    expect(after).toMatchObject({ candidates: [], isDone: true, scanned: 1 });
+  });
+});
+
 describe('package version edition identity migration', () => {
   it('clamps requested batches to five package-scoped rows', async () => {
     const t = makeTestConvex();

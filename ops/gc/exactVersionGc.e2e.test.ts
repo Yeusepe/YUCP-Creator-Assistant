@@ -108,6 +108,83 @@ afterAll(async () => {
 });
 
 describe.serial('exact-version garbage collection', () => {
+  it('preserves a candidate exact version while an uncertain write retry is claimed', async () => {
+    const activeHarness = requireHarness();
+    const activeSql = requireSql();
+    const exactCatalog = new ExactStorageCatalog(activeSql);
+    const gcCatalog = new StorageGcCatalog(activeSql);
+    const storage = new ExpiredRetentionStorage({
+      common: activeHarness.buckets.common,
+    });
+    const durableStorage = new DurableExactStorage(exactCatalog, storage);
+    const content = new TextEncoder().encode(`claimed retry ${randomUUID()}`);
+    const digest = createHash('sha256').update(content).digest('hex');
+    const objectKey = `v2/common/chunks/${digest}`;
+    const object = await durableStorage.putImmutable({
+      body: content,
+      contentType: 'application/octet-stream',
+      idempotencyKey: `gc-retry-source:${randomUUID()}`,
+      objectKey,
+      ownerId: `gc-retry-source:${randomUUID()}`,
+      ownerKind: 'maintenance',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    const retryIntent = await exactCatalog.beginWriteIntent({
+      bucketName: storage.bucketName('common'),
+      contentType: 'application/octet-stream',
+      expectedBytes: content.byteLength,
+      expectedSha256: digest,
+      idempotencyKey: `gc-retry-claim:${randomUUID()}`,
+      objectKey,
+      operation: 'PUT',
+      ownerId: `gc-retry-claim:${randomUUID()}`,
+      ownerKind: 'maintenance',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    expect(
+      await exactCatalog.findVerifiedCanonical({
+        bytes: content.byteLength,
+        intentId: retryIntent.id,
+        sha256: digest,
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toEqual(object);
+    await exactCatalog.markWriteIntentUncertain(retryIntent.id);
+    expect(
+      await exactCatalog.claimUncertainWriteRetry({
+        claimDurationMs: 15 * 60 * 1_000,
+        intentId: retryIntent.id,
+      })
+    ).not.toBeNull();
+
+    const first = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    const second = await runExactVersionGarbageCollection({
+      catalog: gcCatalog,
+      storage,
+    });
+    const candidates = await activeSql<{ object_version_id: string }[]>`
+      SELECT object_version_id
+      FROM storage_gc_candidates
+      WHERE object_version_id = ${object.id}
+    `;
+
+    expect(first.deletedObjects).toBe(0);
+    expect(second.deletedObjects).toBe(0);
+    expect(Array.from(candidates)).toEqual([]);
+    expect(
+      await storage.listExactVersions({
+        objectKey,
+        role: 'common',
+      })
+    ).toHaveLength(1);
+  }, 180_000);
+
   it('preserves committed immutable VPM alias publications across GC generations', async () => {
     const activeHarness = requireHarness();
     const activeSql = requireSql();

@@ -2786,9 +2786,9 @@ const package_versions_ref = defineTable({
   editionId: v.optional(v.string()),
   version: v.string(),
   versionId: v.string(),
-  activeContentDigest: v.string(),
-  activePolicyVersion: v.string(),
-  bindingRoot: v.string(),
+  activeContentDigest: v.optional(v.string()),
+  activePolicyVersion: v.optional(v.string()),
+  bindingRoot: v.optional(v.string()),
   bootstrapMedia: v.optional(
     v.array(
       v.object({
@@ -2803,24 +2803,28 @@ const package_versions_ref = defineTable({
       })
     )
   ),
-  commonRoot: v.string(),
-  logicalBytes: v.number(),
-  logicalFiles: v.number(),
-  manifestSha256: v.string(),
-  protectedFiles: v.array(
-    v.object({
-      materializerType: v.string(),
-      normalizedPath: v.string(),
-      required: v.boolean(),
-      sourceSha256: v.string(),
-    })
+  commonRoot: v.optional(v.string()),
+  logicalBytes: v.optional(v.number()),
+  logicalFiles: v.optional(v.number()),
+  manifestSha256: v.optional(v.string()),
+  protectedFiles: v.optional(
+    v.array(
+      v.object({
+        materializerType: v.string(),
+        normalizedPath: v.string(),
+        required: v.boolean(),
+        sourceSha256: v.string(),
+      })
+    )
   ),
-  protectedSourceRoot: v.string(),
-  protectionPolicyDigest: v.string(),
-  protectionPolicyId: v.string(),
-  releaseRoot: v.string(),
-  vpmDependencies: v.record(v.string(), v.string()),
-  vpmRepositories: v.record(v.string(), v.string()),
+  protectedSourceRoot: v.optional(v.string()),
+  protectionPolicyDigest: v.optional(v.string()),
+  protectionPolicyId: v.optional(v.string()),
+  releaseRoot: v.optional(v.string()),
+  vpmDependencies: v.optional(v.record(v.string(), v.string())),
+  vpmRepositories: v.optional(v.record(v.string(), v.string())),
+  contentType: v.optional(v.string()),
+  totalSize: v.optional(v.number()),
   channel: v.optional(v.string()),
   state: v.union(v.literal('READY'), v.literal('SUPERSEDED'), v.literal('DELETED')),
   deletedAt: v.optional(v.number()),

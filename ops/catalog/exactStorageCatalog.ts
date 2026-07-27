@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import type { StorageRole } from '../storage-core/exactStorage';
-import type { CatalogDatabase } from './database';
+import { type CatalogDatabase, toCatalogDate } from './database';
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type StorageWriteIntentState = 'ABORTED' | 'COMMITTED' | 'ISSUED' | 'UNCERTAIN';
+export type StorageWriteIntentState = 'ABORTED' | 'COMMITTED' | 'ISSUED' | 'RETRYING' | 'UNCERTAIN';
 
 export type StorageWriteOperation = 'COPY' | 'MULTIPART_PUT' | 'PUT';
+export type StorageWriteRetryClaim = {
+  expiresAt: Date;
+  token: string;
+};
 export type PackageReleaseStorageLogicalKind =
   | 'bootstrap-media'
   | 'chunk'
@@ -43,6 +48,8 @@ export type StorageWriteIntent = {
   operation: StorageWriteOperation;
   ownerId: string;
   ownerKind: 'maintenance' | 'materialization-job' | 'package-version' | 'vpm-alias-publication';
+  retryClaimExpiresAt: Date | null;
+  retryClaimToken: string | null;
   state: StorageWriteIntentState;
   storageDomain: string | null;
   storageRole: StorageRole;
@@ -76,6 +83,8 @@ type StorageWriteIntentRow = {
   operation: StorageWriteOperation;
   owner_id: string;
   owner_kind: StorageWriteIntent['ownerKind'];
+  retry_claim_expires_at: Date | string | null;
+  retry_claim_token: string | null;
   state: StorageWriteIntentState;
   storage_domain: string | null;
   storage_role: StorageRole;
@@ -96,6 +105,8 @@ function toIntent(row: StorageWriteIntentRow): StorageWriteIntent {
     operation: row.operation,
     ownerId: row.owner_id,
     ownerKind: row.owner_kind,
+    retryClaimExpiresAt: toCatalogDate(row.retry_claim_expires_at),
+    retryClaimToken: row.retry_claim_token,
     state: row.state,
     storageDomain: row.storage_domain,
     storageRole: row.storage_role,
@@ -131,6 +142,14 @@ function assertSha256(value: string): string {
     throw new Error('Storage SHA-256 is invalid');
   }
   return value;
+}
+
+function assertUuid(value: string, name: string): string {
+  const normalized = value.trim();
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new Error(`${name} is invalid`);
+  }
+  return normalized.toLowerCase();
 }
 
 function assertIntentMatches(
@@ -362,11 +381,70 @@ export class ExactStorageCatalog {
     return rows[0] ? toObjectVersion(rows[0]) : null;
   }
 
-  async markWriteIntentUncertain(intentId: string): Promise<void> {
+  async claimUncertainWriteRetry(input: {
+    claimDurationMs: number;
+    intentId: string;
+  }): Promise<StorageWriteRetryClaim | null> {
+    if (
+      !Number.isSafeInteger(input.claimDurationMs) ||
+      input.claimDurationMs < 1_000 ||
+      input.claimDurationMs > 60 * 60 * 1_000
+    ) {
+      throw new Error('Storage write retry claim bounds are invalid');
+    }
+    const token = randomUUID();
+    const rows = await this.sql<
+      { retry_claim_expires_at: Date | string; retry_claim_token: string }[]
+    >`
+      UPDATE storage_write_intents
+      SET
+        state = 'RETRYING',
+        retry_claim_token = ${token},
+        retry_claim_expires_at =
+          clock_timestamp() + (${input.claimDurationMs} * interval '1 millisecond'),
+        updated_at = clock_timestamp()
+      WHERE id = ${input.intentId}
+        AND object_version_id IS NULL
+        AND (
+          state = 'UNCERTAIN'
+          OR (
+            state = 'RETRYING'
+            AND retry_claim_expires_at <= clock_timestamp()
+          )
+        )
+      RETURNING retry_claim_token, retry_claim_expires_at
+    `;
+    const claimed = rows[0];
+    return claimed
+      ? {
+          expiresAt: toCatalogDate(claimed.retry_claim_expires_at) as Date,
+          token: claimed.retry_claim_token,
+        }
+      : null;
+  }
+
+  async markWriteIntentUncertain(intentId: string, retryClaimToken?: string): Promise<void> {
+    const token = retryClaimToken
+      ? assertUuid(retryClaimToken, 'Storage write retry claim token')
+      : null;
     const rows = await this.sql<{ id: string }[]>`
       UPDATE storage_write_intents
-      SET state = 'UNCERTAIN', updated_at = clock_timestamp()
-      WHERE id = ${intentId} AND state IN ('ISSUED', 'UNCERTAIN')
+      SET
+        state = 'UNCERTAIN',
+        retry_claim_token = NULL,
+        retry_claim_expires_at = NULL,
+        updated_at = clock_timestamp()
+      WHERE id = ${intentId}
+        AND (
+          (
+            state IN ('ISSUED', 'UNCERTAIN')
+            AND ${token}::text IS NULL
+          )
+          OR (
+            state = 'RETRYING'
+            AND retry_claim_token::text = ${token}
+          )
+        )
       RETURNING id
     `;
     if (rows.length !== 1) {
@@ -378,6 +456,7 @@ export class ExactStorageCatalog {
     fileIdentifier: string;
     intentId: string;
     providerVersion: string;
+    retryClaimToken?: string;
   }): Promise<StorageObjectVersion> {
     return this.sql.begin(async (transaction) => {
       const intentRows = await transaction<StorageWriteIntentRow[]>`
@@ -393,6 +472,9 @@ export class ExactStorageCatalog {
       const intent = toIntent(intentRow);
       const providerVersion = requiredText(input.providerVersion, 'Storage provider version', 512);
       const fileIdentifier = requiredText(input.fileIdentifier, 'Storage file identifier', 512);
+      const retryClaimToken = input.retryClaimToken
+        ? assertUuid(input.retryClaimToken, 'Storage write retry claim token')
+        : null;
       if (intent.state === 'COMMITTED') {
         const existingRows = await transaction<StorageObjectVersionRow[]>`
           SELECT *
@@ -409,8 +491,18 @@ export class ExactStorageCatalog {
         }
         return existing;
       }
-      if (intent.state !== 'ISSUED' && intent.state !== 'UNCERTAIN') {
+      if (
+        intent.state !== 'ISSUED' &&
+        intent.state !== 'RETRYING' &&
+        intent.state !== 'UNCERTAIN'
+      ) {
         throw new Error('Storage write intent cannot commit');
+      }
+      if (
+        (intent.state === 'RETRYING' && intent.retryClaimToken !== retryClaimToken) ||
+        (intent.state !== 'RETRYING' && retryClaimToken !== null)
+      ) {
+        throw new Error('Storage write intent lost commit ownership');
       }
 
       const inserted = await transaction<StorageObjectVersionRow[]>`
@@ -474,8 +566,18 @@ export class ExactStorageCatalog {
         SET
           state = 'COMMITTED',
           object_version_id = ${exact.id},
+          retry_claim_token = NULL,
+          retry_claim_expires_at = NULL,
           updated_at = clock_timestamp()
-        WHERE id = ${intent.id} AND state IN ('ISSUED', 'UNCERTAIN')
+        WHERE id = ${intent.id}
+          AND (
+            state IN ('ISSUED', 'UNCERTAIN')
+            OR (
+              state = 'RETRYING'
+              AND retry_claim_token::text = ${retryClaimToken}
+              AND retry_claim_expires_at > clock_timestamp()
+            )
+          )
         RETURNING id
       `;
       if (committed.length !== 1) {
@@ -548,7 +650,7 @@ export class ExactStorageCatalog {
           candidate_object_version_id = ${object.id},
           updated_at = clock_timestamp()
         WHERE id = ${input.intentId}
-          AND state IN ('ISSUED', 'UNCERTAIN')
+          AND state IN ('ISSUED', 'RETRYING', 'UNCERTAIN')
           AND storage_role = ${input.storageRole}
           AND storage_domain = ${input.storageDomain}
           AND expected_sha256 = decode(${input.sha256}, 'hex')

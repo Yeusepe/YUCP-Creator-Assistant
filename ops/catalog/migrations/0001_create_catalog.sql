@@ -2,9 +2,9 @@ CREATE TABLE package_versions (
   id uuid PRIMARY KEY,
   package_id text NOT NULL CHECK (btrim(package_id) <> '' AND length(package_id) <= 256),
   version text NOT NULL CHECK (btrim(version) <> '' AND length(version) <= 256),
-  source_format text CHECK (length(btrim(source_format)) > 0),
-  release_root text,
-  assembly_object_id text,
+  format_tag text CHECK (length(btrim(format_tag)) > 0),
+  canonical_sha256 text,
+  cas_index_id text,
   state text NOT NULL,
   error text,
   attempts int NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -16,17 +16,17 @@ CREATE TABLE package_versions (
     state IN ('CREATED', 'UPLOADING', 'ASSEMBLED', 'PROMOTING', 'READY', 'FAILED')
   ),
   CONSTRAINT package_versions_catalog_pair_check CHECK (
-    (release_root IS NULL) = (assembly_object_id IS NULL)
+    (canonical_sha256 IS NULL) = (cas_index_id IS NULL)
   ),
   CONSTRAINT package_versions_assembled_fields_check CHECK (
     state NOT IN ('ASSEMBLED', 'PROMOTING', 'READY')
-    OR (source_format IS NOT NULL AND release_root IS NOT NULL AND assembly_object_id IS NOT NULL)
+    OR (format_tag IS NOT NULL AND canonical_sha256 IS NOT NULL AND cas_index_id IS NOT NULL)
   ),
   CONSTRAINT package_versions_sha256_check CHECK (
-    release_root IS NULL OR release_root ~ '^[0-9a-f]{64}$'
+    canonical_sha256 IS NULL OR canonical_sha256 ~ '^[0-9a-f]{64}$'
   ),
-  CONSTRAINT package_versions_assembly_object_id_check CHECK (
-    assembly_object_id IS NULL OR length(btrim(assembly_object_id)) > 0
+  CONSTRAINT package_versions_cas_index_id_check CHECK (
+    cas_index_id IS NULL OR length(btrim(cas_index_id)) > 0
   ),
   CONSTRAINT package_versions_error_check CHECK (
     (state = 'FAILED' AND error IS NOT NULL AND length(btrim(error)) > 0)

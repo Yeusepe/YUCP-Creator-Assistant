@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { copyFile, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -935,6 +935,121 @@ describe.serial('PostgreSQL catalog integration', () => {
     ]);
   });
 
+  it('fences one retry claimant for an uncertain exact storage write', async () => {
+    const storage = new ExactStorageCatalog(requireSql());
+    const ownerId = await createUploadingVersion('exact-storage-retry-owner');
+    const idempotencyKey = `package-version:${randomUUID()}:chunk:${'c'.repeat(64)}`;
+    const pending = await storage.beginWriteIntent({
+      bucketName: 'common',
+      contentType: 'application/octet-stream',
+      expectedBytes: 8_192,
+      expectedSha256: 'c'.repeat(64),
+      idempotencyKey,
+      objectKey: `v2/common/chunks/${'d'.repeat(64)}`,
+      operation: 'PUT',
+      ownerId,
+      ownerKind: 'package-version',
+      storageDomain: 'common:global:v2',
+      storageRole: 'common',
+    });
+    await storage.markWriteIntentUncertain(pending.id);
+
+    const firstClaims = await Promise.all([
+      storage.claimUncertainWriteRetry({
+        claimDurationMs: 60_000,
+        intentId: pending.id,
+      }),
+      storage.claimUncertainWriteRetry({
+        claimDurationMs: 60_000,
+        intentId: pending.id,
+      }),
+    ]);
+    const firstClaim = firstClaims.find((claim) => claim !== null);
+    expect(firstClaims.filter((claim) => claim !== null)).toHaveLength(1);
+    expect(firstClaim).toBeDefined();
+    expect(
+      await storage.beginWriteIntent({
+        bucketName: 'common',
+        contentType: 'application/octet-stream',
+        expectedBytes: 8_192,
+        expectedSha256: 'c'.repeat(64),
+        idempotencyKey,
+        objectKey: `v2/common/chunks/${'d'.repeat(64)}`,
+        operation: 'PUT',
+        ownerId,
+        ownerKind: 'package-version',
+        storageDomain: 'common:global:v2',
+        storageRole: 'common',
+      })
+    ).toMatchObject({
+      id: pending.id,
+      retryClaimToken: firstClaim?.token,
+      state: 'RETRYING',
+    });
+    expect(
+      (
+        await storage.beginWriteIntent({
+          bucketName: 'common',
+          contentType: 'application/octet-stream',
+          expectedBytes: 8_192,
+          expectedSha256: 'c'.repeat(64),
+          idempotencyKey,
+          objectKey: `v2/common/chunks/${'d'.repeat(64)}`,
+          operation: 'PUT',
+          ownerId,
+          ownerKind: 'package-version',
+          storageDomain: 'common:global:v2',
+          storageRole: 'common',
+        })
+      ).retryClaimExpiresAt
+    ).toBeInstanceOf(Date);
+    expect(
+      await storage.claimUncertainWriteRetry({
+        claimDurationMs: 60_000,
+        intentId: pending.id,
+      })
+    ).toBeNull();
+
+    await requireSql()`
+      UPDATE storage_write_intents
+      SET retry_claim_expires_at = clock_timestamp() - interval '1 second'
+      WHERE id = ${pending.id}
+    `;
+    const recoveryClaim = await storage.claimUncertainWriteRetry({
+      claimDurationMs: 60_000,
+      intentId: pending.id,
+    });
+    expect(recoveryClaim?.token).not.toBe(firstClaim?.token);
+    await expect(
+      storage.commitVerifiedObject({
+        fileIdentifier: 'stale-file-id',
+        intentId: pending.id,
+        providerVersion: 'stale-provider-version',
+        retryClaimToken: firstClaim?.token,
+      })
+    ).rejects.toThrow('lost commit ownership');
+    await expect(storage.markWriteIntentUncertain(pending.id, firstClaim?.token)).rejects.toThrow(
+      'cannot become uncertain'
+    );
+
+    await storage.markWriteIntentUncertain(pending.id, recoveryClaim?.token);
+    const finalClaim = await storage.claimUncertainWriteRetry({
+      claimDurationMs: 60_000,
+      intentId: pending.id,
+    });
+    expect(
+      await storage.commitVerifiedObject({
+        fileIdentifier: 'file-id-retry',
+        intentId: pending.id,
+        providerVersion: 'provider-version-retry',
+        retryClaimToken: finalClaim?.token,
+      })
+    ).toMatchObject({
+      fileIdentifier: 'file-id-retry',
+      providerVersion: 'provider-version-retry',
+    });
+  });
+
   it('provides reverse indexes for bounded exact-version GC lookups', async () => {
     const indexes = await requireSql()<
       {
@@ -1134,7 +1249,18 @@ describe.serial('PostgreSQL catalog integration', () => {
     }
   });
 
-  it('migration-v4: transitions legacy ready rows before enforcing the new contract', async () => {
+  it('migration-history: preserves the deployed 0001 catalog migration checksum', async () => {
+    const source = await readFile(
+      fileURLToPath(new URL('./migrations/0001_create_catalog.sql', import.meta.url)),
+      'utf8'
+    );
+
+    expect(createHash('sha256').update(source).digest('hex')).toBe(
+      '0ee585d9a9714af450ac508b74f796acf2c157d57cf1c030093a423b41b0685a'
+    );
+  });
+
+  it('migration-v4: preserves legacy ready rows as explicit migratable releases', async () => {
     const adminDatabase = requireSql();
     if (!databaseUrl) {
       throw new Error('Catalog integration database URL is unavailable');
@@ -1164,9 +1290,9 @@ describe.serial('PostgreSQL catalog integration', () => {
           id,
           package_id,
           version,
-          source_format,
-          release_root,
-          assembly_object_id,
+          format_tag,
+          canonical_sha256,
+          cas_index_id,
           state
         )
         VALUES (
@@ -1186,17 +1312,85 @@ describe.serial('PostgreSQL catalog integration', () => {
       );
       await runCatalogMigrations(legacyDatabase, { migrationsPath: migrationDirectory });
 
-      const rows = await legacyDatabase<{ state: string }[]>`
-        SELECT state
+      const rows = await legacyDatabase<
+        { common_root: string | null; release_schema_version: number; state: string }[]
+      >`
+        SELECT common_root, release_schema_version, state
         FROM package_versions
         WHERE id = ${legacyVersionId}
       `;
-      expect(rows[0]?.state).toBe('PROMOTING');
+      expect(rows[0]).toEqual({
+        common_root: null,
+        release_schema_version: 3,
+        state: 'READY',
+      });
+
+      const remainingMigrations = (await readdir(catalogMigrationsPath))
+        .filter((fileName) => fileName > '0007_add_logical_release_v4.sql')
+        .sort();
+      await Promise.all(
+        remainingMigrations.map((fileName) =>
+          copyFile(join(catalogMigrationsPath, fileName), join(migrationDirectory, fileName))
+        )
+      );
+      await runCatalogMigrations(legacyDatabase, { migrationsPath: migrationDirectory });
+
+      const upgradedRows = await legacyDatabase<
+        { release_schema_version: number; state: string }[]
+      >`
+        SELECT release_schema_version, state
+        FROM package_versions
+        WHERE id = ${legacyVersionId}
+      `;
+      const releaseColumns = await legacyDatabase<{ column_name: string }[]>`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'package_versions'
+          AND column_name IN (
+            'assembly_object_id',
+            'canonical_sha256',
+            'cas_index_id',
+            'format_tag',
+            'release_root',
+            'source_format'
+          )
+        ORDER BY column_name
+      `;
+      expect(upgradedRows[0]).toEqual({
+        release_schema_version: 3,
+        state: 'READY',
+      });
+      expect(releaseColumns.map((column) => column.column_name)).toEqual([
+        'assembly_object_id',
+        'release_root',
+        'source_format',
+      ]);
     } finally {
       await legacyDatabase?.end({ timeout: 1 });
       await adminDatabase.unsafe(`DROP DATABASE IF EXISTS "${legacyDatabaseName}" WITH (FORCE)`);
       await rm(migrationDirectory, { recursive: true, force: true });
     }
+  });
+
+  it('migration-write-intent-retry: adds the fenced reconciliation claim state and index', async () => {
+    const database = requireSql();
+    const constraintRows = await database<{ definition: string }[]>`
+      SELECT pg_get_constraintdef(oid) AS definition
+      FROM pg_constraint
+      WHERE conname = 'storage_write_intents_state_check'
+    `;
+    const indexRows = await database<{ definition: string }[]>`
+      SELECT indexdef AS definition
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND indexname = 'storage_write_intents_reconcile_idx'
+    `;
+
+    expect(constraintRows).toHaveLength(1);
+    expect(constraintRows[0]?.definition).toContain("'RETRYING'");
+    expect(indexRows).toHaveLength(1);
+    expect(indexRows[0]?.definition).toContain("'RETRYING'");
   });
 
   it('happy-path: persists the full lifecycle and every legal transition edge', async () => {

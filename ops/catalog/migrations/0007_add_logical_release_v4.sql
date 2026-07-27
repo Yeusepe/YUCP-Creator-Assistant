@@ -9,17 +9,22 @@ ALTER TABLE package_versions
   ADD COLUMN protection_policy_digest text,
   ADD COLUMN logical_bytes bigint,
   ADD COLUMN logical_files int,
-  ADD COLUMN protected_files jsonb;
+  ADD COLUMN protected_files jsonb,
+  ADD COLUMN release_schema_version smallint;
 
 UPDATE package_versions
 SET
-  state = 'PROMOTING',
-  attempts = 0,
-  next_attempt_at = NULL,
-  updated_at = clock_timestamp()
-WHERE state = 'READY';
+  release_schema_version = CASE
+    WHEN state = 'READY' THEN 3
+    ELSE 4
+  END;
 
 ALTER TABLE package_versions
+  ALTER COLUMN release_schema_version SET DEFAULT 4,
+  ALTER COLUMN release_schema_version SET NOT NULL,
+  ADD CONSTRAINT package_versions_release_schema_version_check CHECK (
+    release_schema_version IN (3, 4)
+  ),
   ADD CONSTRAINT package_versions_v4_sha256_check CHECK (
     (common_root IS NULL OR common_root ~ '^[0-9a-f]{64}$')
     AND (protected_source_root IS NULL OR protected_source_root ~ '^[0-9a-f]{64}$')
@@ -42,7 +47,14 @@ ALTER TABLE package_versions
   ADD CONSTRAINT package_versions_v4_ready_fields_check CHECK (
     state <> 'READY'
     OR (
-      common_root IS NOT NULL
+      release_schema_version = 3
+      AND format_tag IS NOT NULL
+      AND canonical_sha256 IS NOT NULL
+      AND cas_index_id IS NOT NULL
+    )
+    OR (
+      release_schema_version = 4
+      AND common_root IS NOT NULL
       AND protected_source_root IS NOT NULL
       AND binding_root IS NOT NULL
       AND manifest_sha256 IS NOT NULL
@@ -57,3 +69,7 @@ ALTER TABLE package_versions
       AND protected_files IS NOT NULL
     )
   );
+
+CREATE INDEX package_versions_legacy_ready_migration_idx
+  ON package_versions (updated_at, id)
+  WHERE state = 'READY' AND release_schema_version = 3;

@@ -366,7 +366,7 @@ async function explainGarbageCollectionClaim(input: {
               OR intent.candidate_object_version_id = object.id
             )
             AND (
-              intent.state IN ('ISSUED', 'UNCERTAIN')
+              intent.state IN ('ISSUED', 'RETRYING', 'UNCERTAIN')
               OR (
                 intent.state = 'COMMITTED'
                 AND intent.owner_kind = 'package-version'
