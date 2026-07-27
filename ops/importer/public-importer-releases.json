@@ -33,6 +33,9 @@
     },
     "0.1.42": {
       "sha256": "1b0530d69491f3b53db16dc8b9c9587b98da81007e50167aaeab8ca3edb2ce00"
+    },
+    "0.1.43": {
+      "sha256": "302e7ecbbc7ff3bc59b06374f80caf051ca1dc8595f058b492bbaf87c2e40dba"
     }
   }
 }
