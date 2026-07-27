@@ -13,6 +13,49 @@ export type VpmImporterManifest = Record<string, unknown> & {
   zipSHA256: string;
 };
 
+export type PublicImporterReleaseLedger = {
+  releases: Record<string, { sha256: string }>;
+  schemaVersion: 1;
+};
+
+export function assertPublicImporterIndexMatchesReleaseLedger(
+  value: unknown,
+  ledger: PublicImporterReleaseLedger
+): void {
+  if (ledger.schemaVersion !== 1 || !isRecord(ledger.releases)) {
+    throw new Error('The public importer release ledger is invalid');
+  }
+  if (!isRecord(value) || !isRecord(value.packages)) {
+    throw new Error('The public VPM index does not contain a packages object');
+  }
+  const packageEntry = value.packages[IMPORTER_PACKAGE_ID];
+  if (!isRecord(packageEntry) || !isRecord(packageEntry.versions)) {
+    throw new Error('The public VPM index does not contain the importer package');
+  }
+  for (const [version, manifest] of Object.entries(packageEntry.versions)) {
+    if (
+      !parseStableVersion(version) ||
+      !isRecord(manifest) ||
+      manifest.name !== IMPORTER_PACKAGE_ID ||
+      manifest.version !== version ||
+      typeof manifest.zipSHA256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(manifest.zipSHA256)
+    ) {
+      throw new Error(`The public importer manifest for version ${version} is invalid`);
+    }
+    const pin = ledger.releases[version];
+    if (!pin || !/^[0-9a-f]{64}$/.test(pin.sha256)) {
+      throw new Error(`Public importer version ${version} is not pinned for release`);
+    }
+    if (pin.sha256 !== manifest.zipSHA256) {
+      throw new Error(
+        `The public importer changed published version ${version}. ` +
+          'Changed importer bytes must publish a new semantic version'
+      );
+    }
+  }
+}
+
 export function assertPublicImporterVersionsImmutable(
   published: VpmImporterManifest,
   candidate: VpmImporterManifest

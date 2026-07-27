@@ -20,7 +20,7 @@ const importerIndexFetchMock = mock(async () =>
               name: 'YUCP Club',
               url: 'https://vpm.yucp.club/',
             },
-            zipSHA256: 'a'.repeat(64),
+            zipSHA256: 'b8f611e191f4fc796c84c3a52f55f5c3b7e62acdf574962a0499aade61533380',
             url: 'https://packages.example.test/com.yucp.importer-0.1.36.zip',
           },
         },

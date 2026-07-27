@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseTraceparent } from '@yucp/shared';
+import publicImporterReleaseLedger from '../../../../ops/importer/public-importer-releases.json';
 import { api } from '../../../../convex/_generated/api';
 import type { Id } from '../../../../convex/_generated/dataModel';
 import type { Auth } from '../auth';
@@ -19,7 +20,9 @@ import {
   type YucpAliasPackageMediaReference,
 } from './vpmAliasPackage';
 import {
+  assertPublicImporterIndexMatchesReleaseLedger,
   assertPublicImporterVersionsImmutable,
+  type PublicImporterReleaseLedger,
   selectPublicImporterManifest,
 } from './vpmImporterPackage';
 import {
@@ -273,6 +276,10 @@ export function createVpmRoutes({
         fetchImpl,
         indexUrl,
       });
+      assertPublicImporterIndexMatchesReleaseLedger(
+        index,
+        publicImporterReleaseLedger as PublicImporterReleaseLedger
+      );
       if (cached) {
         assertPublicImporterVersionsImmutable(
           selectPublicImporterManifest(cached.index),
