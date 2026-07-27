@@ -1,6 +1,6 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { openCatalogDatabase, runCatalogMigrations } from '../catalog';
-import { loadCasConfig } from '../storage-core/config';
+import { hydrateEnvFromInfisical, loadCasConfig } from '../storage-core/config';
 import { verifyDpopProof } from '../storage-core/dpop';
 import { packageContractKeyId } from '../storage-core/packageContractsV2';
 import { createMaterializationKeyBrokerClient } from './keyBrokerClient';
@@ -737,7 +737,43 @@ function envBase64Url(name: string, expectedLength: number): Buffer {
   return bytes;
 }
 
+export const MATERIALIZATION_CONTROL_PLANE_INFISICAL_KEYS = [
+  'PACKAGE_CATALOG_DATABASE_URL',
+  'RENDITION_S3_ACCESS_KEY_ID',
+  'RENDITION_S3_BUCKET',
+  'RENDITION_S3_ENDPOINT',
+  'RENDITION_S3_REGION',
+  'RENDITION_S3_SECRET_ACCESS_KEY',
+  'MATERIALIZATION_KEY_BROKER_BASE_URL',
+  'MATERIALIZATION_KEY_BROKER_SHARED_SECRET',
+  'MATERIALIZATION_RECEIPT_KEY_ID',
+  'MATERIALIZATION_RECEIPT_PRIVATE_KEY',
+  'MATERIALIZATION_SOURCE_GRANT_AUDIENCE',
+  'MATERIALIZATION_SOURCE_DELIVERY_BASE_URL',
+  'MATERIALIZATION_SOURCE_GRANT_ISSUER',
+  'MATERIALIZATION_SOURCE_GRANT_KEY_ID',
+  'MATERIALIZATION_SOURCE_GRANT_PRIVATE_KEY',
+  'MATERIALIZATION_API_SHARED_SECRET',
+  'MATERIALIZATION_CAPABILITY_KEY_ID',
+  'MATERIALIZATION_CAPABILITY_PRIVATE_KEY',
+  'MATERIALIZATION_CAPABILITY_PUBLIC_KEY',
+  'MATERIALIZATION_KEY_EPOCH',
+  'MATERIALIZATION_ALGORITHM_VERSION',
+  'MATERIALIZATION_MATERIALIZER_SHARED_SECRET',
+  'MATERIALIZATION_PLUGIN_VERSION',
+  'MATERIALIZATION_CONTROL_PLANE_PUBLIC_BASE_URL',
+] as const;
+
 async function main(): Promise<void> {
+  const hydrated = await hydrateEnvFromInfisical(
+    process.env,
+    MATERIALIZATION_CONTROL_PLANE_INFISICAL_KEYS
+  );
+  for (const [key, value] of Object.entries(hydrated)) {
+    if (typeof value === 'string') {
+      process.env[key] = value;
+    }
+  }
   const sql = openCatalogDatabase(requiredEnv('PACKAGE_CATALOG_DATABASE_URL'));
   await runCatalogMigrations(sql);
   const renditionStorage = new S3RenditionStoragePort(
