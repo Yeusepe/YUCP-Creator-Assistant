@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -28,6 +28,50 @@ import {
   type DisposableStorageHarness,
   POSTGRES_17_IMAGE,
 } from './testing/disposableStorageHarness';
+
+let importerFixturePath = '';
+let importerFixtureRoot = '';
+
+beforeAll(async () => {
+  importerFixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'yucp-dev-supervisor-importer-'));
+  const importerPath = path.join(importerFixtureRoot, 'com.yucp.importer');
+  const trustSourceDirectory = path.join(importerPath, 'Editor', 'PackageManager', 'Core');
+  await mkdir(trustSourceDirectory, { recursive: true });
+  await writeFile(
+    path.join(importerPath, 'package.json'),
+    `${JSON.stringify({
+      displayName: 'YUCP Importer Test Fixture',
+      name: 'com.yucp.importer',
+      version: '0.0.1',
+    })}\n`
+  );
+  await writeFile(
+    path.join(trustSourceDirectory, 'NativePackageRuntimeTrust.cs'),
+    [
+      'namespace YUCP.PackageManager.Core',
+      '{',
+      '    internal static class NativePackageRuntimeTrust',
+      '    {',
+      '        internal const string ExecutableSha256 = "";',
+      '        internal const string MetadataUrl = "";',
+      '        internal const string PublisherCertificateSha256 = "";',
+      '        internal const string PublisherSubject = "";',
+      '        internal const string PublisherTrustMode = "";',
+      '        internal const string TargetsUrl = "";',
+      '        internal const string TrustedRootSha256 = "";',
+      '    }',
+      '}',
+      '',
+    ].join('\n')
+  );
+  importerFixturePath = importerPath;
+});
+
+afterAll(async () => {
+  if (importerFixtureRoot) {
+    await rm(importerFixtureRoot, { force: true, recursive: true });
+  }
+});
 
 function runDocker(args: string[]): { exitCode: number; stderr: string; stdout: string } {
   const result = Bun.spawnSync(['docker', ...args], {
@@ -104,6 +148,7 @@ describe('DevSupervisor', () => {
     const runtime = await startDisposableDevRuntime({
       commands: [],
       infisical: false,
+      importerPackagePath: importerFixturePath,
       packageRuntimeAuthBaseUrl: 'http://127.0.0.1:3211/api/auth',
       prefixOutput: false,
     });
@@ -125,7 +170,7 @@ describe('DevSupervisor', () => {
       schemaVersion?: number;
     } | null;
     expect(importerLedger?.schemaVersion).toBe(1);
-    expect(Object.keys(importerLedger?.releases ?? {})).toHaveLength(1);
+    expect(Object.keys(importerLedger?.releases ?? {})).toEqual(['0.0.1']);
     expect(Object.values(importerLedger?.releases ?? {})[0]?.sha256).toMatch(/^[0-9a-f]{64}$/);
 
     await runtime.stop();
@@ -142,6 +187,7 @@ describe('DevSupervisor', () => {
     const runtime = await startDisposableDevRuntime({
       commands: [],
       infisical: false,
+      importerPackagePath: importerFixturePath,
       packageRuntimeAuthBaseUrl: 'http://127.0.0.1:3211/api/auth',
       prefixOutput: false,
     });
@@ -203,6 +249,7 @@ describe('DevSupervisor', () => {
       commands: [],
       convexProfile: 'self-hosted',
       infisical: false,
+      importerPackagePath: importerFixturePath,
       ports,
       prefixOutput: false,
     });

@@ -3,6 +3,7 @@ package localauthenticode
 import (
 	"bytes"
 	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"os/exec"
@@ -67,6 +68,29 @@ func TestSignFilesProducesVerifiableWindowsAuthenticode(t *testing.T) {
 	}
 	if !verified {
 		t.Fatal("signed fixture did not verify")
+	}
+
+	certificateSHA256 := sha256.Sum256(certificate.Raw)
+	if err := VerifyFile(
+		artifactPath,
+		subject,
+		hex.EncodeToString(certificateSHA256[:]),
+		now.Add(time.Hour),
+	); err != nil {
+		t.Fatalf("VerifyFile() error = %v", err)
+	}
+
+	signedBytes[1024] ^= 0xff
+	if err := os.WriteFile(artifactPath, signedBytes, 0o600); err != nil {
+		t.Fatalf("tamper signed fixture: %v", err)
+	}
+	if err := VerifyFile(
+		artifactPath,
+		subject,
+		hex.EncodeToString(certificateSHA256[:]),
+		now.Add(time.Hour),
+	); err == nil {
+		t.Fatal("VerifyFile() accepted a modified artifact")
 	}
 }
 

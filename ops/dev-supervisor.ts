@@ -35,6 +35,7 @@ import {
 import {
   createNativeRuntimeRelease,
   type NativeRuntimePublisherIdentity,
+  type NativeRuntimePublisherTrustMode,
   readNativeRuntimeReleaseManifest,
 } from './importer/nativeRuntimeRelease';
 import { DESYNC_STORAGE_FORMAT_VERSION } from './storage-core/deliveryManifest';
@@ -218,6 +219,7 @@ export interface StartDisposableDevRuntimeOptions {
   commands?: readonly DevCommandSpec[];
   convexProfile?: 'development' | 'self-hosted';
   infisical?: boolean;
+  importerPackagePath?: string;
   packageRuntimeAuthBaseUrl?: string;
   ports?: DevPortSet;
   prefixOutput?: boolean;
@@ -487,6 +489,7 @@ function resolvePackageRuntimeAuthBaseUrl(
 type LocalNativeRuntimeRelease = {
   cleanup: () => Promise<void>;
   manifestPath: string;
+  signerPath: string;
 };
 
 async function runLocalAuthenticodeCommand(input: {
@@ -547,6 +550,52 @@ async function runLocalAuthenticodeCommand(input: {
   };
 }
 
+async function verifyLocalAuthenticodeCommand(input: {
+  certificateSha256: string;
+  executablePath: string;
+  signerPath: string;
+  subject: string;
+  trustMode: NativeRuntimePublisherTrustMode;
+}): Promise<void> {
+  if (input.trustMode !== 'pinned-development') {
+    throw new Error('The local Authenticode verifier requires pinned development trust');
+  }
+  const child = spawn(
+    input.signerPath,
+    [
+      '--verify',
+      '--certificate-sha256',
+      input.certificateSha256,
+      '--subject',
+      input.subject,
+      '--artifact',
+      input.executablePath,
+    ],
+    {
+      env: process.env,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+    }
+  );
+  const stderr: Buffer[] = [];
+  child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk));
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, 60_000);
+  const [exitCode] = await once(child, 'close').finally(() => clearTimeout(timeout));
+  if (timedOut) {
+    throw new Error('Local Authenticode verification timed out');
+  }
+  if (exitCode !== 0) {
+    const detail = Buffer.concat(stderr).toString('utf8').trim();
+    throw new Error(
+      `Local Authenticode verification failed with exit code ${String(exitCode)}${detail ? `: ${detail}` : ''}`
+    );
+  }
+}
+
 async function prepareLocalNativeRuntimeRelease(input: {
   brokerPath: string;
   helperPath: string;
@@ -576,6 +625,7 @@ async function prepareLocalNativeRuntimeRelease(input: {
   return {
     manifestPath,
     cleanup: () => Promise.resolve(),
+    signerPath: input.signerPath,
   };
 }
 
@@ -1271,6 +1321,13 @@ async function startDevRuntime(
 ): Promise<DevRuntime> {
   const infisical = options.infisical ?? false;
   const ports = options.ports ?? DEFAULT_DEV_PORTS;
+  const configuredImporterPackagePath = options.importerPackagePath?.trim();
+  if (
+    options.importerPackagePath !== undefined &&
+    (!configuredImporterPackagePath || !path.isAbsolute(configuredImporterPackagePath))
+  ) {
+    throw new Error('The development importer package path must be absolute');
+  }
   let loadedEnv = infisical ? await loadInfisicalEnv() : await loadLocalEnv();
   const convexProfile = options.convexProfile ?? 'development';
   let convex:
@@ -1379,11 +1436,18 @@ async function startDevRuntime(
       receiptPublicKey: materializationReceiptPublicKey,
       runId: storage.runId,
     });
+    const nativeRuntimeRelease = localNativeRuntimeRelease;
     const localImporterRepository = await buildLocalImporterRepository({
       baseUrl: `http://127.0.0.1:${ports.publicVpm}`,
-      importerPath: await resolveLocalImporterPackagePath(loadedEnv),
+      importerPath:
+        configuredImporterPackagePath ?? (await resolveLocalImporterPackagePath(loadedEnv)),
       nativeRuntimeRelease: await readNativeRuntimeReleaseManifest(
-        localNativeRuntimeRelease.manifestPath
+        nativeRuntimeRelease.manifestPath,
+        (publisher) =>
+          verifyLocalAuthenticodeCommand({
+            ...publisher,
+            signerPath: nativeRuntimeRelease.signerPath,
+          })
       ),
     });
     const env = applyLocalStorageProfile(
@@ -1393,7 +1457,7 @@ async function startDevRuntime(
         VPM_IMPORTER_RELEASE_LEDGER_JSON: JSON.stringify(
           buildLocalImporterReleaseLedger(localImporterRepository)
         ),
-        YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST: localNativeRuntimeRelease.manifestPath,
+        YUCP_IMPORTER_NATIVE_RUNTIME_RELEASE_MANIFEST: nativeRuntimeRelease.manifestPath,
       },
       storage,
       {

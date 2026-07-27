@@ -59,6 +59,23 @@ func TestSignerReturnsTheExactReleasePublisherIdentity(t *testing.T) {
 	if result.Subject != subject {
 		t.Fatalf("subject = %q, want %q", result.Subject, subject)
 	}
+
+	verify := exec.Command(
+		goExecutable,
+		"run",
+		"./cmd/yucp-local-authenticode-sign",
+		"--verify",
+		"--subject",
+		result.Subject,
+		"--certificate-sha256",
+		result.CertificateSHA256,
+		"--artifact",
+		artifactPath,
+	)
+	verify.Dir = moduleRoot
+	if output, err := verify.CombinedOutput(); err != nil {
+		t.Fatalf("verify signed artifact: %v\n%s", err, output)
+	}
 }
 
 func currentSourcePath(t *testing.T) string {

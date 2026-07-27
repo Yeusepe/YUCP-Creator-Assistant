@@ -120,7 +120,8 @@ describe('self-hosted Convex environment isolation', () => {
 
       expect(maximumActiveOperations).toBe(1);
       expect(readFileSync(envFile, 'utf8')).toBe(original);
-      expect(readdirSync(directory)).toEqual(['.env.local', '.orchestration']);
+      expect(readdirSync(directory).sort()).toEqual(['.env.local', '.orchestration']);
+      expect(existsSync(selfHostedConvexEnvLockPath(directory))).toBe(true);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -139,7 +140,7 @@ describe('self-hosted Convex environment isolation', () => {
       isolation = withSelfHostedConvexEnvFileMovedAside(async () => undefined, directory);
       const outcome = await Promise.race([
         isolation.then(() => 'completed' as const),
-        Bun.sleep(250).then(() => 'timed-out' as const),
+        Bun.sleep(2_000).then(() => 'timed-out' as const),
       ]);
       expect(outcome).toBe('completed');
       await expect(

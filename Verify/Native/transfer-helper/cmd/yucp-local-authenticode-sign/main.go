@@ -33,13 +33,41 @@ func main() {
 	flags.SetOutput(os.Stderr)
 	var paths artifactPaths
 	flags.Var(&paths, "artifact", "Windows PE artifact to sign")
+	expectedCertificateSHA256 := flags.String(
+		"certificate-sha256",
+		"",
+		"expected local publisher certificate SHA-256",
+	)
 	subject := flags.String("subject", "", "local development certificate subject")
+	verifyOnly := flags.Bool("verify", false, "verify signed artifacts without changing them")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
-	if flags.NArg() != 0 || strings.TrimSpace(*subject) == "" {
-		fmt.Fprintln(os.Stderr, "usage: yucp-local-authenticode-sign --subject <CN> --artifact <path>...")
+	if flags.NArg() != 0 ||
+		strings.TrimSpace(*subject) == "" ||
+		len(paths) == 0 ||
+		(*verifyOnly && strings.TrimSpace(*expectedCertificateSHA256) == "") ||
+		(!*verifyOnly && *expectedCertificateSHA256 != "") {
+		fmt.Fprintln(
+			os.Stderr,
+			"usage: yucp-local-authenticode-sign [--verify --certificate-sha256 <sha256>] --subject <CN> --artifact <path>...",
+		)
 		os.Exit(2)
+	}
+
+	if *verifyOnly {
+		for _, artifactPath := range paths {
+			if err := localauthenticode.VerifyFile(
+				artifactPath,
+				*subject,
+				*expectedCertificateSHA256,
+				time.Now(),
+			); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}
+		return
 	}
 
 	_, certificate, err := localauthenticode.SignFiles(paths, *subject, time.Now())
