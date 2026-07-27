@@ -137,6 +137,90 @@ afterAll(async () => {
 });
 
 describe.serial('exact-version garbage collection', () => {
+  it('observes objects committed while a prior generation holds the collector lock', async () => {
+    const activeHarness = requireHarness();
+    const activeSql = requireSql();
+    const gcCatalog = new StorageGcCatalog(activeSql);
+    const tufCatalog = new TufRepositoryCatalog(activeSql);
+    const storage = new ExpiredRetentionStorage({
+      metadata: activeHarness.buckets.metadata,
+    });
+    const durableStorage = new DurableExactStorage(new ExactStorageCatalog(activeSql), storage);
+    const lockAcquired = Promise.withResolvers<void>();
+    const releaseLock = Promise.withResolvers<void>();
+    const blocker = activeSql.begin(async (transaction) => {
+      await transaction`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended('yucp-exact-storage-garbage-collection', 0)
+        )
+      `;
+      lockAcquired.resolve();
+      await releaseLock.promise;
+    });
+    await lockAcquired.promise;
+
+    const observation = gcCatalog.observeGeneration();
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const rows = await activeSql<{ waiting: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_locks
+          WHERE locktype = 'advisory'
+            AND granted = false
+        ) AS waiting
+      `;
+      if (rows[0]?.waiting) {
+        break;
+      }
+      if (attempt === 99) {
+        releaseLock.resolve();
+        await Promise.all([blocker, observation]);
+        throw new Error('The storage GC observation did not wait for the collector lock');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const repositoryId = `gc-clock-${randomUUID().slice(0, 8)}`;
+    const publication = await tufCatalog.reservePublication({
+      idempotencyKey: `gc-clock-${randomUUID()}`,
+      repositoryId,
+      rootVersion: 1,
+      targetPaths: [],
+    });
+    const repositoryPath =
+      publication.expectedPaths.find((candidate) => candidate !== 'metadata/timestamp.json') ??
+      publication.expectedPaths[0];
+    if (!repositoryPath) {
+      throw new Error('The storage GC clock fixture has no TUF repository path');
+    }
+    const object = await durableStorage.putImmutable({
+      body: new TextEncoder().encode(`storage GC database clock ${randomUUID()}`),
+      contentType: 'application/json',
+      idempotencyKey: `gc-clock-object-${randomUUID()}`,
+      objectKey: `v2/metadata/tuf/${repositoryId}/${repositoryPath}`,
+      ownerId: publication.id,
+      ownerKind: 'maintenance',
+      storageRole: 'metadata',
+    });
+
+    releaseLock.resolve();
+    const [observed] = await Promise.all([observation, blocker]);
+    const candidates = await activeSql<{ object_version_id: string }[]>`
+      SELECT object_version_id
+      FROM storage_gc_candidates
+      WHERE object_version_id = ${object.id}
+    `;
+
+    expect(observed.candidatesObserved).toBeGreaterThanOrEqual(1);
+    expect(Array.from(candidates)).toEqual([{ object_version_id: object.id }]);
+
+    await tufCatalog.recordObject({
+      object,
+      publicationId: publication.id,
+      repositoryPath,
+    });
+  }, 180_000);
+
   it('holds the object reachability lock through exact-version deletion', async () => {
     const activeHarness = requireHarness();
     const activeSql = requireSql();
@@ -438,10 +522,8 @@ describe.serial('exact-version garbage collection', () => {
       ownerKind: 'maintenance',
       storageRole: 'metadata',
     });
-    const first = await gcCatalog.observeGeneration(new Date());
-    const second = await gcCatalog.observeGeneration(
-      new Date(first.generation.completedAt.getTime() + 1)
-    );
+    await gcCatalog.observeGeneration();
+    const second = await gcCatalog.observeGeneration();
     const claimed = await gcCatalog.claimDeletionCandidate({
       generationId: second.generation.id,
       now: second.generation.completedAt,
@@ -1007,10 +1089,8 @@ describe.serial('exact-version garbage collection', () => {
       packageId: version.packageId,
       reason: 'creator-request',
     });
-    const first = await gcCatalog.observeGeneration(new Date());
-    const second = await gcCatalog.observeGeneration(
-      new Date(first.generation.completedAt.getTime() + 1)
-    );
+    await gcCatalog.observeGeneration();
+    const second = await gcCatalog.observeGeneration();
     const pin = await gcCatalog.createReleasePin({
       expiresAt: new Date(Date.now() + 60_000),
       ownerId: 'materialization-claim-race',
@@ -1150,10 +1230,8 @@ describe.serial('exact-version garbage collection', () => {
       });
     }
 
-    const firstGeneration = await gcCatalog.observeGeneration(new Date());
-    const secondGeneration = await gcCatalog.observeGeneration(
-      new Date(firstGeneration.generation.completedAt.getTime() + 1)
-    );
+    await gcCatalog.observeGeneration();
+    const secondGeneration = await gcCatalog.observeGeneration();
     let releaseLock: (() => void) | undefined;
     let signalLockHeld: ((objectVersionId: string) => void) | undefined;
     const lockReleased = new Promise<void>((resolve) => {

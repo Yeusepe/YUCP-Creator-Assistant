@@ -101,11 +101,11 @@ export async function runExactVersionGarbageCollection(input: {
   if (!Number.isSafeInteger(deletionLimit) || deletionLimit < 1 || deletionLimit > 1000) {
     throw new Error('Exact-version GC deletion limit is invalid');
   }
-  const now = input.now ?? new Date();
-  if (!Number.isFinite(now.getTime())) {
+  if (input.now !== undefined && !Number.isFinite(input.now.getTime())) {
     throw new Error('Exact-version GC time is invalid');
   }
-  const observed = await input.catalog.observeGeneration(now);
+  const observed = await input.catalog.observeGeneration(input.now);
+  const now = input.now ?? observed.generation.completedAt;
   const result: ExactVersionGarbageCollectionResult = {
     candidatesObserved: observed.candidatesObserved,
     deletedBytes: 0,

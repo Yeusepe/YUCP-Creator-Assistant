@@ -118,6 +118,41 @@ describe('storage GC production runtime', () => {
     expect(result.generationId).toBe(41);
   });
 
+  test('uses the PostgreSQL observation time when no explicit test clock is supplied', async () => {
+    const databaseNow = new Date('2026-07-27T12:00:00.000Z');
+    const observeGeneration = mock(async (_now?: Date) => ({
+      candidatesObserved: 0,
+      generation: {
+        completedAt: databaseNow,
+        id: 45,
+        previousCompletedGenerationId: 44,
+        startedAt: databaseNow,
+      },
+    }));
+    const claimDeletionCandidate = mock(
+      async (_input: { generationId: number; now?: Date }) => null
+    );
+    const janitor = createStorageGcJanitor({
+      catalog: {
+        claimDeletionCandidate,
+        listPendingDeletions: mock(async () => []),
+        observeGeneration,
+      } as unknown as StorageGcCatalog,
+      deletionLimit: 23,
+      intervalMs: 60_000,
+      logger: { error: mock(() => undefined), info: mock(() => undefined) },
+      storage: unusedStorage,
+    });
+
+    await janitor.runOnce();
+
+    expect(observeGeneration).toHaveBeenCalledWith(undefined);
+    expect(claimDeletionCandidate).toHaveBeenCalledWith({
+      generationId: 45,
+      now: databaseNow,
+    });
+  });
+
   test('runs no overlapping batches and finishes the active batch during shutdown', async () => {
     const batchStarted = Promise.withResolvers<void>();
     const releaseBatch = Promise.withResolvers<void>();

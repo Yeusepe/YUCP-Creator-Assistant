@@ -298,10 +298,8 @@ async function explainGarbageCollectionClaim(input: {
   catalog: StorageGcCatalog;
   sql: CatalogDatabase;
 }): Promise<string> {
-  const first = await input.catalog.observeGeneration(new Date());
-  const second = await input.catalog.observeGeneration(
-    new Date(first.generation.completedAt.getTime() + 1)
-  );
+  await input.catalog.observeGeneration();
+  const second = await input.catalog.observeGeneration();
   await input.sql`
     ANALYZE
       package_release_storage_objects,

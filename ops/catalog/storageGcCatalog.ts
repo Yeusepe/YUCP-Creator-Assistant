@@ -197,11 +197,11 @@ export class StorageGcCatalog {
     });
   }
 
-  async observeGeneration(now: Date = new Date()): Promise<{
+  async observeGeneration(now?: Date): Promise<{
     candidatesObserved: number;
     generation: StorageGcGeneration;
   }> {
-    if (!Number.isFinite(now.getTime())) {
+    if (now !== undefined && !Number.isFinite(now.getTime())) {
       throw new Error('Storage GC generation time is invalid');
     }
     return this.sql.begin(async (transaction) => {
@@ -210,6 +210,16 @@ export class StorageGcCatalog {
           hashtextextended('yucp-exact-storage-garbage-collection', 0)
         )
       `;
+      const observationTime =
+        now ??
+        (
+          await transaction<{ observed_at: string }[]>`
+            SELECT clock_timestamp()::text AS observed_at
+          `
+        )[0]?.observed_at;
+      if (!observationTime) {
+        throw new Error('PostgreSQL did not return the storage GC observation time');
+      }
       const previousRows = await transaction<{ id: number | string }[]>`
         SELECT id
         FROM storage_gc_generations
@@ -226,7 +236,7 @@ export class StorageGcCatalog {
         VALUES (
           ${previousRows[0]?.id ?? null},
           'OPEN',
-          ${now}
+          ${observationTime}
         )
         RETURNING id
       `;
@@ -250,12 +260,12 @@ export class StorageGcCatalog {
           ${generationId},
           1,
           'OBSERVED',
-          ${now},
-          ${now}
+          ${observationTime},
+          ${observationTime}
         FROM storage_object_versions object
         WHERE object.verification_state = 'VERIFIED'
           AND object.storage_role IN ('common', 'metadata', 'protected')
-          AND object.created_at < ${now}
+          AND object.created_at < ${observationTime}
           AND NOT EXISTS (
             SELECT 1
             FROM package_release_storage_objects release_object
@@ -269,7 +279,7 @@ export class StorageGcCatalog {
                   FROM storage_gc_release_pins pin
                   WHERE pin.package_version_id = package_version.id
                     AND pin.released_at IS NULL
-                    AND (pin.expires_at IS NULL OR pin.expires_at > ${now})
+                    AND (pin.expires_at IS NULL OR pin.expires_at > ${observationTime})
                 )
               )
           )
@@ -329,7 +339,7 @@ export class StorageGcCatalog {
       `;
       const completedRows = await transaction<GenerationRow[]>`
         UPDATE storage_gc_generations
-        SET state = 'COMPLETED', completed_at = ${now}
+        SET state = 'COMPLETED', completed_at = ${observationTime}
         WHERE id = ${generationId} AND state = 'OPEN'
         RETURNING *
       `;

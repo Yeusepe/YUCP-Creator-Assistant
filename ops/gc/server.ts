@@ -146,7 +146,7 @@ class FixedCapacityStorageGcJanitor implements StorageGcJanitor {
     this.#storage = input.storage;
   }
 
-  async runOnce(now = new Date()): Promise<ExactVersionGarbageCollectionResult> {
+  async runOnce(now?: Date): Promise<ExactVersionGarbageCollectionResult> {
     return withObservedSpan(
       tracer,
       'storage_gc.collect',
