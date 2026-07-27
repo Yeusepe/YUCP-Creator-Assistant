@@ -17,12 +17,69 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 	"github.com/yucp/transfer-helper/internal/trust"
 )
+
+func TestMaterializationPollingRenewsAnExpiredGrant(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		requests.Add(1)
+		if request.Header.Get("DPoP") == "" {
+			http.Error(writer, "missing proof", http.StatusBadRequest)
+			return
+		}
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			http.Error(writer, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if body["deliveryGrant"] != "grant-renewed" {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"queuePosition":1,
+			"state":"QUEUED",
+			"status":"pending"
+		}`))
+	}))
+	defer server.Close()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	grants := &testGrantSource{current: "grant-expired", renewed: "grant-renewed"}
+
+	status, err := readMaterializationStatus(
+		context.Background(),
+		server.Client(),
+		server.URL,
+		"job-1",
+		grants,
+		privateKey,
+	)
+
+	if err != nil {
+		t.Fatalf("readMaterializationStatus() error = %v", err)
+	}
+	if status.Status != "pending" || grants.renews.Load() != 1 || requests.Load() != 2 {
+		t.Fatalf(
+			"status/renewal counts = %#v, %d, %d; want pending, 1, 2",
+			status,
+			grants.renews.Load(),
+			requests.Load(),
+		)
+	}
+}
 
 func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	protected := []byte("personalized protected file\n")
@@ -134,10 +191,10 @@ func TestFetchAndMergeProtectedRenditionVerifiesReceiptAndZip(t *testing.T) {
 	rendition, receipt, err := FetchProtectedRendition(
 		context.Background(),
 		ProtectedRenditionConfig{
-			DeliveryGrant: "encoded-grant",
-			Grant:         grant,
-			DownloadRoot:  t.TempDir(),
-			PrivateKey:    deviceKey,
+			GrantSource:  &testGrantSource{current: "encoded-grant"},
+			Grant:        grant,
+			DownloadRoot: t.TempDir(),
+			PrivateKey:   deviceKey,
 			ReceiptAuthority: trust.Authority{
 				KeyID:     receiptKeyID,
 				PublicKey: receiptPrivateKey.Public().(ed25519.PublicKey),

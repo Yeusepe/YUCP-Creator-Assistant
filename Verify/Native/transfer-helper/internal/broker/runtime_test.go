@@ -47,6 +47,15 @@ func (exchange remoteExchangeFunc) AuthorizeAndExchange(
 	return exchange(ctx, request, tokens, key)
 }
 
+func (remoteExchangeFunc) Renew(
+	context.Context,
+	AuthorizationRenewal,
+	OAuthTokens,
+	*ecdsa.PrivateKey,
+) (AuthorizedOperation, error) {
+	return AuthorizedOperation{}, errors.New("unexpected package authorization renewal")
+}
+
 type lifecycleExecutorFunc func(
 	context.Context,
 	lifecycle.AuthorizedRequest,

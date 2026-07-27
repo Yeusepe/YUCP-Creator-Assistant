@@ -3,6 +3,8 @@ package broker
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -27,6 +29,12 @@ type RemoteExchange interface {
 	AuthorizeAndExchange(
 		ctx context.Context,
 		request OperationRequest,
+		tokens OAuthTokens,
+		privateKey *ecdsa.PrivateKey,
+	) (AuthorizedOperation, error)
+	Renew(
+		ctx context.Context,
+		renewal AuthorizationRenewal,
 		tokens OAuthTokens,
 		privateKey *ecdsa.PrivateKey,
 	) (AuthorizedOperation, error)
@@ -170,6 +178,59 @@ func (runtime Runtime) handleNew(
 	if err != nil {
 		return OperationResult{}, err
 	}
+	lifecycleRequest, err = lifecycleRequest.WithRenewal(func(
+		renewalContext context.Context,
+		currentGrant string,
+		currentSession string,
+	) (string, string, error) {
+		renewalTraceparent, traceErr := childTraceparent(request.Traceparent)
+		if traceErr != nil {
+			return "", "", traceErr
+		}
+		renewal := AuthorizationRenewal{
+			DeliveryGrant:  currentGrant,
+			InstallSession: currentSession,
+			ReleaseRoot:    authorized.ReleaseRoot,
+			Traceparent:    renewalTraceparent,
+			VersionID:      authorized.VersionID,
+		}
+		renewed, renewErr := runtime.Exchange.Renew(
+			renewalContext,
+			renewal,
+			tokens,
+			device.PrivateKey,
+		)
+		if errors.Is(renewErr, ErrAuthenticationRequired) {
+			refreshedTokens, refreshedDevice, refreshErr := runtime.Credentials.Access(
+				renewalContext,
+				clientIdentity,
+				true,
+				report,
+			)
+			if refreshErr != nil {
+				return "", "", refreshErr
+			}
+			if refreshedDevice.Thumbprint != device.Thumbprint {
+				return "", "", fmt.Errorf("renewed credentials changed the bound device")
+			}
+			tokens = refreshedTokens
+			device = refreshedDevice
+			renewed, renewErr = runtime.Exchange.Renew(
+				renewalContext,
+				renewal,
+				tokens,
+				device.PrivateKey,
+			)
+		}
+		if renewErr != nil {
+			return "", "", renewErr
+		}
+		authorized = renewed
+		return renewed.InstallSession, renewed.DeliveryGrant, nil
+	})
+	if err != nil {
+		return OperationResult{}, err
+	}
 	result, err := runtime.Executor.Execute(
 		ctx,
 		lifecycleRequest,
@@ -183,6 +244,17 @@ func (runtime Runtime) handleNew(
 	terminal := operationResultFromLifecycle(result)
 	terminal.TraceID = request.Traceparent[3:35]
 	return terminal, nil
+}
+
+func childTraceparent(parent string) (string, error) {
+	if len(parent) != 55 {
+		return "", fmt.Errorf("package operation trace context is invalid")
+	}
+	spanID := make([]byte, 8)
+	if _, err := rand.Read(spanID); err != nil {
+		return "", fmt.Errorf("create package renewal trace context: %w", err)
+	}
+	return parent[:36] + hex.EncodeToString(spanID) + parent[52:], nil
 }
 
 func failedOperationResult(

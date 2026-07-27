@@ -272,7 +272,11 @@ describe.serial('PostgreSQL catalog integration', () => {
         capabilityId: record.capabilityId,
         deliveryGrantId: 'grant-outcome-1',
         generation: claimed?.generation ?? 0,
+        grantExpiresAt: new Date(record.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantIssuedAt: record.issuedAt,
+        grantTokenSha256: 'ab'.repeat(32),
         materializationJobId: 'job-outcome-1',
+        renewableUntil: new Date(record.issuedAt.getTime() + 60 * 60 * 1_000),
         sessionId: 'session-outcome-1',
         versionId: 'version-outcome-1',
       })
@@ -289,7 +293,11 @@ describe.serial('PostgreSQL catalog integration', () => {
         })
       ).resolves.toEqual({
         deliveryGrantId: 'grant-outcome-1',
+        grantExpiresAt: new Date(record.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantIssuedAt: record.issuedAt,
+        grantTokenSha256: 'ab'.repeat(32),
         materializationJobId: 'job-outcome-1',
+        renewableUntil: new Date(record.issuedAt.getTime() + 60 * 60 * 1_000),
         sessionId: 'session-outcome-1',
         status: 'ready',
         versionId: 'version-outcome-1',
@@ -317,6 +325,10 @@ describe.serial('PostgreSQL catalog integration', () => {
         capabilityId: record.capabilityId,
         deliveryGrantId: 'grant-retry-1',
         generation: claimed.generation,
+        grantExpiresAt: new Date(record.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantIssuedAt: record.issuedAt,
+        grantTokenSha256: 'ab'.repeat(32),
+        renewableUntil: new Date(record.issuedAt.getTime() + 60 * 60 * 1_000),
         sessionId: 'session-retry-1',
         versionId: 'version-retry-1',
       })
@@ -338,6 +350,202 @@ describe.serial('PostgreSQL catalog integration', () => {
       capabilityId: record.capabilityId,
       consumedAt: expect.any(Date),
       tokenSha256: record.tokenSha256,
+    });
+  });
+
+  it('renews one READY install session idempotently without resetting its policy bound', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const exchange = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    if (exchange.status !== 'claimed') {
+      throw new Error(`expected claimed exchange, received ${exchange.status}`);
+    }
+    const initialGrantDigest = 'ab'.repeat(32);
+    const renewableUntil = new Date(record.issuedAt.getTime() + 60 * 60 * 1_000);
+    expect(
+      await store.completeExchange({
+        capabilityId: record.capabilityId,
+        deliveryGrantId: 'grant-renewal-initial',
+        generation: exchange.generation,
+        grantExpiresAt: new Date(record.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantIssuedAt: record.issuedAt,
+        grantTokenSha256: initialGrantDigest,
+        renewableUntil,
+        sessionId: 'session-renewal-1',
+        versionId: 'version-renewal-1',
+      })
+    ).toBe(true);
+
+    const first = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: initialGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    if (first.status !== 'claimed') {
+      throw new Error(`expected claimed renewal, received ${first.status}`);
+    }
+    const concurrent = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: initialGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    expect(concurrent).toEqual({ status: 'in_progress' });
+    const renewedGrantDigest = 'bc'.repeat(32);
+    expect(
+      await store.completeRenewal({
+        capabilityId: first.capabilityId,
+        generation: first.generation,
+        grantId: 'grant-renewal-initial',
+        expiresAt: new Date(first.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantTokenSha256: renewedGrantDigest,
+        issuedAt: first.issuedAt,
+      })
+    ).toBe(true);
+
+    const retried = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: initialGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    expect(retried).toEqual({
+      capabilityId: record.capabilityId,
+      generation: 1,
+      grantId: 'grant-renewal-initial',
+      expiresAt: new Date(first.issuedAt.getTime() + 5 * 60 * 1_000),
+      grantTokenSha256: renewedGrantDigest,
+      issuedAt: first.issuedAt,
+      renewableUntil,
+      status: 'ready',
+    });
+    const substituted = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: 'cd'.repeat(32),
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    expect(substituted).toEqual({ status: 'invalid' });
+    const differentTrace = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: renewedGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '1123456789abcdef0123456789abcdef',
+    });
+    expect(differentTrace).toEqual({ status: 'invalid' });
+    const retryable = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: renewedGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    if (retryable.status !== 'claimed') {
+      throw new Error(`expected claimed renewal, received ${retryable.status}`);
+    }
+    expect(
+      await store.releaseRenewal({
+        capabilityId: retryable.capabilityId,
+        generation: retryable.generation,
+      })
+    ).toBe(true);
+    const reclaimed = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: renewedGrantDigest,
+      sessionId: 'session-renewal-1',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    expect(reclaimed).toMatchObject({
+      capabilityId: record.capabilityId,
+      generation: retryable.generation + 1,
+      status: 'claimed',
+    });
+  });
+
+  it('advances a lost renewal response after its persisted grant slice expires', async () => {
+    const store = new PackageOperationAuthorizationStore(requireSql());
+    const record = operationAuthorizationRecord();
+    await store.reserve(record);
+    const exchange = await store.beginExchange({
+      buyerId: record.buyerId,
+      capabilityId: record.capabilityId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      tokenSha256: record.tokenSha256,
+    });
+    if (exchange.status !== 'claimed') {
+      throw new Error(`expected claimed exchange, received ${exchange.status}`);
+    }
+    const firstDigest = 'ab'.repeat(32);
+    const secondDigest = 'bc'.repeat(32);
+    const renewableUntil = new Date(record.issuedAt.getTime() + 60 * 60 * 1_000);
+    expect(
+      await store.completeExchange({
+        capabilityId: record.capabilityId,
+        deliveryGrantId: 'grant-lost-initial',
+        generation: exchange.generation,
+        grantExpiresAt: new Date(record.issuedAt.getTime() + 5 * 60 * 1_000),
+        grantIssuedAt: record.issuedAt,
+        grantTokenSha256: firstDigest,
+        renewableUntil,
+        sessionId: 'session-lost-renewal',
+        versionId: 'version-lost-renewal',
+      })
+    ).toBe(true);
+    const firstRenewal = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: firstDigest,
+      sessionId: 'session-lost-renewal',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+    if (firstRenewal.status !== 'claimed') {
+      throw new Error(`expected claimed renewal, received ${firstRenewal.status}`);
+    }
+    expect(
+      await store.completeRenewal({
+        capabilityId: firstRenewal.capabilityId,
+        expiresAt: new Date(firstRenewal.issuedAt.getTime() + 5 * 60 * 1_000),
+        generation: firstRenewal.generation,
+        grantId: 'grant-lost-initial',
+        grantTokenSha256: secondDigest,
+        issuedAt: firstRenewal.issuedAt,
+      })
+    ).toBe(true);
+    await requireSql()`
+      UPDATE package_operation_authorizations
+      SET
+        outcome_grant_issued_at = clock_timestamp() - interval '6 minutes',
+        outcome_grant_expires_at = clock_timestamp() - interval '1 minute'
+      WHERE capability_id = ${record.capabilityId}
+    `;
+
+    const advanced = await store.beginRenewal({
+      buyerId: record.buyerId,
+      deviceKeyThumbprint: record.deviceKeyThumbprint,
+      grantTokenSha256: firstDigest,
+      sessionId: 'session-lost-renewal',
+      traceId: '0123456789abcdef0123456789abcdef',
+    });
+
+    expect(advanced).toMatchObject({
+      capabilityId: record.capabilityId,
+      generation: 2,
+      grantId: 'grant-lost-initial',
+      renewableUntil,
+      status: 'claimed',
     });
   });
 

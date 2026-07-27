@@ -25,9 +25,9 @@ import (
 )
 
 type ProtectedRenditionConfig struct {
-	DeliveryGrant    string
 	DownloadRoot     string
 	Grant            packagecontract.DeliveryGrant
+	GrantSource      GrantSource
 	PollInterval     time.Duration
 	PrivateKey       *ecdsa.PrivateKey
 	ReceiptAuthority trust.Authority
@@ -54,7 +54,7 @@ func FetchProtectedRendition(
 	ctx context.Context,
 	cfg ProtectedRenditionConfig,
 ) (DownloadedRendition, packagecontract.MaterializationReceipt, error) {
-	if ctx == nil || cfg.PrivateKey == nil || cfg.DeliveryGrant == "" {
+	if ctx == nil || cfg.PrivateKey == nil || cfg.GrantSource == nil {
 		return DownloadedRendition{}, packagecontract.MaterializationReceipt{},
 			fmt.Errorf("protected rendition credentials are required")
 	}
@@ -95,7 +95,7 @@ func FetchProtectedRendition(
 			client,
 			statusURL,
 			jobID,
-			cfg.DeliveryGrant,
+			cfg.GrantSource,
 			cfg.PrivateKey,
 		)
 		if statusErr != nil {
@@ -182,7 +182,7 @@ func FetchProtectedRendition(
 		jobID,
 		encodedReceipt,
 		downloadRoot,
-		cfg.DeliveryGrant,
+		cfg.GrantSource,
 		cfg.PrivateKey,
 		receipt,
 	)
@@ -197,35 +197,71 @@ func readMaterializationStatus(
 	client *http.Client,
 	endpoint string,
 	jobID string,
-	grant string,
+	grantSource GrantSource,
 	privateKey *ecdsa.PrivateKey,
 ) (materializationStatus, error) {
-	proof, err := dpop.CreateProof(privateKey, http.MethodPost, endpoint, grant, time.Now())
+	grant, err := grantSource.Current(ctx)
 	if err != nil {
-		return materializationStatus{}, fmt.Errorf("create materialization status proof: %w", err)
+		return materializationStatus{}, fmt.Errorf("read materialization authorization: %w", err)
 	}
-	body, err := json.Marshal(map[string]string{
-		"deliveryGrant": grant,
-		"jobId":         jobID,
-		"proof":         proof,
-	})
-	if err != nil {
-		return materializationStatus{}, fmt.Errorf("encode materialization status request: %w", err)
+	var response *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		proof, proofErr := dpop.CreateProof(
+			privateKey,
+			http.MethodPost,
+			endpoint,
+			grant,
+			time.Now(),
+		)
+		if proofErr != nil {
+			return materializationStatus{}, fmt.Errorf(
+				"create materialization status proof: %w",
+				proofErr,
+			)
+		}
+		body, bodyErr := json.Marshal(map[string]string{
+			"deliveryGrant": grant,
+			"jobId":         jobID,
+			"proof":         proof,
+		})
+		if bodyErr != nil {
+			return materializationStatus{}, fmt.Errorf(
+				"encode materialization status request: %w",
+				bodyErr,
+			)
+		}
+		request, requestErr := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			endpoint,
+			bytes.NewReader(body),
+		)
+		if requestErr != nil {
+			return materializationStatus{}, fmt.Errorf(
+				"create materialization status request: %w",
+				requestErr,
+			)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("DPoP", proof)
+		response, err = client.Do(request)
+		if err != nil {
+			return materializationStatus{}, fmt.Errorf("read materialization status: %w", err)
+		}
+		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
+			break
+		}
+		_ = response.Body.Close()
+		grant, err = grantSource.Renew(ctx, grant)
+		if err != nil {
+			return materializationStatus{}, fmt.Errorf(
+				"renew materialization authorization: %w",
+				err,
+			)
+		}
 	}
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		endpoint,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return materializationStatus{}, fmt.Errorf("create materialization status request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("DPoP", proof)
-	response, err := client.Do(request)
-	if err != nil {
-		return materializationStatus{}, fmt.Errorf("read materialization status: %w", err)
+	if response == nil {
+		return materializationStatus{}, fmt.Errorf("materialization status returned no response")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -250,33 +286,57 @@ func downloadRendition(
 	jobID string,
 	encodedReceipt string,
 	downloadRoot string,
-	grant string,
+	grantSource GrantSource,
 	privateKey *ecdsa.PrivateKey,
 	receipt packagecontract.MaterializationReceipt,
 ) (DownloadedRendition, error) {
-	proof, err := dpop.CreateProof(privateKey, http.MethodPost, endpoint, grant, time.Now())
+	grant, err := grantSource.Current(ctx)
 	if err != nil {
-		return DownloadedRendition{}, fmt.Errorf("create rendition delivery proof: %w", err)
+		return DownloadedRendition{}, fmt.Errorf("read rendition authorization: %w", err)
 	}
 	body, err := json.Marshal(map[string]string{"receipt": encodedReceipt})
 	if err != nil {
 		return DownloadedRendition{}, fmt.Errorf("encode rendition request: %w", err)
 	}
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		endpoint,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return DownloadedRendition{}, fmt.Errorf("create rendition request: %w", err)
+	var response *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		proof, proofErr := dpop.CreateProof(
+			privateKey,
+			http.MethodPost,
+			endpoint,
+			grant,
+			time.Now(),
+		)
+		if proofErr != nil {
+			return DownloadedRendition{}, fmt.Errorf("create rendition delivery proof: %w", proofErr)
+		}
+		request, requestErr := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			endpoint,
+			bytes.NewReader(body),
+		)
+		if requestErr != nil {
+			return DownloadedRendition{}, fmt.Errorf("create rendition request: %w", requestErr)
+		}
+		request.Header.Set("Authorization", "DPoP "+grant)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("DPoP", proof)
+		response, err = client.Do(request)
+		if err != nil {
+			return DownloadedRendition{}, fmt.Errorf("download protected rendition: %w", err)
+		}
+		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
+			break
+		}
+		_ = response.Body.Close()
+		grant, err = grantSource.Renew(ctx, grant)
+		if err != nil {
+			return DownloadedRendition{}, fmt.Errorf("renew rendition authorization: %w", err)
+		}
 	}
-	request.Header.Set("Authorization", "DPoP "+grant)
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("DPoP", proof)
-	response, err := client.Do(request)
-	if err != nil {
-		return DownloadedRendition{}, fmt.Errorf("download protected rendition: %w", err)
+	if response == nil {
+		return DownloadedRendition{}, fmt.Errorf("protected rendition returned no response")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {

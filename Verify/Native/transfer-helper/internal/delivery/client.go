@@ -23,14 +23,19 @@ import (
 
 const parallelChunkDownloads = 4
 
+type GrantSource interface {
+	Current(ctx context.Context) (string, error)
+	Renew(ctx context.Context, rejectedGrant string) (string, error)
+}
+
 type StageCommonConfig struct {
-	CacheRoot     string
-	DeliveryGrant string
-	Destination   string
-	Manifest      Manifest
-	ManifestURL   string
-	PrivateKey    *ecdsa.PrivateKey
-	Progress      func(completedBytes int64, totalBytes int64) error
+	CacheRoot   string
+	Destination string
+	GrantSource GrantSource
+	Manifest    Manifest
+	ManifestURL string
+	PrivateKey  *ecdsa.PrivateKey
+	Progress    func(completedBytes int64, totalBytes int64) error
 }
 
 type StagedFile struct {
@@ -49,7 +54,7 @@ func FetchManifest(
 	ctx context.Context,
 	session packagecontract.InstallSession,
 	grant packagecontract.DeliveryGrant,
-	encodedGrant string,
+	grantSource GrantSource,
 	privateKey *ecdsa.PrivateKey,
 ) (Manifest, error) {
 	versionID := grant.PackageVersionID()
@@ -57,31 +62,49 @@ func FetchManifest(
 		return Manifest{}, fmt.Errorf("delivery grant has no package read scope")
 	}
 	target := session.Bootstrap.URL
-	proof, err := dpop.CreateProof(
-		privateKey,
-		http.MethodGet,
-		target,
-		encodedGrant,
-		time.Now(),
-	)
+	encodedGrant, err := grantSource.Current(ctx)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("create manifest delivery proof: %w", err)
+		return Manifest{}, fmt.Errorf("read manifest delivery authorization: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("create manifest delivery request: %w", err)
-	}
-	request.Header.Set("Authorization", "DPoP "+encodedGrant)
-	request.Header.Set("DPoP", proof)
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-	response, err := client.Do(request)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("download delivery manifest: %w", err)
+	var response *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		proof, proofErr := dpop.CreateProof(
+			privateKey,
+			http.MethodGet,
+			target,
+			encodedGrant,
+			time.Now(),
+		)
+		if proofErr != nil {
+			return Manifest{}, fmt.Errorf("create manifest delivery proof: %w", proofErr)
+		}
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if requestErr != nil {
+			return Manifest{}, fmt.Errorf("create manifest delivery request: %w", requestErr)
+		}
+		request.Header.Set("Authorization", "DPoP "+encodedGrant)
+		request.Header.Set("DPoP", proof)
+		response, err = client.Do(request)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("download delivery manifest: %w", err)
+		}
+		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
+			break
+		}
+		_ = response.Body.Close()
+		encodedGrant, err = grantSource.Renew(ctx, encodedGrant)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("renew manifest delivery authorization: %w", err)
+		}
+	}
+	if response == nil {
+		return Manifest{}, fmt.Errorf("delivery manifest returned no response")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -117,7 +140,7 @@ func StageCommonTree(ctx context.Context, cfg StageCommonConfig) (StageCommonRes
 	if ctx == nil {
 		return StageCommonResult{}, fmt.Errorf("delivery context is required")
 	}
-	if cfg.PrivateKey == nil || cfg.DeliveryGrant == "" {
+	if cfg.PrivateKey == nil || cfg.GrantSource == nil {
 		return StageCommonResult{}, fmt.Errorf("delivery proof credentials are required")
 	}
 	cacheRoot, err := requireAbsolutePath(cfg.CacheRoot, "chunk cache root")
@@ -162,11 +185,11 @@ func StageCommonTree(ctx context.Context, cfg StageCommonConfig) (StageCommonRes
 		}
 	}
 	if err := downloadChunks(ctx, chunkDownloadConfig{
-		BaseURL:       chunkBaseURL,
-		CacheRoot:     cacheRoot,
-		Chunks:        uniqueChunks,
-		DeliveryGrant: cfg.DeliveryGrant,
-		PrivateKey:    cfg.PrivateKey,
+		BaseURL:     chunkBaseURL,
+		CacheRoot:   cacheRoot,
+		Chunks:      uniqueChunks,
+		GrantSource: cfg.GrantSource,
+		PrivateKey:  cfg.PrivateKey,
 	}); err != nil {
 		return StageCommonResult{}, err
 	}
@@ -180,11 +203,11 @@ func StageCommonTree(ctx context.Context, cfg StageCommonConfig) (StageCommonRes
 }
 
 type chunkDownloadConfig struct {
-	BaseURL       string
-	CacheRoot     string
-	Chunks        map[string]Chunk
-	DeliveryGrant string
-	PrivateKey    *ecdsa.PrivateKey
+	BaseURL     string
+	CacheRoot   string
+	Chunks      map[string]Chunk
+	GrantSource GrantSource
+	PrivateKey  *ecdsa.PrivateKey
 }
 
 func downloadChunks(ctx context.Context, cfg chunkDownloadConfig) error {
@@ -261,25 +284,43 @@ func ensureCachedChunk(
 		return fmt.Errorf("read cached chunk %s: %w", chunk.ID, err)
 	}
 	target := cfg.BaseURL + chunk.ID
-	proof, err := dpop.CreateProof(
-		cfg.PrivateKey,
-		http.MethodGet,
-		target,
-		cfg.DeliveryGrant,
-		time.Now(),
-	)
+	grant, err := cfg.GrantSource.Current(ctx)
 	if err != nil {
-		return fmt.Errorf("create chunk delivery proof: %w", err)
+		return fmt.Errorf("read chunk delivery authorization: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-	if err != nil {
-		return fmt.Errorf("create chunk delivery request: %w", err)
+	var response *http.Response
+	for attempt := 0; attempt < 2; attempt++ {
+		proof, proofErr := dpop.CreateProof(
+			cfg.PrivateKey,
+			http.MethodGet,
+			target,
+			grant,
+			time.Now(),
+		)
+		if proofErr != nil {
+			return fmt.Errorf("create chunk delivery proof: %w", proofErr)
+		}
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if requestErr != nil {
+			return fmt.Errorf("create chunk delivery request: %w", requestErr)
+		}
+		request.Header.Set("Authorization", "DPoP "+grant)
+		request.Header.Set("DPoP", proof)
+		response, err = client.Do(request)
+		if err != nil {
+			return fmt.Errorf("download common chunk %s: %w", chunk.ID, err)
+		}
+		if !renewableAuthorizationStatus(response.StatusCode) || attempt == 1 {
+			break
+		}
+		_ = response.Body.Close()
+		grant, err = cfg.GrantSource.Renew(ctx, grant)
+		if err != nil {
+			return fmt.Errorf("renew chunk delivery authorization: %w", err)
+		}
 	}
-	request.Header.Set("Authorization", "DPoP "+cfg.DeliveryGrant)
-	request.Header.Set("DPoP", proof)
-	response, err := client.Do(request)
-	if err != nil {
-		return fmt.Errorf("download common chunk %s: %w", chunk.ID, err)
+	if response == nil {
+		return fmt.Errorf("download common chunk %s returned no response", chunk.ID)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -304,6 +345,10 @@ func ensureCachedChunk(
 		return fmt.Errorf("read published common chunk %s: %w", chunk.ID, err)
 	}
 	return verifyChunk(existing, chunk)
+}
+
+func renewableAuthorizationStatus(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
 }
 
 func reconstructCommonTree(

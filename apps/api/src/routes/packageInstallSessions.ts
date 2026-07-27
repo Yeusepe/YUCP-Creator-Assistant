@@ -3,6 +3,8 @@ import * as ed25519 from '@noble/ed25519';
 import { parseTraceparent } from '@yucp/shared';
 import { verifyDpopProof } from '../../../../ops/storage-core/dpop';
 import {
+  decodeDeliveryGrantV2,
+  decodeInstallSessionV2,
   encodePackageOperationCapabilityV2,
   type InstallSessionOperation,
   PACKAGE_CONTRACT_PURPOSES,
@@ -10,8 +12,10 @@ import {
   packageContractKeyId,
   signPackageContract,
   verifyDeliveryGrantV2,
+  verifyPackageContract,
   verifyPackageOperationCapabilityV2,
 } from '../../../../ops/storage-core/packageContractsV2';
+import { PACKAGE_INSTALL_AUTHORIZATION_POLICY } from '../../../../ops/storage-core/packageInstallAuthorizationPolicy';
 import {
   INSTALL_SESSION_LIFETIME_SECONDS,
   issuePackageInstallSession,
@@ -74,10 +78,15 @@ export interface PackageOperationAuthorizationPort {
     tokenSha256: string;
   }): Promise<
     | { generation: number; status: 'claimed' }
-    | { status: 'in_progress' | 'invalid' }
+    | { status: 'in_progress' }
+    | { status: 'invalid' }
     | {
         deliveryGrantId: string;
+        grantExpiresAt: Date;
+        grantIssuedAt: Date;
+        grantTokenSha256: string;
         materializationJobId?: string;
+        renewableUntil: Date;
         sessionId: string;
         status: 'ready';
         versionId: string;
@@ -87,10 +96,52 @@ export interface PackageOperationAuthorizationPort {
     capabilityId: string;
     deliveryGrantId: string;
     generation: number;
+    grantExpiresAt: Date;
+    grantIssuedAt: Date;
+    grantTokenSha256: string;
     materializationJobId?: string;
+    renewableUntil: Date;
     sessionId: string;
     versionId: string;
   }): Promise<boolean>;
+  beginRenewal(input: {
+    buyerId: string;
+    deviceKeyThumbprint: string;
+    grantTokenSha256: string;
+    sessionId: string;
+    traceId: string;
+  }): Promise<
+    | {
+        capabilityId: string;
+        generation: number;
+        grantId: string;
+        issuedAt: Date;
+        renewableUntil: Date;
+        status: 'claimed';
+      }
+    | { status: 'in_progress' }
+    | { status: 'invalid' }
+    | { status: 'expired' }
+    | {
+        capabilityId: string;
+        generation: number;
+        grantId: string;
+        expiresAt: Date;
+        grantTokenSha256: string;
+        issuedAt: Date;
+        renewableUntil: Date;
+        status: 'ready';
+      }
+  >;
+  completeRenewal(input: {
+    capabilityId: string;
+    generation: number;
+    grantId: string;
+    expiresAt: Date;
+    grantTokenSha256: string;
+    issuedAt: Date;
+  }): Promise<boolean>;
+  releaseRenewal(input: { capabilityId: string; generation: number }): Promise<boolean>;
   releaseExchange(input: { capabilityId: string; generation: number }): Promise<boolean>;
   reserve(input: {
     aliasId: string;
@@ -325,6 +376,42 @@ function normalizeSessionBody(body: Record<string, unknown>): PackageInstallSess
   };
 }
 
+type PackageInstallRenewalRequest = {
+  deliveryGrant: string;
+  installSession: string;
+  traceparent: string;
+};
+
+function normalizeBoundedToken(value: unknown, name: string): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 256 * 1024 ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  ) {
+    throw new RequestBodyError(`${name} must use bounded unpadded base64url`, 400);
+  }
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.byteLength === 0 || decoded.toString('base64url') !== value) {
+    throw new RequestBodyError(`${name} must use canonical base64url`, 400);
+  }
+  return value;
+}
+
+function normalizeRenewalBody(body: Record<string, unknown>): PackageInstallRenewalRequest {
+  if (Object.keys(body).sort().join(',') !== 'deliveryGrant,installSession,traceparent') {
+    throw new RequestBodyError('Request fields are invalid', 400);
+  }
+  if (typeof body.traceparent !== 'string' || !parseTraceparent(body.traceparent)) {
+    throw new RequestBodyError('traceparent is invalid', 400);
+  }
+  return {
+    deliveryGrant: normalizeBoundedToken(body.deliveryGrant, 'deliveryGrant'),
+    installSession: normalizeBoundedToken(body.installSession, 'installSession'),
+    traceparent: body.traceparent,
+  };
+}
+
 function requireVerificationOrigin(value: string): string {
   let url: URL;
   try {
@@ -360,6 +447,22 @@ function deterministicInstallIdentifier(
     digest.update(bytes);
   }
   return `${prefix}-${digest.digest('hex').slice(0, 48)}`;
+}
+
+function packageVersionScope(grant: ReturnType<typeof decodeDeliveryGrantV2>): string | null {
+  const versions = grant.scopes
+    .filter((scope) => scope.startsWith('package:') && scope.endsWith(':read'))
+    .map((scope) => scope.slice('package:'.length, -':read'.length));
+  return versions.length === 1 && versions[0] ? versions[0] : null;
+}
+
+function materializationJobScope(
+  grant: ReturnType<typeof decodeDeliveryGrantV2>
+): string | undefined {
+  const jobs = grant.scopes
+    .filter((scope) => scope.startsWith('materialization:') && scope.endsWith(':read'))
+    .map((scope) => scope.slice('materialization:'.length, -':read'.length));
+  return jobs.length === 1 && jobs[0] ? jobs[0] : undefined;
 }
 
 async function requireDpopAccess(
@@ -725,26 +828,6 @@ export function createPackageInstallSessionRoute(
     const materializationJobId = requiresMaterialization
       ? deterministicInstallIdentifier('job', identityFields)
       : undefined;
-    const issuedAt = capability.issuedAt;
-    let issued: Awaited<ReturnType<typeof issuePackageInstallSession>>;
-    try {
-      issued = await issuePackageInstallSession({
-        audience: options.audience,
-        buyerId: authentication.buyerId,
-        deliveryGrantId,
-        deviceKeyThumbprint: authentication.deviceKeyThumbprint,
-        issuer: options.issuer,
-        keyId: options.keyId,
-        ...(materializationJobId ? { materializationJobId } : {}),
-        now: issuedAt,
-        operation: input.operation,
-        privateKey: options.privateKey,
-        publication,
-        sessionId,
-      });
-    } catch {
-      return jsonNoStore({ error: 'Package delivery authorization could not be issued' }, 503);
-    }
     const exchange = await options.authorizationPort.beginExchange({
       buyerId: authentication.buyerId,
       capabilityId: capability.capabilityId,
@@ -778,13 +861,59 @@ export function createPackageInstallSessionRoute(
     ) {
       return jsonNoStore({ error: 'Persisted package operation outcome is invalid' }, 500);
     }
+    const issuedAt =
+      exchange.status === 'ready'
+        ? Math.floor(exchange.grantIssuedAt.getTime() / 1_000)
+        : Math.floor(Date.now() / 1_000);
+    const grantExpiresAt =
+      exchange.status === 'ready'
+        ? Math.floor(exchange.grantExpiresAt.getTime() / 1_000)
+        : issuedAt + INSTALL_SESSION_LIFETIME_SECONDS;
+    const renewableUntil =
+      exchange.status === 'ready'
+        ? exchange.renewableUntil
+        : new Date(
+            (issuedAt + PACKAGE_INSTALL_AUTHORIZATION_POLICY.operationLifetimeSeconds) * 1_000
+          );
+    let issued: Awaited<ReturnType<typeof issuePackageInstallSession>>;
+    try {
+      issued = await issuePackageInstallSession({
+        audience: options.audience,
+        buyerId: authentication.buyerId,
+        deliveryGrantId,
+        deviceKeyThumbprint: authentication.deviceKeyThumbprint,
+        expiresAt: grantExpiresAt,
+        issuer: options.issuer,
+        keyId: options.keyId,
+        ...(materializationJobId ? { materializationJobId } : {}),
+        now: issuedAt,
+        operation: input.operation,
+        privateKey: options.privateKey,
+        publication,
+        sessionId,
+      });
+    } catch {
+      if (exchange.status === 'claimed') {
+        await options.authorizationPort.releaseExchange({
+          capabilityId: capability.capabilityId,
+          generation: exchange.generation,
+        });
+      }
+      return jsonNoStore({ error: 'Package delivery authorization could not be issued' }, 503);
+    }
+    const grantTokenSha256 = createHash('sha256').update(issued.deliveryGrant).digest('hex');
+    if (exchange.status === 'ready' && exchange.grantTokenSha256 !== grantTokenSha256) {
+      return jsonNoStore({ error: 'Persisted package operation outcome is invalid' }, 500);
+    }
     let deliveryPinId: string | undefined;
     if (exchange.status === 'claimed' && !materializationJobId && options.releasePins) {
       try {
         const pin = await options.releasePins.acquireReleasePin({
           expiresAt: new Date(
-            (issuedAt + INSTALL_SESSION_LIFETIME_SECONDS + DELIVERY_PIN_SAFETY_MARGIN_SECONDS) *
-              1_000
+            Math.min(
+              issuedAt + INSTALL_SESSION_LIFETIME_SECONDS + DELIVERY_PIN_SAFETY_MARGIN_SECONDS,
+              Math.floor(renewableUntil.getTime() / 1_000)
+            ) * 1_000
           ).toISOString(),
           ownerId: sessionId,
           packageVersionId: publication.versionId,
@@ -830,7 +959,11 @@ export function createPackageInstallSessionRoute(
         capabilityId: capability.capabilityId,
         deliveryGrantId,
         generation: exchange.generation,
+        grantIssuedAt: new Date(issuedAt * 1_000),
+        grantExpiresAt: new Date(grantExpiresAt * 1_000),
+        grantTokenSha256,
         ...(materializationJobId ? { materializationJobId } : {}),
+        renewableUntil,
         sessionId,
         versionId: publication.versionId,
       }))
@@ -852,6 +985,306 @@ export function createPackageInstallSessionRoute(
       releaseRoot: publication.releaseRoot,
       versionId: issued.versionId,
       ...(materializationJobId ? { materializationJobId } : {}),
+    });
+  };
+}
+
+export function createPackageInstallSessionRenewalRoute(
+  options: CreatePackageInstallSessionRouteOptions
+): (request: Request) => Promise<Response> {
+  const publicKey = ed25519.getPublicKeyAsync(options.privateKey);
+  const expectedKeyId = packageContractKeyId(options.keyId);
+  return async (request) => {
+    if (request.method !== 'POST') {
+      return jsonNoStore({ error: 'Method not allowed' }, 405);
+    }
+    const authentication = await requireDpopAccess(request, options);
+    if (!authentication.ok) {
+      return jsonNoStore(
+        {
+          error:
+            authentication.status === 403
+              ? 'Token missing required scope'
+              : 'Invalid or expired DPoP authorization',
+        },
+        authentication.status
+      );
+    }
+    let input: PackageInstallRenewalRequest;
+    try {
+      input = normalizeRenewalBody(
+        await readJsonObjectBodyWithLimit(request, REQUEST_BODY_LIMIT_BYTES)
+      );
+    } catch (error) {
+      if (error instanceof RequestBodyError) {
+        return jsonNoStore({ error: error.message }, error.status);
+      }
+      throw error;
+    }
+    let session: ReturnType<typeof decodeInstallSessionV2>;
+    let grant: ReturnType<typeof decodeDeliveryGrantV2>;
+    try {
+      const trustedPublicKey = await publicKey;
+      const [sessionPayload, grantPayload] = await Promise.all([
+        verifyPackageContract({
+          coseSign1: Buffer.from(input.installSession, 'base64url'),
+          expectedKeyId,
+          expectedPurpose: PACKAGE_CONTRACT_PURPOSES.installSession,
+          publicKey: trustedPublicKey,
+        }),
+        verifyPackageContract({
+          coseSign1: Buffer.from(input.deliveryGrant, 'base64url'),
+          expectedKeyId,
+          expectedPurpose: PACKAGE_CONTRACT_PURPOSES.deliveryGrant,
+          publicKey: trustedPublicKey,
+        }),
+      ]);
+      session = decodeInstallSessionV2(sessionPayload);
+      grant = decodeDeliveryGrantV2(grantPayload);
+    } catch {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal authorization is invalid',
+          errorCode: 'INSTALL_SESSION_RENEWAL_INVALID',
+        },
+        403
+      );
+    }
+    const versionId = packageVersionScope(grant);
+    if (
+      !versionId ||
+      session.buyerId !== authentication.buyerId ||
+      grant.buyerId !== authentication.buyerId ||
+      session.sessionId !== grant.installSessionId ||
+      session.issuer !== options.issuer ||
+      grant.issuer !== options.issuer ||
+      session.audience !== options.audience ||
+      grant.audience !== options.audience ||
+      session.productId !== grant.productId ||
+      session.creatorId !== grant.creatorId ||
+      !Buffer.from(session.deviceKeyThumbprint).equals(
+        Buffer.from(authentication.deviceKeyThumbprint, 'hex')
+      ) ||
+      !Buffer.from(grant.deviceKeyThumbprint).equals(
+        Buffer.from(authentication.deviceKeyThumbprint, 'hex')
+      ) ||
+      !Buffer.from(session.releaseRoot).equals(Buffer.from(grant.releaseRoot)) ||
+      !Buffer.from(session.bindingRoot).equals(Buffer.from(grant.bindingRoot))
+    ) {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal authorization is not bound to this request',
+          errorCode: 'INSTALL_SESSION_RENEWAL_INVALID',
+        },
+        403
+      );
+    }
+    const group = await options.accessPort.resolveProductGroup(session.aliasId);
+    if (
+      !group ||
+      group.aliasId !== session.aliasId ||
+      group.packageId !== session.productId ||
+      group.creatorId !== session.creatorId
+    ) {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal authorization is not bound to a published product',
+          errorCode: 'INSTALL_SESSION_RENEWAL_INVALID',
+        },
+        403
+      );
+    }
+    const entitledEditionId = await options.accessPort.resolveEntitledEdition(
+      authentication.buyerId,
+      group
+    );
+    if (!entitledEditionId) {
+      return jsonNoStore(
+        {
+          error: 'Package ownership verification is required',
+          errorCode: 'ENTITLEMENT_REQUIRED',
+        },
+        403
+      );
+    }
+    const publication = await options.accessPort.resolvePublication(
+      group,
+      entitledEditionId,
+      Buffer.from(session.releaseRoot).toString('hex')
+    );
+    if (
+      !publication ||
+      publication.versionId !== versionId ||
+      publication.packageId !== session.productId ||
+      publication.creatorId !== session.creatorId ||
+      publication.releaseRoot !== Buffer.from(session.releaseRoot).toString('hex') ||
+      publication.bindingRoot !== Buffer.from(session.bindingRoot).toString('hex')
+    ) {
+      return jsonNoStore(
+        {
+          error: 'The authorized package release is unavailable',
+          errorCode: 'INSTALL_SESSION_RENEWAL_INVALID',
+        },
+        409
+      );
+    }
+    const renewalTrace = parseTraceparent(input.traceparent);
+    if (!renewalTrace) {
+      return jsonNoStore({ error: 'traceparent is invalid' }, 400);
+    }
+    const exchange = await options.authorizationPort.beginRenewal({
+      buyerId: authentication.buyerId,
+      deviceKeyThumbprint: authentication.deviceKeyThumbprint,
+      grantTokenSha256: createHash('sha256')
+        .update(Buffer.from(input.deliveryGrant, 'base64url'))
+        .digest('hex'),
+      sessionId: session.sessionId,
+      traceId: renewalTrace.traceId,
+    });
+    if (exchange.status === 'invalid') {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal authorization is expired or replayed',
+          errorCode: 'INSTALL_SESSION_RENEWAL_INVALID',
+        },
+        409
+      );
+    }
+    if (exchange.status === 'expired') {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal policy expired',
+          errorCode: 'INSTALL_SESSION_RENEWAL_EXPIRED',
+        },
+        409
+      );
+    }
+    if (exchange.status === 'in_progress') {
+      return jsonNoStore(
+        {
+          error: 'Package install renewal is already processing',
+          errorCode: 'INSTALL_SESSION_RENEWAL_IN_PROGRESS',
+        },
+        409
+      );
+    }
+    const issuedAt = Math.floor(exchange.issuedAt.getTime() / 1_000);
+    const renewableUntil = Math.floor(exchange.renewableUntil.getTime() / 1_000);
+    const expiresAt =
+      exchange.status === 'ready'
+        ? Math.floor(exchange.expiresAt.getTime() / 1_000)
+        : Math.min(issuedAt + INSTALL_SESSION_LIFETIME_SECONDS, renewableUntil);
+    if (expiresAt <= issuedAt) {
+      if (exchange.status === 'claimed') {
+        await options.authorizationPort.releaseRenewal({
+          capabilityId: exchange.capabilityId,
+          generation: exchange.generation,
+        });
+      }
+      return jsonNoStore(
+        {
+          error: 'Package install renewal policy expired',
+          errorCode: 'INSTALL_SESSION_RENEWAL_EXPIRED',
+        },
+        409
+      );
+    }
+    const grantId = exchange.grantId;
+    const materializationJobId = materializationJobScope(grant);
+    let issued: Awaited<ReturnType<typeof issuePackageInstallSession>>;
+    try {
+      issued = await issuePackageInstallSession({
+        audience: options.audience,
+        buyerId: authentication.buyerId,
+        deliveryGrantId: grantId,
+        deviceKeyThumbprint: authentication.deviceKeyThumbprint,
+        expiresAt,
+        issuer: options.issuer,
+        keyId: options.keyId,
+        ...(materializationJobId ? { materializationJobId } : {}),
+        now: issuedAt,
+        operation: session.operation,
+        privateKey: options.privateKey,
+        publication,
+        sessionId: session.sessionId,
+      });
+    } catch {
+      if (exchange.status === 'claimed') {
+        await options.authorizationPort.releaseRenewal({
+          capabilityId: exchange.capabilityId,
+          generation: exchange.generation,
+        });
+      }
+      return jsonNoStore(
+        {
+          error: 'Package install renewal could not be issued',
+          errorCode: 'INSTALL_SESSION_RENEWAL_FAILED',
+        },
+        503
+      );
+    }
+    const grantTokenSha256 = createHash('sha256').update(issued.deliveryGrant).digest('hex');
+    if (exchange.status === 'ready' && exchange.grantTokenSha256 !== grantTokenSha256) {
+      return jsonNoStore({ error: 'Persisted package renewal outcome is invalid' }, 500);
+    }
+    if (options.releasePins) {
+      try {
+        await options.releasePins.acquireReleasePin({
+          expiresAt: new Date(
+            (expiresAt + DELIVERY_PIN_SAFETY_MARGIN_SECONDS) * 1_000
+          ).toISOString(),
+          ownerId: session.sessionId,
+          packageVersionId: publication.versionId,
+          pinKind: 'delivery-binding',
+        });
+      } catch {
+        if (exchange.status === 'claimed') {
+          await options.authorizationPort.releaseRenewal({
+            capabilityId: exchange.capabilityId,
+            generation: exchange.generation,
+          });
+        }
+        return jsonNoStore(
+          {
+            error: 'Package delivery retention could not be renewed',
+            errorCode: 'INSTALL_SESSION_RENEWAL_FAILED',
+          },
+          503
+        );
+      }
+    }
+    if (
+      exchange.status === 'claimed' &&
+      !(await options.authorizationPort.completeRenewal({
+        capabilityId: exchange.capabilityId,
+        generation: exchange.generation,
+        grantId,
+        expiresAt: new Date(expiresAt * 1_000),
+        grantTokenSha256,
+        issuedAt: new Date(issuedAt * 1_000),
+      }))
+    ) {
+      await options.authorizationPort.releaseRenewal({
+        capabilityId: exchange.capabilityId,
+        generation: exchange.generation,
+      });
+      return jsonNoStore(
+        {
+          error: 'Package install renewal outcome could not be persisted',
+          errorCode: 'INSTALL_SESSION_RENEWAL_FAILED',
+        },
+        503
+      );
+    }
+    return jsonNoStore({
+      deliveryGrant: Buffer.from(issued.deliveryGrant).toString('base64url'),
+      deliveryGrantPurpose: issued.deliveryGrantPurpose,
+      expiresAt: new Date(expiresAt * 1_000).toISOString(),
+      installSession: Buffer.from(issued.installSession).toString('base64url'),
+      installSessionPurpose: issued.installSessionPurpose,
+      releaseRoot: publication.releaseRoot,
+      versionId: publication.versionId,
+      ...(issued.materializationJobId ? { materializationJobId: issued.materializationJobId } : {}),
     });
   };
 }

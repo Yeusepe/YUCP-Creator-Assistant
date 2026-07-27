@@ -68,6 +68,7 @@ import {
 import { createCollabRoutes } from './routes/collab';
 import { createPackageInstallerTufRoute } from './routes/packageInstallerTuf';
 import {
+  createPackageInstallSessionRenewalRoute,
   createPackageInstallSessionRoute,
   createPackageMaterializationStatusRoute,
   createPackageOperationAuthorizationRoute,
@@ -98,6 +99,7 @@ let publicV2Routes: ReturnType<typeof createPublicV2Routes> | null = null;
 let suiteRoutes: ReturnType<typeof createSuiteRoutes> | null = null;
 let internalRpcRouter: ReturnType<typeof createInternalRpcRouter> | null = null;
 let packageInstallSessionRoute: ((request: Request) => Promise<Response>) | null = null;
+let packageInstallSessionRenewalRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageOperationAuthorizationRoute: ((request: Request) => Promise<Response>) | null = null;
 let packageOperationAuthorizationDatabase: CatalogDatabase | null = null;
 let vpmAliasPublicationDatabase: CatalogDatabase | null = null;
@@ -453,6 +455,9 @@ function initializeAuth(webhookBaseUrl?: string) {
     : null;
   packageInstallSessionRoute = packageInstallRouteOptions
     ? createPackageInstallSessionRoute(packageInstallRouteOptions)
+    : null;
+  packageInstallSessionRenewalRoute = packageInstallRouteOptions
+    ? createPackageInstallSessionRenewalRoute(packageInstallRouteOptions)
     : null;
   packageMaterializationStatusRoute =
     packageInstallConfig && materializationControl
@@ -1072,6 +1077,15 @@ async function routeRequest(request: Request): Promise<Response> {
       );
     }
     return packageInstallSessionRoute(request);
+  }
+  if (pathname === '/api/v2/package-installs/renewals') {
+    if (!packageInstallSessionRenewalRoute) {
+      return Response.json(
+        { error: 'Package install session renewal is not configured' },
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
+      );
+    }
+    return packageInstallSessionRenewalRoute(request);
   }
   if (pathname === '/api/v2/package-installs/authorizations') {
     if (!packageOperationAuthorizationRoute) {

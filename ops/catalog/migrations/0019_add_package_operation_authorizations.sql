@@ -61,8 +61,27 @@ CREATE TABLE package_operation_authorizations (
   exchange_completed_at timestamptz,
   outcome_session_id text,
   outcome_delivery_grant_id text,
+  outcome_grant_issued_at timestamptz,
+  outcome_grant_expires_at timestamptz,
+  outcome_grant_token_sha256 text
+    CHECK (
+      outcome_grant_token_sha256 IS NULL
+      OR outcome_grant_token_sha256 ~ '^[0-9a-f]{64}$'
+    ),
   outcome_materialization_job_id text,
   outcome_version_id text,
+  session_renewable_until timestamptz,
+  renewal_state text NOT NULL DEFAULT 'READY'
+    CHECK (renewal_state IN ('PROCESSING', 'READY')),
+  renewal_generation integer NOT NULL DEFAULT 0
+    CHECK (renewal_generation >= 0),
+  renewal_lease_until timestamptz,
+  renewal_issued_at timestamptz,
+  previous_grant_token_sha256 text
+    CHECK (
+      previous_grant_token_sha256 IS NULL
+      OR previous_grant_token_sha256 ~ '^[0-9a-f]{64}$'
+    ),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT package_operation_authorizations_time_check
     CHECK (
@@ -104,7 +123,25 @@ CREATE TABLE package_operation_authorizations (
         AND exchange_completed_at IS NOT NULL
         AND outcome_session_id IS NOT NULL
         AND outcome_delivery_grant_id IS NOT NULL
+        AND outcome_grant_issued_at IS NOT NULL
+        AND outcome_grant_expires_at IS NOT NULL
+        AND outcome_grant_expires_at > outcome_grant_issued_at
+        AND outcome_grant_token_sha256 IS NOT NULL
         AND outcome_version_id IS NOT NULL
+        AND session_renewable_until IS NOT NULL
+        AND session_renewable_until >= outcome_grant_expires_at
+        AND (
+          (
+            renewal_state = 'READY'
+            AND renewal_lease_until IS NULL
+          )
+          OR (
+            renewal_state = 'PROCESSING'
+            AND renewal_lease_until IS NOT NULL
+            AND renewal_issued_at IS NOT NULL
+            AND previous_grant_token_sha256 IS NOT NULL
+          )
+        )
       )
     )
 );
@@ -112,6 +149,10 @@ CREATE TABLE package_operation_authorizations (
 CREATE INDEX package_operation_authorizations_expiry_idx
   ON package_operation_authorizations (expires_at, capability_id)
   WHERE consumed_at IS NULL;
+
+CREATE INDEX package_operation_authorizations_session_expiry_idx
+  ON package_operation_authorizations (session_renewable_until, capability_id)
+  WHERE exchange_state = 'READY';
 
 CREATE TABLE package_install_dpop_replays (
   replay_key text PRIMARY KEY

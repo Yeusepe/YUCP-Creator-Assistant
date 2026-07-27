@@ -36,12 +36,21 @@ type RemoteClient struct {
 
 type AuthorizedOperation struct {
 	DeliveryGrant         string
+	ExpiresAt             time.Time
 	InstallSession        string
 	MaterializationJobID  string
 	ReleaseRoot           string
 	VersionID             string
 	deliveryGrantPurpose  string
 	installSessionPurpose string
+}
+
+type AuthorizationRenewal struct {
+	DeliveryGrant  string
+	InstallSession string
+	ReleaseRoot    string
+	Traceparent    string
+	VersionID      string
 }
 
 type packageOperationBody struct {
@@ -65,6 +74,7 @@ type operationAuthorizationResponse struct {
 type installSessionResponse struct {
 	DeliveryGrant         string `json:"deliveryGrant"`
 	DeliveryGrantPurpose  string `json:"deliveryGrantPurpose"`
+	ExpiresAt             string `json:"expiresAt"`
 	InstallSession        string `json:"installSession"`
 	InstallSessionPurpose string `json:"installSessionPurpose"`
 	MaterializationJobID  string `json:"materializationJobId"`
@@ -76,6 +86,22 @@ type packageAPIError struct {
 	Error           string `json:"error"`
 	ErrorCode       string `json:"errorCode"`
 	VerificationURL string `json:"verificationUrl"`
+}
+
+type packageAPIStatusError struct {
+	code   string
+	status int
+}
+
+func (err *packageAPIStatusError) Error() string {
+	if err.code != "" {
+		return fmt.Sprintf("package broker API returned HTTP %d (%s)", err.status, err.code)
+	}
+	return fmt.Sprintf("package broker API returned HTTP %d", err.status)
+}
+
+func (err *packageAPIStatusError) StableCode() string {
+	return err.code
 }
 
 func (client RemoteClient) AuthorizeAndExchange(
@@ -157,6 +183,77 @@ func (client RemoteClient) AuthorizeAndExchange(
 	}, nil
 }
 
+func (client RemoteClient) Renew(
+	ctx context.Context,
+	renewal AuthorizationRenewal,
+	tokens OAuthTokens,
+	privateKey *ecdsa.PrivateKey,
+) (AuthorizedOperation, error) {
+	if renewal.DeliveryGrant == "" ||
+		renewal.InstallSession == "" ||
+		!isDigest(renewal.ReleaseRoot) ||
+		strings.TrimSpace(renewal.VersionID) == "" ||
+		!validTraceparent(renewal.Traceparent) {
+		return AuthorizedOperation{}, fmt.Errorf("package authorization renewal is invalid")
+	}
+	if err := validateOAuthTokens(tokens); err != nil {
+		return AuthorizedOperation{}, err
+	}
+	body := struct {
+		DeliveryGrant  string `json:"deliveryGrant"`
+		InstallSession string `json:"installSession"`
+		Traceparent    string `json:"traceparent"`
+	}{
+		DeliveryGrant:  renewal.DeliveryGrant,
+		InstallSession: renewal.InstallSession,
+		Traceparent:    renewal.Traceparent,
+	}
+	var response installSessionResponse
+	for attempt := 0; attempt < 2; attempt++ {
+		response = installSessionResponse{}
+		err := client.post(
+			ctx,
+			"/api/v2/package-installs/renewals",
+			body,
+			tokens.AccessToken,
+			privateKey,
+			renewal.Traceparent,
+			&response,
+		)
+		if err == nil {
+			break
+		}
+		var statusError *packageAPIStatusError
+		if attempt == 1 ||
+			errors.Is(err, ErrAuthenticationRequired) ||
+			errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) ||
+			errors.As(err, &statusError) {
+			return AuthorizedOperation{}, err
+		}
+	}
+	expiresAt, err := time.Parse(time.RFC3339, response.ExpiresAt)
+	if err != nil ||
+		response.DeliveryGrant == "" ||
+		response.InstallSession == "" ||
+		response.DeliveryGrantPurpose != "delivery-grant-v2" ||
+		response.InstallSessionPurpose != "install-session-v2" ||
+		response.ReleaseRoot != renewal.ReleaseRoot ||
+		response.VersionID != renewal.VersionID {
+		return AuthorizedOperation{}, fmt.Errorf("package renewal response is invalid")
+	}
+	return AuthorizedOperation{
+		DeliveryGrant:         response.DeliveryGrant,
+		ExpiresAt:             expiresAt,
+		InstallSession:        response.InstallSession,
+		MaterializationJobID:  response.MaterializationJobID,
+		ReleaseRoot:           response.ReleaseRoot,
+		VersionID:             response.VersionID,
+		deliveryGrantPurpose:  response.DeliveryGrantPurpose,
+		installSessionPurpose: response.InstallSessionPurpose,
+	}, nil
+}
+
 func (client RemoteClient) post(
 	ctx context.Context,
 	path string,
@@ -225,13 +322,12 @@ func (client RemoteClient) post(
 			return &VerificationRequiredError{URL: apiError.VerificationURL}
 		}
 		if apiError.ErrorCode != "" {
-			return fmt.Errorf(
-				"package broker API returned HTTP %d (%s)",
-				response.StatusCode,
-				apiError.ErrorCode,
-			)
+			return &packageAPIStatusError{
+				code:   apiError.ErrorCode,
+				status: response.StatusCode,
+			}
 		}
-		return fmt.Errorf("package broker API returned HTTP %d", response.StatusCode)
+		return &packageAPIStatusError{status: response.StatusCode}
 	}
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxPackageAPIResponseBytes))
 	if err := decoder.Decode(destination); err != nil {

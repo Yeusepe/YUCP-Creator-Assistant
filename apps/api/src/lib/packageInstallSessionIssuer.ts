@@ -9,8 +9,10 @@ import {
   packageContractKeyId,
   signPackageContract,
 } from '../../../../ops/storage-core/packageContractsV2';
+import { PACKAGE_INSTALL_AUTHORIZATION_POLICY } from '../../../../ops/storage-core/packageInstallAuthorizationPolicy';
 
-export const INSTALL_SESSION_LIFETIME_SECONDS = 5 * 60;
+export const INSTALL_SESSION_LIFETIME_SECONDS =
+  PACKAGE_INSTALL_AUTHORIZATION_POLICY.grantLifetimeSeconds;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -46,6 +48,7 @@ export interface IssuePackageInstallSessionInput {
   buyerId: string;
   deliveryGrantId: string;
   deviceKeyThumbprint: string;
+  expiresAt?: number;
   issuer: string;
   keyId: string;
   materializationJobId?: string;
@@ -176,7 +179,14 @@ export async function issuePackageInstallSession(
   const bindingRoot = requireDigest(publication.bindingRoot, 'publication.bindingRoot');
   const deviceKeyThumbprint = requireDigest(input.deviceKeyThumbprint, 'deviceKeyThumbprint');
   const manifestSha256 = requireDigest(publication.manifestSha256, 'publication.manifestSha256');
-  const expiresAt = input.now + INSTALL_SESSION_LIFETIME_SECONDS;
+  const expiresAt = input.expiresAt ?? input.now + INSTALL_SESSION_LIFETIME_SECONDS;
+  if (
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= input.now ||
+    expiresAt > input.now + INSTALL_SESSION_LIFETIME_SECONDS
+  ) {
+    throw new Error('expiresAt must remain inside the install session lifetime policy');
+  }
   const session: InstallSessionV2 = {
     aliasId: publication.aliasId,
     allowedApiOrigins: [issuer],

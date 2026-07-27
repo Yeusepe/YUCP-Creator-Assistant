@@ -18,6 +18,25 @@ import (
 	"github.com/yucp/transfer-helper/internal/packagecontract"
 )
 
+type testGrantSource struct {
+	current string
+	renewed string
+	renews  atomic.Int64
+}
+
+func (source *testGrantSource) Current(context.Context) (string, error) {
+	return source.current, nil
+}
+
+func (source *testGrantSource) Renew(_ context.Context, rejected string) (string, error) {
+	if rejected != source.current {
+		return source.current, nil
+	}
+	source.renews.Add(1)
+	source.current = source.renewed
+	return source.current, nil
+}
+
 func TestFetchManifestReportsPreStorageAuthorizationFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("X-Delivery-Storage-Fetches", "0")
@@ -38,7 +57,7 @@ func TestFetchManifestReportsPreStorageAuthorizationFailure(t *testing.T) {
 		packagecontract.DeliveryGrant{
 			Scopes: []string{"package:version-1:read"},
 		},
-		"grant-1",
+		&testGrantSource{current: "grant-1", renewed: "grant-2"},
 		privateKey,
 	)
 	if err == nil ||
@@ -80,14 +99,15 @@ func TestStageCommonTreeDownloadsVerifiesAndReusesChunkCache(t *testing.T) {
 		VersionID: "version-1",
 	}
 	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	grants := &testGrantSource{current: "grant-1"}
 	firstDestination := filepath.Join(t.TempDir(), "first")
 	first, err := StageCommonTree(context.Background(), StageCommonConfig{
-		CacheRoot:     cacheRoot,
-		Destination:   firstDestination,
-		DeliveryGrant: "grant-1",
-		Manifest:      manifest,
-		ManifestURL:   server.URL + "/v2/delivery/version-1/manifest",
-		PrivateKey:    privateKey,
+		CacheRoot:   cacheRoot,
+		Destination: firstDestination,
+		GrantSource: grants,
+		Manifest:    manifest,
+		ManifestURL: server.URL + "/v2/delivery/version-1/manifest",
+		PrivateKey:  privateKey,
 	})
 	if err != nil {
 		t.Fatalf("StageCommonTree() first call error = %v", err)
@@ -106,12 +126,12 @@ func TestStageCommonTreeDownloadsVerifiesAndReusesChunkCache(t *testing.T) {
 	server.Close()
 	secondDestination := filepath.Join(t.TempDir(), "second")
 	if _, err := StageCommonTree(context.Background(), StageCommonConfig{
-		CacheRoot:     cacheRoot,
-		Destination:   secondDestination,
-		DeliveryGrant: "grant-1",
-		Manifest:      manifest,
-		ManifestURL:   server.URL + "/v2/delivery/version-1/manifest",
-		PrivateKey:    privateKey,
+		CacheRoot:   cacheRoot,
+		Destination: secondDestination,
+		GrantSource: grants,
+		Manifest:    manifest,
+		ManifestURL: server.URL + "/v2/delivery/version-1/manifest",
+		PrivateKey:  privateKey,
 	}); err != nil {
 		t.Fatalf("StageCommonTree() cache call error = %v", err)
 	}
@@ -120,11 +140,93 @@ func TestStageCommonTreeDownloadsVerifiesAndReusesChunkCache(t *testing.T) {
 	}
 }
 
+func TestStageCommonTreeRenewsWithoutDiscardingVerifiedChunkCache(t *testing.T) {
+	firstContent := []byte("first cached chunk\n")
+	secondContent := []byte("second renewed chunk\n")
+	firstDigest := sha256.Sum256(firstContent)
+	secondDigest := sha256.Sum256(secondContent)
+	firstIdentity := sha256.Sum256([]byte("first-cache-domain"))
+	secondIdentity := sha256.Sum256([]byte("second-cache-domain"))
+	firstID := hex.EncodeToString(firstIdentity[:])
+	secondID := hex.EncodeToString(secondIdentity[:])
+	var firstReads atomic.Int64
+	var secondReads atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v2/delivery/version-1/chunks/" + firstID:
+			firstReads.Add(1)
+			_, _ = response.Write(firstContent)
+		case "/v2/delivery/version-1/chunks/" + secondID:
+			secondReads.Add(1)
+			if request.Header.Get("Authorization") != "DPoP grant-renewed" {
+				response.WriteHeader(http.StatusForbidden)
+				return
+			}
+			_, _ = response.Write(secondContent)
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	grants := &testGrantSource{current: "grant-old", renewed: "grant-renewed"}
+	firstFile := File{
+		Bytes: int64(len(firstContent)),
+		Chunks: []Chunk{{
+			ID: firstID, SHA256: hex.EncodeToString(firstDigest[:]), Size: int64(len(firstContent)),
+		}},
+		Classification: "common",
+		NormalizedPath: "Assets/Product/first.txt",
+		SHA256:         hex.EncodeToString(firstDigest[:]),
+	}
+	if _, err := StageCommonTree(context.Background(), StageCommonConfig{
+		CacheRoot:   cacheRoot,
+		Destination: filepath.Join(t.TempDir(), "first"),
+		GrantSource: grants,
+		Manifest:    Manifest{Files: []File{firstFile}, VersionID: "version-1"},
+		ManifestURL: server.URL + "/v2/delivery/version-1/manifest",
+		PrivateKey:  privateKey,
+	}); err != nil {
+		t.Fatalf("StageCommonTree() initial cache fill error = %v", err)
+	}
+	secondFile := File{
+		Bytes: int64(len(secondContent)),
+		Chunks: []Chunk{{
+			ID: secondID, SHA256: hex.EncodeToString(secondDigest[:]), Size: int64(len(secondContent)),
+		}},
+		Classification: "common",
+		NormalizedPath: "Assets/Product/second.txt",
+		SHA256:         hex.EncodeToString(secondDigest[:]),
+	}
+	if _, err := StageCommonTree(context.Background(), StageCommonConfig{
+		CacheRoot:   cacheRoot,
+		Destination: filepath.Join(t.TempDir(), "renewed"),
+		GrantSource: grants,
+		Manifest:    Manifest{Files: []File{firstFile, secondFile}, VersionID: "version-1"},
+		ManifestURL: server.URL + "/v2/delivery/version-1/manifest",
+		PrivateKey:  privateKey,
+	}); err != nil {
+		t.Fatalf("StageCommonTree() renewed transfer error = %v", err)
+	}
+	if grants.renews.Load() != 1 || firstReads.Load() != 1 || secondReads.Load() != 2 {
+		t.Fatalf(
+			"renewal/cache counts = renewals %d, first %d, second %d; want 1, 1, 2",
+			grants.renews.Load(),
+			firstReads.Load(),
+			secondReads.Load(),
+		)
+	}
+}
+
 func TestStageCommonTreeRejectsProjectPathEscape(t *testing.T) {
 	if _, err := StageCommonTree(context.Background(), StageCommonConfig{
-		CacheRoot:     t.TempDir(),
-		Destination:   filepath.Join(t.TempDir(), "stage"),
-		DeliveryGrant: "grant",
+		CacheRoot:   t.TempDir(),
+		Destination: filepath.Join(t.TempDir(), "stage"),
+		GrantSource: &testGrantSource{current: "grant"},
 		Manifest: Manifest{Files: []File{{
 			Classification: "common",
 			NormalizedPath: "../escape",

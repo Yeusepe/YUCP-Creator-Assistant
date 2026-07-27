@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 
@@ -77,6 +78,11 @@ type AuthorizedRequest struct {
 
 	deliveryGrant  string
 	installSession string
+	renew          func(
+		ctx context.Context,
+		deliveryGrant string,
+		installSession string,
+	) (string, string, error)
 }
 
 func NewAuthorizedRequest(
@@ -93,6 +99,68 @@ func NewAuthorizedRequest(
 		return AuthorizedRequest{}, err
 	}
 	return request, nil
+}
+
+func (request AuthorizedRequest) WithRenewal(
+	renew func(
+		ctx context.Context,
+		deliveryGrant string,
+		installSession string,
+	) (string, string, error),
+) (AuthorizedRequest, error) {
+	if renew == nil {
+		return AuthorizedRequest{}, fmt.Errorf("package authorization renewal is required")
+	}
+	request.renew = renew
+	return request, nil
+}
+
+type verifiedGrantSource struct {
+	currentGrant   string
+	currentSession string
+	lock           sync.Mutex
+	renew          func(context.Context, string, string) (string, string, error)
+	verify         func(string, string, time.Time) error
+}
+
+func (source *verifiedGrantSource) Current(context.Context) (string, error) {
+	source.lock.Lock()
+	defer source.lock.Unlock()
+	return source.currentGrant, nil
+}
+
+func (source *verifiedGrantSource) Renew(
+	ctx context.Context,
+	rejectedGrant string,
+) (string, error) {
+	source.lock.Lock()
+	defer source.lock.Unlock()
+	if rejectedGrant != source.currentGrant {
+		return source.currentGrant, nil
+	}
+	if source.renew == nil {
+		return "", stableError{
+			code:    "INSTALL_SESSION_RENEWAL_FAILED",
+			message: "Package authorization expired and could not be renewed.",
+		}
+	}
+	installSession, deliveryGrant, err := source.renew(
+		ctx,
+		source.currentGrant,
+		source.currentSession,
+	)
+	if err != nil {
+		return "", err
+	}
+	if err := source.verify(installSession, deliveryGrant, time.Now()); err != nil {
+		return "", stableError{
+			code:    "INSTALL_SESSION_RENEWAL_INVALID",
+			message: "The renewed package authorization is invalid.",
+		}
+	}
+	source.currentGrant = deliveryGrant
+	source.currentSession = installSession
+	return source.currentGrant, nil
 }
 
 type ResultFile struct {
@@ -141,53 +209,73 @@ func Execute(
 	}
 	targetReleaseRoot, _ := hex.DecodeString(request.TargetReleaseRoot)
 	deviceThumbprint, _ := hex.DecodeString(identity.Thumbprint)
-	sessionEnvelope, err := decodeToken(request.installSession, "install session")
+	session, grant, err := parseSignedAuthorization(
+		request.installSession,
+		request.deliveryGrant,
+		trustDocument,
+	)
 	if err != nil {
 		return Result{}, err
 	}
-	sessionPayload, err := packagecontract.VerifySign1(
-		sessionEnvelope,
-		trustDocument.PackageInstall.PublicKey,
-		trustDocument.PackageInstall.KeyID,
-		packagecontract.InstallSessionPurpose,
-	)
-	if err != nil {
-		return Result{}, fmt.Errorf("verify install session: %w", err)
+	authorizationContext := packagecontract.InstallAuthorizationContext{
+		AliasID:             request.AliasID,
+		DeviceKeyThumbprint: deviceThumbprint,
+		ExpectedReleaseRoot: targetReleaseRoot,
+		Operation:           request.Operation,
 	}
-	session, err := packagecontract.ParseInstallSession(sessionPayload)
-	if err != nil {
-		return Result{}, fmt.Errorf("parse install session: %w", err)
+	source := &verifiedGrantSource{
+		currentGrant:   request.deliveryGrant,
+		currentSession: request.installSession,
+		renew:          request.renew,
 	}
-	if session.KeyID != string(trustDocument.PackageInstall.KeyID) {
-		return Result{}, fmt.Errorf("install session key identifier claim is invalid")
+	source.verify = func(encodedSession string, encodedGrant string, now time.Time) error {
+		candidateSession, candidateGrant, verifyErr := parseSignedAuthorization(
+			encodedSession,
+			encodedGrant,
+			trustDocument,
+		)
+		if verifyErr != nil {
+			return verifyErr
+		}
+		context := authorizationContext
+		context.Now = now
+		if verifyErr := packagecontract.ValidateInstallAuthorization(
+			candidateSession,
+			candidateGrant,
+			context,
+		); verifyErr != nil {
+			return verifyErr
+		}
+		if candidateSession.SessionID != session.SessionID ||
+			candidateSession.ProductID != session.ProductID ||
+			candidateSession.CreatorID != session.CreatorID ||
+			candidateSession.Issuer != session.Issuer ||
+			candidateSession.Audience != session.Audience ||
+			candidateGrant.GrantID != grant.GrantID ||
+			candidateGrant.PackageVersionID() != grant.PackageVersionID() ||
+			candidateGrant.MaterializationJobID() != grant.MaterializationJobID() {
+			return fmt.Errorf("renewed package authorization changed immutable bindings")
+		}
+		return nil
 	}
-	grantEnvelope, err := decodeToken(request.deliveryGrant, "delivery grant")
-	if err != nil {
-		return Result{}, err
-	}
-	grantPayload, err := packagecontract.VerifySign1(
-		grantEnvelope,
-		trustDocument.PackageInstall.PublicKey,
-		trustDocument.PackageInstall.KeyID,
-		packagecontract.DeliveryGrantPurpose,
-	)
-	if err != nil {
-		return Result{}, fmt.Errorf("verify delivery grant: %w", err)
-	}
-	grant, err := packagecontract.ParseDeliveryGrant(grantPayload)
-	if err != nil {
-		return Result{}, fmt.Errorf("parse delivery grant: %w", err)
-	}
-	if err := packagecontract.ValidateInstallAuthorization(
+	now := time.Now()
+	authorizationContext.Now = now
+	if now.Unix() >= session.ExpiresAt-30 || now.Unix() >= grant.ExpiresAt-30 {
+		if _, err := source.Renew(ctx, request.deliveryGrant); err != nil {
+			return Result{}, err
+		}
+		session, grant, err = parseSignedAuthorization(
+			source.currentSession,
+			source.currentGrant,
+			trustDocument,
+		)
+		if err != nil {
+			return Result{}, err
+		}
+	} else if err := packagecontract.ValidateInstallAuthorization(
 		session,
 		grant,
-		packagecontract.InstallAuthorizationContext{
-			AliasID:             request.AliasID,
-			DeviceKeyThumbprint: deviceThumbprint,
-			ExpectedReleaseRoot: targetReleaseRoot,
-			Now:                 time.Now(),
-			Operation:           request.Operation,
-		},
+		authorizationContext,
 	); err != nil {
 		return Result{}, err
 	}
@@ -195,7 +283,7 @@ func Execute(
 		ctx,
 		session,
 		grant,
-		request.deliveryGrant,
+		source,
 		identity.PrivateKey,
 	)
 	if err != nil {
@@ -277,12 +365,12 @@ func Execute(
 		return Result{}, err
 	}
 	staged, err := delivery.StageCommonTree(ctx, delivery.StageCommonConfig{
-		CacheRoot:     filepath.Join(request.StateRoot, "chunk-cache"),
-		DeliveryGrant: request.deliveryGrant,
-		Destination:   stagingTree,
-		Manifest:      manifest,
-		ManifestURL:   session.Bootstrap.URL,
-		PrivateKey:    identity.PrivateKey,
+		CacheRoot:   filepath.Join(request.StateRoot, "chunk-cache"),
+		Destination: stagingTree,
+		GrantSource: source,
+		Manifest:    manifest,
+		ManifestURL: session.Bootstrap.URL,
+		PrivateKey:  identity.PrivateKey,
 		Progress: func(completedBytes int64, _ int64) error {
 			return report(
 				reportProgress,
@@ -306,9 +394,9 @@ func Execute(
 		rendition, receipt, renditionErr := delivery.FetchProtectedRendition(
 			ctx,
 			delivery.ProtectedRenditionConfig{
-				DeliveryGrant:    request.deliveryGrant,
 				DownloadRoot:     request.StateRoot,
 				Grant:            grant,
+				GrantSource:      source,
 				PrivateKey:       identity.PrivateKey,
 				ReceiptAuthority: trustDocument.MaterializationReceipt,
 				Session:          session,
@@ -514,6 +602,56 @@ func decodeToken(encoded string, name string) ([]byte, error) {
 		return nil, fmt.Errorf("decode %s: %w", name, err)
 	}
 	return value, nil
+}
+
+func parseSignedAuthorization(
+	encodedSession string,
+	encodedGrant string,
+	trustDocument trust.Document,
+) (packagecontract.InstallSession, packagecontract.DeliveryGrant, error) {
+	sessionEnvelope, err := decodeToken(encodedSession, "install session")
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{}, err
+	}
+	sessionPayload, err := packagecontract.VerifySign1(
+		sessionEnvelope,
+		trustDocument.PackageInstall.PublicKey,
+		trustDocument.PackageInstall.KeyID,
+		packagecontract.InstallSessionPurpose,
+	)
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{},
+			fmt.Errorf("verify install session: %w", err)
+	}
+	session, err := packagecontract.ParseInstallSession(sessionPayload)
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{},
+			fmt.Errorf("parse install session: %w", err)
+	}
+	if session.KeyID != string(trustDocument.PackageInstall.KeyID) {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{},
+			fmt.Errorf("install session key identifier claim is invalid")
+	}
+	grantEnvelope, err := decodeToken(encodedGrant, "delivery grant")
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{}, err
+	}
+	grantPayload, err := packagecontract.VerifySign1(
+		grantEnvelope,
+		trustDocument.PackageInstall.PublicKey,
+		trustDocument.PackageInstall.KeyID,
+		packagecontract.DeliveryGrantPurpose,
+	)
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{},
+			fmt.Errorf("verify delivery grant: %w", err)
+	}
+	grant, err := packagecontract.ParseDeliveryGrant(grantPayload)
+	if err != nil {
+		return packagecontract.InstallSession{}, packagecontract.DeliveryGrant{},
+			fmt.Errorf("parse delivery grant: %w", err)
+	}
+	return session, grant, nil
 }
 
 func isDigest(value string) bool {

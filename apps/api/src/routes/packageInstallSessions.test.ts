@@ -13,6 +13,7 @@ import {
 import { ACTIVE_PROTECTION_POLICY_ID } from '../../../../ops/storage-core/protectionPolicyId';
 import { issuePackageInstallSession } from '../lib/packageInstallSessionIssuer';
 import {
+  createPackageInstallSessionRenewalRoute,
   createPackageInstallSessionRoute,
   createPackageMaterializationStatusRoute,
   createPackageOperationAuthorizationRoute,
@@ -38,7 +39,17 @@ const emptyReleaseRoot = '00'.repeat(32);
 const traceparent = '00-0123456789abcdef0123456789abcdef-0123456789abcdef-01';
 const defaultAuthorizationPort: PackageOperationAuthorizationPort = {
   beginExchange: async () => ({ generation: 1, status: 'claimed' }),
+  beginRenewal: async () => ({
+    capabilityId: `operation-${'77'.repeat(24)}`,
+    generation: 1,
+    grantId: 'grant-default',
+    issuedAt: new Date(),
+    renewableUntil: new Date(Date.now() + 60 * 60 * 1_000),
+    status: 'claimed',
+  }),
   completeExchange: async () => true,
+  completeRenewal: async () => true,
+  releaseRenewal: async () => true,
   releaseExchange: async () => true,
   reserve: async (record) => ({ record, status: 'created' }),
 };
@@ -311,6 +322,105 @@ describe('package install session route', () => {
     expect(retryResponse.status).toBe(200);
     expect(retryBody).toEqual(firstBody);
     expect(reserve).toHaveBeenCalledTimes(2);
+  });
+
+  test('renews an expired grant for the same DPoP device and entitled release', async () => {
+    const renewalTraceparent = '00-0123456789abcdef0123456789abcdef-fedcba9876543210-01';
+    const initialIssuedAt = Math.floor(Date.now() / 1_000) - 301;
+    const initial = await issuePackageInstallSession({
+      audience,
+      buyerId: 'buyer-1',
+      deliveryGrantId: 'grant-initial',
+      deviceKeyThumbprint,
+      issuer,
+      keyId,
+      now: initialIssuedAt,
+      operation: 'install',
+      privateKey,
+      publication: await accessPort()
+        .resolvePublication(productGroup(), 'commercial')
+        .then((publication) => {
+          if (!publication) {
+            throw new Error('test publication is unavailable');
+          }
+          return publication;
+        }),
+      sessionId: 'session-renewable',
+    });
+    const beginRenewal = mock(async () => ({
+      capabilityId: `operation-${'77'.repeat(24)}`,
+      generation: 1,
+      grantId: 'grant-initial',
+      issuedAt: new Date(),
+      renewableUntil: new Date(Date.now() + 60 * 60 * 1_000),
+      status: 'claimed' as const,
+    }));
+    const completeRenewal = mock(async () => true);
+    const port = accessPort();
+    const handler = createPackageInstallSessionRenewalRoute({
+      accessPort: port,
+      authorizationPort: {
+        ...defaultAuthorizationPort,
+        beginRenewal,
+        completeRenewal,
+      },
+      audience,
+      issuer,
+      keyId,
+      privateKey,
+      releasePins: defaultReleasePins,
+      verificationBaseUrl,
+      verifyAccessRequest: async () => ({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        ok: true,
+      }),
+    });
+    const response = await handler(
+      new Request(`${issuer}/api/v2/package-installs/renewals`, {
+        body: JSON.stringify({
+          deliveryGrant: Buffer.from(initial.deliveryGrant).toString('base64url'),
+          installSession: Buffer.from(initial.installSession).toString('base64url'),
+          traceparent: renewalTraceparent,
+        }),
+        headers: {
+          Authorization: 'DPoP valid-oauth-token',
+          'Content-Type': 'application/json',
+          DPoP: 'signed-proof',
+        },
+        method: 'POST',
+      })
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, string>;
+    expect(beginRenewal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buyerId: 'buyer-1',
+        deviceKeyThumbprint,
+        sessionId: 'session-renewable',
+        traceId: '0123456789abcdef0123456789abcdef',
+      })
+    );
+    expect(completeRenewal).toHaveBeenCalledTimes(1);
+    await expect(
+      verifyDeliveryGrantV2({
+        context: {
+          audience,
+          deviceKeyThumbprint: Buffer.from(deviceKeyThumbprint, 'hex'),
+          issuer,
+          now: Math.floor(Date.now() / 1_000),
+          requiredScope: 'package:version-jammr-123:read',
+        },
+        coseSign1: Buffer.from(body.deliveryGrant, 'base64url'),
+        expectedKeyId: packageContractKeyId(keyId),
+        publicKey,
+      })
+    ).resolves.toMatchObject({
+      buyerId: 'buyer-1',
+      grantId: 'grant-initial',
+      installSessionId: 'session-renewable',
+    });
   });
 
   test('rejects a valid DPoP token when the broker proof header is missing', async () => {
@@ -867,7 +977,11 @@ describe('package install session route', () => {
     let outcome:
       | {
           deliveryGrantId: string;
+          grantExpiresAt: Date;
+          grantIssuedAt: Date;
+          grantTokenSha256: string;
           materializationJobId?: string;
+          renewableUntil: Date;
           sessionId: string;
           versionId: string;
         }
@@ -886,9 +1000,13 @@ describe('package install session route', () => {
       completeExchange: mock(async (input) => {
         outcome = {
           deliveryGrantId: input.deliveryGrantId,
+          grantExpiresAt: input.grantExpiresAt,
+          grantIssuedAt: input.grantIssuedAt,
+          grantTokenSha256: input.grantTokenSha256,
           ...(input.materializationJobId
             ? { materializationJobId: input.materializationJobId }
             : {}),
+          renewableUntil: input.renewableUntil,
           sessionId: input.sessionId,
           versionId: input.versionId,
         };
