@@ -372,6 +372,42 @@ func TestExecutePreflightThenStagesVerifiedCommonTree(t *testing.T) {
 			t.Fatalf("Execute(%s) = %#v", operation, result)
 		}
 	}
+
+	uninstallInput := baseInput
+	uninstallInput.Operation = "uninstall"
+	uninstallInput.RunID = "run-uninstall"
+	uninstallInput.ApprovedActiveContentDigest = preflight.ActiveContentDigest
+	uninstallInput.ApprovedPolicyVersion = preflight.ActivePolicyVersion
+	uninstallRequest, err := NewAuthorizedRequest(
+		uninstallInput,
+		base64.RawURLEncoding.EncodeToString(signSession("uninstall")),
+		base64.RawURLEncoding.EncodeToString(grant),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthorizedRequest(uninstall) error = %v", err)
+	}
+	chunkReadsBeforeUninstall := chunkReads
+	uninstalled, err := Execute(
+		context.Background(),
+		uninstallRequest,
+		identity,
+		trustDocument,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Execute(uninstall) error = %v", err)
+	}
+	if chunkReads != chunkReadsBeforeUninstall ||
+		uninstalled.JournalState != "authorized" ||
+		uninstalled.StagingTree != "" ||
+		len(uninstalled.Files) != 0 {
+		t.Fatalf(
+			"Execute(uninstall) = %#v, chunk reads changed from %d to %d",
+			uninstalled,
+			chunkReadsBeforeUninstall,
+			chunkReads,
+		)
+	}
 }
 
 func lifecycleManifest(

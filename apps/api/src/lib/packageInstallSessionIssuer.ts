@@ -153,7 +153,8 @@ export async function issuePackageInstallSession(
     throw new Error('Install session identifiers must use safe delivery characters');
   }
   const hasProtectedFiles = publication.protectedFiles.length > 0;
-  const requiresMaterialization = hasProtectedFiles && input.operation !== 'preflight';
+  const requiresMaterialization =
+    hasProtectedFiles && input.operation !== 'preflight' && input.operation !== 'uninstall';
   const materializationJobId = input.materializationJobId
     ? requireText(input.materializationJobId, 'materializationJobId')
     : undefined;

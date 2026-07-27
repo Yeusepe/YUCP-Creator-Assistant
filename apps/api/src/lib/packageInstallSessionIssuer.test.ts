@@ -193,4 +193,46 @@ describe('issuePackageInstallSession', () => {
     ]);
     expect(issued.materializationJobId).toBe('job-protected-1');
   });
+
+  test('issues a protected uninstall without materialization scope', async () => {
+    const publicKey = await ed25519.getPublicKeyAsync(privateKey);
+    const now = 2_000_000_000;
+    const issued = await issuePackageInstallSession({
+      audience,
+      buyerId: 'buyer-1',
+      deliveryGrantId: 'grant-protected-uninstall',
+      deviceKeyThumbprint,
+      issuer,
+      keyId,
+      now,
+      operation: 'uninstall',
+      privateKey,
+      publication: publication({
+        protectedFiles: [
+          {
+            materializerType: 'png',
+            normalizedPath: 'Assets/Jammr/a.png',
+            required: false,
+            sourceSha256: 'aa'.repeat(32),
+          },
+        ],
+      }),
+      sessionId: 'session-protected-uninstall',
+    });
+    const grant = await verifyDeliveryGrantV2({
+      coseSign1: issued.deliveryGrant,
+      expectedKeyId: new TextEncoder().encode(keyId),
+      publicKey,
+      context: {
+        audience,
+        deviceKeyThumbprint: Uint8Array.from(Buffer.from(deviceKeyThumbprint, 'hex')),
+        issuer,
+        now: now + 1,
+        requiredScope: 'package:version-jammr-123:read',
+      },
+    });
+
+    expect(issued).not.toHaveProperty('materializationJobId');
+    expect(grant.scopes).toEqual(['package:version-jammr-123:read']);
+  });
 });

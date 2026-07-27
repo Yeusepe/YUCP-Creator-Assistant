@@ -247,6 +247,26 @@ func Execute(
 		request.ApprovedPolicyVersion != manifest.ActivePolicyVersion {
 		return Result{}, fmt.Errorf("active-content approval is stale or does not match")
 	}
+	if request.Operation == "uninstall" {
+		if err := report(
+			reportProgress,
+			"verifying",
+			totalBytes,
+			totalBytes,
+		); err != nil {
+			return Result{}, err
+		}
+		baseResult.JournalState = "authorized"
+		if err := report(
+			reportProgress,
+			"finalizing",
+			totalBytes,
+			totalBytes,
+		); err != nil {
+			return Result{}, err
+		}
+		return baseResult, nil
+	}
 	stagingTree := filepath.Join(request.StateRoot, "staging", request.RunID)
 	if err := report(
 		reportProgress,
